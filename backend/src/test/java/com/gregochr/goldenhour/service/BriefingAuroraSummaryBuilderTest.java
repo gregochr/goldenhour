@@ -91,6 +91,23 @@ class BriefingAuroraSummaryBuilderTest {
     }
 
     @Test
+    @DisplayName("buildAuroraTonight returns null during an admin simulation, real STRONG level or not")
+    void tonightNull_whenSimulated() {
+        // A REAL AuroraStateCache driven through activateSimulation(), not stubbed isActive()/
+        // isSimulated() answers — activateSimulation always sets ACTIVE alongside the simulation
+        // flag, so this proves the gate against the one combination production can actually reach.
+        AuroraStateCache realCache = new AuroraStateCache();
+        realCache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
+        BriefingAuroraSummaryBuilder simBuilder = new BriefingAuroraSummaryBuilder(
+                realCache, noaaSwpcClient, weatherEnricher, locationRepository,
+                lunarCalculator, auroraGlossService);
+
+        assertThat(simBuilder.buildAuroraTonight()).isNull();
+        assertThat(simBuilder.buildAuroraTonightCached()).isNull();
+    }
+
+    @Test
     @DisplayName("buildAuroraTonight returns summary with weather when active")
     void tonightSummary_whenActive() {
         stubGlossPassthrough();

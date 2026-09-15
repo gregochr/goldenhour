@@ -343,6 +343,22 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.resizeNonce).toBe(before + 1);
     });
 
+    it('tells the map whether it is on screen, off the same box — false while hidden, true again on the return', () => {
+      // Codex, #848: `MapView` gates its status region on this, so a failure while the reader is on
+      // another tab is announced when they come back rather than into a hidden panel. The hide's
+      // 0×0 box — the one the nonce ignores — is exactly the observation that says so.
+      installResizeObserver();
+      renderPane();
+      expect(MapStub.lastProps.paneVisible).toBe(true);
+      const pane = screen.getByTestId('window-first-map-pane');
+      const rect = vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({ width: 0, height: 0 });
+      triggerResize();
+      expect(MapStub.lastProps.paneVisible).toBe(false);
+      rect.mockReturnValue({ width: 800, height: 500 });
+      triggerResize();
+      expect(MapStub.lastProps.paneVisible).toBe(true);
+    });
+
     it('disconnects the observer when the pane goes away', () => {
       // The pane DOES unmount on logout (`App` swaps the whole tree for the login page) — so the
       // cleanup is load-bearing rather than tidy.
@@ -360,6 +376,8 @@ describe('WindowFirstMapPane', () => {
       renderPane();
       expect(screen.getByTestId('stub-map')).toBeInTheDocument();
       expect(MapStub.lastProps.resizeNonce).toBe(0);
+      // ...and counts as on screen, which it is whenever it is mounted without one.
+      expect(MapStub.lastProps.paneVisible).toBe(true);
     });
 
     it('passes a number from the first render, which is what switches MapSizeSync on', () => {

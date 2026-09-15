@@ -144,6 +144,8 @@ PhotoCast's forecast evaluation system has 7 distinct code paths that invoke the
 | **Observability** | Logging only. **No job_run. No api_call_log. No evaluation_delta_log** |
 | **Rating validation** | None |
 
+> **Since 2026-09-14** the entry points are `AuroraOrchestrator.runForecastLookahead(tonight, now)` (daylight) and `runNightPoll(tonight, now)` (after dark). Both are package-private, called only by `AuroraPollingJob`, and each evaluates the state machine at most once; `run()` is gone. The admin route is `AuroraAdminController.triggerRun()` (`POST /api/aurora/admin/run`), which runs the scheduled cycle itself through `AuroraPollingJob.runCycleIfIdle()` (409 while one is running). No screen calls it, despite "admin UI click" above. The Claude call has gone through `EvaluationService.evaluateNow` since Pass 3.2, which also added the job_run and api_call_log rows this table says are missing.
+
 ---
 
 ## Section 2: Duplication map

@@ -1,5 +1,6 @@
 import { dayLabelFor, eventWord } from './windowFirstCards.js';
 import { resolveConfidence, daysOut } from './confidenceUtils.js';
+import { isNightOver } from './mapDates.js';
 
 /**
  * The Map tab's single chronological event list ("EV") — map-tab-v2-plan.md §3 P6.
@@ -27,6 +28,38 @@ import { resolveConfidence, daysOut } from './confidenceUtils.js';
  * endpoint's full date range. Dates beyond the briefing's horizon still produce solar rows —
  * unscored, {@code scored: false} — rather than silently shrinking how far the control can browse
  * (the pane's retired {@code DateStrip} javadoc defended exactly this ground).
+ *
+ * <h2>D-14 — a night that is over is not a row</h2>
+ *
+ * <p>The astro and aurora available-date endpoints answer with every night ever stored, and nothing
+ * prunes either table. Unclipped, the list opened on that whole history: each past night labelled
+ * with a bare weekday ("Sunday night" under "SUN 12", with no month to tell April from next week),
+ * reading "—" because the preview fetch never covered it, and reachable by walking {@code ‹} back
+ * into it. So a night row is offered only while its night is not over ({@code mapDates.isNightOver}):
+ * tonight and later, plus the night in progress — yesterday's date, between UK midnight and dawn.
+ * {@code resolveMapDate} judges a night the reader chose by the same answer, and so does
+ * {@link isForwardableRow}. Owner decision, 2026-09-14 (map-tab-v2-plan.md §5 D-14); the comments
+ * that used to call the unclipped list deliberate were describing the code, not citing a decision.
+ *
+ * <p>The past-dated rows this keeps — the night in progress, and the exception below — are in
+ * {@code MapView}'s preview fetch as well, so they carry a best and a time like any other night row.
+ *
+ * <p>⚠️ <b>What it costs.</b> LITE cannot read the night in progress (aurora status is PRO/ADMIN
+ * only), so for LITE yesterday's astro night is over from UK midnight, not dawn, and a LITE reader can
+ * no longer reach the night still running over them — accepted by the owner, exit recorded as §6
+ * O-21. And astro rows are written only by hand-started colour runs, so on a day past the last run's
+ * horizon the tab offers no astro row at all (§6 O-22).
+ *
+ * <p>⚠️ <b>One exception: the night the map is already showing</b> keeps its row after it ends,
+ * until the map leaves it, so the pill never says "No forecast" over stars still painted for it —
+ * #803's shape. It is a bridge rather than a hold. A night the pane handed to {@code App} (every
+ * night it will take, {@link isForwardableRow}) is moved on by {@code App}'s own clamp: in the very
+ * render that clips the row at dawn for PRO/ADMIN, and at {@code App}'s next render after UK midnight
+ * for LITE — within about 30 seconds while the health stream is connected, since every push re-renders
+ * {@code App}. The
+ * row outlasts that only for a night kept local because {@code App} would refuse it: one beyond the
+ * forecast's own dates, or an ended night picked again from this list. That stays until the reader
+ * leaves it or {@code App}'s date next moves. It can be stepped away from, never back to.
  *
  * <h2>Aurora is absent, not greyed, for LITE (cross-vendor review on #723)</h2>
  *
@@ -299,9 +332,11 @@ function formatNightTime(instant, formatTimeUk) {
  * that matter for that preview are the ones sitting near the solar horizon — so intersecting the
  * available-dates lists against THIS function's result, before fetching, bounds the fan-out to
  * the horizon's own size (naturally ≤ about a week) with no new backend endpoint needed. A night
- * outside the horizon still gets a real EV row (`buildMapEvents` does not consult this function at
- * all) and, once actually SELECTED, still gets its own dedicated single-date fetch regardless of
- * range (`MapView.jsx`'s `nightDate`-keyed effects) — only the unbounded PREVIEW fetch is capped.
+ * outside the horizon that is not over — one beyond its far end, or the night in progress just
+ * before its near end — still gets a real EV row (`buildMapEvents` does not consult this function
+ * at all; its own clip is D-14's, in the module doc) and, once actually SELECTED, still gets its own
+ * dedicated single-date fetch regardless of range (`MapView.jsx`'s `nightDate`-keyed effects) —
+ * only the PREVIEW fetch is capped.
  *
  * @param {object} args
  * @param {Array<{date: string}>} [args.solarWindows] served solar windows (`heat.windows`)
@@ -318,6 +353,37 @@ export function solarHorizonDates({ solarWindows = [], forecastDates = [], today
     if (d >= todayStr) set.add(d);
   }
   return Array.from(set).sort();
+}
+
+/**
+ * The nights of one kind {@code MapView}'s preview fetch covers — every stored night on the
+ * {@link solarHorizonDates} horizon, plus the past-dated nights D-14 still offers as rows, which
+ * that horizon cannot hold because it starts at today: the night in progress (yesterday's date
+ * until dawn), and the night on screen once it has ended. Both are decided by
+ * {@link isNightOffered}, the list's own rule, so the preview covers exactly the past rows the list
+ * offers. Left out, those rows read "—" with no time even while selected: a selected night's own
+ * fetch feeds the map's paint and the callout headline, never the list, the callout strip or the
+ * Regions jump, which all read the preview.
+ *
+ * <p>At most one date per kind is added to the horizon's own, so PR #731's fan-out bound holds.
+ *
+ * @param {'ASTRO'|'AURORA'} eventType the kind these dates are for
+ * @param {string[]} availableDates every night of that kind ever stored
+ * @param {object} args
+ * @param {string[]} args.horizonDates {@link solarHorizonDates}' result
+ * @param {string} args.todayStr the UK civil today
+ * @param {?string} [args.currentNightDate] the night in progress (`mapDates.resolveAuroraNight`)
+ * @param {?string} [args.endedNightOnScreen] the date of the night of THIS kind the map is showing,
+ *   only while that night is over — a derived key rather than the raw night on screen, because the
+ *   caller memoises on it and a raw one would change on every step between two current nights
+ * @returns {string[]} the dates to fetch, in `availableDates`' order
+ */
+export function nightPreviewDates(eventType, availableDates, {
+  horizonDates, todayStr, currentNightDate = null, endedNightOnScreen = null,
+}) {
+  const nightOnScreen = endedNightOnScreen ? { eventType, date: endedNightOnScreen } : null;
+  return availableDates.filter((d) => horizonDates.includes(d)
+    || (d < todayStr && isNightOffered(eventType, d, { todayStr, currentNightDate, nightOnScreen })));
 }
 
 /**
@@ -415,6 +481,24 @@ export function solarRowPredicate({ solarWindows = [], forecastDates = [], today
 }
 
 /**
+ * Whether a stored night becomes an EV row — D-14's clip and its one exception (module doc), in one
+ * place, because two things must agree on it: {@link buildMapEvents}, which offers the rows, and
+ * {@code MapView}'s preview fetch, which must cover every past-dated one or that row reads "—".
+ *
+ * @param {'ASTRO'|'AURORA'} eventType the night's kind
+ * @param {string} date the night, named by the date its dusk falls on
+ * @param {object} args
+ * @param {string} args.todayStr the UK civil today
+ * @param {?string} [args.currentNightDate] the night in progress (`mapDates.resolveAuroraNight`)
+ * @param {?{eventType: string, date: string}} [args.nightOnScreen] the night the map is showing
+ * @returns {boolean}
+ */
+export function isNightOffered(eventType, date, { todayStr, currentNightDate = null, nightOnScreen = null }) {
+  return !isNightOver(date, { todayStr, nightDate: currentNightDate })
+    || (nightOnScreen?.eventType === eventType && nightOnScreen?.date === date);
+}
+
+/**
  * Builds the Map tab's single chronological EV list.
  *
  * @param {object} args
@@ -425,7 +509,13 @@ export function solarRowPredicate({ solarWindows = [], forecastDates = [], today
  *   sorted — the map's own full browsable domain (D-13) and the EV-ownership forwarding test
  * @param {string} args.todayStr today's UK calendar date
  * @param {string} args.tomorrowStr tomorrow's UK calendar date
- * @param {string[]} [args.astroAvailableDates] dates with stored astro conditions
+ * @param {?string} [args.currentNightDate] the night in progress (`mapDates.resolveAuroraNight`),
+ *   which keeps yesterday's night a row until dawn. Omitted or null, a night is judged by the
+ *   calendar alone — D-14's degrade, in the module doc
+ * @param {?{eventType: string, date: string}} [args.nightOnScreen] the night the map is showing, if
+ *   it is showing one — offered as a row even once it is over (D-14's one exception)
+ * @param {string[]} [args.astroAvailableDates] dates with stored astro conditions — EVERY night
+ *   ever stored; the ones that are over are dropped here
  * @param {Map<string, Array>} [args.astroConditionsByDate] date → that night's astro condition rows
  * @param {string[]} [args.auroraAvailableDates] dates with stored aurora forecast results
  * @param {Map<string, Array>} [args.auroraResultsByDate] date → that night's aurora result rows
@@ -440,6 +530,8 @@ export function buildMapEvents({
   forecastDates = [],
   todayStr,
   tomorrowStr,
+  currentNightDate = null,
+  nightOnScreen = null,
   astroAvailableDates = [],
   astroConditionsByDate = new Map(),
   auroraAvailableDates = [],
@@ -456,13 +548,18 @@ export function buildMapEvents({
     solarByDate.set(w.date, entry);
   }
 
-  const effectiveAuroraDates = isLite ? [] : auroraAvailableDates;
+  // D-14: both lists are every night ever stored, so this is where the history is dropped — before
+  // the date set is built, so a past date contributes nothing at all rather than an empty day group.
+  const offered = { todayStr, currentNightDate, nightOnScreen };
+  const astroDates = new Set(astroAvailableDates.filter((d) => isNightOffered('ASTRO', d, offered)));
+  const auroraDates = new Set((isLite ? [] : auroraAvailableDates)
+    .filter((d) => isNightOffered('AURORA', d, offered)));
 
   const allDatesSet = new Set([
     ...forecastDates,
     ...solarByDate.keys(),
-    ...astroAvailableDates,
-    ...effectiveAuroraDates,
+    ...astroDates,
+    ...auroraDates,
   ]);
   const orderedDates = Array.from(allDatesSet).sort();
 
@@ -504,13 +601,13 @@ export function buildMapEvents({
     }
 
     // Night — after that day's sunset (README "The window control").
-    if (astroAvailableDates.includes(date)) {
+    if (astroDates.has(date)) {
       const nightRows = astroConditionsByDate.get(date) || [];
       const row = nightRow(EVENT_KIND.ASTRO, date, nightRows, todayStr, tomorrowStr, inForecastDomain);
       row.time = formatNightTime(row.nightStart, formatTimeUk);
       rows.push(row);
     }
-    if (effectiveAuroraDates.includes(date)) {
+    if (auroraDates.has(date)) {
       const nightRows = auroraResultsByDate.get(date) || [];
       const row = nightRow(EVENT_KIND.AURORA, date, nightRows, todayStr, tomorrowStr, inForecastDomain);
       row.time = formatNightTime(row.nightStart, formatTimeUk);
@@ -518,6 +615,37 @@ export function buildMapEvents({
     }
   }
   return rows;
+}
+
+/**
+ * Whether picking this row hands its date to {@code App} (forwarded) or keeps it in the pane (kept
+ * local) — the EV-ownership forwarding rule of map-tab-v2-plan.md §3 P6.
+ *
+ * <p><b>It is {@code App}'s acceptance rule, stated on a row.</b> {@code mapDates.resolveMapDate}
+ * takes a date only if the forecast returned it and it is not over: the calendar decides for a solar
+ * pick, {@code mapDates.isNightOver} for a night pick. So a row is forwarded exactly when {@code App}
+ * will take it, and every other row is kept local, where the pane's own astro/aurora fetches and
+ * viewline gate still land on it. A forward {@code App} refuses is #803's "row that goes nowhere":
+ * the pane dropped its local night and asked for a date the parent then declined.
+ *
+ * <p><b>D-14 moved the night arm from the calendar to the night test</b> (2026-09-14). On the
+ * calendar ({@code date >= today}) the night in progress — yesterday's date until dawn — was kept
+ * local although {@code App} would take it, so one night ended two ways: picked at 23:59 it was
+ * forwarded and {@code App} moved the map on at dawn; picked at 00:01 it stayed on screen, ended,
+ * until the reader left it. Forwarded, it ends at dawn like any other night, through {@code App}'s
+ * clamp — the route the aurora banner and the auto-jump already took.
+ *
+ * @param {object} row an EV row built by {@link buildMapEvents}
+ * @param {object} args
+ * @param {string} args.todayStr the UK civil today, as {@code App} reads it
+ * @param {?string} [args.currentNightDate] the night in progress, as {@code App} reads it
+ * @returns {boolean}
+ */
+export function isForwardableRow(row, { todayStr, currentNightDate = null }) {
+  if (!row?.inForecastDomain) return false;
+  return row.kind === EVENT_KIND.SOLAR
+    ? row.date >= todayStr
+    : !isNightOver(row.date, { todayStr, nightDate: currentNightDate });
 }
 
 /**

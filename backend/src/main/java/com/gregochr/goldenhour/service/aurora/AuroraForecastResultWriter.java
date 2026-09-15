@@ -42,12 +42,28 @@ public class AuroraForecastResultWriter {
      * transaction. An empty list clears the night (used when a re-run finds no activity or no
      * eligible locations, so stale results never survive a re-run).
      *
-     * @param date    the night whose results to replace
-     * @param results the new results for that night; may be empty
+     * <p><b>{@code simulated} decides what gets deleted, not what {@code results} contains</b> —
+     * an empty {@code results} list carries no {@code simulated} value of its own, so the caller's
+     * own state (was <em>this run</em> simulated) is the only signal available, and it must be
+     * passed explicitly rather than inferred from the list. A <b>real</b> run ({@code false})
+     * clears real and simulated rows alike for that night — an admin's earlier test run must not
+     * survive a genuine one. A <b>simulated</b> run ({@code true}) clears only rows an earlier
+     * simulated run left behind, leaving any real, user-facing results for that night untouched:
+     * a repeated admin test must never be able to delete real data.
+     *
+     * @param date      the night whose results to replace
+     * @param results   the new results for that night; may be empty
+     * @param simulated whether this write is for a simulated run — decides which existing rows
+     *                  for the night are cleared before the new ones are inserted
      */
     @Transactional
-    public void replaceNightResults(LocalDate date, List<AuroraForecastResultEntity> results) {
-        resultRepository.deleteByForecastDateIn(List.of(date));
+    public void replaceNightResults(LocalDate date, List<AuroraForecastResultEntity> results,
+            boolean simulated) {
+        if (simulated) {
+            resultRepository.deleteByForecastDateAndSimulatedTrue(date);
+        } else {
+            resultRepository.deleteByForecastDateIn(List.of(date));
+        }
         if (!results.isEmpty()) {
             resultRepository.saveAll(results);
         }

@@ -24,9 +24,9 @@ import java.time.LocalDateTime;
  *                      (naive). Derived per this result's own {@code forecastDate} via
  *                      {@code AuroraForecastRunService.computeWindowForDate(date)} at serve time —
  *                      the same date-aware calculation the run itself was scored with. Never the
- *                      clock-based {@code AuroraPollingJob.calculateTonightWindow()}, which reads
- *                      no date at all and would silently pin tonight's window onto a T+1 or
- *                      historical row (the night-vs-date trap
+ *                      instant-based {@code AuroraPollingJob.calculateTonightWindow(now)}, which
+ *                      takes no date at all and, handed the current instant, would silently pin
+ *                      tonight's window onto a T+1 or historical row (the night-vs-date trap
  *                      {@code docs/engineering/aurora-night-selection.md} records).
  * @param nightEnd      end of the dark window this result was scored over — nautical dawn (the
  *                      following morning), UTC. Same provenance as {@code nightStart}.

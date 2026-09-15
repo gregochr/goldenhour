@@ -88,4 +88,16 @@ public class AuroraForecastResultEntity {
     /** Maximum Kp value forecast for this night's dark window. */
     @Column(name = "max_kp")
     private Double maxKp;
+
+    /**
+     * True when this row was produced while an admin aurora simulation
+     * ({@code POST /api/aurora/admin/simulate}) was active — the Kp/storm data behind it is fake,
+     * even though the weather triage and Claude call that scored it were real. {@code AuroraStateCache}
+     * carries no per-row simulation id, so this is stamped from {@code isSimulated()} at write time
+     * (V154). {@link com.gregochr.goldenhour.repository.AuroraForecastResultRepository}'s read
+     * methods filter it out everywhere a real user or an analytics job reads stored results — the
+     * admin who ran the simulation already sees the outcome in the synchronous run response.
+     */
+    @Column(name = "simulated", nullable = false)
+    private boolean simulated;
 }

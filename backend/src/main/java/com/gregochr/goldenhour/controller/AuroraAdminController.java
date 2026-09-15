@@ -8,7 +8,8 @@ import com.gregochr.goldenhour.model.AuroraSimulationRequest;
 import com.gregochr.goldenhour.model.AuroraSimulationResponse;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
-import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
+import com.gregochr.goldenhour.service.aurora.AuroraPollOutcome;
+import com.gregochr.goldenhour.service.aurora.AuroraPollingJob;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
 import org.slf4j.Logger;
@@ -21,15 +22,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 /**
  * Admin-only REST controller for aurora feature management.
  *
- * <p>Provides endpoints for triggering the one-time Bortle enrichment job and
- * resetting the aurora state machine during testing.
+ * <p>Provides endpoints for triggering the one-time Bortle enrichment job, running an aurora
+ * polling cycle on demand, and resetting or simulating the aurora state machine during testing.
  */
 @RestController
 @RequestMapping("/api/aurora/admin")
@@ -41,7 +44,7 @@ public class AuroraAdminController {
     private final BortleEnrichmentService enrichmentService;
     private final AuroraProperties properties;
     private final AuroraStateCache stateCache;
-    private final AuroraOrchestrator orchestrator;
+    private final AuroraPollingJob pollingJob;
     private final JobRunService jobRunService;
     private final Executor forecastExecutor;
     private final LocationRepository locationRepository;
@@ -52,7 +55,7 @@ public class AuroraAdminController {
      * @param enrichmentService  enrichment service for populating Bortle classes
      * @param properties         aurora configuration (provides the API key and thresholds)
      * @param stateCache         aurora state machine
-     * @param orchestrator       aurora orchestrator for on-demand NOAA poll cycles
+     * @param pollingJob         the aurora polling job, whose cycle the manual run executes
      * @param jobRunService      job run service for tracking enrichment runs
      * @param forecastExecutor   executor for running enrichment asynchronously
      * @param locationRepository location data access for counting eligible locations
@@ -60,14 +63,14 @@ public class AuroraAdminController {
     public AuroraAdminController(BortleEnrichmentService enrichmentService,
             AuroraProperties properties,
             AuroraStateCache stateCache,
-            AuroraOrchestrator orchestrator,
+            AuroraPollingJob pollingJob,
             JobRunService jobRunService,
             Executor forecastExecutor,
             LocationRepository locationRepository) {
         this.enrichmentService = enrichmentService;
         this.properties = properties;
         this.stateCache = stateCache;
-        this.orchestrator = orchestrator;
+        this.pollingJob = pollingJob;
         this.jobRunService = jobRunService;
         this.forecastExecutor = forecastExecutor;
         this.locationRepository = locationRepository;
@@ -102,16 +105,51 @@ public class AuroraAdminController {
     }
 
     /**
-     * Triggers an immediate aurora orchestration cycle, fetching live NOAA SWPC data
-     * and scoring eligible locations if the alert level warrants it.
+     * Runs one aurora polling cycle now and waits for it, on the request thread: the same cycle the
+     * {@code aurora_polling} schedule runs, through {@link AuroraPollingJob#runCycleIfIdle()}. In
+     * daylight that is the forecast for tonight; after dark, the higher of the forecast for the rest
+     * of tonight and the conditions now. It scores eligible locations if the alert level warrants it.
+     * One daylight run is different: the first after a night that ended while an alert was held for
+     * its reading makes the CLEAR that night deferred, reading nothing, and reports the night's held
+     * level and trigger with {@code dark: false}.
      *
-     * @return the state machine action taken
+     * <p>It used to call the orchestrator's real-time path directly, with that path's own six-hour
+     * horizon and no guard. So a manual run could CLEAR a heads-up that the next scheduled poll would
+     * NOTIFY again, and pay for again, and it could run at the same moment as a scheduled cycle. In
+     * daylight it no longer reaches the real-time path at all, so apart from that one deferred CLEAR
+     * it cannot clear a stale alert: {@code POST /reset} does that.
+     *
+     * <p>Refused with 409 while a cycle is already running from any route. A cycle that has to score
+     * waits for triage and a Claude call, retries included. A proxy that times the request out does
+     * not stop the cycle, and a retry answers 409 until it finishes. Unlike the schedule, it runs
+     * whether or not {@code aurora.enabled} is set, as it always has.
+     *
+     * @return 200 with the level the cycle derived, the state machine's action, the signal the level
+     *         came from, and whether a night poll held the active alert rather than end it on an
+     *         estimate ({@code held}: action NONE, level below MODERATE, alert still standing), or 409
+     *         Conflict if a cycle is already running. {@code level} and {@code trigger} are null only
+     *         if reading NOAA threw; the client fails open, so an outage reads as the last data
+     *         cached, or as quiet on a cold start
      */
     @PostMapping("/run")
-    public ResponseEntity<Map<String, String>> triggerRun() {
-        AuroraStateCache.Action action = orchestrator.run();
-        LOG.info("Admin triggered aurora orchestration cycle — action={}", action);
-        return ResponseEntity.ok(Map.of("status", "Aurora cycle complete", "action", action.name()));
+    public ResponseEntity<Map<String, Object>> triggerRun() {
+        Optional<AuroraPollOutcome> ran = pollingJob.runCycleIfIdle();
+        if (ran.isEmpty()) {
+            LOG.warn("Admin aurora cycle refused — a cycle is already running");
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("status", "An aurora cycle is already running"));
+        }
+        AuroraPollOutcome outcome = ran.get();
+        LOG.info("Admin triggered aurora cycle — dark={} level={} action={} trigger={} held={}",
+                outcome.dark(), outcome.level(), outcome.action(), outcome.trigger(), outcome.held());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", "Aurora cycle complete");
+        body.put("dark", outcome.dark());
+        body.put("level", outcome.level() == null ? null : outcome.level().name());
+        body.put("action", outcome.action().name());
+        body.put("trigger", outcome.trigger() == null ? null : outcome.trigger().name());
+        body.put("held", outcome.held());
+        return ResponseEntity.ok(body);
     }
 
     /**

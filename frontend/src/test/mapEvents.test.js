@@ -3,15 +3,16 @@
  * (map-tab-v2-plan.md §3 P6).
  *
  * Covers: chronological ordering with night-after-sunset, the aurora presence rule (rows only
- * where results exist) and its LITE absence, D-13 beyond-briefing solar rows, the served-vs-
- * client-max discipline (solar never re-derives; night rows take a licensed client max), and the
- * empty-briefing degrade.
+ * where results exist) and its LITE absence, D-13 beyond-briefing solar rows, D-14's clip of every
+ * night that is over, the served-vs-client-max discipline (solar never re-derives; night rows take a
+ * licensed client max), and the empty-briefing degrade.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  buildMapEvents, findEvIndex, nightLabel, EVENT_KIND, solarHorizonDates, solarRowPredicate,
+  buildMapEvents, findEvIndex, isForwardableRow, isNightOffered, nightLabel, nightPreviewDates, EVENT_KIND,
+  solarHorizonDates, solarRowPredicate,
 } from '../utils/mapEvents.js';
-import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset, resolveMapDate } from '../utils/mapDates.js';
 
 const TODAY = '2026-09-02';
 const TOMORROW = '2026-09-03';
@@ -308,6 +309,320 @@ describe('buildMapEvents — D-13 filler clips to the UK civil today (browser-pa
       ...baseArgs(), todayStr: today, tomorrowStr: ukDateStrOffset(1), forecastDates: [today],
     });
     expect(events.map((e) => e.eventType)).toEqual(['SUNRISE', 'SUNSET']);
+  });
+});
+
+/**
+ * D-14 — a night that is over is not a row (map-tab-v2-plan.md §5; owner decision, 2026-09-14).
+ *
+ * <p>The astro and aurora available-date endpoints answer with every night ever stored and nothing
+ * prunes either table, so the unclipped list opened on the whole history: weekday-only labels with
+ * no month, a "—" best, and a `‹` that walked back into it. Every case names the night in progress
+ * explicitly, because yesterday is the one date the calendar cannot settle — between UK midnight and
+ * dawn it IS the night in progress.
+ */
+describe('buildMapEvents — D-14: a night that is over is not a row', () => {
+  const YESTERDAY = '2026-09-01';
+  const OLDER = '2026-04-12';
+  const nightIds = (events) => events.filter((e) => e.kind !== EVENT_KIND.SOLAR).map((e) => e.id);
+
+  it('offers tonight and every later night, astro and aurora alike', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      currentNightDate: TODAY,
+      astroAvailableDates: [TODAY, TOMORROW],
+      auroraAvailableDates: [TODAY, TOMORROW],
+    });
+    expect(nightIds(events)).toEqual([
+      `astro:${TODAY}:ASTRO`, `aur:${TODAY}:AURORA`, `astro:${TOMORROW}:ASTRO`, `aur:${TOMORROW}:AURORA`,
+    ]);
+  });
+
+  it('drops yesterday\'s night once the night in progress has moved on to tonight — after dawn', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      currentNightDate: TODAY,
+      astroAvailableDates: [YESTERDAY, TODAY],
+      auroraAvailableDates: [YESTERDAY, TODAY],
+    });
+    expect(nightIds(events)).toEqual([`astro:${TODAY}:ASTRO`, `aur:${TODAY}:AURORA`]);
+  });
+
+  it('keeps yesterday\'s night while it IS the night in progress — UK midnight to dawn', () => {
+    // The one past date a night row may carry: the dark window that opened at yesterday's dusk is
+    // still running, and the backend's `currentNightDate` is what says so.
+    const events = buildMapEvents({
+      ...baseArgs(),
+      currentNightDate: YESTERDAY,
+      astroAvailableDates: [YESTERDAY, TODAY],
+      auroraAvailableDates: [YESTERDAY, TODAY],
+    });
+    expect(nightIds(events)).toEqual([
+      `astro:${YESTERDAY}:ASTRO`, `aur:${YESTERDAY}:AURORA`, `astro:${TODAY}:ASTRO`, `aur:${TODAY}:AURORA`,
+    ]);
+  });
+
+  it('drops anything older than yesterday while the night in progress is yesterday', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      currentNightDate: YESTERDAY,
+      astroAvailableDates: [OLDER, YESTERDAY],
+      auroraAvailableDates: [OLDER],
+    });
+    expect(nightIds(events)).toEqual([`astro:${YESTERDAY}:ASTRO`]);
+  });
+
+  it('drops a night a STALE night in progress still names — only yesterday can be in progress', () => {
+    // The status provider keeps the last status when a later fetch fails, so `currentNightDate` can
+    // name a night days old. Believed, that night came back to the head of the list. The backend
+    // only ever names today or yesterday, and `mapDates.isNightOver` now holds it to that.
+    const events = buildMapEvents({
+      ...baseArgs(),
+      currentNightDate: OLDER,
+      astroAvailableDates: [OLDER, YESTERDAY, TODAY],
+      auroraAvailableDates: [OLDER],
+    });
+    expect(nightIds(events)).toEqual([`astro:${TODAY}:ASTRO`]);
+  });
+
+  it('judges by the calendar when no night in progress is named — yesterday is over from UK midnight', () => {
+    // LITE's case: aurora status, which carries `currentNightDate`, is PRO/ADMIN-only, so there is
+    // nothing to say the night is still running. Omitted outright, as a caller predating the
+    // argument would; the calendar then drops yesterday's night even in the small hours.
+    const events = buildMapEvents({ ...baseArgs(), astroAvailableDates: [YESTERDAY, TODAY] });
+    expect(nightIds(events)).toEqual([`astro:${TODAY}:ASTRO`]);
+  });
+
+  it('reduces a stored history of 200 nights to the nights not yet over — the production shape', () => {
+    const history = Array.from({ length: 200 }, (_, i) => (
+      ukDateStrOffset(-(i + 1), new Date(`${TODAY}T12:00:00Z`))
+    ));
+    const events = buildMapEvents({
+      ...baseArgs(),
+      currentNightDate: TODAY,
+      forecastDates: [TODAY, TOMORROW],
+      astroAvailableDates: [...history, TODAY, TOMORROW],
+      auroraAvailableDates: [...history, TODAY],
+    });
+    // The list opens on today's first window rather than on four hundred rows of history, and a
+    // past date contributes no row of any kind.
+    expect(events[0].id).toBe(`solar:${TODAY}:SUNRISE`);
+    expect(events.filter((e) => e.date < TODAY)).toEqual([]);
+    expect(nightIds(events)).toEqual([`astro:${TODAY}:ASTRO`, `aur:${TODAY}:AURORA`, `astro:${TOMORROW}:ASTRO`]);
+  });
+
+  it('leaves solar rows alone — a served window survives on a date whose night does not', () => {
+    // The clip is on night rows only. A served window is a row unconditionally (the D-13 block
+    // above), and this date's stored night must not take it down with it.
+    const events = buildMapEvents({
+      ...baseArgs(),
+      currentNightDate: TODAY,
+      solarWindows: [solarWindow(YESTERDAY, 'SUNSET')],
+      astroAvailableDates: [YESTERDAY],
+    });
+    expect(events.map((e) => e.id)).toEqual([`solar:${YESTERDAY}:SUNSET`]);
+  });
+
+  it('agrees with resolveMapDate on which nights are over — one answer, `mapDates.isNightOver`', () => {
+    // Scoped to what the list and the parent share: whether a night is over. It is NOT a claim that
+    // the list never offers a night the parent would refuse — the parent also requires the date to be
+    // a forecast date, and D-14's exception offers the ended night on screen; each of those is kept
+    // local by the forwarding rule instead (next test). Every date is put in the domain here so that
+    // only the night question is asked. Driven through BOTH functions from one set of inputs.
+    for (const nightDate of [null, OLDER, YESTERDAY, TODAY]) {
+      for (const date of [OLDER, YESTERDAY, TODAY, TOMORROW]) {
+        const offered = buildMapEvents({
+          ...baseArgs(), currentNightDate: nightDate, astroAvailableDates: [date],
+        }).some((e) => e.kind === EVENT_KIND.ASTRO);
+        const accepted = resolveMapDate({
+          selectedDate: date,
+          selectedIsNight: true,
+          autoDate: null,
+          allDates: [...new Set([date, TODAY])].sort(),
+          todayStr: TODAY,
+          nightDate,
+        }) === date;
+        expect({ nightDate, date, offered }).toEqual({ nightDate, date, offered: accepted });
+      }
+    }
+  });
+
+  it('forwards a row to the parent exactly when the parent would accept it — every other row stays local', () => {
+    // The guard against #803's "row that goes nowhere": `isForwardableRow` is `resolveMapDate`'s
+    // acceptance rule stated on a row, so no row is handed over that the parent then declines.
+    // Built over every kind of row the list can offer — an in-domain night, an out-of-domain night,
+    // the night in progress, D-14's ended night on screen, and solar fillers — in every state of the
+    // night in progress, and asked of both functions from one set of inputs.
+    const NEXT_WEEK = '2026-09-09';
+    const forecastDates = [YESTERDAY, TODAY, TOMORROW];
+    for (const currentNightDate of [null, YESTERDAY, TODAY]) {
+      const events = buildMapEvents({
+        ...baseArgs(),
+        forecastDates,
+        currentNightDate,
+        astroAvailableDates: [YESTERDAY, TODAY, NEXT_WEEK],
+        nightOnScreen: { eventType: 'ASTRO', date: YESTERDAY },
+      });
+      expect(events.some((e) => e.id === `astro:${YESTERDAY}:ASTRO`)).toBe(true);
+      for (const row of events) {
+        const forwarded = isForwardableRow(row, { todayStr: TODAY, currentNightDate });
+        const accepted = resolveMapDate({
+          selectedDate: row.date,
+          selectedIsNight: row.kind !== EVENT_KIND.SOLAR,
+          autoDate: null,
+          allDates: forecastDates,
+          todayStr: TODAY,
+          nightDate: currentNightDate,
+        }) === row.date;
+        expect({ currentNightDate, id: row.id, forwarded }).toEqual({ currentNightDate, id: row.id, forwarded: accepted });
+      }
+    }
+  });
+
+  describe('the one exception — the night the map is already showing', () => {
+    it('keeps its row once it is over, so the pill can still name what the map is painting', () => {
+      const events = buildMapEvents({
+        ...baseArgs(),
+        currentNightDate: TODAY,
+        astroAvailableDates: [YESTERDAY, TODAY],
+        nightOnScreen: { eventType: 'ASTRO', date: YESTERDAY },
+      });
+      expect(nightIds(events)).toEqual([`astro:${YESTERDAY}:ASTRO`, `astro:${TODAY}:ASTRO`]);
+    });
+
+    it('keeps that night alone even when a LATER ended night is stored — a match, not a range', () => {
+      // The mirror of the next case, with the non-member on the other side of the one on screen: an
+      // equality relaxed to `date >= onScreen` survived every other fixture here, because each one
+      // stored only nights older than the night on screen.
+      const events = buildMapEvents({
+        ...baseArgs(),
+        currentNightDate: TODAY,
+        astroAvailableDates: [OLDER, YESTERDAY],
+        nightOnScreen: { eventType: 'ASTRO', date: OLDER },
+      });
+      expect(nightIds(events)).toEqual([`astro:${OLDER}:ASTRO`]);
+    });
+
+    it('keeps that night alone — another night just as over is still dropped', () => {
+      const events = buildMapEvents({
+        ...baseArgs(),
+        currentNightDate: TODAY,
+        astroAvailableDates: [OLDER, YESTERDAY],
+        nightOnScreen: { eventType: 'ASTRO', date: YESTERDAY },
+      });
+      expect(nightIds(events)).toEqual([`astro:${YESTERDAY}:ASTRO`]);
+    });
+
+    it('keeps that kind alone — an aurora night on screen keeps no astro row for its date', () => {
+      const events = buildMapEvents({
+        ...baseArgs(),
+        currentNightDate: TODAY,
+        astroAvailableDates: [YESTERDAY],
+        auroraAvailableDates: [YESTERDAY],
+        nightOnScreen: { eventType: 'AURORA', date: YESTERDAY },
+      });
+      expect(nightIds(events)).toEqual([`aur:${YESTERDAY}:AURORA`]);
+    });
+
+    it('cannot invent a row for a night with nothing stored', () => {
+      const events = buildMapEvents({
+        ...baseArgs(),
+        currentNightDate: TODAY,
+        astroAvailableDates: [TODAY],
+        nightOnScreen: { eventType: 'ASTRO', date: YESTERDAY },
+      });
+      expect(nightIds(events)).toEqual([`astro:${TODAY}:ASTRO`]);
+    });
+
+    it('cannot give LITE an aurora row — it keeps rows, it does not lift the role rule', () => {
+      const events = buildMapEvents({
+        ...baseArgs(),
+        isLite: true,
+        currentNightDate: TODAY,
+        auroraAvailableDates: [YESTERDAY, TODAY],
+        nightOnScreen: { eventType: 'AURORA', date: YESTERDAY },
+      });
+      expect(nightIds(events)).toEqual([]);
+    });
+
+    it('is what lets findEvIndex find the ended night, where it would otherwise report no row', () => {
+      // `MapView` derives the active row with `findEvIndex(events, eventType, nightDate)`, and -1 is
+      // what puts "No forecast" on the pill.
+      const args = { ...baseArgs(), currentNightDate: TODAY, astroAvailableDates: [YESTERDAY, TODAY] };
+      expect(findEvIndex(buildMapEvents(args), 'ASTRO', YESTERDAY)).toBe(-1);
+      const kept = buildMapEvents({ ...args, nightOnScreen: { eventType: 'ASTRO', date: YESTERDAY } });
+      expect(findEvIndex(kept, 'ASTRO', YESTERDAY)).toBe(0);
+    });
+  });
+});
+
+/**
+ * `isNightOffered` — the list's own membership rule, exported so `MapView`'s preview fetch covers
+ * exactly the past-dated rows the list offers. Asked here of the same inputs as `buildMapEvents`,
+ * so a preview built on it cannot drift from the rows it exists to fill.
+ */
+describe('isNightOffered — the rule the list and the preview fetch share', () => {
+  const YESTERDAY = '2026-09-01';
+  const OLDER = '2026-04-12';
+
+  it('answers exactly as the list does, for every night and every night in progress', () => {
+    for (const currentNightDate of [null, OLDER, YESTERDAY, TODAY]) {
+      for (const nightOnScreen of [null, { eventType: 'ASTRO', date: OLDER }]) {
+        for (const date of [OLDER, YESTERDAY, TODAY, TOMORROW]) {
+          const inList = buildMapEvents({
+            ...baseArgs(), currentNightDate, nightOnScreen, astroAvailableDates: [date],
+          }).some((e) => e.kind === EVENT_KIND.ASTRO);
+          const offered = isNightOffered('ASTRO', date, { todayStr: TODAY, currentNightDate, nightOnScreen });
+          expect({ currentNightDate, date, offered }).toEqual({ currentNightDate, date, offered: inList });
+        }
+      }
+    }
+  });
+});
+
+/**
+ * `isForwardableRow` — which picked rows `MapView` hands to `App` and which it keeps local. The
+ * agreement with `resolveMapDate` over every row the list can build is the D-14 block's; these pin
+ * each arm on its own, so a failure names the arm.
+ */
+describe('isForwardableRow — the EV-ownership forwarding rule', () => {
+  const YESTERDAY = '2026-09-01';
+  const night = (date, overrides = {}) => ({
+    id: `astro:${date}:ASTRO`, kind: EVENT_KIND.ASTRO, eventType: 'ASTRO', date, inForecastDomain: true, ...overrides,
+  });
+  const solar = (date, overrides = {}) => ({
+    id: `solar:${date}:SUNSET`, kind: EVENT_KIND.SOLAR, eventType: 'SUNSET', date, inForecastDomain: true, ...overrides,
+  });
+
+  it('forwards the night in progress — App takes a past date that names one', () => {
+    expect(isForwardableRow(night(YESTERDAY), { todayStr: TODAY, currentNightDate: YESTERDAY })).toBe(true);
+  });
+
+  it('keeps a night local once it is over — App would refuse it', () => {
+    expect(isForwardableRow(night(YESTERDAY), { todayStr: TODAY, currentNightDate: TODAY })).toBe(false);
+  });
+
+  it('keeps a night local when no night in progress is known — the calendar degrade', () => {
+    expect(isForwardableRow(night(YESTERDAY), { todayStr: TODAY })).toBe(false);
+  });
+
+  it('forwards tonight', () => {
+    expect(isForwardableRow(night(TODAY), { todayStr: TODAY, currentNightDate: YESTERDAY })).toBe(true);
+  });
+
+  it('keeps a night local when its date is not a forecast date, however current', () => {
+    expect(isForwardableRow(night(TOMORROW, { inForecastDomain: false }), { todayStr: TODAY })).toBe(false);
+  });
+
+  it('judges a SOLAR row by the calendar alone — a night in progress licenses no solar date', () => {
+    // The night arm must not leak into the solar one: yesterday's SUNSET is over whatever the night
+    // in progress is, which is `resolveMapDate`'s provenance rule for a solar choice.
+    expect(isForwardableRow(solar(YESTERDAY), { todayStr: TODAY, currentNightDate: YESTERDAY })).toBe(false);
+    expect(isForwardableRow(solar(TODAY), { todayStr: TODAY, currentNightDate: YESTERDAY })).toBe(true);
+  });
+
+  it('forwards nothing for a missing row', () => {
+    expect(isForwardableRow(null, { todayStr: TODAY })).toBe(false);
   });
 });
 
@@ -718,6 +1033,42 @@ describe('solarHorizonDates', () => {
 
   it('returns nothing when neither input is supplied', () => {
     expect(solarHorizonDates({ todayStr: TODAY })).toEqual([]);
+  });
+});
+
+/**
+ * `nightPreviewDates` — the preview fetch's dates for one kind: the solar horizon, plus the
+ * past-dated nights D-14 still offers as rows. Without the second part those rows read "—" even
+ * while selected (D-14's review, F3).
+ */
+describe('nightPreviewDates — the horizon plus the past nights the list still offers', () => {
+  const YESTERDAY = '2026-09-01';
+  const OLDER = '2026-04-12';
+  const HORIZON = [TODAY, TOMORROW];
+
+  it('keeps the horizon\'s own dates and drops a past night nobody offers', () => {
+    expect(nightPreviewDates('ASTRO', [OLDER, YESTERDAY, TODAY, TOMORROW], {
+      horizonDates: HORIZON, todayStr: TODAY, currentNightDate: TODAY,
+    })).toEqual([TODAY, TOMORROW]);
+  });
+
+  it('adds the night in progress, which the horizon — starting at today — cannot hold', () => {
+    expect(nightPreviewDates('AURORA', [OLDER, YESTERDAY, TODAY], {
+      horizonDates: HORIZON, todayStr: TODAY, currentNightDate: YESTERDAY,
+    })).toEqual([YESTERDAY, TODAY]);
+  });
+
+  it('adds the ended night on screen, so its row keeps its best after it ends', () => {
+    expect(nightPreviewDates('ASTRO', [OLDER, YESTERDAY, TODAY], {
+      horizonDates: HORIZON, todayStr: TODAY, currentNightDate: TODAY, endedNightOnScreen: YESTERDAY,
+    })).toEqual([YESTERDAY, TODAY]);
+  });
+
+  it('never widens forward — a night beyond the horizon stays out, as PR #731\'s bound requires', () => {
+    const NEXT_WEEK = '2026-09-09';
+    expect(nightPreviewDates('ASTRO', [TODAY, NEXT_WEEK], {
+      horizonDates: HORIZON, todayStr: TODAY, currentNightDate: TODAY,
+    })).toEqual([TODAY]);
   });
 });
 

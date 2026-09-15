@@ -5,22 +5,34 @@ import com.gregochr.goldenhour.model.AuroraForecastScore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for {@link AuroraStateCache} state machine lifecycle.
+ *
+ * <p>The machine runs on a clock the test moves by hand, from 22:00 on 14 January 2027, so every
+ * {@code activeSince} is an exact instant.
  */
 class AuroraStateCacheTest {
 
+    private static final Instant START = Instant.parse("2027-01-14T22:00:00Z");
+
+    private final MovableClock clock = new MovableClock();
     private AuroraStateCache cache;
 
     @BeforeEach
     void setUp() {
-        cache = new AuroraStateCache();
+        cache = new AuroraStateCache(clock);
     }
 
     // -------------------------------------------------------------------------
@@ -298,37 +310,42 @@ class AuroraStateCacheTest {
     }
 
     @Test
-    @DisplayName("IDLE + MODERATE sets activeSince to current time")
+    @DisplayName("IDLE + MODERATE sets activeSince to the clock's instant")
     void activeSince_setOnFirstNotify() {
-        Instant before = Instant.now();
         cache.evaluate(AlertLevel.MODERATE);
-        Instant after = Instant.now();
 
-        assertThat(cache.getActiveSince()).isBetween(before, after);
+        assertThat(cache.getActiveSince()).isEqualTo(START);
     }
 
     @Test
-    @DisplayName("Escalation (MODERATE → STRONG) updates activeSince to new time")
+    @DisplayName("Escalation (MODERATE → STRONG) moves activeSince to the escalation's instant")
     void activeSince_updatedOnEscalation() {
         cache.evaluate(AlertLevel.MODERATE);
-        Instant firstDetection = cache.getActiveSince();
+        clock.advance(Duration.ofMinutes(10));
 
-        // Small pause to ensure timestamps differ
         cache.evaluate(AlertLevel.STRONG);
-        Instant secondDetection = cache.getActiveSince();
 
-        assertThat(secondDetection).isAfterOrEqualTo(firstDetection);
+        assertThat(cache.getActiveSince()).isEqualTo(START.plus(Duration.ofMinutes(10)));
     }
 
     @Test
     @DisplayName("SUPPRESS (same level) does not change activeSince")
     void activeSince_unchangedOnSuppress() {
         cache.evaluate(AlertLevel.MODERATE);
-        Instant original = cache.getActiveSince();
+        clock.advance(Duration.ofMinutes(10));
 
         cache.evaluate(AlertLevel.MODERATE);
 
-        assertThat(cache.getActiveSince()).isEqualTo(original);
+        assertThat(cache.getActiveSince()).isEqualTo(START);
+    }
+
+    @Test
+    @DisplayName("a simulation sets activeSince to the clock's instant")
+    void activeSince_setBySimulation() {
+        cache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 40.0, -8.0, "G3"));
+
+        assertThat(cache.getActiveSince()).isEqualTo(START);
     }
 
     @Test
@@ -355,14 +372,13 @@ class AuroraStateCacheTest {
     @DisplayName("New event after CLEAR sets fresh activeSince")
     void activeSince_freshAfterClearAndReactivation() {
         cache.evaluate(AlertLevel.MODERATE);
-        Instant firstDetection = cache.getActiveSince();
-
+        clock.advance(Duration.ofMinutes(10));
         cache.evaluate(AlertLevel.QUIET);   // CLEAR
-        cache.evaluate(AlertLevel.MODERATE); // New event
-        Instant secondDetection = cache.getActiveSince();
+        clock.advance(Duration.ofMinutes(10));
 
-        assertThat(secondDetection).isAfterOrEqualTo(firstDetection);
-        assertThat(secondDetection).isNotNull();
+        cache.evaluate(AlertLevel.MODERATE); // New event
+
+        assertThat(cache.getActiveSince()).isEqualTo(START.plus(Duration.ofMinutes(20)));
     }
 
     // -------------------------------------------------------------------------
@@ -405,6 +421,160 @@ class AuroraStateCacheTest {
     void initialLocationCounts() {
         assertThat(cache.getDarkSkyLocationCount()).isZero();
         assertThat(cache.getClearLocationCount()).isNull();
+    }
+
+    // -------------------------------------------------------------------------
+    // wouldNotify and wouldClear — evaluate's NOTIFY and CLEAR, asked in advance
+    // -------------------------------------------------------------------------
+
+    @ParameterizedTest(name = "from {0}, {1}: wouldNotify {2}, wouldClear {3}")
+    @CsvSource({
+            "IDLE,      QUIET,    false, false",
+            "IDLE,      MINOR,    false, false",
+            "IDLE,      MODERATE, true,  false",
+            "IDLE,      STRONG,   true,  false",
+            "MODERATE,  QUIET,    false, true",
+            "MODERATE,  MINOR,    false, true",
+            "MODERATE,  MODERATE, false, false",
+            "MODERATE,  STRONG,   true,  false",
+            "STRONG,    QUIET,    false, true",
+            "STRONG,    MINOR,    false, true",
+            "STRONG,    MODERATE, false, false",
+            "STRONG,    STRONG,   false, false",
+            "SIM_QUIET,    QUIET,    false, true",
+            "SIM_QUIET,    MODERATE, true,  false",
+            "SIM_MINOR,    MINOR,    false, true",
+            "SIM_MINOR,    MODERATE, true,  false",
+            "SIM_MODERATE, MODERATE, false, false",
+            "SIM_MODERATE, STRONG,   true,  false",
+            "SIM_STRONG,   STRONG,   false, false",
+            "SIM_STRONG,   MINOR,    false, true",
+    })
+    @DisplayName("wouldNotify and wouldClear answer from IDLE, ACTIVE and simulated states")
+    void wouldNotifyAndWouldClear_truthTable(String prior, AlertLevel incoming, boolean notify,
+            boolean clear) {
+        AuroraStateCache machine = machineIn(prior);
+
+        assertThat(machine.wouldNotify(incoming)).as("wouldNotify").isEqualTo(notify);
+        assertThat(machine.wouldClear(incoming)).as("wouldClear").isEqualTo(clear);
+    }
+
+    @Test
+    @DisplayName("wouldNotify and wouldClear agree with evaluate from every state, and change nothing")
+    void predictions_matchEvaluate_andLeaveStateAlone() {
+        // A daylight poll asks wouldNotify before evaluating, to fetch a scoring's data only when a
+        // scoring is coming; a night poll asks wouldClear, to hold an alert while the reading that
+        // decides it is due. Were either to disagree with evaluate, a NOTIFY would fetch late or a
+        // SUPPRESS pay for a fetch, and an alert would be held that should end, or end on an estimate.
+        // Simulations at every level are here on purpose: a change to how evaluate treats a simulation
+        // that forgets the predictions goes red here.
+        for (String prior : new String[] {"IDLE", "MODERATE", "STRONG",
+                "SIM_QUIET", "SIM_MINOR", "SIM_MODERATE", "SIM_STRONG"}) {
+            for (AlertLevel incoming : AlertLevel.values()) {
+                AuroraStateCache machine = machineIn(prior);
+                boolean activeBefore = machine.isActive();
+                AlertLevel levelBefore = machine.getCurrentLevel();
+
+                boolean notify = machine.wouldNotify(incoming);
+                boolean clear = machine.wouldClear(incoming);
+
+                assertThat(machine.isActive()).as("asking changed the state").isEqualTo(activeBefore);
+                assertThat(machine.getCurrentLevel()).as("asking changed the level").isEqualTo(levelBefore);
+                AuroraStateCache.Action action = machine.evaluate(incoming).action();
+                assertThat(notify).as("wouldNotify from %s, %s", prior, incoming)
+                        .isEqualTo(action == AuroraStateCache.Action.NOTIFY);
+                assertThat(clear).as("wouldClear from %s, %s", prior, incoming)
+                        .isEqualTo(action == AuroraStateCache.Action.CLEAR);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("wouldNotify is true for an escalation from a simulation, like evaluate")
+    void wouldNotify_fromASimulation_matchesEvaluate() {
+        cache.activateSimulation(AlertLevel.MODERATE,
+                new AuroraStateCache.SimulatedNoaaData(5.0, 30.0, -5.0, "G1"));
+
+        assertThat(cache.wouldNotify(AlertLevel.MODERATE)).isFalse();
+        assertThat(cache.wouldNotify(AlertLevel.STRONG)).isTrue();
+        assertThat(cache.evaluate(AlertLevel.STRONG).action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
+    }
+
+    // -------------------------------------------------------------------------
+    // A real CLEAR ends a lingering simulation (an admin never called simulate/clear)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("A real CLEAR ends a lingering admin simulation")
+    void clear_endsALingeringSimulation() {
+        cache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 40.0, -8.0, "G3"));
+        assertThat(cache.isSimulated()).isTrue();
+
+        cache.evaluate(AlertLevel.QUIET); // real reading, not a simulation — CLEAR
+
+        assertThat(cache.isSimulated()).isFalse();
+        assertThat(cache.getSimulatedData()).isNull();
+    }
+
+    @Test
+    @DisplayName("A real alert after that CLEAR is never reported as simulated")
+    void notify_afterClearingALingeringSimulation_isNotSimulated() {
+        // The scenario a stale isSimulated() would otherwise hide a genuine alert behind: an admin
+        // activates a simulation and never explicitly clears it, a real quiet reading ends it, and
+        // a later real alert reactivates the machine. Without the CLEAR-branch fix, isSimulated()
+        // stayed true through both steps, so every isSimulated()-gated reader (hot topics, the
+        // best-bet prompt) would silently suppress this genuine alert.
+        cache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 40.0, -8.0, "G3"));
+        cache.evaluate(AlertLevel.QUIET); // real CLEAR
+
+        AuroraStateCache.Evaluation evaluation = cache.evaluate(AlertLevel.MODERATE); // real NOTIFY
+
+        assertThat(evaluation.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
+        assertThat(evaluation.currentLevel()).isEqualTo(AlertLevel.MODERATE);
+        assertThat(cache.isSimulated()).isFalse();
+        assertThat(cache.getSimulatedData()).isNull();
+    }
+
+    /**
+     * A machine on this test's clock: {@code IDLE}, ACTIVE at a level ({@code MODERATE},
+     * {@code STRONG}), or simulating at one ({@code SIM_QUIET}, {@code SIM_MINOR}, ...).
+     */
+    private AuroraStateCache machineIn(String prior) {
+        AuroraStateCache machine = new AuroraStateCache(clock);
+        if (prior.startsWith("SIM_")) {
+            machine.activateSimulation(AlertLevel.valueOf(prior.substring("SIM_".length())),
+                    new AuroraStateCache.SimulatedNoaaData(3.0, 10.0, 0.0, null));
+        } else if (!"IDLE".equals(prior)) {
+            machine.evaluate(AlertLevel.valueOf(prior));
+        }
+        return machine;
+    }
+
+    /** A clock the test moves by hand. */
+    private static final class MovableClock extends Clock {
+
+        private Instant instant = START;
+
+        void advance(Duration by) {
+            instant = instant.plus(by);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return Clock.fixed(instant, zone);
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 
     // -------------------------------------------------------------------------

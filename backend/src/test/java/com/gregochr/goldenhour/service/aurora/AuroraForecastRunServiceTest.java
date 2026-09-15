@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.AuroraForecastResultDto;
 import com.gregochr.goldenhour.model.AuroraForecastRunRequest;
 import com.gregochr.goldenhour.model.AuroraForecastRunResponse;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.CurrentNight;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.TonightWindow;
@@ -20,6 +21,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -36,6 +39,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -86,14 +90,15 @@ class AuroraForecastRunServiceTest {
         service = new AuroraForecastRunService(noaaClient, weatherTriage,
                 claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
                 stateCache, resultWriter, CLOCK);
-        // Exactly three lenient stubs, and only because the class mixes pure-function tests with
-        // pipeline tests. isSimulated() is unused by the pure calculators (gScaleFromKp,
-        // maxKpInWindow, buildDateLabel) and by runForecast_emptyRequest_returnsEmpty, and it is
-        // re-stubbed to true by the two simulation tests. The civil dusk/dawn pair is consumed only
-        // by the code paths that resolve a dark window — computeWindowForDate, getPreview* and every
-        // runForecast* case — never by the calculators. Everything stubbed inside a test method is
-        // strict; there is no class-level leniency here.
-        lenient().when(stateCache.isSimulated()).thenReturn(false);
+        // Exactly two lenient stubs, and only because the class mixes pure-function tests with
+        // pipeline tests. The civil dusk/dawn pair is consumed only by the code paths that resolve a
+        // dark window — computeWindowForDate, getPreview* and every runForecast* case — never by the
+        // calculators (gScaleFromKp, maxKpInWindow, buildDateLabel). No default stub for
+        // getSimulatedData() is needed: production reads it once and derives "simulated" from
+        // != null (never a separate isSimulated() call, which used to leave a gap for an admin's
+        // CLEAR/reset to null the data out from under an already-true flag), and Mockito's own
+        // default answer for an unstubbed method — null — already means "not simulated". Everything
+        // stubbed inside a test method is strict; there is no class-level leniency here.
 
         ZoneId utc = ZoneId.of("UTC");
         // Answers per requested date rather than returning one fixed pair. That matters now:
@@ -155,11 +160,10 @@ class AuroraForecastRunServiceTest {
     @Test
     @DisplayName("before dawn the selected night's window is the one now falls inside")
     void currentNightDate_selectsTheWindowNowIsInside() {
-        // ⚠️ This does NOT compare against AuroraPollingJob, and an earlier name and comment said
-        // it did. It cannot: calculateTonightWindow reads the system clock, so it cannot be put on
-        // this pinned instant, and comparing at wall-clock time would straddle the dawn boundary
-        // often enough to flake. What this pins is the property that makes the rule right —
-        // the selected window contains `now` — which is the same property that method satisfies.
+        // This does NOT compare against AuroraPollingJob; AuroraNightRuleAgreementTest does, now that
+        // the job's calculateTonightWindow takes its instant as an argument. What this pins is the
+        // property that makes the rule right — the selected window contains `now` — which is the
+        // same property that method satisfies.
         AuroraForecastRunService preDawn = serviceAt("2027-02-11T02:00:00Z");
         TonightWindow window = preDawn.computeWindowForDate(preDawn.currentNightDate());
 
@@ -170,6 +174,86 @@ class AuroraForecastRunServiceTest {
         // And the instant we are standing at is inside it, which is the whole claim.
         assertThat(Instant.parse("2027-02-11T02:00:00Z"))
                 .isBetween(window.dusk().toInstant(), window.dawn().toInstant());
+    }
+
+    // -------------------------------------------------------------------------
+    // currentNight — the night in progress, and the instant it stops being current
+    // -------------------------------------------------------------------------
+
+    /**
+     * Re-stubs civil dawn to move a minute a day — {@code 04:00} plus the day of the month — for the
+     * cases that pin an END. Under the class's stub every morning's dawn is 04:00, so the next
+     * morning's dawn and this morning's plus a day are one instant; real dawn at this latitude moves
+     * by up to about two minutes a day, so an end taken from the wrong morning would be off by that
+     * much and pass. Nautical dawn is 35 minutes earlier: 03:36 on the 11th, 03:37 on the 12th.
+     */
+    private void stubDawnMovingByDate() {
+        ZoneId utc = ZoneId.of("UTC");
+        lenient().when(solarCalculator.civilDawn(eq(AuroraForecastRunService.DURHAM_LAT),
+                eq(AuroraForecastRunService.DURHAM_LON), any(LocalDate.class), eq(utc)))
+                .thenAnswer(inv -> {
+                    LocalDate date = inv.getArgument(2);
+                    return LocalDateTime.of(date, java.time.LocalTime.of(4, 0).plusMinutes(date.getDayOfMonth()));
+                });
+    }
+
+    @Test
+    @DisplayName("before dawn the current night ends at this morning's dawn")
+    void currentNight_beforeDawn_endsAtThisMorningsDawn() {
+        // 02:00 on the 11th: the night of the 10th is still running, and this morning's nautical dawn
+        // ends it. A status the map took now must stop naming the 10th at 03:36.
+        stubDawnMovingByDate();
+        CurrentNight night = serviceAt("2027-02-11T02:00:00Z").currentNight();
+
+        assertThat(night.date()).isEqualTo(LocalDate.of(2027, 2, 10));
+        assertThat(night.endsAt()).isEqualTo(Instant.parse("2027-02-11T03:36:00Z"));
+    }
+
+    @Test
+    @DisplayName("from dawn on the current night is tonight's, and tomorrow's own dawn ends it")
+    void currentNight_fromDawn_endsAtTomorrowsDawn() {
+        // 03:36 exactly — the first instant of the new count. Tomorrow's dawn is 03:37, not this
+        // morning's 03:36 plus a day. And an end taken from TODAY's dawn would already have arrived:
+        // every status served then would be born expired.
+        stubDawnMovingByDate();
+        CurrentNight night = serviceAt("2027-02-11T03:36:00Z").currentNight();
+
+        assertThat(night.date()).isEqualTo(LocalDate.of(2027, 2, 11));
+        assertThat(night.endsAt()).isEqualTo(Instant.parse("2027-02-12T03:37:00Z"));
+    }
+
+    @ParameterizedTest(name = "from {0}")
+    @ValueSource(strings = {
+        "2027-02-11T00:30:00Z", "2027-02-11T03:35:59Z", "2027-02-11T09:00:00Z", "2027-02-11T23:59:59Z",
+    })
+    @DisplayName("the end is the first instant the next night is current — wherever in the day it is read")
+    void currentNight_endsAt_isWhenCurrentNightDateMovesOn(String at) {
+        // The property the map relies on: it stops believing a status at `endsAt`, so `endsAt` must
+        // be exactly when this service starts naming the next night. Earlier, and the map drops a
+        // night still running; later, and it keeps one that is over. The small hours, a second
+        // before dawn, the morning, and a second before UTC midnight — with dawn moving by the day.
+        stubDawnMovingByDate();
+        CurrentNight night = serviceAt(at).currentNight();
+
+        assertThat(serviceAt(night.endsAt().minusSeconds(1).toString()).currentNightDate())
+                .isEqualTo(night.date());
+        assertThat(serviceAt(night.endsAt().toString()).currentNightDate())
+                .isEqualTo(night.date().plusDays(1));
+    }
+
+    @ParameterizedTest(name = "from {0}")
+    @ValueSource(strings = {"2027-02-11T02:00:00Z", "2027-02-11T15:00:00Z"})
+    @DisplayName("the end is the dawn of the night's own window, as the run pipeline computes it")
+    void currentNight_endsAtItsOwnWindowsDawn(String at) {
+        // Before dawn and after it, so both branches' ends are checked against the window the run
+        // pipeline scores that night over — the map and the pipeline end a night at one instant.
+        // With dawn moving by the day, so a window that ended on the wrong morning would show.
+        stubDawnMovingByDate();
+        AuroraForecastRunService service = serviceAt(at);
+        CurrentNight night = service.currentNight();
+
+        assertThat(night.endsAt())
+                .isEqualTo(service.computeWindowForDate(night.date()).dawn().toInstant());
     }
 
     @Test
@@ -273,7 +357,7 @@ class AuroraForecastRunServiceTest {
         assertThat(response.nights().get(0).status()).isEqualTo("window_closed");
         // Nothing written and nothing spent — note this is never(), not "written with empty":
         // clearing the night would destroy the same rows by a different route.
-        verify(resultWriter, never()).replaceNightResults(any(), any());
+        verify(resultWriter, never()).replaceNightResults(any(), any(), anyBoolean());
         verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
         verify(weatherTriage, never()).triage(any());
     }
@@ -319,11 +403,11 @@ class AuroraForecastRunServiceTest {
      * A stored result for a night well before {@link #TODAY} must carry <em>that night's own</em>
      * window — never the clock's current night. This is the exact night-vs-date trap
      * {@code docs/engineering/aurora-night-selection.md} records:
-     * {@code AuroraPollingJob.calculateTonightWindow()} takes no date and reads the clock, so
-     * reusing it here would silently pin tonight's window onto a historical row. Fixing the clock
-     * to {@link #CLOCK} (2027-02-10) and scoring a January date is what makes that mistake visible
-     * — a wall-clock-based implementation would return {@link #TODAY}'s window (20:35/03:25)
-     * regardless of which date was asked for.
+     * {@code AuroraPollingJob.calculateTonightWindow(now)} takes an instant rather than a date, so
+     * reusing it here with the current instant would silently pin tonight's window onto a
+     * historical row. Fixing the clock to {@link #CLOCK} (2027-02-10) and scoring a January date
+     * is what makes that mistake visible — a wall-clock-based implementation would return
+     * {@link #TODAY}'s window (20:35/03:25) regardless of which date was asked for.
      */
     @Test
     @DisplayName("getResultsForDate serves a PAST night's own window, not tonight's")
@@ -344,7 +428,7 @@ class AuroraForecastRunServiceTest {
                 .alertLevel("MINOR")
                 .maxKp(4.0)
                 .build();
-        when(resultRepository.findByForecastDate(pastNight)).thenReturn(List.of(entity));
+        when(resultRepository.findByForecastDateAndSimulatedFalse(pastNight)).thenReturn(List.of(entity));
 
         List<AuroraForecastResultDto> dtos = service.getResultsForDate(pastNight);
 
@@ -374,7 +458,7 @@ class AuroraForecastRunServiceTest {
                 .alertLevel("MODERATE")
                 .maxKp(6.0)
                 .build();
-        when(resultRepository.findByForecastDate(TODAY)).thenReturn(List.of(entity));
+        when(resultRepository.findByForecastDateAndSimulatedFalse(TODAY)).thenReturn(List.of(entity));
 
         TonightWindow expected = service.computeWindowForDate(TODAY);
         List<AuroraForecastResultDto> dtos = service.getResultsForDate(TODAY);
@@ -592,7 +676,7 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> savedCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(tonight), savedCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(tonight), savedCaptor.capture(), eq(false));
         List<AuroraForecastResultEntity> saved = savedCaptor.getValue();
         assertThat(saved).hasSize(2);
 
@@ -606,6 +690,11 @@ class AuroraForecastRunServiceTest {
                 .filter(e -> !e.isTriaged()).findFirst().orElseThrow();
         assertThat(claude.getSource()).isEqualTo("claude");
         assertThat(claude.getStars()).isEqualTo(3);
+
+        // A real (non-simulated) run must never mark its rows simulated — stateCache.
+        // getSimulatedData() is unstubbed here, defaulting to null, matching every other
+        // non-simulation test in this class.
+        assertThat(saved).allMatch(e -> !e.isSimulated());
     }
 
     @Test
@@ -616,7 +705,7 @@ class AuroraForecastRunServiceTest {
 
         service.runForecast(new AuroraForecastRunRequest(List.of(tonight)));
 
-        verify(resultWriter).replaceNightResults(tonight, List.of());
+        verify(resultWriter).replaceNightResults(tonight, List.of(), false);
     }
 
     @Test
@@ -654,7 +743,7 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(tonight), writtenCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(tonight), writtenCaptor.capture(), eq(false));
         assertThat(writtenCaptor.getValue()).hasSize(1);
         assertThat(writtenCaptor.getValue().get(0).isTriaged()).isTrue();
     }
@@ -679,7 +768,7 @@ class AuroraForecastRunServiceTest {
                 new AuroraForecastRunRequest(List.of(tonight)));
 
         assertThat(response.nights().get(0).status()).isEqualTo("no_eligible_locations");
-        verify(resultWriter).replaceNightResults(tonight, List.of());
+        verify(resultWriter).replaceNightResults(tonight, List.of(), false);
     }
 
     @Test
@@ -721,9 +810,9 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(night1), writtenCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(night1), writtenCaptor.capture(), eq(false));
         assertThat(writtenCaptor.getValue()).hasSize(1);
-        verify(resultWriter, never()).replaceNightResults(eq(night2), any());
+        verify(resultWriter, never()).replaceNightResults(eq(night2), any(), anyBoolean());
     }
 
     @Test
@@ -774,11 +863,10 @@ class AuroraForecastRunServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("getPreview uses simulated Kp when stateCache.isSimulated() is true")
+    @DisplayName("getPreview uses simulated Kp when stateCache.getSimulatedData() is non-null")
     void getPreview_simulated_usesSimulatedKp() {
         AuroraStateCache.SimulatedNoaaData simData =
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
-        when(stateCache.isSimulated()).thenReturn(true);
         when(stateCache.getSimulatedData()).thenReturn(simData);
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
                 .thenReturn(List.of());
@@ -804,13 +892,11 @@ class AuroraForecastRunServiceTest {
     }
 
     @Test
-    @DisplayName("runForecast uses simulated SpaceWeatherData when simulation is active")
+    @DisplayName("runForecast uses simulated SpaceWeatherData when getSimulatedData() is non-null")
     void runForecast_simulated_usesSimulatedSpaceWeather() {
         AuroraStateCache.SimulatedNoaaData simData =
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
-        when(stateCache.isSimulated()).thenReturn(true);
         when(stateCache.getSimulatedData()).thenReturn(simData);
-
 
         LocationEntity loc = LocationEntity.builder()
                 .id(1L).name("Sim Location").lat(55.0).lon(-1.5).bortleClass(3).build();
@@ -833,6 +919,49 @@ class AuroraForecastRunServiceTest {
         assertThat(response.nights().get(0).status()).isEqualTo("scored");
         // Should NOT have called noaaClient.fetchAll() — uses simulated data instead
         verify(noaaClient, never()).fetchAll();
+    }
+
+    @Test
+    @DisplayName("runForecast marks every persisted row simulated when a REAL AuroraStateCache "
+            + "is mid-simulation")
+    void runForecast_simulated_marksPersistedResultsAsSimulated() {
+        // A real cache driven through activateSimulation(), not a mocked isSimulated() — proves the
+        // marker is set from the state activateSimulation actually puts the machine in, not from an
+        // answer a mock could give independently of it. Without this marker, a Claude call made
+        // against fake Kp/storm data would persist identically to a real run and be served to every
+        // PRO/ADMIN user on the map as if it were real.
+        AuroraStateCache realCache = new AuroraStateCache();
+        realCache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
+        AuroraForecastRunService simService = new AuroraForecastRunService(noaaClient, weatherTriage,
+                claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
+                realCache, resultWriter, CLOCK);
+
+        LocationEntity viableLoc = LocationEntity.builder()
+                .id(1L).name("Clear Sky").lat(55.0).lon(-1.5).bortleClass(3).build();
+        LocationEntity triageLoc = LocationEntity.builder()
+                .id(2L).name("Overcast Bay").lat(54.0).lon(-2.0).bortleClass(2).build();
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of(viableLoc, triageLoc));
+        when(weatherTriage.triage(any())).thenReturn(
+                new WeatherTriageService.TriageResult(
+                        List.of(viableLoc), List.of(triageLoc),
+                        Map.of(viableLoc, 20, triageLoc, 95)));
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(new AuroraForecastScore(viableLoc, 4, AlertLevel.STRONG, 20,
+                        "Strong conditions", "✓ Geomagnetic: STRONG")));
+
+        simService.runForecast(new AuroraForecastRunRequest(List.of(TODAY)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastResultEntity>> savedCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(resultWriter).replaceNightResults(eq(TODAY), savedCaptor.capture(), eq(true));
+        List<AuroraForecastResultEntity> saved = savedCaptor.getValue();
+        // One triage-template row (Overcast Bay) and one Claude-scored row (Clear Sky) — both
+        // branches of the entity-building code must carry the marker, not just one.
+        assertThat(saved).hasSize(2);
+        assertThat(saved).allMatch(AuroraForecastResultEntity::isSimulated);
     }
 
     // -------------------------------------------------------------------------

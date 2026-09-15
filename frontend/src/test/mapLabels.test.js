@@ -1,43 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import {
-  verdictWord, WORTH_IT_THRESHOLD, MAYBE_THRESHOLD,
   chipBudget,
   hottestRegion, regionLabelItems, REGION_LABEL_MAX_ZOOM,
   homeLabelItems, HOME_LABEL_MAX_ZOOM,
   ringLabelItems, RING_LABEL_MAX_ZOOM,
   chipCandidates,
   placeLabelPass,
+  verdictWord, WORTH_IT_THRESHOLD, MAYBE_THRESHOLD,
 } from '../utils/mapLabels.js';
+import * as verdictWordModule from '../utils/verdictWord.js';
 
 const spot = (name, rid, rating, driveMinutes = null) => ({
   name, rid, rating, driveMinutes,
 });
 
-describe('mapLabels — verdictWord', () => {
-  it('pins the thresholds exactly (README "Verdict thresholds")', () => {
-    expect(WORTH_IT_THRESHOLD).toBe(3.7);
-    expect(MAYBE_THRESHOLD).toBe(2.8);
-  });
-
-  it('bands a whole-star rating into Worth it / Maybe / Poor', () => {
-    expect(verdictWord(5)).toBe('Worth it');
-    expect(verdictWord(4)).toBe('Worth it');
-    expect(verdictWord(3)).toBe('Maybe');
-    expect(verdictWord(2)).toBe('Poor');
-    expect(verdictWord(1)).toBe('Poor');
-  });
-
-  it('straddles the exact boundary values', () => {
-    expect(verdictWord(3.7)).toBe('Worth it');
-    expect(verdictWord(3.699)).toBe('Maybe');
-    expect(verdictWord(2.8)).toBe('Maybe');
-    expect(verdictWord(2.799)).toBe('Poor');
-  });
-
-  it('returns null for an absent or non-finite rating, never a false verdict', () => {
-    expect(verdictWord(null)).toBeNull();
-    expect(verdictWord(undefined)).toBeNull();
-    expect(verdictWord(NaN)).toBeNull();
+// The threshold/verdict behaviour itself is pinned once, at its canonical home, in
+// `verdictWord.test.js` — `verdictWord` moved there (map-callout-d3-geo-leak fix) so
+// `MapCallout.jsx` can import it without also reaching `heatField.js`'s `d3-geo` chain. What is
+// still worth pinning HERE is the compatibility contract this file's own doc comment promises:
+// `MapLabels.jsx`/`PinsLayer.jsx` import these three names from `mapLabels.js` and must keep
+// resolving to the exact same bindings `verdictWord.js` exports — not a copy that could drift.
+describe('mapLabels — re-exports verdictWord/WORTH_IT_THRESHOLD/MAYBE_THRESHOLD unchanged', () => {
+  it('is the identical binding verdictWord.js exports, not a duplicate', () => {
+    expect(verdictWord).toBe(verdictWordModule.verdictWord);
+    expect(WORTH_IT_THRESHOLD).toBe(verdictWordModule.WORTH_IT_THRESHOLD);
+    expect(MAYBE_THRESHOLD).toBe(verdictWordModule.MAYBE_THRESHOLD);
   });
 });
 

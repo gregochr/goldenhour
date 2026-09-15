@@ -120,6 +120,11 @@ two solar calculations, and the `now.isBefore(dawn)` **instant** test makes the 
 is why that method is correct on either calendar and this one is not. That is the pattern to copy,
 and it is where the `TonightWindow` that `AuroraOrchestrator` merely carries comes from.
 
+> **Since the polling-flap fix (2026-09-14)** the method is `calculateTonightWindow(now)`: the job
+> reads its injected `Clock` once per poll and hands the instant in, and derives the date from that
+> instant rather than from `LocalDate.now(utc)`. The rule is unchanged, and the instant still makes
+> the choice.
+
 So the work is to make `AuroraForecastRunService` consume a window the way the orchestrator does,
 rather than deriving nights from a date of its own — plus the triage switch above.
 
@@ -163,7 +168,9 @@ is what was done and, as importantly, what was deliberately left alone.
 **The frontend does not derive the night; it is told.** `AuroraStatusResponse` gained a
 `currentNightDate` component, populated in `AuroraController.getStatus()` from
 `AuroraForecastRunService.currentNightDate()` — the same method, widened from package-private to
-public and otherwise untouched. `GET /api/aurora/status` was chosen over the three alternatives
+public and otherwise untouched. (Since 2026-09-14 the controller reads `currentNight()` instead: the
+same rule, returning the date with the instant its night ends — see the degrade path below.)
+`GET /api/aurora/status` was chosen over the three alternatives
 because `AuroraStatusProvider` already fetches it app-wide, so both `App.jsx` and `MapView.jsx` read
 the night at the cost of **zero new requests**. The rejected options, and why:
 
@@ -178,7 +185,9 @@ the night at the cost of **zero new requests**. The rejected options, and why:
 
 **The scope is aurora mode only, and that was a product decision, not an implementation limit.** The
 colour map keeps its calendar default, because at 02:00 a landscape photographer wants the coming
-sunrise, not last night's sunset. Three paths were changed and one deliberately was not:
+sunrise, not last night's sunset. (⚠️ D-14, 2026-09-14, widened what reads the field: the Map tab's
+window list uses it to decide whether yesterday's astro and aurora nights are still on — see the
+degrade note below.) Three paths were changed and one deliberately was not:
 
 - `MapView` requests the aurora night when aurora mode is entered, via a new optional `onSelectDate`
   prop — the same setter `DateStrip` already drives, so the strip follows the jump instead of
@@ -210,6 +219,21 @@ the year.
 absent — a LITE user (status is null), a failed fetch, or a browser on a cached bundle against an
 older backend. That fallback *is* the old behaviour, so the degrade is "no worse than before" rather
 than a guess, and it is a named test.
+
+⚠️ **Since 2026-09-14 that holds only for the paths this note changed.** The Map tab's window list
+now drops nights that are over by the same answer (`map-tab-v2-plan.md` §5 D-14), and there the
+calendar fallback is a real loss: a LITE reader can no longer reach the astro night still running
+over them between UK midnight and dawn, which the old unclipped list offered. The owner accepted it;
+the exit is a night-in-progress signal LITE can read (§6 O-21). And "a failed fetch" means a *first*
+one: after a success the status provider keeps the last status on failure, so the value can go stale
+rather than fall back. A status taken before dawn went on naming yesterday's night all day (Codex,
+#841), so the status now also carries `currentNightEndsAt` — the instant its night ends, from the
+same read of the clock as the date (`AuroraForecastRunService.currentNight()`) — and
+`resolveAuroraNight` believes the date only until then. The provider re-renders the page once the end
+has passed — at it while the device is awake, within a minute of waking if it slept through it —
+because while the polls fail the status never changes, and the memoised map would not ask again.
+`mapDates.isNightOver` still believes a night in progress only as yesterday, which is what bounds a
+payload without the field.
 
 **What was checked and left alone.** `useForecasts.js` (a 7-day backward outcomes window, where a
 one-day edge is immaterial and the question is a different one), `JobRunsMetricsView`,
@@ -367,6 +391,12 @@ not a night-selection one. Note it is arithmetic rather than a tested property: 
 `DURHAM_LAT`, `DURHAM_LON`, `NAUTICAL_BUFFER_MINUTES` here and their twins in `AuroraPollingJob`
 (the latitude pair has two further copies in `ClaudeAuroraInterpreter` and
 `BriefingAuroraSummaryBuilder`). Change 35 to 30 in one and nothing goes red.
+
+> **Partly closed by the polling-flap fix (2026-09-14).** Once `AuroraPollingJob` took its instant
+> as an argument, `AuroraNightRuleAgreementTest` could put both rules on the same instants through
+> the real solar-utils calculator: every 97 minutes of a year, and a second either side of every
+> nautical dawn and dusk. Change 35 to 30 in either class now and it goes red. The constants are
+> still declared twice, and the two further latitude copies are still outside any test.
 
 ## What was done in the preceding change, and why not this
 

@@ -760,6 +760,51 @@ describe('App — panes handed to WindowFirstShell', () => {
       await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY, { isNight: true }); });
       expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
     });
+
+    it('does not honour a night past the end its status gives it — a status still held after dawn', async () => {
+      // Codex, on #841: the provider keeps its last status when a later fetch fails, so a status taken
+      // before dawn is still the one in hand after it. App took its night at its word and kept the map
+      // on a night that had ended. The case above, with no end on the status, is the control.
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+        currentNightEndsAt: new Date(Date.now() - 60 * 1000).toISOString(),
+      });
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+
+      await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY, { isNight: true }); });
+
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+    });
+
+    it('moves the map off the night when its end passes with no new status — the provider re-renders App', async () => {
+      // The same failure over time, through the real provider. Nothing about App changes when the end
+      // passes — the status object is the one it already had — so App re-reads the night only because
+      // the provider re-renders then. An App that remembered the night per status object would stay.
+      let land;
+      getAuroraStatus.mockReturnValueOnce(new Promise((resolve) => { land = resolve; }));
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+      // Picked before any status has landed, so refused for now — but kept as the reader's choice,
+      // so the status landing is what admits it, and the control below does not race the clock.
+      await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY, { isNight: true }); });
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+
+      await act(async () => {
+        land({
+          level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+          currentNightEndsAt: new Date(Date.now() + 1500).toISOString(),
+        });
+      });
+      // Control: while the end is ahead, the night is honoured.
+      expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
+
+      await waitFor(() => expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY));
+      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+    });
   });
 
   it('hands the Operations pane to an admin', async () => {
