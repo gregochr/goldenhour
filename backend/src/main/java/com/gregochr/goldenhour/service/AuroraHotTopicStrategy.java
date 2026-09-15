@@ -92,7 +92,7 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         // An admin's aurora simulation (POST /api/aurora/admin/simulate) is for admin UI testing
         // only. It must never reach a signed-in user's Plan cards as if it were a real alert, so
         // this returns before touching the level or trigger Kp the simulation injects.
-        if (auroraStateCache.isSimulated()) {
+        if (auroraStateCache.getSimulatedData() != null) {
             return;
         }
         AlertLevel level = auroraStateCache.getCurrentLevel();

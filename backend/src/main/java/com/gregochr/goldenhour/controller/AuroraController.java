@@ -87,18 +87,28 @@ public class AuroraController {
      * night after it.
      *
      * <p>Two residuals remain. The fields are separate volatiles read one after another, so a writer
-     * caught part-way through its writes can still show in one response — during an admin
-     * simulation, its level beside {@code simulated: false}, or {@code simulated: true} with no data
-     * yet. And {@code AuroraOrchestrator} writes one NOTIFY in several steps, and CLEAR never resets
-     * the trigger, so the machine itself can hold a new level beside the previous alert's trigger.
-     * Both polls read NOAA before the state machine moves, so that lasts a few field writes; only a
-     * daylight NOTIFY that an admin reset or simulation hid from the poll's check still fetches in
-     * between. This read serves that faithfully; no snapshot taken here could fix it.
+     * caught part-way through its writes can still show in one response — a simulation starting
+     * mid-read, its level beside {@code simulated: false}; one a real alert has just ended, that
+     * alert's level beside the simulation's data. And {@code AuroraOrchestrator} writes one NOTIFY in
+     * several steps — the trigger, counts and scores land after {@code evaluate} returns — so a new
+     * alert's level can briefly show with no trigger, and an escalation's beside the previous
+     * NOTIFY's. Both polls read NOAA before the state machine moves, so that gap lasts only a few
+     * field writes; only a daylight NOTIFY that an admin reset or simulation hid from the poll's
+     * {@code wouldNotify} check still fetches after. This read serves that faithfully; no snapshot
+     * taken here could fix it.
+     *
+     * <p>The simulation is read once, and first. Once: whether the response is simulated is the
+     * presence of the data this read returned, never a second question — a simulation cleared
+     * between a flag read and a data read was a {@code NullPointerException}. First: a transition
+     * that ends a simulation clears it after the simulated level, so a request that finds it
+     * cleared cannot then find that level still standing and serve it as a real alert.
      *
      * @return current aurora status
      */
     @GetMapping("/status")
     public ResponseEntity<AuroraStatusResponse> getStatus() {
+        AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
+        boolean simulated = simData != null;
         AlertLevel cachedLevel = stateCache.getCurrentLevel();
         boolean active = stateCache.isActive();
         int eligibleLocations = stateCache.getCachedScores().size();
@@ -107,8 +117,6 @@ public class AuroraController {
         TriggerType lastTrigger = stateCache.getLastTriggerType();
         Double lastTriggerKp = stateCache.getLastTriggerKp();
         Instant activeSince = stateCache.getActiveSince();
-        boolean simulated = stateCache.isSimulated();
-        AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
         // The night too, and from one call, so its date and end come from one read of the clock and
         // name the same night. Null only from a stubbed service; relayed as-is, never replaced with a
         // calendar date — and checked once, since a second check of the same value is one SpotBugs
@@ -129,7 +137,7 @@ public class AuroraController {
         String gScale = null;
         ZonedDateTime updatedAt = null;
 
-        if (simulated) {
+        if (simData != null) {
             // Return simulated NOAA values — no live API call needed
             kp = simData.kp();
             ovation = simData.ovationProbability();

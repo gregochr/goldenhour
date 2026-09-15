@@ -32,11 +32,13 @@ import static org.mockito.Mockito.when;
  *
  * <p>Written as a plain unit test with a REAL {@link AuroraStateCache}, rather than through
  * {@code MockMvc} and the shared context's mocked one: the transition under test is the machine's
- * own — a CLEAR resets the level, the flag, the scores, the counts and {@code activeSince} together
- * and leaves the trigger alone — and a mock would restate only whichever of those fields a test
- * remembered to flip. Each transition is made from inside the FIRST NOAA stub, {@code fetchKp}, so
- * any read after the calls begin sees it: the claim is "before the NOAA calls", and a read placed
- * between two of them would pass a test that only moved the machine during the last.
+ * own — a CLEAR returns the level, the flag, the scores, the counts, {@code activeSince}, the trigger
+ * and any simulation to idle together — and a mock would restate only whichever of those fields a
+ * test remembered to flip. Each transition is made from inside the FIRST NOAA stub, {@code fetchKp},
+ * so any read after the calls begin sees it: the claim is "before the NOAA calls", and a read placed
+ * between two of them would pass a test that only moved the machine during the last. The last two
+ * tests land their transition between the request's own state reads instead, through a getter
+ * overridden on the real machine, because that is the only gap left once the reads come first.
  */
 @ExtendWith(MockitoExtension.class)
 class AuroraControllerStatusSnapshotTest {
@@ -87,9 +89,9 @@ class AuroraControllerStatusSnapshotTest {
     @Test
     @DisplayName("an alert that begins while the request waits on NOAA is answered as the quiet state throughout")
     void notifyDuringNoaaCalls_answersAsTheQuietState() {
-        // The machine has never alerted, as after a restart. Once one has, CLEAR leaves the last
-        // trigger in place, so in production the fields before a NOTIFY usually hold the previous
-        // alert's trigger rather than null — null is used here because it makes any leak unmissable.
+        // The machine has not alerted since it last went idle — after a restart, or after a CLEAR,
+        // which drops the trigger with everything else — so the trigger is null before the NOTIFY,
+        // which also makes any leak unmissable.
         when(noaaClient.fetchKp()).thenAnswer(invocation -> {
             // The polling job's NOTIFY, and the trigger `AuroraOrchestrator.scoreAndCache` records
             // straight after it on either poll (a daylight poll fetches its snapshot first).
@@ -127,7 +129,7 @@ class AuroraControllerStatusSnapshotTest {
         AuroraStatusResponse status = controller.getStatus().getBody();
 
         // Control: the simulation really started during the request.
-        assertThat(stateCache.isSimulated()).isTrue();
+        assertThat(stateCache.getSimulatedData()).isNotNull();
         // One state throughout: the quiet, real one the request started under, with the live reading
         // it went on to fetch and the storm scale a real response derives from it. Broken, that
         // reading came out marked simulated, active, carrying the simulation's forecast trigger, and
@@ -163,6 +165,71 @@ class AuroraControllerStatusSnapshotTest {
         // calls — a request made before dawn answered for tonight.
         assertThat(status.currentNightDate()).isEqualTo(LocalDate.of(2026, 9, 13));
         assertThat(status.currentNightEndsAt()).isEqualTo(Instant.parse("2026-09-14T04:58:00Z"));
+    }
+
+    /**
+     * The simulation is read once. This used to be two reads — a flag, then the data — and an
+     * admin's Clear landing between them answered "simulated" with no data behind it: a
+     * {@code NullPointerException} out of the controller, served as a 500. The flag is gone, so
+     * that pairing cannot be written any more; what this pins is that nothing reads the simulation
+     * a second time, where the Clear below would be found.
+     */
+    @Test
+    @DisplayName("a simulation cleared just after the request reads it is answered from the read")
+    void simulationClearedJustAfterItIsRead_isAnsweredFromTheRead() {
+        AuroraStateCache clearedMidRead = new AuroraStateCache() {
+            @Override
+            public SimulatedNoaaData getSimulatedData() {
+                SimulatedNoaaData simulation = super.getSimulatedData();
+                reset(); // an admin's Clear, landing just after the request read the simulation
+                return simulation;
+            }
+        };
+        // A G-scale Kp 7.3 would never derive (G3), so a response that derived one — by asking the
+        // machine a second time and finding the simulation gone — cannot pass for this simulation's.
+        clearedMidRead.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.3, 60.0, -9.5, "G5"));
+        AuroraController readingIt = new AuroraController(clearedMidRead, noaaClient, forecastRunService);
+
+        AuroraStatusResponse status = readingIt.getStatus().getBody();
+
+        // Control: the Clear really landed during the request.
+        assertThat(clearedMidRead.isActive()).isFalse();
+        assertThat(status.simulated()).isTrue();
+        assertThat(status.kp()).isEqualTo(7.3);
+        assertThat(status.ovationProbability()).isEqualTo(60.0);
+        assertThat(status.bzNanoTesla()).isEqualTo(-9.5);
+        assertThat(status.gScale()).isEqualTo("G5");
+    }
+
+    /**
+     * The simulation is read before the level. A transition ending a simulation clears it after the
+     * simulated level, so a request that reads it first and finds it cleared finds the level
+     * cleared too. Read the other way round, a real poll's CLEAR landing between the two reads
+     * served the simulated STRONG as a real alert, with live readings and no "(SIMULATED)".
+     */
+    @Test
+    @DisplayName("a CLEAR landing just after the level is read never serves a simulated level as real")
+    void clearJustAfterTheLevelIsRead_neverServesTheSimulatedLevelAsReal() {
+        AuroraStateCache clearedMidRead = new AuroraStateCache() {
+            @Override
+            public AlertLevel getCurrentLevel() {
+                AlertLevel level = super.getCurrentLevel();
+                evaluate(AlertLevel.QUIET); // the first night-time real-time poll
+                return level;
+            }
+        };
+        clearedMidRead.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.3, 60.0, -9.5, "G3"));
+        AuroraController readingIt = new AuroraController(clearedMidRead, noaaClient, forecastRunService);
+
+        AuroraStatusResponse status = readingIt.getStatus().getBody();
+
+        // Control: the CLEAR really landed during the request, and ended the simulation.
+        assertThat(clearedMidRead.getSimulatedData()).isNull();
+        assertThat(status.level()).isEqualTo(AlertLevel.STRONG);
+        assertThat(status.simulated()).isTrue();
+        assertThat(status.kp()).isEqualTo(7.3);
     }
 
     /** An alert as the polling job leaves one after a NOTIFY: active, scored, triggered, counted. */

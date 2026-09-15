@@ -176,10 +176,10 @@ public final class BriefingRollupBuilder {
         // bestAuroraRegion() reads, so deriving it after the DB call would silently lose the region
         // for an alert this check has already decided to include.
         //
-        // isSimulated() is snapshotted here too and gates first: an admin's aurora simulation is
+        // The simulation is snapshotted here too and gates first: an admin's aurora simulation is
         // for admin UI testing only and must never feed the best-bet advisor's Claude prompt as if
         // it were a real alert.
-        boolean auroraSimulated = auroraStateCache.isSimulated();
+        boolean auroraSimulated = auroraStateCache.getSimulatedData() != null;
         AlertLevel auroraLevel = auroraStateCache.getCurrentLevel();
         Double auroraTriggerKp = auroraStateCache.getLastTriggerKp();
         int auroraDarkSkyCount = auroraStateCache.getDarkSkyLocationCount();
