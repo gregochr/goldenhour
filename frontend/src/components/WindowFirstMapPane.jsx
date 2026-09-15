@@ -1,4 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore,
+} from 'react';
 import PropTypes from 'prop-types';
 import MapView from './MapView.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
@@ -20,6 +22,28 @@ import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
  * one the opening `fitBounds` and the area toggle both use so the two cannot drift apart.
  */
 const FRAME_PAD_DEG = 0.12;
+
+/**
+ * Subscribes to everything that can change whether this page is the one in front of the reader:
+ * the document's visibility (a background browser tab) and the window's focus (another app raised
+ * over a still-visible window). Module-level, so `useSyncExternalStore` sees one stable subscribe
+ * and never resubscribes on a render.
+ */
+function subscribePagePresence(onChange) {
+  document.addEventListener('visibilitychange', onChange);
+  window.addEventListener('focus', onChange);
+  window.addEventListener('blur', onChange);
+  return () => {
+    document.removeEventListener('visibilitychange', onChange);
+    window.removeEventListener('focus', onChange);
+    window.removeEventListener('blur', onChange);
+  };
+}
+
+/** Whether this page is in front of the reader: its document visible, and its window focused. */
+function isPageInFront() {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
 
 /**
  * The window-first arm's Map tab: the full map, in the shell's slotted panel.
@@ -126,16 +150,46 @@ export default function WindowFirstMapPane({
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
   /**
-   * Whether this pane is on screen — false while the shell hides its panel, read off the same
-   * observation as `resizeNonce` (the hide reports a 0×0 box). `MapView` gates its status region on
-   * it (Codex, #848): kept mounted under a `hidden` panel, the map went on retrying a failed night,
-   * and a failure while the reader was on another tab filled the region outside the accessibility
-   * tree — so coming back, which only removes `hidden`, announced nothing. Empty while hidden, the
-   * region fills on the return instead, and that is a change it announces; the observer reports the
-   * reveal only once the panel is laid out, so the region is back in the tree before it fills.
-   * Starts true: the shell mounts this pane's contents only when its tab is first selected.
+   * Whether the shell is showing this pane's panel — false while it hides the panel between visits,
+   * read off the same observation as `resizeNonce` (the hide reports a 0×0 box). Starts true: the
+   * shell mounts this pane's contents only when its tab is first selected. Half of `paneVisible`.
    */
-  const [paneVisible, setPaneVisible] = useState(true);
+  const [panelShown, setPanelShown] = useState(true);
+  /**
+   * Whether the page is the one in front of the reader — its document visible AND its window
+   * focused ({@link isPageInFront}), kept current by {@link subscribePagePresence}. The other half of
+   * `paneVisible`, because the panel keeps its box through both kinds of absence and the observer
+   * reports nothing. ⚠️ `useSyncExternalStore`, not a `useState` read at render plus a listener added
+   * in an effect (the first cut, review R3): this pane is `lazy()` behind a Suspense fallback, whose
+   * commit React can hold back for a moment, and a change in that gap reached no listener. The store
+   * reads the page again once it has subscribed.
+   */
+  const pageInFront = useSyncExternalStore(subscribePagePresence, isPageInFront);
+  /**
+   * Whether this pane is on screen for the reader: its panel shown, AND the page in front. `MapView`
+   * gates its status region on it: the region has to be empty whenever the reader cannot perceive
+   * it, and fill — a change, which is what a live region announces — when they can. Each layer that
+   * can hide it was a review finding on #848 or its follow-up:
+   * <ul>
+   *   <li><b>The shell's panel</b> (Codex). Kept mounted under a `hidden` panel, the map went on
+   *       retrying a failed night; a failure while the reader was on another app tab filled the
+   *       region outside the accessibility tree, and coming back, which only removes `hidden`,
+   *       announced nothing. The observer reports the reveal only once the panel is laid out, so the
+   *       region is back in the tree before it fills.</li>
+   *   <li><b>The document</b> (Codex, post-merge). With the whole browser tab in the background the
+   *       panel keeps its box, and the region filled while the screen reader was presenting another
+   *       tab — still in the page's tree, but unheard — to be found already full on the return.</li>
+   *   <li><b>The window's focus</b> (review R2). A visible window with another app raised over it —
+   *       side by side, a second monitor — keeps `visibilityState` at `'visible'`, but the screen
+   *       reader is presenting the other app; and the return fires `focus`, not
+   *       `visibilitychange`. The cost, accepted: a trip to the browser's own chrome (the address
+   *       bar) blurs the window too, so a failure still on screen is announced again on the way
+   *       back.</li>
+   * </ul>
+   * A modal dialog over the pane is a fourth, and NOT handled here — it needs a signal this pane has
+   * no route to; the changelog states it as a residual.
+   */
+  const paneVisible = panelShown && pageInFront;
   /**
    * Warms the four-day sheet's lazy chunk, the Map-tab twin of `WindowFirstShell`'s own
    * {@code warmStackedChunks} (which the PLAN routes get for free, since every one of them is
@@ -389,12 +443,12 @@ export default function WindowFirstMapPane({
     // to is blank until the next tick corrects it. Ignoring the hide leaves Leaflet's state intact,
     // and the reveal is then a genuine no-op when nothing actually moved.
     //
-    // The same zero box is also what `paneVisible` reads, for the map's status region: see its
-    // declaration.
+    // The same zero box is also what `panelShown` reads, for the map's status region: see
+    // `paneVisible`.
     const ro = new ResizeObserver(() => {
       const { width, height } = el.getBoundingClientRect();
       const shown = !(width === 0 && height === 0);
-      setPaneVisible(shown);
+      setPanelShown(shown);
       if (!shown) return;
       setResizeNonce((n) => n + 1);
     });
