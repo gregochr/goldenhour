@@ -9,8 +9,6 @@ import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
-import { getSettings } from './api/settingsApi.js';
-import { setMode, getMode, resolveMode } from './utils/scoreRamp.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
@@ -20,6 +18,7 @@ import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
+import useHomeAndMapColour from './hooks/useHomeAndMapColour.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
@@ -147,25 +146,6 @@ function AppInner() {
   const [seasonalFeatures, setSeasonalFeatures] = useState([]);
   const handleSeasonalFeaturesChange = useCallback((features) => setSeasonalFeatures(features), []);
 
-  /**
-   * Home coordinates resolved from the user's saved postcode — the same pipeline that already
-   * backs the per-location drive times, reused to gate the Plan tab's "Close to home" block by
-   * distance. No new setting and no new endpoint: null simply means no postcode is saved yet, and
-   * the block hides itself. Re-read when the settings modal closes, so adding or moving a home
-   * postcode takes effect without a page reload.
-   */
-  const [homeCoords, setHomeCoords] = useState(null);
-  // The active scoreRamp mode, mirrored into state and handed to the Map pane as a genuine prop.
-  // `MapView` is `React.memo`'d and this pane's mount is never unmounted, so a mode switch made
-  // in Settings needs a real prop change to reach an already-alive instance — `setMode` alone only
-  // updates module state nothing here is subscribed to. Read back via `getMode()` rather than
-  // duplicating its 'temp'-or-'verdict' resolution rule.
-  const [mapColourScale, setMapColourScale] = useState(getMode());
-  // Whether the loaded `mapColourScale` was raw-null — never explicitly chosen, so this reader's
-  // map just changed colour under them rather than reflecting a preference they picked themselves.
-  // The one thing the Map tab's one-time notice needs and `mapColourScale` above cannot answer:
-  // that mirrors the RESOLVED mode, and null resolves to the same `'temp'` an explicit choice does.
-  const [colourScaleDefaulted, setColourScaleDefaulted] = useState(false);
   // Non-null when the settings dialog was opened to land on a particular field — currently only
   // the map control's "you have no postcode" branch, which exists to point at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
@@ -184,28 +164,18 @@ function AppInner() {
    * too, so saving a postcode lights the rule without a reload.
    */
   const todaysLight = useTodaysLight(homeSettingsVersion);
-
-  const loadHomeCoords = useCallback(() => {
-    getSettings()
-      .then((s) => {
-        setHomeCoords(
-          s?.homeLatitude != null && s?.homeLongitude != null
-            ? { lat: s.homeLatitude, lon: s.homeLongitude }
-            : null,
-        );
-        // The one place the loaded preference reaches the ramp, so Plan and Map can never
-        // disagree about what a colour means (heat-scale-unification-plan.md, rule 1).
-        // `resolveMode` — not a raw pass to `setMode` — is what makes a never-chosen `null`
-        // resolve to `DEFAULT_MODE` rather than to `setMode`'s own `'verdict'` fallback.
-        setMode(resolveMode(s?.mapColourScale));
-        // Mirrored into state so the Map pane's `React.memo` actually sees the change — see the
-        // declaration above.
-        setMapColourScale(getMode());
-        setColourScaleDefaulted(s?.mapColourScale == null);
-      })
-      .catch(() => { /* settings are optional — the block just stays hidden */ });
-  }, []);
-  useEffect(() => { loadHomeCoords(); }, [loadHomeCoords]);
+  // Bumped each time the settings dialog saves a map-colour choice — the ramp's own counter, apart
+  // from the home one so a colour change asks nothing of the fetches that key on the home.
+  const [mapColourVersion, setMapColourVersion] = useState(0);
+  /**
+   * The home's coordinates, for the map's HOME marker, reach rings and ⌂ control, and the
+   * map-colour preference, which the hook hands to `scoreRamp` — asked again on a home or a
+   * colour save and never on a close alone. See the hook for why that is also what makes its
+   * superseded answers safe to drop.
+   */
+  const { homeCoords, mapColourScale, colourScaleDefaulted } = useHomeAndMapColour(
+    homeSettingsVersion, mapColourVersion,
+  );
 
   const [selectedDate, setSelectedDate] = useState(null);
   /**
@@ -725,12 +695,12 @@ function AppInner() {
           onClose={() => {
             setShowSettings(false);
             setSettingsFocus(null);
-            loadHomeCoords();
           }}
-          // The home counter moves on the save itself, never on the close: see its declaration.
-          // The dialog reports from the save's own continuation, so a save still in flight when the
-          // dialog closes moves the counter when it lands.
+          // Both counters move on the save itself, never on the close: see their declarations. The
+          // dialog reports from each save's own continuation, so a save still in flight when the
+          // dialog closes moves its counter when it lands.
           onHomeChanged={() => setHomeSettingsVersion((v) => v + 1)}
+          onMapColourChanged={() => setMapColourVersion((v) => v + 1)}
           onDriveTimesRefreshed={refresh}
         />
       )}

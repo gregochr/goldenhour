@@ -42,6 +42,7 @@ vi.mock('../api/settingsApi.js', () => ({
   lookupPostcode: vi.fn(),
   saveHome: vi.fn(),
   refreshDriveTimes: vi.fn(),
+  saveMapColourPreferences: vi.fn(),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 // The Map pane, stubbed so the date `App` resolves for it can be read. Every other test in this
@@ -77,7 +78,7 @@ import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecas
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import {
-  getSettings, getReach, getDriveTimes, lookupPostcode, saveHome,
+  getSettings, getReach, getDriveTimes, lookupPostcode, saveHome, saveMapColourPreferences,
 } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAuroraStatus } from '../api/auroraApi.js';
@@ -240,19 +241,19 @@ describe('App — WindowFirstBriefingProvider wiring', () => {
 // These drive the real dialog and read the provider's props through the passthrough spy, and count
 // `getReach` — the provider is its only caller — to see whether the provider asked again.
 
+/** Opens the settings dialog from the masthead cog and waits for its own settings fetch. */
+async function openSettings() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+  await screen.findByTestId('settings-postcode-input');
+  return screen.getByTestId('settings-modal');
+}
+
+/** The × in the dialog's header — its only control named "Close". */
+function closeSettings(dialog) {
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+}
+
 describe('App — the home settings counter moves on a save, never on a close', () => {
-  /** Opens the settings dialog from the masthead cog and waits for its own settings fetch. */
-  async function openSettings() {
-    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
-    await screen.findByTestId('settings-postcode-input');
-    return screen.getByTestId('settings-modal');
-  }
-
-  /** The × in the dialog's header — its only control named "Close". */
-  function closeSettings(dialog) {
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
-  }
-
   const counter = (providerSpy) => providerSpy.mock.calls.at(-1)[0].homeSettingsVersion;
 
   beforeEach(() => {
@@ -307,6 +308,61 @@ describe('App — the home settings counter moves on a save, never on a close', 
 
     expect(counter(providerSpy)).toBe(1);
     expect(getReach).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── App's own settings read ──────────────────────────────────────────────────
+//
+// `useHomeAndMapColour` reads the home's coordinates (the map's HOME marker, rings and ⌂) and the
+// colour preference (the ramp). It used to be asked again on every close of the dialog, unguarded;
+// it now asks on a home save or a colour save, so the colour radios depend on their own report.
+
+describe('App — its own settings read follows saves, not the dialog closing', () => {
+  it('asks nothing more when the dialog closes', async () => {
+    renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    const dialog = await openSettings();
+    // Every settings read so far: App's, the provider's and the dialog's own.
+    const readsWithDialogOpen = getSettings.mock.calls.length;
+
+    closeSettings(dialog);
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+
+    // Broken, the close asked App's read again — the unguarded request that could land last and
+    // leave the map's marker on the old home.
+    expect(getSettings).toHaveBeenCalledTimes(readsWithDialogOpen);
+  });
+
+  it('hands a colour chosen in the dialog to the ramp when the save lands', async () => {
+    // A fake server: the colour save changes what the next settings read returns.
+    let server = { role: 'PRO_USER', homePostcode: null, homePlaceName: null, mapColourScale: 'temp' };
+    getSettings.mockImplementation(() => Promise.resolve(server));
+    let settleColour;
+    saveMapColourPreferences.mockReset().mockReturnValue(new Promise((resolve) => { settleColour = resolve; }));
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    const { providerSpy } = renderApp();
+    await waitFor(() => expect(setModeSpy).toHaveBeenCalledWith('temp'));
+    await waitFor(() => expect(getReach).toHaveBeenCalledTimes(1));
+
+    const dialog = await openSettings();
+    fireEvent.click(within(dialog).getByTestId('settings-map-colour-verdict'));
+    expect(saveMapColourPreferences).toHaveBeenCalledWith('verdict');
+    // Nothing reaches the ramp on the click: it follows the saved preference, not the radio.
+    expect(setModeSpy).not.toHaveBeenCalledWith('verdict');
+
+    // Settled inside an awaited act, so App's re-read has run before the ramp is checked.
+    await act(async () => {
+      server = { ...server, mapColourScale: 'verdict' };
+      settleColour(server);
+    });
+
+    // Broken — the report unwired, or the read not keyed on it — the ramp stayed on temp until a
+    // reload, since the close no longer re-reads anything.
+    expect(setModeSpy).toHaveBeenLastCalledWith('verdict');
+    // And it asked nothing of the home: the provider's counter did not move, and it did not ask
+    // for reach again — a colour save is not a change to anything those fetches read.
+    expect(providerSpy.mock.calls.at(-1)[0].homeSettingsVersion).toBe(0);
+    expect(getReach).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -58,14 +58,13 @@ request failed, naming a home the reader has just left. The provider cannot tell
 from one that did not, so the fix is `App`'s: the companion change moves the counter on a save alone.
 One narrow case is left and pinned by a test: a drive-time recalculation moves the counter too and
 does not change the settings answer, so one that completes while the postcode save's own settings
-request is still out drops that correct answer for a round trip.
+request is still out drops that correct answer for a round trip. `App`'s own read of the same
+endpoint — the HOME marker, the reach rings, the ⌂ control and the colour ramp — had the same race,
+unguarded, and after this fix could leave the map on the previous home beside the new home's name
+and drive times; a second companion change gives it the same guard.
 
 ⚠️ **Not fixed here, and named so it reads as known:**
 
-- `App.loadHomeCoords` sends a third `GET /api/user/settings` on the same schedule, unguarded, and it
-  feeds the HOME marker, the reach rings, the ⌂ control's "Set your home postcode in Settings",
-  `mapReachMeasured` and the colour ramp. In the race this fixes, those can now stay on the previous
-  home — or be absent — beside the new home's name and drive times.
 - The last-seen date has a second writer: `Mark seen` and the first-open bootstrap write it through the
   shell, and they never supersede a settings request. That request reads the row first and then, with
   a postcode saved, waits on an uncached postcodes.io lookup, so a `Mark seen` pressed inside that wait

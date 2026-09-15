@@ -1258,7 +1258,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
   // in its normal prop set changes when only the colour preference does. `mapColourScale` exists
-  // for exactly that: a caller that re-resolves the setting (`App.jsx`'s `loadHomeCoords`) hands
+  // for exactly that: a caller that re-resolves the setting (`App.jsx`'s `useHomeAndMapColour`) hands
   // down a genuinely new value, which is what breaks `React.memo`'s shallow prop compare and lets
   // this render run at all. Its own VALUE is deliberately never consulted below — every actual
   // colour read (`rampHex`, and `getMode()` in `makeMarkerIcon`'s cache key) goes straight to

@@ -23,7 +23,7 @@ const ROLE_LABELS = {
 const DEFAULT_RADIUS_MILES = 22;
 
 export default function UserSettingsModal({
-  onClose, onDriveTimesRefreshed, onHomeChanged, focusField = null,
+  onClose, onDriveTimesRefreshed, onHomeChanged, onMapColourChanged, focusField = null,
 }) {
   const [settings, setSettings] = useState(null);
   // Focused once settings have loaded, not on mount: the input is disabled for a LITE user and
@@ -180,9 +180,9 @@ export default function UserSettingsModal({
    * Persists the map colour preferences. Both fields are sent together — the endpoint has no
    * partial-update idiom, unlike `saveHome`'s radius, because nothing else shares this request.
    *
-   * <p>Does not call `scoreRamp.setMode` itself. `App.jsx`'s `loadHomeCoords` re-fetches settings
-   * and wires `setMode` from the result when this modal closes — the one place the loaded setting
-   * reaches the ramp, so Plan and Map can never disagree.
+   * <p>Does not call `scoreRamp.setMode` itself. It reports the save (`onMapColourChanged`), and
+   * `App`'s `useHomeAndMapColour` re-fetches settings and wires `setMode` from the result — the one
+   * place the loaded setting reaches the ramp, so Plan and Map can never disagree.
    */
   const handleMapColourChange = async (nextScale) => {
     setMapColourScale(nextScale);
@@ -192,6 +192,9 @@ export default function UserSettingsModal({
       const updated = await saveMapColourPreferences(nextScale);
       setSettings((prev) => ({ ...prev, ...updated, homePlaceName: updated?.homePlaceName
         ?? prev?.homePlaceName }));
+      // From the save's own continuation, as `onHomeChanged` is: a save that lands after the dialog
+      // has closed still reports.
+      onMapColourChanged?.();
     } catch {
       setColourError(true);
     } finally {
@@ -526,6 +529,11 @@ UserSettingsModal.propTypes = {
    * right while every move is a real change.
    */
   onHomeChanged: PropTypes.func,
+  /**
+   * Called after each successful map-colour save, and at no other time. `App` moves the ramp's own
+   * counter here, which its settings read keys on alongside the home counter.
+   */
+  onMapColourChanged: PropTypes.func,
   /** Field to focus once settings load — `'postcode'`, or null to open normally. */
   focusField: PropTypes.oneOf(['postcode']),
 };
