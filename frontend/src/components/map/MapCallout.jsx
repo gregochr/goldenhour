@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { useMap } from 'react-leaflet';
 import {
   anchorCallout, calloutBand, calloutFacts, filterCalloutTopics, isCoastalTidalLocation,
-  regionGlossFor,
+  NIGHT_RETRY_LINE, regionGlossFor,
 } from '../../utils/mapCallout.js';
 import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
@@ -151,6 +151,13 @@ function kindShort(event) {
  *        rather than the definitive-sounding "Not scored yet" while this is false, for the same
  *        reason as `scoresKnown`; the strip's cell for the window on screen restates the pair.
  *        Defaults false, the side that never claims more than it knows
+ * @param {boolean} [props.ratingRetrying] whether that source's request has FAILED and is being
+ *        asked again (`MapView.jsx`'s `ratingRetrying`, true only for an astro or aurora night). A
+ *        null rating then renders {@code NIGHT_RETRY_LINE} ("Couldn’t load — trying again") in
+ *        place of "Loading…", which between a long outage's retries claimed a load in progress when
+ *        nothing was in flight. (It is announced by `MapView`'s status region, not by this card —
+ *        see the note where the verdict row ends.) Read only while `ratingKnown` is false: an
+ *        answer in hand outranks a failed refresh of it. Defaults false
  * @param {?object} [props.regionGlossIndex] from `utils/mapCallout.buildRegionGlossIndex` — the
  *        reason prose's fallback when this location's own window carries no summary
  * @param {Array<object>} [props.evRows] the full EV list, for the "every window" strip
@@ -179,7 +186,8 @@ function kindShort(event) {
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
   tideOnLight = null,
-  scoreIndex = null, scoresKnown = false, ratingKnown = false, regionGlossIndex = null, evRows = [],
+  scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
+  regionGlossIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
@@ -280,7 +288,18 @@ export default function MapCallout({
   // either. Keying on the event's own identity, rather than a narrower boolean naming just the
   // tide row, catches all four at once and needs no second dependency the next time a
   // window-scoped block is added to this card.
-  useEffect(() => { repaintNow(); }, [paint, stripOpen, event?.id, repaintNow]);
+  //
+  // ⚠️ And the headline's own inputs — `rating`, `ratingKnown`, `ratingRetrying` — because the
+  // verdict row can change in place with no new window at all: a night's answer landing, or its
+  // request failing, rewrites it while the card stays open. The row wraps (`.wf-callout-verdict` is
+  // `flex-wrap: wrap`), and "Couldn’t load — trying again" (≈207px) can never share a line with the
+  // kind chip in a 240px row, so it always adds one, ≈24px — more than `CALLOUT_GAP` — leaving a
+  // card placed above the point grown down over it, or one clamped to the band's floor grown into
+  // the chrome below, until an unrelated pan/zoom re-measured. "Loading…" → "Not scored yet" could
+  // already do the same (review, B1/C5).
+  useEffect(() => { repaintNow(); }, [
+    paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, repaintNow,
+  ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
   // reserves `panInside` for the open action; the anchoring above is what tracks it afterwards).
@@ -414,6 +433,10 @@ export default function MapCallout({
   // night the preview never asks about but the map had fetched for itself (a past night kept local,
   // or the aurora auto-jump's small-hours night, which is dated yesterday), or an admin re-run's
   // "Not scored yet" above a stale preview's star. Three review lenses found it independently.
+  // Its "…" restates both of the headline's still-to-come lines, "Loading…" and "Couldn’t load —
+  // trying again" alike: a cell has room for a mark, not the words, and either way no answer has
+  // come and one is still being asked for. (The failure is announced by `MapView`'s status region,
+  // rather than left to this cell.)
   //
   // ⚠️ What is left, for every OTHER cell: a night the preview never asks about — one beyond the
   // solar horizon `MapView.jsx`'s `astroPreviewDates`/`auroraPreviewDates` are bounded to — is never
@@ -520,11 +543,19 @@ export default function MapCallout({
               {`${ratingRounded}★ ${word}`}
             </span>
           ) : (
+            // "Not scored yet" only on the word of the rating's own source. Until it has answered,
+            // what it is doing: loading, or trying again after a failure (`ratingRetrying`) — the
+            // answer outranks the failure, so a night still holding one keeps it through a failed
+            // refresh.
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
-              {ratingKnown ? 'Not scored yet' : 'Loading…'}
+              {ratingKnown ? 'Not scored yet' : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
             </span>
           )}
         </div>
+        {/* ⚠️ No status region here, deliberately: the failure line is announced by `MapView`'s
+            own (`statusLine`). A region inside this card would be mounted by the selection, so a
+            night that failed before a place was picked arrived in it already announced-to-nobody —
+            live regions announce changes, not what they are mounted with (Codex, #848). */}
 
         {/* Increment §1 — the clamped prose IS the route, not a dead end.
             ⚠️ THE CLAMP LIVES ON THE INNER SPAN, never on the button. `-webkit-line-clamp` requires
@@ -726,6 +757,7 @@ MapCallout.propTypes = {
   scoreIndex: PropTypes.object,
   scoresKnown: PropTypes.bool,
   ratingKnown: PropTypes.bool,
+  ratingRetrying: PropTypes.bool,
   regionGlossIndex: PropTypes.object,
   evRows: PropTypes.array,
   astroConditionsByDate: PropTypes.instanceOf(Map),
