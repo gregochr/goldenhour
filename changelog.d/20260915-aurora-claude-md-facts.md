@@ -28,7 +28,12 @@ one contradiction for another, so the endpoint is documented as it behaves today
 today-only equivalence to `/admin/reset` spelled out inline. Whoever merges the lifecycle fix should
 drop that aside along with the rest of this line's now-stale detail.
 
-Not touched: `AuroraForecastController` (`/api/aurora/forecast/preview|run|results|results/available-dates`,
-also `PRO/ADMIN`) is a fourth aurora controller with no entry anywhere in CLAUDE.md's API section. The
-review didn't ask for it and adding a new endpoint group is a bigger documentation decision than
-correcting three mislabelled ones, so it's left for a separate pass.
+**A fourth aurora controller, added on request.** `AuroraForecastController`
+(`/api/aurora/forecast/preview|run|results|results/available-dates`) had no entry anywhere in
+CLAUDE.md's API section; it's now on the same line as the other two controllers, also
+`@PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")`. Adding it forced a second correction: the section
+header said "ADMIN for writes", true of every write under `/api/aurora/admin/*` but not of
+`POST /api/aurora/forecast/run` — a write (it persists results and spends a Claude call per viable
+night) that a PRO account reaches without ADMIN. The header now reads "PRO/ADMIN; admin paths
+ADMIN-only", scoped to the path rather than to read/write, and the blockquote says why the old
+shorthand didn't hold.

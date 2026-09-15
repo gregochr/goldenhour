@@ -460,12 +460,16 @@ Two consequences worth stating plainly:
 ### Calibration gate (ADMIN)
 `GET /api/admin/calibration` — forecast accuracy vs **recorded outcomes**. The only non-self-referential accuracy measure in the project: prompt-regression tests compare Claude to hand-written expectations, the sky-rating eval harness to fixtures, and model-comparison to other models — all can stay green while forecasts drift from reality. `ForecastCalibrationService` joins `forecast_evaluation` to `actual_outcome` on (location, date, target type), keeps the newest run per (slot, horizon), and buckets **overall / per `daysAhead` / per model**. Each bucket carries signed mean error (separates optimism from pessimism), mean absolute error, exact-match and within-one rates, plus two decision-error counts: **missedOpportunities** (predicted ≤2, actual ≥4) and **wastedTrips** (predicted ≥4, actual ≤2). Run over a fixed window before and after any prompt or sampling-geometry change and diff the buckets — aggregation is deterministic per window. An absolute rating ceiling can only create missed opportunities, so that count gates relaxing the cloud-approach veto (see `docs/engineering/cloud-approach-veto-fix.md`).
 
-### Aurora (PRO/ADMIN; ADMIN for writes)
-`GET /api/aurora/status` (PRO/ADMIN) | `GET /api/aurora/locations` (PRO/ADMIN) | `GET /api/aurora/viewline` (PRO/ADMIN) | `GET /api/aurora/viewline/forecast` (PRO/ADMIN — Kp-to-latitude line for a forecast-triggered alert, vs `/viewline`'s live OVATION nowcast) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — triggers immediate NOAA cycle) | `POST /api/aurora/admin/reset` (ADMIN) | `POST /api/aurora/admin/simulate` (ADMIN — injects fake NOAA data for testing, no Claude call) | `POST /api/aurora/admin/simulate/clear` (ADMIN — today, an alias for `/admin/reset` under different wording: both call `AuroraStateCache.reset()`, unconditionally wiping the whole state machine — a real alert included — and always answering 200)
+### Aurora (PRO/ADMIN; admin paths ADMIN-only)
+`GET /api/aurora/status` (PRO/ADMIN) | `GET /api/aurora/locations` (PRO/ADMIN) | `GET /api/aurora/viewline` (PRO/ADMIN) | `GET /api/aurora/viewline/forecast` (PRO/ADMIN — Kp-to-latitude line for a forecast-triggered alert, vs `/viewline`'s live OVATION nowcast) | `GET /api/aurora/forecast/preview` (PRO/ADMIN — cheap 3-night Kp preview from cached NOAA data, no Claude call) | `POST /api/aurora/forecast/run` (PRO/ADMIN — runs the Claude pipeline for the selected nights and stores results; billable) | `GET /api/aurora/forecast/results` (PRO/ADMIN) | `GET /api/aurora/forecast/results/available-dates` (PRO/ADMIN) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — triggers immediate NOAA cycle) | `POST /api/aurora/admin/reset` (ADMIN) | `POST /api/aurora/admin/simulate` (ADMIN — injects fake NOAA data for testing, no Claude call) | `POST /api/aurora/admin/simulate/clear` (ADMIN — today, an alias for `/admin/reset` under different wording: both call `AuroraStateCache.reset()`, unconditionally wiping the whole state machine — a real alert included — and always answering 200)
 
-> `AuroraController` (`status`, `locations`, `viewline`, `viewline/forecast`) is class-level
-> `@PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")` — there is no LITE-tier aurora read, unlike the
-> forecast endpoints' basic/enhanced split. `AuroraAdminController` (`/admin/*`) is class-level
+> `AuroraController` (`status`, `locations`, `viewline`, `viewline/forecast`) and
+> `AuroraForecastController` (`forecast/preview|run|results|results/available-dates`) are both
+> class-level `@PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")` — there is no LITE-tier aurora read,
+> unlike the forecast endpoints' basic/enhanced split. That makes `forecast/run` the one Aurora write
+> a PRO account can reach without ADMIN: it persists results and spends one Claude call per viable
+> night, so the header's "ADMIN for writes" shorthand used elsewhere in this file does not hold here.
+> `AuroraAdminController` (`/admin/*`) is the only all-ADMIN piece, class-level
 > `@PreAuthorize("hasRole('ADMIN')")`.
 
 ### Briefing (Bearer / ADMIN for writes)
