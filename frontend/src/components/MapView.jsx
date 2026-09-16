@@ -1852,28 +1852,44 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Live Leaflet marker instances keyed by location name — used to open a popup
   // programmatically when the Plan tab hands off a specific location.
   const markerRefs = useRef(new Map());
-  // Aurora is available when the user is ADMIN/PRO and either the state machine is active
-  // or there are stored forecast results for any date on the date strip.
+  // Aurora is available when the user is ADMIN/PRO and either the live alert is active or this map's
+  // list of stored aurora nights is non-empty. The list names every night that held a real
+  // (non-simulated) stored result when this map asked, and is asked for once, when this map mounts
+  // (again only if the role changes): it is empty until that request answers, stays empty if it fails,
+  // and never learns of a night stored after it answered — the Map tab's map stays mounted once visited.
   const hasStoredAuroraResults = auroraAvailableDates.length > 0;
   const auroraAvailable = role !== 'LITE_USER'
     && (auroraStatus?.active === true || hasStoredAuroraResults);
   const astroAvailable = astroAvailableDates.length > 0;
 
-  // Auto-reset to SUNSET when aurora mode becomes unavailable.
+  // Auto-reset to SUNSET when aurora mode becomes unavailable. A reader meets this when an alert
+  // ends (the status turns `active: false`) while they are in aurora mode and this map's list of
+  // stored aurora nights is empty — on the Map tab and on the Plan-tab overlay alike. That includes a
+  // list that has not answered yet, so a map mounted into aurora mode after an alert has ended leaves
+  // it at once, even when a stored night exists.
   useEffect(() => {
     if (eventType === 'AURORA' && !auroraAvailable) {
       // Wrapped in an inline async function to satisfy react-hooks/set-state-in-effect.
       // The body still runs synchronously in this tick, preserving prior behaviour.
       (async () => {
         setEventType('SUNSET');
-        setMinStars(null);
+        // ⚠️ No reader asked for this change, so it leaves what the reader set alone — an owner
+        // decision. The rating floor and the stand-down lens keep their values and their saved
+        // copies, and the subject, drive-time and dark-sky filters stand; only the admin "unknown"
+        // lens and the kept-local night reset. It used to set the floor to `null` and clear the saved
+        // one. `null` meant "no floor" when that was written (a5a23f2e), but since 7618a02c the floor
+        // always holds a value, so every reader of it went wrong: an empty chip on the overlay's
+        // context bar, every star button pressed, a filter count and a Clear for a floor nobody
+        // chose, every rating let through — and a reload lost the floor the reader had saved.
+        // `selectEvRow` still resets and clears the floor on an explicit kind change, as
+        // `ForecastTypeSelector`'s `onChange` does on the overlay; map-landing-plan.md §4 #21(a)
+        // records the former as inherited, not chosen.
         setShowUnrated(false);
         // A kept-local night (adversarial review, BLOCKING) has no meaning once the mode that
         // produced it is gone — this leaves SUNSET, which never reads `nightDate`'s override at
         // all, but a later re-entry into ASTRO/AURORA must not resume a night from a session ago.
         setLocalNightDate(null);
       })();
-      clearMapFilter('mapFilterMinStars');
     }
   }, [auroraAvailable, eventType]);
 

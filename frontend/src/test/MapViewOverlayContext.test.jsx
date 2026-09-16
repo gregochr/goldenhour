@@ -212,6 +212,49 @@ describe('MapView overlay mode — the Plan tab drill-down', () => {
   });
 });
 
+describe('MapView overlay mode — the drawer\'s two floor resets land on the 3★+ default', () => {
+  // ⚠️ Neither reset had a test on the floor it leaves, and a storage check alone would pass for a
+  // floor with no value — the reset that ran when aurora became unavailable wrote exactly that
+  // (`MapViewAuroraUnavailableFloor.test.jsx` covers that route now). So each reads the three places
+  // a floor shows: the context bar, the Clear (which a floor of the wrong type, such as the string
+  // '3', keeps on screen), and storage. What the event change pins — an explicit kind change resets
+  // the floor and clears the saved one — is inherited behaviour: the overlay's selector has cleared the
+  // saved floor since a5a23f2e. map-landing-plan.md §4 #21(a) records the Map tab's copy of it
+  // (`selectEvRow`), not this one.
+  const chips = () => screen.getAllByTestId('map-context-chip').map((c) => c.textContent);
+
+  it('an event change in the drawer resets the floor to the 3★+ default', () => {
+    localStorage.setItem('mapFilterMinStars', '4');
+    renderMap({ overlayMode: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    // Control: the saved 4★+ is in force, so the Clear is on screen and the floor saved before the change.
+    expect(chips()).toEqual(['4★+']);
+    expect(screen.getByRole('button', { name: 'Clear' })).toBeInTheDocument();
+    expect(localStorage.getItem('mapFilterMinStars')).toBe('4');
+
+    fireEvent.click(screen.getByRole('button', { name: '☀️ Sunrise' }));
+
+    expect(screen.getByTestId('map-context-event')).toHaveTextContent('Sunrise');
+    expect(chips()).toEqual(['3★+']);
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
+    expect(localStorage.getItem('mapFilterMinStars')).toBeNull();
+  });
+
+  it('the drawer\'s Clear resets the floor to the 3★+ default', () => {
+    localStorage.setItem('mapFilterMinStars', '4');
+    renderMap({ overlayMode: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    expect(chips()).toEqual(['4★+']);
+    expect(localStorage.getItem('mapFilterMinStars')).toBe('4');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+    expect(chips()).toEqual(['3★+']);
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
+    expect(localStorage.getItem('mapFilterMinStars')).toBeNull();
+  });
+});
+
 describe('MapView Map tab — unchanged by the overlay work', () => {
   // ⚠️ map-tab-v2-plan.md §3 P6 removed `ForecastTypeSelector` from the TAB primary row — it
   // survives unchanged on the overlay, which is what the rest of this file's "unchanged by the
