@@ -141,8 +141,8 @@ beforeEach(() => {
   //
   // ⚠️ `active: true` is not decoration, and leaving it out made this whole file meaningless.
   // Aurora mode requires `auroraAvailable` — a LIVE alert (`active`) or some stored run — and
-  // without either `MapView` enters aurora mode and immediately bounces back to SUNSET, nulling the
-  // rating floor on the way out. The first cut omitted it: every aurora surface then rendered
+  // without either `MapView` enters aurora mode and immediately bounces back to SUNSET. The first
+  // cut omitted it: every aurora surface then rendered
   // nothing on ANY night, so the three "withheld on another night" tests passed trivially while
   // all four controls failed. The controls are what exposed it — which is the whole reason each
   // negative here has one.
