@@ -9,7 +9,7 @@ const TOKEN_KEY = 'goldenhour_token';
  * @param {Object} params - Additional query params (token added automatically)
  * @param {Object} eventHandlers - { 'event-name': (parsedData) => void }
  * @param {Object} [options]
- * @param {Function} [options.onError] - Called on connection error (when readyState !== CLOSED)
+ * @param {Function} [options.onError] - Called on every connection error, whatever the readyState
  * @param {string} [options.closeOn] - Event name that triggers source.close() after handler fires
  * @param {Function} [options.getToken] - Custom token getter (default: localStorage)
  * @param {boolean} [options.reconnectOnVisible] - Reconnect immediately when the tab becomes
