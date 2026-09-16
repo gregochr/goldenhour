@@ -75,7 +75,12 @@ made five. Each now has a deliberate focus target:
   error if it fails) until the reader chooses again. One whose read answers after a save has
   landed shows the save, not the read's older scale. On the base, a reopen that overlapped a save
   showed the scale that save had just replaced whenever the server took the read before the save
-  committed (driven that way in all three engines).
+  committed (driven that way in all three engines). The line ends with the page. Signing out
+  unmounts `App`, but a choice still waiting in the line used to go out anyway when its turn
+  came, under whichever token was stored by then. If another account had signed in meanwhile, the
+  signed-out reader's choice overwrote that account's colour (found by Codex on #859, reproduced
+  in a test). Once the line has ended, no waiting choice is sent, and a save already out reports
+  nothing to the next page's ramp.
 
 Each landing moves the reader only when focus has actually been orphaned (`<body>`, the document
 or the dialog's own root). A reader who has moved on is left alone: a Tab away during a save, or
@@ -94,7 +99,7 @@ statement now shows focus (measured), and the nudge, the origin button, ⌕ and 
 outline from the same rule (not separately measured).
 
 **Verified:**
-- **Tests.** 86 more tests than the base, across `useDialogFocus`, `Modal`, `MastheadTickLine`,
+- **Tests.** 91 more tests than the base, across `useDialogFocus`, `Modal`, `MastheadTickLine`,
   `UserSettingsModal`, `App`, `AppSettingsRoutes` and the new `colourSaveQueue`. The `App` tests
   drive #842's real routes: a save from the Map-tab nudge, the dialog's read answering after the
   close, a later opening from the cog, and colour choices across a close and a reopen. Two more
@@ -105,7 +110,7 @@ outline from the same rule (not separately measured).
   since jsdom renders no CSS. That the landing runs in a layout effect, in the commit that removes
   the pressed control, is pinned too: a page's own layout effect in that commit already sees the
   landing.
-- **Mutation sweep.** 73 mutants against the final tree, all killed, each by the tests written for
+- **Mutation sweep.** 77 mutants against the final tree, all killed, each by the tests written for
   it; the ones touching `App` were run again after rebasing onto #858. They cover the fallback's
   consultation and its guards, the handoff and its StrictMode record, every landing and whether its
   target can take focus, the busy buttons, the colour line's order, skipping, `pending` and

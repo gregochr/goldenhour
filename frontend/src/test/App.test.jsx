@@ -1392,6 +1392,33 @@ describe('App — one line of colour saves for the page, across the dialog\'s op
     expect(mapPaneProps.last.mapColourScale).toBe('verdict');
   });
 
+  it('⚠️ sends nothing a signed-out reader left waiting — the next account signed in must not get it', async () => {
+    // From review (Codex, on #859): the line outlives the dialog, and a choice waiting in it went out
+    // when its turn came even after the reader had signed out. The axios interceptor reads the token
+    // as each request starts, so with another account signed in by then, the old reader's choice
+    // was written to THAT account.
+    const sent = holdColourSaves();
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    renderApp();
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    choose(dialog, 'temp'); // out at once
+    choose(dialog, 'verdict'); // waits behind it
+    await closeAndWait(dialog);
+    await act(async () => { fireEvent.click(screen.getByTestId('window-first-signout')); });
+    await screen.findByTestId('login-username'); // control: signed out
+    localStorage.setItem('goldenhour_token', 'the-next-account'); // whoever signs in next
+    const rampCallsAtSignOut = setModeSpy.mock.calls.length;
+
+    await land(() => sent[0].resolve(savedOn('temp')));
+
+    expect(scalesSent(sent), 'the waiting choice was never sent').toEqual(['temp']);
+    // And the save already out reports to no one: the page it belonged to has gone, and the ramp is
+    // module state the next page reads.
+    expect(setModeSpy.mock.calls.slice(rampCallsAtSignOut)).toEqual([]);
+  });
+
   it('⚠️ reopens on a save that landed while the reopened dialog\'s read was out, not on the read\'s older answer', async () => {
     // The likelier order: the server geocodes on every GET, so the save lands first, and a read
     // taken before the save committed answers with the scale it replaced.

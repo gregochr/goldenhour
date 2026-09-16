@@ -809,11 +809,14 @@ UserSettingsModal.propTypes = {
   onColourSaved: PropTypes.func,
   /**
    * The page's one line of map-colour saves, from `createColourSaveQueue`. `App` owns it so it
-   * outlives each opening of this dialog; without one, the dialog keeps a line of its own.
+   * outlives each opening of this dialog, and ends it when the reader signs out. Without one, the
+   * dialog keeps a line of its own, which nothing ends — a caller rendering this dialog on its own
+   * owns the session question too.
    */
   colourSaveQueue: PropTypes.shape({
     tail: PropTypes.object, latest: PropTypes.number, outstanding: PropTypes.number,
     pending: PropTypes.string, newest: PropTypes.object, landed: PropTypes.number, saved: PropTypes.string,
+    ended: PropTypes.bool,
   }),
   /** Field to focus once settings load — `'postcode'`, or null to open normally. */
   focusField: PropTypes.oneOf(['postcode']),

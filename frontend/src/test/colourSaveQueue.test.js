@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { colourAfterRead, createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
+import {
+  colourAfterRead, createColourSaveQueue, keepColourSaveLineOpen, saveColourInTurn,
+} from '../utils/colourSaveQueue.js';
 
 /**
  * `utils/colourSaveQueue.js` — the page's one line of map-colour saves.
@@ -221,6 +223,64 @@ describe('colourSaveQueue', () => {
     await expect(run).rejects.toThrow('reporter bug');
 
     expect([queue.landed, queue.saved]).toEqual([1, 'temp']);
+  });
+});
+
+describe('colourSaveQueue — the line ends with its owner', () => {
+  // From review (Codex, on #859): `App` unmounts when the reader signs out, and a choice still
+  // waiting in its line went out when its turn came — under whichever token was stored by then.
+
+  it('⚠️ sends no waiting choice once the line has ended', async () => {
+    const queue = createColourSaveQueue();
+    const end = keepColourSaveLineOpen(queue);
+    const { save, calls } = heldSave();
+    const first = saveColourInTurn(queue, 'temp', { save });
+    const waiting = saveColourInTurn(queue, 'verdict', { save });
+
+    end(); // the owner unmounts: the reader signed out
+    calls[0].resolve({});
+
+    expect(await first).toBe('ended');
+    expect(await waiting).toBe('ended');
+    expect(save.mock.calls.map(([scale]) => scale), 'only the save already out').toEqual(['temp']);
+  });
+
+  it('reports nothing from a save already out when the line ended — the page it belonged to is gone', async () => {
+    const queue = createColourSaveQueue();
+    const end = keepColourSaveLineOpen(queue);
+    const { save, calls } = heldSave();
+    const onSaved = vi.fn();
+    saveColourInTurn(queue, 'temp', { save, onSaved });
+
+    end();
+    calls[0].resolve({ mapColourScale: 'temp' });
+    await drain();
+
+    expect(onSaved).not.toHaveBeenCalled();
+    expect([queue.landed, queue.saved], 'nor is it counted for a later read').toEqual([0, null]);
+  });
+
+  it('sends nothing chosen on an ended line, even when it is idle', async () => {
+    const queue = createColourSaveQueue();
+    keepColourSaveLineOpen(queue)();
+    const { save } = heldSave();
+
+    expect(await saveColourInTurn(queue, 'temp', { save })).toBe('ended');
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('opens again when held open again — StrictMode re-runs an owner\'s effect on a page that stays', async () => {
+    const queue = createColourSaveQueue();
+    keepColourSaveLineOpen(queue)(); // the development re-run's cleanup …
+    keepColourSaveLineOpen(queue); // … and its setup, straight after
+    const { save, calls } = heldSave();
+    const onSaved = vi.fn();
+    const run = saveColourInTurn(queue, 'temp', { save, onSaved });
+
+    calls[0].resolve({});
+
+    expect(await run).toBe('saved');
+    expect(onSaved).toHaveBeenCalledTimes(1);
   });
 });
 

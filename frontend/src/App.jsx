@@ -19,7 +19,7 @@ import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
-import { createColourSaveQueue } from './utils/colourSaveQueue.js';
+import { createColourSaveQueue, keepColourSaveLineOpen } from './utils/colourSaveQueue.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
@@ -193,8 +193,12 @@ function AppInner() {
    * rather than in the dialog because the dialog unmounts on close and its saves do not stop: with a
    * line per opening, a closed dialog's waiting choice went out after a reopened dialog's newer one.
    * See `colourSaveQueue.js`.
+   *
+   * <p>⚠️ Held open only while this page is mounted, which is the signed-in session: signing out
+   * unmounts it, and a choice still waiting would otherwise go out under the NEXT account's token.
    */
   const [colourSaveQueue] = useState(createColourSaveQueue);
+  useEffect(() => keepColourSaveLineOpen(colourSaveQueue), [colourSaveQueue]);
   /**
    * Today's light at the reader's home, for the window-first masthead's light rule.
    *
