@@ -6,7 +6,7 @@ import {
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import * as scoreRamp from '../utils/scoreRamp.js';
-import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { ukDateStrOffset } from '../utils/mapDates.js';
 
 /**
  * The first App wiring test. App.jsx is the composition root — every prop the Plan shell
@@ -897,17 +897,44 @@ describe('App — panes handed to WindowFirstShell', () => {
    * lands on the night the banner is about). The never-past clamp refused it in its first cut and
    * silently undid that fix; nothing in the suite noticed, because the overlay reads its own
    * `mapOverlay.date` and only the full Map tab falls through to `effectiveDate`.
+   *
+   * <p>⚠️ <b>The whole block runs on a frozen clock.</b> `App` reads `ukDateStr()` fresh on every
+   * render, so a fixture date computed once — as a module-load `YESTERDAY` used to be — goes stale
+   * the moment a run crosses UK midnight between file load and whichever millisecond these tests
+   * happen to execute: `isNightOver` then measures the picked night against a `todayStr` that has
+   * moved on since, and refuses a night that is still genuinely in progress. Freezing `Date`
+   * removes the question rather than narrowing it — every read of "now", in the fixtures below and
+   * inside `App` alike, answers from the same frozen instant no matter when the suite actually
+   * runs. The instant is `mapDates.js`'s own documented example (BST, the hour after UK midnight),
+   * so it also keeps the UK and UTC calendars naming different days here — the exact case the
+   * never-past clamp exists for.
    */
   describe('the date handed to the Map pane', () => {
-    const YESTERDAY = ukDateStrOffset(-1);
+    const NOW_ISO = '2026-08-13T23:30:00Z'; // 00:30 BST on the 14th
+    const TODAY = '2026-08-14';
+    const YESTERDAY = '2026-08-13';
+    const LATER = '2026-08-21'; // Any today-forward date works; a week out avoids edge overlap.
 
-    /** Rows on YESTERDAY as well, so the night is inside the forecast domain. */
-    const pastAndFutureForecasts = () => [
-      ...FORECASTS,
-      ...LOCATION_META.flatMap((m) => ['SUNRISE', 'SUNSET'].map((t) => ({
-        ...forecastRow(m, t), targetDate: YESTERDAY,
-      }))),
-    ];
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date(NOW_ISO));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const forecastsOn = (date) => LOCATION_META.flatMap((m) => ['SUNRISE', 'SUNSET'].map((t) => ({
+      ...forecastRow(m, t), targetDate: date,
+    })));
+
+    /**
+     * Rows on YESTERDAY, so the night is inside the forecast domain, and on LATER, so a
+     * today-forward fallback has somewhere to land once it is refused. Built from the frozen clock
+     * above rather than the file's own module-level `FORECASTS`/`TOMORROW`, which are computed
+     * once at real wall-clock load time — mixing a real calendar date into a block pinned to a
+     * fictional one is exactly the staleness this fixture exists to avoid.
+     */
+    const pastAndFutureForecasts = () => [...forecastsOn(LATER), ...forecastsOn(YESTERDAY)];
 
     /** The shell mounts a pane on first selection, so the tab has to be opened to read its props. */
     const openMapTab = async () => {
@@ -950,7 +977,7 @@ describe('App — panes handed to WindowFirstShell', () => {
 
       expect(mapPaneProps.last.dates).toContain(YESTERDAY);
       expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
-      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+      expect(mapPaneProps.last.selectedDate >= TODAY).toBe(true);
     });
 
     it('honours the NIGHT in progress when the aurora banner asks for it', async () => {
@@ -987,7 +1014,7 @@ describe('App — panes handed to WindowFirstShell', () => {
       await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY); });
 
       expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
-      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+      expect(mapPaneProps.last.selectedDate >= TODAY).toBe(true);
     });
 
     it('clears the night licence on the NEXT selection — it is per-pick, not sticky', async () => {
@@ -1045,7 +1072,7 @@ describe('App — panes handed to WindowFirstShell', () => {
       await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY, { isNight: true }); });
 
       expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
-      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+      expect(mapPaneProps.last.selectedDate >= TODAY).toBe(true);
     });
 
     it('moves the map off the night when its end passes with no new status — the provider re-renders App', async () => {
@@ -1058,21 +1085,31 @@ describe('App — panes handed to WindowFirstShell', () => {
       renderApp();
       await openMapTab();
       // Picked before any status has landed, so refused for now — but kept as the reader's choice,
-      // so the status landing is what admits it, and the control below does not race the clock.
+      // so the status landing is what admits it.
       await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY, { isNight: true }); });
       expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
 
+      // From here the timing has to be exact, so the clock stops tracking real time — every later
+      // step moves only as far as an explicit `advanceTimersByTimeAsync` takes it. Vitest carries
+      // the frozen instant across the re-install (the new clock reads its start time from the
+      // `Date` the old one already faked), so this does not restart the night at NOW_ISO.
+      vi.useFakeTimers({ shouldAdvanceTime: false });
       await act(async () => {
         land({
           level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
           currentNightEndsAt: new Date(Date.now() + 1500).toISOString(),
         });
+        await vi.advanceTimersByTimeAsync(0); // settles the resolved status without moving the clock
       });
-      // Control: while the end is ahead, the night is honoured.
+      // Control: while the end is ahead, the night is honoured — and this genuinely does not race
+      // the clock, since nothing from here on waits for real time to pass to prove it.
       expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
 
-      await waitFor(() => expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY));
-      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+      // Deliberately past the end, in one jump, rather than a `waitFor` racing the same 1.5s
+      // against however loaded the machine happens to be.
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+      expect(mapPaneProps.last.selectedDate >= TODAY).toBe(true);
     });
   });
 
