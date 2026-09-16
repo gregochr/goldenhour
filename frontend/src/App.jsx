@@ -456,6 +456,34 @@ function AppInner() {
   }, [lastCompletedRun]);
 
   const isDown = healthStatus === 'DOWN';
+  /**
+   * Whether the settings dialog is open — the one condition it mounts on below, and what the Plan
+   * shell is told. The dialog is a sibling of the shell here, so the shell cannot see it arrive;
+   * three routes open it (the masthead cog and nudge, and the Map tab's ⌂ through the map pane),
+   * and the ⌂ is the one that never passes through the shell. Hearing this, the shell takes its own
+   * dialogs down in the same commit.
+   */
+  const settingsOpen = Boolean(showSettings || settingsFocus);
+  /**
+   * …and `App` takes down its OWN other dialog, the map overlay, in the same commit — the shell's
+   * edge cannot, because the overlay is state here.
+   *
+   * <p>⚠️ The overlay is `aria-modal` and deliberately no trap, and it paints over settings
+   * (`zIndex: 200` against `Modal`'s `z-50`): a reader who Tabbed out of it and pressed ⚙ or the
+   * nudge — or the ⌂, with the overlay opened over the Map tab — got settings UNDER it, holding
+   * focus in a dialog they could not see. Settings is not a destination, and closing the overlay
+   * loses only what its own ✕ does. During render on the rising edge, as the shell's is, so no
+   * commit holds both; an effect's close would land a commit later.
+   *
+   * <p>What is still NOT the only modal under settings, named rather than implied: an
+   * Operations-tab admin `Modal` (left open — it can hold data a close would lose) and any dialog
+   * opened behind settings after it opened (the reverse route).
+   */
+  const [settingsWasOpen, setSettingsWasOpen] = useState(settingsOpen);
+  if (settingsOpen !== settingsWasOpen) {
+    setSettingsWasOpen(settingsOpen);
+    if (settingsOpen) setMapOverlay(null);
+  }
 
   return (
     // Recast as a flex column on the Map tab (map-tab-v2-plan.md §3 P7's full-frame owner,
@@ -575,6 +603,7 @@ function AppInner() {
               mapColourScale={mapColourScale}
               onTabChange={setActivePlanTab}
               onOpenSettings={() => setShowSettings(true)}
+              settingsOpen={settingsOpen}
               onSignOut={logout}
               light={todaysLight}
               // The Map pane's own home marker source, reused so the Plan surfaces' home marker and
@@ -689,7 +718,7 @@ function AppInner() {
         </footer>
       )}
 
-      {(showSettings || settingsFocus) && (
+      {settingsOpen && (
         <UserSettingsModal
           focusField={settingsFocus}
           onClose={() => {

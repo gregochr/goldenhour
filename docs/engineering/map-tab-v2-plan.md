@@ -1272,6 +1272,20 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   is the follow-on" was never blocked on testability — only its EFFECT is browser-only. This item
   stays open
   for them.
+
+  ⚠️ **A consequence this item did not list, and it reached a dialog outside the shell: settings.
+  FIXED 2026-09-16.** With no postcode saved and no origin, the map's ⌂ opens `App`'s settings
+  dialog through the map pane's `onOpenSettings`, which never passes through the shell. A reader who
+  Tabbed out of the peek onto it (arm A) got settings over the still-open sheet: two
+  `aria-modal="true"` elements, and the sheet's Escape listener still armed underneath. The cure is
+  the cog's own rule, not a guard on the pane. `App` passes the shell `settingsOpen`, and its rising
+  edge calls `selectTab` naming the tab in force, during render, in the commit settings mounts in.
+  The tab does not move, so the peek's back-track (O-18) survives: when settings closes, the reader
+  lands on the sheet's recorded opener, where its own cleanup sends focus in that commit — the
+  callout's `Four days here ›`, or the window pill when the peek came from the region panel or the
+  drilldown was open (`handleOpenLocationSheet` focuses the pill before the handoff).
+  `AppSettingsRoutes.test.jsx`. Reachability is taken from arm A's record here, not re-measured in a
+  browser.
 - **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
   accessible name) or move to caption-as-button with a four-word one (§4 #26).
 - **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED
