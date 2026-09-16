@@ -551,7 +551,7 @@ export default function UserSettingsModal({
               carried `@PreAuthorize("isAuthenticated()")`, so `PUT /home` was already open to any
               account. The gate was frontend-only. */}
           <section>
-            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Home location</h3>
+            <h3 id="settings-home-heading" className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Home location</h3>
             <div>
               {hasHome && !lookupResult && (
                 // Focusable only by the save that draws it (see `handleSave`), never by Tab.
@@ -568,6 +568,20 @@ export default function UserSettingsModal({
               <div className="flex gap-2">
                 <input
                   type="text"
+                  // Named by the section heading above it. Until this, its only name was the
+                  // placeholder — the name of last resort, an instruction rather than a name, and
+                  // out of sight whenever the field holds a value, which it does whenever a home
+                  // is saved. Pointing at the heading keeps the visible words and the name one
+                  // string by construction (WCAG 2.5.3). Chromium reads it "HOME LOCATION", with
+                  // the heading's `uppercase` applied — the reading the heading itself gets
+                  // (measured).
+                  //
+                  // ⚠️ The placeholder is NOT folded into the name as well. It reaches assistive
+                  // tech through its own hint property whatever the name is (HTML-AAM maps it as
+                  // `aria-placeholder`: AXPlaceholderValue, UIA HelpText, `placeholder-text`), so a
+                  // name carrying "Enter UK postcode" too would say it twice — on the empty field
+                  // the "set a postcode" nudge and the map's ⌂ both land on.
+                  aria-labelledby="settings-home-heading"
                   value={postcode}
                   onChange={(e) => setPostcode(e.target.value)}
                   onKeyDown={handleKeyDown}
@@ -622,18 +636,25 @@ export default function UserSettingsModal({
                 className={`mt-4${!isPro ? ' opacity-45 pointer-events-none' : ''}`}
                 data-testid="settings-local-radius"
               >
+                {/* The label names the slider and the hint describes it. Named by the whole label,
+                    the slider read "Local radiusHow far counts as close to home." (measured in
+                    Chromium): no text separates the two, and the gap a sighted reader sees is the
+                    hint's margin, which is not text. Adding a space would widen that gap, so the
+                    split is by id instead: the first span has no class, and no text was added. */}
                 <label
                   htmlFor="local-radius"
                   className="block text-sm text-plex-text mb-1"
                 >
-                  Local radius
-                  <span className="text-plex-text-muted ml-2 text-xs">
+                  <span id="local-radius-label">Local radius</span>
+                  <span id="local-radius-hint" className="text-plex-text-muted ml-2 text-xs">
                     How far counts as close to home.
                   </span>
                 </label>
                 <div className="flex items-center gap-3">
                   <input
                     id="local-radius"
+                    aria-labelledby="local-radius-label"
+                    aria-describedby="local-radius-hint"
                     type="range"
                     min="10"
                     max="50"

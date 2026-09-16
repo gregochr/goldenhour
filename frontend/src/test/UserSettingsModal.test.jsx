@@ -134,9 +134,72 @@ describe('UserSettingsModal', () => {
   it('still autofocuses the postcode field when asked, over the dialog\'s own focus', async () => {
     // The shared Modal focuses its container on open. This consumer's own effect runs after and
     // must win — the whole point of focusing the CONTAINER rather than hunting for a first control
-    // was that a consumer stays free to place focus itself.
+    // was that a consumer stays free to place focus itself. Found by its name, because the name is
+    // what a screen reader announces on landing — not the heading above the field. No postcode
+    // saved: the only state in which the routes that ask for this field exist.
+    getSettings.mockResolvedValue(LITE_SETTINGS);
     renderModal({ focusField: 'postcode' });
-    await waitFor(() => expect(screen.getByTestId('settings-postcode-input')).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Home location' })).toHaveFocus());
+  });
+
+  it('selects a postcode the read brings back, so typing replaces it rather than adding to it', async () => {
+    // The routes that ask for this field exist only while the page knows of no saved postcode, but
+    // the dialog reads the server afresh on opening — so a postcode saved since, on another device,
+    // arrives already in the field.
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    renderModal({ focusField: 'postcode' });
+    const field = await screen.findByRole('textbox', { name: 'Home location' });
+
+    await waitFor(() => expect(field).toHaveFocus());
+    expect(field).toHaveValue('EH1 1BB');
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe('EH1 1BB'.length);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Accessible names
+  //
+  // The postcode field's only name was its placeholder: the name of last resort, an instruction
+  // rather than a name, and out of sight whenever the field holds a value. It is the one control
+  // the "set a postcode" nudge and the map's ⌂ exist to land a reader on, so the heading above it
+  // names it. The radius slider had a real label, but its hint ran into it — "Local radiusHow far
+  // counts as close to home." — so the label's first span names it and the hint describes it.
+  // ---------------------------------------------------------------------------
+
+  describe('accessible names — the postcode field and the radius slider', () => {
+    beforeEach(() => {
+      // Reset, not cleared: an implementation from another test must not answer here.
+      getSettings.mockReset();
+    });
+
+    it('names the empty postcode field by its section heading, not by its placeholder', async () => {
+      // Empty is the state the nudge and the ⌂ land on — they exist only with no postcode saved.
+      getSettings.mockResolvedValue(LITE_SETTINGS);
+      renderModal();
+
+      const field = await screen.findByRole('textbox', { name: 'Home location' });
+
+      expect(field).toHaveValue('');
+      // The visible hint is untouched — and no longer the name.
+      expect(field).toHaveAttribute('placeholder', 'Enter UK postcode');
+      expect(screen.queryByRole('textbox', { name: 'Enter UK postcode' })).toBeNull();
+    });
+
+    it('keeps that name while the field holds a saved postcode, where the placeholder is hidden', async () => {
+      getSettings.mockResolvedValue(PRO_SETTINGS);
+      renderModal();
+
+      expect(await screen.findByRole('textbox', { name: 'Home location' })).toHaveValue('EH1 1BB');
+    });
+
+    it('names the radius slider by its label alone, and describes it with the hint', async () => {
+      getSettings.mockResolvedValue(PRO_SETTINGS);
+      renderModal();
+
+      const slider = await screen.findByRole('slider', { name: 'Local radius' });
+
+      expect(slider).toHaveAccessibleDescription('How far counts as close to home.');
+    });
   });
 
   it('postcode input is enabled for PRO user', async () => {
