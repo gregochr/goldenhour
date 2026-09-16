@@ -286,9 +286,32 @@ Two traps specific to this codebase:
 - Do not assume file order protects you, and do not assume it can hurt you either. `isolate: true`
   gives every test *file* its own process — nothing leaks between files — so a suspected flake is
   either inside one file or is not a flake at all. `--sequence.shuffle.tests --sequence.seed=N`
-  reproduces an intra-file order dependency deterministically; use it before reaching for anything
-  cleverer. ⚠️ **But shuffling cannot find the flake below**, and reading it as an order dependency
-  is the wrong turning — see the next section.
+  reproduces an intra-file order dependency — deterministically, unless it is also a race, as the
+  next bullet's is — so use it before reaching for anything cleverer. ⚠️ **But shuffling cannot find
+  the first-test flake in the next section**, and reading that one as an order dependency is the
+  wrong turning.
+- Do not open a lazy subtree and leave before it has mounted, unless mounting it is inert. A
+  `React.lazy` chunk stays loaded for the rest of the file once any test has loaded it, so such a
+  test runs whatever the tests before it left: the Suspense fallback if nothing had loaded the
+  chunk, the whole subtree — its requests, timers and throws — if something had. Wait for what the
+  subtree renders. `App.test.jsx`'s two aurora-banner tests opened the Plan-tab map overlay
+  (`MapOverlay` framing `MapView`) and did not wait. `MapView`'s chunk is requested only when
+  `MapOverlay` renders, so the real map mounted inside a press only once an earlier banner test had
+  still been mounted when `MapOverlay` loaded, and `MapView` had loaded since. The default order
+  never did that; a shuffle could, and the map then threw on a read the file had never mocked.
+  ⚠️ **A seed reproduces this only some of the time**, because whether the earlier test outlived
+  that load is a race: one seed ran the same order twice and failed once. Importing the two modules
+  in a `beforeAll` — a reproduction, not the warm-up the next section rejects — failed both tests in
+  the default order, 3 runs of 3.
+
+  The wait carries the chunk's first load, the cost the next section is about. With the real map
+  inside, the cold overlay wait — both chunks, Leaflet included, and the first render — took
+  2.8–3.8 s of its 4 s ceiling under that section's load reproduction, and `App.test.jsx` stubs that
+  `MapView`. That is not what this list bans further up ("Do not mock the component under test's own
+  children to make a test pass"), and the conditions are what make it so: no assertion in the file
+  reads the map, `MapView`'s own suites mount it, and keeping it real would have had the file mock
+  the map's reads and fixture its rules. A child that fails any of those stays real, and its wait
+  gets measured under the load reproduction.
 - Do not put an assertion inside a raw `requestAnimationFrame` (or `setTimeout`) callback and settle
   a promise after it. A throw there never reaches the `resolve()` on the next line, so the promise
   never settles and the test does not fail — it **hangs to `testTimeout`**. The failure you get is a
