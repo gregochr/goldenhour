@@ -8,15 +8,16 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 
 /**
- * Every route into the settings dialog leaves it the ONLY modal on the page.
+ * Every route into the settings dialog takes down the dialog it would otherwise open over.
  *
  * <p>`UserSettingsModal` is a SIBLING of the Plan shell in `App`, so it is outside every mechanism
  * the shell has for ordering its own layers: it is not a `Modal` the shell renders, the shell's
  * `stackedOverPopup` cannot see it, and it takes no `stacked` opt-in. It cannot be ordered against a
  * shell dialog — it can only be arrived at with none of them open. "At most one dialog may claim to
  * be the modal" is held route by route (v1-retirement §4.3), and M5 closed the cog's. This file
- * holds the other two routes into the same dialog, through the real `App`, so the count is taken
- * against the real settings dialog rather than against a handler that was merely called:
+ * holds the other two routes into the same dialog, and `App`'s own map overlay, through the real
+ * `App`, so the count is taken against the real settings dialog rather than against a handler that
+ * was merely called:
  *
  * <ul>
  *   <li>the masthead tick line's "set a postcode" nudge, which `App` wires straight to its own
@@ -26,7 +27,19 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
  *       than through the shell at all — reachable by Tab from the four-day sheet the callout's
  *       `Four days here ›` opens OVER the map (map-tab-v2-plan.md O-18; the Tab-out itself is O-20
  *       arm A).</li>
+ *   <li>`App`'s map overlay, which the shell cannot close at all: it is `App` state, `aria-modal`,
+ *       no trap, and painted over settings (`zIndex: 200` against `Modal`'s `z-50`).</li>
  * </ul>
+ *
+ * <p>⚠️ <b>Not "the only modal on the page", and the file does not claim it.</b> An Operations-tab
+ * admin `Modal` is left open under settings on purpose — it can hold data a close would lose — and
+ * a dialog opened behind settings after it opened (the reverse route) is not answered by any of
+ * this. Both are named in the changelog entry.
+ *
+ * <p>⚠️ <b>In `App`, the cog's and the nudge's routes are covered twice</b> — by the shell's own
+ * close on the press and by the `settingsOpen` edge — so no test here can tell which one held.
+ * `WindowFirstShellSheet.test.jsx` renders the shell without `App` and pins each. The ⌂'s route has
+ * only the edge, which is why its second opening is tested here.
  *
  * <p>The count is filtered off the dialog ROLE rather than a raw `[aria-modal]` selector, as
  * `WindowFirstShellSheet.test.jsx`'s own count is: it fails naming which dialogs are on screen.
@@ -36,6 +49,7 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
  * open. The Map pane is a stub carrying the two controls this file needs from it — the real ⌂'s
  * own rule (it calls `onOpenSettings` only while there is no home and no origin) is
  * `MapViewCentreOnHome.test.jsx`'s to pin; what is App's, and this file's, is where that call goes.
+ * The map inside the overlay is stubbed for `App.test.jsx`'s reasons, given beside the mock.
  */
 
 vi.mock('../api/forecastApi.js', () => ({
@@ -79,6 +93,13 @@ vi.mock('../api/authApi.js', () => ({
 // visible date, and this file is about neither.
 vi.mock('../components/WindowFirstDoors.jsx', () => ({
   default: () => <div data-testid="stub-doors" />,
+}));
+// The map inside the overlay the aurora banner opens, stubbed as `App.test.jsx` stubs it and for
+// the same reasons: no assertion here reads that map, `MapView`'s own suites mount it, and kept real
+// it would put Leaflet's first load inside `openOverlay`'s wait. See "Do not open a lazy subtree" in
+// `docs/engineering/frontend-test-standards.md`.
+vi.mock('../components/MapView.jsx', () => ({
+  default: () => <div data-testid="overlay-map-stub" />,
 }));
 
 /** What the callout's `Four days here ›` hands `App` — the peek, which does not move the tab. */
@@ -138,6 +159,11 @@ const SETTINGS_NO_HOME = {
   role: 'PRO_USER', homePostcode: null, homePlaceName: null, homeLatitude: null,
   homeLongitude: null, driveTimesCalculatedAt: null, mapColourScale: 'temp',
   comingUpLastSeenDate: null,
+};
+
+/** A live alert the banner shows, so it can open the map overlay. */
+const AURORA_ALERT = {
+  level: 'MODERATE', kpIndex: 6, currentNightDate: TOMORROW, simulated: false,
 };
 
 const CARD = {
@@ -304,6 +330,18 @@ async function openPeek() {
   return tookFocus(await screen.findByTestId('location-sheet'));
 }
 
+/**
+ * Presses the aurora banner and waits for the overlay it opens AND the map inside it — the wait
+ * `App.test.jsx`'s `pressAuroraBanner` keeps, for the reason recorded there: both are behind
+ * `React.lazy`, and a test that left before they mounted would run whatever earlier tests loaded.
+ */
+async function openOverlay() {
+  await press(await screen.findByTestId('aurora-banner'));
+  const overlay = await screen.findByRole('dialog', { name: 'Aurora tonight' });
+  await within(overlay).findByTestId('overlay-map-stub');
+  return overlay;
+}
+
 /** Closes the settings dialog from its own ×, and lets a frame pass so nothing is still pending. */
 async function closeSettings(dialog) {
   await press(within(dialog).getByRole('button', { name: 'Close' }));
@@ -316,9 +354,15 @@ async function closeSettings(dialog) {
 /**
  * Waits for the settings dialog's own read, so nothing is still landing when a test asserts — and
  * for its mount frame, so a later focus assertion cannot be answered by it.
+ *
+ * <p>⚠️ And checks the Plan did not crash behind it. `PlanErrorBoundary` wraps the shell while the
+ * settings dialog is its sibling, so a shell that threw on the press — a render-phase loop in the
+ * close, say — still leaves "one modal, named Settings, and the Plan dialog gone": every count in
+ * this file would pass against a dead Plan.
  */
 async function settingsSettled() {
   const dialog = await screen.findByTestId('settings-modal');
+  expect(screen.queryByTestId('plan-error')).toBeNull();
   await within(dialog).findByTestId('settings-postcode-input');
   await act(async () => {
     await new Promise((resolve) => { requestAnimationFrame(() => requestAnimationFrame(resolve)); });
@@ -356,18 +400,13 @@ afterEach(() => {
   delete window.cancelIdleCallback;
 });
 
-// ── The Plan tab ─────────────────────────────────────────────────────────────
+// ── The routes ───────────────────────────────────────────────────────────────
 
-describe('App — the settings dialog is the only modal, whichever route opened it', () => {
-  describe('from the Plan tab, with a window popup open', () => {
-    it('the cog: the control case — the harness reads the real settings dialog as the one modal', async () => {
+describe('App — every route into settings takes down the dialog it would open over', () => {
+  describe('the masthead cog and postcode nudge, on the Plan tab', () => {
+    it('the cog over a window popup — the control case: the harness reads the real settings dialog as the one modal', async () => {
       // Proves the harness first: the real settings dialog counts as a modal here, and the route M5
       // closed leaves it alone. Every negative below rests on this reading right.
-      //
-      // ⚠️ In `App` each shell route into settings is covered TWICE — by its own close and by
-      // `settingsOpen` — so none of these App-level cases can tell which one held. That is the
-      // design, not a gap: `WindowFirstShellSheet.test.jsx` renders the shell without `App` and pins
-      // the cog's and the nudge's own closes; the ⌂'s route below has only `settingsOpen`.
       renderApp();
       await openPopup();
 
@@ -379,7 +418,7 @@ describe('App — the settings dialog is the only modal, whichever route opened 
       expect(screen.queryByTestId('window-sheet')).toBeNull();
     });
 
-    it('⚠️ the postcode nudge: the popup goes before settings opens', async () => {
+    it('⚠️ the nudge over a window popup: the popup is gone in the render settings opens in', async () => {
       // Before the fix: the popup AND settings, both `aria-modal="true"`, neither inert — and the
       // popup's own Escape listener still armed underneath, so one press closed the dialog the
       // reader could not see while the one they were in stayed up (M5's measurement of the cog).
@@ -394,7 +433,7 @@ describe('App — the settings dialog is the only modal, whichever route opened 
       expect(screen.queryByTestId('window-sheet')).toBeNull();
     });
 
-    it('the postcode nudge still lands on the postcode field', async () => {
+    it('the nudge over a window popup still opens settings on the postcode field', async () => {
       // The nudge's whole reason for being a different handler from the cog. Closing the popup
       // first must not cost it: the dialog opens on the field the nudge names.
       renderApp();
@@ -407,15 +446,23 @@ describe('App — the settings dialog is the only modal, whichever route opened 
     });
 
     /**
-     * Where the reader lands when settings closes — never `<body>`, and not the nudge.
+     * Where the reader lands when settings closes: the covered dialog's own recorded opener, not the
+     * control pressed.
      *
      * <p>The popup and the settings dialog change places in ONE commit, and the popup's
-     * `useDialogFocus` cleanup runs first: the nudge sits outside the settings dialog, which by then
-     * claims the modal, so the cleanup counts focus as stranded and restores it to the popup's own
-     * trigger. The settings dialog then records THAT as its opener. The cog has done exactly this
-     * since M5; pinned so a change to either end is a decision rather than a drift.
+     * `useDialogFocus` cleanup runs first: the pressed control sits outside the settings dialog,
+     * which by then claims the modal, so the cleanup counts focus as stranded and restores it to the
+     * popup's opener. The settings dialog then records THAT as its own. For a popup opened from its
+     * matrix card, that is the card. Pinned for both masthead routes, so a change at either end is a
+     * decision rather than a drift.
+     *
+     * <p>⚠️ Two limits, stated rather than implied. If that opener has gone by the time settings
+     * closes — a window that passed while settings stood — the hook restores nothing and focus stays
+     * where the browser put it, as `useDialogFocus` records. And these are jsdom pins of the ORDER:
+     * jsdom focuses a node a browser refuses (inside a `hidden` panel, or under `inert`), so they
+     * cannot speak for a landing that depends on the opener still being focusable.
      */
-    it('closing settings from that route lands on the card the popup was opened from', async () => {
+    it('the nudge over a window popup: closing settings lands on the card the popup was opened from', async () => {
       renderApp();
       await openPopup();
       const card = screen.getAllByTestId('wf-heat-card')[0];
@@ -426,8 +473,19 @@ describe('App — the settings dialog is the only modal, whichever route opened 
       expect(card).toHaveFocus();
     });
 
-    it('with nothing open behind it, closing settings returns to the nudge itself', async () => {
-      // The control for the case above: no dialog of the shell's closes, so nothing moves focus
+    it('the cog over a window popup lands on the same card — the landing it has had since M5', async () => {
+      renderApp();
+      await openPopup();
+      const card = screen.getAllByTestId('wf-heat-card')[0];
+
+      await press(screen.getByRole('button', { name: 'Settings' }));
+      await closeSettings(await settingsSettled());
+
+      expect(card).toHaveFocus();
+    });
+
+    it('the nudge with nothing open: closing settings returns to the nudge itself', async () => {
+      // The control for the two cases above: no dialog of the shell's closes, so nothing moves focus
       // before the settings dialog records its opener, and the opener is the control pressed.
       renderApp();
       await screen.findByTestId('wf-heat-strip');
@@ -440,21 +498,19 @@ describe('App — the settings dialog is the only modal, whichever route opened 
     });
   });
 
-  // ── The Map tab ────────────────────────────────────────────────────────────
-
-  describe('from the Map tab, with the four-day sheet open over the map', () => {
-    it('the ⌂ with nothing over the map: the control case', async () => {
+  describe('the map ⌂, on the Map tab', () => {
+    it('with nothing over the map — the control case', async () => {
       renderApp();
       await openMapTab();
 
-      await press(screen.getByTestId('stub-home-control'));
+      await press(screen.getByRole('button', { name: HOME_CONTROL }));
       await settingsSettled();
 
       expect(modals()).toHaveLength(1);
       expect(modals()[0]).toHaveAccessibleName('Settings');
     });
 
-    it('⚠️ the ⌂: the sheet goes before settings opens', async () => {
+    it('⚠️ over the four-day sheet: the sheet is gone in the render settings opens in', async () => {
       // The route O-18 made: the sheet opens OVER the map with the tab unmoved, and the map under
       // it is a whole interactive pane — so a keyboard reader Tabs out onto the ⌂ (O-20 arm A) and
       // presses it. Before the fix the sheet stayed up under settings, both claiming the modal, and
@@ -472,7 +528,7 @@ describe('App — the settings dialog is the only modal, whichever route opened 
       expect(screen.queryByTestId('location-sheet')).toBeNull();
     });
 
-    it('and the tab does not move — the peek\'s own rule, kept', async () => {
+    it('over the four-day sheet: the tab does not move — the peek\'s own rule, kept', async () => {
       // O-18: the peek leaves the reader on the map so they can back-track to the selection they
       // opened it from. Settings is not a destination either, so taking the sheet down must not
       // take the map with it — the cog, reached from the same sheet, moves no tab.
@@ -487,10 +543,12 @@ describe('App — the settings dialog is the only modal, whichever route opened 
       expect(screen.getByTestId('map-pane-stub')).toBeVisible();
     });
 
-    it('closing settings from that route lands on the control the peek was opened from', async () => {
-      // The peek's own back-track target (O-18): the sheet's cleanup restores focus to its trigger
-      // in the commit settings opens in, so that is the opener settings records — the same shape as
-      // the popup's route on the Plan tab.
+    it('over the four-day sheet: closing settings lands on the control the peek was opened from', async () => {
+      // The sheet's own recorded opener, where its cleanup restores focus in the commit settings
+      // opens in — the same shape as the popup's route on the Plan tab, and the limits recorded
+      // there apply. Here the opener is the callout's `Four days here ›` stand-in; a peek opened
+      // from the region panel records the window pill instead (`MapView`'s `handleOpenLocationSheet`
+      // focuses it before the handoff), and would land there.
       renderApp();
       await openMapTab();
       await openPeek();
@@ -499,6 +557,111 @@ describe('App — the settings dialog is the only modal, whichever route opened 
       await closeSettings(await settingsSettled());
 
       expect(screen.getByTestId('stub-four-days')).toHaveFocus();
+    });
+
+    it('the ⚙ cog over the four-day sheet takes it down too, and moves no tab either', async () => {
+      // The masthead is on every tab, and the cog is not taken out of the tab order under a sheet,
+      // so it is the Map tab's other route into settings over the peek. It closes through the same
+      // `selectTab` naming the tab in force — the peek's own rule (O-18) is that nothing here moves
+      // the reader off the map.
+      renderApp();
+      const mapTab = await openMapTab();
+      await openPeek();
+
+      await press(screen.getByRole('button', { name: 'Settings' }));
+      await settingsSettled();
+
+      expect(modals()).toHaveLength(1);
+      expect(screen.queryByTestId('location-sheet')).toBeNull();
+      expect(mapTab).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('the postcode nudge on the Map tab opens settings where the reader is, moving no tab', async () => {
+      // The nudge renders on every tab while no home is saved. Its close names the tab in force, so
+      // pressing it from the map must not carry the reader back to the Plan.
+      renderApp();
+      const mapTab = await openMapTab();
+
+      await press(screen.getByRole('button', { name: NUDGE }));
+      await settingsSettled();
+
+      expect(modals()).toHaveLength(1);
+      expect(mapTab).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('⚠️ over the four-day sheet a SECOND time: the close re-arms when settings closes', async () => {
+      // The ⌂'s route has nothing but the edge, and every other test opens settings once — so an
+      // edge that latched on the first opening and never reset passed them all. The route back to
+      // this state is the one the test above lands the reader on: closing settings returns them to
+      // `Four days here ›`, one press from the peek, and the ⌂ is where they just were.
+      renderApp();
+      await openMapTab();
+      await openPeek();
+      await press(screen.getByRole('button', { name: HOME_CONTROL }));
+      await closeSettings(await settingsSettled());
+
+      await openPeek();
+      await press(screen.getByRole('button', { name: HOME_CONTROL }));
+      await settingsSettled();
+
+      expect(modals()).toHaveLength(1);
+      expect(modals()[0]).toHaveAccessibleName('Settings');
+      expect(screen.queryByTestId('location-sheet')).toBeNull();
+    });
+  });
+
+  describe('App\'s own map overlay', () => {
+    beforeEach(() => {
+      getAuroraStatus.mockResolvedValue(AURORA_ALERT);
+    });
+
+    it('⚠️ the cog over the map overlay: the overlay is gone in the render settings opens in, not painted over it', async () => {
+      // The overlay is `aria-modal`, no trap, and `zIndex: 200` against settings' `z-50`: before the
+      // fix a reader who Tabbed out of it onto ⚙ got settings UNDER the overlay, holding focus in a
+      // dialog they could not see, and the overlay's Escape listener still armed. The shell cannot
+      // close it — it is `App` state — so `App` does, on the same edge.
+      renderApp();
+      await screen.findByTestId('wf-heat-strip');
+      await openOverlay();
+
+      await press(screen.getByRole('button', { name: 'Settings' }));
+      await settingsSettled();
+
+      expect(modals()).toHaveLength(1);
+      expect(modals()[0]).toHaveAccessibleName('Settings');
+      expect(screen.queryByRole('dialog', { name: 'Aurora tonight' })).toBeNull();
+    });
+
+    it('⚠️ over the map overlay a SECOND time: `App`\'s close re-arms when settings closes', async () => {
+      // `App`'s edge, like the shell's, has to reset when settings closes, and a test that opens
+      // settings once cannot see it latch. Closing settings returns the reader to the banner, one
+      // press from the overlay again.
+      renderApp();
+      await screen.findByTestId('wf-heat-strip');
+      await openOverlay();
+      await press(screen.getByRole('button', { name: 'Settings' }));
+      await closeSettings(await settingsSettled());
+
+      await openOverlay();
+      await press(screen.getByRole('button', { name: 'Settings' }));
+      await settingsSettled();
+
+      expect(modals()).toHaveLength(1);
+      expect(modals()[0]).toHaveAccessibleName('Settings');
+      expect(screen.queryByRole('dialog', { name: 'Aurora tonight' })).toBeNull();
+    });
+
+    it('the cog over the map overlay: closing settings lands on the control the overlay was opened from', async () => {
+      // The overlay's own recorded opener — the banner — by the same one-commit swap the Plan's
+      // dialogs make, and with the same limits.
+      renderApp();
+      await screen.findByTestId('wf-heat-strip');
+      await openOverlay();
+
+      await press(screen.getByRole('button', { name: 'Settings' }));
+      await closeSettings(await settingsSettled());
+
+      expect(screen.getByTestId('aurora-banner')).toHaveFocus();
     });
   });
 });

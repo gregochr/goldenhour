@@ -91,6 +91,11 @@ Verified:
    cheaper than it is. A shell-root `inert` would either not cover it (leaving the hole) or would be applied
    somewhere that also covers the settings dialog itself (making it inert while it is the thing the
    reader is using). Bringing it inside the guarded tree is a real refactor of `App`'s structure.
+   ⚠️ **One thing has moved since this was costed (2026-09-16):** `App` now tells the shell when the
+   settings dialog is open (`settingsOpen`), and the shell and `App` close their own dialogs — the
+   shell's, and the map overlay — on its rising edge. So the shell can HEAR of that one sibling now,
+   which a guard keyed on "a dialog is open" could read. Nothing is inside the guarded tree yet, and
+   `MapOverlay` and `BottomSheet` are unchanged.
 2. **`stacked` mount ordering.** Four dialogs pass `stacked={!escapeEnabled}`
    (`WindowSheetDialog`, `LocationFourDaySheet`, `WindowSpotSheet`, `WindowPickDialog`). `stacked`
    currently means "a layer is above me"; under a shell-root guard it would have to mean "a layer

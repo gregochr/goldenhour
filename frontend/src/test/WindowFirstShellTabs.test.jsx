@@ -471,6 +471,27 @@ describe('WindowFirstShell — moving between tabs', () => {
     expect(screen.queryAllByRole('dialog')).toHaveLength(0);
   });
 
+  it('⚠️ takes SEARCH down with the tab too — the dialog the list left out until 2026-09-16', async () => {
+    // Search is a shell dialog like the rest but lived outside the list: it is `searchSeed`, not a
+    // sheet. The search box is no trap, and only the tick line leaves the tab order under it, so a
+    // keyboard reader could Tab out onto this bar and arrow away with search still open — over the
+    // map, where the four-day peek then landed `inert` beneath it rather than as the only layer. The
+    // route is driven the way that reader drives it: focus on the tab, then the arrow key.
+    renderShell();
+    fireEvent.click(screen.getByTestId('window-first-search'));
+    await screen.findByTestId('plan-search');
+    // Control: the tab the reader lands on is still in the tab order with search up.
+    expect(tab('Plan')).toHaveAttribute('tabindex', '0');
+
+    act(() => { tab('Plan').focus(); });
+    fireEvent.keyDown(tab('Plan'), { key: 'ArrowRight' });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('plan-search')).toBeNull();
+    expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+  });
+
   it('leaves keys it does not own alone, so the page can still be scrolled', () => {
     // Up/Down are deliberately unbound: this is a horizontal tab list, and taking the vertical keys
     // would cost the page scroll for nothing.

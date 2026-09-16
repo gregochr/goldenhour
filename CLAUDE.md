@@ -43,20 +43,26 @@ to be the modal, and the guard is per-route rather than global**: the shared `Mo
 `stacked` opt-in (M5) that makes a covered layer `inert` and drops its `aria-modal`, and the shell
 refuses to open a THIRD layer at all (search over a sheet over the popup was reachable only through
 the masthead button, and it painted underneath the sheet — every `Modal` is `fixed inset-0 z-50`, so
-paint order is DOM order). The supported stack is two deep. ⚠️ The property holds because every
-route that could break it was closed one at a time — the search button and the settings cog were
-both reachable by Tab from an open dialog, and `UserSettingsModal` is a SIBLING of the shell in
-`App`, invisible to `stackedOverPopup` and taking no opt-in, so the cog closes every Plan dialog
-before it opens. ⚠️ **The cog was one of THREE routes into that dialog, and until 2026-09-16 the
-only one closed.** The tick line's "set a postcode" nudge went straight to `App`'s handler
-(Tab-reachable from an open popup, where the tick line keeps its tab stops), and the Map tab's ⌂ in
-its no-postcode state reaches `App` through the map pane, never through the shell (Tab-reachable
-from the four-day peek, O-20 arm A) — each put settings over a live `aria-modal` dialog. The cog's
-own close missed search, which is `searchSeed`, not the popup or a layer over it. All three now run
-the shell's `yieldToForeignDialog` (popup, stacked layers and search; no tab move): the cog and
-the nudge call it themselves, and `App` hands the shell `settingsOpen`, whose rising edge runs the
-same close DURING RENDER, so it lands in the commit settings mounts in, which is how the ⌂'s route
-is covered. `AppSettingsRoutes.test.jsx` counts the modals against the real settings dialog. The
+paint order is DOM order). The supported stack is two deep. ⚠️ The property holds only as far as
+every route that could break it has been closed, one at a time — and some are still open (below).
+The search button and the settings cog were both reachable by Tab from an open dialog, and
+`UserSettingsModal` is a SIBLING of the shell in `App`, invisible to `stackedOverPopup` and taking
+no opt-in, so the cog closes every Plan dialog before it opens. ⚠️ **The cog was one of THREE
+routes into that dialog, and until 2026-09-16 the only one closed.** The tick line's "set a
+postcode" nudge went straight to `App`'s handler (Tab-reachable from an open popup, where the tick
+line keeps its tab stops), and the Map tab's ⌂ in its no-postcode state reaches `App` through the
+map pane, never through the shell (Tab-reachable from the four-day peek, O-20 arm A) — each put
+settings over a live `aria-modal` dialog. The cog's own close missed search, which is `searchSeed`,
+not the popup or a layer over it — and so did `selectTab`, so search also survived a tab switch.
+All three now close through `selectTab(effectiveTab)`: the shell's ONE list, which now carries
+search, named with the tab in force so nothing moves. The cog and the nudge call it on the press;
+`App` hands the shell `settingsOpen`, whose rising edge calls it DURING RENDER — that is the ⌂'s
+route — so the close lands in the commit settings mounts in. `App` closes its own map overlay on
+the same edge, since settings used to open UNDER it (`zIndex: 200` against `z-50`). Still open, and
+named: an Operations-tab admin `Modal` stays under settings (it can hold data a close would lose);
+a dialog opened behind settings after it opened (the reverse route); and the overlay opened OVER a
+Plan dialog by the regional planner's 🗺 or the aurora banner (`v1-retirement-plan.md` §8 item 9).
+`AppSettingsRoutes.test.jsx` counts the modals against the real settings dialog. The
 two doors from Plan to Map (`docs/engineering/plan-to-map-doors-plan.md`) take
 the same precaution: the location sheet footer's `Show on map` and the popup field's `Open in map`
 both call the shell's `openMapTab`, which closes the popup and the window sheet FIRST — the door's
@@ -69,9 +75,11 @@ peek to the selection you opened it from), so the shell's dialog state is no lon
 tab" in every case. The invariant survives because that route goes through `selectTab` like every
 other — naming the tab already in force, so the clearing runs and the tab does not move — and
 because search, the only other shell layer reachable from the map, is already refused while
-`sheetSpot` stands. What is genuinely new is that the layer UNDER a dialog can now be a whole
-interactive pane the shell has no `stacked` opt-in over (`map-tab-v2-plan.md` **O-20** records the
-two consequences and why `inert` cannot simply be added). Two per-route guards were needed to hold
+`sheetSpot` stands. ⚠️ It did NOT survive the map's ⌂ until 2026-09-16: with no postcode saved the
+⌂ opened settings over the sheet, which now goes on `settingsOpen`'s edge (above). What is genuinely
+new is that the layer UNDER a dialog can now be a whole interactive pane the shell has no `stacked`
+opt-in over (`map-tab-v2-plan.md` **O-20** records the consequences and why `inert` cannot simply be
+added). Two per-route guards were needed to hold
 the peek: `MapView`'s own Escape rule stands down while a foreign `aria-modal` dialog is open (one
 press used to close the sheet AND deselect the location), and the map pane warms the sheet's lazy
 chunk on mount, because a `Suspense fallback={null}` window is a window in which no dialog exists

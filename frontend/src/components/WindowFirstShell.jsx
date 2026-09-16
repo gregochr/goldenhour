@@ -482,12 +482,28 @@ export default function WindowFirstShell({
   /**
    * Selects a tab, and takes any dialog down with it.
    *
-   * <p>Every dialog this shell owns — the window popup, the drill-down sheet, the four-day sheet
-   * and the pick — is rendered outside the pane and its state is independent of the tab, so without
-   * this a reader who opened a window and then pressed Coming up would be left with a modal about a
-   * Plan window floating over the almanac feed — and {@code useDialogFocus} is explicitly not a focus trap, so closing it would hand
-   * focus back to a trigger that is no longer on screen. Arriving somewhere else ends the
-   * browsing, which is the same rule the strip already applies to its peek before a map handoff.
+   * <p>Every dialog this shell owns — the window popup, the drill-down sheet, the four-day sheet,
+   * the pick and search — is rendered outside the pane and its state is independent of the tab, so
+   * without this a reader who opened a window and then pressed Coming up would be left with a modal
+   * about a Plan window floating over the almanac feed — and {@code useDialogFocus} is explicitly not
+   * a focus trap, so closing it would hand focus back to a trigger that is no longer on screen.
+   * Arriving somewhere else ends the browsing, which is the same rule the strip already applies to
+   * its peek before a map handoff.
+   *
+   * <p><b>Naming the tab already in force is the no-move form, and it is how every route that only
+   * needs the dialogs gone closes them</b> — the map's peek handoff below, the ⚙ cog, the tick line's
+   * postcode nudge and the settings edge. One list, so a dialog added later cannot reach one of those
+   * routes and miss another.
+   *
+   * <p>⚠️ <b>Search is on the list since 2026-09-16, and was missing from it before.</b> A keyboard
+   * reader could Tab out of the search box — it is not a trap, and only the tick line leaves the tab
+   * order under it — onto the tab bar and arrow to another tab with search still open; over the map,
+   * the peek then landed `inert` beneath it rather than as the only layer.
+   *
+   * <p>⚠️ <b>This runs DURING RENDER as well as in handlers and effects</b>: the settings edge below
+   * calls it. So the body must stay this component's own setters and nothing else. A focus move, a
+   * ref write, a parent callback or a request added here would run inside the shell's render on every
+   * opening of settings — and only the ref write is something lint catches.
    */
   const selectTab = (id) => {
     setActiveTab(id);
@@ -504,6 +520,7 @@ export default function WindowFirstShell({
     setFocusedRegion(null);
     setSheetSpot(null);
     setSheetWindowKey(null);
+    setSearchSeed(null);
   };
   /**
    * The Coming up tab's handoff row, going the other way (plan P1/D14).
@@ -624,42 +641,28 @@ export default function WindowFirstShell({
     setOpenPick(next?.pick ?? null);
   }, []);
   /**
-   * Takes down every dialog this shell owns, ahead of one it does NOT own — `App`'s settings dialog.
+   * Takes every dialog this shell owns down when `App`'s settings dialog opens — by whichever route.
    *
-   * <p>⚠️ <b>Every one, search included.</b> {@code UserSettingsModal} is a SIBLING of this shell in
-   * `App`: it is not a `Modal` rendered here, {@code stackedOverPopup} cannot see it, and it takes no
-   * {@code stacked} opt-in. So it cannot be ordered against a dialog of ours — it can only arrive
-   * with none of ours up, or two elements claim {@code aria-modal="true"} and the lower one's Escape
-   * listener, still armed, closes the dialog the reader cannot see. The popup and the three layers
-   * that stack over it go through the two calls M5 put on the cog; search is the one M5's close
-   * missed, because it is neither — it is {@code searchSeed} — and the cog is reachable from an open
-   * search box: the tick line leaves the tab order under it and the cog does not.
-   *
-   * <p>It moves no tab — {@code selectTab} clears dialogs as part of moving one, and this is not a
-   * move. Settings is not a destination, and from the map's four-day peek (O-18) the reader must be
-   * left on the map they were back-tracking to.
-   */
-  const yieldToForeignDialog = useCallback(() => {
-    openOverPopup(null);
-    openWindow(null);
-    setSearchSeed(null);
-  }, [openOverPopup, openWindow]);
-  /**
-   * The same close, for the one route into settings that never passes through this shell.
-   *
-   * <p>The cog and the tick line's nudge are this shell's own controls, and each calls
-   * {@link yieldToForeignDialog} itself. The Map tab's ⌂ is not: with no postcode saved it opens
-   * settings through the map pane's own {@code onOpenSettings}, which `App` hands the pane directly —
-   * and it is reachable while a dialog of ours is up, because the four-day sheet opens OVER the map
-   * (O-18) and the map under it is a whole interactive pane a keyboard reader can Tab onto (O-20 arm
-   * A). So `App` says when its dialog is open, and the rising edge takes ours down.
+   * <p>⚠️ {@code UserSettingsModal} is a SIBLING of this shell in `App`: it is not a `Modal` rendered
+   * here, {@code stackedOverPopup} cannot see it, and it takes no {@code stacked} opt-in. So it cannot
+   * be ordered against a dialog of ours — it can only arrive with none of ours up, or two elements
+   * claim {@code aria-modal="true"} and the lower one's Escape listener, still armed, closes the
+   * dialog the reader cannot see. The cog and the tick line's nudge are this shell's own controls and
+   * close first themselves. The Map tab's ⌂ is not: with no postcode saved it opens settings through
+   * the map pane's own {@code onOpenSettings}, which `App` hands the pane directly — and it is
+   * reachable while a dialog of ours is up, because the four-day sheet opens OVER the map (O-18) and
+   * the map under it is a whole interactive pane a keyboard reader can Tab onto (O-20 arm A). So
+   * `App` says when its dialog is open, and the rising edge takes ours down — through
+   * {@code selectTab} naming the tab in force, so no tab moves: settings is not a destination, and
+   * from the peek the reader must be left on the map they were back-tracking to.
    *
    * <p>During render rather than in an effect, which is what keeps it in the SAME commit as the
    * dialog it yields to — React re-renders this component before committing when it sets its own
    * state during render, so no commit holds both. An effect's close would land in a second commit:
    * the DOM would hold both claiming the modal in between, and the settings dialog would already
    * have recorded its return address, so this route would send focus back somewhere different from
-   * the cog's and the nudge's, whose closes share a commit with the open.
+   * the cog's and the nudge's, whose closes share a commit with the open. (Placed below every state
+   * {@code selectTab} writes, which calling it during render requires.)
    *
    * <p>Keyed on the edge, not the level. A dialog of ours opened WHILE settings stands — by Tabbing
    * out of it onto the page — is the reverse route, of the same family as the Tab-out residual
@@ -669,7 +672,7 @@ export default function WindowFirstShell({
   const [settingsWasOpen, setSettingsWasOpen] = useState(settingsOpen);
   if (settingsOpen !== settingsWasOpen) {
     setSettingsWasOpen(settingsOpen);
-    if (settingsOpen) yieldToForeignDialog();
+    if (settingsOpen) selectTab(effectiveTab);
   }
   /**
    * The shared close-then-move-and-merge entry every map door calls (doors D2,
@@ -1373,11 +1376,15 @@ export default function WindowFirstShell({
 
                 ⚠️ M5's close missed SEARCH, which is `searchSeed` rather than the popup or a layer
                 over it — and this cog is reachable from an open search box, since the tick line
-                leaves the tab order under it and the cog does not. `yieldToForeignDialog` is the
-                whole list, and the tick line's nudge below goes through it too. */}
+                leaves the tab order under it and the cog does not. It now closes through
+                `selectTab` naming the tab in force, the shell's one list, which carries search;
+                the tick line's nudge below does the same, and `App`'s `settingsOpen` edge covers
+                the map's ⌂. None of them reaches a dialog this shell does not own: `App` closes its
+                map overlay on that edge itself, and an Operations-tab admin `Modal` is left open
+                under settings, since what it holds (a generated password, say) a close would lose. */}
             <button
               type="button"
-              onClick={() => { yieldToForeignDialog(); onOpenSettings?.(); }}
+              onClick={() => { selectTab(effectiveTab); onOpenSettings?.(); }}
               data-testid="window-first-settings"
               aria-label="Settings"
               className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
@@ -1434,14 +1441,15 @@ export default function WindowFirstShell({
           // own handler, so with a window popup open — where `searchOpen` is false and this row
           // keeps its tab stops — a reader who Tabbed out onto the nudge opened settings OVER the
           // popup, two `aria-modal` elements with the popup's Escape listener still armed beneath.
-          // The layers over the popup and search are belts here, exactly as they are for
-          // `onGoHome`: under either this row is out of the tab order.
+          // It closes through the same `selectTab(effectiveTab)` the cog does. The layers over the
+          // popup and search are belts here, exactly as they are for `onGoHome`: under either this
+          // row is out of the tab order.
           //
           // The arguments are FORWARDED, whatever they are: what the nudge hands its handler is the
           // tick line's business, and a wrapper here that swallowed them would change that contract
           // without either end noticing.
           onSetPostcode={(...args) => {
-            yieldToForeignDialog();
+            selectTab(effectiveTab);
             (onSetPostcode ?? onOpenSettings)?.(...args);
           }}
           // Out of the tab order for TWO reasons now, which is why the prop is no longer named for
@@ -2134,7 +2142,7 @@ WindowFirstShell.propTypes = {
   /**
    * Whether `App`'s settings dialog is open. The shell does not render that dialog, so this is the
    * only way it can hear one has opened by a route that bypasses its own controls — the Map tab's
-   * ⌂ — and take its own dialogs down in the same commit. See `yieldToForeignDialog`.
+   * ⌂ — and take its own dialogs down in the same commit. See the `settingsWasOpen` edge.
    */
   settingsOpen: PropTypes.bool,
   onSignOut: PropTypes.func.isRequired,
