@@ -519,16 +519,19 @@ describe('WindowFirstShell — the drill-down', () => {
 
       it('hands the handler the argument the tick line gave it, untouched', () => {
         // What the tick line hands its handler is the tick line's business, so the shell's wrapper
-        // must pass it through as it came. Today it is the click event, which makes IDENTITY
-        // assertable rather than only the count: a wrapper that dropped the argument, replaced it,
-        // or wrapped it (`handler(args)` for `handler(...args)`) fails here.
+        // must pass it through as it came. Today it is the origin slot's resolver — a function
+        // returning the slot's current element, for the settings dialog's close — which makes
+        // IDENTITY assertable rather than only the count: a wrapper that dropped the argument,
+        // replaced it, or wrapped it (`handler(args)` for `handler(...args)`) fails here.
         const onSetPostcode = vi.fn();
         renderShell(noHome, { onSetPostcode });
         const nudge = screen.getByRole('button', { name: NUDGE });
 
         fireEvent.click(nudge);
         expect(onSetPostcode.mock.calls[0]).toHaveLength(1);
-        expect(onSetPostcode.mock.calls[0][0].target).toBe(nudge);
+        const [resolver] = onSetPostcode.mock.calls[0];
+        expect(typeof resolver).toBe('function');
+        expect(resolver(), 'the tick line\'s own resolver: it names the slot the nudge fills').toBe(nudge);
       });
     });
 

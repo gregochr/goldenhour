@@ -1,4 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+
+/** Whether `el` is "nowhere" — no element, or one of the two nodes a lost focus lands on. */
+const isNowhere = (el) => !el || el === document.body || el === document.documentElement;
+
+/**
+ * Focuses `el` if it is a real, attached element, and reports whether the focus actually LANDED.
+ *
+ * <p>Checked rather than assumed because `focus()` is a silent no-op on anything that cannot take
+ * it — a detached node, a disabled control, `<body>` — and a restore that believes it succeeded
+ * leaves the reader exactly where the failure put them.
+ */
+const focusLanded = (el) => {
+  if (!(el instanceof HTMLElement) || isNowhere(el) || !document.contains(el)) return false;
+  el.focus();
+  return document.activeElement === el;
+};
 
 /**
  * Moves focus into a dialog when it opens and puts it back where it was when it closes.
@@ -16,8 +32,9 @@ import { useEffect, useRef } from 'react';
  * <p><b>Focus-in and restore, deliberately not containment.</b> A full trap buys one extra thing —
  * Tab cannot leave — and costs a live focusable query that would have to cope with Leaflet
  * mutating its own tab stops inside the map overlay, a containment rule that would have to
- * special-case two {@code document.body} portals, and a fallback for a dialog with no focusable
- * children at all (the settings modal's refresh spinner is exactly that). Every plausible failure
+ * special-case two {@code document.body} portals, and a fallback for a dialog with nothing to Tab
+ * to at all (the settings modal's refresh spinner is exactly that — its status line takes focus
+ * programmatically, with {@code tabIndex={-1}}, and is no tab stop). Every plausible failure
  * mode lives in the containment half. A keyboard user who can Tab out of a dialog is inconvenienced;
  * one who cannot reach a bottom sheet at all is stuck.
  *
@@ -26,7 +43,7 @@ import { useEffect, useRef } from 'react';
  * before opening settings, the map handoffs close the popup first — rather than by a single
  * shell-wide containment. The three reasons above are none of them about v1: they are live
  * facts about this app (Leaflet's own tab-stop mutation, the body-portalled bottom sheet, the
- * spinner with nothing focusable) that survive v1's departure unchanged. What v1's departure DID
+ * spinner with nothing to Tab to) that survive v1's departure unchanged. What v1's departure DID
  * remove is plan-matrix §3 rule 10 (any edit to {@code Modal} needed a v1-identical fallback) — a
  * freedom, not a reason to revisit the ruling. The structural alternative (shell-root {@code inert}
  * while any dialog is open) is a named follow-on, not adopted here: it would need App-level sibling
@@ -57,12 +74,44 @@ import { useEffect, useRef } from 'react';
  * that effect runs after this one and simply wins. A screen reader reads the dialog's accessible
  * name on landing, which is the announcement the role was there to promise.
  *
+ * <h2>{@code restoreFallback} — where to go when the opener has gone</h2>
+ *
+ * <p>The restore's return address is a NODE, captured when the dialog opens, and a node can be
+ * replaced while the dialog is up by something that is not a close at all. The masthead's
+ * "set a postcode" nudge is the route that needed this: on the Map tab, saving a postcode swaps
+ * that button for a non-interactive statement ("Home · Durham — drive times from here"), so the
+ * recorded opener is detached by the time the dialog closes and focus fell to {@code <body>}.
+ * Doing nothing is right for a caller that cannot say where the opener went; a caller that CAN
+ * passes a function returning the element that now stands in the opener's place.
+ *
+ * <p>⚠️ <b>Opt-in, and consulted only when the opener cannot take focus back</b> — it is detached,
+ * it refuses the focus (disabled), or it was nowhere to begin with (a dialog opened while focus sat
+ * on {@code <body>}, which a pointer press on a button does in macOS Safari). It sits behind the
+ * same "the reader has not chosen somewhere else" guard as the ordinary restore, so it can never
+ * take a reader from a place they chose. A caller that does not pass one gets exactly what it got
+ * before: four render sites share this hook ({@code Modal}, {@code BottomSheet}, {@code MapOverlay},
+ * {@code RegionsJump}), and only the settings dialog's nudge route has a successor to name.
+ *
  * @param {boolean} active whether the dialog is currently open
+ * @param {object}  [options]
+ * @param {?Function} [options.restoreFallback] returns the element to focus on close when the
+ *          element that opened the dialog can no longer take it back; read at CLOSE time, so it
+ *          may name an element that did not exist when the dialog opened
  * @returns {React.RefObject} attach to the element carrying {@code role="dialog"}; it needs
  *          {@code tabIndex={-1}} so it can accept focus without entering the tab order
  */
-export default function useDialogFocus(active = true) {
+export default function useDialogFocus(active = true, { restoreFallback = null } = {}) {
   const dialogRef = useRef(null);
+  // The newest fallback, read by the close cleanup below. A ref because the cleanup is created
+  // when the dialog OPENS (the effect keys on `active` alone) and the fallback it should consult is
+  // the one in force when it CLOSES — a caller's resolver may be replaced in between.
+  //
+  // ⚠️ Only while ACTIVE. This layout effect runs before the passive cleanup in the commit that
+  // closes the dialog, so a caller that stays mounted — `BottomSheet`'s `if (!open) return null` is
+  // the shape — and clears its fallback in that same update (as `App` clears its own on close)
+  // would otherwise have the fallback read back as null by the very restore it was for.
+  const fallbackRef = useRef(restoreFallback);
+  useLayoutEffect(() => { if (active) fallbackRef.current = restoreFallback; });
 
   useEffect(() => {
     if (!active) return undefined;
@@ -83,14 +132,7 @@ export default function useDialogFocus(active = true) {
 
     return () => {
       cancelAnimationFrame(frame);
-      // Only restore if the trigger is still in the document. A dialog can be closed by something
-      // other than the user — a poll, an SSE event, a parent re-render that drops the row the
-      // trigger lived on — and focusing a detached node throws away the user's place entirely
-      // rather than returning it. Doing nothing leaves focus where the browser put it, which is
-      // no worse than today.
-      if (!(previous instanceof HTMLElement) || !document.contains(previous)) return;
-
-      // ⚠️ **AND only if the reader has not chosen somewhere else in the meantime**
+      // ⚠️ **Only if the reader has not chosen somewhere else in the meantime**
       // (`map-tab-v2-plan.md` O-20 arm C, found by an accessibility lens on #794).
       //
       // <p>This is `Modal`'s own uncover-restore guard, mirrored — same condition, same reasoning
@@ -124,7 +166,7 @@ export default function useDialogFocus(active = true) {
       // lens flagged it — the next line added to this cleanup that wants the prop would silently
       // get the wrong binding.
       const focused = document.activeElement;
-      const nowhere = !focused || focused === document.body || focused === document.documentElement;
+      const nowhere = isNowhere(focused);
 
       // ⚠️ **"Somewhere real" is not the same as "somewhere COHERENT", and the first cut of this
       // guard conflated them — a measured regression on the Plan tab.** `Modal`'s guard, which this
@@ -148,13 +190,28 @@ export default function useDialogFocus(active = true) {
       // drilldown's two panels are `role="dialog"` WITHOUT `aria-modal` deliberately, so when the
       // four-day sheet closes over them nothing claims modality, `stranded` is false, and focus
       // stays where the reader put it.
+      const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'));
       if (!nowhere) {
-        const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'));
         const stranded = modals.length > 0 && !modals.some((m) => m.contains(focused));
         if (!stranded) return;
       }
 
-      previous.focus();
+      // Back to the trigger — but only if it is still in the document and takes the focus. A
+      // dialog can be closed by something other than the user — a poll, an SSE event, a parent
+      // re-render that drops the row the trigger lived on — and focusing a detached node throws
+      // away the user's place rather than returning it.
+      if (focusLanded(previous)) return;
+
+      // The trigger could not take it back. With no fallback this does nothing, which leaves focus
+      // where the browser put it — every caller's behaviour before `restoreFallback` existed.
+      const fallback = fallbackRef.current;
+      if (typeof fallback !== 'function') return;
+      const target = fallback();
+      // While a layer below still claims modality, a fallback outside it would strand the reader
+      // outside that layer — the state the guard above exists to recover them from. The opener is
+      // never held to this (callers that pass no fallback keep what they had); the opt-in is.
+      if (modals.length > 0 && !modals.some((m) => m.contains(target))) return;
+      focusLanded(target);
     };
   }, [active]);
 

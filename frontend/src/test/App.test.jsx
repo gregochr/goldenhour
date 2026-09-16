@@ -1304,3 +1304,254 @@ describe('App — wires the loaded map colour preference into scoreRamp', () => 
     expect(scoreRamp.getMode()).toBe('verdict');
   });
 });
+
+// ── One line of colour saves for the page, across the dialog's openings ────────────────────
+//
+// The colour radios stay live while a save is out — a radio in a fieldset disabled mid-save drops
+// the focus of a reader arrowing between the scales — so choices overlap, and a line sends them
+// one at a time and writes the newest last. The dialog unmounts on close and its saves do not stop,
+// so a line per opening let a closed dialog's waiting choice go out AFTER a newer one made in the
+// reopened dialog, leaving the server and the map on the older scale (found by review). `App` owns
+// one line and hands it to every opening; these drive the real dialog through `App`.
+
+describe('App — one line of colour saves for the page, across the dialog\'s openings', () => {
+  /** Every colour save the page sends, in the order sent, each held until the test lands it. */
+  function holdColourSaves() {
+    const sent = [];
+    saveMapColourPreferences.mockReset().mockImplementation((scale) => {
+      const request = deferred();
+      sent.push({ scale, ...request });
+      return request.promise;
+    });
+    return sent;
+  }
+
+  const scalesSent = (sent) => sent.map(({ scale }) => scale);
+
+  /** The server's settings, on `scale`. */
+  const savedOn = (scale) => ({ ...SETTINGS_MORPETH, mapColourScale: scale });
+
+  /** Chooses a scale in an open dialog, with a click on its radio. */
+  const choose = (dialog, scale) => fireEvent.click(within(dialog).getByTestId(`settings-map-colour-${scale}`));
+
+  async function closeAndWait(dialog) {
+    closeSettings(dialog);
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+  }
+
+  beforeEach(() => {
+    getSettings.mockResolvedValue(savedOn('verdict'));
+  });
+
+  it('⚠️ writes a reopened dialog\'s choice LAST, after the waiting choice of the dialog closed before it', async () => {
+    const sent = holdColourSaves();
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    const first = await openSettings();
+    choose(first, 'temp'); // out at once
+    choose(first, 'verdict'); // waits behind it, and outlives the dialog
+    await closeAndWait(first);
+    const reopened = await openSettings();
+    expect(within(reopened).getByTestId('settings-map-colour-verdict'), 'it opens on the choice still in the line')
+      .toBeChecked();
+    expect(within(reopened).getByTestId('settings-colour-status')).toHaveTextContent('Saving…');
+    choose(reopened, 'temp'); // the reader's newest choice
+
+    expect(scalesSent(sent), 'nothing goes out beside the save in flight').toEqual(['temp']);
+
+    await land(() => sent[0].resolve(savedOn('temp')));
+    // verdict's turn came, overtaken by the reopened dialog's temp: skipped.
+    expect(scalesSent(sent)).toEqual(['temp', 'temp']);
+    await land(() => sent[1].resolve(savedOn('temp')));
+
+    expect(scalesSent(sent), 'no older choice written after the newest').toEqual(['temp', 'temp']);
+    expect(setModeSpy).toHaveBeenLastCalledWith('temp');
+    expect(mapPaneProps.last.mapColourScale).toBe('temp');
+    expect(within(reopened).getByTestId('settings-map-colour-temp')).toBeChecked();
+    expect(within(reopened).getByTestId('settings-colour-status')).toHaveTextContent('');
+  });
+
+  it('still writes a closed dialog\'s waiting choice when nothing newer comes after it', async () => {
+    const sent = holdColourSaves();
+    renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    choose(dialog, 'temp');
+    choose(dialog, 'verdict');
+    await closeAndWait(dialog);
+
+    await land(() => sent[0].resolve(savedOn('temp')));
+    expect(scalesSent(sent), 'the waiting choice goes out after the close').toEqual(['temp', 'verdict']);
+    await land(() => sent[1].resolve(savedOn('verdict')));
+
+    expect(mapPaneProps.last.mapColourScale).toBe('verdict');
+  });
+
+  it('⚠️ sends nothing a signed-out reader left waiting — the next account signed in must not get it', async () => {
+    // From review (Codex, on #859): the line outlives the dialog, and a choice waiting in it went out
+    // when its turn came even after the reader had signed out. The axios interceptor reads the token
+    // as each request starts, so with another account signed in by then, the old reader's choice
+    // was written to THAT account.
+    const sent = holdColourSaves();
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    renderApp();
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    choose(dialog, 'temp'); // out at once
+    choose(dialog, 'verdict'); // waits behind it
+    await closeAndWait(dialog);
+    await act(async () => { fireEvent.click(screen.getByTestId('window-first-signout')); });
+    await screen.findByTestId('login-username'); // control: signed out
+    localStorage.setItem('goldenhour_token', 'the-next-account'); // whoever signs in next
+    const rampCallsAtSignOut = setModeSpy.mock.calls.length;
+
+    await land(() => sent[0].resolve(savedOn('temp')));
+
+    expect(scalesSent(sent), 'the waiting choice was never sent').toEqual(['temp']);
+    // And the save already out reports to no one: the page it belonged to has gone, and the ramp is
+    // module state the next page reads.
+    expect(setModeSpy.mock.calls.slice(rampCallsAtSignOut)).toEqual([]);
+  });
+
+  it('⚠️ reopens on a save that landed while the reopened dialog\'s read was out, not on the read\'s older answer', async () => {
+    // The likelier order: the server geocodes on every GET, so the save lands first, and a read
+    // taken before the save committed answers with the scale it replaced.
+    const reopenedRead = deferred();
+    getSettings
+      .mockResolvedValueOnce(savedOn('verdict')) // App's mount read
+      .mockResolvedValueOnce(savedOn('verdict')) // the first opening's
+      .mockReturnValueOnce(reopenedRead.promise); // the reopened dialog's, slow
+    const sent = holdColourSaves();
+    renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    const first = await openSettings();
+    choose(first, 'temp');
+    await closeAndWait(first);
+    const reopened = await openSettingsStillLoading();
+    await land(() => sent[0].resolve(savedOn('temp')));
+
+    await land(() => reopenedRead.resolve(savedOn('verdict')));
+
+    expect(await within(reopened).findByTestId('settings-map-colour-temp')).toBeChecked();
+    expect(within(reopened).getByTestId('settings-map-colour-verdict')).not.toBeChecked();
+    expect(mapPaneProps.last.mapColourScale, 'the map agrees with the dialog').toBe('temp');
+  });
+});
+
+// ── The settings dialog hands focus back to the tick line's origin slot, not to <body> ──────
+//
+// From an accessibility review of #842. On the Map tab the "set a postcode" nudge is REPLACED by
+// the statement ("Home · Keswick — drive times from here") once a home is known: a `<span>` for a
+// `<button>`, so the node the settings dialog recorded as its opener is destroyed. Two orders
+// reach that, each held by its own mechanism, so each gets a test through the real shell, tick
+// line and dialog:
+//   · the swap BEFORE the close — the ordinary save: `onHomeSaved` updates the reader's record while
+//     the dialog is still open. Its recorded opener is detached by the close, and `App`'s
+//     `restoreFocusFallback` asks the tick line what stands in the nudge's place;
+//   · the swap AFTER the close — the dialog's own settings read answering once it has closed: the
+//     dialog hands focus back to the nudge, and the tick line hands it on when the nudge is swapped.
+
+describe('App — the settings dialog hands focus back to the tick line\'s origin slot', () => {
+  beforeEach(() => {
+    lookupPostcode.mockReset();
+    saveHome.mockReset();
+  });
+
+  /** The Map tab's tick line, showing the "set a postcode" nudge. */
+  async function mapTabNudge() {
+    await openMapPane();
+    return screen.findByRole('button', { name: 'Set a postcode for light and drive times' });
+  }
+
+  /** Presses the nudge as a keyboard reader does — focused first, which `fireEvent.click` never does. */
+  function pressNudge(nudge) {
+    nudge.focus();
+    fireEvent.click(nudge);
+  }
+
+  it('⚠️ lands the reader on the statement after a save replaced the nudge under the open dialog', async () => {
+    getSettings.mockResolvedValue(SETTINGS_NO_HOME);
+    lookupPostcode.mockResolvedValue(LOOKUP_KESWICK);
+    const save = deferred();
+    saveHome.mockReturnValue(save.promise);
+    renderApp();
+    const nudge = await mapTabNudge();
+    pressNudge(nudge);
+    const dialog = await screen.findByTestId('settings-modal');
+    const field = await within(dialog).findByTestId('settings-postcode-input');
+    await waitFor(() => expect(field).toHaveFocus()); // the dialog's own landing is spent
+    await saveHomeIn(dialog, 'CA12 5JR');
+
+    await land(() => save.resolve(SAVED_KESWICK));
+
+    expect(nudge.isConnected, 'precondition: the save replaced the nudge while the dialog was open')
+      .toBe(false);
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(statement).toHaveTextContent('Home · Keswick');
+    expect(statement, 'precondition: the dialog still holds the reader').not.toHaveFocus();
+
+    closeSettings(dialog);
+
+    await waitFor(() => expect(statement).toHaveFocus());
+  });
+
+  it('⚠️ hands focus on to the statement when the dialog\'s own read replaces the nudge after the close', async () => {
+    const dialogRead = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_NO_HOME) // App's mount read: no home, so the nudge shows
+      .mockReturnValueOnce(dialogRead.promise); // the dialog's own read, answered once it has closed
+    renderApp();
+    const nudge = await mapTabNudge();
+    pressNudge(nudge);
+    const dialog = await screen.findByTestId('settings-modal');
+    // Still loading, so nothing inside takes focus and the dialog's own frame lands on its root.
+    await waitFor(() => expect(dialog).toHaveFocus());
+
+    closeSettings(dialog);
+
+    await waitFor(() => expect(nudge, 'precondition: the close handed focus back to the nudge').toHaveFocus());
+
+    // A home saved elsewhere — another device — is what the late read brings back.
+    await land(() => dialogRead.resolve(SETTINGS_KESWICK));
+
+    expect(nudge.isConnected, 'precondition: the read replaced the nudge after the close').toBe(false);
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(statement).toHaveTextContent('Home · Keswick');
+    expect(statement).toHaveFocus();
+  });
+
+  it('⚠️ forgets the nudge\'s return address on close, so a later opening from the cog cannot use it', async () => {
+    getSettings.mockResolvedValue(SETTINGS_NO_HOME);
+    renderApp();
+    const nudge = await mapTabNudge();
+    pressNudge(nudge);
+    const nudgeDialog = await screen.findByTestId('settings-modal');
+    await waitFor(() => expect(within(nudgeDialog).getByTestId('settings-postcode-input')).toHaveFocus());
+    closeSettings(nudgeDialog);
+    await waitFor(() => expect(nudge, 'control: the close restored to the nudge').toHaveFocus());
+
+    // A pointer press on the cog — which macOS Safari does not focus — opens it with focus nowhere.
+    nudge.blur();
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const cogDialog = await screen.findByTestId('settings-modal');
+    await within(cogDialog).findByTestId('settings-postcode-input');
+    await waitFor(() => expect(cogDialog).toHaveFocus()); // its own landing is spent
+
+    closeSettings(cogDialog);
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+
+    expect(nudge.isConnected, 'precondition: a stale return address would still have somewhere to send focus')
+      .toBe(true);
+    expect(document.activeElement, 'the cog\'s opening had no return address — nothing moves focus')
+      .toBe(document.body);
+  });
+});

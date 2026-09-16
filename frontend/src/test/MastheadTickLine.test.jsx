@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useLayoutEffect } from 'react';
+import PropTypes from 'prop-types';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, vi } from 'vitest';
+import {
+  describe, it, expect, vi, afterEach,
+} from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import MastheadTickLine from '../components/MastheadTickLine.jsx';
 
@@ -454,6 +457,251 @@ describe('MastheadTickLine — the Map tab statement (map-tab-v2-plan.md §3 P11
     expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
     expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
     expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
+  });
+
+  it('keeps the statement out of the Tab order — focus can be PUT there, never Tabbed to', () => {
+    // "Panning IS the search": the statement is not a control, so it must not be a tab stop. It is
+    // a place focus can be put, for the one route that needs it (the block below).
+    renderTick({ isMapTab: true });
+    expect(screen.getByTestId('window-first-origin-statement')).toHaveAttribute('tabindex', '-1');
+  });
+});
+
+/**
+ * The origin slot keeps the reader's focus when its element is swapped.
+ *
+ * <p>From an accessibility review of #842. On the Map tab a known home replaces the "set a postcode"
+ * nudge's `<button>` with the statement's `<span>` — a different element, so a focused nudge was
+ * destroyed and focus fell to `<body>`. It holds focus at that moment when the settings dialog has
+ * already handed it back: the dialog closed before its own settings read answered, and the answer
+ * named a home saved elsewhere. (A save made IN the dialog swaps it while the dialog holds focus —
+ * the resolver case at the end of this block.) On every other tab the nudge becomes the origin
+ * BUTTON, React reuses the node, and focus rides it.
+ */
+describe('MastheadTickLine — the origin slot keeps focus when its element is swapped', () => {
+  const tick = (props = {}) => (
+    <MastheadTickLine
+      light={LIGHT}
+      origin={null}
+      homePlace="Durham"
+      onOpenSearch={vi.fn()}
+      onGoHome={vi.fn()}
+      onSetPostcode={vi.fn()}
+      {...props}
+    />
+  );
+  // A control outside the line — somewhere real a reader can have gone.
+  let elsewhere = null;
+  afterEach(() => { elsewhere?.remove(); elsewhere = null; });
+  const outsideButton = () => {
+    elsewhere = document.createElement('button');
+    document.body.appendChild(elsewhere);
+    return elsewhere;
+  };
+
+  it('⚠️ on the Map tab, a saved home hands focus from the nudge to the statement replacing it', () => {
+    const { rerender } = render(tick({ isMapTab: true, homePlace: null }));
+    const nudge = screen.getByRole('button', { name: 'Set a postcode for light and drive times' });
+    nudge.focus();
+
+    rerender(tick({ isMapTab: true, homePlace: 'Durham' }));
+
+    expect(nudge.isConnected, 'precondition: a different element, not the nudge reused').toBe(false);
+    expect(document.activeElement).toBe(screen.getByTestId('window-first-origin-statement'));
+  });
+
+  it('and back the other way — a statement holding focus hands it to a nudge that replaces it', () => {
+    // A home cleared elsewhere, read back by the settings dialog as no postcode, puts the nudge back.
+    // The rule is the slot's, not the route's: whichever element leaves holding focus hands it on.
+    const { rerender } = render(tick({ isMapTab: true, homePlace: 'Durham' }));
+    const statement = screen.getByTestId('window-first-origin-statement');
+    statement.focus();
+    expect(document.activeElement, 'precondition').toBe(statement);
+
+    rerender(tick({ isMapTab: true, homePlace: null }));
+
+    expect(document.activeElement).toBe(screen.getByTestId('masthead-set-postcode'));
+  });
+
+  it('on the other tabs the node is reused, so focus simply stays on it', () => {
+    const { rerender } = render(tick({ homePlace: null }));
+    const nudge = screen.getByTestId('masthead-set-postcode');
+    nudge.focus();
+
+    rerender(tick({ homePlace: 'Durham' }));
+
+    const chip = screen.getByTestId('window-first-origin-chip');
+    expect(chip, 'the same node, now the origin button').toBe(nudge);
+    expect(document.activeElement).toBe(chip);
+  });
+
+  it('leaves focus where it is when the swap happens while the reader is elsewhere', () => {
+    // Nothing is recorded — the nudge did not hold focus — so no handoff is even considered. The
+    // "somewhere else" check itself (a focus PLACED in the same commit) has its own test below.
+    const { rerender } = render(tick({ isMapTab: true, homePlace: null }));
+    outsideButton().focus();
+
+    rerender(tick({ isMapTab: true, homePlace: 'Durham' }));
+
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it('⚠️ does not pull focus onto the statement when the nudge never held it — even from <body>', () => {
+    // The rule is "the element that LEFT held focus", not "focus is nowhere after a swap". The
+    // second reads a reader who was never here as one who was.
+    const { rerender } = render(tick({ isMapTab: true, homePlace: null }));
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+
+    rerender(tick({ isMapTab: true, homePlace: 'Durham' }));
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('⚠️ nor when a switch to the Map tab swaps the origin button for the statement', () => {
+    // The route that rules the looser test out: the shell's `tabRequest` handoff switches tabs with
+    // focus wherever a closing dialog left it — `<body>` — and moves it to the tab itself a frame
+    // later. A statement grabbing it first would be announced for nothing.
+    const { rerender } = render(tick({ isMapTab: false }));
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+
+    rerender(tick({ isMapTab: true }));
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('never takes focus that something else placed in the same commit', () => {
+    // A sibling rendered BEFORE the line runs its layout effect first. Whatever it focuses in the
+    // commit that swaps the slot, the handoff must not overwrite — a placed focus is a decision.
+    function PlacesFocus({ on }) {
+      useLayoutEffect(() => { if (on) elsewhere.focus(); }, [on]);
+      return null;
+    }
+    PlacesFocus.propTypes = { on: PropTypes.bool.isRequired };
+    outsideButton();
+    const { rerender } = render(<><PlacesFocus on={false} />{tick({ isMapTab: true, homePlace: null })}</>);
+    screen.getByTestId('masthead-set-postcode').focus();
+
+    rerender(<><PlacesFocus on />{tick({ isMapTab: true, homePlace: 'Durham' })}</>);
+
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it('⚠️ under StrictMode, hands off once and takes nothing back on a later unrelated render', () => {
+    // The app mounts under StrictMode in development, which re-runs a newly mounted node's ref —
+    // cleanup, then setup — after the commit. That cleanup sees the statement this handoff has just
+    // focused, so a flag that only recorded "something focused left" outlived the commit, and the
+    // line's next render took a reader who had clicked away straight back onto the statement.
+    const strict = (props) => <React.StrictMode>{tick(props)}</React.StrictMode>;
+    const { rerender } = render(strict({ isMapTab: true, homePlace: null, light: null }));
+    screen.getByTestId('masthead-set-postcode').focus();
+
+    rerender(strict({ isMapTab: true, homePlace: 'Durham', light: null }));
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(document.activeElement, 'control: the handoff itself still happens').toBe(statement);
+
+    statement.blur();           // the reader clicks somewhere that takes no focus
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+    rerender(strict({ isMapTab: true, homePlace: 'Durham', light: LIGHT })); // the light arrives
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('⚠️ under StrictMode, takes nothing back when the next render REMOVES the statement either', () => {
+    // A review's reproduction of the first fix's gap: that fix only refused a record whose node was
+    // still attached, so a tab switch that really removed the statement spent StrictMode's stale
+    // record and put the reader on the origin button — in macOS Safari a pointer on the Plan tab
+    // leaves focus on <body>, exactly the "nowhere" the handoff acts on.
+    const strict = (props) => <React.StrictMode>{tick(props)}</React.StrictMode>;
+    const { rerender } = render(strict({ isMapTab: true, homePlace: null, light: null }));
+    screen.getByTestId('masthead-set-postcode').focus();
+    rerender(strict({ isMapTab: true, homePlace: 'Durham', light: null }));
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(document.activeElement, 'control: the handoff itself still happens').toBe(statement);
+    statement.blur();
+
+    rerender(strict({ isMapTab: false, homePlace: 'Durham', light: null })); // to the Plan tab
+
+    expect(statement.isConnected, 'precondition: the statement really left').toBe(false);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('⚠️ spends the handoff once, without StrictMode too — a later render takes nothing back', () => {
+    // StrictMode's own re-run hides this one (it rewrites the record either way), so it needs a
+    // plain render: a record left standing after the handoff would pull the reader back on the
+    // line's next render, in production builds.
+    const { rerender } = render(tick({ isMapTab: true, homePlace: null, light: null }));
+    screen.getByTestId('masthead-set-postcode').focus();
+    rerender(tick({ isMapTab: true, homePlace: 'Durham', light: null }));
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(document.activeElement, 'control: the handoff happened').toBe(statement);
+    statement.blur();
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+
+    rerender(tick({ isMapTab: true, homePlace: 'Durham', light: LIGHT })); // the light arrives
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('the nudge hands its caller a way to find the slot\'s CURRENT element', () => {
+    // For the ordinary order: a save moves the home while the dialog is still OPEN, the nudge is
+    // replaced under it, and its recorded opener is detached by the close. `App` gives the dialog
+    // this, to ask at close time what stands in the nudge's place.
+    const onSetPostcode = vi.fn();
+    const { rerender } = render(tick({ isMapTab: true, homePlace: null, onSetPostcode }));
+    const nudge = screen.getByTestId('masthead-set-postcode');
+    fireEvent.click(nudge);
+
+    expect(onSetPostcode).toHaveBeenCalledTimes(1);
+    const findSlot = onSetPostcode.mock.calls[0][0];
+    expect(typeof findSlot).toBe('function');
+    expect(findSlot()).toBe(nudge);
+
+    rerender(tick({ isMapTab: true, homePlace: 'Durham', onSetPostcode }));
+
+    expect(findSlot()).toBe(screen.getByTestId('window-first-origin-statement'));
+  });
+});
+
+describe('MastheadTickLine — the focus rule keeps an outline for forced colours', () => {
+  /**
+   * `.wf-tick-origin`/`.wf-tick-search`/`.wf-tick-home`'s focus ring is an inset box-shadow, which
+   * forced-colours mode (Windows High Contrast) removes. A TRANSPARENT outline beside it is what that
+   * mode repaints in a system colour — measured in Chromium's forced-colours emulation, where the
+   * statement focus is handed to showed nothing before it. jsdom renders no CSS, so the rule's text
+   * is what can be pinned: an "every sibling rule says `outline: none`" tidy-up must fail here.
+   */
+  // The path goes through a parameter, as in the token test below: Vite rewrites a LITERAL
+  // `new URL('…', import.meta.url)` into an asset URL, which is not a file path.
+  const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  const FOCUS = ['.wf-tick-origin:focus-visible', '.wf-tick-search:focus-visible', '.wf-tick-home:focus-visible'];
+  // Every top-level rule as [its selector list, its body], comments stripped. Matched by the WHOLE
+  // list: ⌂'s own rule has the same selector that ends the shared list, so a substring search finds
+  // the shared rule and reads its body as ⌂'s.
+  const rules = () => read('../index.css')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('}')
+    .map((chunk) => {
+      const open = chunk.lastIndexOf('{');
+      return [chunk.slice(0, open).split(',').map((selector) => selector.trim()).join(', '), chunk.slice(open + 1)];
+    });
+  const rule = (selectorList) => {
+    const found = rules().filter(([list]) => list === selectorList);
+    expect(found, `exactly one rule for ${selectorList}`).toHaveLength(1);
+    return found[0][1];
+  };
+
+  it('draws a transparent inset outline on the shared focus rule, and no rule for these takes it away', () => {
+    const shared = rule(FOCUS.join(', '));
+    expect(shared).toMatch(/outline:\s*2px solid transparent;/);
+    expect(shared).toMatch(/outline-offset:\s*-2px;/);
+
+    const touching = rules().filter(([list]) => list.split(', ').some((selector) => FOCUS.includes(selector)));
+    expect(touching.length, 'the shared rule and ⌂\'s own').toBe(2);
+    for (const [list, body] of touching) expect(body, list).not.toMatch(/outline(-style)?:\s*none/);
+  });
+
+  it('insets ⌂\'s outline past its own 1px border, so forced colours draws the full 2px', () => {
+    expect(rule('.wf-tick-home:focus-visible')).toMatch(/outline-offset:\s*-3px;/);
   });
 });
 

@@ -179,6 +179,33 @@ describe('Modal', () => {
 
       expect(() => fireEvent.keyDown(document, { key: 'Escape' })).not.toThrow();
       expect(screen.queryByTestId('m')).toBeNull();
+      // The default, and every caller but one relies on it: with no fallback, nothing is focused.
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('⚠️ hands focus to the caller\'s fallback when the thing that opened it has gone', async () => {
+      // `restoreFocusFallback` is threaded to `useDialogFocus` untouched. The settings dialog is the
+      // one caller: its masthead opener can be replaced by the very save the dialog exists for.
+      const successor = document.createElement('button');
+      document.body.appendChild(successor);
+      try {
+        render(
+          <TriggerAndDialog closeOnEscape removeTriggerOnClose restoreFocusFallback={() => successor} />,
+        );
+        const trigger = screen.getByRole('button', { name: 'Open' });
+        trigger.focus();
+        fireEvent.click(trigger);
+        await waitFor(() => expect(screen.getByTestId('m')).toHaveFocus());
+
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        expect(screen.queryByTestId('m')).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Open' }), 'precondition: the opener is gone')
+          .toBeNull();
+        expect(document.activeElement).toBe(successor);
+      } finally {
+        successor.remove();
+      }
     });
   });
 

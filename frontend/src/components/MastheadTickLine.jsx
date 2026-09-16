@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { GOLDEN } from './shared/MastheadLight.jsx';
 
@@ -131,18 +131,89 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * word it drops is "Home", which is the entire content of the attribution. Drawing the short form
  * away would have put `NE66 1NG` beside a Cumbrian origin and said nothing about whose it was.
  *
+ * <h2>⚠️ The origin slot keeps the reader's focus when its element is swapped</h2>
+ *
+ * <p>The slot holds one of three elements — the nudge, the Map tab's statement, the origin button
+ * — and on the Map tab the move from the first to the second is a DIFFERENT element: a
+ * {@code <button>} replaced by a {@code <span>}. Elsewhere React reuses the button node and focus
+ * rides it; here the focused node is destroyed and focus falls to {@code <body>}, from which the
+ * next Tab starts at the top of the document. The route is the nudge's own purpose: press "set a
+ * postcode" and save one in the settings dialog. The page takes the new home from the save's own
+ * response, so the nudge is replaced while the dialog is still open, and the dialog's recorded
+ * opener is gone by the time it closes (the last paragraph below). The same swap can also land
+ * while the nudge itself holds focus — the dialog closed before its own settings read answered, and
+ * the answer names a home saved elsewhere — which is the handoff this section describes first.
+ *
+ * <p>So the statement is a programmatic focus target ({@code tabIndex={-1}}: focusable, never a tab
+ * stop, so "panning IS the search" still holds for the Tab order), and a swap hands focus from the
+ * departing element to its replacement — but only when the departing one HELD focus. That is
+ * decided in the ref's cleanup, because React detaches a ref before it removes the node (measured
+ * on React 19.3: the cleanup sees the node still connected and still focused), which is the last
+ * moment the question can be answered — after the removal every departure looks the same. A
+ * "focus is nowhere after a swap" test was the obvious alternative and is wrong here: a tab switch
+ * swaps this slot too, and the shell moves focus deliberately around one (its `tabRequest`
+ * handoff, which arrives with focus wherever a closing dialog left it). Focus-event tracking is
+ * wrong for a different reason, also measured: Chromium fires {@code blur} on a focused node as it
+ * is removed, WebKit and Firefox fire nothing, so a flag cleared on blur would already be cleared
+ * in Chromium by the time the swap commits.
+ *
+ * <p>The nudge also hands its caller a way to FIND the slot later ({@code onSetPostcode}'s
+ * argument), for the ordinary order: a save moves the home while the dialog is still open, the
+ * nudge is replaced under the dialog, the dialog's recorded opener is detached by the time it
+ * closes, and it needs somewhere else to put the reader. See `App`'s settings mount.
+ *
  * @param {object}    props
  * @param {object|null|undefined} [props.light] the day's light — see the three states above
  * @param {?object}   props.origin      the away origin ({@code {name, baseName}}), or null for home
  * @param {?string}   [props.homePlace] the reader's home place; {@code undefined} while unknown
  * @param {Function}  props.onOpenSearch  opens the search dialog
  * @param {Function}  props.onGoHome      returns the origin to home
- * @param {Function}  props.onSetPostcode opens settings on the home-postcode field
+ * @param {Function}  props.onSetPostcode opens settings on the home-postcode field; called with a
+ *        function that returns the origin slot's CURRENT element — the nudge's successor, once the
+ *        home is saved — for the dialog to restore focus to if the nudge itself is gone
  */
 export default function MastheadTickLine({
   light, origin, homePlace, onOpenSearch, onGoHome, onSetPostcode, searchOpen = false,
   isMapTab = false,
 }) {
+  // Whichever of the three elements the origin slot holds now. See the class comment's last
+  // section: the handoff below and the nudge's resolver both read it.
+  const originSlot = useRef(null);
+  // The element that was detached from the slot while holding focus — set by the ref cleanup,
+  // spent by the layout effect below.
+  const departed = useRef(null);
+  const trackOriginSlot = useCallback((node) => {
+    if (!node) return undefined;
+    originSlot.current = node;
+    // ⚠️ A node attaching here cannot also have departed. StrictMode (the app mounts under it in
+    // development) re-runs a newly mounted node's ref — cleanup, then setup, after the commit — so
+    // the statement the effect below has just focused comes back through the cleanup still focused
+    // and is recorded as departed. Left standing, that record was spent by the tick line's NEXT
+    // render: the light arriving pulled a reader who had since clicked away back onto the statement,
+    // and a tab switch that really removed the statement put them on the origin button instead
+    // (both reproduced under StrictMode in jsdom, the second found by review after a narrower first
+    // fix). A real removal never re-attaches the node it removed; StrictMode always does, at once.
+    if (departed.current === node) departed.current = null;
+    // React 19 calls this on detach, BEFORE it removes the node — while "was the reader here" can
+    // still be answered by `document.activeElement`.
+    return () => {
+      if (document.activeElement === node) departed.current = node;
+      if (originSlot.current === node) originSlot.current = null;
+    };
+  }, []);
+  // Every commit, but it acts only in the one that swapped a focused element out, and spends the
+  // record either way. The replacement is attached by then — refs attach before layout effects run.
+  // And only while focus is still nowhere: nothing in this commit should have placed it, but a
+  // reader's position is never taken.
+  useLayoutEffect(() => {
+    if (!departed.current) return;
+    departed.current = null;
+    const focused = document.activeElement;
+    const nowhere = !focused || focused === document.body || focused === document.documentElement;
+    if (nowhere) originSlot.current?.focus();
+  });
+  const originSlotNow = useCallback(() => originSlot.current, []);
+
   const away = Boolean(origin);
   // See the class comment: either positive answer, never an absent one, and never while away —
   // a reader planning from a region is not planning from a postcode, and the prompt would be
@@ -174,7 +245,8 @@ export default function MastheadTickLine({
           {noHome ? (
             <button
               type="button"
-              onClick={onSetPostcode}
+              ref={trackOriginSlot}
+              onClick={() => onSetPostcode(originSlotNow)}
               data-testid="masthead-set-postcode"
               tabIndex={searchOpen ? -1 : undefined}
               // ⚠️ The name is the LONG visible form, and it must stay a superstring of the short one
@@ -198,7 +270,16 @@ export default function MastheadTickLine({
             // non-interactive element's accessible name is just its rendered text, which is already
             // exactly what a reader sees. The caption is real content, not decoration, so it is a
             // plain visible text node rather than `aria-hidden` — only the SVG pin glyph is hidden.
-            <span data-testid="window-first-origin-statement" className="wf-tick-origin">
+            //
+            // `tabIndex={-1}` makes it a place focus can be PUT, never one Tab reaches: it is where
+            // the reader lands when the nudge they pressed is replaced by this (see the class
+            // comment). It carries `.wf-tick-origin`, so a keyboard landing draws that rule's ring.
+            <span
+              ref={trackOriginSlot}
+              tabIndex={-1}
+              data-testid="window-first-origin-statement"
+              className="wf-tick-origin"
+            >
               <Pin away={away} />
               <span className="wf-tick-place">{originLabel}</span>
               <span data-testid="masthead-origin-caption" className="wf-tick-caption">
@@ -208,6 +289,7 @@ export default function MastheadTickLine({
           ) : (
             <button
               type="button"
+              ref={trackOriginSlot}
               onClick={onOpenSearch}
               data-testid="window-first-origin-chip"
               data-away={away ? 'true' : 'false'}

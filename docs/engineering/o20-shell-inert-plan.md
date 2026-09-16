@@ -149,7 +149,7 @@ is not just runner minutes: `ci.yml` records that e2e needs a live Spring Boot b
 
 **(c) Do not adopt it. Leave arms A and B as the accepted posture.** They have been that since
 v1-retirement §4.3, whose three reasons are still live facts (Leaflet mutating its own tab stops,
-the body-portalled bottom sheet, the settings spinner with nothing focusable), and neither arm is
+the body-portalled bottom sheet, the settings spinner with nothing to Tab to), and neither arm is
 reachable without deliberately Tabbing out of a modal.
 
 **Recommendation: (a) if arms A and B are judged worth closing at all; (c) if they are not.** I no

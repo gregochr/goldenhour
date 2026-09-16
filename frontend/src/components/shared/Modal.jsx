@@ -93,6 +93,10 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  *                                          caller owns the stack, because only it knows the order;
  *                                          a stacked layer must also have {@code closeOnEscape}
  *                                          withheld, or one press answers two layers.
+ * @param {Function} [props.restoreFocusFallback] returns the element to hand focus to on close when
+ *                                          the element that opened this dialog can no longer take it
+ *                                          back — see {@link useDialogFocus}'s `restoreFallback`.
+ *                                          Opt-in: omitted, the close behaves exactly as before.
  */
 export default function Modal({
   label,
@@ -101,11 +105,12 @@ export default function Modal({
   bare = false,
   closeOnEscape = false,
   stacked = false,
+  restoreFocusFallback = null,
   className = '',
   'data-testid': testId,
   children,
 }) {
-  const dialogRef = useDialogFocus(true);
+  const dialogRef = useDialogFocus(true, { restoreFallback: restoreFocusFallback });
   /**
    * The last element focused INSIDE this dialog, recorded from real focus events.
    *
@@ -168,7 +173,7 @@ export default function Modal({
    * <p><b>Why the root is the right target is narrower than it first looks, and the obvious
    * argument for it is wrong.</b> It is tempting to say "this is just what an OPEN does", and
    * borrow {@link useDialogFocus}'s three reasons for preferring the container. All three fail
-   * here: its "nothing focusable inside" case cites the settings modal's spinner, and
+   * here: its "nothing to Tab to" case cites the settings modal's spinner, and
    * {@code UserSettingsModal} never passes {@code stacked} at all (only four Plan-shell dialogs do —
    * and only two of those can reach this branch in production, since {@code WindowSpotSheet} and
    * {@code WindowPickDialog} are stacked only while search is open, which the shell refuses to open
@@ -331,6 +336,7 @@ Modal.propTypes = {
   bare: PropTypes.bool,
   closeOnEscape: PropTypes.bool,
   stacked: PropTypes.bool,
+  restoreFocusFallback: PropTypes.func,
   className: PropTypes.string,
   'data-testid': PropTypes.string,
   children: PropTypes.node.isRequired,
