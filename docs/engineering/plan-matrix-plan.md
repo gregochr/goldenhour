@@ -727,7 +727,15 @@ likely to meet on an interesting night.
   closed the three that existed — the masthead search button (refuses a third layer), the settings
   cog (closes every Plan dialog first, because `UserSettingsModal` is a sibling of the shell in
   `App` and is invisible to `stackedOverPopup`), and the pick dialog's two map handoffs (which left
-  the popup live under an `aria-modal` `MapOverlay`). Nothing enforces it structurally. The
+  the popup live under an `aria-modal` `MapOverlay`). ⚠️ **"The three that existed" was three of
+  four, and the cog's close was not whole either** (found 2026-09-16): the tick line's postcode
+  nudge (M3) opened the same settings dialog and closed nothing — Tab-reachable from the popup,
+  where the tick line keeps its tab stops — and the cog's close skipped search, which is
+  `searchSeed` and which the cog is Tab-reachable from. Both now run the shell's
+  `yieldToForeignDialog`, and so does the Map tab's ⌂, a later route O-18 made
+  (`map-tab-v2-plan.md` O-20). The ⌂ is reached through `App` reporting the dialog to the shell
+  (`settingsOpen`), which covers any route into settings; beyond that one dialog, nothing enforces
+  it structurally. The
   proportionate structural fix, named here rather than taken at the settling commit, is `inert` on
   the shell's own content root while any dialog is open: it is the same mechanism, it costs no
   focusable query, and it would also close the residual below. It does make Tab cycle inside the

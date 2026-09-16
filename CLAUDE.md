@@ -47,7 +47,17 @@ paint order is DOM order). The supported stack is two deep. ⚠️ The property 
 route that could break it was closed one at a time — the search button and the settings cog were
 both reachable by Tab from an open dialog, and `UserSettingsModal` is a SIBLING of the shell in
 `App`, invisible to `stackedOverPopup` and taking no opt-in, so the cog closes every Plan dialog
-before it opens. The two doors from Plan to Map (`docs/engineering/plan-to-map-doors-plan.md`) take
+before it opens. ⚠️ **The cog was one of THREE routes into that dialog, and until 2026-09-16 the
+only one closed.** The tick line's "set a postcode" nudge went straight to `App`'s handler
+(Tab-reachable from an open popup, where the tick line keeps its tab stops), and the Map tab's ⌂ in
+its no-postcode state reaches `App` through the map pane, never through the shell (Tab-reachable
+from the four-day peek, O-20 arm A) — each put settings over a live `aria-modal` dialog. The cog's
+own close missed search, which is `searchSeed`, not the popup or a layer over it. All three now run
+the shell's `yieldToForeignDialog` (popup, stacked layers and search; no tab move): the cog and
+the nudge call it themselves, and `App` hands the shell `settingsOpen`, whose rising edge runs the
+same close DURING RENDER, so it lands in the commit settings mounts in, which is how the ⌂'s route
+is covered. `AppSettingsRoutes.test.jsx` counts the modals against the real settings dialog. The
+two doors from Plan to Map (`docs/engineering/plan-to-map-doors-plan.md`) take
 the same precaution: the location sheet footer's `Show on map` and the popup field's `Open in map`
 both call the shell's `openMapTab`, which closes the popup and the window sheet FIRST — the door's
 own version of what the cog already does — before handing the window off to the Map tab (the popup

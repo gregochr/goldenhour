@@ -456,6 +456,14 @@ function AppInner() {
   }, [lastCompletedRun]);
 
   const isDown = healthStatus === 'DOWN';
+  /**
+   * Whether the settings dialog is open — the one condition it mounts on below, and what the Plan
+   * shell is told. The dialog is a sibling of the shell here, so the shell cannot see it arrive;
+   * three routes open it (the masthead cog and nudge, and the Map tab's ⌂ through the map pane),
+   * and the ⌂ is the one that never passes through the shell. Hearing this, the shell takes its own
+   * dialogs down in the same commit, so the page never holds two claiming the modal.
+   */
+  const settingsOpen = Boolean(showSettings || settingsFocus);
 
   return (
     // Recast as a flex column on the Map tab (map-tab-v2-plan.md §3 P7's full-frame owner,
@@ -575,6 +583,7 @@ function AppInner() {
               mapColourScale={mapColourScale}
               onTabChange={setActivePlanTab}
               onOpenSettings={() => setShowSettings(true)}
+              settingsOpen={settingsOpen}
               onSignOut={logout}
               light={todaysLight}
               // The Map pane's own home marker source, reused so the Plan surfaces' home marker and
@@ -689,7 +698,7 @@ function AppInner() {
         </footer>
       )}
 
-      {(showSettings || settingsFocus) && (
+      {settingsOpen && (
         <UserSettingsModal
           focusField={settingsFocus}
           onClose={() => {

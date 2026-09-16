@@ -140,13 +140,14 @@ const ctx = (overrides = {}) => {
   };
 };
 
-const renderShell = (overrides = {}) => {
+const renderShell = (overrides = {}, extraProps = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
   const props = {
     onOpenSettings: vi.fn(),
     onSignOut: vi.fn(),
     onShowOnMap: vi.fn(),
     locations: LOCATIONS,
+    ...extraProps,
   };
   const view = render(<WindowFirstShell {...props} />);
   return { ...props, ...view };
@@ -426,6 +427,103 @@ describe('WindowFirstShell — the drill-down', () => {
 
       await act(async () => { fireEvent.click(screen.getByTestId('window-first-settings')); });
       expect(onOpenSettings).toHaveBeenCalled();
+      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+    });
+
+    /**
+     * ⚠️ The cog's rule, for the OTHER masthead control that opens settings — the tick line's
+     * "set a postcode" nudge, which went straight to `App`'s handler and closed nothing.
+     *
+     * <p>Reachable exactly where the cog was: with ONLY the popup open, `searchOpen` is false, so
+     * the nudge keeps its tab stop, and `useDialogFocus` is not a trap, so a keyboard reader Tabs
+     * out of the popup onto it (M5 measured the tick line on the seventeenth press). `App` then
+     * mounts `UserSettingsModal` beside the shell — two `aria-modal="true"` elements, and the
+     * popup's own Escape listener still armed underneath. `AppSettingsRoutes.test.jsx` counts
+     * those two against the real settings dialog; this is the shell's half.
+     */
+    describe('the postcode nudge\'s route into settings', () => {
+      const NUDGE = 'Set a postcode for light and drive times';
+      const noHome = { homePlace: null };
+
+      it('⚠️ closes the popup, which is the layer the nudge can be tabbed to from', async () => {
+        const onSetPostcode = vi.fn();
+        renderShell(noHome, { onSetPostcode });
+        await openPopup();
+
+        const nudge = screen.getByRole('button', { name: NUDGE });
+        // The precondition that makes this a live route rather than a belt: with only the popup up
+        // the tick line is still in the tab order. (Over a stacked layer or search it is not — the
+        // cases below.)
+        expect(nudge).not.toHaveAttribute('tabindex', '-1');
+
+        await act(async () => { fireEvent.click(nudge); });
+        expect(onSetPostcode).toHaveBeenCalledTimes(1);
+        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+      });
+
+      it('closes a layer STACKED over the popup too, though the nudge cannot be tabbed to there', async () => {
+        // A belt, stated for the reason `onGoHome` states its own: the invariant is written once per
+        // route, not once per reachable route. It is not the popup's close that takes the drill-down
+        // with it — `WindowSpotSheet` is keyed on its own `sheetKey`, not rendered inside the popup —
+        // so a nudge that closed only the popup would leave this sheet standing, alone, over the
+        // settings dialog's sibling.
+        const onSetPostcode = vi.fn();
+        renderShell(noHome, { onSetPostcode });
+        await openSheet();
+
+        const nudge = screen.getByRole('button', { name: NUDGE });
+        expect(nudge).toHaveAttribute('tabindex', '-1');
+        await act(async () => { fireEvent.click(nudge); });
+        expect(onSetPostcode).toHaveBeenCalledTimes(1);
+        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+      });
+
+      it('closes search, which is a shell dialog like the rest', async () => {
+        const onSetPostcode = vi.fn();
+        renderShell(noHome, { onSetPostcode });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
+        await screen.findByTestId('plan-search');
+
+        await act(async () => { fireEvent.click(screen.getByRole('button', { name: NUDGE })); });
+        expect(onSetPostcode).toHaveBeenCalledTimes(1);
+        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+      });
+
+      it('closes first on the fallback route as well, when no postcode handler was handed over', async () => {
+        // `onSetPostcode ?? onOpenSettings` — the nudge can never be a dead end, and it must not be
+        // the one route out of the plan that skips the close either.
+        const { onOpenSettings } = renderShell(noHome);
+        await openPopup();
+
+        await act(async () => { fireEvent.click(screen.getByRole('button', { name: NUDGE })); });
+        expect(onOpenSettings).toHaveBeenCalledTimes(1);
+        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+      });
+
+      it('passes the tick line\'s own argument through to the handler, untouched', async () => {
+        // What the tick line hands over is the tick line's business, and a later change hands the
+        // settings dialog a way back to the nudge's slot through it. A wrapper that swallowed the
+        // argument would break that silently, so the count is pinned rather than the value.
+        const onSetPostcode = vi.fn();
+        renderShell(noHome, { onSetPostcode });
+
+        fireEvent.click(screen.getByRole('button', { name: NUDGE }));
+        expect(onSetPostcode.mock.calls[0]).toHaveLength(1);
+      });
+    });
+
+    it('⚠️ the cog takes SEARCH down too — the one plan dialog its close used to miss', async () => {
+      // Found writing the nudge's cases. `openOverPopup(null); openWindow(null)` covers the popup and
+      // the three layers stacked over it, but search is neither: it is `searchSeed`. And the cog is
+      // reachable from an open search — the tick line leaves the tab order under it, the cog does
+      // not — so Shift+Tab out of the box onto ⚙ put search and settings up together.
+      const { onOpenSettings } = renderShell();
+      await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
+      await screen.findByTestId('plan-search');
+      expect(screen.getByRole('button', { name: 'Settings' })).not.toHaveAttribute('tabindex', '-1');
+
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Settings' })); });
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
       expect(screen.queryAllByRole('dialog')).toHaveLength(0);
     });
 
