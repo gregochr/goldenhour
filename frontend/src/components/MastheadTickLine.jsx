@@ -97,13 +97,31 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * purpose, because "you have not set a postcode" is a claim about the reader's account that a 502
  * is no evidence for. Nothing here may collapse the two.
  *
+ * <h2>Search is offered only where a handler is — the Plan tab</h2>
+ *
+ * <p>Two controls here open search: the origin button and the ⌕ beside it. Both render only when
+ * {@code onOpenSearch} is handed over, and the shell hands it over on the Plan tab alone. Everything
+ * search finds is a Plan object (a window, a region to plan from, a place's four-day sheet), and
+ * until 2026-09-16 a pick made on Coming up opened a Plan dialog over the feed. With no handler the
+ * origin is drawn as a non-interactive STATEMENT in the button's place and the ⌕ is not drawn at all:
+ * withheld, never rendered with nothing behind it, because plan-matrix §3 rule 14 bans a control with
+ * no visible effect.
+ *
+ * <p>The statement was the Map tab's first (map-tab-v2-plan.md §3 P11: "on a map, panning IS the
+ * search"), and {@code isMapTab} keeps that rule as its own — it withholds search even from a caller
+ * that hands a handler over — and adds the one thing the other tabs' statement does not draw, the
+ * "drive times from here" caption. The shell never hands the Map tab a handler, so in the app the
+ * two reasons agree; they are kept apart because they are two decisions, and the Map's must not
+ * start depending on which tabs the shell happens to search from.
+ *
  * <h2>The nudge is the origin button's empty state, and it is a different control</h2>
  *
- * <p>In every other state the origin button opens search. With no home saved it opens the postcode
- * field instead, because that is the one thing a reader in that state needs and a button labelled
- * "set a postcode" that opened a search box would be a control whose label lies. Search does not
- * become unreachable: the ⌕ beside it and the {@code /} key both still open it, which is why the
- * two are separate buttons here rather than one.
+ * <p>In every other state the origin button opens search (on the Plan tab; elsewhere it is the
+ * statement). With no home saved it opens the postcode field instead, on every tab, because that is
+ * the one thing a reader in that state needs and a button labelled "set a postcode" that opened a
+ * search box would be a control whose label lies. Search does not become unreachable on the Plan tab:
+ * the ⌕ beside it and the {@code /} key both still open it, which is why the two are separate buttons
+ * here rather than one.
  *
  * <p>⚠️ <b>{@code homePlace} is the authority and {@code light} is only consulted while it is
  * unknown</b>, which is narrower than the OR this shipped with and had to be. The two arrive on
@@ -135,7 +153,8 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * @param {object|null|undefined} [props.light] the day's light — see the three states above
  * @param {?object}   props.origin      the away origin ({@code {name, baseName}}), or null for home
  * @param {?string}   [props.homePlace] the reader's home place; {@code undefined} while unknown
- * @param {Function}  props.onOpenSearch  opens the search dialog
+ * @param {Function}  [props.onOpenSearch] opens the search dialog; absent on every tab but Plan,
+ *        which withholds both search controls (see the class comment)
  * @param {Function}  props.onGoHome      returns the origin to home
  * @param {Function}  props.onSetPostcode opens settings on the home-postcode field
  */
@@ -148,11 +167,15 @@ export default function MastheadTickLine({
   // a reader planning from a region is not planning from a postcode, and the prompt would be
   // about nothing they can see. (The rail footer's "Home not set" line withheld it identically.)
   const noHome = !away && (homePlace === null || (homePlace === undefined && light === null));
-  // The map tab's own statement, drawn INSTEAD of the interactive origin button — never instead of
-  // the empty-state nudge, which stays exactly as it is on every tab (CLAUDE.md's do-not-re-gate-
-  // the-postcode rule: the band's empty state nudges the reader to this field, and a dead statement
-  // there would make the nudge a dead end).
-  const statement = isMapTab && !noHome;
+  // Whether this row offers search at all — the one question both search controls answer from. Two
+  // reasons it may not, and either is enough: no handler was handed over (every tab but Plan — see
+  // the class comment), or this is the Map tab, where panning IS the search whatever a caller passes.
+  const searchable = typeof onOpenSearch === 'function' && !isMapTab;
+  // The statement, drawn INSTEAD of the interactive origin button wherever there is no search to
+  // open — never instead of the empty-state nudge, which stays exactly as it is on every tab
+  // (CLAUDE.md's do-not-re-gate-the-postcode rule: the band's empty state nudges the reader to this
+  // field, and a dead statement there would make the nudge a dead end).
+  const statement = !searchable && !noHome;
   const originLabel = away
     ? `${origin.name} · from ${origin.baseName}`
     : (homePlace ? `Home · ${homePlace}` : 'Home');
@@ -192,8 +215,8 @@ export default function MastheadTickLine({
               </span>
             </button>
           ) : statement ? (
-            // The map tab's own statement (map-tab-v2-plan.md §3 P11, README "Masthead change"):
-            // "on a map, panning IS the search" — so this is a `<span>`, never a `<button>`, and
+            // The statement (map-tab-v2-plan.md §3 P11, README "Masthead change", and every tab but
+            // Plan since 2026-09-16 — see the class comment). A `<span>`, never a `<button>`, so it
             // needs none of WCAG 2.5.3's accname machinery the interactive arm below carries: a
             // non-interactive element's accessible name is just its rendered text, which is already
             // exactly what a reader sees. The caption is real content, not decoration, so it is a
@@ -201,9 +224,14 @@ export default function MastheadTickLine({
             <span data-testid="window-first-origin-statement" className="wf-tick-origin">
               <Pin away={away} />
               <span className="wf-tick-place">{originLabel}</span>
-              <span data-testid="masthead-origin-caption" className="wf-tick-caption">
-                drive times from here
-              </span>
+              {/* The Map tab's alone: every drive time and leave-by on the map is measured from this
+                  place. Coming up and Operations show no drive time, so there it would be a claim
+                  about nothing. */}
+              {isMapTab && (
+                <span data-testid="masthead-origin-caption" className="wf-tick-caption">
+                  drive times from here
+                </span>
+              )}
             </span>
           ) : (
             <button
@@ -235,9 +263,12 @@ export default function MastheadTickLine({
           )}
           {/* Full-height hairline between the two controls, exactly as the bundle draws it. Purely
               visual: the two buttons are already separate tab stops with separate names.
-              ⚠️ Map tab only omits — README "Masthead change": "the ⌕ search button is absent" —
-              because panning IS the search there; every other tab keeps both untouched. */}
-          {!isMapTab && (
+              ⚠️ Omitted with the ⌕ wherever this row offers no search — every tab but Plan. The
+              Map tab withheld it first, by its own rule (README "Masthead change": "the ⌕ search
+              button is absent", because panning IS the search there); Coming up and Operations
+              followed on 2026-09-16 through a missing handler, because a pick from a search opened
+              there put a Plan dialog over that tab. */}
+          {searchable && (
             <>
               <span aria-hidden="true" className="wf-tick-sep" />
               <button
@@ -316,7 +347,12 @@ MastheadTickLine.propTypes = {
     baseName: PropTypes.string.isRequired,
   }),
   homePlace: PropTypes.string,
-  onOpenSearch: PropTypes.func.isRequired,
+  /**
+   * Opens search. Absent means this row offers none: the origin is a statement and the ⌕ is not
+   * drawn. The shell hands it over on the Plan tab only; see the class comment. (`isMapTab` withholds
+   * search on its own too.)
+   */
+  onOpenSearch: PropTypes.func,
   onGoHome: PropTypes.func.isRequired,
   onSetPostcode: PropTypes.func.isRequired,
   /**
@@ -334,8 +370,10 @@ MastheadTickLine.propTypes = {
   /**
    * Whether the Map tab is the active tab (map-tab-v2-plan.md §3 P11) — a per-tab STATE of this
    * component, not a fork: the origin control renders as a non-interactive statement (pin, place,
-   * caption) and the `⌕` search button is withheld, because on a map panning IS the search. The
-   * empty-state nudge (`noHome`) is unaffected on every tab — see `statement`'s own derivation.
+   * caption) and the `⌕` search button is withheld, because on a map panning IS the search — whatever
+   * `onOpenSearch` says. ⚠️ Since 2026-09-16 the statement is not the Map's alone: a missing
+   * `onOpenSearch` draws it on every other tab but Plan too, without the caption, which stays this
+   * prop's. The empty-state nudge (`noHome`) is unaffected on every tab — see `statement`'s derivation.
    */
   isMapTab: PropTypes.bool,
 };

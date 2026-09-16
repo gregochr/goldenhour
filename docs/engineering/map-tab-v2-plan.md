@@ -514,6 +514,14 @@ you just asked about").
   `searchOpen → tabIndex=-1` machinery must survive on the other tabs (extend
   `MastheadTickLine.test.jsx` for the per-tab variant, and mind WCAG 2.5.3 accname rules already
   enforced there).
+  ⚠️ **The statement is not the Map tab's alone since 2026-09-16.** The "other tabs" above kept the
+  ⌕ and the origin button, and on Coming up and Operations both opened search. Search finds only
+  Plan objects, so a pick there opened the window popup or the four-day sheet over that tab with the
+  tab unmoved. The shell now hands the tick line `onOpenSearch` on the Plan tab only, and with no
+  handler the tick line draws this statement and withholds the ⌕, on every tab but Plan.
+  `isMapTab` keeps the Map's own rule (no search, whatever a caller hands over) and the caption,
+  which the other tabs do not draw: no drive time is on screen there. This bullet's rule that search's anchoring and `searchOpen` machinery survive "on the
+  other tabs" now applies to the Plan tab alone, the only tab search opens on.
 - `⌂` resets scope to My area and refits (does not clear filters — matches prototype).
 - Tests: sort/threshold/scope-flip; masthead variant incl. accname; ⌂ semantics.
 

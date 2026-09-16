@@ -1149,6 +1149,8 @@ export default function WindowFirstShell({
    * popup is. That last exclusion is M3's, and the guard below spells out why the popup is the one
    * stack this arm supports. It is also Plan-only: on Coming up or the Map tab there is no window
    * list to search into, and a shortcut that opens a dialog about another tab is worse than none.
+   * The tick line's two search buttons follow the same tab rule since 2026-09-16 — see
+   * {@code onOpenSearch} on its mount below.
    */
   useEffect(() => {
     if (effectiveTab !== 'plan') return undefined;
@@ -1412,15 +1414,31 @@ export default function WindowFirstShell({
           light={light}
           origin={origin ?? null}
           homePlace={homePlace}
-          // ⚠️ The SAME guard the `/` shortcut carries, and M5 added it because the button did not.
-          // Measured in a browser: from an open location sheet a keyboard reader reached this
-          // control on the seventeenth Tab and opened search as a THIRD layer — and `Modal` gives
-          // every dialog `fixed inset-0 z-50`, so with equal z-index paint order is DOM order and
-          // the sheet, which renders after search, painted its scrim and its whole card OVER the
-          // search panel. The reader typed into a box behind a dead, dimmed sheet. The shortcut's
-          // own comment already settled the rule this restores — "those are already stacked on the
-          // popup, and a third layer has nowhere to go" — so the button was simply bypassing it.
-          onOpenSearch={() => { if (!stackedOverPopup) setSearchSeed(''); }}
+          // ⚠️ HANDED OVER ON THE PLAN TAB ONLY — the `/` shortcut's tab rule, which the tick line's
+          // two search buttons (the ⌕ and the origin button) did not follow until 2026-09-16.
+          // Everything search finds is a Plan object, and every pick acts on the Plan: a window opens
+          // the popup, a place opens the four-day sheet, a region moves the origin. On Coming up the
+          // first two opened over the almanac feed with the tab unmoved (reproduced in jsdom through
+          // both buttons) — the state `selectTab` exists to prevent — and Operations offered the
+          // same two buttons.
+          // WITHHELD rather than refused: with no handler the tick line draws the origin as a
+          // statement and no ⌕, where a handler that did nothing would leave two controls with no
+          // visible effect (plan-matrix §3 rule 14). The Map tab withheld both before this for its
+          // own reason (P11: panning is the search there). The beyond line, the third trigger, sits
+          // inside the Plan pane and is hidden with it.
+          //
+          // ⚠️ And the SAME stacking guard the `/` shortcut carries, which M5 added because the
+          // button did not. Measured in a browser: from an open location sheet a keyboard reader
+          // reached this control on the seventeenth Tab and opened search as a THIRD layer — and
+          // `Modal` gives every dialog `fixed inset-0 z-50`, so with equal z-index paint order is DOM
+          // order and the sheet, which renders after search, painted its scrim and its whole card
+          // OVER the search panel. The reader typed into a box behind a dead, dimmed sheet. The
+          // shortcut's own comment already settled the rule this restores — "those are already
+          // stacked on the popup, and a third layer has nowhere to go" — so the button was simply
+          // bypassing it.
+          onOpenSearch={effectiveTab === 'plan'
+            ? () => { if (!stackedOverPopup) setSearchSeed(''); }
+            : undefined}
           // ⚠️ Takes every dialog down first — but at M5 the two calls stopped being on the same
           // footing, and the difference is worth stating so neither is later read as dead.
           //
@@ -1460,7 +1478,9 @@ export default function WindowFirstShell({
           // map-tab-v2-plan.md §3 P11: a per-tab STATE of the tick line, read off the SAME
           // `effectiveTab` every other map-only branch in this file already keys on (the full-frame
           // recast at `:1154`/`:1355`, the search/sheet gates below) — never a second "which tab"
-          // test that could disagree with them.
+          // test that could disagree with them. ⚠️ Since 2026-09-16 the statement is not the Map's
+          // alone: `onOpenSearch` above is withheld on every tab but Plan, which draws it there too.
+          // This prop keeps the Map's own no-search rule and the caption only the Map draws.
           isMapTab={effectiveTab === 'map'}
         />
       </div>
