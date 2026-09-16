@@ -276,6 +276,21 @@ Two traps specific to this codebase:
   file sits on its pending label with its error state never committing. Hand the test the resolver
   and settle it before the test ends; `OutcomeModal.test.jsx` and `LoginPage.test.jsx` both do, with
   an `afterEach` net so an assertion that throws first cannot poison the rest of the file.
+- Do not let a real timer armed by the code under test outlive the test's `afterEach`. It fires
+  after the hook has put back whatever its callback reaches for. `createEventSource.test.js` drove a
+  reconnect branch on real timers, which arms a 5 s retry, and its hook restored `EventSource` to
+  jsdom's (there is none). Whenever the worker lived five more seconds, the retry threw from its
+  timer. That is an unhandled error, so the run exits 1 with every test passing, attributed only to
+  the last test that ran; the rest of that file takes milliseconds, so it was only ever seen under
+  load. Release what a test opens in `afterEach`, through the handle the code gives for it, so a
+  test that throws releases it too. In that file, closing the mock source could not reach the retry
+  timer the code held. The file now also runs on the fake clock, so a retry left armed cannot fire,
+  and its hook fails a test that leaves a source open or a fake timer pending: two checks, because
+  each misses a leak the other catches. Restore the clock in `afterEach` or a `finally`:
+  `vi.useRealTimers()` on a test's last line is skipped by the first assertion that throws. To
+  reproduce without load, append a top-level test to a scratch copy that awaits past the timer, and
+  the unhandled error arrives on every run. Never commit that probe: it is the sleep the rule above
+  forbids.
 - Do not depend on a mock implementation some other test installed. `vi.clearAllMocks()` clears
   calls, not implementations, so a `mockResolvedValue` is still in force in the next test and in the
   next `describe`. Re-assert every default a suite relies on in its own `beforeEach`, and give every

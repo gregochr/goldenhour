@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import createEventSource from '../utils/createEventSource.js';
+import createEventSourceUntracked from '../utils/createEventSource.js';
 
 class MockEventSource {
   static CLOSED = 2;
@@ -30,10 +30,29 @@ class MockEventSource {
 
 MockEventSource.instances = [];
 
+// Every test opens its connections through this wrapper so `afterEach` can close them. The cleanup
+// `createEventSource` returns is the only handle on a connection's retry timer and its visibility
+// listeners; closing the mock source reaches neither. Calling the import directly opens a
+// connection nothing will close.
+const openConnections = [];
+
+function createEventSource(...args) {
+  const close = createEventSourceUntracked(...args);
+  openConnections.push(close);
+  return close;
+}
+
 describe('createEventSource', () => {
   let origEventSource;
 
   beforeEach(() => {
+    // The whole file runs on the fake clock, so no retry a test arms can fire once the test is
+    // over. One did: "calls onError even when readyState is CLOSED" ran on the real clock and left
+    // the 5 s retry armed. When the worker outlived it (only ever seen under load; the rest of this
+    // file takes milliseconds), it fired after `afterEach` had put EventSource back to jsdom's,
+    // which has none, and threw `EventSource is not a constructor` from the timer: an unhandled
+    // error that failed the whole run with every test passing.
+    vi.useFakeTimers();
     origEventSource = globalThis.EventSource;
     globalThis.EventSource = MockEventSource;
     MockEventSource.instances = [];
@@ -41,8 +60,23 @@ describe('createEventSource', () => {
   });
 
   afterEach(() => {
+    // Close every connection the test opened, whether it passed or threw. The fake clock stops a
+    // retry left behind from firing; only the cleanup releases the connection's source, listeners
+    // and timer.
+    for (const close of openConnections.splice(0)) close();
+    // Then check that nothing was missed, on every run; each check sees a leak the other cannot. A
+    // cleanup closes its connection's current source and a reconnect closes the one it replaces, so
+    // a source still open belongs to a connection nothing released, with or without a retry. A
+    // timer still pending is a retry nothing cancelled, even behind a source a test closed itself.
+    const leftOpen = MockEventSource.instances.filter((source) => !source._closed);
+    const leftArmed = vi.getTimerCount();
+    // Restored here rather than on each test's last line, which a failing assertion never reaches.
+    vi.useRealTimers();
     globalThis.EventSource = origEventSource;
     vi.unstubAllGlobals();
+    // Asserted last, so a failure cannot skip the restores above.
+    expect(leftOpen.map((source) => source.url), 'connections left open').toEqual([]);
+    expect(leftArmed, 'retries left armed').toBe(0);
   });
 
   it('constructs URL with base, path, params, and token', () => {
@@ -117,7 +151,6 @@ describe('createEventSource', () => {
   });
 
   it('reconnects when EventSource enters CLOSED state', () => {
-    vi.useFakeTimers();
     const onError = vi.fn();
     createEventSource('/api/test', {}, {}, { onError });
     expect(MockEventSource.instances).toHaveLength(1);
@@ -131,12 +164,9 @@ describe('createEventSource', () => {
 
     vi.advanceTimersByTime(5000);
     expect(MockEventSource.instances).toHaveLength(2);
-
-    vi.useRealTimers();
   });
 
   it('reads a freshly-provided token on reconnect, not a stale captured one', () => {
-    vi.useFakeTimers();
     let current = 'tok-1';
     createEventSource('/api/test', {}, {}, { getToken: () => current });
     expect(MockEventSource.instances[0].url).toContain('token=tok-1');
@@ -150,12 +180,9 @@ describe('createEventSource', () => {
 
     expect(MockEventSource.instances).toHaveLength(2);
     expect(MockEventSource.instances[1].url).toContain('token=tok-2');
-
-    vi.useRealTimers();
   });
 
   it('closes the previous source when reconnecting', () => {
-    vi.useFakeTimers();
     createEventSource('/api/test');
     const first = MockEventSource.instances[0];
     first.readyState = MockEventSource.CLOSED;
@@ -165,12 +192,9 @@ describe('createEventSource', () => {
 
     expect(first._closed).toBe(true);
     expect(MockEventSource.instances).toHaveLength(2);
-
-    vi.useRealTimers();
   });
 
   it('does not reconnect after cleanup is called', () => {
-    vi.useFakeTimers();
     const cleanup = createEventSource('/api/test');
     const source = MockEventSource.instances[0];
 
@@ -180,8 +204,21 @@ describe('createEventSource', () => {
 
     vi.advanceTimersByTime(10000);
     expect(MockEventSource.instances).toHaveLength(1);
+  });
 
-    vi.useRealTimers();
+  it('cancels a pending retry when cleanup is called', () => {
+    const cleanup = createEventSource('/api/test');
+    const source = MockEventSource.instances[0];
+    source.readyState = MockEventSource.CLOSED;
+    source.onerror(); // schedules the 5s retry
+    expect(vi.getTimerCount()).toBe(1);
+
+    cleanup();
+
+    // Counted, not advanced: `closed` alone stops a retry that fires from reconnecting, so the
+    // pending-timer count, not the instance count, is what tells a cancelled retry from one left
+    // armed to fire as a no-op.
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   describe('reconnectOnVisible', () => {
@@ -214,7 +251,6 @@ describe('createEventSource', () => {
     });
 
     it('cancels the pending throttled retry and reconnects at once on visibility', () => {
-      vi.useFakeTimers();
       createEventSource('/api/test', {}, {}, { reconnectOnVisible: true });
       const source = MockEventSource.instances[0];
       source.readyState = MockEventSource.CLOSED;
@@ -226,8 +262,6 @@ describe('createEventSource', () => {
       // The previously scheduled retry must not fire a second reconnect.
       vi.advanceTimersByTime(5000);
       expect(MockEventSource.instances).toHaveLength(2);
-
-      vi.useRealTimers();
     });
 
     it('removes visibility/focus listeners on cleanup', () => {
