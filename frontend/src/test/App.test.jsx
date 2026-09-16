@@ -17,11 +17,14 @@ import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
  * fallback), the provider's roster, and the two panes App withholds (mapPane on data,
  * operationsPane on role).
  *
- * <p>Everything is mocked at the API-module boundary; auth is seeded through localStorage so the
- * real AuthProvider runs. The one seam that is not a fetch: the provider's `locations` prop has no
+ * <p>Everything is mocked at the API-module boundary, with the exceptions named here; auth is
+ * seeded through localStorage so the real AuthProvider runs. The provider's `locations` prop has no
  * rendered consumer yet — the heat field's surfaces arrive at P2/P4 — so it is observed with a
- * PASSTHROUGH spy on the provider export (the real provider still runs; nothing is stubbed). When
- * a P2 surface renders from `heatPointSets`, that assertion can move onto the DOM.
+ * PASSTHROUGH spy on the provider export (the real provider still runs; the spy stubs nothing).
+ * When a P2 surface renders from `heatPointSets`, that assertion can move onto the DOM. Both maps
+ * App mounts are stubbed — the Map tab's pane and the overlay's `MapView`, each for the reason
+ * beside its mock — and `useAuroraViewline` is mocked to answer no line, so the aurora banner makes
+ * no viewline read.
  */
 
 vi.mock('../api/forecastApi.js', () => ({
@@ -55,6 +58,15 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
     mapPaneProps.last = props;
     return <div data-testid="map-pane-stub" />;
   },
+}));
+// The map inside the overlay the aurora banner opens, stubbed too — but unlike the pane above it
+// records nothing: no assertion in this file reads that map, and `MapView`'s own suites mount it,
+// with Leaflet stubbed. Kept real, it would have this file mock the map's own reads and fixture its
+// aurora-mode rules, and it would put Leaflet's first load inside `pressAuroraBanner`'s wait, which
+// then took 2.8–3.8 s against its 4 s ceiling under the suite's load reproduction. See "Do not open
+// a lazy subtree" in `docs/engineering/frontend-test-standards.md`.
+vi.mock('../components/MapView.jsx', () => ({
+  default: () => <div data-testid="overlay-map-stub" />,
 }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({ getAuroraStatus: vi.fn() }));
@@ -904,6 +916,33 @@ describe('App — panes handed to WindowFirstShell', () => {
       return screen.findByTestId('map-pane-stub');
     };
 
+    /**
+     * Presses the aurora banner, and waits for the map overlay it opens and the map inside it.
+     *
+     * <p>⚠️ The wait is what keeps these tests off whatever the tests before them loaded. The
+     * banner opens `MapOverlay` framing `MapView`, both behind `React.lazy` in `App.jsx`; a lazy
+     * chunk stays loaded for the rest of the file, and `MapView`'s is requested only when
+     * `MapOverlay` renders. A banner test that asserted and ended straight after its press
+     * therefore left the overlay on its fallback — unless an earlier banner test had still been
+     * mounted when `MapOverlay` loaded, and `MapView` had loaded since, in which case the real map
+     * mounted inside the press and threw on a read this file never mocked. The default order never
+     * did that; a shuffle could, and whether it did was a race.
+     *
+     * <p>With the map stubbed, deleting this wait fails nothing. Keep it: it runs every order
+     * through the same code, and it is what makes deleting the stub fail both banner tests in every
+     * order, naming the map's first unmocked read, rather than in some orders only.
+     */
+    const pressAuroraBanner = async () => {
+      // The banner's whole body is the activation surface (a click handler + `tabIndex`, not a
+      // nested button), so the click goes on the banner element itself.
+      const banner = await screen.findByTestId('aurora-banner');
+      await act(async () => { fireEvent.click(banner); });
+      // The map inside the dialog as well as the dialog: they share one Suspense boundary today,
+      // and a boundary of the map's own would let the dialog show before the map had mounted.
+      const dialog = await screen.findByRole('dialog', { name: 'Aurora tonight' });
+      await within(dialog).findByTestId('overlay-map-stub');
+    };
+
     it('defaults to a today-forward date, never a past one', async () => {
       fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
       renderApp();
@@ -925,10 +964,7 @@ describe('App — panes handed to WindowFirstShell', () => {
       await openMapTab();
       expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
 
-      // The banner's whole body is the activation surface (a click handler + `tabIndex`, not a
-      // nested button), so the click goes on the banner element itself.
-      const banner = await screen.findByTestId('aurora-banner');
-      await act(async () => { fireEvent.click(banner); });
+      await pressAuroraBanner();
 
       expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
     });
@@ -967,8 +1003,7 @@ describe('App — panes handed to WindowFirstShell', () => {
       await openMapTab();
 
       // 1. The banner's night selection is honoured.
-      const banner = await screen.findByTestId('aurora-banner');
-      await act(async () => { fireEvent.click(banner); });
+      await pressAuroraBanner();
       expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
 
       // 2. A subsequent SOLAR pick of the same date must not inherit it.
