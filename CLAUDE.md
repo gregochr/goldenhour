@@ -32,8 +32,12 @@ best-reachable line, its topics and the served `BEST BET`/`ALSO GOOD` legend; em
 Clicking a card opens **one popup** (`WindowSheetDialog`) holding everything the deleted accordion
 held — big field with greedily-placed location chips, region rail, an always-rendered prose slot,
 topic rows, the tide row, the ranked spot strip. The origin control, the search trigger and the light
-times are the masthead's **tick line** (`MastheadTickLine`); a place's own six windows are a
-**location sheet** (`LocationFourDaySheet`) stacked over the popup. Below the matrix sits **one**
+times are the masthead's **tick line** (`MastheadTickLine`). ⚠️ **Search is the Plan tab's alone**:
+`/` refuses elsewhere, and on every other tab the shell hands the tick line no `onOpenSearch`, so it
+draws the origin as a statement and no ⌕ — withheld, not refused (plan-matrix §3 rule 14). Until
+2026-09-16 both buttons opened search on Coming up and Operations, and a pick opened the popup or the
+four-day sheet over that pane with the tab unmoved. A place's own six windows are a **location
+sheet** (`LocationFourDaySheet`) stacked over the popup. Below the matrix sits **one**
 door (Regional planner), which has no other v2 home — the Hot topics door and its panel
 (`HotTopicStrip`) were removed in the Coming up redesign's P6
 (`docs/engineering/coming-up-plan.md` D7): the strip's standing conditions and the "Coming up"
@@ -74,8 +78,10 @@ opens `LocationFourDaySheet` over the map without moving the tab (an owner ask �
 peek to the selection you opened it from), so the shell's dialog state is no longer "about the Plan
 tab" in every case. The invariant survives because that route goes through `selectTab` like every
 other — naming the tab already in force, so the clearing runs and the tab does not move — and
-because search, the only other shell layer reachable from the map, is already refused while
-`sheetSpot` stands. ⚠️ It did NOT survive the map's ⌂ until 2026-09-16: with no postcode saved the
+because no other shell layer can stand over the map: search has no trigger on that tab and closes on
+any tab switch (corrected 2026-09-16; this used to call search reachable from the map), and the
+window popup, which the drill-down and the pick dialog stand on, opens only from a Plan-pane card or
+a search pick. ⚠️ It did NOT survive the map's ⌂ until 2026-09-16: with no postcode saved the
 ⌂ opened settings over the sheet, which now goes on `settingsOpen`'s edge (above). What is genuinely
 new is that the layer UNDER a dialog can now be a whole interactive pane the shell has no `stacked`
 opt-in over (`map-tab-v2-plan.md` **O-20** records the consequences and why `inert` cannot simply be

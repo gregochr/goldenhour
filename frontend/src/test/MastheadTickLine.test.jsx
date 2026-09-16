@@ -387,14 +387,94 @@ describe('MastheadTickLine — while the search panel covers it', () => {
 });
 
 /**
+ * The origin as a STATEMENT wherever the shell hands over no search handler — every tab but Plan.
+ *
+ * <p>Search finds only Plan objects, and until 2026-09-16 a pick made from the ⌕ or the origin button
+ * on Coming up opened a Plan dialog over the feed with the tab unmoved. So the shell hands the tick
+ * line `onOpenSearch` on the Plan tab only, and with none the line withholds both search controls:
+ * the origin is drawn as the statement the Map tab already draws, and the ⌕ is not drawn at all. The
+ * Map tab keeps its own rule and its caption, in the block below.
+ */
+describe('MastheadTickLine — with no search handler (every tab but Plan)', () => {
+  const noSearch = { onOpenSearch: undefined };
+
+  it('renders a non-interactive statement instead of the origin button, and withholds the ⌕', () => {
+    renderTick(noSearch);
+
+    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Search days, regions and places' })).toBeNull();
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(statement.tagName).toBe('SPAN');
+    expect(statement).toHaveTextContent('Home · Durham');
+  });
+
+  it('draws no caption — "drive times from here" is the Map tab\'s, and no drive time is on screen here', () => {
+    renderTick(noSearch);
+    expect(screen.getByTestId('window-first-origin-statement')).toHaveTextContent('Home · Durham');
+    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
+  });
+
+  /**
+   * `.wf-tick-group:hover` brightens the bordered pill, which reads as "this is a control", and
+   * `data-statement` is the hook `index.css` neutralises that with. jsdom resolves no CSS, so the
+   * attribute is the observable. Every arm, because an unconditional value is the defect in either
+   * direction.
+   *
+   * <p>⚠️ The NUDGE arm is the one a mutation sweep found unpinned. The nudge renders ahead of the
+   * statement whatever `statement` says, so a derivation that dropped its `!noHome` term still drew
+   * the nudge, and every other test passed — while its group claimed to be a statement and stopped
+   * reacting to the pointer, on exactly the tabs that now have no search handler.
+   */
+  it.each([
+    ['the statement, which does nothing', { ...noSearch }, 'window-first-origin-statement', 'true'],
+    ['the origin button, which opens search', {}, 'window-first-origin-chip', 'false'],
+    ['⚠️ the nudge, which is a control on every tab', { ...noSearch, homePlace: null },
+      'masthead-set-postcode', 'false'],
+  ])('marks the group as a statement only when it holds one — %s', (_label, props, testId, expected) => {
+    renderTick(props);
+    expect(screen.getByTestId(testId).closest('.wf-tick-group'))
+      .toHaveAttribute('data-statement', expected);
+  });
+
+  it('still names an away origin, and keeps the way home, which moves the origin rather than searching', () => {
+    const onGoHome = vi.fn();
+    renderTick({ ...noSearch, origin: LAKES, onGoHome });
+
+    expect(screen.getByTestId('window-first-origin-statement'))
+      .toHaveTextContent('The Lake District · from Keswick');
+    // The way-home pin is a DIFFERENT control from the ⌕ withheld above: it has a visible effect of
+    // its own, so leaving the origin stays reachable from every tab.
+    fireEvent.click(screen.getByRole('button', { name: 'Plan from home again' }));
+    expect(onGoHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('⚠️ keeps the empty-state nudge — CLAUDE.md\'s do-not-re-gate-the-postcode rule', () => {
+    // The nudge opens settings, not search, so its job exists on every tab.
+    const onSetPostcode = vi.fn();
+    renderTick({ ...noSearch, homePlace: null, onSetPostcode });
+
+    expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
+    expect(screen.queryByTestId('window-first-search')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Set a postcode for light and drive times' }));
+    expect(onSetPostcode).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
  * The Map tab's per-tab STATEMENT variant (map-tab-v2-plan.md §3 P11, README "Masthead change") —
  * "on a map, panning IS the search". `isMapTab` is a per-tab STATE of this one component, never a
- * fork: every describe block above (unchanged, `isMapTab` defaulting to {@code false} throughout)
- * is the "byte-identical on the other tabs" proof by construction — this block adds only what
- * changes when the prop flips.
+ * fork, and this block adds only what changes when the prop flips.
+ *
+ * <p>⚠️ It is no longer the only statement. Coming up and Operations draw one too since 2026-09-16,
+ * through the absence of a search handler (the block above). The Map keeps its OWN rule here: every
+ * test in this block hands over a handler (the `renderTick` default) and still gets no search,
+ * because panning is the search on the map whatever a caller passes. The caption stays the Map's
+ * alone. The blocks further above render with a handler and without `isMapTab`, which is the Plan
+ * tab, not "the other tabs".
  */
 describe('MastheadTickLine — the Map tab statement (map-tab-v2-plan.md §3 P11)', () => {
   it('renders a non-interactive statement instead of the origin button, and withholds the ⌕ search button', () => {
+    // WITH a handler, as `renderTick` hands one over: the Map's own rule, not the shell's handler.
     renderTick({ isMapTab: true });
 
     expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
@@ -451,7 +531,7 @@ describe('MastheadTickLine — the Map tab statement (map-tab-v2-plan.md §3 P11
     expect(onSetPostcode).toHaveBeenCalledTimes(1);
   });
 
-  it('other tabs are unaffected — the origin button and the ⌕ search button both still render', () => {
+  it('the Plan tab is unaffected — handed a handler off the map, both search buttons still render', () => {
     renderTick({ isMapTab: false });
 
     expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
