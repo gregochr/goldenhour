@@ -345,25 +345,35 @@ describe('WindowFirstShell — the strip it hosts', () => {
     // §7: the model name is admin-only today and is not a pilot user's business, so the design's
     // "forecast 52m ago by Sonnet" ships as the age alone.
     vi.setSystemTime(new Date('2026-08-04T12:34:00Z'));
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    try {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
 
-    // M3: beside the change line rather than in the deleted rail footer. This fixture has no
-    // movement basis, so the plain run line is what renders — see the strip's own branch comment
-    // for why the two forms are mutually exclusive.
-    const line = screen.getByTestId('wf-heat-runage');
-    expect(line).toHaveTextContent('Last forecast run 34m ago');
-    expect(line.textContent).not.toMatch(/sonnet|haiku|opus/i);
-    vi.useRealTimers();
+      // M3: beside the change line rather than in the deleted rail footer. This fixture has no
+      // movement basis, so the plain run line is what renders — see the strip's own branch comment
+      // for why the two forms are mutually exclusive.
+      const line = screen.getByTestId('wf-heat-runage');
+      expect(line).toHaveTextContent('Last forecast run 34m ago');
+      expect(line.textContent).not.toMatch(/sonnet|haiku|opus/i);
+    } finally {
+      // Restored here, not on a bare last line: an assertion above that throws must still hand
+      // the real clock back before the next test. This file's `afterEach(() => vi.restoreAllMocks())`
+      // does not reach a clock `setSystemTime` installed — see frontend-test-standards.md,
+      // "What NOT to do".
+      vi.useRealTimers();
+    }
   });
 
   it('reads the age as UTC, which is how the backend writes it', () => {
     // Parsing the zone-less instant as local time made a 34-minute-old forecast read "1h ago"
     // through a British summer. The shared formatter appends the Z; a local copy did not.
     vi.setSystemTime(new Date('2026-08-04T12:05:00Z'));
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    try {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
 
-    expect(screen.getByTestId('wf-heat-runage')).toHaveTextContent('Last forecast run 5m ago');
-    vi.useRealTimers();
+      expect(screen.getByTestId('wf-heat-runage')).toHaveTextContent('Last forecast run 5m ago');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('says nothing about days while the first fetch is still in flight', () => {
