@@ -456,9 +456,10 @@ describe('App — every route into settings takes down the dialog it would open 
      * matrix card, that is the card. Pinned for both masthead routes, so a change at either end is a
      * decision rather than a drift.
      *
-     * <p>⚠️ Two limits, stated rather than implied. If that opener has gone by the time settings
-     * closes — a window that passed while settings stood — the hook restores nothing and focus stays
-     * where the browser put it, as `useDialogFocus` records. And these are jsdom pins of the ORDER:
+     * <p>⚠️ Two limits, stated rather than implied. If that opener can no longer take focus by the
+     * time settings closes — a window that passed while settings stood — the restore falls to the
+     * route's `restoreFocusFallback`: the nudge's names its origin slot, and the cog passes none, so
+     * there focus stays where the browser put it (both pinned below). And these are jsdom pins of the ORDER:
      * jsdom focuses a node a browser refuses (inside a `hidden` panel, or under `inert`), so they
      * cannot speak for a landing that depends on the opener still being focusable.
      */
@@ -482,6 +483,37 @@ describe('App — every route into settings takes down the dialog it would open 
       await closeSettings(await settingsSettled());
 
       expect(card).toHaveFocus();
+    });
+
+    it('⚠️ the nudge over a window popup: with that card unable to take focus by the close, it lands on the nudge', async () => {
+      // A window that passes while settings stands takes its card with it. `disabled` stands in for
+      // the removal — `useDialogFocus` treats an opener that refuses focus as one that has gone —
+      // because removing a node React still owns would break its next render of the strip.
+      renderApp();
+      await openPopup();
+      const card = screen.getAllByTestId('wf-heat-card')[0];
+      const nudge = screen.getByRole('button', { name: NUDGE });
+
+      await press(nudge);
+      const dialog = await settingsSettled();
+      act(() => { card.disabled = true; });
+      await closeSettings(dialog);
+
+      expect(nudge, 'the nudge\'s fallback: the origin slot it stands in').toHaveFocus();
+    });
+
+    it('the cog over a window popup, likewise: it passes no fallback, so focus is left where the browser put it', async () => {
+      // The control for the case above: the same lost card, a route with no successor to name.
+      renderApp();
+      await openPopup();
+      const card = screen.getAllByTestId('wf-heat-card')[0];
+
+      await press(screen.getByRole('button', { name: 'Settings' }));
+      const dialog = await settingsSettled();
+      act(() => { card.disabled = true; });
+      await closeSettings(dialog);
+
+      expect(document.activeElement).toBe(document.body);
     });
 
     it('the nudge with nothing open: closing settings returns to the nudge itself', async () => {

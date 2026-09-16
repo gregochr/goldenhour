@@ -1,9 +1,12 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  describe, it, expect, vi, beforeEach, afterEach,
+} from 'vitest';
 import {
   act, render, screen, fireEvent, waitFor,
 } from '@testing-library/react';
 import UserSettingsModal from '../components/UserSettingsModal.jsx';
+import { createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
 vi.mock('../api/settingsApi', () => ({
   getSettings: vi.fn(),
@@ -935,6 +938,646 @@ describe('UserSettingsModal', () => {
       await land(() => save.resolve({ ...PRO_SETTINGS, mapColourScale: 'verdict' }));
 
       expect(onColourSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+/**
+ * Where focus goes when a step of the dialog takes away the control the reader pressed.
+ *
+ * <p>From an accessibility review of #842: a save removed its own Save button, the drive-time
+ * refresh swapped the whole body for a spinner and back, and the colour radios sat in a fieldset
+ * disabled while saving — each dropped the reader on `<body>` inside an open dialog, so the next
+ * Tab walked the page behind the backdrop.
+ *
+ * <p>⚠️ <b>Two assertions per busy control, and the second is the one that bites.</b> Measured:
+ * jsdom does NOT move focus off a control that becomes `disabled` (the browsers all do — Chromium
+ * at once, WebKit and Firefox within a few frames), so `toHaveFocus()` alone passes against the
+ * old `disabled={saving}`. `not.toBeDisabled()` is what fails there.
+ *
+ * <p>Every request is held by hand and settled inside an AWAITED `act`, so each landing has run
+ * and committed before its assertion (`frontend-test-standards.md`, "A late response is only
+ * dropped once it has landed"); the dialog's own mount frame is spent first, so no pending
+ * `useDialogFocus` frame can move focus mid-test.
+ */
+describe('UserSettingsModal — where focus goes when a step removes what the reader pressed', () => {
+  /** A promise the test settles by hand. */
+  const deferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    // The component awaits every one it is handed; this only keeps the teardown's rejection of one
+    // a test never handed over from reading as an unhandled error.
+    promise.catch(() => {});
+    return { promise, resolve, reject };
+  };
+  /** Settles a held request and lets its continuation commit. */
+  const land = async (fn) => { await act(async () => { fn(); }); };
+  /**
+   * Presses a control the way a keyboard reader does — focus first, then activate. `fireEvent.click`
+   * alone never moves focus in jsdom, so a test that skipped this would start from `<body>` and
+   * prove nothing about where a press leaves the reader.
+   */
+  const press = (el) => { el.focus(); fireEvent.click(el); };
+  // Requests a test leaves open are settled when it ends, so none can land in the next one — by
+  // REJECTING them, the one outcome every handler here takes without reading a payload.
+  let open = [];
+  const hold = () => { const d = deferred(); open.push(d); return d; };
+  let elsewhere = null;
+
+  beforeEach(() => {
+    // Reset, not cleared: `mockClear` keeps implementations — `…Once` queues included — so a
+    // queue one test left unconsumed would answer the next test's first request.
+    [getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences]
+      .forEach((fn) => fn.mockReset());
+    open = [];
+  });
+  afterEach(async () => {
+    await act(async () => { open.forEach((d) => d.reject(new Error('test over'))); });
+    elsewhere?.remove();
+    elsewhere = null;
+  });
+
+  /** Renders the dialog on `settings` and spends its mount frame. */
+  const openDialog = async (settings, props = {}) => {
+    getSettings.mockResolvedValue(settings);
+    renderModal(props);
+    const dialog = screen.getByRole('dialog', { name: 'Settings' });
+    // The mount frame focuses the root once — spent here so it cannot fire mid-test and supply a
+    // position the code under test did not.
+    await waitFor(() => expect(dialog).toHaveFocus());
+    return dialog;
+  };
+
+  const LOOKUP = { postcode: 'NE1 7RU', placeName: 'Newcastle', latitude: 54.97, longitude: -1.61 };
+
+  /** Opens on a PRO account with no home and gets as far as the lookup result's Save button. */
+  const toSaveButton = async () => {
+    await openDialog({ ...PRO_SETTINGS, homePostcode: null, homePlaceName: null });
+    lookupPostcode.mockResolvedValue(LOOKUP);
+    fireEvent.change(await screen.findByTestId('settings-postcode-input'), { target: { value: 'NE1 7RU' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Look up' }));
+    return screen.findByRole('button', { name: 'Save' });
+  };
+
+  describe('saving a home', () => {
+    it('⚠️ lands the reader on the line naming the new home, not on <body>', async () => {
+      const save = await toSaveButton();
+      const request = hold();
+      saveHome.mockReturnValue(request.promise);
+      press(save);
+
+      await land(() => request.resolve({ ...PRO_SETTINGS, homePostcode: 'NE1 7RU', homePlaceName: 'Newcastle' }));
+
+      expect(save.isConnected, 'precondition: the Save button went with the lookup result').toBe(false);
+      const home = screen.getByTestId('settings-home-current');
+      expect(home).toHaveTextContent('Newcastle');
+      expect(home).toHaveFocus();
+      // A place focus is PUT, never a tab stop.
+      expect(home).toHaveAttribute('tabindex', '-1');
+      // The indicator is an OUTLINE, which forced-colours mode keeps and a box-shadow ring loses.
+      // jsdom paints nothing (`css: false`), so the classes are what can be pinned here; how they
+      // render — in forced colours too — was measured in a browser.
+      expect(home).toHaveClass('focus-visible:outline-2', 'focus-visible:outline-plex-gold');
+      expect(home).not.toHaveClass('focus-visible:ring-2');
+    });
+
+    it('⚠️ lands the reader in the same commit that removes the Save button — not a task later', async () => {
+      // Layout, not passive: in between, focus sits on <body> and a keypress lands there. A parent's
+      // layout effect runs after its child's in the same commit, so it sees where that commit left
+      // focus: the home line with a layout effect, <body> with a passive one.
+      const seen = [];
+      function Page() {
+        const [saves, setSaves] = React.useState(0);
+        React.useLayoutEffect(() => { if (saves > 0) seen.push(document.activeElement); }, [saves]);
+        return <UserSettingsModal onClose={() => {}} onHomeSaved={() => setSaves((n) => n + 1)} />;
+      }
+      getSettings.mockResolvedValue({ ...PRO_SETTINGS, homePostcode: null, homePlaceName: null });
+      lookupPostcode.mockResolvedValue(LOOKUP);
+      render(<Page />);
+      const dialog = screen.getByRole('dialog', { name: 'Settings' });
+      await waitFor(() => expect(dialog).toHaveFocus());
+      fireEvent.change(await screen.findByTestId('settings-postcode-input'), { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Look up' }));
+      const save = await screen.findByRole('button', { name: 'Save' });
+      const request = hold();
+      saveHome.mockReturnValue(request.promise);
+      press(save);
+
+      await land(() => request.resolve({ ...PRO_SETTINGS, homePostcode: 'NE1 7RU', homePlaceName: 'Newcastle' }));
+
+      expect(seen, 'control: the save landed, in one commit').toHaveLength(1);
+      expect(seen[0]).toBe(screen.getByTestId('settings-home-current'));
+    });
+
+    it('⚠️ keeps the Save button live — aria-disabled, never disabled — while the save is out', async () => {
+      const save = await toSaveButton();
+      saveHome.mockReturnValue(hold().promise);
+      press(save);
+
+      expect(save).toHaveTextContent('Saving…');
+      expect(save).not.toBeDisabled();
+      // Busy LOOKS as `disabled` did (outside forced colours) — the dim and the cursor.
+      expect(save).toHaveClass('aria-disabled:opacity-40', 'aria-disabled:cursor-not-allowed');
+      expect(save).toHaveAttribute('aria-disabled', 'true');
+      expect(save).toHaveFocus();
+    });
+
+    it('sends nothing for a second press while the save is out', async () => {
+      const save = await toSaveButton();
+      saveHome.mockReturnValue(hold().promise);
+      press(save);
+      fireEvent.click(save);
+
+      expect(saveHome).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the reader on a live Save button when the save fails, ready to try again', async () => {
+      const save = await toSaveButton();
+      const request = hold();
+      saveHome.mockReturnValue(request.promise);
+      press(save);
+
+      await land(() => request.reject(new Error('fail')));
+
+      expect(save).toBeInTheDocument();
+      expect(save).toHaveFocus();
+      // Both, because jsdom keeps focus on a control that becomes disabled and the browsers do not.
+      expect(save).not.toBeDisabled();
+      expect(save).not.toHaveAttribute('aria-disabled');
+      expect(save).toHaveTextContent('Save');
+    });
+
+    it('⚠️ does not move a reader who has gone elsewhere in the dialog while it was saving', async () => {
+      const save = await toSaveButton();
+      const request = hold();
+      saveHome.mockReturnValue(request.promise);
+      press(save);
+      const field = screen.getByTestId('settings-postcode-input');
+      field.focus();              // Tabbed back to the field while the save was out — a choice
+
+      await land(() => request.resolve({ ...PRO_SETTINGS, homePostcode: 'NE1 7RU', homePlaceName: 'Newcastle' }));
+
+      expect(field).toHaveFocus();
+    });
+
+    it('lands the reader on the postcode field when what came back names no home to draw', async () => {
+      // The fallback in the list. No line renders without a saved postcode, so the field they typed
+      // it into is the next nearest thing to what they just did.
+      const save = await toSaveButton();
+      const request = hold();
+      saveHome.mockReturnValue(request.promise);
+      press(save);
+
+      await land(() => request.resolve({ ...PRO_SETTINGS, homePostcode: null, homePlaceName: null }));
+
+      expect(screen.queryByTestId('settings-home-current')).toBeNull();
+      expect(screen.getByTestId('settings-postcode-input')).toHaveFocus();
+    });
+  });
+
+  describe('looking a postcode up', () => {
+    it('⚠️ keeps the Look up button live while the lookup is out, and a second press starts nothing', async () => {
+      await openDialog({ ...PRO_SETTINGS, homePostcode: null, homePlaceName: null });
+      fireEvent.change(await screen.findByTestId('settings-postcode-input'), { target: { value: 'NE1 7RU' } });
+      const request = hold();
+      lookupPostcode.mockReturnValue(request.promise);
+      const lookUp = screen.getByRole('button', { name: 'Look up' });
+      press(lookUp);
+
+      expect(lookUp).toHaveTextContent('Looking up…');
+      expect(lookUp).not.toBeDisabled();
+      expect(lookUp).toHaveAttribute('aria-disabled', 'true');
+      expect(lookUp).toHaveClass('aria-disabled:opacity-40', 'aria-disabled:cursor-not-allowed');
+      expect(lookUp).toHaveFocus();
+      fireEvent.click(lookUp);
+      expect(lookupPostcode).toHaveBeenCalledTimes(1);
+
+      await land(() => request.resolve(LOOKUP));
+
+      expect(lookUp).toHaveFocus();
+      // Both, because jsdom keeps focus on a control that becomes disabled and the browsers do not.
+      expect(lookUp).not.toBeDisabled();
+      expect(lookUp).not.toHaveAttribute('aria-disabled');
+    });
+
+    it('starts no second lookup for Enter pressed again in the field while one is out', async () => {
+      // The field was never disabled, so repeated Enters used to race two lookups for one slot.
+      await openDialog({ ...PRO_SETTINGS, homePostcode: null, homePlaceName: null });
+      const field = await screen.findByTestId('settings-postcode-input');
+      fireEvent.change(field, { target: { value: 'NE1 7RU' } });
+      lookupPostcode.mockReturnValue(hold().promise);
+
+      fireEvent.keyDown(field, { key: 'Enter' });
+      fireEvent.keyDown(field, { key: 'Enter' });
+
+      expect(lookupPostcode).toHaveBeenCalledTimes(1);
+    });
+
+    it('still refuses a press while the field is empty — the one state it is truly disabled for', async () => {
+      await openDialog({ ...PRO_SETTINGS, homePostcode: null, homePlaceName: null });
+      expect(await screen.findByRole('button', { name: 'Look up' })).toBeDisabled();
+    });
+  });
+
+  describe('refreshing the drive times', () => {
+    const DONE = { locationsUpdated: 12, calculatedAt: '2026-04-02T10:00:00Z' };
+
+    /** Presses Refresh with its request held, and returns the handle. */
+    const pressRefresh = async () => {
+      await openDialog(PRO_SETTINGS);
+      const request = hold();
+      refreshDriveTimes.mockReturnValue(request.promise);
+      const refresh = await screen.findByRole('button', { name: 'Refresh drive times' });
+      press(refresh);
+      return { request, refresh };
+    };
+
+    it('⚠️ lands the reader on the spinner\'s status line, not on <body>, for the whole wait', async () => {
+      const { refresh } = await pressRefresh();
+
+      expect(refresh.isConnected, 'precondition: the spinner replaced the whole body').toBe(false);
+      const status = screen.getByTestId('settings-refresh-status');
+      expect(status).toHaveTextContent('Calculating drive times…');
+      expect(status).toHaveFocus();
+      expect(status).toHaveAttribute('tabindex', '-1');
+    });
+
+    it('lands a POINTER press on the status line too — macOS Safari leaves focus on the dialog root', async () => {
+      // Safari does not focus a button on click, so a mouse press leaves focus where the dialog's own
+      // open put it: the root. The root survives the swap, so this is not `<body>` — but it is not a
+      // place the reader chose either, and the status line is what they should hear.
+      const dialog = await openDialog(PRO_SETTINGS);
+      refreshDriveTimes.mockReturnValue(hold().promise);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Refresh drive times' }));
+
+      expect(dialog, 'precondition: the root survives the swap — same dialog, new content')
+        .toBeInTheDocument();
+      expect(screen.getByTestId('settings-refresh-status')).toHaveFocus();
+    });
+
+    it('⚠️ lands them on Back to settings when it finishes, described by the count it reports', async () => {
+      const { request } = await pressRefresh();
+
+      await land(() => request.resolve(DONE));
+
+      const back = screen.getByRole('button', { name: 'Back to settings' });
+      expect(back).toHaveFocus();
+      expect(back).toHaveAccessibleDescription('Done — 12 locations updated');
+    });
+
+    it('⚠️ lands them on the "Last calculated" line when they go back — the line the refresh changed', async () => {
+      const { request } = await pressRefresh();
+      await land(() => request.resolve(DONE));
+      const back = screen.getByRole('button', { name: 'Back to settings' });
+
+      press(back);
+
+      const calc = screen.getByTestId('settings-drive-calc-time');
+      expect(calc).toHaveFocus();
+      expect(calc).toHaveAttribute('tabindex', '-1');
+      // Why not the button they started from: it is disabled now, the drive times being current.
+      expect(screen.getByRole('button', { name: 'Refresh drive times' })).toBeDisabled();
+    });
+
+    it('lands them on the dialog itself when no line can be drawn and the button is disabled', async () => {
+      // The last resort. A result with no timestamp draws no "Last calculated" line, and Refresh is
+      // disabled once the drive times match the postcode — so neither listed target can take focus,
+      // and the dialog root, where an open would have put them, does.
+      const { request } = await pressRefresh();
+      await land(() => request.resolve({ locationsUpdated: 3, calculatedAt: null }));
+
+      press(screen.getByRole('button', { name: 'Back to settings' }));
+
+      expect(screen.queryByTestId('settings-drive-calc-time')).toBeNull();
+      expect(screen.getByRole('dialog', { name: 'Settings' })).toHaveFocus();
+    });
+
+    it('lands them on the same line when the result\'s backdrop is what takes them back', async () => {
+      const { request } = await pressRefresh();
+      await land(() => request.resolve(DONE));
+
+      fireEvent.click(screen.getByTestId('settings-modal-backdrop'));
+
+      expect(screen.getByTestId('settings-drive-calc-time')).toHaveFocus();
+    });
+
+    it('⚠️ lands them back on Refresh drive times when it fails, described by the error', async () => {
+      const { request } = await pressRefresh();
+
+      await land(() => request.reject({ response: { status: 429, data: { message: 'Rate limited' } } }));
+
+      const refresh = screen.getByRole('button', { name: 'Refresh drive times' });
+      expect(refresh).toHaveFocus();
+      expect(refresh).toHaveAccessibleDescription('Rate limited');
+    });
+
+    it('does not pull back a reader who has left the dialog while it was calculating', async () => {
+      // Not a trap — Tabbing out is supported — so a reader outside is where they chose to be.
+      const { request } = await pressRefresh();
+      elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+      elsewhere.focus();
+
+      await land(() => request.resolve(DONE));
+
+      expect(elsewhere).toHaveFocus();
+    });
+  });
+
+  describe('choosing a map colour', () => {
+    /** The two radios, on an account whose saved scale is verdict. */
+    const openOnVerdict = async () => {
+      await openDialog({ ...PRO_SETTINGS, mapColourScale: 'verdict' });
+      return {
+        verdict: await screen.findByRole('radio', { name: /Verdict/ }),
+        temp: screen.getByRole('radio', { name: /Temperature/ }),
+      };
+    };
+
+    it('⚠️ keeps both radios live while a save is out, so the one being arrowed keeps focus', async () => {
+      const { verdict, temp } = await openOnVerdict();
+      saveMapColourPreferences.mockReturnValue(hold().promise);
+
+      press(temp);
+
+      expect(screen.getByTestId('settings-colour-status')).toHaveTextContent('Saving…');
+      expect(temp).toBeEnabled();
+      expect(verdict).toBeEnabled();
+      expect(temp).toHaveFocus();
+    });
+
+    it('⚠️ sends a choice made mid-save AFTER the save in flight, never beside it', async () => {
+      // Two requests out at once can commit in either order, and the server could end on the scale
+      // the reader moved AWAY from.
+      const { verdict, temp } = await openOnVerdict();
+      const first = hold();
+      const second = hold();
+      saveMapColourPreferences
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+
+      press(temp);
+      press(verdict);
+
+      expect(saveMapColourPreferences).toHaveBeenCalledTimes(1);
+      expect(verdict, 'the newest choice shows at once, whatever is still saving').toBeChecked();
+
+      await land(() => first.resolve({ mapColourScale: 'temp' }));
+
+      expect(saveMapColourPreferences).toHaveBeenCalledTimes(2);
+      expect(saveMapColourPreferences).toHaveBeenLastCalledWith('verdict');
+    });
+
+    it('reports every save that lands to the page, one at a time, in the order the choices were made', async () => {
+      // `onColourSaved` is how the map's ramp learns the scale. Each landed save names what the
+      // server holds from that moment, and the queue is what keeps two reports from crossing.
+      const onColourSaved = vi.fn();
+      await openDialog({ ...PRO_SETTINGS, mapColourScale: 'verdict' }, { onColourSaved });
+      const verdict = await screen.findByRole('radio', { name: /Verdict/ });
+      const temp = screen.getByRole('radio', { name: /Temperature/ });
+      const first = hold();
+      const second = hold();
+      saveMapColourPreferences
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      press(temp);
+      press(verdict);
+
+      await land(() => first.resolve({ mapColourScale: 'temp' }));
+      expect(onColourSaved.mock.calls).toEqual([['temp']]);
+
+      await land(() => second.resolve({ mapColourScale: 'verdict' }));
+      expect(onColourSaved.mock.calls).toEqual([['temp'], ['verdict']]);
+    });
+
+    it('collapses every choice made during one save into the newest', async () => {
+      const { verdict, temp } = await openOnVerdict();
+      const first = hold();
+      saveMapColourPreferences.mockReturnValueOnce(first.promise).mockResolvedValue({});
+
+      press(temp);
+      press(verdict);
+      press(temp);
+      press(verdict);
+      await land(() => first.resolve({}));
+
+      expect(saveMapColourPreferences.mock.calls.map(([scale]) => scale)).toEqual(['temp', 'verdict']);
+    });
+
+    it('⚠️ writes the NEWEST of several mid-save choices last, not the first one queued', async () => {
+      // temp is out; verdict, then temp again, arrive behind it. The first queued (verdict) is not
+      // what the reader wants any more — with it written last, the server ends on the wrong scale.
+      const { verdict, temp } = await openOnVerdict();
+      const first = hold();
+      saveMapColourPreferences.mockReturnValueOnce(first.promise).mockResolvedValue({});
+
+      press(temp);
+      press(verdict);
+      press(temp);
+      await land(() => first.resolve({}));
+
+      expect(saveMapColourPreferences.mock.calls.map(([scale]) => scale)).toEqual(['temp', 'temp']);
+      expect(temp).toBeChecked();
+    });
+
+    it('⚠️ sends a new choice once the save before it has landed — the line is free again', async () => {
+      const { verdict, temp } = await openOnVerdict();
+      const first = hold();
+      const second = hold();
+      saveMapColourPreferences
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      press(temp);
+      await land(() => first.resolve({}));
+      expect(screen.getByTestId('settings-colour-status'), 'control: the first save landed')
+        .toHaveTextContent('');
+
+      press(verdict);
+
+      expect(saveMapColourPreferences).toHaveBeenCalledTimes(2);
+      expect(saveMapColourPreferences).toHaveBeenLastCalledWith('verdict');
+      expect(screen.getByTestId('settings-colour-status')).toHaveTextContent('Saving…');
+    });
+
+    it('sends a retry after a failed save', async () => {
+      const { verdict, temp } = await openOnVerdict();
+      const first = hold();
+      saveMapColourPreferences.mockReturnValueOnce(first.promise).mockResolvedValue({});
+      press(temp);
+      await land(() => first.reject(new Error('502')));
+      expect(screen.getByTestId('settings-colour-error'), 'control: the failure landed').toBeInTheDocument();
+
+      press(verdict);
+      await land(() => {});
+
+      expect(saveMapColourPreferences).toHaveBeenCalledTimes(2);
+      expect(screen.queryByTestId('settings-colour-error')).toBeNull();
+    });
+
+    it('reports a waiting save\'s OWN scale when its response names none', async () => {
+      const onColourSaved = vi.fn();
+      await openDialog({ ...PRO_SETTINGS, mapColourScale: 'verdict' }, { onColourSaved });
+      const verdict = await screen.findByRole('radio', { name: /Verdict/ });
+      const temp = screen.getByRole('radio', { name: /Temperature/ });
+      const first = hold();
+      const second = hold();
+      saveMapColourPreferences
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      press(temp);
+      press(verdict);
+
+      await land(() => first.resolve({}));
+      await land(() => second.resolve({}));
+
+      expect(onColourSaved.mock.calls).toEqual([['temp'], ['verdict']]);
+    });
+
+    it('opens on a choice still in the page\'s line, not on the server\'s older answer', async () => {
+      // A dialog closed with a choice still waiting, then reopened: the server has not been told yet
+      // and answers with the old scale, which the line is about to overwrite.
+      const colourSaveQueue = createColourSaveQueue();
+      const earlier = hold();
+      saveColourInTurn(colourSaveQueue, 'temp', { save: () => earlier.promise });
+
+      await openDialog({ ...PRO_SETTINGS, mapColourScale: 'verdict' }, { colourSaveQueue });
+
+      expect(await screen.findByRole('radio', { name: /Temperature/ })).toBeChecked();
+      expect(screen.getByRole('radio', { name: /Verdict/ })).not.toBeChecked();
+    });
+
+    /** A line holding a choice an earlier opening made — temp, still saving. */
+    const lineWithCarriedTemp = () => {
+      const colourSaveQueue = createColourSaveQueue();
+      const earlier = hold();
+      saveColourInTurn(colourSaveQueue, 'temp', { save: () => earlier.promise });
+      return { colourSaveQueue, earlier };
+    };
+
+    it('⚠️ says "Saving…" for a choice an earlier opening left in the line, until it lands', async () => {
+      // This opening shows that choice, so it says how the choice is going, as the opening it was
+      // made in would have.
+      const { colourSaveQueue, earlier } = lineWithCarriedTemp();
+      await openDialog({ ...PRO_SETTINGS, mapColourScale: 'verdict' }, { colourSaveQueue });
+      const status = await screen.findByTestId('settings-colour-status');
+      expect(status).toHaveTextContent('Saving…');
+
+      await land(() => earlier.resolve({}));
+
+      expect(status).toHaveTextContent('');
+      expect(screen.queryByTestId('settings-colour-error')).toBeNull();
+    });
+
+    it('shows the error when a choice an earlier opening left in the line fails', async () => {
+      const { colourSaveQueue, earlier } = lineWithCarriedTemp();
+      await openDialog({ ...PRO_SETTINGS, mapColourScale: 'verdict' }, { colourSaveQueue });
+      const status = await screen.findByTestId('settings-colour-status');
+      expect(status, 'control: the carried choice is followed').toHaveTextContent('Saving…');
+
+      await land(() => earlier.reject(new Error('502')));
+
+      expect(status).toHaveTextContent('');
+      expect(screen.getByTestId('settings-colour-error')).toBeInTheDocument();
+    });
+
+    it('⚠️ hands the status to a choice made here, whatever the carried one does after', async () => {
+      const { colourSaveQueue, earlier } = lineWithCarriedTemp();
+      await openDialog({ ...PRO_SETTINGS, mapColourScale: 'verdict' }, { colourSaveQueue });
+      const verdict = await screen.findByRole('radio', { name: /Verdict/ });
+      const mine = hold();
+      saveMapColourPreferences.mockReturnValueOnce(mine.promise);
+      press(verdict);
+
+      await land(() => earlier.reject(new Error('502')));
+
+      expect(saveMapColourPreferences, 'control: the choice made here went out behind it')
+        .toHaveBeenCalledWith('verdict');
+      expect(screen.getByTestId('settings-colour-status'), 'this opening\'s own save is still out')
+        .toHaveTextContent('Saving…');
+      expect(screen.queryByTestId('settings-colour-error'), 'the carried failure is not this opening\'s to show')
+        .toBeNull();
+
+      await land(() => mine.resolve({}));
+
+      expect(screen.getByTestId('settings-colour-status')).toHaveTextContent('');
+    });
+
+    it('⚠️ shows a save that landed while its read was out, not the read\'s older answer', async () => {
+      // The likelier order on a reopen: the server geocodes on every GET, so the save lands first,
+      // and a read taken before the save committed answers with the scale it replaced.
+      const { colourSaveQueue, earlier } = lineWithCarriedTemp();
+      const read = hold();
+      getSettings.mockReturnValue(read.promise);
+      renderModal({ colourSaveQueue });
+      await land(() => earlier.resolve({}));
+      expect(colourSaveQueue.pending, 'precondition: nothing is left in the line').toBeNull();
+
+      await land(() => read.resolve({ ...PRO_SETTINGS, mapColourScale: 'verdict' }));
+
+      expect(await screen.findByRole('radio', { name: /Temperature/ })).toBeChecked();
+      expect(screen.getByRole('radio', { name: /Verdict/ })).not.toBeChecked();
+      expect(screen.getByTestId('settings-colour-status'), 'nothing left to follow').toHaveTextContent('');
+    });
+
+    it('but lets a read asked after the save landed answer for itself — it is the newer word', async () => {
+      const { colourSaveQueue, earlier } = lineWithCarriedTemp();
+      await land(() => earlier.resolve({}));
+
+      await openDialog({ ...PRO_SETTINGS, mapColourScale: 'verdict' }, { colourSaveQueue });
+
+      expect(await screen.findByRole('radio', { name: /Verdict/ })).toBeChecked();
+    });
+
+    it('says "Saving…" until the queued save has landed, not just the first', async () => {
+      const { verdict, temp } = await openOnVerdict();
+      const first = hold();
+      const second = hold();
+      saveMapColourPreferences
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      const status = screen.getByTestId('settings-colour-status');
+      press(temp);
+      press(verdict);
+
+      await land(() => first.resolve({}));
+      expect(status).toHaveTextContent('Saving…');
+
+      await land(() => second.resolve({}));
+      expect(status).toHaveTextContent('');
+    });
+
+    it('shows no error when a failed save is superseded by one that lands', async () => {
+      const { verdict, temp } = await openOnVerdict();
+      const first = hold();
+      const second = hold();
+      saveMapColourPreferences
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      press(temp);
+      press(verdict);
+
+      await land(() => first.reject(new Error('fail')));
+      await land(() => second.resolve({}));
+
+      expect(screen.queryByTestId('settings-colour-error')).toBeNull();
+    });
+
+    it('shows the error when the newest save is the one that fails', async () => {
+      const { verdict, temp } = await openOnVerdict();
+      const first = hold();
+      const second = hold();
+      saveMapColourPreferences
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      press(temp);
+      press(verdict);
+
+      await land(() => first.resolve({}));
+      await land(() => second.reject(new Error('fail')));
+
+      expect(screen.getByTestId('settings-colour-error')).toBeInTheDocument();
     });
   });
 });

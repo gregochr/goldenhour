@@ -19,6 +19,7 @@ import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
+import { createColourSaveQueue } from './utils/colourSaveQueue.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
@@ -146,8 +147,9 @@ function AppInner() {
   const [seasonalFeatures, setSeasonalFeatures] = useState([]);
   const handleSeasonalFeaturesChange = useCallback((features) => setSeasonalFeatures(features), []);
 
-  // Non-null when the settings dialog was opened to land on a particular field — currently only
-  // the map control's "you have no postcode" branch, which exists to point at exactly that input.
+  // Non-null when the settings dialog was opened to land on a particular field: the masthead's "set
+  // a postcode" nudge and the map control's "you have no postcode" branch, which both exist to point
+  // at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
   /**
    * The one record of the reader's own settings: the home — for the tick line (through the Plan
@@ -164,6 +166,35 @@ function AppInner() {
     homeSettingsVersion, driveTimesVersion, mapColourScale, colourScaleDefaulted,
     startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
   } = useReaderSettings();
+  /**
+   * Where the settings dialog puts focus on close if the element that opened it has gone — a
+   * function returning that element, or null. Only the masthead's "set a postcode" nudge supplies
+   * one, because only its control is REPLACED by the save it exists for: on the Map tab a saved
+   * home swaps the nudge for a non-interactive statement the moment `homeSaved` updates the record,
+   * while the dialog is still open, so its recorded opener is detached by the time it closes and
+   * focus fell to `<body>`. The cog and the map's ⌂ keep their node through a save (the ⌂ goes from
+   * `null` to coordinates, never through the `undefined` that empties it), and their dialogs
+   * restore exactly as before.
+   *
+   * <p>⚠️ That opener is the pressed control only when nothing was covered. Every route into
+   * settings closes the dialogs it would open over, in the commit that opens it (`settingsOpen`,
+   * below), and a closing dialog hands focus back to ITS opener — which settings then records as its
+   * own. So on a covered route, the nudge's included, the close restores to that control, and this
+   * is asked only if the control has gone by then. Where a dialog does stay open beneath — an
+   * Operations-tab admin `Modal` — `useDialogFocus` declines a successor outside it; the nudge keeps
+   * its node there anyway, since only the Map tab swaps it.
+   *
+   * <p>Held for the life of one dialog and cleared on its close, so a later open from another
+   * route can never inherit it. A function in state, hence the updater form wherever it is set.
+   */
+  const [settingsReturnFocus, setSettingsReturnFocus] = useState(null);
+  /**
+   * The page's one line of map-colour saves, handed to every opening of the settings dialog. Here
+   * rather than in the dialog because the dialog unmounts on close and its saves do not stop: with a
+   * line per opening, a closed dialog's waiting choice went out after a reopened dialog's newer one.
+   * See `colourSaveQueue.js`.
+   */
+  const [colourSaveQueue] = useState(createColourSaveQueue);
   /**
    * Today's light at the reader's home, for the window-first masthead's light rule.
    *
@@ -610,9 +641,13 @@ function AppInner() {
               // reach rings can never name a different point (field-geography plan §2.1).
               homeCoords={homeCoords}
               // The band's nudge exists to get a postcode saved, so it lands ON that field
-              // rather than on the settings screen in general — the same handler the map's
-              // "you have no postcode" branch uses.
-              onSetPostcode={() => setSettingsFocus('postcode')}
+              // rather than on the settings screen in general — the same field the map's
+              // "you have no postcode" branch opens. It also hands over a way to find its own
+              // successor, for the dialog's close (see `settingsReturnFocus`).
+              onSetPostcode={(returnFocus) => {
+                setSettingsReturnFocus(() => (typeof returnFocus === 'function' ? returnFocus : null));
+                setSettingsFocus('postcode');
+              }}
               contentDisabled={isDown}
               onShowOnMap={handleShowOnMap}
               // The map doors (D2) — withheld under the identical rule that withholds `mapPane`
@@ -721,9 +756,11 @@ function AppInner() {
       {settingsOpen && (
         <UserSettingsModal
           focusField={settingsFocus}
+          restoreFocusFallback={settingsReturnFocus}
           onClose={() => {
             setShowSettings(false);
             setSettingsFocus(null);
+            setSettingsReturnFocus(null);
           }}
           // After mount the page hears of changes to the reader's home and colour only from the
           // dialog's answers — its own read on opening, a saved home, a recalculation, a saved
@@ -734,6 +771,7 @@ function AppInner() {
           onHomeSaved={homeSaved}
           onDriveTimesRecalculated={driveTimesRecalculated}
           onColourSaved={colourSaved}
+          colourSaveQueue={colourSaveQueue}
           onDriveTimesRefreshed={refresh}
         />
       )}

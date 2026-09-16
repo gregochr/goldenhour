@@ -285,6 +285,8 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        {@code null} is "answered, no home saved" — see {@link MastheadLight}.
  * @param {function} [props.onSetPostcode] opens settings on the home-postcode field, for the
  *        band's nudge. Defaults to {@code onOpenSettings}, so the nudge can never be a dead end.
+ *        Called with the tick line's origin-slot resolver, passed through untouched — see
+ *        {@link MastheadTickLine}'s {@code onSetPostcode}.
  * @param {?object} [props.homeCoords] {@code {lat, lon}}, or null with no postcode saved — reused
  *        by the heat strip's home marker and (at G3) the popup field's reach rings. `App` hands
  *        `undefined` while the home is not known, and the default folds that into null here, which
@@ -2200,7 +2202,10 @@ WindowFirstShell.propTypes = {
    * one payload two definitions that can drift.
    */
   light: PropTypes.object,
-  /** Opens settings on the postcode field for the band's nudge; falls back to onOpenSettings. */
+  /**
+   * Opens settings on the postcode field for the band's nudge; falls back to onOpenSettings. Called
+   * with a function returning the tick line's origin-slot element, for the dialog's close.
+   */
   onSetPostcode: PropTypes.func,
   /**
    * The user's saved geocode, or null with no postcode saved — the same value {@code App} already

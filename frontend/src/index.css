@@ -1035,14 +1035,28 @@
 }
 /* The arm's own focus ring rather than the UA's, which is the convention roughly thirty-five rules
    in this file already follow (`.wf-door`, `.wf-seg-btn`, `.wf-spot`, `.wf-search-row`,
-   `button.wf-hc`, `.wf-lens-reset`). `inset`, because the group clips its children at a 9px radius
-   and an outline drawn outside the border box would be cut at both ends. */
+   `button.wf-hc`, `.wf-lens-reset`). `inset`, so the ring sits inside each control's own edge: the
+   origin button and ⌕ fill the bordered group edge to edge, and ⌂ has a border of its own, so a
+   ring drawn outside either would run over a border. (This used to say the group CLIPS its
+   children; it has no `overflow` to clip with.)
+   ⚠️ A TRANSPARENT outline beside the ring, not `outline: none`, and it is not decoration:
+   forced-colours mode (Windows High Contrast) removes every `box-shadow`, so with `none` these
+   controls showed no focus there — measured for the Map-tab statement that focus is handed to after
+   a saved postcode (Chromium's forced-colours emulation); the other selectors share the rule. The
+   mode repaints a transparent outline in a system colour; everywhere else it paints nothing. Inset
+   by its own width, to sit where the ring sits. */
 .wf-tick-origin:focus-visible,
 .wf-tick-search:focus-visible,
 .wf-tick-home:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
   box-shadow: inset 0 0 0 2px var(--color-plex-gold);
   border-radius: 8px;
+}
+/* ⌂ alone carries a 1px border, so its outline goes one pixel further in: at -2px, forced colours
+   painted the outline's first pixel over that border and so added only one. */
+.wf-tick-home:focus-visible {
+  outline-offset: -3px;
 }
 
 /* ── The map tab's origin STATEMENT (map-tab-v2-plan.md §3 P11, README "Masthead change") ──────
