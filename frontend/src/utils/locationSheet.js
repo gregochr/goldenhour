@@ -265,29 +265,6 @@ export function buildSlotIndex(days) {
 }
 
 /**
- * Each coastal location's map-tab tide-alignment facts per window (the tide-chip bundle rev 2) —
- * whether THIS window's water actually lands on the light, keyed exactly like {@link buildSlotIndex}
- * so `MapView`/`MapCallout` read it through the same {@link lookupForWindow}.
- *
- * <p>Reads two of {@code BriefingSlot.TideInfo}'s four sibling fields off each slot flat
- * ({@code tideOnTheLight}, {@code nearestSolarOffsetPhrase} — {@code @JsonUnwrapped} puts them
- * directly on the slot, the same way {@code slot.tideAligned} already reaches this file's other
- * readers) — never {@code tideAligned}, which tests the location's configured {@code TideType}
- * PREFERENCE, a different question the map's glyph and tiebreaker must not answer (CLAUDE.md's
- * tide-axis rule against conflating the two). The other two wire fields
- * ({@code nearestSolarOffsetMinutes}, {@code nearestExtremeKind}) have no reader on this arm — the
- * chip, tooltip and callout only ever need the boolean and the already-formatted phrase — so this
- * INDEX carries only what is read; the wire keeps serving all four regardless.
- *
- * <p>A slot with no derivable tide-alignment fact ({@code tideOnTheLight === null} — inland, or no
- * stored extremes near this event) is SKIPPED rather than indexed as "not aligned": a missing entry
- * and a {@code false} one are different claims, and only the deriver knows which is true.
- *
- * @param {Array} days {@code briefing.days}
- * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
- *          {@code {onTheLight, phrase}}
- */
-/**
  * Each GATED slot's served reason per window — the map callout's source for the same line the
  * location sheet reads through {@link buildSlotIndex}, keyed identically so `MapView` reads it
  * through the same {@link lookupForWindow} as `scoreIndex`.
@@ -321,6 +298,47 @@ export function buildEvaluationGateIndex(days) {
   return { byId, byName };
 }
 
+/**
+ * Each coastal location's map-tab tide facts per window — BOTH axes CLAUDE.md's two-tide-axes rule
+ * keeps apart, carried side by side rather than folded into one answer, keyed exactly like
+ * {@link buildSlotIndex} so `MapView`/`MapCallout` read it through the same {@link lookupForWindow}.
+ *
+ * <p>Reads {@code BriefingSlot.TideInfo}'s tide-fit fields off each slot flat ({@code tideState},
+ * {@code tideAligned}, {@code tideOnTheLight}, {@code nearestSolarOffsetPhrase}, {@code tideLevel},
+ * {@code tideDirection}, {@code tideHeight}, {@code tideShortfall}, {@code tideFitPhrase} —
+ * {@code @JsonUnwrapped} puts them directly on the slot) plus {@code evaluationGate}, which lives on
+ * the slot itself rather than on {@code TideInfo}. The two wire fields with no reader on any arm of
+ * this increment ({@code nearestSolarOffsetMinutes}, {@code nearestExtremeKind}) stay unindexed —
+ * the chip, tooltip, callout and strip only ever need the already-formatted phrase — so this INDEX
+ * carries only what is read; the wire keeps serving both regardless.
+ *
+ * <p>⚠️ <b>The tide-window increment (T3) adds {@code aligned} to this index, and that does NOT
+ * revive the conflation the two-axes rule forbids.</b> The rule bans answering the ON-THE-LIGHT
+ * question ("does an extreme land on the light") WITH the PREFERENCE answer ("is it the water this
+ * spot wants") — they disagree exactly where a HIGH-wanting spot has LOW water on the light, and
+ * folding one into the other is the defect the rule exists to stop. This increment's readers WILL
+ * be (the map chip's glyph/ring/tiebreak, the tooltip, the callout block, the sheet block, the tide
+ * strip — none of them wired to this field yet; T3 is plumbing only, "no visible change") asking the
+ * PREFERENCE question ON PURPOSE — "is the tide right for this spot" is what {@code tideAligned}
+ * answers, so reading it here answers the axis it was built for, not the other one wearing its
+ * clothes. {@code onTheLight}/{@code phrase} survive unchanged, for the offset clause inside
+ * {@code fitPhrase} alone (tide-window-plan.md §1 #6) — no caller may read one axis's field to
+ * answer the other's question.
+ *
+ * <p>Every coastal slot with a served {@code tideState} is indexed now, not only one with a
+ * derivable on-the-light fact: a location whose nearest extreme is too far to name a landing still
+ * has a preference answer, and the map's dimming feature (T4) needs that slot in the index even
+ * when {@code onTheLight} is null — the case the old {@code tideOnTheLight}-gated skip dropped. A
+ * slot with NO {@code tideState} at all (inland, or the location carries no stored extremes near
+ * this event) is still SKIPPED rather than indexed as a miss: a missing entry and a served
+ * {@code miss} are different claims, and only the deriver knows which is true.
+ *
+ * @param {Array} days {@code briefing.days}
+ * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
+ *          {@code {aligned, state, onTheLight, phrase, level, direction, height, shortfall,
+ *          fitPhrase, gated}} — {@code state} is the served {@code tideState} (HIGH/MID/LOW), so a
+ *          reader can ask WHICH want an alignment satisfied, not only that one did
+ */
 export function buildTideAlignmentIndex(days) {
   const byId = new Map();
   const byName = new Map();
@@ -330,10 +348,29 @@ export function buildTideAlignmentIndex(days) {
       if (!summary?.targetType) continue;
       const tail = tailOf(day.date, summary.targetType);
       for (const { slot } of slotsOf(summary)) {
-        if (slot?.tideOnTheLight == null) continue;
+        if (slot?.tideState == null) continue;
         index(byId, byName, slot.locationId, slot.locationName, tail, {
-          onTheLight: Boolean(slot.tideOnTheLight),
+          aligned: Boolean(slot.tideAligned),
+          // The served HIGH/MID/LOW state itself, beside the aggregate `aligned`: a spot wanting
+          // {HIGH, LOW} is `aligned` in a LOW window too, so a scan for "the next HIGH window" has
+          // to read WHICH water the alignment was to (a Codex P1 on #878 — `mapTideFit.nextAlignedRow`
+          // scanned the bare flag and offered low water under a "Next high water" sentence).
+          state: slot.tideState,
+          // Nullable, unlike `aligned` above: a genuine `false` and "no nearby extreme to name" are
+          // different claims on this axis, and the old skip that required this to be non-null is
+          // exactly what T3 removes — a coastal slot can have a served preference answer with no
+          // derivable on-the-light fact at all.
+          onTheLight: slot.tideOnTheLight ?? null,
           phrase: slot.nearestSolarOffsetPhrase ?? null,
+          level: slot.tideLevel ?? null,
+          direction: slot.tideDirection ?? null,
+          height: slot.tideHeight ?? null,
+          shortfall: slot.tideShortfall ?? null,
+          fitPhrase: slot.tideFitPhrase ?? null,
+          // `evaluationGate` is `@JsonInclude(NON_NULL)` on the slot (BriefingSlot.java) and is set
+          // only to a real, non-blank sentence — never `""` — so a plain null check is sufficient
+          // here, unlike `buildEvaluationGateIndex`'s own defensive trim.
+          gated: slot.evaluationGate != null,
         });
       }
     }

@@ -41,7 +41,8 @@ import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
-import { NIGHT_RETRY_LINE } from '../utils/mapCallout.js';
+import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
+import { tierOf } from '../utils/mapTideFit.js';
 import MapLandingCard from './map/MapLandingCard.jsx';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
@@ -3081,6 +3082,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const spotOf = (loc) => {
       const tide = getTideOnLightForLocation(loc);
       return {
+        // ⚠️ Load-bearing for `mapTideFit.nextAlignedRow`'s id-first lookup (tide-window-plan.md
+        // T3, `docs/engineering/tide-window-plan.md`) — without this, every strip next-fit scan
+        // silently falls through to a name-only join, which two roster entries sharing a display
+        // name would conflate (the exact failure class `locationSheet.js#lookupForWindow`'s own
+        // id-first design exists to avoid). Null rather than omitted, matching `lookupForWindow`'s
+        // own "id-first, falls back to name" contract when a caller has no id to offer.
+        id: loc.id ?? null,
         name: loc.name,
         lat: loc.lat,
         lng: loc.lon,
@@ -3099,6 +3107,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // itself (CLAUDE.md: backend formats all clock/offset prose).
         onTheLight: Boolean(tide?.onTheLight),
         nearestSolarOffsetPhrase: tide?.onTheLight ? (tide.phrase ?? null) : null,
+        // Tide-window increment (T3, tide-window-plan.md §3): the location's own configured want,
+        // whether it is coastal-and-tidal at all, and this WINDOW's served preference-axis tier —
+        // never derived here, only read off `tide` (the extended `buildTideAlignmentIndex` entry)
+        // via `mapTideFit.tierOf`, which answers the axis this increment cares about
+        // (`tideAligned`), never the on-the-light one above.
+        tideTypes: loc.tideType ?? [],
+        coastal: isCoastalTidalLocation(loc),
+        tideTier: tierOf(tide),
+        tideShortfall: tide?.shortfall ?? null,
+        tideGated: Boolean(tide?.gated),
+        // The block body T4's tooltip reads for BOTH tiers (tide-window-plan.md §3 T4 item 4) —
+        // carried here rather than left for that phase to add, since it is the same `tide` object
+        // this function already has in hand and the plan's own goal for this phase is that every
+        // fact reaches the components that will draw it.
+        tideFitPhrase: tide?.fitPhrase ?? null,
       };
     };
     const spots = scopedVisibleLocations.map(spotOf);

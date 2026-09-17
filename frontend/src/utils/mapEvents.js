@@ -215,6 +215,12 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
       // subject is a region must be able to test the pick's own region; one whose subject is the
       // window ignores this and reads the kind alone.
       pickRegion: served.pickRegion ?? null,
+      // The served `BriefingWindowTide` for this window (tide-window-plan.md T3, §1 #4/#12) —
+      // forwarded verbatim, never re-derived: the strip's chart, header and next-fit scan all read
+      // this object's own fields (`curve`, `windowPosition`, `windowLevel`, `extremes`,
+      // `locationName`…), and a solar window the briefing served but with no coastal representative
+      // carries no `tide` at all, hence the fallback.
+      tide: served.tide ?? null,
       inForecastDomain,
     };
   }
@@ -252,6 +258,9 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     // completeness sweep caught the omission; it is harmless today only because every reader
     // short-circuits on the kind first.
     pickRegion: null,
+    // A D-13 filler is a date the briefing carried no window for at all, so there is no served
+    // `BriefingWindowTide` either — null, matching `pickKind`/`pickRegion` above.
+    tide: null,
     inForecastDomain,
   };
 }

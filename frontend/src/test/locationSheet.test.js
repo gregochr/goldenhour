@@ -174,10 +174,11 @@ describe('buildSlotIndex', () => {
 });
 
 /**
- * The map tab's tide-alignment glyph/tiebreaker/tooltip/callout-row source (bundle rev 2's
- * tide-chip tweak). Keyed exactly like {@link buildSlotIndex} — same {@code days} shape, same
- * {@link lookupForWindow} reader — so these tests reuse that suite's fixture idiom rather than a
- * new one.
+ * The map tab's tide-fit source — both axes CLAUDE.md's two-tide-axes rule keeps apart, side by
+ * side (bundle rev 2's original on-the-light tweak, plus the preference axis the tide-window
+ * increment adds at T3, `docs/engineering/tide-window-plan.md`). Keyed exactly like
+ * {@link buildSlotIndex} — same {@code days} shape, same {@link lookupForWindow} reader — so these
+ * tests reuse that suite's fixture idiom rather than a new one.
  */
 describe('buildTideAlignmentIndex', () => {
   const daysWithTide = (slotOverrides) => [{
@@ -191,48 +192,109 @@ describe('buildTideAlignmentIndex', () => {
     }],
   }];
 
-  it('reads the two read fields off a slot, id-first — offsetMinutes/kind have no reader and are not indexed', () => {
-    const idx = buildTideAlignmentIndex(daysWithTide({
-      tideOnTheLight: true,
-      nearestSolarOffsetMinutes: 36,
-      nearestExtremeKind: 'HW',
-      nearestSolarOffsetPhrase: 'HW 19:52 · 36m before sunset',
-    }));
+  /** A fully-formed T1 tide-fit fixture — every field the index now reads off a slot. */
+  const MATCH_SLOT = {
+    tideState: 'HIGH',
+    tideAligned: true,
+    tideOnTheLight: true,
+    nearestSolarOffsetMinutes: 36,
+    nearestExtremeKind: 'HW',
+    nearestSolarOffsetPhrase: 'HW 19:52 · 36m before sunset',
+    tideLevel: 0.94,
+    tideDirection: 'FALLING',
+    tideHeight: '3.9 m',
+    tideShortfall: null,
+    tideFitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+  };
+
+  it('reads every tide-fit field off a slot, id-first — offsetMinutes/kind have no reader and are not indexed', () => {
+    const idx = buildTideAlignmentIndex(daysWithTide(MATCH_SLOT));
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toEqual({
+      aligned: true,
+      state: 'HIGH',
       onTheLight: true,
       phrase: 'HW 19:52 · 36m before sunset',
+      level: 0.94,
+      direction: 'FALLING',
+      height: '3.9 m',
+      shortfall: null,
+      fitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+      gated: false,
     });
   });
 
   it('indexes a definite "not aligned" slot too — false is an answer, not an absence', () => {
     const idx = buildTideAlignmentIndex(daysWithTide({
+      ...MATCH_SLOT,
+      tideState: 'LOW',
+      tideAligned: false,
       tideOnTheLight: false,
-      nearestSolarOffsetMinutes: 180,
-      nearestExtremeKind: 'LW',
-      nearestSolarOffsetPhrase: 'LW 16:52 · 3h before sunset',
+      tideDirection: 'RISING',
+      tideShortfall: 'HIGHER',
+      tideFitPhrase: 'wants high water · low tide, rising at 16:52 · 0.9 m of 4.3 m',
     }));
     const entry = lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET');
+    expect(entry.aligned).toBe(false);
     expect(entry.onTheLight).toBe(false);
-    expect(entry.phrase).toBe('LW 16:52 · 3h before sunset');
+    expect(entry.shortfall).toBe('HIGHER');
   });
 
-  it('SKIPS a slot whose tideOnTheLight is null — inland, or no stored extremes, is not "false"', () => {
-    const idx = buildTideAlignmentIndex(daysWithTide({ tideOnTheLight: null }));
+  it('indexes a miss whose tideOnTheLight is null — the case the old skip dropped', () => {
+    // Before T3, this index skipped any slot with no derivable on-the-light fact. A coastal slot
+    // whose nearest extreme is too far to name a landing can still have a served PREFERENCE
+    // answer (`tideAligned`), and the map's dimming feature needs it in the index regardless.
+    const idx = buildTideAlignmentIndex(daysWithTide({
+      ...MATCH_SLOT,
+      tideState: 'MID',
+      tideAligned: false,
+      tideOnTheLight: null,
+      nearestSolarOffsetPhrase: null,
+      tideDirection: 'RISING',
+      tideShortfall: 'HIGHER',
+      tideFitPhrase: 'wants high water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+    }));
+    const entry = lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET');
+    expect(entry).not.toBeNull();
+    expect(entry.aligned).toBe(false);
+    expect(entry.onTheLight).toBeNull();
+    expect(entry.phrase).toBeNull();
+    expect(entry.fitPhrase).toBe('wants high water · mid tide, rising at 05:42 · 2.6 m of 4.3 m');
+  });
+
+  it('SKIPS a slot with no tideState at all (an inland location\'s slot shape)', () => {
+    const idx = buildTideAlignmentIndex(daysWithTide({}));
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toBeNull();
     expect(idx.byId.size).toBe(0);
   });
 
-  it('SKIPS a slot with no tideOnTheLight field at all (an inland location\'s slot shape)', () => {
-    const idx = buildTideAlignmentIndex(daysWithTide({}));
-    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toBeNull();
+  it('reads gated true only when evaluationGate is set, independent of aligned', () => {
+    const gatedIdx = buildTideAlignmentIndex(daysWithTide({
+      ...MATCH_SLOT,
+      tideAligned: false,
+      evaluationGate: '≈ Tide not right at sunset · needs low water instead · HW 19:52 · 36m before sunset',
+    }));
+    expect(lookupForWindow(gatedIdx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').gated).toBe(true);
+
+    // The weather-stood-down-first path (tide-window-plan.md §1 #3): a rated miss, no gate.
+    const ratedMissIdx = buildTideAlignmentIndex(daysWithTide({ ...MATCH_SLOT, tideAligned: false }));
+    expect(lookupForWindow(ratedMissIdx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').gated).toBe(false);
   });
 
-  it('falls back to a null phrase when it is absent', () => {
-    // Defensive: the deriver always sets all four wire fields together, but the index must not
-    // crash or fabricate a phrase if a future payload ever separates them.
-    const idx = buildTideAlignmentIndex(daysWithTide({ tideOnTheLight: true }));
+  it('falls back to null for every optional field absent from the slot', () => {
+    // Defensive: the deriver always sets the whole family of T1 fields together, but the index
+    // must not crash or fabricate a value if a future payload ever separates them.
+    const idx = buildTideAlignmentIndex(daysWithTide({ tideState: 'HIGH', tideAligned: true }));
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toEqual({
-      onTheLight: true, phrase: null,
+      aligned: true,
+      state: 'HIGH',
+      onTheLight: null,
+      phrase: null,
+      level: null,
+      direction: null,
+      height: null,
+      shortfall: null,
+      fitPhrase: null,
+      gated: false,
     });
   });
 
@@ -242,8 +304,9 @@ describe('buildTideAlignmentIndex', () => {
       eventSummaries: [{
         targetType: 'SUNSET',
         unregioned: [{
-          locationName: 'Bamburgh', tideOnTheLight: true, nearestExtremeKind: 'LW',
-          nearestSolarOffsetMinutes: -12, nearestSolarOffsetPhrase: 'LW 19:40 · 12m before sunset',
+          locationName: 'Bamburgh', tideState: 'LOW', tideAligned: true, tideOnTheLight: true,
+          nearestExtremeKind: 'LW', nearestSolarOffsetMinutes: -12,
+          nearestSolarOffsetPhrase: 'LW 19:40 · 12m before sunset',
         }],
       }],
     }]);
@@ -257,7 +320,7 @@ describe('buildTideAlignmentIndex', () => {
       .toBe(0);
     const noType = buildTideAlignmentIndex([{
       date: '2026-08-14',
-      eventSummaries: [{ regions: [{ slots: [{ locationId: 7, tideOnTheLight: true }] }] }],
+      eventSummaries: [{ regions: [{ slots: [{ locationId: 7, tideState: 'HIGH', tideAligned: true }] }] }],
     }]);
     expect(noType.byId.size).toBe(0);
   });

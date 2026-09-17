@@ -132,12 +132,22 @@ function kindShort(event) {
  * @param {?number} [props.driveMinutes] measured drive time, or null when unmeasured
  * @param {?number} [props.distanceMiles] straight-line miles — HOME origin only; the caller passes
  *        null under an away origin (§1.12's `reachMeasured` discipline, `utils/planOrigin.js`)
- * @param {?{onTheLight: boolean, phrase: ?string}} [props.tideOnLight] this window's tide-alignment
- *        fact for THIS location (bundle rev 2's tide-chip tweak), from
- *        `utils/locationSheet.buildTideAlignmentIndex` via `lookupForWindow` — never
- *        {@code tideAligned}, a different question (see that function's own doc). The row is
- *        omitted entirely unless `onTheLight` is true AND a `phrase` exists, matching this
- *        component's own unmeasured-facts discipline
+ * @param {?{onTheLight: boolean, phrase: ?string, aligned: ?boolean, level: ?number,
+ *   direction: ?string, height: ?string, shortfall: ?string, fitPhrase: ?string, gated: ?boolean}}
+ *        [props.tideOnLight] this window's tide facts for THIS location, from
+ *        `utils/locationSheet.buildTideAlignmentIndex` via `lookupForWindow`. ⚠️ Since the
+ *        tide-window increment (T3, `docs/engineering/tide-window-plan.md`) the object carries
+ *        BOTH axes — `onTheLight`/`phrase` (bundle rev 2's original on-the-light question) AND
+ *        `aligned`/`level`/`direction`/`height`/`shortfall`/`fitPhrase`/`gated` (the preference
+ *        question). This component still reads only the former pair below — the callout row below
+ *        does not yet read `aligned`, that is T5's job — so "never `tideAligned`" is a statement
+ *        about what THIS render currently does, not a ban on the shape carrying it: a future caller
+ *        reading `aligned` here to answer the on-the-light question would still be the conflation
+ *        the two-axes rule forbids, but reading it to answer the preference question it was built
+ *        for is exactly what the increment's later phases do (CLAUDE.md's two-tide-axes rule; see
+ *        `buildTideAlignmentIndex`'s own doc for the full argument). The row below is omitted
+ *        entirely unless `onTheLight` is true AND a `phrase` exists, matching this component's own
+ *        unmeasured-facts discipline
  * @param {?object} [props.scoreIndex] from `utils/locationSheet.buildScoreIndex` — the per-location
  *        per-window rating/summary join, reused rather than re-derived (plan §3 P9)
  * @param {boolean} [props.scoresKnown] whether the `scoreIndex` response has actually landed — a

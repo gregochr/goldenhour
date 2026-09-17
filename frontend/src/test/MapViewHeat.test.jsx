@@ -785,6 +785,10 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
           slots: [{
             locationId: 1,
             locationName: 'Bamburgh',
+            // A served tide-fit slot always carries a tideState alongside tideOnTheLight — T3's
+            // index now keys on the former, so the fixture must too (tide-window-plan.md §3 T3).
+            tideState: 'HIGH',
+            tideAligned: true,
             tideOnTheLight,
             nearestSolarOffsetMinutes: 25,
             nearestExtremeKind: 'HW',
@@ -2225,7 +2229,10 @@ describe('the region panel — one region, into the sheet that already exists', 
       targetType: 'SUNSET',
       regions: [{
         regionName: 'North East',
-        slots: [{ locationId: 1, tideOnTheLight: true, nearestSolarOffsetPhrase: 'HW 12 min after sunset' }],
+        slots: [{
+          locationId: 1, tideState: 'HIGH', tideAligned: true, tideOnTheLight: true,
+          nearestSolarOffsetPhrase: 'HW 12 min after sunset',
+        }],
       }],
     }],
   }]);
