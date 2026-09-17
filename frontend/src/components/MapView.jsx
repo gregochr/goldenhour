@@ -1319,7 +1319,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -5048,6 +5048,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               ratingKnown={ratingKnown}
               ratingRetrying={ratingRetrying}
               regionGlossIndex={regionGlossIndex}
+              evaluationGateIndex={evaluationGateIndex}
               evRows={mapEvents}
               astroConditionsByDate={astroConditionsByDate}
               auroraResultsByDate={auroraResultsByDate}
@@ -5829,6 +5830,12 @@ MapView.propTypes = {
    * like `scoreIndex`.
    */
   tideAlignmentIndex: PropTypes.object,
+  /**
+   * From `utils/locationSheet.buildEvaluationGateIndex` — per location per window, the pipeline's
+   * own served reason a slot was withheld from Claude (today only the tide gate). Passed straight
+   * through to the selection callout, which prints it above the reason prose.
+   */
+  evaluationGateIndex: PropTypes.object,
   /**
    * The per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read ONLY for the
    * callout's straight-line miles fact; since D1 (plan-to-map-doors-plan.md) also the tab's home

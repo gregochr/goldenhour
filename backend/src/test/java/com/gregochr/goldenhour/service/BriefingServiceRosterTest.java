@@ -54,6 +54,36 @@ class BriefingServiceRosterTest {
         return wood(name).withClaudeScores(4, 70, 60, "Bluebells at peak.");
     }
 
+    /** A coastal slot the tide gate withheld from Claude — out of coverage, still voting. */
+    private static BriefingSlot gated(String name) {
+        return sky(name).withEvaluationGate("Tide not right at sunrise · needs low water, mid tide instead");
+    }
+
+    @Nested
+    @DisplayName("A tide-gated slot is the other place the two denominators diverge")
+    class GatedRegion {
+
+        @Test
+        void a_withheld_slot_is_out_of_coverage_but_still_votes() {
+            // It can never be scored, so counting it in coverage reports a shortfall no cycle can
+            // close — a coastal region at mid tide would read low-confidence for ever. But the
+            // tide IS a stand-down, so it votes on the verdict like any other sky slot.
+            ConfidenceDeriver.RegionRoster roster = BriefingRegionEvaluationRollup.rosterOf(
+                    List.of(scoredSky("Bamburgh"), scoredSky("Embleton"), gated("Seaham")));
+            assertThat(roster.scoreable()).as("scoreable — the withheld slot cannot be scored")
+                    .isEqualTo(2);
+            assertThat(roster.voting()).as("voting — the tide is a real stand-down").isEqualTo(3);
+        }
+
+        @Test
+        void a_withheld_slot_that_carries_a_cached_rating_stays_in_coverage() {
+            ConfidenceDeriver.RegionRoster roster = BriefingRegionEvaluationRollup.rosterOf(
+                    List.of(scoredSky("Bamburgh"),
+                            gated("Seaham").withClaudeScores(3, 40, 50, "Cached.")));
+            assertThat(roster.scoreable()).isEqualTo(2);
+        }
+    }
+
     @Nested
     @DisplayName("A region with no woods counts every slot once")
     class OpenSkyOnly {

@@ -187,7 +187,7 @@ export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
   tideOnLight = null,
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
-  regionGlossIndex = null, evRows = [],
+  regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
@@ -297,8 +297,16 @@ export default function MapCallout({
   // card placed above the point grown down over it, or one clamped to the band's floor grown into
   // the chrome below, until an unrelated pan/zoom re-measured. "Loading…" → "Not scored yet" could
   // already do the same (review, B1/C5).
+  //
+  // ⚠️ And `evaluationGateIndex`, the briefing-derived index the gate paragraph reads: the
+  // briefing lands AFTER a cold-load marker tap, and a gated window's rating stays null across
+  // that landing, so nothing else in this list would re-measure the two mono lines the paragraph
+  // adds. The index, not the derived `gate` — that const is computed past the early return
+  // below, where a hook may not sit. The index is memoised on `briefing.days`, so it changes
+  // exactly when the paragraph can appear. Same shape as the tide-row P1 recorded above.
   useEffect(() => { repaintNow(); }, [
-    paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, repaintNow,
+    paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, evaluationGateIndex,
+    repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -394,8 +402,28 @@ export default function MapCallout({
   // own wording ("fallback: region gloss"). Neither exists for a night row (no served summary, and
   // the gloss index is built from solar `eventSummaries` alone), which is the honest degrade: this
   // phase does not invent a narrative for astro/aurora (plan §4.6).
-  const reason = scoreEntry?.summary
-    ?? regionGlossFor(regionGlossIndex, event.date, event.eventType, location.regionName);
+  const ownReason = scoreEntry?.summary ?? null;
+  const regionReason = ownReason != null || event.kind !== 'solar'
+    ? null
+    : regionGlossFor(regionGlossIndex, event.date, event.eventType, location.regionName);
+  const reason = ownReason ?? regionReason;
+  // Whose prose the reason is. A region's gloss printed bare on a location's card reads as a read
+  // of THIS place; the location sheet this button opens labels it the same way.
+  const reasonRegion = regionReason != null ? (location.regionName ?? null) : null;
+  // The pipeline's own reason this window carries no score (`BriefingSlot.evaluationGate`), read
+  // off the same walk as the sheet's. Only while nothing rates the window: a rating is real
+  // evidence about the sky and outranks a gate decided by a later build (`locationSheet.js`'s
+  // own rule). The guarantee is WITHIN this card — it never prints a gate beside a star. Both
+  // rating sources are consulted because the header's `rating` prop can come from the map's
+  // `/api/forecast` rows (the synchronous engine) where `scoreEntry` reads only the batch scores,
+  // and a star in the header above "Not scored" below would be the contradiction the gate exists
+  // to remove. The sheet this opens reads the batch scores alone, so on a slot only the
+  // synchronous engine rated, the two surfaces CAN differ — that is the dual-engine gap CLAUDE.md
+  // records ("Where a rating lives"), not something this line can close.
+  const gateEntry = event.kind === 'solar'
+    ? lookupForWindow(evaluationGateIndex, location.id, location.name, event.date, event.eventType)
+    : null;
+  const gate = rating == null && scoreEntry?.rating == null ? (gateEntry?.gate ?? null) : null;
 
   const eventTimeIso = eventInstantOf(scoreEntry, event.eventType);
   const facts = calloutFacts({
@@ -548,7 +576,12 @@ export default function MapCallout({
             // answer outranks the failure, so a night still holding one keeps it through a failed
             // refresh.
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
-              {ratingKnown ? 'Not scored yet' : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
+              {/* A gated window drops the "yet" — the pipeline decided, nothing is coming — and
+                  is read before `ratingKnown` because the gate rides the briefing, not the
+                  ratings fetch. The location sheet says the same two words for the same reason. */}
+              {gate
+                ? 'Not scored'
+                : (ratingKnown ? 'Not scored yet' : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…')}
             </span>
           )}
         </div>
@@ -564,6 +597,12 @@ export default function MapCallout({
             the design — and (b) clamp the `Four days here ›` caption away along with the prose. The
             button stays `display: block` and unclamped; only `.wf-callout-reason-text` is a box.
             The `⋯` the clamp leaves is now a promise the caption keeps. */}
+        {gate && (
+          <p data-testid="map-callout-gate" className="wf-callout-gate">
+            <span className="wf-callout-gate-glyph" aria-hidden="true">≈ </span>
+            {gate}
+          </p>
+        )}
         {reason && (
           <button
             type="button"
@@ -582,7 +621,14 @@ export default function MapCallout({
             // to the top of the document instead of to the place they were reading about.
             onClick={(pressEvent) => { pressEvent.currentTarget.focus(); onOpenSheet?.(); }}
           >
-            <span className="wf-callout-reason-text">{reason}</span>
+            <span className="wf-callout-reason-text">
+              {reasonRegion && (
+                <span data-testid="map-callout-reason-region" className="wf-callout-reason-region">
+                  {`${reasonRegion} sky · `}
+                </span>
+              )}
+              {reason}
+            </span>
             <span className="wf-callout-reason-more" aria-hidden="true">Four days here ›</span>
             {/* The caption is decorative to a screen reader — "Four days here ›" read after a
                 90-word narrative names nothing — so the sr-only span is what states the destination.
@@ -591,7 +637,12 @@ export default function MapCallout({
                 would take it from a screen reader entirely to shorten a name. The consequence is
                 that the name is the whole summary and then the place — it does NOT open with the
                 place, whatever an earlier draft of this comment claimed, and a speech-input user
-                still has the visible "Four days here" inside it (2.5.3).
+                still has the visible "Four days here" inside it (2.5.3). When the prose is a
+                borrowed region gloss the name opens with the kicker ("North East sky · …"), which
+                is the point: the owner of the prose is announced before the prose. The kicker is
+                NOT CSS-uppercased for exactly this reason — a transformed "SKY" or a short region
+                name can be spelt out as an initialism, and this is the first kicker in the app
+                that sits inside a control's name.
 
                 ⚠️ The `{' '}` is defensive, not load-bearing in a browser. "…underneath it.Bamburgh"
                 is jsdom's reading: it computes no layout — it does not blockify an absolutely
@@ -759,6 +810,8 @@ MapCallout.propTypes = {
   ratingKnown: PropTypes.bool,
   ratingRetrying: PropTypes.bool,
   regionGlossIndex: PropTypes.object,
+  /** From `utils/locationSheet.buildEvaluationGateIndex` — the gated windows' served reasons. */
+  evaluationGateIndex: PropTypes.object,
   evRows: PropTypes.array,
   astroConditionsByDate: PropTypes.instanceOf(Map),
   auroraResultsByDate: PropTypes.instanceOf(Map),

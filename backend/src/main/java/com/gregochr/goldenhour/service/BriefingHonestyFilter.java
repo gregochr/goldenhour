@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 
@@ -254,14 +255,19 @@ final class BriefingHonestyFilter {
         // deterministic woodland verdict). It would also erase those verdicts every single day.
         //
         // This filter is failure-defence — its whole premise is "we expected Claude coverage and
-        // did not get it". A canopy slot never expected any.
-        // Same predicate as the confidence denominator in BriefingService: a slot counts when it
-        // COULD carry a rating, not merely when it is not canopy. An in-season canopy bluebell
-        // site is scored by the bluebell prompt, so excluding it would put it in the numerator
-        // (scoredLocationCount) and not the denominator — a ratio above 1, silently disabling the
-        // lightly-evaluated warning in the class whose whole job is not overstating coverage.
+        // did not get it". A canopy slot never expected any, and neither did a slot the pipeline
+        // withheld by hard constraint (`evaluationGate`, today the tide gate): it is dropped before
+        // Claude by design, so counting it as expected coverage made an all-tide-mismatched coastal
+        // region read as a batch FAILURE — slots emptied, the served gate on every one of them
+        // discarded, and "too unsettled to evaluate" printed for a tide (adversarial review).
+        // Same predicate as the confidence denominator (BriefingRegionEvaluationRollup.rosterOf):
+        // a slot counts when it COULD carry a rating, not merely when it is not canopy. An
+        // in-season canopy bluebell site is scored by the bluebell prompt, so excluding it would
+        // put it in the numerator (scoredLocationCount) and not the denominator — a ratio above 1,
+        // silently disabling the lightly-evaluated warning in the class whose whole job is not
+        // overstating coverage.
         long scoreable = r.slots().stream()
-                .filter(s -> !(s.canopy() && s.claudeRating() == null))
+                .filter(BriefingSlot::couldCarryRating)
                 .count();
         if (scoreable == 0) {
             return r;

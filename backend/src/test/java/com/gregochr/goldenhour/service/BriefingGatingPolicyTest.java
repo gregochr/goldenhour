@@ -157,6 +157,50 @@ class BriefingGatingPolicyTest {
         }
     }
 
+    @Nested
+    @DisplayName("hardConstraintReason — the decoded reason, for callers that word the gate")
+    class HardConstraintReason {
+
+        @Test
+        @DisplayName("a tide mismatch decodes to TIDE_MISMATCH")
+        void tideMismatch_decodes() {
+            BriefingSlot slot = slot(Verdict.STANDDOWN, StanddownReason.TIDE_MISMATCH.label());
+            assertThat(BriefingGatingPolicy.hardConstraintReason(slot))
+                    .contains(StanddownReason.TIDE_MISMATCH);
+        }
+
+        @ParameterizedTest(name = "STANDDOWN + {0} decodes to nothing — it reaches Claude")
+        @EnumSource(value = StanddownReason.class, names = {
+                "HEAVY_CLOUD", "OVERCAST", "RAIN", "POOR_VISIBILITY",
+                "BUILDING_CLOUD", "SUN_BLOCKED_HORIZON", "CLEAR_SKY", "POOR_CONDITIONS"
+        })
+        void weatherStanddown_decodesToNothing(StanddownReason reason) {
+            assertThat(BriefingGatingPolicy.hardConstraintReason(
+                    slot(Verdict.STANDDOWN, reason.label()))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("GO, a null label and an unknown label all decode to nothing — the same safe default")
+        void nonGated_decodesToNothing() {
+            assertThat(BriefingGatingPolicy.hardConstraintReason(slot(Verdict.GO, null))).isEmpty();
+            assertThat(BriefingGatingPolicy.hardConstraintReason(slot(Verdict.STANDDOWN, null)))
+                    .isEmpty();
+            assertThat(BriefingGatingPolicy.hardConstraintReason(
+                    slot(Verdict.STANDDOWN, "Some new reason we have not seen"))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("isHardConstraintSkip is exactly 'a reason decodes' — one rule, two shapes")
+        void booleanForm_agreesWithDecodedForm() {
+            for (StanddownReason reason : StanddownReason.values()) {
+                BriefingSlot slot = slot(Verdict.STANDDOWN, reason.label());
+                assertThat(BriefingGatingPolicy.isHardConstraintSkip(slot))
+                        .as(reason.name())
+                        .isEqualTo(BriefingGatingPolicy.hardConstraintReason(slot).isPresent());
+            }
+        }
+    }
+
     @Test
     @DisplayName("Every StanddownReason label is recognised by the policy")
     void allStanddownReasonLabels_areRecognised() {

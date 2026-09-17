@@ -12,7 +12,9 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { scopeSpots } from '../utils/planOrigin.js';
 import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
-import { buildScoreIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import {
+  buildEvaluationGateIndex, buildScoreIndex, buildTideAlignmentIndex,
+} from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
@@ -292,6 +294,14 @@ export default function WindowFirstMapPane({
   const tideAlignmentIndex = useMemo(
     () => buildTideAlignmentIndex(briefing?.days), [briefing?.days],
   );
+  /**
+   * The gated windows' served reasons ({@code BriefingSlot.evaluationGate}) — the same walk the
+   * location sheet's {@code buildSlotIndex} makes, over the same {@code briefing.days}, so the
+   * callout and the sheet it opens print one sentence about one window.
+   */
+  const evaluationGateIndex = useMemo(
+    () => buildEvaluationGateIndex(briefing?.days), [briefing?.days],
+  );
 
   /**
    * The heat field's opt-in, built here and nowhere else.
@@ -517,6 +527,7 @@ export default function WindowFirstMapPane({
         // that granularity is the intended one and not a bug to sharpen.
         runId={briefing?.generatedAt ?? null}
         tideAlignmentIndex={tideAlignmentIndex}
+        evaluationGateIndex={evaluationGateIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}
         // The breadcrumb's `clear` origin reset (D2) — the SAME `setOrigin` the masthead's ⌂ and

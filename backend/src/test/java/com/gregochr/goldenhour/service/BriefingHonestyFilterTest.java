@@ -198,6 +198,50 @@ class BriefingHonestyFilterTest {
         assertThat(out.verdictLabel()).isNotEqualTo(BriefingHonestyFilter.VERDICT_LABEL);
     }
 
+    /** A coastal slot the tide gate withheld from Claude — it never expected a rating either. */
+    private static BriefingSlot gatedSlot(String name) {
+        return slot(name, Verdict.STANDDOWN)
+                .withEvaluationGate("Tide not right at sunrise · needs low water, mid tide instead");
+    }
+
+    @Test
+    @DisplayName("⚠️ An all-tide-gated coastal region is passed through — its served gates survive")
+    void allGatedRegion_isNotBlanked() {
+        // The filter's own javadoc names "all-tide-mismatched coastal regions" as a residual
+        // zero-coverage case. Blanking it emptied the slot list — discarding the served
+        // evaluationGate on every slot — and printed "too unsettled to evaluate" for a tide.
+        BriefingRegion coast = new BriefingRegion(
+                "Durham Coast", Verdict.STANDDOWN, "Tide not aligned at 2 of 2", List.of(),
+                List.of(gatedSlot("Seaham Chemical Beach"), gatedSlot("Blast Beach")),
+                11.0, 10.0, 2.0, 3, null, "gloss", DisplayVerdict.STAND_DOWN, 0);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNRISE, coast);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.slots()).as("the gated slots survive").hasSize(2);
+        assertThat(out.slots().get(0).evaluationGate()).startsWith("Tide not right at sunrise");
+        assertThat(out.summary()).isNotEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+        assertThat(out.glossDetail()).isEqualTo("gloss");
+    }
+
+    @Test
+    @DisplayName("A withheld slot does not dilute coverage — it could never have been scored")
+    void gatedSlotsDoNotDiluteCoverage() {
+        // 2 sky slots scored + 2 tide-gated. Against 4 that is 50% and flags lightly-evaluated;
+        // against the 2 that could carry a rating it is full coverage.
+        List<BriefingSlot> mixed = new java.util.ArrayList<>(goSlots(2));
+        mixed.add(gatedSlot("Seaham Chemical Beach"));
+        mixed.add(gatedSlot("Blast Beach"));
+        BriefingRegion region = new BriefingRegion(
+                "Durham Coast", Verdict.GO, "Clear at 2 of 4 locations", List.of(), mixed,
+                14.0, 13.0, 4.5, 3, "gloss", "detail", DisplayVerdict.WORTH_IT, 2);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNRISE, region);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.lightlyEvaluated()).isFalse();
+    }
+
     @Test
     @DisplayName("A genuine batch failure is still blanked — the defence is not disabled")
     void skyRegionWithZeroCoverage_isStillBlanked() {

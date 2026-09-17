@@ -223,4 +223,77 @@ class BriefingSlotTest {
             assertThat(enriched.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
         }
     }
+
+    @Nested
+    @DisplayName("evaluationGate — the served reason a slot was withheld from Claude")
+    class EvaluationGateTests {
+
+        private final BriefingSlot gated = new BriefingSlot(
+                "Seaham Chemical Beach", EVENT_TIME, Verdict.STANDDOWN, WEATHER,
+                BriefingSlot.TideInfo.NONE, List.of("Tide not aligned"), "Tide mismatch")
+                .withEvaluationGate("Tide not right at sunrise · needs low water, mid tide instead");
+
+        @Test
+        @DisplayName("every constructor starts it null — eligibility unknown, never eligible")
+        void constructors_startNull() {
+            assertThat(new BriefingSlot("Durham", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null).evaluationGate()).isNull();
+            assertThat(BriefingSlot.canopySlot("Wood", EVENT_TIME, Verdict.GO, WEATHER,
+                    List.of(), null).evaluationGate()).isNull();
+        }
+
+        @Test
+        @DisplayName("⚠️ withClaudeScores carries it — a wither is where a field quietly goes missing")
+        void withClaudeScores_preservesGate() {
+            // The backend half of the "rating outranks gate" contract: a serve-time cache hit on a
+            // gated slot yields a slot carrying BOTH, and the client decides which to print. If
+            // the wither dropped the gate, every frontend test of that coexistence would be
+            // testing a state the wire can never carry.
+            BriefingSlot scored = gated.withClaudeScores(3, 40, 50, "Own read.", "Headline");
+            assertThat(scored.evaluationGate())
+                    .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead");
+            assertThat(scored.claudeRating()).isEqualTo(3);
+            assertThat(gated.withClaudeScores(3, 40, 50, "Own read.").evaluationGate())
+                    .isEqualTo(scored.evaluationGate());
+        }
+
+        @Test
+        @DisplayName("withEvaluationGate changes nothing else, and null clears it")
+        void withEvaluationGate_isolated() {
+            assertThat(gated.standdownReason()).isEqualTo("Tide mismatch");
+            assertThat(gated.flags()).containsExactly("Tide not aligned");
+            assertThat(gated.withEvaluationGate(null).evaluationGate()).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("couldCarryRating — the one coverage-denominator predicate")
+    class CouldCarryRating {
+
+        private final BriefingSlot sky = new BriefingSlot("Bamburgh", EVENT_TIME, Verdict.GO,
+                WEATHER, BriefingSlot.TideInfo.NONE, List.of(), null);
+        private final BriefingSlot wood = BriefingSlot.canopySlot("Wood", EVENT_TIME, Verdict.GO,
+                WEATHER, List.of(), null);
+        private final BriefingSlot gated = sky.withEvaluationGate("Tide not right at sunrise · mid tide");
+
+        @Test
+        @DisplayName("an unscored open-sky slot could — it is what the batch scores")
+        void unscoredSky_could() {
+            assertThat(sky.couldCarryRating()).isTrue();
+        }
+
+        @Test
+        @DisplayName("an unscored wood could not, and neither could a withheld slot — neither expected a rating")
+        void unscoredWoodAndGated_couldNot() {
+            assertThat(wood.couldCarryRating()).isFalse();
+            assertThat(gated.couldCarryRating()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a rating present is proof, whatever else the slot is")
+        void rated_alwaysCould() {
+            assertThat(wood.withClaudeScores(4, 70, 60, "Bluebells.").couldCarryRating()).isTrue();
+            assertThat(gated.withClaudeScores(4, 70, 60, "Cached.").couldCarryRating()).isTrue();
+        }
+    }
 }

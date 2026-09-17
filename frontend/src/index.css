@@ -8420,13 +8420,19 @@ button.wf-cond-oc:focus-visible {
       `--color-plex-text-secondary`, the SAME token `.wf-loc-why` and `.wf-loc-lv` carry, so
       departure 3's measurement covers it exactly: 6.75:1 at rest, 4.80:1 dimmed. The first cut
       reached for `--color-plex-text-muted` on the "almanac fact, quieter than a forecast" argument
-      and it measured 3.53:1 / 2.73:1 — see the `.wf-loc-light` rule for the arithmetic. */
+      and it measured 3.53:1 / 2.73:1 — see the `.wf-loc-light` rule for the arithmetic.
+
+   7. The evaluation gate line joins for the same reason as the light line: plain text, same
+      token, no plate. A gated row is unrated and so never dimmed today (the dim keys on a rating
+      that exists), but a cached rating and a gate can coexist on one slot, and a line left out
+      of this list would then sit at full strength between two receded neighbours. */
 .wf-loc-row[data-dim='true'] .wf-loc-w,
 .wf-loc-row[data-dim='true'] .wf-loc-t,
 .wf-loc-row[data-dim='true'] .wf-loc-lv,
 .wf-loc-row[data-dim='true'] .wf-loc-car,
 .wf-loc-row[data-dim='true'] .wf-loc-score-label,
 .wf-loc-row[data-dim='true'] .wf-loc-light,
+.wf-loc-row[data-dim='true'] .wf-loc-gate,
 .wf-loc-row[data-dim='true'] .wf-loc-why {
   opacity: 0.8;
 }
@@ -8615,6 +8621,49 @@ button.wf-cond-oc:focus-visible {
   font-family: var(--font-mono);
   font-style: normal;
   font-size: 10.5px;
+}
+/* The evaluation gate — the pipeline's own reason a window carries no score
+   (`BriefingSlot.evaluationGate`, today the tide gate's sentence). Set like `.wf-loc-light` — same
+   size, same secondary token, same 5px gap under it — because it is a fact about the window on
+   the almanac side, not generated prose, and `.wf-loc-why`'s serif italic is reserved for prose.
+   The wave glyph carries the tide hue (`--color-badge-tide`, the same token the Plan dialog's
+   `≈ TIDE` strip and the callout's caption use), so the line reads as the tide channel at a
+   glance; the words stay in the text token for contrast. */
+.wf-loc-gate {
+  margin: 0 0 5px;
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-loc-gate-glyph,
+.wf-callout-gate-glyph {
+  color: var(--color-badge-tide);
+}
+/* Borrowed prose names its owner. A REGION's sky gloss shown under a location's name is labelled
+   with a mono kicker in the prose's own colour — non-italic, so it reads as a label on the prose
+   rather than as part of it — and the same rule dresses the callout's kicker below.
+   ⚠️ NOT uppercased, unlike this file's other kickers (`.wf-loc-lead`, `.wf-hc-k`, 0.1em): the
+   callout's copy sits INSIDE the reason button's accessible name, and a CSS-transformed "SKY" or
+   a short region name ("FIFE") can be announced as an initialism. So it is set as a mixed-case
+   mono caption at the caption family's 0.04em (`.wf-callout-reason-more`), not a kicker. */
+.wf-loc-why-region,
+.wf-callout-reason-region {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+/* The callout's copy of `.wf-loc-gate`, above the clamped reason button. Mono at the caption's
+   size so the two mono lines bracketing the serif prose read as one register.
+   ⚠️ `margin: 0`, not the sheet copy's 5px: `.wf-callout-body` is a flex column with `gap: 8px`,
+   so a bottom margin here STACKS on the gap and opens 12px above the prose against 8px everywhere
+   else in the card — the opposite of "one register". The sheet's body is normal block flow. */
+.wf-callout-gate {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
 }
 /* `padding: 5px 0` rather than none: at the footer's 10.5px the bare text box is 15.75px tall, and
    5px on each side takes the TARGET to 25.75px, which clears WCAG 2.5.8's 24px outright rather than

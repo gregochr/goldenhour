@@ -18,7 +18,9 @@
 #         LOC="Bamburgh" EVENT_DATE=2026-08-14 EVENT_TYPE=SUNRISE ./scripts/diagnose-stale-forecast.sh
 #         ./scripts/diagnose-stale-forecast.sh 2>&1 | tee /tmp/diag-$(date +%F).log
 #
-# Run it on the Docker host. Connection details match docker-compose.yml.
+# Run it on the Docker host, or pipe it there:
+#   ssh gregochr@<host> 'LOC="Seaham Chemical Beach" EVENT_DATE=2026-09-19 EVENT_TYPE=SUNRISE bash -s' < scripts/diagnose-stale-forecast.sh
+# Connection details match docker-compose.yml.
 
 set -uo pipefail
 
@@ -35,7 +37,10 @@ WINDOW_DAYS="${WINDOW_DAYS:-14}"
 q() {
   local title="$1"; shift
   printf '\n\033[1m=== %s ===\033[0m\n' "$title"
-  docker exec -i "$DB_CONTAINER" \
+  # No `-i`: every statement arrives via `-c`, and an interactive stdin here is not harmless —
+  # when this script is piped in over `ssh host 'bash -s' < diag.sh`, the first psql swallows the
+  # rest of the script as its stdin and the run stops after Q1 with no error. Found 2026-09-17.
+  docker exec "$DB_CONTAINER" \
     psql -U "$DB_USER" -d "$DB_NAME" -P pager=off -v ON_ERROR_STOP=1 "$@"
 }
 

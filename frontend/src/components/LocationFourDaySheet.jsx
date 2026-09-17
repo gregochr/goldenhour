@@ -359,7 +359,15 @@ export default function LocationFourDaySheet({
                         // pipeline at all, because that would be a claim about the forecast built
                         // out of our own fetch (`scoresLoaded`'s own rule).
                         <span data-testid="location-sheet-state" className="wf-loc-none font-mono">
-                          {row.away ? row.stateLabel : (row.scoresKnown ? 'Not scored yet' : 'Loading ratings…')}
+                          {/* A GATED window drops the "yet": the pipeline decided up front, and
+                              nothing is coming. Read before `scoresKnown` because the gate rides
+                              the briefing, not the ratings fetch, so it is known whether or not
+                              that request has answered. */}
+                          {row.away
+                            ? row.stateLabel
+                            : (row.gate
+                              ? 'Not scored'
+                              : (row.scoresKnown ? 'Not scored yet' : 'Loading ratings…'))}
                         </span>
                       )}
                       {treatment.provisional && <ProvisionalMark title={treatment.label} />}
@@ -454,11 +462,33 @@ export default function LocationFourDaySheet({
                       ))}
                     </p>
                   )}
+                  {/* The evaluation gate — the pipeline's own reason this window has no score, in
+                      the backend's words (`BriefingSlot.evaluationGate`). Above the prose because
+                      it is the answer to "why no score", and the prose that follows is the REGION's
+                      sky, labelled as such: "the sky could be good, shame about the tide" is the
+                      reading, and it only reads that way with the water stated first. Mono, not
+                      serif italic — this is a fact from the almanac side, not generated prose. */}
+                  {row.gate && (
+                    <p data-testid="location-sheet-gate" className="wf-loc-gate font-mono">
+                      <span className="wf-loc-gate-glyph" aria-hidden="true">≈ </span>
+                      {row.gate}
+                    </p>
+                  )}
                   {row.summary ? (
                     // Serif italic is this app's typographic mark for generated prose — the
                     // drill-down gloss, the map overlay's summary and the peek's clause all use it.
-                    <p data-testid="location-sheet-why" className="wf-loc-why">{row.summary}</p>
-                  ) : (
+                    <p data-testid="location-sheet-why" className="wf-loc-why">
+                      {/* Borrowed prose names its owner. A region's gloss printed bare under a
+                          location's name reads as a read of THIS place — which, on an unscored
+                          window, is a claim nothing made. */}
+                      {row.summaryRegion && (
+                        <span data-testid="location-sheet-why-region" className="wf-loc-why-region">
+                          {`${row.summaryRegion} sky · `}
+                        </span>
+                      )}
+                      {row.summary}
+                    </p>
+                  ) : row.gate ? null : (
                     <p data-testid="location-sheet-nowhy" className="wf-loc-why muted font-mono">
                       {/* ⚠️ No "you". A travel day is the OPERATOR'S, not the reader's — the arm is
                           scrupulously impersonal about it everywhere else (the away cell says

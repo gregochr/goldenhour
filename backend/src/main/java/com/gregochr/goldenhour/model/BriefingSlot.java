@@ -52,6 +52,31 @@ import java.util.List;
  * @param claudeHeadline      4-9 word Claude-authored card header (Gate 2 redesign), or null
  *                            when no Claude evaluation has been performed or the result
  *                            pre-dates the headline field
+ * @param evaluationGate      plain-English reason this slot was withheld from Claude by a hard
+ *                            constraint ({@code BriefingGatingPolicy.isHardConstraintSkip}),
+ *                            built by {@code TideWording.tideGatePhrase} — the sentence names the
+ *                            event, the wanted and actual tide state, and the nearest extreme.
+ *                            Null when the slot was eligible.
+ *
+ *                            <p>Exists because a gated slot carries no score row, and the
+ *                            drill-down fills an unscored window with its REGION's sky gloss —
+ *                            so a coastal location ruled out on the water read as "here is a
+ *                            Claude narrative, but no score", when in fact nothing had looked at
+ *                            the sky there at all. The reason was known at build time (it is what
+ *                            {@code forecast_run_disposition} records) and simply never served.
+ *
+ *                            <p><em>Not</em> {@code standdownReason}, which every STANDDOWN slot
+ *                            carries — weather stand-downs still reach Claude and get rated down,
+ *                            so that label cannot tell a client whether a score is coming. Which
+ *                            reasons gate lives in one backend set; a client matching labels
+ *                            would re-derive it and drift. Formatted here, not on the client, for
+ *                            the same reason the tide-run chart is: the clock times are UK-local
+ *                            and the tide vocabulary is {@code TideWording}'s.
+ *
+ *                            <p>Nullable and {@code NON_NULL}-serialised on purpose: this record
+ *                            rides {@code daily_briefing_cache}, so every payload written before
+ *                            the field existed deserialises with a null here and reads as
+ *                            eligibility unknown, never as eligible.
  */
 public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
@@ -68,10 +93,47 @@ public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeSummary,
         DisplayVerdict displayVerdict,
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeHeadline,
-        boolean canopy) {
+        boolean canopy,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String evaluationGate) {
 
     public BriefingSlot {
         flags = List.copyOf(flags);
+    }
+
+    /**
+     * Returns a copy of this slot marked as withheld from Claude, with the reason in words.
+     *
+     * <p>A wither rather than a constructor argument because the gate is decided AFTER the slot
+     * exists: {@code BriefingSlotBuilder} asks {@code BriefingGatingPolicy} about the finished
+     * slot, so the policy stays the one place that knows which reasons gate.
+     *
+     * @param gate the plain-English reason, or null to clear it
+     * @return a new slot, every other field unchanged
+     */
+    /**
+     * Whether this slot could carry a Claude rating — the coverage denominator's membership test.
+     *
+     * <p>One predicate, two callers ({@code BriefingHonestyFilter}'s zero-coverage defence and
+     * {@code BriefingRegionEvaluationRollup.rosterOf}'s confidence roster), because each already
+     * claimed to match the other by hand. A slot is out when it never expected a rating: an
+     * unscored canopy slot (deliberately excluded from the sky batch — but an in-season bluebell
+     * wood IS scored, by its own prompt, so a rated one stays in) or one the pipeline withheld by
+     * hard constraint ({@link #evaluationGate}). A withheld slot that nonetheless carries a rating
+     * — a cache row from a cycle it was eligible for — stays in, for the same reason the wood does.
+     *
+     * @return true when a rating is or could be present
+     */
+    public boolean couldCarryRating() {
+        if (claudeRating != null) {
+            return true;
+        }
+        return !canopy && evaluationGate == null;
+    }
+
+    public BriefingSlot withEvaluationGate(String gate) {
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
+                flags, standdownReason, claudeRating, fierySkyPotential, goldenHourPotential,
+                claudeSummary, displayVerdict, claudeHeadline, canopy, gate);
     }
 
     /**
@@ -115,7 +177,7 @@ public record BriefingSlot(
             String standdownReason) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
                 standdownReason, null, null, null, null,
-                DisplayVerdict.resolve(null, verdict), null, false);
+                DisplayVerdict.resolve(null, verdict), null, false, null);
     }
 
     /**
@@ -193,7 +255,7 @@ public record BriefingSlot(
             List<String> flags, String standdownReason) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather,
                 TideInfo.NONE, flags, standdownReason, null, null, null, null,
-                DisplayVerdict.resolve(null, verdict), null, true);
+                DisplayVerdict.resolve(null, verdict), null, true, null);
     }
 
     /**
@@ -226,7 +288,7 @@ public record BriefingSlot(
             Integer goldenHour, String summary, String headline) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, rating, fierySky, goldenHour, summary,
-                DisplayVerdict.resolve(rating, verdict), headline, canopy);
+                DisplayVerdict.resolve(rating, verdict), headline, canopy, evaluationGate);
     }
 
     /**

@@ -5,6 +5,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a tide-gated window now says why it has no score, instead of wearing its region's prose
+
+Seaham Chemical Beach, Saturday 19 September sunrise: every neighbour rated 4★, Seaham "Not
+scored yet", and under it a Claude paragraph about high cirrus and "the evaluated 53 spots". The
+paragraph was the **region's** sky gloss, which the location sheet and the map callout both use to
+fill any unscored window, unlabelled — so it read as a narrative about Seaham with no score to go
+with it. The disposition trail had the answer on both cycles: `SKIPPED_HARD_CONSTRAINT · Tide
+mismatch`. Seaham wants low water, sunrise fell at mid tide (HW 09:19, 2h35 after), and the tide
+gate is the one hard constraint that still withholds a slot from Claude. Nothing on screen said so.
+
+- **Backend** — `BriefingSlot.evaluationGate`: the pipeline's own reason a slot was withheld, in
+  words, built by `TideWording.tideGatePhrase` from the location's tide preference, the derived
+  state and the slot's existing nearest-extreme phrase: `Tide not right at sunrise · needs low
+  water, mid tide instead · HW 09:19 · 2h35 after sunrise`. Set in `BriefingSlotBuilder` by asking
+  `BriefingGatingPolicy` about the finished slot (new `hardConstraintReason`, decoded, so a future
+  second constraint is never served in the tide's words), never by re-deriving the rule. Nullable,
+  `NON_NULL`-serialised, rides `daily_briefing_cache` with no migration; a pre-field payload reads
+  as null, which the client treats as "unknown", never "eligible". `withClaudeScores` carries it.
+- **Coverage** — a withheld slot never expected a rating, so it no longer counts in the coverage
+  denominator: `BriefingSlot.couldCarryRating` is now the one predicate behind both
+  `BriefingHonestyFilter` and the confidence roster. Before this, an all-tide-mismatched coastal
+  region was blanked as a batch *failure* — slots emptied, every served gate discarded, "too
+  unsettled to evaluate" printed for a tide — and a region at mid tide read low-confidence for a
+  shortfall no cycle could close.
+- **Location sheet** — a gated row says "Not scored" (no "yet": nothing is coming), then the gate
+  sentence in mono with a tide-coloured `≈`, then the region's gloss labelled "Northumberland &
+  Tyneside sky ·" — so the reading is "the sky could be good, shame about the tide" rather than a
+  contradiction. A borrowed gloss is labelled on every unscored window, gated or not. A cached
+  rating outranks the gate on the same slot: the rating is evidence, the gate a later build's
+  decision.
+- **Map callout** — the same sentence above the reason prose, the same "Not scored" header, the
+  same owner label inside the reason button's accessible name (which is why that label is the
+  first kicker in the app *not* CSS-uppercased: a transformed "SKY" reads as an initialism). Fed by
+  a new `buildEvaluationGateIndex` over the same `briefing.days` as the pane's other indexes, and
+  listed in the callout's repaint dependencies so a briefing landing after a cold-load tap
+  re-measures the card.
+- **Script** — `scripts/diagnose-stale-forecast.sh` no longer passes `-i` to `docker exec`; it
+  swallowed the rest of the script when piped over `ssh host 'bash -s'`, so the documented
+  invocation stopped after Q1 with no error.
+
+Adversarial review before commit: four lenses, thirteen findings, ten fixed (the honesty-filter
+blanking, the callout's "yet", the dim-list omission, the flex-gap margin, the repaint dependency,
+the uppercase kicker, the copy register, the tide-only wording under a generic name, the untested
+`&&` halves and `withClaudeScores` path, the night-row test that passed for the wrong reason). Not
+fixed, recorded: the callout header's rating can come from the synchronous engine where the sheet
+reads only the batch scores, so on a slot only that engine rated the two surfaces can still differ
+about the gate — the dual-engine gap, not this change's to close.
+
+
 ## [v2.20.5] - 2026-09-11
 
 ### Fixed — the Plan search row's selected fill now takes the design's gold

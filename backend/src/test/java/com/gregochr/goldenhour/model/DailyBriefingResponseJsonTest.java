@@ -414,4 +414,44 @@ class DailyBriefingResponseJsonTest {
                 List.of(), List.of());
     }
 
+    // ── evaluationGate ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("evaluationGate round-trips, and is OMITTED (not written null) on an eligible slot")
+    void evaluationGate_roundTripsAndIsOmittedWhenNull() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot eligible = new BriefingSlot("Seaham Chemical Beach",
+                LocalDateTime.of(2026, 9, 19, 5, 44), Verdict.STANDDOWN,
+                null, BriefingSlot.TideInfo.NONE, List.of(), "Tide mismatch");
+        BriefingSlot gated = eligible.withEvaluationGate(
+                "Tide not right at sunrise · needs low water, mid tide instead");
+
+        JsonNode eligibleNode = mapper.readTree(mapper.writeValueAsString(eligible));
+        String gatedJson = mapper.writeValueAsString(gated);
+
+        assertThat(eligibleNode.has("evaluationGate")).isFalse();
+        assertThat(mapper.readTree(gatedJson).get("evaluationGate").asText())
+                .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead");
+        assertThat(mapper.readValue(gatedJson, BriefingSlot.class).evaluationGate())
+                .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead");
+    }
+
+    @Test
+    @DisplayName("a daily_briefing_cache payload written before the field existed reads as null, not eligible")
+    void evaluationGate_legacyPayloadReadsNull() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot gated = new BriefingSlot("Seaham Chemical Beach",
+                LocalDateTime.of(2026, 9, 19, 5, 44), Verdict.STANDDOWN,
+                null, BriefingSlot.TideInfo.NONE, List.of(), "Tide mismatch")
+                .withEvaluationGate("Tide not right at sunrise · mid tide");
+        // The shape a pre-field cache row has: the same slot with the key absent altogether.
+        var node = (com.fasterxml.jackson.databind.node.ObjectNode)
+                mapper.readTree(mapper.writeValueAsString(gated));
+        node.remove("evaluationGate");
+
+        BriefingSlot restored = mapper.readValue(node.toString(), BriefingSlot.class);
+
+        assertThat(restored.evaluationGate()).isNull();
+        assertThat(restored.standdownReason()).isEqualTo("Tide mismatch");
+    }
 }
