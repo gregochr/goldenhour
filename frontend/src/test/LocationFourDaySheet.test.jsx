@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import LocationFourDaySheet from '../components/LocationFourDaySheet.jsx';
-import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 
@@ -968,5 +968,182 @@ describe('LocationFourDaySheet — a gated window', () => {
     expect(r.getByTestId('location-sheet-state')).toHaveTextContent('Not scored yet');
     expect(r.queryByTestId('location-sheet-gate')).toBeNull();
     expect(r.getByTestId('location-sheet-why-region')).toHaveTextContent('Northumberland sky');
+  });
+});
+
+/**
+ * The tide-fit block, per solar row (T5, `docs/engineering/tide-window-plan.md`).
+ *
+ * <p><b>What breaks if these fail:</b> a coastal location's sheet stops carrying the same tide
+ * fact the map callout that opened it already showed, or the sheet's own next-fit jump silently
+ * moves the map underneath a dialog that must stay in place (plan-to-map-doors-plan.md §5 #4).
+ */
+describe('LocationFourDaySheet — the tide-fit block (T5)', () => {
+  const COASTAL = {
+    id: 7, name: 'Bamburgh', locationType: ['SEASCAPE'], bortleClass: 3, tideType: ['HIGH'],
+  };
+
+  const TIDE_DAYS = [
+    {
+      date: '2026-08-14',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00',
+            tideState: 'HIGH', tideAligned: true, tideDirection: 'FALLING',
+            tideFitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+          }],
+        }],
+      }],
+    },
+    {
+      date: '2026-08-15',
+      eventSummaries: [
+        {
+          targetType: 'SUNRISE',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T04:38:00',
+              tideState: 'LOW', tideAligned: false, tideDirection: 'RISING', tideShortfall: 'HIGHER',
+              tideFitPhrase: 'wants high water · low tide, rising at 04:10 · 1.1 m of 4.2 m',
+            }],
+          }],
+        },
+        {
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T19:39:00',
+              tideState: 'HIGH', tideAligned: true, tideDirection: 'RISING',
+              tideFitPhrase: 'high water, rising · HW 19:39 · 20m before sunset · 4.1 m',
+            }],
+          }],
+        },
+      ],
+    },
+    {
+      // ⚠️ Sunday sunrise is the AWAY day (`WINDOWS[3]`). This entry exists to PIN
+      // `LocationFourDaySheet`'s own `row.away ? null : lookupForWindow(...)` guard — an aligned
+      // fact IS indexed here, so a fixture with no entry at all for this date would let the guard
+      // be deleted (always looking up) with no test noticing. The guard is what must suppress it.
+      date: '2026-08-16',
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-16T04:41:00',
+            tideState: 'HIGH', tideAligned: true, tideDirection: 'FALLING',
+            tideFitPhrase: 'high water, falling · HW 04:35 · 6m before sunrise · 3.8 m',
+          }],
+        }],
+      }],
+    },
+  ];
+  const TIDE_INDEX = buildTideAlignmentIndex(TIDE_DAYS);
+
+  it('renders a block per solar row that carries a served tide fact — match, miss, and match again', () => {
+    setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+
+    const friSunset = within(row('2026-08-14:SUNSET')).getByTestId('tide-fit-block');
+    expect(friSunset).toHaveAttribute('data-tier', 'match');
+    expect(friSunset).toHaveTextContent('Tide lands on the light');
+
+    const satSunrise = within(row('2026-08-15:SUNRISE')).getByTestId('tide-fit-block');
+    expect(satSunrise).toHaveAttribute('data-tier', 'miss');
+    expect(satSunrise).toHaveTextContent('Wrong water, not wrong light');
+
+    const satSunset = within(row('2026-08-15:SUNSET')).getByTestId('tide-fit-block');
+    expect(satSunset).toHaveAttribute('data-tier', 'match');
+  });
+
+  it('renders none on the away row, even though TIDE_INDEX carries an aligned fact for it', () => {
+    // ⚠️ `TIDE_DAYS` deliberately DOES index 2026-08-16:SUNRISE (an aligned fact) — a tautological
+    // version of this test would omit that entry and pass merely because the index had nothing to
+    // find. With the entry present, this pins the ROW'S OWN `row.away ? null : lookupForWindow(…)`
+    // guard: a forecast for a night nobody forecast must be suppressed even when the pipeline's own
+    // data (a stale index, or a rebuild racing the travel-day edit) would otherwise show one.
+    setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+    expect(within(row('2026-08-16:SUNRISE')).queryByTestId('tide-fit-block')).toBeNull();
+  });
+
+  it('renders no block at all with no tideAlignmentIndex — the honest degrade, never a guess', () => {
+    setup({ location: COASTAL });
+    for (const el of screen.getAllByTestId('location-sheet-row')) {
+      expect(within(el).queryByTestId('tide-fit-block')).toBeNull();
+    }
+  });
+
+  it('names the resolved next-fit window in the sheet\'s own day vocabulary, not the map\'s', () => {
+    setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+    const jump = within(row('2026-08-15:SUNRISE')).getByTestId('tide-fit-jump');
+    // `row.dow` ("Sat"), never "Tomorrow" — this sheet's own weekday vocabulary, read off the
+    // TARGET row (Saturday's sunset), not the row the jump lives on. `formatTime` reads the
+    // fixture's naive `solarEventTime` as UTC and states it in UK local time (BST, +1h in
+    // August): `TIDE_DAYS`' 19:39 prints as 20:39, the same +1h `SLOTS`' own 19:41 fixture
+    // takes to the 20:41 the first test in this file asserts.
+    expect(jump).toHaveTextContent('Next high water on the light · Sat sunset 20:39');
+  });
+
+  it('the jump FOCUSES the target row on THIS sheet — it does not move the map underneath it', () => {
+    // plan-to-map-doors-plan.md §5 #4's reasoning: a control inside an open sheet must not move
+    // the surface it sits over. The target row (Saturday's sunset) starts CLOSED — the seeded
+    // best window is Saturday's sunrise (rating 5 in `SCORES`) — so this also proves the jump
+    // OPENS it, not merely focuses whatever was already showing.
+    //
+    // `requestAnimationFrame` is mocked to run synchronously (`WindowFirstShell.test.jsx`'s own
+    // pattern for the same deferred-focus shape) — `focusRow` defers the `.focus()` call past
+    // React's commit on purpose (adversarial review, accessibility lens: calling it synchronously
+    // alongside `setOpen` would focus the toggle while `aria-expanded` still read the PRE-click
+    // value for one paint), so a test with no rAF flush would only prove the state changed, not
+    // that focus landed on the settled DOM.
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+    setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+    const targetBefore = within(row('2026-08-15:SUNSET')).getByTestId('location-sheet-row-toggle');
+    expect(targetBefore).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(within(row('2026-08-15:SUNRISE')).getByTestId('tide-fit-jump'));
+
+    const targetAfter = within(row('2026-08-15:SUNSET')).getByTestId('location-sheet-row-toggle');
+    expect(targetAfter).toHaveAttribute('aria-expanded', 'true');
+    expect(document.activeElement).toBe(targetAfter);
+    raf.mockRestore();
+  });
+
+  it('says "Nothing in these 3 days…" when the index carries no later fit for this location', () => {
+    // This fixture's own `WINDOWS` span 3 distinct days (`sheet.rows`' own `dayCount`), which is
+    // why the sheet's horizon word here is "3 days" rather than the callout's spelled-out default.
+    // Only the SUNRISE miss entry — no later aligned slot for this location to find.
+    const MISS_ONLY = buildTideAlignmentIndex([
+      { date: '2026-08-15', eventSummaries: [TIDE_DAYS[1].eventSummaries[0]] },
+    ]);
+    setup({ location: COASTAL, tideAlignmentIndex: MISS_ONLY });
+    const denial = within(row('2026-08-15:SUNRISE')).getByTestId('tide-fit-denial');
+    expect(denial).toHaveTextContent('Nothing in these 3 days puts high water on the light here.');
+    expect(within(row('2026-08-15:SUNRISE')).queryByTestId('tide-fit-jump')).toBeNull();
+  });
+
+  it('⚠️ the scan skips the away row even when the index carries a real aligned fact for it (adversarial review)', () => {
+    // The pipeline still COLLECTS a travel day's tide extremes even though it skips EVALUATING
+    // them — the same rule that gates the away row's OWN display (`row.away ? null : …` above) —
+    // so `buildTideAlignmentIndex`, built from unfiltered `briefing.days`, can genuinely carry an
+    // aligned entry for 2026-08-16. Without the scan's own away-guard, the SUNRISE miss row's jump
+    // would resolve to that away row and open a body reading "Nothing was forecast for this day —
+    // away" directly under a jump that had just named a real tide. This fixture's ONLY aligned
+    // entry is the away one — no other later fit exists — so a real skip reads as the denial; a
+    // broken guard would print a jump naming Sunday's water instead.
+    const AWAY_ONLY = buildTideAlignmentIndex([
+      { date: '2026-08-15', eventSummaries: [TIDE_DAYS[1].eventSummaries[0]] },
+      TIDE_DAYS[2],
+    ]);
+    setup({ location: COASTAL, tideAlignmentIndex: AWAY_ONLY });
+    const missRow = within(row('2026-08-15:SUNRISE'));
+    expect(missRow.getByTestId('tide-fit-denial'))
+      .toHaveTextContent('Nothing in these 3 days puts high water on the light here.');
+    expect(missRow.queryByTestId('tide-fit-jump')).toBeNull();
   });
 });

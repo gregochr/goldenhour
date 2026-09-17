@@ -3,9 +3,12 @@ import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import ScoreBar from './ScoreBar.jsx';
+import TideFitBlock from './map/TideFitBlock.jsx';
 import { confidenceTreatment } from '../utils/confidenceUtils.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
-import { buildLocationSheet } from '../utils/locationSheet.js';
+import { buildLocationSheet, lookupForWindow } from '../utils/locationSheet.js';
+import { nextAlignedRow } from '../utils/mapTideFit.js';
+import { EVENT_KIND } from '../utils/mapEvents.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 
 /**
@@ -108,12 +111,17 @@ const DIM_AT_OR_BELOW = 2;
  * @param {?object}  [props.location] this place's roster record, for the meta row the map's route
  *        needs this sheet to carry (increment §2) and the per-row tide sentence (§3). Optional:
  *        with no record the row is absent rather than blank
+ * @param {?object}  [props.tideAlignmentIndex] `utils/locationSheet.buildTideAlignmentIndex`'s
+ *        result — the tide-fit block on every solar row (T5, `docs/engineering/tide-window-plan.md`)
+ *        reads THIS location's own entry per window for the block itself, and scans the whole index
+ *        forward for the miss rows' "next fit" jump. Null renders no block at all — the same
+ *        honest degrade a payload that predates the field gets
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
   scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
   planFrom = null, onPlanFrom = null, escapeEnabled = true, location = null,
-  focusWindowKey = null, regionGlossIndex = null,
+  focusWindowKey = null, regionGlossIndex = null, tideAlignmentIndex = null,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
@@ -162,6 +170,81 @@ export default function LocationFourDaySheet({
     if (!next.delete(key)) next.add(key);
     return next;
   });
+
+  /**
+   * The tide-fit block's own scan target (T5, `docs/engineering/tide-window-plan.md`) —
+   * `sheet.rows` reshaped into the SOLAR-row shape `utils/mapTideFit.js#nextAlignedRow` expects
+   * (`{kind, date, eventType}`), so a next-fit row is found through the SAME tested scan the map
+   * callout uses rather than a second forward-scan written for this one caller. `key` rides
+   * through untouched — `nextAlignedRow` forwards whatever object it is given, and this component's
+   * own {@link focusRow} is what reads it back.
+   *
+   * <p>Every NON-AWAY row here is `EVENT_KIND.SOLAR` by construction — this sheet's rows ARE the
+   * location's own solar windows, never a night — so the scan's kind guard never filters out a
+   * live row for THAT reason (§7 T5's "none on a night row" check is trivially true here rather
+   * than a live branch this sheet exercises).
+   *
+   * <p>⚠️ <b>An AWAY row is given a kind that is NOT `EVENT_KIND.SOLAR` (adversarial review),
+   * deliberately reusing `nextAlignedRow`'s existing kind guard rather than adding a second,
+   * away-aware one to that shared function.</b> The pipeline STILL COLLECTS a travel day's tide
+   * extremes even though it skips evaluating them (`row.away`'s own gate on `tideFact` two lines
+   * below applies the identical rule to the CURRENT row's own display), so
+   * `buildTideAlignmentIndex` can carry a real, aligned entry for a date this sheet marks away. Left
+   * unguarded, the scan could resolve a miss row's "next fit" jump to that away row — landing a
+   * reader who presses it on a body reading "Nothing was forecast for this day — away" directly
+   * under a jump line that had just named a real tide. Since `nextAlignedRow` already `continue`s
+   * on `row.kind !== EVENT_KIND.SOLAR` (there, to skip a night window), giving an away row any OTHER
+   * kind skips it the same way, with no change to that shared, tested function.
+   *
+   * <p>{@code dayLabel}/{@code time} carry the row's OWN weekday (`dow`, e.g. "Sat" — this sheet's
+   * own day vocabulary, never the map's "Today"/"Tomorrow") and its own event time, so a resolved
+   * {@code nextFitRow} has something to print in `TideFitBlock`'s jump text — without them the
+   * button would read "undefined Sunset undefined".
+   */
+  const scanRows = sheet.rows.map((row) => ({
+    kind: row.away ? 'away' : EVENT_KIND.SOLAR, date: row.date, eventType: row.targetType,
+    key: row.key, dayLabel: row.dow, time: row.time,
+  }));
+  const want = location?.tideType ?? null;
+  // The sheet's OWN wording for its horizon ("The next 4 days here", `leadLine`'s own sentence,
+  // read below via `sheet.lead`) — a NUMERAL, not `TideFitBlock`'s spelled-out "four days" default
+  // (kept as that component's default for the callout, whose `evRows` span the design's four days
+  // by a page-level constant this sheet has no reason to duplicate). Tide-window-plan.md T5 task 1:
+  // "if the served horizon is not four, the phase changes the word once, in `horizonWord`" — this
+  // sheet already HAS its own horizon word, so reusing it is the smaller diff, and it stays
+  // truthful if the roster's own horizon ever moves off four days without this file changing.
+  const dayCount = new Set(sheet.rows.map((row) => row.date)).size;
+  const horizonWord = `${dayCount} day${dayCount === 1 ? '' : 's'}`;
+
+  /**
+   * Opens and focuses a LATER row on THIS sheet — the tide-fit block's "next fit" affordance here
+   * moves focus INSIDE the dialog rather than the map underneath it
+   * (`plan-to-map-doors-plan.md` §5 #4's reasoning: a control inside an open sheet must not move
+   * the surface it sits over). Every row's own toggle button is ALWAYS in the DOM regardless of
+   * that row's expanded state — the accordion hides its BODY, never its header (the comment above
+   * `.wf-loc-body` records why) — so the TARGET ELEMENT is reachable the instant this commits.
+   * ⚠️ Its `aria-expanded` VALUE is not, though (adversarial review, accessibility lens): `setOpen`
+   * is a request, not a commit, so a `.focus()` call in this same synchronous handler would land
+   * before React flips the attribute to `"true"` — see the `requestAnimationFrame` below.
+   */
+  function focusRow(key) {
+    setOpen((current) => {
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
+    // ⚠️ Deferred a frame (adversarial review, accessibility lens), the same defensive pattern
+    // `WindowFirstShell.jsx`'s own focus moves use: `setOpen` above is a request, not a commit —
+    // React flushes and re-renders AFTER this handler returns, so calling `.focus()` synchronously
+    // here would land on `aria-expanded="false"` for one paint, a state/reality mismatch a screen
+    // reader could announce as "collapsed" on a row that is in fact expanding. `requestAnimationFrame`
+    // runs after that commit, so `aria-expanded` has already flipped to `"true"` by the time focus
+    // lands and is announced.
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-window="${key}"] [data-testid="location-sheet-row-toggle"]`)
+        ?.focus();
+    });
+  }
 
   const drive = formatDriveDuration(sheet.driveMinutes);
   const handoff = sheet.rows.find((row) => row.key === sheet.handoffKey) ?? null;
@@ -278,11 +361,24 @@ export default function LocationFourDaySheet({
             </p>
           )}
 
-          {sheet.rows.map((row) => {
+          {sheet.rows.map((row, rowIndex) => {
             const badge = spotBadgeStyle(row.rating);
             const treatment = confidenceTreatment(row.confidence);
             const expanded = open.has(row.key);
             const body = `location-sheet-body-${row.key}`;
+            // The tide-fit block's own fact for THIS row (T5) — the same
+            // `buildTideAlignmentIndex`/`lookupForWindow` join the map callout reads, keyed
+            // id-first exactly like every other join on this sheet. Null on an away day (nothing
+            // was evaluated, so nothing was gated OR aligned) and on any row with no served tide
+            // state at all (inland, or no stored extremes near this event).
+            const tideFact = row.away
+              ? null
+              : lookupForWindow(tideAlignmentIndex, spot?.id, spot?.name, row.date, row.targetType);
+            // Read only on a served MISS — a match never shows the jump/denial line, so scanning
+            // for one would be wasted work on every rated, aligned row.
+            const nextFitRow = tideFact && !tideFact.aligned
+              ? nextAlignedRow(scanRows, tideAlignmentIndex, { id: spot?.id, name: spot?.name }, rowIndex)
+              : -1;
             return (
               <div key={row.key} className="wf-loc-row" data-testid="location-sheet-row"
                 data-window={row.key} data-best={row.key === sheet.bestKey ? 'true' : undefined}
@@ -462,6 +558,20 @@ export default function LocationFourDaySheet({
                       ))}
                     </p>
                   )}
+                  {/* The tide-fit block (T5, design spec §4) — after the light times and before
+                      the gate row, the same relative position the map callout keeps it in.
+                      `TideFitBlock` itself is the unmeasured-facts guard: null renders nothing,
+                      never a "no tide fact" line. The jump inside it FOCUSES a later row on THIS
+                      sheet rather than moving the map underneath it (see `focusRow` above) — the
+                      sheet is the destination of two doors and must not move the surface beneath
+                      it while it is open. */}
+                  <TideFitBlock
+                    fact={tideFact}
+                    want={want}
+                    nextFitRow={nextFitRow}
+                    onSelectEv={(target) => focusRow(target.key)}
+                    horizonWord={horizonWord}
+                  />
                   {/* The evaluation gate — the pipeline's own reason this window has no score, in
                       the backend's words (`BriefingSlot.evaluationGate`). Above the prose because
                       it is the answer to "why no score", and the prose that follows is the REGION's
@@ -629,4 +739,9 @@ LocationFourDaySheet.propTypes = {
   focusWindowKey: PropTypes.string,
   /** From {@code regionGloss.buildRegionGlossIndex} — this sheet's prose fallback. */
   regionGlossIndex: PropTypes.instanceOf(Map),
+  /**
+   * From {@code locationSheet.buildTideAlignmentIndex} — the tide-fit block on every solar row
+   * (T5, `docs/engineering/tide-window-plan.md`).
+   */
+  tideAlignmentIndex: PropTypes.object,
 };

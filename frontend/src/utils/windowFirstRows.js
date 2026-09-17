@@ -53,8 +53,15 @@ export const CHART_H = 24;
  */
 const TIDE_KICKER = '≈ Tide';
 
-/** Water level → the words the row states it in. */
-const STATE_WORD = { HIGH: 'high water', MID: 'mid tide', LOW: 'low water' };
+/**
+ * Water level → the words the row states it in.
+ *
+ * <p>Exported since the tide-window increment's T5 (`docs/engineering/tide-window-plan.md`) —
+ * `utils/mapTideFit.js#wantPhrase` reuses it to join a location's wanted {@code TideType} set into
+ * words ("high water or low water") rather than keeping a second copy of the same three strings.
+ * One vocabulary for what a tide STATE is called, wherever the client names one.
+ */
+export const STATE_WORD = { HIGH: 'high water', MID: 'mid tide', LOW: 'low water' };
 
 /** Which way the water is going — a separate axis from the level, and both are needed. */
 const DIRECTION_WORD = { RISING: 'rising', FALLING: 'falling' };
