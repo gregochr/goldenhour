@@ -258,6 +258,71 @@ describe('buildMapEvents — D-13 beyond-briefing solar rows', () => {
 });
 
 /**
+ * Tide-window increment (T3, `docs/engineering/tide-window-plan.md` §3): the served
+ * `BriefingWindowTide` is plumbing through this row, forwarded verbatim on a served solar row and
+ * null on both a D-13 filler and a night row — never re-derived here.
+ */
+describe('buildMapEvents — tide forwarding (tide-window-plan.md T3)', () => {
+  it('forwards a served window\'s tide fact verbatim', () => {
+    const tide = { locationName: 'Bamburgh', state: 'HIGH', windowLevel: 0.94 };
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET', { tide })],
+      forecastDates: [TODAY],
+    });
+    expect(events.find((e) => e.eventType === 'SUNSET').tide).toBe(tide);
+  });
+
+  it('reads null when a served window carries no tide fact', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET')],
+      forecastDates: [TODAY],
+    });
+    expect(events.find((e) => e.eventType === 'SUNSET').tide).toBeNull();
+  });
+
+  it('reads null on a D-13 filler row — the briefing served no window at all for that date', () => {
+    const FAR = '2026-09-06';
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET')],
+      forecastDates: [TODAY, FAR],
+    });
+    const far = events.filter((e) => e.date === FAR);
+    expect(far.length).toBeGreaterThan(0);
+    expect(far.every((e) => e.tide === null)).toBe(true);
+  });
+
+  it('carries no tide field on a night row — T3 touches solarRow alone, and stripModel\'s own visible check keys on kind first anyway', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      forecastDates: [TODAY],
+      astroAvailableDates: [TODAY],
+      astroConditionsByDate: new Map([[TODAY, [{ locationName: 'A', stars: 3, nightStart: `${TODAY}T21:00:00` }]]]),
+    });
+    const astroRow = events.find((e) => e.kind === EVENT_KIND.ASTRO);
+    expect(astroRow.tide == null).toBe(true);
+  });
+
+  it('does not disturb the chronological interleave (D-13) — a night row still sorts after its day\'s tide-carrying sunset', () => {
+    // Deliberately a SMALLER fixture than `describe('buildMapEvents — ordering')`'s own
+    // sunset-then-astro case above (one day, no tomorrow) — this proves adding `tide` to a row
+    // doesn't perturb the sort itself, without re-proving multi-day chronology the ordering suite
+    // already owns, and without re-asserting the tide VALUES `solarRow` tests above already pin.
+    const tide = { locationName: 'Bamburgh' };
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNRISE'), solarWindow(TODAY, 'SUNSET', { tide })],
+      forecastDates: [TODAY],
+      astroAvailableDates: [TODAY],
+      astroConditionsByDate: new Map([[TODAY, [{ locationName: 'A', stars: 4, nightStart: `${TODAY}T21:45:00` }]]]),
+    });
+    expect(events.map((e) => e.eventType)).toEqual(['SUNRISE', 'SUNSET', 'ASTRO']);
+  });
+});
+
+/**
  * Browser-pass finding: right after UK midnight, the live app led its EV list with "Tuesday
  * Sunrise / Sunset —" — a filler row for a date that had already elapsed, because `forecastDates`
  * can still carry yesterday's key for a tick after rollover. The clock is pinned here (never

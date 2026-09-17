@@ -43,12 +43,14 @@ const DAYS = [{
         {
           locationId: 2, locationName: 'Castlerigg', rating: 4,
           blueHourEnd: `${DATE}T08:30:00`, goldenHourStart: `${DATE}T08:30:00`,
-          tideOnTheLight: false,
+          // T3's index keys on `tideState`, not `tideOnTheLight` — a served tide-fit slot always
+          // carries both, so the fixture must too (tide-window-plan.md §3 T3).
+          tideState: 'HIGH', tideAligned: false, tideOnTheLight: false,
         },
         {
           locationId: 3, locationName: 'Buttermere', rating: 4,
           blueHourEnd: `${DATE}T08:31:00`, goldenHourStart: `${DATE}T08:31:00`,
-          tideOnTheLight: true,
+          tideState: 'HIGH', tideAligned: true, tideOnTheLight: true,
         },
       ],
     }],
@@ -64,13 +66,14 @@ const DAYS = [{
         {
           locationId: 2, locationName: 'Castlerigg', rating: 3,
           goldenHourEnd: `${DATE}T16:22:00`, blueHourStart: `${DATE}T16:22:00`,
-          // Coastal-style fact on an inland fixture is fine — the index only carries the boolean.
+          // Coastal-style fact on an inland fixture is fine — the index only carries the fields.
+          tideState: 'HIGH', tideAligned: true,
           tideOnTheLight: true, nearestSolarOffsetPhrase: 'HW 18 min after sunset',
         },
         {
           locationId: 3, locationName: 'Buttermere', rating: 4,
           goldenHourEnd: `${DATE}T16:21:00`, blueHourStart: `${DATE}T16:21:00`,
-          tideOnTheLight: false,
+          tideState: 'HIGH', tideAligned: false, tideOnTheLight: false,
         },
       ],
     }],
