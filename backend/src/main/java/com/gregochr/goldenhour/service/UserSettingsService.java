@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodesIoClient;
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
@@ -20,11 +21,14 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 
 /**
@@ -33,6 +37,13 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
  * <p>Deliberately not class-level transactional: several methods call external HTTP services
  * (postcodes.io geocoding, the ORS drive-time chain), and a class-level transaction would pin a
  * pooled database connection across those calls. Only the write methods open transactions.
+ *
+ * <p><strong>No write here saves the whole user row.</strong> Each goes through a column-scoped
+ * update on {@link AppUserRepository} that writes only what its own request changes. A whole-entity
+ * {@code save()} wrote every column back from the copy it had loaded, so two writes that overlapped
+ * lost one of them: a colour save and a home save in two tabs, a home save during the nightly
+ * drive-time job, or — the worst of them — a postcode saved while a drive-time refresh was routing
+ * from the old one, which put the old home back.
  */
 @Service
 public class UserSettingsService {
@@ -141,41 +152,47 @@ public class UserSettingsService {
     /**
      * Persists the confirmed home location on the user entity.
      *
+     * <p>Reads the row under a lock ({@link AppUserRepository#findByUsernameForUpdate}) and writes
+     * the home fields through one column-scoped update. The lock is what makes the "does this move
+     * the origin?" decision sound: it is made against the row as it stands, and nothing else can
+     * write the row before this commits. Another save waits. So does a drive-time refresh trying
+     * to store what it measured from the home this save replaces: its compare-and-set runs once
+     * this commits, and matches nothing.
+     *
      * @param auth    the authenticated user
      * @param request the confirmed postcode and coordinates
      * @return the updated user settings response
      */
     @Transactional
     public UserSettingsResponse saveHome(Authentication auth, SaveHomeRequest request) {
-        AppUserEntity user = getUser(auth);
-        boolean originMoved = originMoved(user, request);
-        user.setHomePostcode(request.postcode());
-        user.setHomeLatitude(request.latitude());
-        user.setHomeLongitude(request.longitude());
-        if (request.localRadiusMiles() != null) {
-            // Clamped rather than rejected: this arrives from a slider whose bounds the client
-            // already enforces, so an out-of-range value means a stale client or a direct API
-            // call, and silently honouring 500 miles would make "close to home" meaningless.
-            user.setLocalRadiusMiles(Math.clamp(request.localRadiusMiles(),
-                    MIN_LOCAL_RADIUS_MILES, MAX_LOCAL_RADIUS_MILES));
-        }
+        AppUserEntity stored = userRepository.findByUsernameForUpdate(auth.getName())
+                .orElseThrow(() -> userNotFound(auth));
+        boolean originMoved = originMoved(stored, request);
+        // Clamped rather than rejected: this arrives from a slider whose bounds the client already
+        // enforces, so an out-of-range value means a stale client or a direct API call, and silently
+        // honouring 500 miles would make "close to home" meaningless. Null keeps the stored radius.
+        Integer radius = request.localRadiusMiles() == null ? null
+                : Math.clamp(request.localRadiusMiles(), MIN_LOCAL_RADIUS_MILES, MAX_LOCAL_RADIUS_MILES);
+        userRepository.updateHome(stored.getId(), request.postcode(), request.latitude(),
+                request.longitude(), radius);
         if (originMoved) {
             // Every stored drive time was measured from the OLD home, so each one now describes a
             // journey nobody is going to make. Discarding leaves them unknown, which this product
             // renders honestly — no drive line, and the reach lens passes the spot at every tier.
             // Keeping them would gate a location on a figure quietly tens of minutes wrong.
-            driveTimeWriter.clearForUser(user.getId());
+            driveTimeWriter.clearForUser(stored.getId());
             // Clearing the stamp is not bookkeeping. It is what the UI reads to say when times
             // were last calculated — and it is the refresh COOLDOWN's own input, so leaving it set
             // would lock a user who has just moved house out of recalculating for up to
             // REFRESH_COOLDOWN_MINUTES while they are served nothing at all.
-            user.setDriveTimesCalculatedAt(null);
+            userRepository.clearDriveTimesCalculatedAt(stored.getId());
         }
-        userRepository.save(user);
         LOG.info("User '{}' saved home location: {} ({}, {}){}",
-                user.getUsername(), request.postcode(), request.latitude(), request.longitude(),
+                stored.getUsername(), request.postcode(), request.latitude(), request.longitude(),
                 originMoved ? " — drive times cleared" : "");
-        return mapToResponse(user, null);
+        // Read back rather than assembled here: the updates evicted the locked instance, and a
+        // null radius kept whatever was stored, which only the row itself can say.
+        return mapToResponse(getUser(auth), null);
     }
 
     /**
@@ -199,9 +216,26 @@ public class UserSettingsService {
     /**
      * Recalculates drive times from the user's home to all locations.
      *
+     * <p><strong>Stores what it measured only while the home is still the one it measured
+     * from.</strong> Routing takes seconds and runs outside any transaction, and the settings
+     * dialog lets a reader save a new postcode while it runs. Before this was guarded, the refresh
+     * wrote its drive times after that save had discarded the old ones, then saved the whole user
+     * row it had loaded before routing — putting the old postcode and coordinates back over the
+     * new ones. Now the store is a compare-and-set on the coordinates measured from
+     * ({@link UserDriveTimeWriter#storeIfHomeUnchanged}); when the home has moved, nothing is
+     * written and this answers 409.
+     *
+     * <p>409 rather than measuring again from the new home. A retry comes back in through the top
+     * of this method, so every precondition is judged afresh against the row as it stands then —
+     * the cooldown included, which answers 429 if another refresh has already measured from the
+     * new home, where re-measuring in place would pay ORS twice for one answer. Refusing costs the
+     * reader nothing they can lose: the save that moved the home discarded the old drive times and
+     * released the cooldown, so pressing again is allowed.
+     *
      * @param auth the authenticated user
      * @return the refresh response with count and timestamp
-     * @throws ResponseStatusException 400 if no home location set, 429 if recently refreshed
+     * @throws ResponseStatusException 400 if no home location set, 429 if recently refreshed, 409 if
+     *                                 the home moved while drive times were being measured
      */
     public DriveTimeRefreshResponse refreshDriveTimes(Authentication auth) {
         AppUserEntity user = getUser(auth);
@@ -211,18 +245,34 @@ public class UserSettingsService {
         }
         if (user.getDriveTimesCalculatedAt() != null
                 && user.getDriveTimesCalculatedAt()
-                        .isAfter(Instant.now().minus(REFRESH_COOLDOWN_MINUTES, ChronoUnit.MINUTES))) {
+                        .isAfter(clock.instant().minus(REFRESH_COOLDOWN_MINUTES, ChronoUnit.MINUTES))) {
             throw new ResponseStatusException(TOO_MANY_REQUESTS,
                     "Drive times were refreshed recently. Please wait before trying again.");
         }
 
-        int updated = driveDurationService.refreshForUser(
-                user.getId(), user.getHomeLatitude(), user.getHomeLongitude());
-        user.setDriveTimesCalculatedAt(Instant.now());
-        userRepository.save(user);
+        double originLat = user.getHomeLatitude();
+        double originLon = user.getHomeLongitude();
+        Optional<List<UserDriveTimeEntity>> measured =
+                driveDurationService.measureForUser(user.getId(), originLat, originLon);
+        // Taken once the answer is in hand: the stamp says when these drive times were calculated.
+        Instant calculatedAt = clock.instant();
+        // No answer at all still stamps the attempt, as this path always has — it is what the
+        // response reports and what the cooldown reads — under the same guard.
+        boolean stored = measured.isPresent()
+                ? driveTimeWriter.storeIfHomeUnchanged(
+                        user.getId(), originLat, originLon, measured.get(), calculatedAt)
+                : driveTimeWriter.stampIfHomeUnchanged(user.getId(), originLat, originLon, calculatedAt);
+        if (!stored) {
+            LOG.info("Drive time refresh for user {} discarded — the home moved while it was measured",
+                    user.getId());
+            throw new ResponseStatusException(CONFLICT, "Your home location changed while drive times "
+                    + "were being calculated, so nothing was saved. Refresh again to calculate them "
+                    + "from the new home.");
+        }
+        int updated = measured.map(List::size).orElse(0);
         LOG.info("Drive times refreshed for user '{}': {} locations updated",
                 user.getUsername(), updated);
-        return new DriveTimeRefreshResponse(updated, user.getDriveTimesCalculatedAt());
+        return new DriveTimeRefreshResponse(updated, calculatedAt);
     }
 
     /**
@@ -231,6 +281,11 @@ public class UserSettingsService {
      * <p>Its own endpoint rather than fields on {@code saveHome}: a colour preference is not
      * home-derived, so folding it into that request would deserialise the home fields to null and
      * wipe a saved postcode.
+     *
+     * <p>Writes the scale alone ({@link AppUserRepository#updateMapColourScaleByUsername}), then
+     * reads the row back for the response — the shape {@link #markComingUpSeen} records the reason
+     * for. A whole-entity save here would write back the home it had loaded, undoing a postcode
+     * saved in another tab a moment before.
      *
      * @param auth    the authenticated user
      * @param request the chosen scale and whether markers follow it
@@ -248,9 +303,8 @@ public class UserSettingsService {
             throw new ResponseStatusException(BAD_REQUEST,
                     "mapColourScale must be 'temp' or 'verdict'");
         }
+        userRepository.updateMapColourScaleByUsername(auth.getName(), request.mapColourScale());
         AppUserEntity user = getUser(auth);
-        user.setMapColourScale(request.mapColourScale());
-        userRepository.save(user);
         LOG.info("User '{}' saved map colour preference: scale={}",
                 user.getUsername(), request.mapColourScale());
         // null place name, matching saveHome: this save does not geocode, and the modal already
@@ -303,8 +357,11 @@ public class UserSettingsService {
 
     private AppUserEntity getUser(Authentication auth) {
         return userRepository.findByUsername(auth.getName())
-                .orElseThrow(() -> new NoSuchElementException(
-                        "User not found: " + auth.getName()));
+                .orElseThrow(() -> userNotFound(auth));
+    }
+
+    private static NoSuchElementException userNotFound(Authentication auth) {
+        return new NoSuchElementException("User not found: " + auth.getName());
     }
 
     private String resolveHomePlaceName(AppUserEntity user) {

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodesIoClient;
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
@@ -12,39 +13,63 @@ import com.gregochr.goldenhour.model.UserSettingsResponse;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link UserSettingsService}.
+ *
+ * <p>The writes are pinned at the repository boundary: each one goes through its column-scoped
+ * method with the exact values it should write, and none goes through {@code save()} on the whole
+ * entity. A mocked repository cannot show the lost update those rules exist to prevent — that
+ * needs a database, and lives in {@code AppUserRepositoryTest} (the updates' semantics),
+ * {@code UserSettingsRaceSequenceTest} (the interleavings, through the real service) and the CI-only
+ * {@code UserSettingsRowLockIntegrationTest} (the row lock on Postgres).
  */
 @ExtendWith(MockitoExtension.class)
 class UserSettingsServiceTest {
 
     private static final String USERNAME = "testuser";
+    private static final long USER_ID = 42L;
 
     /** Fixed rather than the wall clock, per this codebase's date-fixture rule. */
     private static final Instant NOW = Instant.parse("2026-08-29T10:15:30Z");
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+
+    private static final String DURHAM = "DH1 3LE";
+    private static final double DURHAM_LAT = 54.7761;
+    private static final double DURHAM_LON = -1.5733;
+    private static final String NEWCASTLE = "NE1 4ST";
+    private static final double NEWCASTLE_LAT = 54.9714;
+    private static final double NEWCASTLE_LON = -1.6174;
 
     @Mock
     private AppUserRepository userRepository;
@@ -72,96 +97,14 @@ class UserSettingsServiceTest {
 
     private AppUserEntity buildUser() {
         return AppUserEntity.builder()
-                .id(42L)
+                .id(USER_ID)
                 .username(USERNAME)
                 .email("test@example.com")
                 .role(UserRole.PRO_USER)
                 .build();
     }
 
-    // ── moving home invalidates the drive times measured from the old one ────────
-
-    @Test
-    @DisplayName("moving home discards drive times measured from the old one")
-    void saveHome_originMoved_clearsDriveTimes() {
-        // A drive time is measured FROM an origin. The moment the origin moves, every stored row
-        // describes a journey nobody is going to make — and unlike a missing one, a wrong one is
-        // invisible: the reach lens gates a spot in or out on a figure tens of minutes off, with
-        // nothing on screen saying so. Unknown is safe here; wrong is not.
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setHomePostcode("DH1 3LE");
-        user.setHomeLatitude(54.7761);
-        user.setHomeLongitude(-1.5733);
-        user.setDriveTimesCalculatedAt(Instant.now().minusSeconds(3600));
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        service.saveHome(auth, new SaveHomeRequest("NE1 4ST", 54.9714, -1.6174, null));
-
-        verify(driveTimeWriter).clearForUser(42L);
-        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
-        verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getDriveTimesCalculatedAt()).isNull();
-    }
-
-    @Test
-    @DisplayName("dragging the radius slider does NOT throw away a full set of routed drive times")
-    void saveHome_sameHome_keepsDriveTimes() {
-        // saveHome is also the radius slider's save path: the settings modal re-sends the user's
-        // EXISTING postcode and coordinates whenever the radius changes. Clearing unconditionally
-        // would bin a whole roster of routed times every time somebody moved that slider — and
-        // each refresh is an external routing call per location.
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setHomePostcode("DH1 3LE");
-        user.setHomeLatitude(54.7761);
-        user.setHomeLongitude(-1.5733);
-        Instant calculated = Instant.now().minusSeconds(3600);
-        user.setDriveTimesCalculatedAt(calculated);
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        // new String, not the literal: two compile-time literals are interned, so a reference
-        // comparison would pass here and the guard would look correct while being blind to any
-        // postcode that arrived off the wire rather than out of the constant pool.
-        service.saveHome(auth, new SaveHomeRequest(new String("DH1 3LE"), 54.7761, -1.5733, 45));
-
-        verify(driveTimeWriter, never()).clearForUser(anyLong());
-        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
-        verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getDriveTimesCalculatedAt()).isEqualTo(calculated);
-        assertThat(captor.getValue().getLocalRadiusMiles()).isEqualTo(45);
-    }
-
-    // Each of the three fields gets its own case, varying that field ALONE. `originMoved` is a
-    // three-way OR, so a test that moves two fields at once leaves either term deletable: the
-    // other one still fires and the suite stays green.
-
-    @Test
-    @DisplayName("a re-geocode that shifts the latitude alone counts as moving")
-    void saveHome_onlyLatitudeChanged_clearsDriveTimes() {
-        // Distance and routing are computed from the COORDINATES, not the postcode text, so a
-        // postcode-only comparison would keep drive times measured from a different point.
-        assertMoved(home("DH1 3LE", 54.7761, -1.5733),
-                new SaveHomeRequest("DH1 3LE", 54.9714, -1.5733, null));
-    }
-
-    @Test
-    @DisplayName("a re-geocode that shifts the longitude alone counts as moving")
-    void saveHome_onlyLongitudeChanged_clearsDriveTimes() {
-        assertMoved(home("DH1 3LE", 54.7761, -1.5733),
-                new SaveHomeRequest("DH1 3LE", 54.7761, -1.6174, null));
-    }
-
-    @Test
-    @DisplayName("a new postcode counts as moving even if the coordinates are unchanged")
-    void saveHome_onlyPostcodeChanged_clearsDriveTimes() {
-        // Two postcodes can geocode to the same point, and the postcode is what the user sees and
-        // reasons about. Dropping the postcode term would make that move invisible.
-        assertMoved(home("DH1 3LE", 54.7761, -1.5733),
-                new SaveHomeRequest("NE1 4ST", 54.7761, -1.5733, null));
-    }
-
-    /** A stored home to move away from. */
+    /** A stored home, as the save's locked read and the refresh's read find it. */
     private AppUserEntity home(String postcode, double lat, double lon) {
         AppUserEntity user = buildUser();
         user.setHomePostcode(postcode);
@@ -170,104 +113,432 @@ class UserSettingsServiceTest {
         return user;
     }
 
-    /** Saves {@code request} over {@code stored} and asserts the drive times were discarded. */
-    private void assertMoved(AppUserEntity stored, SaveHomeRequest request) {
-        stubAuth();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(stored));
+    // ── saveHome ─────────────────────────────────────────────────────────────────
 
-        service.saveHome(auth, request);
+    @Nested
+    @DisplayName("saveHome")
+    class SaveHome {
 
-        verify(driveTimeWriter).clearForUser(42L);
+        /** The locked read the decision is made from, and the read-back the response is built from. */
+        private void stubRows(AppUserEntity stored, AppUserEntity afterSave) {
+            stubAuth();
+            when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.of(stored));
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(afterSave));
+        }
+
+        @Test
+        @DisplayName("moving home writes the new home and discards drive times measured from the old one")
+        void originMoved_writesHomeAndClearsDriveTimes() {
+            // A drive time is measured FROM an origin. The moment the origin moves, every stored row
+            // describes a journey nobody is going to make — and unlike a missing one, a wrong one is
+            // invisible: the reach lens gates a spot in or out on a figure tens of minutes off, with
+            // nothing on screen saying so. Unknown is safe here; wrong is not.
+            AppUserEntity stored = home(DURHAM, DURHAM_LAT, DURHAM_LON);
+            stored.setDriveTimesCalculatedAt(NOW.minusSeconds(3600));
+            stubRows(stored, home(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON));
+
+            service.saveHome(auth, new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
+
+            verify(userRepository).updateHome(USER_ID, NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null);
+            verify(driveTimeWriter).clearForUser(USER_ID);
+            // The stamp is the refresh cooldown's own input: leaving it set would lock someone who
+            // has just moved house out of recalculating while they are served no drive times at all.
+            verify(userRepository).clearDriveTimesCalculatedAt(USER_ID);
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("decides from a LOCKED read, taken before anything is written")
+        void readsUnderTheLockBeforeWriting() {
+            // Decided from an unlocked read, a save re-sending the old home could write it back
+            // over a move that committed in between — keeping the drive times measured from the
+            // new home. And the lock must be held before the drive-time rows are touched: a refresh
+            // storing its result takes the user row first, so the opposite order can deadlock.
+            stubRows(home(DURHAM, DURHAM_LAT, DURHAM_LON), home(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON));
+
+            service.saveHome(auth, new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
+
+            // Before EACH write — the writes' order among themselves is free.
+            InOrder beforeHome = inOrder(userRepository);
+            beforeHome.verify(userRepository).findByUsernameForUpdate(USERNAME);
+            beforeHome.verify(userRepository).updateHome(USER_ID, NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null);
+            InOrder beforeRows = inOrder(userRepository, driveTimeWriter);
+            beforeRows.verify(userRepository).findByUsernameForUpdate(USERNAME);
+            beforeRows.verify(driveTimeWriter).clearForUser(USER_ID);
+            InOrder beforeStamp = inOrder(userRepository);
+            beforeStamp.verify(userRepository).findByUsernameForUpdate(USERNAME);
+            beforeStamp.verify(userRepository).clearDriveTimesCalculatedAt(USER_ID);
+        }
+
+        @Test
+        @DisplayName("dragging the radius slider does NOT throw away a full set of routed drive times")
+        void sameHome_keepsDriveTimes() {
+            // saveHome is also the radius slider's save path: the settings modal re-sends the user's
+            // EXISTING postcode and coordinates whenever the radius changes. Clearing unconditionally
+            // would bin a whole roster of routed times every time somebody moved that slider — and
+            // each refresh is an external routing call per location.
+            stubRows(home(DURHAM, DURHAM_LAT, DURHAM_LON), home(DURHAM, DURHAM_LAT, DURHAM_LON));
+
+            // new String, not the literal: two compile-time literals are interned, so a reference
+            // comparison would pass here and the guard would look correct while being blind to any
+            // postcode that arrived off the wire rather than out of the constant pool.
+            service.saveHome(auth, new SaveHomeRequest(new String(DURHAM), DURHAM_LAT, DURHAM_LON, 45));
+
+            verify(userRepository).updateHome(USER_ID, DURHAM, DURHAM_LAT, DURHAM_LON, 45);
+            verify(driveTimeWriter, never()).clearForUser(USER_ID);
+            verify(userRepository, never()).clearDriveTimesCalculatedAt(USER_ID);
+        }
+
+        // Each of the three fields gets its own case, varying that field ALONE. `originMoved` is a
+        // three-way OR, so a test that moves two fields at once leaves either term deletable: the
+        // other one still fires and the suite stays green.
+
+        @Test
+        @DisplayName("a re-geocode that shifts the latitude alone counts as moving")
+        void onlyLatitudeChanged_clearsDriveTimes() {
+            // Distance and routing are computed from the COORDINATES, not the postcode text, so a
+            // postcode-only comparison would keep drive times measured from a different point.
+            assertMoved(new SaveHomeRequest(DURHAM, NEWCASTLE_LAT, DURHAM_LON, null));
+        }
+
+        @Test
+        @DisplayName("a re-geocode that shifts the longitude alone counts as moving")
+        void onlyLongitudeChanged_clearsDriveTimes() {
+            assertMoved(new SaveHomeRequest(DURHAM, DURHAM_LAT, NEWCASTLE_LON, null));
+        }
+
+        @Test
+        @DisplayName("a new postcode counts as moving even if the coordinates are unchanged")
+        void onlyPostcodeChanged_clearsDriveTimes() {
+            // Two postcodes can geocode to the same point, and the postcode is what the user sees and
+            // reasons about. Dropping the postcode term would make that move invisible.
+            assertMoved(new SaveHomeRequest(NEWCASTLE, DURHAM_LAT, DURHAM_LON, null));
+        }
+
+        /** Saves {@code request} over a Durham home and asserts both halves of the discard. */
+        private void assertMoved(SaveHomeRequest request) {
+            AppUserEntity afterSave = home(request.postcode(), request.latitude(), request.longitude());
+            stubRows(home(DURHAM, DURHAM_LAT, DURHAM_LON), afterSave);
+
+            service.saveHome(auth, request);
+
+            verify(driveTimeWriter).clearForUser(USER_ID);
+            verify(userRepository).clearDriveTimesCalculatedAt(USER_ID);
+        }
+
+        @Test
+        @DisplayName("a first home is a move from nothing, and clears nothing that exists")
+        void firstHome_isTreatedAsAMove() {
+            // From null there is nothing to discard, but the branch must not NPE on the comparison —
+            // this is the path every new user takes.
+            stubRows(buildUser(), home(DURHAM, DURHAM_LAT, DURHAM_LON));
+
+            service.saveHome(auth, new SaveHomeRequest(DURHAM, DURHAM_LAT, DURHAM_LON, null));
+
+            verify(userRepository).updateHome(USER_ID, DURHAM, DURHAM_LAT, DURHAM_LON, null);
+            verify(driveTimeWriter).clearForUser(USER_ID);
+            verify(userRepository).clearDriveTimesCalculatedAt(USER_ID);
+        }
+
+        @ParameterizedTest(name = "{0} miles is stored as {1}")
+        @CsvSource({"500, 50", "51, 50", "50, 50", "30, 30", "10, 10", "9, 10", "1, 10"})
+        @DisplayName("an out-of-range radius is CLAMPED, not rejected and not honoured")
+        void clampsRadiusToBounds(int requested, int stored) {
+            // It arrives from a slider whose bounds the client enforces, so out-of-range means a stale
+            // client or a direct API call. Honouring 500 miles would make "close to home" meaningless;
+            // rejecting would fail a save whose postcode part was perfectly valid.
+            stubRows(home(DURHAM, DURHAM_LAT, DURHAM_LON), home(DURHAM, DURHAM_LAT, DURHAM_LON));
+
+            service.saveHome(auth, new SaveHomeRequest(DURHAM, DURHAM_LAT, DURHAM_LON, requested));
+
+            verify(userRepository).updateHome(USER_ID, DURHAM, DURHAM_LAT, DURHAM_LON, stored);
+        }
+
+        @Test
+        @DisplayName("a null radius is passed as null — the update keeps the stored one, it is not a reset")
+        void nullRadius_isNotAReset() {
+            // The client omits the field when only the postcode changed. Treating that as "set to
+            // default" would silently undo a radius the user had deliberately widened. The keeping
+            // is the update's coalesce, proven in AppUserRepositoryTest; here, that nothing turns the
+            // null into a number on the way.
+            AppUserEntity afterSave = home(DURHAM, DURHAM_LAT, DURHAM_LON);
+            afterSave.setLocalRadiusMiles(40);
+            stubRows(home(DURHAM, DURHAM_LAT, DURHAM_LON), afterSave);
+
+            UserSettingsResponse response = service.saveHome(auth,
+                    new SaveHomeRequest(DURHAM, DURHAM_LAT, DURHAM_LON, null));
+
+            verify(userRepository).updateHome(USER_ID, DURHAM, DURHAM_LAT, DURHAM_LON, null);
+            assertThat(response.localRadiusMiles()).isEqualTo(40);
+        }
+
+        @Test
+        @DisplayName("the response is the row read back after the write, not the request echoed")
+        void responseIsReadBackFromTheRow() {
+            AppUserEntity afterSave = home(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON);
+            afterSave.setLocalRadiusMiles(35);
+            afterSave.setMapColourScale("temp");
+            stubRows(home(DURHAM, DURHAM_LAT, DURHAM_LON), afterSave);
+
+            UserSettingsResponse response = service.saveHome(auth,
+                    new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
+
+            assertThat(response.homePostcode()).isEqualTo(NEWCASTLE);
+            assertThat(response.homeLatitude()).isEqualTo(NEWCASTLE_LAT);
+            assertThat(response.localRadiusMiles()).isEqualTo(35);
+            assertThat(response.mapColourScale()).isEqualTo("temp");
+            assertThat(response.driveTimesCalculatedAt()).isNull();
+            assertThat(response.username()).isEqualTo(USERNAME);
+            // Read back AFTER every write, or it reports the row as it stood before them.
+            InOrder afterHome = inOrder(userRepository);
+            afterHome.verify(userRepository).updateHome(USER_ID, NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null);
+            afterHome.verify(userRepository).findByUsername(USERNAME);
+            InOrder afterRows = inOrder(driveTimeWriter, userRepository);
+            afterRows.verify(driveTimeWriter).clearForUser(USER_ID);
+            afterRows.verify(userRepository).findByUsername(USERNAME);
+            InOrder afterStamp = inOrder(userRepository);
+            afterStamp.verify(userRepository).clearDriveTimesCalculatedAt(USER_ID);
+            afterStamp.verify(userRepository).findByUsername(USERNAME);
+        }
+
+        @Test
+        @DisplayName("an unknown user fails before anything is written")
+        void unknownUser_writesNothing() {
+            stubAuth();
+            when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.saveHome(auth,
+                    new SaveHomeRequest(DURHAM, DURHAM_LAT, DURHAM_LON, null)))
+                    .isInstanceOf(NoSuchElementException.class)
+                    .hasMessageContaining(USERNAME);
+
+            verify(userRepository).findByUsernameForUpdate(USERNAME);
+            verifyNoMoreInteractions(userRepository);
+            verifyNoInteractions(driveTimeWriter);
+        }
     }
 
-    @Test
-    @DisplayName("a first home is a move from nothing, and clears nothing that exists")
-    void saveHome_firstHome_isTreatedAsAMove() {
-        // From null there is nothing to discard, but the branch must not NPE on the comparison —
-        // this is the path every new user takes.
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+    // ── refreshDriveTimes ────────────────────────────────────────────────────────
 
-        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null));
+    @Nested
+    @DisplayName("refreshDriveTimes")
+    class RefreshDriveTimes {
 
-        verify(driveTimeWriter).clearForUser(42L);
+        private List<UserDriveTimeEntity> rows(int count) {
+            return java.util.stream.IntStream.rangeClosed(1, count)
+                    .mapToObj(i -> new UserDriveTimeEntity(USER_ID, (long) i, 600 * i))
+                    .toList();
+        }
+
+        private AppUserEntity durhamHome(Instant calculatedAt) {
+            AppUserEntity user = home(DURHAM, DURHAM_LAT, DURHAM_LON);
+            user.setDriveTimesCalculatedAt(calculatedAt);
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+            return user;
+        }
+
+        @Test
+        @DisplayName("stores what it measured, against the coordinates it measured from, and reports it")
+        void measured_storesThroughTheGuardAndReports() {
+            durhamHome(null);
+            List<UserDriveTimeEntity> measured = rows(15);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, NOW))
+                    .thenReturn(true);
+
+            DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+            assertThat(response.locationsUpdated()).isEqualTo(15);
+            assertThat(response.calculatedAt()).isEqualTo(NOW);
+            verify(driveTimeWriter).storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, NOW);
+            // The lost update this method used to cause: it saved the whole row it had loaded
+            // before routing, putting the old home back over a postcode saved in between. Its only
+            // use of the user repository now is that first read.
+            verify(userRepository).findByUsername(USERNAME);
+            verifyNoMoreInteractions(userRepository);
+        }
+
+        @Test
+        @DisplayName("an answer with no valid duration is stored too — it clears, and says zero")
+        void emptyAnswer_isStored() {
+            durhamHome(null);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.of(List.of()));
+            when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, List.of(), NOW))
+                    .thenReturn(true);
+
+            DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+            assertThat(response.locationsUpdated()).isZero();
+            assertThat(response.calculatedAt()).isEqualTo(NOW);
+        }
+
+        @Test
+        @DisplayName("no answer at all still stamps the attempt — through the same guard — and keeps "
+                + "the stored rows")
+        void noAnswer_stampsThroughTheGuard() {
+            durhamHome(null);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.empty());
+            when(driveTimeWriter.stampIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, NOW)).thenReturn(true);
+
+            DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+            assertThat(response.locationsUpdated()).isZero();
+            assertThat(response.calculatedAt()).isEqualTo(NOW);
+            verify(driveTimeWriter).stampIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, NOW);
+            verifyNoMoreInteractions(driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("409 when the home moved while it was measuring — nothing reported as stored")
+        void homeMovedWhileMeasuring_conflict() {
+            durhamHome(null);
+            List<UserDriveTimeEntity> measured = rows(15);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, NOW))
+                    .thenReturn(false);
+
+            assertThatThrownBy(() -> service.refreshDriveTimes(auth))
+                    .isInstanceOfSatisfying(ResponseStatusException.class, e -> {
+                        assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                        // The reason reaches the client as the error body's `error` field.
+                        assertThat(e.getReason()).contains("home location changed")
+                                .contains("Refresh again");
+                    });
+            verify(userRepository).findByUsername(USERNAME);
+            verifyNoMoreInteractions(userRepository);
+        }
+
+        @Test
+        @DisplayName("409 on the no-answer path too — a stamp after a move would re-arm the cooldown")
+        void homeMovedWithNoAnswer_conflict() {
+            durhamHome(null);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.empty());
+            when(driveTimeWriter.stampIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, NOW)).thenReturn(false);
+
+            assertThatThrownBy(() -> service.refreshDriveTimes(auth))
+                    .isInstanceOfSatisfying(ResponseStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+        }
+
+        @Test
+        @DisplayName("400 when no home location is set — and nothing is measured")
+        void noHome_throws400() {
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(buildUser()));
+
+            assertThatThrownBy(() -> service.refreshDriveTimes(auth))
+                    .isInstanceOfSatisfying(ResponseStatusException.class, e -> {
+                        assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                        assertThat(e.getReason()).contains("Set a home location");
+                    });
+            verifyNoInteractions(driveDurationService, driveTimeWriter);
+        }
+
+        // The cooldown reads the injected clock, not the wall clock: 30 minutes from the stamp.
+
+        @ParameterizedTest(name = "stamped {0}s ago is refused")
+        @ValueSource(longs = {60, 1799})
+        @DisplayName("429 inside the 30-minute cooldown — and nothing is measured")
+        void insideCooldown_throws429(long secondsAgo) {
+            durhamHome(NOW.minusSeconds(secondsAgo));
+
+            assertThatThrownBy(() -> service.refreshDriveTimes(auth))
+                    .isInstanceOfSatisfying(ResponseStatusException.class, e -> {
+                        assertThat(e.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                        assertThat(e.getReason()).contains("recently");
+                    });
+            verifyNoInteractions(driveDurationService, driveTimeWriter);
+        }
+
+        @ParameterizedTest(name = "stamped {0}s ago is allowed")
+        @ValueSource(longs = {1800, 1801, 31 * 60})
+        @DisplayName("allowed from exactly 30 minutes after the last stamp")
+        void atOrAfterCooldown_refreshes(long secondsAgo) {
+            durhamHome(NOW.minusSeconds(secondsAgo));
+            List<UserDriveTimeEntity> measured = rows(10);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, NOW))
+                    .thenReturn(true);
+
+            assertThat(service.refreshDriveTimes(auth).locationsUpdated()).isEqualTo(10);
+        }
+
+        @Test
+        @DisplayName("a first-ever refresh (no stamp) is allowed")
+        void firstEver_refreshes() {
+            durhamHome(null);
+            List<UserDriveTimeEntity> measured = rows(200);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, NOW))
+                    .thenReturn(true);
+
+            assertThat(service.refreshDriveTimes(auth).locationsUpdated()).isEqualTo(200);
+        }
     }
 
-    @Test
-    @DisplayName("clearing the stamp releases the refresh cooldown, so a mover is not locked out")
-    void saveHome_originMoved_releasesTheRefreshCooldown() {
-        // The 30-minute cooldown reads driveTimesCalculatedAt. Leaving it set while discarding the
-        // times would put a user who has just moved house in the worst state available: no drive
-        // times at all, AND a 429 when they try to recalculate. Clearing the stamp is what makes
-        // the discard recoverable.
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setHomePostcode("DH1 3LE");
-        user.setHomeLatitude(54.7761);
-        user.setHomeLongitude(-1.5733);
-        user.setDriveTimesCalculatedAt(Instant.now());
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-        when(driveDurationService.refreshForUser(42L, 54.9714, -1.6174)).thenReturn(17);
+    // ── saveMapColourPreferences (Stage 6) ───────────────────────────────────────
 
-        service.saveHome(auth, new SaveHomeRequest("NE1 4ST", 54.9714, -1.6174, null));
+    @Nested
+    @DisplayName("saveMapColourPreferences")
+    class SaveMapColourPreferences {
 
-        // Immediately afterwards — well inside the cooldown that was running a moment ago.
-        assertThat(service.refreshDriveTimes(auth).locationsUpdated()).isEqualTo(17);
+        @ParameterizedTest(name = "\"{0}\"")
+        @ValueSource(strings = {"temp", "verdict"})
+        @DisplayName("writes the scale alone, then answers with the row read back")
+        void writesTheScaleAlone(String scale) {
+            stubAuth();
+            AppUserEntity afterSave = home(DURHAM, DURHAM_LAT, DURHAM_LON);
+            afterSave.setMapColourScale(scale);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(afterSave));
+
+            UserSettingsResponse response = service.saveMapColourPreferences(auth,
+                    new MapColourPreferencesRequest(scale));
+
+            assertThat(response.mapColourScale()).isEqualTo(scale);
+            // The home rides along in the response because it is read back, not because it was
+            // written: a whole-entity save here would write back the home it had loaded.
+            assertThat(response.homePostcode()).isEqualTo(DURHAM);
+            InOrder order = inOrder(userRepository);
+            order.verify(userRepository).updateMapColourScaleByUsername(USERNAME, scale);
+            order.verify(userRepository).findByUsername(USERNAME);
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("rejects an unrecognised scale before touching the row")
+        void invalidScale_throws400() {
+            // Validated before the user is even looked up, so auth.getName() is never called here.
+            assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
+                    new MapColourPreferencesRequest("rainbow")))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("temp' or 'verdict'");
+
+            verifyNoInteractions(userRepository);
+        }
+
+        @Test
+        @DisplayName("rejects a null scale with 400, not a 500")
+        void nullScale_throws400NotNpe() {
+            // VALID_MAP_COLOUR_SCALES is Set.of(...), whose contains() throws NullPointerException on
+            // a null argument rather than returning false — an omitted field must still 400.
+            assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
+                    new MapColourPreferencesRequest(null)))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("temp' or 'verdict'");
+
+            verifyNoInteractions(userRepository);
+        }
     }
 
-    @Test
-    @DisplayName("saveHome persists the local radius alongside the home it is measured from")
-    void saveHome_persistsLocalRadius() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, 30));
-
-        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
-        verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getLocalRadiusMiles()).isEqualTo(30);
-    }
-
-    @Test
-    @DisplayName("a null radius leaves the stored one alone — it is not a reset")
-    void saveHome_nullRadiusLeavesStoredValue() {
-        // The client omits the field when only the postcode changed. Treating that as "set to
-        // default" would silently undo a radius the user had deliberately widened.
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setLocalRadiusMiles(40);
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null));
-
-        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
-        verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getLocalRadiusMiles()).isEqualTo(40);
-    }
-
-    @Test
-    @DisplayName("an out-of-range radius is CLAMPED, not rejected and not honoured")
-    void saveHome_clampsRadiusToBounds() {
-        // It arrives from a slider whose bounds the client enforces, so out-of-range means a stale
-        // client or a direct API call. Honouring 500 miles would make "close to home" meaningless;
-        // rejecting would fail a save whose postcode part was perfectly valid.
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        // Asserted on the entity after each call rather than via a captor: both saves mutate the
-        // SAME user instance, so a captor would hold two references to one object and report the
-        // final state twice.
-        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, 500));
-        assertThat(user.getLocalRadiusMiles())
-                .isEqualTo(UserSettingsService.MAX_LOCAL_RADIUS_MILES);
-
-        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, 1));
-        assertThat(user.getLocalRadiusMiles())
-                .isEqualTo(UserSettingsService.MIN_LOCAL_RADIUS_MILES);
-    }
+    // ── reads ────────────────────────────────────────────────────────────────────
 
     @Test
     @DisplayName("getSettings returns profile with no home location")
@@ -289,17 +560,14 @@ class UserSettingsServiceTest {
     @DisplayName("getSettings resolves place name when home postcode is set")
     void getSettings_withHome_resolvesPlaceName() {
         stubAuth();
-        AppUserEntity user = buildUser();
-        user.setHomePostcode("DH1 3LE");
-        user.setHomeLatitude(54.7761);
-        user.setHomeLongitude(-1.5733);
+        AppUserEntity user = home(DURHAM, DURHAM_LAT, DURHAM_LON);
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-        when(postcodesIoClient.lookup("DH1 3LE")).thenReturn(
-                new PostcodeLookupResult("DH1 3LE", 54.7761, -1.5733, "Durham, County Durham"));
+        when(postcodesIoClient.lookup(DURHAM)).thenReturn(
+                new PostcodeLookupResult(DURHAM, DURHAM_LAT, DURHAM_LON, "Durham, County Durham"));
 
         UserSettingsResponse response = service.getSettings(auth);
 
-        assertThat(response.homePostcode()).isEqualTo("DH1 3LE");
+        assertThat(response.homePostcode()).isEqualTo(DURHAM);
         assertThat(response.homePlaceName()).isEqualTo("Durham, County Durham");
     }
 
@@ -308,14 +576,14 @@ class UserSettingsServiceTest {
     void getSettings_lookupFails_returnsNullPlaceName() {
         stubAuth();
         AppUserEntity user = buildUser();
-        user.setHomePostcode("DH1 3LE");
+        user.setHomePostcode(DURHAM);
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-        when(postcodesIoClient.lookup("DH1 3LE")).thenThrow(
+        when(postcodesIoClient.lookup(DURHAM)).thenThrow(
                 new PostcodeLookupException("Service unavailable"));
 
         UserSettingsResponse response = service.getSettings(auth);
 
-        assertThat(response.homePostcode()).isEqualTo("DH1 3LE");
+        assertThat(response.homePostcode()).isEqualTo(DURHAM);
         assertThat(response.homePlaceName()).isNull();
     }
 
@@ -345,8 +613,7 @@ class UserSettingsServiceTest {
 
         UserSettingsResponse response = service.getSettings(auth);
 
-        assertThat(response.comingUpLastSeenDate())
-                .isEqualTo(java.time.LocalDate.of(2026, 8, 29));
+        assertThat(response.comingUpLastSeenDate()).isEqualTo(LocalDate.of(2026, 8, 29));
     }
 
     @Test
@@ -356,7 +623,7 @@ class UserSettingsServiceTest {
         // Simulates the row a fresh read would return once the targeted update below has landed
         // — this test is about the SERVICE's own orchestration (write the one column, then
         // re-read), not about proving Hibernate's bulk-update SQL against a real database (which
-        // the migration/entity mapping are proven in CI, not here).
+        // AppUserRepositoryTest does).
         AppUserEntity user = buildUser();
         user.setComingUpLastSeenAt(NOW);
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
@@ -369,8 +636,7 @@ class UserSettingsServiceTest {
         // must not be discardable by this write landing last.
         verify(userRepository, never()).save(any());
         // 2026-08-29T10:15:30Z is well inside the London civil day it falls on.
-        assertThat(response.comingUpLastSeenDate())
-                .isEqualTo(java.time.LocalDate.of(2026, 8, 29));
+        assertThat(response.comingUpLastSeenDate()).isEqualTo(LocalDate.of(2026, 8, 29));
         // No request body reaches this method at all (plan D3: "a client with a wrong clock
         // cannot mark the future seen") — the only instant it can ever write is the server's own.
     }
@@ -379,135 +645,12 @@ class UserSettingsServiceTest {
     @DisplayName("lookupPostcode delegates to client")
     void lookupPostcode_delegatesToClient() {
         PostcodeLookupResult expected = new PostcodeLookupResult(
-                "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham");
-        when(postcodesIoClient.lookup("DH1 3LE")).thenReturn(expected);
+                DURHAM, DURHAM_LAT, DURHAM_LON, "Durham, County Durham");
+        when(postcodesIoClient.lookup(DURHAM)).thenReturn(expected);
 
-        PostcodeLookupResult result = service.lookupPostcode("DH1 3LE");
+        PostcodeLookupResult result = service.lookupPostcode(DURHAM);
 
         assertThat(result).isEqualTo(expected);
-    }
-
-    @Test
-    @DisplayName("saveHome persists postcode and coordinates")
-    void saveHome_persistsFields() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null));
-
-        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
-        verify(userRepository).save(captor.capture());
-        AppUserEntity saved = captor.getValue();
-        assertThat(saved.getHomePostcode()).isEqualTo("DH1 3LE");
-        assertThat(saved.getHomeLatitude()).isEqualTo(54.7761);
-        assertThat(saved.getHomeLongitude()).isEqualTo(-1.5733);
-    }
-
-    @Test
-    @DisplayName("refreshDriveTimes throws 400 when no home location set")
-    void refreshDriveTimes_noHome_throws400() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        assertThatThrownBy(() -> service.refreshDriveTimes(auth))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Set a home location");
-    }
-
-    @Test
-    @DisplayName("refreshDriveTimes throws 429 when recently refreshed")
-    void refreshDriveTimes_recentRefresh_throws429() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setHomeLatitude(54.7761);
-        user.setHomeLongitude(-1.5733);
-        user.setDriveTimesCalculatedAt(Instant.now().minusSeconds(60)); // 1 minute ago
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        assertThatThrownBy(() -> service.refreshDriveTimes(auth))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("recently");
-    }
-
-    @Test
-    @DisplayName("refreshDriveTimes passes correct user ID and coordinates to duration service")
-    void refreshDriveTimes_success_passesCorrectArgs() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setHomeLatitude(54.7761);
-        user.setHomeLongitude(-1.5733);
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-        when(driveDurationService.refreshForUser(42L, 54.7761, -1.5733)).thenReturn(15);
-
-        DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
-
-        assertThat(response.locationsUpdated()).isEqualTo(15);
-        assertThat(response.calculatedAt()).isNotNull();
-        verify(driveDurationService).refreshForUser(eq(42L), eq(54.7761), eq(-1.5733));
-        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
-        verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getDriveTimesCalculatedAt()).isNotNull();
-    }
-
-    @Test
-    @DisplayName("refreshDriveTimes allows refresh after cooldown period")
-    void refreshDriveTimes_afterCooldown_succeeds() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setHomeLatitude(54.7761);
-        user.setHomeLongitude(-1.5733);
-        user.setDriveTimesCalculatedAt(Instant.now().minusSeconds(31 * 60)); // 31 min ago
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-        when(driveDurationService.refreshForUser(42L, 54.7761, -1.5733)).thenReturn(10);
-
-        DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
-
-        assertThat(response.locationsUpdated()).isEqualTo(10);
-    }
-
-    @Test
-    @DisplayName("refreshDriveTimes succeeds on first-ever refresh (null driveTimesCalculatedAt)")
-    void refreshDriveTimes_firstEver_succeeds() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setHomeLatitude(54.7761);
-        user.setHomeLongitude(-1.5733);
-        // driveTimesCalculatedAt is null — never refreshed before
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-        when(driveDurationService.refreshForUser(42L, 54.7761, -1.5733)).thenReturn(200);
-
-        DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
-
-        assertThat(response.locationsUpdated()).isEqualTo(200);
-    }
-
-    @Test
-    @DisplayName("refreshDriveTimes does not call duration service when home coordinates missing")
-    void refreshDriveTimes_noHome_doesNotCallDurationService() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        // homeLatitude and homeLongitude both null
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        assertThatThrownBy(() -> service.refreshDriveTimes(auth))
-                .isInstanceOf(ResponseStatusException.class);
-        verify(driveDurationService, never()).refreshForUser(eq(42L), eq(0.0), eq(0.0));
-    }
-
-    @Test
-    @DisplayName("saveHome returns response with persisted postcode")
-    void saveHome_returnsResponseWithPostcode() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        UserSettingsResponse response = service.saveHome(auth,
-                new SaveHomeRequest("NE1 4ST", 54.9738, -1.6131, null));
-
-        assertThat(response.homePostcode()).isEqualTo("NE1 4ST");
-        assertThat(response.username()).isEqualTo(USERNAME);
     }
 
     @Test
@@ -545,10 +688,8 @@ class UserSettingsServiceTest {
 
         Long userId = service.getUserId(auth);
 
-        assertThat(userId).isEqualTo(42L);
+        assertThat(userId).isEqualTo(USER_ID);
     }
-
-    // ── map colour preferences (Stage 6) ─────────────────────────────────────────
 
     @Test
     @DisplayName("getSettings returns null mapColourScale when never chosen — round-trips as such")
@@ -562,63 +703,6 @@ class UserSettingsServiceTest {
         assertThat(response.mapColourScale()).isNull();
     }
 
-
-
-    @Test
-    @DisplayName("saveMapColourPreferences persists an explicit 'temp' choice")
-    void saveMapColourPreferences_persistsTemp() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        UserSettingsResponse response = service.saveMapColourPreferences(auth,
-                new MapColourPreferencesRequest("temp"));
-
-        assertThat(response.mapColourScale()).isEqualTo("temp");
-        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
-        verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getMapColourScale()).isEqualTo("temp");
-    }
-
-    @Test
-    @DisplayName("saveMapColourPreferences persists an explicit 'verdict' choice")
-    void saveMapColourPreferences_persistsVerdict() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        service.saveMapColourPreferences(auth, new MapColourPreferencesRequest("verdict"));
-
-        assertThat(user.getMapColourScale()).isEqualTo("verdict");
-    }
-
-    @Test
-    @DisplayName("saveMapColourPreferences rejects an unrecognised scale")
-    void saveMapColourPreferences_invalidScale_throws400() {
-        // Validated before the user is even looked up, so auth.getName() is never called here.
-
-        assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
-                new MapColourPreferencesRequest("rainbow")))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("temp' or 'verdict'");
-
-        verify(userRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("saveMapColourPreferences rejects a null scale with 400, not a 500")
-    void saveMapColourPreferences_nullScale_throws400NotNpe() {
-        // VALID_MAP_COLOUR_SCALES is Set.of(...), whose contains() throws NullPointerException on
-        // a null argument rather than returning false — an omitted field must still 400.
-        assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
-                new MapColourPreferencesRequest(null)))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("temp' or 'verdict'");
-
-        verify(userRepository, never()).save(any());
-    }
-
-
     @Test
     @DisplayName("getSettings throws NoSuchElementException for unknown user")
     void getSettings_unknownUser_throws() {
@@ -626,7 +710,7 @@ class UserSettingsServiceTest {
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getSettings(auth))
-                .isInstanceOf(java.util.NoSuchElementException.class)
+                .isInstanceOf(NoSuchElementException.class)
                 .hasMessageContaining(USERNAME);
     }
 }
