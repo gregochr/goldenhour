@@ -1,4 +1,4 @@
-import React, { useLayoutEffect } from 'react';
+import React, { useLayoutEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -739,6 +739,170 @@ describe('MastheadTickLine — the origin slot keeps focus when its element is s
     rerender(tick({ isMapTab: true, homePlace: 'Durham', onSetPostcode }));
 
     expect(findSlot()).toBe(screen.getByTestId('window-first-origin-statement'));
+  });
+});
+
+/**
+ * ⌂ goes on its own press, and hands the reader to the origin slot rather than dropping them.
+ *
+ * <p>Found by reading the code once the slot handoff above existed, and reproduced here before it
+ * was fixed: ⌂ renders only while away, and its press returns the origin home — so the press
+ * destroys the node it was made on, and on every tab focus fell to `<body>`, where the next Tab
+ * starts at the top of the document and a screen reader loses its place.
+ *
+ * <p>⚠️ `fireEvent.click` does not move focus, so a test that means a KEYBOARD press focuses ⌂
+ * first, as a keyboard reader must. The one that leaves it unfocused models the press that
+ * genuinely does not focus a button: a pointer in macOS Safari.
+ */
+describe('MastheadTickLine — ⌂ hands focus to the origin slot when its own press removes it', () => {
+  /**
+   * Holds the origin as state — the provider's own shape, whose `setOrigin` is a plain setter — so
+   * ⌂'s press and its removal land in ONE commit, as they do in the app; `rerender` would split
+   * them. A harness, and said so: the shell's route, with the popup its `onGoHome` also closes, is
+   * pinned through the real shell in `planOriginShell.test.jsx`.
+   */
+  function Away({ before = null, ...props }) {
+    const [origin, setOrigin] = useState(LAKES);
+    return (
+      <>
+        {before?.(origin)}
+        <MastheadTickLine
+          light={LIGHT}
+          origin={origin}
+          homePlace="Durham"
+          onOpenSearch={vi.fn()}
+          onGoHome={() => setOrigin(null)}
+          onSetPostcode={vi.fn()}
+          {...props}
+        />
+      </>
+    );
+  }
+  /** Focuses `target()` in the commit `on` turns true — a layout effect, so it runs in that commit. */
+  function FocusWhen({ on, target }) {
+    useLayoutEffect(() => { if (on) target().focus(); }, [on, target]);
+    return null;
+  }
+  const home = () => screen.getByRole('button', { name: 'Plan from home again' });
+  // A control outside the line — somewhere real a reader can have gone.
+  let elsewhere = null;
+  const toElsewhere = () => elsewhere;
+  afterEach(() => { elsewhere?.remove(); elsewhere = null; });
+
+  it('⚠️ lands on the origin button, which now says where the plan is from', () => {
+    render(<Away />);
+    const button = home();
+    button.focus();
+
+    fireEvent.click(button);
+
+    expect(button.isConnected, 'precondition: the press removed ⌂').toBe(false);
+    expect(document.activeElement)
+      .toBe(screen.getByRole('button', { name: 'Planning from home · Durham. Search to change it.' }));
+  });
+
+  it.each([
+    ['on the Map tab', { isMapTab: true }],
+    // Since #860 the shell hands `onOpenSearch` to the Plan tab alone, and a slot with no search to
+    // open draws the statement on every tab. The landing is whatever the slot holds, so this arm pins
+    // that the handoff does not quietly depend on `isMapTab`.
+    ['on a tab with no search — Coming up, Operations', { onOpenSearch: undefined }],
+  ])('⚠️ lands on the statement %s — a place focus can be put, never a tab stop', (_label, props) => {
+    render(<Away {...props} />);
+    const button = home();
+    button.focus();
+
+    fireEvent.click(button);
+
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(document.activeElement).toBe(statement);
+    expect(statement).toHaveTextContent('Home · Durham');
+  });
+
+  it.each([
+    ['on the Plan tab, where the origin button\'s node BECOMES the nudge', { isMapTab: false }, false],
+    ['on the Map tab, where the nudge REPLACES the statement in the same commit', { isMapTab: true }, true],
+    ['on a tab with no search, where it replaces the statement too', { onOpenSearch: undefined }, true],
+  ])('with no home saved, lands on the nudge — %s', (_label, props, replaced) => {
+    // Going home with no postcode turns the slot's origin into its nudge, by one of two mechanisms,
+    // and each arm checks it took its own. On the Plan tab React reuses the origin button's node.
+    // Wherever the slot held the statement instead, the statement is swapped for the nudge in the very
+    // commit ⌂ leaves, so the target is an element that attached a moment ago.
+    render(<Away homePlace={null} {...props} />);
+    const slotBefore = screen.getByTestId(replaced ? 'window-first-origin-statement' : 'window-first-origin-chip');
+    const button = home();
+    button.focus();
+
+    fireEvent.click(button);
+
+    const nudge = screen.getByRole('button', { name: 'Set a postcode for light and drive times' });
+    expect(nudge === slotBefore, 'precondition: reused on the Plan tab, replaced where a statement stood')
+      .toBe(!replaced);
+    expect(document.activeElement).toBe(nudge);
+  });
+
+  it('⚠️ does not pull focus onto the slot when ⌂ never held it — even from <body>', () => {
+    // The slot's rule: "the element that LEFT held focus", never "focus is nowhere after ⌂ goes". A
+    // pointer press in macOS Safari does not focus a button, so a reader who clicked ⌂ there was
+    // never on it, and landing them on the origin button would be a move nobody asked for.
+    render(<Away />);
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+
+    fireEvent.click(home());
+
+    expect(screen.queryByRole('button', { name: 'Plan from home again' }), 'precondition: ⌂ went')
+      .toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('never takes focus that something else placed in the commit ⌂ leaves in', () => {
+    // A sibling rendered BEFORE the line runs its layout effect first. Whatever it focuses as ⌂
+    // goes, the handoff must not overwrite — a placed focus is a decision.
+    elsewhere = document.createElement('button');
+    document.body.appendChild(elsewhere);
+    render(<Away before={(origin) => <FocusWhen on={origin == null} target={toElsewhere} />} />);
+    const button = home();
+    button.focus();
+
+    fireEvent.click(button);
+
+    expect(button.isConnected, 'precondition: the press removed ⌂').toBe(false);
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it('⚠️ under StrictMode, a ⌂ focused as it mounts is not recorded as having left', () => {
+    // Nothing in the app focuses ⌂ in the commit that mounts it today, and the record must not rest
+    // on that. StrictMode re-runs a newly mounted node's ref after the commit, cleanup first, so a ⌂
+    // holding focus then reads exactly like one that left; unguarded, that record outlived the
+    // commit, and the line's NEXT render — the light arriving — pulled a reader who had since gone
+    // nowhere onto the origin button. The slot's StrictMode tests above are the same defect on the
+    // elements inside it, and one guard (`watchDeparture`) answers both.
+    const toHome = () => home();
+    const strict = (props) => (
+      <React.StrictMode>
+        <MastheadTickLine
+          light={null}
+          origin={null}
+          homePlace="Durham"
+          onOpenSearch={vi.fn()}
+          onGoHome={vi.fn()}
+          onSetPostcode={vi.fn()}
+          {...props}
+        />
+        <FocusWhen on={props.origin != null} target={toHome} />
+      </React.StrictMode>
+    );
+    const { rerender } = render(strict({ origin: null }));
+
+    rerender(strict({ origin: LAKES }));
+    const button = home();
+    expect(document.activeElement, 'precondition: ⌂ held focus through StrictMode\'s re-run').toBe(button);
+    button.blur(); // the reader clicks somewhere that takes no focus
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+
+    rerender(strict({ origin: LAKES, light: LIGHT })); // the light arrives
+
+    expect(document.activeElement).toBe(document.body);
   });
 });
 

@@ -79,6 +79,34 @@ function Pin({ away }) {
 Pin.propTypes = { away: PropTypes.bool.isRequired };
 
 /**
+ * Starts watching {@code node} for leaving the line while it holds focus, and returns the ref
+ * cleanup that answers it — the one question both of the line's handoffs ask (see the class
+ * comment's last section), asked one way.
+ *
+ * <p>The answer is recorded in {@code departed}, for the layout effect to spend. React 19 calls the
+ * cleanup on detach, BEFORE it removes the node — while "was the reader here" can still be answered
+ * by {@code document.activeElement}.
+ *
+ * @param {{current: ?Element}} departed the record the tick line's handoff spends
+ * @param {Element} node the element that has just attached
+ * @returns {Function} the ref cleanup
+ */
+function watchDeparture(departed, node) {
+  // ⚠️ A node attaching here cannot also have departed. StrictMode (the app mounts under it in
+  // development) re-runs a newly mounted node's ref — cleanup, then setup, after the commit — so
+  // the statement the effect below has just focused comes back through the cleanup still focused
+  // and is recorded as departed. Left standing, that record was spent by the tick line's NEXT
+  // render: the light arriving pulled a reader who had since clicked away back onto the statement,
+  // and a tab switch that really removed the statement put them on the origin button instead
+  // (both reproduced under StrictMode in jsdom, the second found by review after a narrower first
+  // fix). A real removal never re-attaches the node it removed; StrictMode always does, at once.
+  if (departed.current === node) departed.current = null;
+  return () => {
+    if (document.activeElement === node) departed.current = node;
+  };
+}
+
+/**
  * The masthead's tick line — where the plan is computed from, how to change it, and today's light.
  *
  * <p>The bundle calls this "the <b>only</b> statement of where the plan is computed from; there is
@@ -149,7 +177,7 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * word it drops is "Home", which is the entire content of the attribution. Drawing the short form
  * away would have put `NE66 1NG` beside a Cumbrian origin and said nothing about whose it was.
  *
- * <h2>⚠️ The origin slot keeps the reader's focus when its element is swapped</h2>
+ * <h2>⚠️ The origin slot keeps the reader's focus when its element is swapped, or ⌂ goes</h2>
  *
  * <p>The slot holds one of three elements — the nudge, the Map tab's statement, the origin button
  * — and on the Map tab the move from the first to the second is a DIFFERENT element: a
@@ -175,6 +203,24 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * is removed, WebKit and Firefox fire nothing, so a flag cleared on blur would already be cleared
  * in Chromium by the time the swap commits.
  *
+ * <p><b>⌂ is the same defect from outside the slot, and ends in the same place.</b> It renders
+ * only while away, and its press returns the origin home — so the press destroys the very node it
+ * was made on, on every tab, and the reader landed on {@code <body>}. It is watched for leaving
+ * exactly as the slot's elements are — recorded only when it HELD focus, and never on StrictMode's
+ * re-run — and the handoff puts the reader on whatever the slot holds once home: the origin button,
+ * the statement, or the nudge when no home is saved. That element sits beside ⌂ in the same flex
+ * item, and it is the one that now says what the press did ("Home · Durham").
+ *
+ * <p>⚠️ <b>It lands BEFORE a closing dialog's own restore, and that is deliberate.</b> The shell's
+ * {@code onGoHome} also closes the window popup, and ⌂ is reachable from inside it: the popup holds
+ * no trap and leaves this row in the Tab order. On that route the popup's {@code useDialogFocus}
+ * cleanup, a passive effect, used to find focus nowhere and put the reader back on the card that
+ * opened the popup. The handoff is a layout effect, so it runs first; the restore then finds focus
+ * somewhere real, with no layer left claiming modality, and stands down. An owner decision
+ * (2026-09-16): the reader had left the dialog and acted in the masthead, so every route ends on
+ * the origin control. Moving the handoff to a passive effect would reverse it, and
+ * `planOriginShell.test.jsx`'s popup test is what says so.
+ *
  * <p>The nudge also hands its caller a way to FIND the slot later ({@code onSetPostcode}'s
  * argument), for the ordinary order: a save moves the home while the dialog is still open, the
  * nudge is replaced under the dialog, the dialog's recorded opener is detached by the time it
@@ -198,32 +244,26 @@ export default function MastheadTickLine({
   // Whichever of the three elements the origin slot holds now. See the class comment's last
   // section: the handoff below and the nudge's resolver both read it.
   const originSlot = useRef(null);
-  // The element that was detached from the slot while holding focus — set by the ref cleanup,
-  // spent by the layout effect below.
+  // The element that left the line while holding focus — the slot's departing element, or ⌂ —
+  // set by a ref cleanup (`watchDeparture`), spent by the layout effect below.
   const departed = useRef(null);
   const trackOriginSlot = useCallback((node) => {
     if (!node) return undefined;
     originSlot.current = node;
-    // ⚠️ A node attaching here cannot also have departed. StrictMode (the app mounts under it in
-    // development) re-runs a newly mounted node's ref — cleanup, then setup, after the commit — so
-    // the statement the effect below has just focused comes back through the cleanup still focused
-    // and is recorded as departed. Left standing, that record was spent by the tick line's NEXT
-    // render: the light arriving pulled a reader who had since clicked away back onto the statement,
-    // and a tab switch that really removed the statement put them on the origin button instead
-    // (both reproduced under StrictMode in jsdom, the second found by review after a narrower first
-    // fix). A real removal never re-attaches the node it removed; StrictMode always does, at once.
-    if (departed.current === node) departed.current = null;
-    // React 19 calls this on detach, BEFORE it removes the node — while "was the reader here" can
-    // still be answered by `document.activeElement`.
+    const leave = watchDeparture(departed, node);
     return () => {
-      if (document.activeElement === node) departed.current = node;
+      leave();
       if (originSlot.current === node) originSlot.current = null;
     };
   }, []);
-  // Every commit, but it acts only in the one that swapped a focused element out, and spends the
-  // record either way. The replacement is attached by then — refs attach before layout effects run.
-  // And only while focus is still nowhere: nothing in this commit should have placed it, but a
-  // reader's position is never taken.
+  // ⌂ is not in the slot, and never a target: it only departs. It hands focus to the same place as
+  // a swapped slot element, and only on the same condition — see the class comment.
+  const trackHome = useCallback((node) => (node ? watchDeparture(departed, node) : undefined), []);
+  // Every commit, but it acts only in the one that took a focused element out — a swapped slot
+  // element or ⌂ — and spends the record either way. The slot's element is attached by then — refs
+  // attach before layout effects run. And only while focus is still nowhere: nothing in this commit
+  // should have placed it, but a reader's position is never taken. ⚠️ A LAYOUT effect, and for ⌂
+  // that is load-bearing: see the class comment on the popup's passive restore.
   useLayoutEffect(() => {
     if (!departed.current) return;
     departed.current = null;
@@ -373,9 +413,13 @@ export default function MastheadTickLine({
           )}
         </span>
 
+        {/* ⚠️ Its own press removes it — going home ends "away" — so it is watched for leaving with
+            focus, and the reader is handed to the origin slot rather than dropped on `<body>` (the
+            class comment's last section). */}
         {away && (
           <button
             type="button"
+            ref={trackHome}
             data-testid="window-first-origin-home"
             className="wf-tick-home"
             onClick={onGoHome}

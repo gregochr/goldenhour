@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import {
+  render, screen, fireEvent, within, act, waitFor,
+} from '@testing-library/react';
 import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
@@ -203,6 +205,86 @@ describe('WindowFirstShell — the origin', () => {
       const value = renderShell({ origin: ORIGIN });
       fireEvent.click(screen.getByTestId('window-first-origin-home'));
       expect(value.setOrigin).toHaveBeenCalledWith(null);
+    });
+
+    /**
+     * ⌂ goes on its own press, and the reader goes with it to the origin button (see
+     * {@code MastheadTickLine}'s class comment) — asserted here through the shell's REAL
+     * {@code onGoHome}, which closes the window popup in the same commit.
+     *
+     * <p>{@code renderShell}'s {@code setOrigin} is a bare mock, so its press changes nothing on
+     * screen and ⌂ — which leaves only when the origin does — never leaves. These hold the origin in
+     * state behind the stubbed context, the provider's own shape, so the removal lands in the press's
+     * commit. And every one ends by forcing a frame: the shell defers focus moves of its own by one,
+     * and the claim is where focus RESTS.
+     */
+    describe('⌂ keeps the reader\'s place as its press removes it', () => {
+      const Held = React.createContext(null);
+      function useHeldBriefing() { return React.useContext(Held); }
+      function HeldOrigin() {
+        const [origin, setHeldOrigin] = React.useState(ORIGIN);
+        const value = ctx({
+          origin,
+          setOrigin: (region) => setHeldOrigin(
+            region ? { id: region.id, name: region.name, baseName: region.baseName } : null,
+          ),
+        });
+        return <Held.Provider value={value}><WindowFirstShell {...shellProps()} /></Held.Provider>;
+      }
+      const renderHeld = () => {
+        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockImplementation(useHeldBriefing);
+        return render(<HeldOrigin />);
+      };
+      const nextFrames = () => act(async () => {
+        await new Promise((resolve) => { requestAnimationFrame(() => requestAnimationFrame(resolve)); });
+      });
+      const HOME_NAME = 'Planning from home · Durham. Search to change it.';
+
+      it('⚠️ puts the reader on the origin button it leaves behind, not on <body>', async () => {
+        renderHeld();
+        // The strip is lazy: waiting for it keeps its mount out of the commit under test.
+        await screen.findByTestId('wf-heat-card');
+        const home = screen.getByRole('button', { name: 'Plan from home again' });
+        home.focus();
+
+        fireEvent.click(home);
+
+        const origin = screen.getByRole('button', { name: HOME_NAME });
+        expect(document.activeElement).toBe(origin);
+        await nextFrames();
+        expect(document.activeElement).toBe(origin);
+      });
+
+      it('⚠️ lands there from inside an open popup too — not back on the card that opened it', async () => {
+        // The one route that did not end on <body>. The popup holds no trap and leaves the masthead
+        // in the Tab order, so a reader can Tab out of it onto ⌂, and `onGoHome` closes the popup in
+        // that press's commit. The popup's `useDialogFocus` cleanup — a PASSIVE effect — then found
+        // focus nowhere and put them back on its opener card. An owner decision (2026-09-16) makes it
+        // the origin control on every route: the tick line's layout effect lands first, and the
+        // restore, finding focus somewhere real with no modal layer left, stands down.
+        renderHeld();
+        const card = await screen.findByTestId('wf-heat-card');
+        card.focus(); // a keyboard reader opens it from the card, which becomes its return address
+        fireEvent.click(card);
+        const sheet = await screen.findByTestId('window-sheet');
+        // Spend the popup's mount frame first: left pending, its focus move could land anywhere in
+        // the steps below and supply an answer of its own.
+        await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+        const home = screen.getByRole('button', { name: 'Plan from home again' });
+        home.focus(); // Tabbed out of the popup onto ⌂
+
+        fireEvent.click(home);
+
+        expect(screen.queryByTestId('window-sheet'), 'precondition: the press closed the popup').toBeNull();
+        // What keeps this test guarding the ORDER: were the card gone, the popup's restore would have
+        // nowhere to go, and a handoff moved to a passive effect — running after the restore — would
+        // pass here too.
+        expect(card.isConnected, 'precondition: the popup\'s return address is still there').toBe(true);
+        const origin = screen.getByRole('button', { name: HOME_NAME });
+        expect(document.activeElement).toBe(origin);
+        await nextFrames();
+        expect(document.activeElement).toBe(origin);
+      });
     });
 
     it('withholds the home prompt while away — it is about a home nobody is planning from', () => {
