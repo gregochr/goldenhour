@@ -270,6 +270,8 @@ const ctx = () => ({
 
 const NUDGE = 'Set a postcode for light and drive times';
 const HOME_CONTROL = 'Set your home postcode in Settings';
+/** The postcode field's accessible name — the settings dialog's "Home location" heading. */
+const POSTCODE_FIELD = 'Home location';
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -363,7 +365,7 @@ async function closeSettings(dialog) {
 async function settingsSettled() {
   const dialog = await screen.findByTestId('settings-modal');
   expect(screen.queryByTestId('plan-error')).toBeNull();
-  await within(dialog).findByTestId('settings-postcode-input');
+  await within(dialog).findByRole('textbox', { name: POSTCODE_FIELD });
   await act(async () => {
     await new Promise((resolve) => { requestAnimationFrame(() => requestAnimationFrame(resolve)); });
   });
@@ -442,7 +444,7 @@ describe('App — every route into settings takes down the dialog it would open 
       await press(screen.getByRole('button', { name: NUDGE }));
       const dialog = await settingsSettled();
 
-      await waitFor(() => expect(within(dialog).getByTestId('settings-postcode-input')).toHaveFocus());
+      await waitFor(() => expect(within(dialog).getByRole('textbox', { name: POSTCODE_FIELD })).toHaveFocus());
     });
 
     /**
@@ -540,6 +542,18 @@ describe('App — every route into settings takes down the dialog it would open 
 
       expect(modals()).toHaveLength(1);
       expect(modals()[0]).toHaveAccessibleName('Settings');
+    });
+
+    it('opens settings on the postcode field — the one control the ⌂ exists to land a reader on', async () => {
+      // The nudge's landing is pinned above; the ⌂ reaches `App` by its own handler, through the
+      // map pane, and nothing pinned where that one lands.
+      renderApp();
+      await openMapTab();
+
+      await press(screen.getByRole('button', { name: HOME_CONTROL }));
+      const dialog = await settingsSettled();
+
+      await waitFor(() => expect(within(dialog).getByRole('textbox', { name: POSTCODE_FIELD })).toHaveFocus());
     });
 
     it('⚠️ over the four-day sheet: the sheet is gone in the render settings opens in', async () => {
