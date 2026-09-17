@@ -3662,10 +3662,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * coming back only removes `hidden`, and a region revealed already full announces nothing. Empty
    * while hidden, it fills on the return — a change, announced — and a failure on another tab is
    * not read out on that tab. {@code paneVisible} is the pane's answer, and it covers more than the
-   * panel: the document's visibility (a background browser tab — Codex's post-merge review of #848)
-   * and the window's focus (another app in front), since through both the panel keeps its box and
-   * the screen reader is presenting something else. ⚠️ Not this file's {@code paneIsOffScreen},
-   * which asks only whether the pane's panel is laid out, for focus and Escape handling.
+   * panel: the document's visibility (a background browser tab — Codex's post-merge review of #848),
+   * the window's focus (another app in front, since through both the panel keeps its box and the
+   * screen reader is presenting something else), and a foreign dialog over the pane (the four-day
+   * sheet opened as a peek, or settings — neither leaves this tab or is `inert` behind, O-20).
+   * `WindowFirstMapPane.jsx`'s own doc on `paneVisible` has the detail; this file only consumes the
+   * one boolean. ⚠️ Not this file's {@code paneIsOffScreen}, which asks only whether the pane's
+   * panel is laid out, for focus and Escape handling.
    */
   const statusLine = paneVisible && ratingRetrying && (
     unscoredLineShown
@@ -5692,11 +5695,14 @@ MapView.propTypes = {
   /**
    * Whether this map is on screen for the reader — false while the Map pane's panel is hidden
    * between visits (the pane reads it off its ResizeObserver's zero box), while the document is
-   * hidden (a background browser tab), or while the window is not focused (another app in front) —
-   * the pane's `useSyncExternalStore` on `visibilitychange`, `focus` and `blur`. Gates the status
-   * region (`statusLine`), so a failure while the reader is elsewhere is announced when they come
-   * back rather than to nobody. Default true for the one other mount, the frozen Plan-tab overlay,
-   * which renders no status region, so there is nothing there for it to gate.
+   * hidden (a background browser tab), while the window is not focused (another app in front) — the
+   * pane's `useSyncExternalStore` on `visibilitychange`, `focus` and `blur` — or while a dialog
+   * foreign to the pane is open over it (the four-day sheet peek, settings), read the same way
+   * against the pane's own wrapper via `utils/mapForeignModal.js`'s `foreignModalOver`. Gates the
+   * status region (`statusLine`), so a failure while the reader is elsewhere — including behind a
+   * dialog they are looking at instead — is announced when they come back rather than to nobody.
+   * Default true for the one other mount, the frozen Plan-tab overlay, which renders no status
+   * region, so there is nothing there for it to gate.
    */
   paneVisible: PropTypes.bool,
   /**
