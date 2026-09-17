@@ -963,6 +963,59 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
     expect(toggle).toHaveAttribute('title', 'No unknown-state locations in view');
   });
 
+  it('⚠️ a RATED coastal miss still renders under the default 3★+ floor — the tide bypass is not only for a null rating (Codex review, PR #880 P1)', async () => {
+    // The weather-stood-down-then-rated path (§1 #3) can land a coastal miss with a real,
+    // LOW rating rather than null — `visibleLocations` must let it past the star floor on the
+    // served tide fact alone, the same as a null-rated one, or the "coast disappears for tide"
+    // defect returns for exactly this path. An inland location at the SAME low rating is the
+    // control: it must still be cut by the ordinary floor, proving this isn't "the floor stopped
+    // working" but specifically "a served tide fact bypasses it".
+    function ratedCoastalMissLocation() {
+      return {
+        id: 9,
+        name: 'Rated Coastal Miss',
+        lat: 55.45,
+        lon: -1.55,
+        regionName: 'North East',
+        bortleClass: 4,
+        locationType: ['SEASCAPE'],
+        forecastsByDate: new Map([[TODAY, {
+          sunset: { rating: 2, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: 30, goldenHourPotential: 35 },
+        }]]),
+      };
+    }
+    function ratedInlandLocation() {
+      return {
+        id: 10,
+        name: 'Rated Inland',
+        lat: 54.8,
+        lon: -3.1,
+        regionName: 'The Lakes',
+        bortleClass: 3,
+        locationType: ['LANDSCAPE'],
+        forecastsByDate: new Map([[TODAY, {
+          sunset: { rating: 2, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: 30, goldenHourPotential: 35 },
+        }]]),
+      };
+    }
+    const tideAlignmentIndex = buildTideAlignmentIndex(
+      tideBriefing(9, 'Rated Coastal Miss', false).days,
+    );
+    await renderMap({
+      heat: heatProp({
+        areaSpots: [...AREA_SPOTS_WITH_FIXTURES, { id: 9, name: 'Rated Coastal Miss' }, { id: 10, name: 'Rated Inland' }],
+      }),
+      tideAlignmentIndex,
+      locations: [...makeLocations(), ratedCoastalMissLocation(), ratedInlandLocation()],
+    });
+
+    // Premise: default minStars is 3★+ (DEFAULT_MIN_STARS, localStorage cleared in beforeEach),
+    // and both fixtures are rated 2★ — below it.
+    const names = labelSpotsProps.last.spots.map((s) => s.name);
+    expect(names).toContain('Rated Coastal Miss');
+    expect(names).not.toContain('Rated Inland');
+  });
+
   it('§7 check 2 — nothing is dropped: the pool handed to MapLabels/PinsLayer is the same size whether EVERY coastal slot matches or misses', async () => {
     const allAligned = buildTideAlignmentIndex(allTideBriefing(true).days);
     const allMissed = buildTideAlignmentIndex(allTideBriefing(false).days);
