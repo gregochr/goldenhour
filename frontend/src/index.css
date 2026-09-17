@@ -5990,30 +5990,55 @@ button.wf-hc.also.on:hover {
   letter-spacing: 0.06em;
 }
 
-/* The tide-alignment row (bundle rev 2's tide-chip tweak) — the callout's own instance of the
-   repo's bordered-tide-row look, lifted from `.wf-frow` (border/background/kicker-ink triple)
-   rather than the design bundle's `.ctide` values verbatim — no `.ctide` rule exists anywhere in
-   this file, and this follows the callout's own flat `wf-callout-<part>` naming instead. Omitted
-   entirely when this window's water does not land on the light (`MapCallout.jsx`'s own
-   unmeasured-facts discipline) — never a "no tide alignment" line. */
-.wf-callout-tide {
+/* The tide-fit block (tide-window-plan.md T5, design spec §4) — ONE shared component
+   (`components/map/TideFitBlock.jsx`) mounted by BOTH the map callout's own row and every solar
+   row of the location sheet, so a location's tide fact never wears two looks on two surfaces.
+   Started life as bundle rev 2's tide-chip tweak (a match-only, on-the-light row); T5 keeps that
+   look for the match tier UNCHANGED (the numbers below are already `--color-tide`'s own RGB, not
+   the design bundle's, so there is nothing to re-derive) and adds a miss tier. Lifted from
+   `.wf-frow` (border/background/kicker-ink triple) rather than the design bundle's `.ctide` values
+   verbatim — no `.ctide` rule exists anywhere in this file, and the flat `wf-tide-fit-<part>`
+   naming follows this app's own convention (§1 #9's Tokens table). Omitted entirely by the
+   component itself when there is no served fact to state — never a "no tide alignment" line.
+
+   Both tiers derive their tint through `color-mix()` off a repo TOKEN rather than a bundle rgba
+   literal (§1 #9's own rule): MISS is built off `--color-plex-text` (the bundle's own
+   rgba(242,231,211,…) miss tint, spelt through the token this time), mirroring how the rest of
+   this file already tints a border/background off a token (`:1824` etc.). */
+.wf-tide-fit {
   display: flex;
   align-items: flex-start;
   gap: 7px;
   padding: 7px 9px;
   border-radius: 8px;
+}
+.wf-tide-fit[data-tier="match"] {
   border: 1px solid rgba(111, 168, 176, 0.28);
   border-left: 2px solid var(--color-tide);
   background: rgba(111, 168, 176, 0.055);
 }
-.wf-callout-tide svg {
+.wf-tide-fit[data-tier="miss"] {
+  border: 1px solid color-mix(in srgb, var(--color-plex-text) 20%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--color-plex-text) 45%, transparent);
+  background: color-mix(in srgb, var(--color-plex-text) 5%, transparent);
+}
+.wf-tide-fit svg {
   flex: none;
   width: 15px;
   height: 8px;
   margin-top: 2px;
   color: var(--color-tide);
 }
-.wf-callout-tide-text {
+/* The miss tier's glyph takes the row's own secondary ink instead of the aligned wave's
+   `--color-tide` accent. ⚠️ T5 passes `shortfall` through to `TideWave` (`TideFitBlock.jsx`) so
+   the two changes compose, but `TideWave` does not read that prop YET — it draws today's
+   identical wave path on both tiers, coloured differently. The wrong-water ARROW shape is T4's
+   own addition to `TideWave` (`docs/engineering/tide-window-plan.md` T4 task 2); until it merges,
+   this rule is the ONLY thing distinguishing the two tiers' glyphs. */
+.wf-tide-fit[data-tier="miss"] svg {
+  color: var(--color-plex-text-secondary);
+}
+.wf-tide-fit-text {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -6021,10 +6046,55 @@ button.wf-hc.also.on:hover {
   font-size: 10.5px;
   color: var(--color-plex-text-secondary);
 }
-.wf-callout-tide-text b {
+.wf-tide-fit-text b {
   color: var(--color-badge-tide);
   font-size: 11px;
   font-weight: 600;
+}
+/* The miss heading is a neutral statement, not a celebratory one — it takes full-strength text
+   ink rather than the tide accent `--color-badge-tide` carries for an aligned window. */
+.wf-tide-fit[data-tier="miss"] .wf-tide-fit-text b {
+  color: var(--color-plex-text);
+}
+/* The jump — design spec §4's text button, `var(--tide)` at 9.5px — on the same text-button
+   pattern `.wf-loc-map` (the sheet footer's own "Plan from…" action) already establishes: no
+   button chrome, inherited type, tide ink, underline on hover, a visible focus ring. */
+.wf-tide-fit-jump {
+  align-self: flex-start;
+  margin-top: 2px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 9.5px;
+  color: var(--color-tide);
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.wf-tide-fit-jump:hover { text-decoration: underline; }
+.wf-tide-fit-jump:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+/* The denial — design spec §4's `var(--ink-3)` italic. ⚠️ NOT `--color-plex-text-muted`: this file
+   has already made this exact correction for small type at this size (its own repeated note, e.g.
+   the callout/sheet secondary-ink corrections beside `.wf-frow`/`.wf-loc-*`) — `.42` measures
+   ≈3.5:1 on both this block's hosts, under AA's 4.5:1 floor for text this size. Secondary ink
+   keeps the denial visibly quieter than the jump beside it (`--color-tide`) without failing. */
+.wf-tide-fit-denial {
+  margin-top: 2px;
+  font-style: italic;
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+}
+/* The sheet's `.wf-loc-body` is normal block flow and needs its own bottom margin, exactly the
+   reason `.wf-loc-gate`/`.wf-callout-gate` are two separate rules a few hundred lines down: the
+   callout's `.wf-callout-body` is flex with its OWN 8px gap already, and a margin here would
+   stack on top of it there. Scoping by ancestor, rather than forking the class, keeps the ONE
+   component's CSS in one place. */
+.wf-loc-body .wf-tide-fit {
+  margin-bottom: 5px;
 }
 
 .wf-callout-topics {

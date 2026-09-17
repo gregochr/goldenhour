@@ -18,7 +18,7 @@ export default function TideWave({ className = undefined, testId = undefined }) 
     // ⚠️ `width`/`height` attributes, not only a `viewBox`. Tailwind's preflight sets
     // `svg { display: block }`, so a `viewBox`-only SVG with no CSS size takes the full width of its
     // container — measured 399.98 × 228.56px unclassed. Every mount today happens to size it
-    // (`.wf-callout-tide svg`, `.wf-maplab-chip-tw`, `.wf-reg-tide`), but the whole point of the
+    // (`.wf-tide-fit svg`, `.wf-maplab-chip-tw`, `.wf-reg-tide`), but the whole point of the
     // extraction is that a fourth is easy, and a fourth that forgets the class would get a
     // full-width wave with nothing to catch it. A CSS rule still overrides these.
     <svg

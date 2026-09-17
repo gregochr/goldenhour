@@ -1,5 +1,6 @@
 import { lookupForWindow } from './locationSheet.js';
 import { EVENT_KIND } from './mapEvents.js';
+import { STATE_WORD } from './windowFirstRows.js';
 
 /**
  * The Map tab's tide-fit derivations — pure logic only, the client's licensed slice of the
@@ -33,6 +34,50 @@ import { EVENT_KIND } from './mapEvents.js';
 export function tierOf(fact) {
   if (!fact) return null;
   return fact.aligned ? 'match' : 'miss';
+}
+
+/**
+ * The order the backend's {@code TideWording#joinOr} reads a location's wanted set in — the
+ * {@code TideType} enum's OWN declaration order ({@code entity/TideType.java}: HIGH, MID, LOW) —
+ * reproduced here so a two-value want joins identically on the client and on the server: the gate
+ * sentence ("needs low water, mid tide instead") and the fit phrase's own "wants" clause both come
+ * from the server already in this order, and {@link wantPhrase} states the SAME set for the
+ * block's jump/denial line, which sits on the same card. ⚠️ Unrelated to {@link WANT_TIE_ORDER}
+ * below, which breaks a tie for a DIFFERENT question (which want is the strip's dominant one) —
+ * this one never picks a winner, it orders every member of a set that is printed in full.
+ */
+const WANT_PHRASE_ORDER = ['HIGH', 'MID', 'LOW'];
+
+/**
+ * A location's wanted tide-types joined with "or" — {@code [a] → "a"}, {@code [a, b] → "a or b"},
+ * {@code [a, b, c] → "a, b or c"} — mirroring the backend's {@code TideWording#joinOr} exactly, so
+ * the same two-value want reads identically in the block's jump/denial line as it does in the
+ * gate sentence and the fit phrase's own "wants" clause sitting beside it on the same card
+ * (tide-window-plan.md T5 task 1: "{@code <want>} is the location's wanted set joined with 'or'").
+ *
+ * <p>Reuses {@code windowFirstRows.js}'s {@code STATE_WORD} vocabulary rather than a second copy
+ * of "high water"/"mid tide"/"low water" — the same table T6's strip header reads for the served
+ * {@code state}/{@code direction} phrase, so there is exactly one place that spells a tide state
+ * out in words on this tab.
+ *
+ * <p>This is a filter/map/select over an already-served, static field
+ * ({@code location.tideType}) — CLAUDE.md's Backend-heavy licence's second class — never a
+ * decision about WHETHER the tide fits, which stays server-owned (§5 #5's "every string is
+ * server-formatted" governs the FIT PHRASE and the gate sentence; joining a configuration set into
+ * words is the same lexical mapping {@code STATE_WORD} already performs client-side elsewhere).
+ *
+ * @param {?Array<string>} tideTypes e.g. {@code location.tideType}
+ * @returns {?string} null when given no wants at all (should not happen for a coastal location —
+ *          {@code isCoastal()} is exactly a non-empty set — but this stays defensive rather than
+ *          throwing on a malformed fixture)
+ */
+export function wantPhrase(tideTypes) {
+  const words = WANT_PHRASE_ORDER
+    .filter((type) => Array.isArray(tideTypes) && tideTypes.includes(type))
+    .map((type) => STATE_WORD[type]);
+  if (words.length === 0) return null;
+  if (words.length === 1) return words[0];
+  return `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`;
 }
 
 /**
