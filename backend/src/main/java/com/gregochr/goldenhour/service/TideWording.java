@@ -78,7 +78,7 @@ final class TideWording {
      * Minutes past Europe/London local midnight for a UTC instant — the one UTC→London conversion
      * every clock-time caller needs, previously duplicated three ways
      * ({@code BriefingSlotBuilder}, {@code TideRunBuilder.localMinutes},
-     * {@code WindowTideRollupBuilder.clockMinutesFrom}).
+     * {@code TideCurveCalculator.clockMinutesFrom}).
      *
      * @param utc the instant, UTC
      * @return minutes past local midnight, ready for {@link #clock}
@@ -148,16 +148,7 @@ final class TideWording {
     static String tideGatePhrase(Set<TideType> wanted, String tideState, String nearest,
             String solarWord) {
         StringBuilder sb = new StringBuilder("Tide not right at ").append(solarWord).append(" · ");
-        List<String> wants = new ArrayList<>();
-        // HIGH, MID, LOW in a fixed order so two locations with the same preferences read alike.
-        // (EnumSet.copyOf rejects an EMPTY plain Set, and an unconfigured location has one.)
-        EnumSet<TideType> ordered = EnumSet.noneOf(TideType.class);
-        if (wanted != null) {
-            ordered.addAll(wanted);
-        }
-        for (TideType type : ordered) {
-            wants.add(stateWord(type.name()));
-        }
+        List<String> wants = orderedWantWords(wanted);
         if (!wants.isEmpty()) {
             sb.append("needs ").append(joinOr(wants)).append(", ");
         }
@@ -171,6 +162,63 @@ final class TideWording {
         return sb.toString();
     }
 
+    /**
+     * States, in words, how the tide at a solar event compares with what a coastal location
+     * wants — the map tab's tide-fit chip, callout and location-sheet block, both tiers.
+     *
+     * <p>Two forms, deliberately different in shape rather than one template with a blank. A
+     * match names the nearest extreme — the SAME phrase {@code BriefingSlot.TideInfo
+     * .nearestSolarOffsetPhrase} already states — because that water IS the story:
+     * <pre>
+     *   high water, falling · HW 19:52 · 36m before sunset · 3.9 m
+     * </pre>
+     * A miss does <b>not</b> repeat that offset: a gated card already carries it in {@link
+     * #tideGatePhrase}'s own third clause, and printing the same offset twice on one card is the
+     * fact CLAUDE.md's tide-window rule bans. It states the light's own clock time instead, and
+     * "of X m" is the day's high water — the sampled series' own maximum, never the historical
+     * average, so it answers "how far short" rather than "how unusual":
+     * <pre>
+     *   wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m
+     * </pre>
+     *
+     * @param aligned                  whether the tide matches the location's preference — the
+     *                                 tight alignment, {@code TideInfo.tideAligned}
+     * @param wanted                   the location's acceptable tide states; empty omits the
+     *                                 "wants" clause (the miss form only)
+     * @param tideState                {@code "HIGH"}, {@code "MID"} or {@code "LOW"} — the state
+     *                                 at the event
+     * @param tideDirection            {@code "RISING"} or {@code "FALLING"}
+     * @param nearestSolarOffsetPhrase the already-formatted nearest-extreme phrase (the match
+     *                                 form only), or null to omit that clause
+     * @param solarEventTime           UTC time of the solar event — the miss form's own clock
+     * @param heightAtLight            the already-formatted height at the light, e.g. "2.6 m"
+     * @param dayHighWaterMetres       the already-formatted day's high water — the series max,
+     *                                 never the average (the miss form only)
+     * @return the fit phrase, never null
+     */
+    static String tideFitPhrase(boolean aligned, Set<TideType> wanted, String tideState,
+            String tideDirection, String nearestSolarOffsetPhrase, LocalDateTime solarEventTime,
+            String heightAtLight, String dayHighWaterMetres) {
+        String stateClause = stateWord(tideState) + ", " + directionWord(tideDirection);
+        if (aligned) {
+            StringBuilder sb = new StringBuilder(stateClause);
+            if (nearestSolarOffsetPhrase != null && !nearestSolarOffsetPhrase.isBlank()) {
+                sb.append(" · ").append(nearestSolarOffsetPhrase);
+            }
+            sb.append(" · ").append(heightAtLight);
+            return sb.toString();
+        }
+        StringBuilder sb = new StringBuilder();
+        List<String> wants = orderedWantWords(wanted);
+        if (!wants.isEmpty()) {
+            sb.append("wants ").append(joinOr(wants)).append(" · ");
+        }
+        sb.append(stateClause).append(" at ")
+                .append(clock(londonMinutesOfDay(solarEventTime)))
+                .append(" · ").append(heightAtLight).append(" of ").append(dayHighWaterMetres);
+        return sb.toString();
+    }
+
     /** {@code HIGH → "high water"}, {@code LOW → "low water"}, {@code MID → "mid tide"}. */
     private static String stateWord(String state) {
         return switch (state == null ? "" : state) {
@@ -179,6 +227,41 @@ final class TideWording {
             case "MID" -> "mid tide";
             default -> "an unknown tide";
         };
+    }
+
+    /**
+     * {@code RISING → "rising"}, {@code FALLING → "falling"}, an unrecognised or null direction
+     * (unreachable in production — {@code TideCurveCalculator.directionAt} only ever answers one
+     * of the two) named as "moving" rather than printed raw or thrown on, the same fail-soft
+     * convention {@link #stateWord}'s "an unknown tide" already uses.
+     */
+    private static String directionWord(String direction) {
+        return switch (direction == null ? "" : direction) {
+            case "RISING" -> "rising";
+            case "FALLING" -> "falling";
+            default -> "moving";
+        };
+    }
+
+    /**
+     * The location's wanted tide states, worded, HIGH/MID/LOW in a fixed order so two locations
+     * with the same preferences read alike — shared by {@link #tideGatePhrase} and
+     * {@link #tideFitPhrase}.
+     *
+     * <p>{@code EnumSet.copyOf} rejects an empty plain {@code Set}, and an unconfigured location
+     * has one, so the set is copied into an {@code EnumSet} element by element rather than via
+     * {@code copyOf}.
+     */
+    private static List<String> orderedWantWords(Set<TideType> wanted) {
+        List<String> words = new ArrayList<>();
+        EnumSet<TideType> ordered = EnumSet.noneOf(TideType.class);
+        if (wanted != null) {
+            ordered.addAll(wanted);
+        }
+        for (TideType type : ordered) {
+            words.add(stateWord(type.name()));
+        }
+        return words;
     }
 
     /** {@code [a] → "a"}, {@code [a, b] → "a or b"}, {@code [a, b, c] → "a, b or c"}. */

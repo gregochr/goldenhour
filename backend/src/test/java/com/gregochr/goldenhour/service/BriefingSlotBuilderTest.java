@@ -4,6 +4,8 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideExtremeEntity;
+import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -11,6 +13,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -49,6 +52,14 @@ class BriefingSlotBuilderTest {
     private TideService tideService;
     @Mock
     private LunarPhaseService lunarPhaseService;
+    /**
+     * The tide-fit curve's own extremes fetch. Left unstubbed in every test that does not exercise
+     * the tide-fit fields: Mockito answers an empty list, which is the "no curve to draw" degrade
+     * — {@code tideLevel}/{@code tideDirection}/{@code tideHeight}/{@code tideShortfall}/{@code
+     * tideFitPhrase} all read null, exactly as they did before this dependency existed.
+     */
+    @Mock
+    private TideExtremeRepository tideExtremeRepository;
 
     private BriefingSlotBuilder slotBuilder;
 
@@ -57,7 +68,7 @@ class BriefingSlotBuilderTest {
         slotBuilder = new BriefingSlotBuilder(solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService),
                 new BriefingVerdictEvaluator(),
-                new WoodlandVerdictEvaluator());
+                new WoodlandVerdictEvaluator(), tideExtremeRepository);
     }
 
     /** Wraps one tide curve as a dual-window result; the briefing path ignores the widened one. */
@@ -1498,6 +1509,282 @@ class BriefingSlotBuilderTest {
                     SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
 
             assertThat(slot.evaluationGate()).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("Map-tab tide-fit fields (level, direction, height, shortfall, fit phrase) "
+            + "in buildSlot")
+    class TideFitTests {
+
+        /** A UTC sunset outside BST, so the fit phrase's clock clause reads bare. */
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 1, 27, 9, 0);
+
+        /**
+         * A clean symmetric day: HIGH 03:00 / LOW 09:00 / HIGH 15:00 / LOW 21:00, all on the
+         * 30-minute sample grid so the sampled curve's min and max equal the stored heights
+         * exactly, with no interpolation error to tolerate.
+         */
+        private static List<TideExtremeEntity> symmetricDay() {
+            LocalDate day = SOLAR_TIME.toLocalDate();
+            return List.of(
+                    extreme(TideExtremeType.HIGH, day.atTime(3, 0), 4.0),
+                    extreme(TideExtremeType.LOW, day.atTime(9, 0), 1.0),
+                    extreme(TideExtremeType.HIGH, day.atTime(15, 0), 4.0),
+                    extreme(TideExtremeType.LOW, day.atTime(21, 0), 1.0));
+        }
+
+        private static TideExtremeEntity extreme(TideExtremeType type, LocalDateTime utc, double m) {
+            TideExtremeEntity e = new TideExtremeEntity();
+            e.setType(type);
+            e.setEventTime(utc);
+            e.setHeightMetres(BigDecimal.valueOf(m));
+            return e;
+        }
+
+        private LocationEntity coastalLoc(Set<TideType> wants) {
+            return LocationEntity.builder()
+                    .id(10L).name("Seaham Chemical Beach").lat(54.83).lon(-1.32)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(wants)
+                    .solarEventType(Set.of())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+        }
+
+        /**
+         * Builds a coastal slot at {@link #SOLAR_TIME}, with {@link #symmetricDay()}'s extremes
+         * behind the tide-fit curve and the given served state/alignment behind {@code
+         * TideFactDeriver} (mocked at the {@code TideService} boundary, exactly as the rest of
+         * this file does — the curve fetch is a genuinely separate, second repository call).
+         *
+         * <p>Every stubbed argument is pinned exact ({@code eq()}, never {@code any()}) where the
+         * value is knowable: {@link #stubSolarWindow()}'s fixed golden/blue window makes a SUNSET
+         * tight/widened alignment window of exactly 30/90 minutes (the same figures the "Tide
+         * window minutes" nested class above pins directly), and the curve fetch window is exactly
+         * {@code SOLAR_TIME ± CURVE_QUERY_WINDOW_DAYS}. A mutant that shrank either window would
+         * leave these stubs unmatched and the test would fail loudly rather than pass quietly.
+         */
+        private BriefingSlot build(LocationEntity loc, TideState state, boolean aligned) {
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            // A nearest extreme exactly on the light (the 09:00 LOW), so the gate sentence and
+            // the map-tab nearest-extreme phrase are both well-defined non-null strings — the
+            // case gatedMiss_offsetClauseAppearsOnceOnTheCard needs a real clause to check for.
+            TideData td = new TideData(state, false, null, null, null, null, null, SOLAR_TIME);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(SOLAR_TIME), eq(30L), eq(90L)))
+                    .thenReturn(Optional.of(dual(td)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(aligned);
+            when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                    eq(loc.getId()), eq(SOLAR_TIME.minusDays(2)), eq(SOLAR_TIME.plusDays(2))))
+                    .thenReturn(symmetricDay());
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            return slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("no extremes stored: all five tide-fit fields fail-soft to null, not an "
+                + "exception")
+        void noExtremes_fieldsFailSoftToNull() {
+            LocationEntity loc = coastalLoc(Set.of(TideType.HIGH));
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(SOLAR_TIME), eq(30L), eq(90L)))
+                    .thenReturn(Optional.of(dual(
+                            new TideData(TideState.LOW, false, null, null, null, null, null, null))));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+            // tideExtremeRepository left unstubbed: Mockito answers an empty list.
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+
+            assertThat(slot.tide().tideLevel()).isNull();
+            assertThat(slot.tide().tideDirection()).isNull();
+            assertThat(slot.tide().tideHeight()).isNull();
+            assertThat(slot.tide().tideShortfall()).isNull();
+            assertThat(slot.tide().tideFitPhrase()).isNull();
+        }
+
+        @Test
+        @DisplayName("aligned at a low water landing exactly on the light: level 0.0, direction "
+                + "RISING, height and fit phrase from the same curve the Plan tab draws")
+        void alignedOnTheLight_levelDirectionHeightAndPhrase() {
+            // The solar event lands exactly on the 09:00 LOW: level is the series' own minimum
+            // (0.0), the height is that extreme's own stored height (1.0 m) with no
+            // interpolation error, and the next extreme after it is the 15:00 HIGH, so direction
+            // is RISING — the water has just turned.
+            BriefingSlot slot = build(coastalLoc(Set.of(TideType.LOW)), TideState.LOW, true);
+
+            assertThat(slot.tide().tideLevel()).isEqualTo(0.0);
+            assertThat(slot.tide().tideDirection()).isEqualTo("RISING");
+            assertThat(slot.tide().tideHeight()).isEqualTo("1.0 m");
+            assertThat(slot.tide().tideShortfall())
+                    .as("aligned: no shortfall to report").isNull();
+            assertThat(slot.tide().tideFitPhrase())
+                    .as("the match form: state+direction, the nearest-extreme phrase (LW exactly "
+                            + "on the light — the offset rounds to \"at sunset\"), then the height")
+                    .isEqualTo("low water, rising · LW 09:00 · at sunset · 1.0 m");
+        }
+
+        @Test
+        @DisplayName("a miss below every wanted band: shortfall HIGHER, and the fit phrase "
+                + "names the wanted water, the light's own clock, and the day's high")
+        void missBelowEveryWantedBand_shortfallHigherAndPhrase() {
+            // Wants HIGH; the light lands on a LOW. Every wanted state (just HIGH) outranks the
+            // served state, so the location wants MORE water than it is getting.
+            BriefingSlot slot = build(coastalLoc(Set.of(TideType.HIGH)), TideState.LOW, false);
+
+            assertThat(slot.tide().tideShortfall()).isEqualTo("HIGHER");
+            assertThat(slot.tide().tideLevel()).isEqualTo(0.0);
+            assertThat(slot.tide().tideHeight()).isEqualTo("1.0 m");
+            assertThat(slot.tide().tideFitPhrase())
+                    .isEqualTo("wants high water · low water, rising at 09:00 · 1.0 m of 4.0 m");
+        }
+
+        @Test
+        @DisplayName("a miss above every wanted band: shortfall LOWER")
+        void missAboveEveryWantedBand_shortfallLower() {
+            // Wants LOW; served HIGH is above the top of a low-only preference. Re-derive off a
+            // different solar time so the light lands on the 03:00 HIGH instead of the LOW.
+            LocationEntity loc = coastalLoc(Set.of(TideType.LOW));
+            LocalDateTime onTheHigh = LocalDateTime.of(2026, 1, 27, 3, 0);
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(onTheHigh);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(onTheHigh), eq(30L), eq(90L)))
+                    .thenReturn(Optional.of(dual(
+                            new TideData(TideState.HIGH, false, null, null, null, null, null, null))));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+            when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                    eq(loc.getId()), eq(onTheHigh.minusDays(2)), eq(onTheHigh.plusDays(2))))
+                    .thenReturn(symmetricDay());
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    onTheHigh.toLocalDate(), TargetType.SUNSET);
+
+            assertThat(slot.tide().tideShortfall()).isEqualTo("LOWER");
+        }
+
+        @Test
+        @DisplayName("a wanted set straddling the state reports no shortfall — one arrow cannot "
+                + "say both 'higher' and 'lower'")
+        void straddlingWantedSet_noShortfall() {
+            // Wants HIGH or LOW; served MID sits between both — HIGH outranks MID but LOW does
+            // not, so neither "every wanted state is higher" nor "every wanted state is lower"
+            // holds, and the chip must draw the plain miss wave rather than guess a direction.
+            BriefingSlot slot =
+                    build(coastalLoc(Set.of(TideType.HIGH, TideType.LOW)), TideState.MID, false);
+
+            assertThat(slot.tide().tideShortfall()).isNull();
+            assertThat(slot.tide().tideFitPhrase())
+                    .as("the phrase still names both wanted states, in gate-phrase order, even "
+                            + "with no single arrow to draw")
+                    .isEqualTo("wants high water or low water · mid tide, rising at 09:00 "
+                            + "· 1.0 m of 4.0 m");
+        }
+
+        @Test
+        @DisplayName("extremes exist in the wider fetch window but none fall close enough to the "
+                + "light to draw a shape from: fields fail-soft to null rather than throwing")
+        void extremesOutsideTheDrawableWindow_fieldsFailSoftToNull() {
+            // TideCurveCalculator.seriesAround narrows to [localDate-1, localDate+1]; a row two
+            // days before SOLAR_TIME's date is inside the +/-2-day repository fetch but outside
+            // that narrower window, so the fetch returns a non-empty list yet the drawable series
+            // is empty. Skipping the second guard throws IndexOutOfBoundsException out of the
+            // whole briefing build instead of degrading this one slot.
+            LocationEntity loc = coastalLoc(Set.of(TideType.HIGH));
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(SOLAR_TIME), eq(30L), eq(90L)))
+                    .thenReturn(Optional.of(dual(
+                            new TideData(TideState.LOW, false, null, null, null, null, null, null))));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+            List<TideExtremeEntity> tooFarOut = List.of(
+                    extreme(TideExtremeType.HIGH, SOLAR_TIME.minusDays(2).plusHours(1), 4.0));
+            when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                    eq(loc.getId()), eq(SOLAR_TIME.minusDays(2)), eq(SOLAR_TIME.plusDays(2))))
+                    .thenReturn(tooFarOut);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+
+            assertThat(slot).as("must not throw").isNotNull();
+            assertThat(slot.tide().tideLevel()).isNull();
+            assertThat(slot.tide().tideDirection()).isNull();
+            assertThat(slot.tide().tideHeight()).isNull();
+            assertThat(slot.tide().tideFitPhrase()).isNull();
+        }
+
+        @Test
+        @DisplayName("the tide-fit fields track the TIGHT alignment, never the widened one — a "
+                + "future accidental swap here would make the chip's match tier looser than the "
+                + "gate (task 5's confirmation)")
+        void tideFitFieldsTrackTightAlignmentNotWidened() {
+            LocationEntity loc = coastalLoc(Set.of(TideType.HIGH));
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            // Distinct TideData objects (nearMidPoint differs) so eq() can tell tight from
+            // widened apart — a real record equal to itself would let Mockito match either stub
+            // for either argument, hiding exactly the bug this test exists to catch.
+            TideData tight = new TideData(TideState.LOW, false, null, null, null, null, null, null);
+            TideData widened = new TideData(TideState.LOW, true, null, null, null, null, null, null);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(SOLAR_TIME), eq(30L), eq(90L)))
+                    .thenReturn(Optional.of(new TideService.DualWindowTideData(tight, widened)));
+            // Tight (the gate's own input) says not aligned; widened (the scoring-only 3* band,
+            // never served on the briefing path) says aligned.
+            when(tideService.calculateTideAligned(eq(tight), any())).thenReturn(false);
+            when(tideService.calculateTideAligned(eq(widened), any())).thenReturn(true);
+            when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                    eq(loc.getId()), eq(SOLAR_TIME.minusDays(2)), eq(SOLAR_TIME.plusDays(2))))
+                    .thenReturn(symmetricDay());
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+
+            assertThat(slot.tide().tideAligned())
+                    .as("the served alignment is the tight one").isFalse();
+            assertThat(slot.tide().tideShortfall())
+                    .as("a miss — reading widened here would report no shortfall at all")
+                    .isEqualTo("HIGHER");
+            assertThat(slot.tide().tideFitPhrase())
+                    .as("the miss form — reading widened here would print the match form instead")
+                    .startsWith("wants high water ·");
+        }
+
+        @Test
+        @DisplayName("the miss phrase never repeats the nearest-extreme offset the gate "
+                + "sentence already carries, on the same gated card")
+        void gatedMiss_offsetClauseAppearsOnceOnTheCard() {
+            BriefingSlot slot = build(coastalLoc(Set.of(TideType.HIGH)), TideState.LOW, false);
+
+            assertThat(slot.evaluationGate()).as("this miss is a hard-constraint gate").isNotNull();
+            String offsetClause = slot.tide().nearestSolarOffsetPhrase();
+            assertThat(offsetClause).as("a nearest extreme exists to be duplicated").isNotBlank();
+            assertThat(slot.tide().tideFitPhrase())
+                    .as("the fit phrase's miss form states its own clock, not the offset clause")
+                    .doesNotContain(offsetClause);
+            assertThat(slot.evaluationGate())
+                    .as("the offset clause lives on the gate sentence").endsWith(offsetClause);
         }
     }
 }

@@ -6,18 +6,24 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
+import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.BriefingWindowTide;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -26,13 +32,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -353,5 +364,164 @@ class TideSurfaceAgreementTest {
                 .region(region)
                 .enabled(true)
                 .build();
+    }
+
+    /**
+     * §7 check 9 (T1): the Plan tab's window rollup and the map tab's per-slot tide-fit fields
+     * must state the same water for the same location and window.
+     *
+     * <h2>Why this class exists</h2>
+     *
+     * <p>{@code BriefingWindowTide.windowLevel}/{@code .direction} ({@link WindowTideRollupBuilder})
+     * and {@code BriefingSlot.TideInfo.tideLevel}/{@code .tideDirection} ({@link
+     * BriefingSlotBuilder}) are two independent call sites onto the same {@link
+     * TideCurveCalculator} cosine, each with its own fetch of the stored extremes. A regression
+     * that made one fetch a different window, or a future edit that let one caller round
+     * differently, would be invisible to either class's own suite — each tests its own output
+     * against its own fixture. Here, ONE set of extremes drives both builders, so neither fixture
+     * can pre-satisfy its own predicate (the same discipline the class-level javadoc above states
+     * for the spring/king detectors).
+     *
+     * <p><b>Real {@link TideCurveCalculator} maths, real {@link TideFactDeriver}, mocked
+     * repositories only.</b> Both builders run for real; only the DB reads and the solar-window
+     * geometry are stubbed. A single {@link TideFactDeriver} instance backs both builders' tight
+     * alignment window, matching production (both size it off the same formula).
+     */
+    @Nested
+    @DisplayName("the window rollup and the per-slot fields agree, from one set of extremes")
+    class WindowSlotCurveAgreement {
+
+        /** Europe/London is UTC in January, so a stored UTC extreme reads as its own clock time. */
+        private static final LocalDate DAY = LocalDate.of(2026, 1, 27);
+
+        /**
+         * Sunset lands between the 09:00 LOW and the 15:00 HIGH: a genuinely interpolated level.
+         *
+         * <p>Deliberately <em>not</em> 12:00, the exact midpoint of that pair — a fixed point of
+         * both scale inversion and a min/max swap (level 0.5 either way), which would let those
+         * exact bugs through this test unnoticed on either side.
+         */
+        private static final LocalDateTime SUNSET = DAY.atTime(12, 40);
+
+        @Mock
+        private MarineWaveRepository marineWaveRepository;
+
+        @Mock
+        private SolarService solarService;
+
+        @Mock
+        private LocationService locationService;
+
+        private List<TideExtremeEntity> symmetricDay() {
+            return List.of(
+                    highWater(DAY.atTime(3, 0), new BigDecimal("4.0")),
+                    lowWater(DAY.atTime(9, 0), new BigDecimal("1.0")),
+                    highWater(DAY.atTime(15, 0), new BigDecimal("4.0")),
+                    lowWater(DAY.atTime(21, 0), new BigDecimal("1.0")));
+        }
+
+        private static TideExtremeEntity lowWater(LocalDateTime utc, BigDecimal metres) {
+            TideExtremeEntity extreme = new TideExtremeEntity();
+            extreme.setLocationId(LOCATION_ID);
+            extreme.setEventTime(utc);
+            extreme.setHeightMetres(metres);
+            extreme.setType(TideExtremeType.LOW);
+            return extreme;
+        }
+
+        @Test
+        @DisplayName("the representative window's level and direction match the coastal slot's "
+                + "own, to within 0.01 and exactly, from the identical extremes")
+        void windowLevelAndSlotLevelAgree() {
+            LocationEntity location = coastalLocation();
+            List<TideExtremeEntity> extremes = symmetricDay();
+
+            // Real TideFactDeriver, shared by both builders — the same formula sizes the tight
+            // alignment window for the row and for the slot beneath it, matching production.
+            TideFactDeriver tideFactDeriver =
+                    new TideFactDeriver(tideService, lunarPhaseService, solarService);
+            when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+                    .thenReturn(new SolarService.SolarWindow(
+                            SUNSET.minusMinutes(30), SUNSET.minusMinutes(15),
+                            SUNSET.minusMinutes(45), SUNSET.minusMinutes(30)));
+            when(solarService.sunsetUtc(eq(location.getLat()), eq(location.getLon()), eq(DAY)))
+                    .thenReturn(SUNSET);
+
+            // ── the Plan tab's window rollup ────────────────────────────────────────────
+            when(locationRepository.findCoastalLocations()).thenReturn(List.of(location));
+            // WindowTideRollupBuilder.fetchExtremes: a day either side of the London day, as UTC
+            // — pinned exact rather than any(), so a mutant that shrank the margin (and so
+            // dropped a bracketing extreme the shape needs) would fail this test, not just its
+            // own suite. January is UTC in London, so the London-day math is bare arithmetic here.
+            when(tideExtremeRepository.findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(
+                    eq(List.of(location.getId())),
+                    eq(DAY.minusDays(1).atStartOfDay()), eq(DAY.plusDays(2).atStartOfDay())))
+                    .thenReturn(extremes);
+            WindowTideRollupBuilder rollupBuilder = new WindowTideRollupBuilder(locationRepository,
+                    tideExtremeRepository, marineWaveRepository, tideService, solarService,
+                    tideFactDeriver, "");
+            BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET,
+                    List.of(), List.of());
+            BriefingDay day = new BriefingDay(DAY, List.of(summary));
+            Map<PlanWindowProjector.WindowKey, BriefingWindowTide> rollups =
+                    rollupBuilder.build(List.of(day));
+            BriefingWindowTide window =
+                    rollups.get(new PlanWindowProjector.WindowKey(DAY, TargetType.SUNSET));
+            assertThat(window).as("the symmetric day is drawable — both a high and a low").isNotNull();
+
+            // ── the map tab's per-slot fields ───────────────────────────────────────────
+            when(locationService.isCoastal(location)).thenReturn(true);
+            TideData midTide = new TideData(
+                    TideState.MID, false, null, null, null, null, null, null);
+            when(tideService.deriveDualWindowTideData(eq(location.getId()), eq(SUNSET),
+                    eq(15L), eq(75L)))
+                    .thenReturn(Optional.of(new TideService.DualWindowTideData(midTide, midTide)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+            // BriefingSlotBuilder.curveFacts: SUNSET +/- 2 days, pinned exact for the same reason
+            // as the rollup's own fetch above — the two windows must stay the "same rows" the
+            // class javadoc promises, and a mutant narrowing either one alone must fail here.
+            when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                    eq(location.getId()), eq(SUNSET.minusDays(2)), eq(SUNSET.plusDays(2))))
+                    .thenReturn(extremes);
+            BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(solarService, locationService,
+                    tideFactDeriver, new BriefingVerdictEvaluator(), new WoodlandVerdictEvaluator(),
+                    tideExtremeRepository);
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(location, weatherResponse()),
+                    DAY, TargetType.SUNSET);
+
+            assertThat(slot.tide().tideLevel())
+                    .as("driven from the same extremes as the window rollup")
+                    .isCloseTo(window.windowLevel(), within(0.01));
+            assertThat(slot.tide().tideDirection()).isEqualTo(window.direction().name());
+        }
+
+        private OpenMeteoForecastResponse weatherResponse() {
+            OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
+            OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+            List<String> times = new ArrayList<>();
+            List<Integer> cloudLow = new ArrayList<>();
+            List<Double> visibility = new ArrayList<>();
+            List<Double> windSpeed = new ArrayList<>();
+            List<Double> precip = new ArrayList<>();
+            List<Integer> humidity = new ArrayList<>();
+            LocalDateTime start = DAY.minusDays(1).atStartOfDay();
+            for (int i = 0; i < 72; i++) {
+                times.add(start.plusHours(i).toString());
+                cloudLow.add(20);
+                visibility.add(15000.0);
+                windSpeed.add(5.0);
+                precip.add(0.0);
+                humidity.add(70);
+            }
+            hourly.setTime(times);
+            hourly.setCloudCoverLow(cloudLow);
+            hourly.setVisibility(visibility);
+            hourly.setWindSpeed10m(windSpeed);
+            hourly.setPrecipitation(precip);
+            hourly.setRelativeHumidity2m(humidity);
+            response.setHourly(hourly);
+            return response;
+        }
     }
 }

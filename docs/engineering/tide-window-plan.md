@@ -40,15 +40,17 @@ added `BriefingSlot.evaluationGate`, the callout's `.wf-callout-gate` row and th
 
 ## §0 Status
 
-**Status: PLANNED — no phase started.** Plan written 2026-09-17 against `origin/main` at `75ff1f90`
-(#871). Owner decisions this plan needs are listed in §6; **none blocks T1–T3**, and §5 #1 (keep the
-gate) lets T4–T8 proceed without one — the owner challenges §5 on the plan PR, not in code.
+**Status: IN PROGRESS — T1 built, T2–T8 not started.** Plan written 2026-09-17 against
+`origin/main` at `75ff1f90` (#871). Owner decisions this plan needs are listed in §6; **none blocks
+T1–T3**, and §5 #1 (keep the gate) lets T4–T8 proceed without one — the owner challenges §5 on the
+plan PR, not in code.
 
-Phase log (T1 creates the first row; every phase appends its own in the same commit as its code):
+Phase log (T1 creates the first row; every phase appends its own in the same commit as its code —
+the commit column names the PR once it lands, since a phase cannot name its own hash):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| T1 — per-slot tide facts (backend) | `feature/tide-t1-slot-facts` | pending PR | 2026-09-17 | Re-verified every file:line the plan cited against the tree before editing — all current, no drift since 2026-09-17. **Task 5's stop condition did not fire**: `TideFactDeriver.java:96–97` still computes `tideAligned` from the *tight* `tideData` and `widenedAligned` from `dualMaybe.get().widened()` separately, `BriefingSlotBuilder` still serves the tight one, and the new tide-fit fields read that same served field — confirmed by a dedicated test (`tideFitFieldsTrackTightAlignmentNotWidened`) that gives `calculateTideAligned` two distinguishable `TideData` objects and proves the miss form prints when tight says no even though widened says yes. **The lift is behaviourally identical**: `WindowTideRollupBuilderTest` (43 tests) passes with a literal `git diff --stat` of zero on that file, both before and after a follow-on cleanup that also moved the day-axis position formula (`positionOf`) and the rounding helper into `TideCurveCalculator`, deleting the two duplicate copies the first cut had left behind in `WindowTideRollupBuilder`. ⚠️ **Adversarial review (5 lenses: correctness, the lift's behavioural identity, test quality, Checkstyle/Javadoc, what it makes harder for T2/T3) found one crash the local gate's own green run had not exercised**: `curveFacts` guarded on the fetched rows being non-empty, not on the *date-filtered* series `TideCurveCalculator.seriesAround` narrows them to — a location whose stored extremes sit right at the ingestion horizon, briefed two days past it, hit a non-empty fetch and an empty series, and `heightAt` indexed off the end of it. Fixed with a second guard and a regression test that reproduces the exact `IndexOutOfBoundsException` (proven by removing the guard and watching the new test fail on cue, then restoring it). A second, narrower finding — the miss phrase's height could print a fraction above the "of X m" day-high figure beside it, since one is an unclamped interpolation and the other a 30-minute sample max — is fixed by flooring the day-high at the light's own height. Test suite grew from the review pass too: eq()-pinned mock windows in place of `any()` where the value was knowable, a tight-vs-widened distinguishing test, a BST case for the date/clock conversions, boundary tests at `bracket`'s exact-midnight edges and the flat-span threshold, and an exact-string assertion for the match-tier fit phrase that had been asserted only by its component parts before. Nothing in T1 is browser-visible. |
 
 ---
 
