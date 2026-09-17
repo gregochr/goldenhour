@@ -393,12 +393,24 @@
     @apply bg-plex-surface rounded-xl border border-plex-border p-4;
   }
 
+  /* The focus utilities of all three `.btn*` classes, and two ways they have already gone wrong:
+
+     ⚠️ `outline-hidden`, NOT `outline-none`. The ring is a `box-shadow`, and forced-colours mode
+     (Windows High Contrast) removes every box-shadow, so under `outline-none`, which Tailwind 4
+     compiles to `outline-style: none`, a focused button showed nothing there at all. Outside that
+     mode `outline-hidden` is the same `outline-style: none`; inside it, it is a transparent 2px
+     outline at a 2px offset, which the mode repaints in a system colour. That is the band the ring
+     draws in (`ring-offset-2`, then `ring-2`), so the indicator lands where the ring would have.
+
+     ⚠️ `focus-visible:`, NOT `focus:`. Chromium and Firefox focus a button on a mouse press (Safari
+     does not), so a `focus:` ring appeared on every click and stayed until focus moved on — for the
+     whole request, on a button that stays focused while it is busy. */
   .btn {
-    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-plex-bg;
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg;
   }
 
   .btn-primary {
-    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-plex-bg bg-plex-gold hover:bg-plex-gold-light text-gray-900 focus:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-gold;
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-gold hover:bg-plex-gold-light text-gray-900 focus-visible:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-gold;
   }
 
   /* `focus-visible:ring-plex-gold`, not `focus:ring-plex-border`. Two defects in one utility: the
@@ -407,7 +419,7 @@
      button flashed a ring no pointer user asked for. Gold matches .btn-primary, which was already
      correct at 15.1:1. */
   .btn-secondary {
-    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus-visible:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-surface-light;
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus-visible:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-surface-light;
   }
 }
 

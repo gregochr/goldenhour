@@ -39,9 +39,9 @@ const DEFAULT_RADIUS_MILES = 22;
  * `-mx-1 px-1` pair gives the text room inside it without moving the text.
  *
  * <p>⚠️ Text landings only. Two landings are buttons — "Back to settings" (`.btn-secondary`) and
- * Refresh (`.btn-primary`) — and keep their class's ring, a box-shadow under `outline-none`, so in
- * forced colours they land with no indicator. Every `.btn-*` in the app shares that, so it is fixed
- * in those classes or not at all — not here.
+ * Refresh (`.btn-primary`) — and take their class's own focus treatment instead: the ring, and the
+ * transparent outline forced colours repaints, both on `focus-visible:` (index.css, the `.btn*`
+ * rules). A fix to that belongs in those classes, not here.
  */
 const LANDING_TARGET = '-mx-1 px-1 rounded-sm focus-visible:outline-2 focus-visible:outline-plex-gold';
 
@@ -55,9 +55,9 @@ const LANDING_TARGET = '-mx-1 px-1 rounded-sm focus-visible:outline-2 focus-visi
  * <p>⚠️ So it looks as it did in ordinary rendering, and not in two cases. Forced-colours mode
  * repaints a `disabled` button's text and border in the system's GrayText and leaves an
  * `aria-disabled` one in ButtonText (measured in Chromium), so there the busy state shows only as
- * the dimming. And the button KEEPS the focus a mouse press gave it — Chromium focuses a pressed
- * button, Safari does not — so `.btn-primary`'s ring, a `focus:` rule rather than `focus-visible:`,
- * stays drawn through the request where `disabled` used to take the focus, and the ring, away.
+ * the dimming. And a reader who pressed it from the keyboard keeps focus on it, so its focus
+ * indicator stays drawn through the request where `disabled` used to take the focus, and the
+ * indicator, away — dimmed with the button to 40%.
  */
 const BUSY_BUTTON = 'aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-plex-gold';
 
