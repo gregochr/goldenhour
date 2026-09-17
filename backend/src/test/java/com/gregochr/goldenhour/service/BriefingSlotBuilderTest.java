@@ -1750,9 +1750,12 @@ class BriefingSlotBuilderTest {
                     eq(loc.getId()), eq(SOLAR_TIME), eq(30L), eq(90L)))
                     .thenReturn(Optional.of(new TideService.DualWindowTideData(tight, widened)));
             // Tight (the gate's own input) says not aligned; widened (the scoring-only 3* band,
-            // never served on the briefing path) says aligned.
-            when(tideService.calculateTideAligned(eq(tight), any())).thenReturn(false);
-            when(tideService.calculateTideAligned(eq(widened), any())).thenReturn(true);
+            // never served on the briefing path) says aligned. The wanted set is pinned to the
+            // location's own — any() here would let this pass even if calculateTideData started
+            // passing the wrong (or an empty) preference set, which is exactly the wiring this
+            // test exists to protect.
+            when(tideService.calculateTideAligned(eq(tight), eq(loc.getTideType()))).thenReturn(false);
+            when(tideService.calculateTideAligned(eq(widened), eq(loc.getTideType()))).thenReturn(true);
             when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
                     eq(loc.getId()), eq(SOLAR_TIME.minusDays(2)), eq(SOLAR_TIME.plusDays(2))))
                     .thenReturn(symmetricDay());
