@@ -101,16 +101,6 @@ public record BriefingSlot(
     }
 
     /**
-     * Returns a copy of this slot marked as withheld from Claude, with the reason in words.
-     *
-     * <p>A wither rather than a constructor argument because the gate is decided AFTER the slot
-     * exists: {@code BriefingSlotBuilder} asks {@code BriefingGatingPolicy} about the finished
-     * slot, so the policy stays the one place that knows which reasons gate.
-     *
-     * @param gate the plain-English reason, or null to clear it
-     * @return a new slot, every other field unchanged
-     */
-    /**
      * Whether this slot could carry a Claude rating — the coverage denominator's membership test.
      *
      * <p>One predicate, two callers ({@code BriefingHonestyFilter}'s zero-coverage defence and
@@ -130,6 +120,16 @@ public record BriefingSlot(
         return !canopy && evaluationGate == null;
     }
 
+    /**
+     * Returns a copy of this slot marked as withheld from Claude, with the reason in words.
+     *
+     * <p>A wither rather than a constructor argument because the gate is decided AFTER the slot
+     * exists: {@code BriefingSlotBuilder} asks {@code BriefingGatingPolicy} about the finished
+     * slot, so the policy stays the one place that knows which reasons gate.
+     *
+     * @param gate the plain-English reason, or null to clear it
+     * @return a new slot, every other field unchanged
+     */
     public BriefingSlot withEvaluationGate(String gate) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, claudeRating, fierySkyPotential, goldenHourPotential,
