@@ -5157,12 +5157,23 @@ button.wf-hc.also.on:hover {
 .wf-maplab-chip[data-tide='match'] {
   box-shadow: inset 0 0 0 1px rgba(111, 168, 176, .45);
 }
-/* The miss de-emphasis (design §3: `opacity:.72`, restored by hover and selection) — see the
-   phase log for the browser-measured contrast against `.wf-loc-row`'s own `.8` precedent
-   (index.css:8395's note) and which value shipped. Applied to the WHOLE chip (name, star, swatch
+/* The miss de-emphasis (design §3: `opacity:.72`, restored by hover and selection) — `.72` WON
+   over `.wf-loc-row`'s own `.8` precedent (index.css:8395's note). See T4's phase log for the full
+   working: analytically, not pixel-sampled (the Esri tile is cross-origin, so a canvas sample of
+   the live basemap throws a tainted-canvas error; the compositing itself was verified live —
+   `getComputedStyle` on a real seeded chip confirmed `opacity: 0.72` and the star/swatch untouched).
+   The chip's OWN plate (`rgba(14,11,9,.84)`, below) is already near-opaque, so unlike
+   `.wf-loc-row`'s translucent card — which genuinely failed AA at a lower value because the page's
+   own background showed through it — the container opacity barely moves the LOCAL text-vs-plate
+   contrast at all: composited over a representative dark basemap (`rgb(20,15,12)`, this app's own
+   figure for "the basemap's darkest sampled tile" elsewhere in this plan) the name text still reads
+   ~8.5:1; even composited over this app's own light land tone (~`rgb(170,165,150)`, sampled by eye
+   from a seeded screenshot) it holds ~6.2:1 — both comfortably clear AA's 4.5:1, so `.8` bought
+   nothing here that `.72` did not already have. Applied to the WHOLE chip (name, star, swatch
    included) — never excluded per-element the way `.wf-loc-row`'s dim spares its rating badge —
    because §5 #2's own rule is that a rated miss shows its STAR dimmed; §7 check 12 pins that the
-   star's computed colour is untouched, only its opacity. */
+   star's computed colour is untouched, only its opacity (confirmed live: a real 2★ miss chip's
+   swatch `background-color` matched `rampHex(2)` exactly, opacity aside). */
 .wf-maplab-chip[data-tide='miss'] {
   opacity: .72;
 }
