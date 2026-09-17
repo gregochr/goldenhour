@@ -587,7 +587,7 @@ export default function UserSettingsModal({
                   onKeyDown={handleKeyDown}
                   placeholder="Enter UK postcode"
                   ref={postcodeRef}
-                  className="flex-1 px-3 py-1.5 text-sm bg-plex-bg border border-plex-border rounded-lg text-plex-text placeholder:text-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                  className="flex-1 px-3 py-1.5 text-sm bg-plex-bg border border-plex-border rounded-lg text-plex-text placeholder:text-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                   data-testid="settings-postcode-input"
                 />
                 {/* Truly disabled only while the field is empty — a state the reader cannot reach

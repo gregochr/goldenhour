@@ -96,7 +96,7 @@ export default function ChangePasswordPage() {
                 type={showNew ? 'text' : 'password'}
                 data-testid="cp-new-password"
                 autoComplete="new-password"
-                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 disabled={isPending}
@@ -123,7 +123,7 @@ export default function ChangePasswordPage() {
                 type={showConfirm ? 'text' : 'password'}
                 data-testid="cp-confirm-password"
                 autoComplete="new-password"
-                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={isPending}

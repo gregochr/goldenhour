@@ -4519,7 +4519,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               <select
                 value={driveTimeFilter}
                 onChange={(e) => setDriveTimeFilter(parseInt(e.target.value, 10))}
-                className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                 data-testid="drive-time-filter-select"
                 title="Filter by drive time from home"
               >

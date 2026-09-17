@@ -593,10 +593,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
     else if (!isCoastal) setAddTideTypes([]);
   }
 
-  const inlineInputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold';
-  const inlineSelectClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-1 py-0.5 text-xs text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold';
+  const inlineInputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text focus:outline-hidden focus:ring-1 focus:ring-plex-gold';
+  const inlineSelectClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-1 py-0.5 text-xs text-plex-text focus:outline-hidden focus:ring-1 focus:ring-plex-gold';
 
-  const selectClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold';
+  const selectClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-hidden focus:ring-1 focus:ring-plex-gold';
   const labelClass = 'block text-xs text-plex-text-secondary mb-1';
 
   return (
@@ -1004,7 +1004,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   <input
                     id="place-name"
                     type="text"
-                    className="flex-1 bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                    className="flex-1 bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                     placeholder="e.g. Bamburgh, Northumberland"
                     value={placeName}
                     onChange={(e) => setPlaceName(e.target.value)}
@@ -1120,7 +1120,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 <input
                   id="manual-name"
                   type="text"
-                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                   placeholder="e.g. Bamburgh Castle"
                   value={manualName}
                   onChange={(e) => setManualName(e.target.value)}
@@ -1134,7 +1134,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     id="manual-lat"
                     type="number"
                     step="any"
-                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                     placeholder="e.g. 55.6089"
                     value={manualLat}
                     onChange={(e) => setManualLat(e.target.value)}
@@ -1147,7 +1147,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     id="manual-lon"
                     type="number"
                     step="any"
-                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                     placeholder="e.g. -1.7099"
                     value={manualLon}
                     onChange={(e) => setManualLon(e.target.value)}
