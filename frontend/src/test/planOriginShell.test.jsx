@@ -222,64 +222,107 @@ describe('WindowFirstShell — the origin', () => {
   });
 
   describe('the / shortcut', () => {
+    /**
+     * Opens search with {@code /} and closes it again: the positive control every refusal below
+     * runs before its own press.
+     *
+     * <p>⚠️ <b>Without it, each refusal passes with its guard deleted when the test runs alone.</b>
+     * {@code PlanSearch} is {@code lazy()}, and the first time the shell renders it, it suspends,
+     * even when its module is already loaded (measured). A press the guard failed to refuse then
+     * commits only the {@code Suspense} fallback, which draws nothing, so
+     * {@code queryByTestId('plan-search')} is null whether or not the press opened search. In a
+     * whole-file run the refusals did fail on their mutants, but only because an earlier test had
+     * already opened search.
+     *
+     * <p>Opening search once through the shell, and waiting for it, settles that first suspension.
+     * From then on, a press that opens search renders it in that press's own commit, so an absence
+     * asserted straight after the press means the press was refused. Escape closes it again, so
+     * each refusal starts with no dialog open.
+     */
+    const openAndCloseSearch = async () => {
+      fireEvent.keyDown(document, { key: '/' });
+      expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+    };
+
     it('opens search on the Plan tab', async () => {
       renderShell();
       fireEvent.keyDown(document, { key: '/' });
       expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
     });
 
-    it('⚠️ is ignored while the reader is typing in a field', () => {
+    it('⚠️ is ignored while the reader is typing in a field', async () => {
       renderShell();
+      await openAndCloseSearch();
       const field = document.createElement('input');
       document.body.appendChild(field);
-      field.focus();
-      fireEvent.keyDown(field, { key: '/' });
-      expect(screen.queryByTestId('plan-search')).toBeNull();
-      field.remove();
+      try {
+        field.focus();
+        fireEvent.keyDown(field, { key: '/' });
+        expect(screen.queryByTestId('plan-search')).toBeNull();
+        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+      } finally {
+        field.remove();
+      }
     });
 
-    it('⚠️ is ignored when a modifier is held, so browser shortcuts are untouched', () => {
+    it('⚠️ is ignored when a modifier is held, so browser shortcuts are untouched', async () => {
       renderShell();
+      await openAndCloseSearch();
       fireEvent.keyDown(document, { key: '/', metaKey: true });
       expect(screen.queryByTestId('plan-search')).toBeNull();
+      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
     });
 
-    it('⚠️ is ignored while a dialog this shell does not own is open', () => {
+    it('⚠️ is ignored while a dialog this shell does not own is open', async () => {
       // `UserSettingsModal` is a SIBLING of the shell in `App`, so the shell's own `modalOpen` flag
       // cannot see it — and `/` over it stacked a second `aria-modal` overlay, with two
       // document-level Escape handlers and two interleaved focus restores.
       renderShell();
+      // Before the foreign dialog exists, because that dialog refuses the control's own press.
+      await openAndCloseSearch();
       const foreign = document.createElement('div');
       foreign.setAttribute('role', 'dialog');
       document.body.appendChild(foreign);
       try {
         fireEvent.keyDown(document, { key: '/' });
         expect(screen.queryByTestId('plan-search')).toBeNull();
+        // `getByRole` throws on a second dialog, so this also says nothing else opened.
+        expect(screen.getByRole('dialog')).toBe(foreign);
       } finally {
         foreign.remove();
       }
     });
 
-    it('is ignored while the arm is greyed for a dead backend', () => {
+    it('is ignored while the arm is greyed for a dead backend', async () => {
       // The shell is `pointer-events: none` under `contentDisabled`; a keyboard shortcut into it
       // would be the one live control on a surface that says it is not.
       const value = ctx();
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
-      render(<WindowFirstShell
-        onOpenSettings={vi.fn()}
-        onSignOut={vi.fn()}
-        onShowOnMap={vi.fn()}
-        contentDisabled
-      />);
+      const props = shellProps();
+      const view = render(<WindowFirstShell {...props} />);
+      // The control needs a live arm, because a greyed one refuses it too, so the arm greys after
+      // it. That is also the app's order: health status starts unknown, so the shell first mounts
+      // live and greys only once the status reads DOWN.
+      await openAndCloseSearch();
+      view.rerender(<WindowFirstShell {...props} contentDisabled />);
+
       fireEvent.keyDown(document, { key: '/' });
       expect(screen.queryByTestId('plan-search')).toBeNull();
+      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
     });
 
-    it('is ignored on another tab, where there is no window list to search into', () => {
+    it('is ignored on another tab, where there is no window list to search into', async () => {
       renderShell();
+      // The control runs on Plan, the only tab where `/` opens search. Without it, this absence is
+      // only the unresolved lazy boundary (see `openAndCloseSearch`), and the test passed alone
+      // with the tab guard deleted.
+      await openAndCloseSearch();
       fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
       fireEvent.keyDown(document, { key: '/' });
       expect(screen.queryByTestId('plan-search')).toBeNull();
+      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
     });
   });
 
