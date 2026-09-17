@@ -327,6 +327,33 @@ Two traps specific to this codebase:
   reads the map, `MapView`'s own suites mount it, and keeping it real would have had the file mock
   the map's reads and fixture its rules. A child that fails any of those stays real, and its wait
   gets measured under the load reproduction.
+- Do not assert that an action opened nothing across a `React.lazy` boundary until that component
+  has rendered once in the file. This is the mirror image of the bullet above. A lazy component
+  suspends the first time it renders, so an action that did open it commits only the Suspense
+  fallback, and `queryByTestId(...)` is null either way. Once a test has rendered it, it renders in
+  the action's own commit for the rest of the file, which is how a whole-file run hides the defect:
+  `planOriginShell.test.jsx`'s five `/` refusals each failed on its mutant in the whole file, where
+  earlier tests had opened search, and each passed alone with its guard deleted. Two fixes that look
+  right do not work, measured with the tab guard deleted. Importing `PlanSearch.jsx` before the
+  press still left search absent at a synchronous assertion, because the first render still
+  suspends. Pressing inside `await act(async () => …)` found search in 3 runs of 3 when the module
+  had been imported first, and in none of 3 with nothing loaded, so whether it works depends on what
+  ran before: the same order dependency. Three shapes do work, each measured with the guard deleted
+  and the test run alone:
+  - **Render it once first.** Open it through the component, wait for it, close it, then act and
+    assert synchronously: `openAndCloseSearch` in `planOriginShell.test.jsx`, or
+    `WindowFirstShellTabs.test.jsx`'s "opens nothing when the place in the tick line is pressed on
+    Coming up". If the refusal's own condition would refuse that control too (a greyed arm, a
+    foreign dialog), run the control before applying the condition.
+  - **Assert on something already on screen that the action changes in the same commit.**
+    `locationSheetShell.test.jsx`'s THIRD-layer refusals check that the location sheet stays
+    uncovered (no `inert`, still `aria-modal`). With the beyond-line link's guard deleted, the
+    beyond-line test's `plan-search` absence still passed, and its `inert` assertion failed.
+  - **Assert what the handler decides synchronously**, where that is itself the rule.
+    `fireEvent.keyDown` returns `false` when a listener called `preventDefault()`, so deleting a
+    guard in a handler that prevents the default only when it acts fails the test with nothing
+    loaded. That shows the handler stood down, not what rendered, so it fits where the key's own
+    default is the point: a `/` typed into a field, or a browser shortcut.
 - Do not put an assertion inside a raw `requestAnimationFrame` (or `setTimeout`) callback and settle
   a promise after it. A throw there never reaches the `resolve()` on the next line, so the promise
   never settles and the test does not fail — it **hangs to `testTimeout`**. The failure you get is a
