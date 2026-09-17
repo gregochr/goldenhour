@@ -1456,6 +1456,12 @@ export default function WindowFirstShell({
           // popup this button leaves the tab order — it cannot be what moves the origin with a
           // sheet up. Kept because the invariant is stated once per route, not once per reachable
           // route. One rule, every route.
+          //
+          // Focus is the tick line's to settle, not this handler's: the press removes ⌂, and the
+          // line hands a reader it held to the origin control. On the live route above that lands
+          // before the popup's own restore, which would put them back on the card that opened it
+          // — by design (`MastheadTickLine`'s class comment), so a focus move added here would be a
+          // second answer to the same question.
           onGoHome={() => { openOverPopup(null); openWindow(null); setOrigin?.(null); }}
           // ⚠️ The cog's rule, which this route went without: `App` wired the nudge straight to its
           // own handler, so with a window popup open — where `searchOpen` is false and this row
