@@ -834,6 +834,182 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
   });
 });
 
+describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', () => {
+  /** A slot with a served tide state — `tideAligned` toggles which tier it reads as. */
+  function tideBriefing(locationId, locationName, tideAligned, evaluationGate = null, state = null) {
+    return {
+      days: [{
+        date: TODAY,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'North East',
+            slots: [{
+              locationId,
+              locationName,
+              tideState: state ?? (tideAligned ? 'HIGH' : 'LOW'),
+              tideAligned,
+              evaluationGate,
+            }],
+          }],
+        }],
+      }],
+    };
+  }
+
+  /**
+   * A served tide fact for EVERY location in the roster (`SPOTS`, ids 1-6) — "every coastal slot"
+   * as §7 check 2 literally names it, rather than one spot standing in for the whole pool. Real
+   * coastal-ness is a server-side question this predicate never re-checks client-side (adversarial
+   * review, T4) — attaching a tide fact to every id is exactly what proves the pool's SIZE cannot
+   * move regardless of how many slots carry one.
+   */
+  function allTideBriefing(tideAligned) {
+    return {
+      days: [{
+        date: TODAY,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'North East',
+            slots: SPOTS.map((s) => ({
+              locationId: s.id,
+              locationName: `${s.name}-0`,
+              tideState: tideAligned ? 'HIGH' : 'LOW',
+              tideAligned,
+            })),
+          }],
+        }],
+      }],
+    };
+  }
+
+  function gatedCoastalLocation() {
+    return {
+      id: 7,
+      name: 'Gated Coastal',
+      lat: 55.5,
+      lon: -1.65,
+      regionName: 'North East',
+      bortleClass: 4,
+      locationType: ['SEASCAPE'],
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { rating: null, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: null, goldenHourPotential: null },
+      }]]),
+    };
+  }
+
+  function inlandUnratedLocation() {
+    return {
+      id: 8,
+      name: 'Inland Unrated',
+      lat: 54.9,
+      lon: -3.0,
+      regionName: 'The Lakes',
+      bortleClass: 3,
+      locationType: ['LANDSCAPE'],
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { rating: null, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: null, goldenHourPotential: null },
+      }]]),
+    };
+  }
+
+  // The "My area" scope segment defaults ON (`heatArea` mounts `true`), and `scopedVisibleLocations`
+  // narrows to `heat.areaSpots` membership whenever it is — so both fixture locations need an
+  // entry there, keyed by `id` (`heatSpotKey`'s own id-first join), or the scope narrowing alone
+  // would explain their absence and this test would prove nothing about the rating stage at all.
+  const AREA_SPOTS_WITH_FIXTURES = [
+    ...AREA_SPOTS, { id: 7, name: 'Gated Coastal' }, { id: 8, name: 'Inland Unrated' },
+  ];
+
+  it('§7 check 13 — a tide-gated coastal location renders with showUnrated false; an inland unrated one does not', async () => {
+    // ⚠️ Plain, un-suffixed names — `gatedCoastalLocation`/`inlandUnratedLocation` are constructed
+    // directly by this file, never through `makeLocations()`'s `-${markerNonce}` cache-busting
+    // suffix (that exists solely for `makeMarkerIcon`'s module-level cache, which this test does
+    // not exercise). The tide index's join is ID-first regardless (`locationId: 7`), so the name
+    // only has to match what `labelSpots` will actually print.
+    const tideAlignmentIndex = buildTideAlignmentIndex(
+      tideBriefing(7, 'Gated Coastal', false, '≈ Tide not right at sunset').days,
+    );
+    await renderMap({
+      heat: heatProp({ areaSpots: AREA_SPOTS_WITH_FIXTURES }),
+      tideAlignmentIndex,
+      locations: [...makeLocations(), gatedCoastalLocation(), inlandUnratedLocation()],
+    });
+
+    const names = labelSpotsProps.last.spots.map((s) => s.name);
+    expect(names).toContain('Gated Coastal');
+    expect(names).not.toContain('Inland Unrated');
+  });
+
+  it('§7 check 13 — the same fixture leaves the admin "unknown" toggle unaffected by the gated location', async () => {
+    // `hasUnrated` gates the admin debug toggle's own enabled state and its title
+    // ("No unknown-state locations in view" vs "Toggle locations with no evaluation") — a
+    // tide-gated location must not make that toggle read as though a GENUINELY unrated location
+    // were present, since enabling it would change nothing about a location already on screen.
+    role = 'ADMIN';
+    const tideAlignmentIndex = buildTideAlignmentIndex(
+      tideBriefing(7, 'Gated Coastal', false, '≈ Tide not right at sunset').days,
+    );
+    await renderMap({
+      heat: heatProp({ areaSpots: AREA_SPOTS_WITH_FIXTURES }),
+      tideAlignmentIndex,
+      locations: [...makeLocations(), gatedCoastalLocation()],
+    });
+    openFilters();
+
+    const toggle = screen.getByTestId('star-filter-unrated');
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute('title', 'No unknown-state locations in view');
+  });
+
+  it('§7 check 2 — nothing is dropped: the pool handed to MapLabels/PinsLayer is the same size whether EVERY coastal slot matches or misses', async () => {
+    const allAligned = buildTideAlignmentIndex(allTideBriefing(true).days);
+    const allMissed = buildTideAlignmentIndex(allTideBriefing(false).days);
+
+    await renderMap({ heat: heatProp(), tideAlignmentIndex: allAligned });
+    const alignedCount = labelSpotsProps.last.spots.length;
+    // Premise: the tide index actually reached every rendered spot, not merely one of them —
+    // otherwise an all-vs-all comparison would be no stronger than the single-spot version it
+    // replaces.
+    labelSpotsProps.last.spots.forEach((spot) => expect(spot.tideTier).toBe('match'));
+
+    markerNonce += 1;
+    await renderMap({ heat: heatProp(), tideAlignmentIndex: allMissed });
+    const missedCount = labelSpotsProps.last.spots.length;
+    labelSpotsProps.last.spots.forEach((spot) => expect(spot.tideTier).toBe('miss'));
+
+    expect(missedCount).toBe(alignedCount);
+  });
+
+  it('§7 check 1 — tide never moves the heat: the field\'s own points are unaffected by tide alignment, across HIGH/MID/LOW', async () => {
+    const heat = heatProp();
+    const forState = (state, tideAligned) => buildTideAlignmentIndex(
+      tideBriefing(1, 'Bamburgh-0', tideAligned, null, state).days,
+    );
+
+    await renderMap({ heat, tideAlignmentIndex: forState('HIGH', true) });
+    const highPoints = heatLayerProps.last.points;
+
+    // MID is the design's own straddling case (§5 #4: "a set that straddles the state has no
+    // single direction") — the one state a well-meaning "dim the field for an ambiguous tide"
+    // mistake would most plausibly target, so it earns its own comparison rather than being
+    // implied by HIGH vs LOW alone.
+    markerNonce += 1;
+    await renderMap({ heat, tideAlignmentIndex: forState('MID', false) });
+    const midPoints = heatLayerProps.last.points;
+
+    markerNonce += 1;
+    await renderMap({ heat, tideAlignmentIndex: forState('LOW', false) });
+    const lowPoints = heatLayerProps.last.points;
+
+    // Deep-equal, not identity — a fresh render legitimately produces a new array/object graph,
+    // but its CONTENT (every point's rating) must be untouched by which tier the same slot reads.
+    expect(midPoints).toEqual(highPoints);
+    expect(lowPoints).toEqual(highPoints);
+  });
+});
+
 describe('MapView heat — the modes it stands down for', () => {
   it('paints no field and offers no toolbar in aurora mode', async () => {
     // The markers there carry Kp visibility, not sky colour. A sky-colour field painted under them

@@ -2947,8 +2947,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ), [locations, activeTypeFilters]);
 
   const hasStandDown = typeFiltered.some((loc) => isStandDownLocation(loc));
+  // ⚠️ Excludes a tide-gated coastal location (tide-window-plan.md §3 T4 item 1): it is not
+  // "unknown" — it carries a served reason (`evaluationGate`) or a served miss — so it must not
+  // make the admin "unknown" toggle read as actionable, nor be the thing that toggle's title
+  // claims exists to reveal. `visibleLocations` below already lets it through the rating stage
+  // unconditionally; this just stops it also being counted as the OTHER kind of absence.
   const hasUnrated = typeFiltered.some((loc) => (
     !isStandDownLocation(loc) && getRatingForLocation(loc) == null
+    && !getTideOnLightForLocation(loc)
   ));
 
   // Full filter pipeline → the markers actually rendered. Memoised so a re-render that touches no
@@ -2960,10 +2966,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       const types = loc.locationType ?? [];
       const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
       const rating = getRatingForLocation(loc);
-      // Wildlife has no sky rating by design, so the sky-quality threshold must not
-      // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
-      // the "unknown" toggle, so the default 3★+ map reads quality-first.
-      if (rating == null) return isPureWildlife || showUnrated;
+      if (rating == null) {
+        // Tide-window increment (T4, tide-window-plan.md §3 T4 item 1): a coastal slot with a
+        // served tide fact — aligned or not, gated or rated elsewhere to null — is withheld or
+        // answered for a STATED reason, never "nothing scored yet". Hiding it behind the admin
+        // "unknown" toggle is the exact "coast disappears" defect this whole increment exists to
+        // fix, so it bypasses ONLY this rating-stage branch; type, drive, dark-sky, scope and
+        // `focus` (below and in the caller) still narrow it like anything else (plan §5 #9).
+        //
+        // ⚠️ Deliberately ANY served tide fact, not only a served `gated` one (adversarial
+        // review, T4) — §5 #9's own prose says "tide-gated…and nothing else", but its own item 1
+        // gives the literal rule as `if (tideFact) return true` before ever checking `.gated`.
+        // The tide fact (`tideState`/`tideAligned`/…) is computed from stored extremes
+        // independently of the evaluation pipeline (§1 #4), so a `null` rating alongside one is
+        // already evidence the pipeline reached this slot and had something to say about its
+        // water — narrower than "genuinely never looked at" even when the null rating's cause is
+        // not itself the tide gate (e.g. a still-rated-elsewhere miss that happens to read null
+        // for this window). Reading `.gated` here would leave such a slot behind the "unknown"
+        // toggle regardless, which is the exact defect this item exists to fix.
+        if (getTideOnLightForLocation(loc)) return true;
+        // Wildlife has no sky rating by design, so the sky-quality threshold must not
+        // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
+        // the "unknown" toggle, so the default 3★+ map reads quality-first.
+        return isPureWildlife || showUnrated;
+      }
       return rating >= minStars;
     });
 
@@ -2991,7 +3017,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
         : darkSkyFiltered;
   }, [
-    typeFiltered, locations, isStandDownLocation, getRatingForLocation,
+    typeFiltered, locations, isStandDownLocation, getRatingForLocation, getTideOnLightForLocation,
     showStandDown, showUnrated, minStars, driveTimeFilter, driveMinutesFor,
     darkSkyFilter, focus, isAstroMode,
   ]);

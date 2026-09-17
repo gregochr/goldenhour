@@ -4,6 +4,7 @@ import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { regionStatSegments } from '../../utils/mapDrilldown.js';
 import { rampHex } from '../../utils/scoreRamp.js';
+import { tideAccessibleClause } from '../../utils/mapTideFit.js';
 import { PICK_TEXT } from './WindowControl.jsx';
 import TideWave from './TideWave.jsx';
 
@@ -196,11 +197,17 @@ export default function MapRegionPanel({
           >
             <span className="wf-win-panel-name">
               {spot.name}
-              {spot.tideOnLight && (
+              {spot.tideTier && (
                 <>
                   {' '}
-                  <TideWave className="wf-reg-tide" testId="wf-reg-panel-tide" />
-                  <span className="sr-only"> — the tide lands on the light here</span>
+                  <TideWave
+                    className="wf-reg-tide"
+                    testId="wf-reg-panel-tide"
+                    shortfall={spot.tideTier === 'miss' ? spot.tideShortfall : null}
+                  />
+                  <span className="sr-only">
+                    {` — ${tideAccessibleClause(spot.tideTier, spot.tideShortfall)}`}
+                  </span>
                 </>
               )}
             </span>
@@ -323,7 +330,11 @@ MapRegionPanel.propTypes = {
     driveLabel: PropTypes.string,
     leaveTime: PropTypes.string,
     leaveDayWord: PropTypes.string,
-    tideOnLight: PropTypes.bool,
+    /** The served preference-axis tier (tide-window-plan.md §3 T4 item 6) — null for "not a
+     * coastal slot with a served tide state", never a drawn claim either way. */
+    tideTier: PropTypes.oneOf(['match', 'miss']),
+    /** Only meaningful (and only read) alongside `tideTier: 'miss'`. */
+    tideShortfall: PropTypes.oneOf(['HIGHER', 'LOWER']),
   })).isRequired,
   /** This region's served narrative for this window — `regionGloss.buildRegionGlossIndex`. */
   gloss: PropTypes.shape({ headline: PropTypes.string, detail: PropTypes.string }),
