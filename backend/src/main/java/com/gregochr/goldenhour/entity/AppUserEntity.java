@@ -27,6 +27,22 @@ import java.util.List;
  *
  * <p>Implements {@link UserDetails} so Spring Security can load and authenticate users
  * directly from the database. Passwords are stored as BCrypt hashes.
+ *
+ * <p><strong>The seven settings columns are {@code updatable = false}, deliberately.</strong> The
+ * home postcode and coordinates, the local radius, the drive-time stamp, the map colour scale and
+ * the Coming-up last-seen instant are written only by the column-scoped updates on
+ * {@link com.gregochr.goldenhour.repository.AppUserRepository}, never by {@code save()} on this
+ * entity. It carries neither {@code @Version} nor {@code @DynamicUpdate}, so a whole-entity save
+ * writes every updatable column from whatever copy it holds, and several callers hold a copy across
+ * a gap: the JWT filter's hourly last-active write, login's (a BCrypt check wide), a password
+ * change, the marketing opt-in and the admin paths. Any of them could write back a home, a colour or
+ * a stamp read before a concurrent settings save committed, and silently undo it. Taking the
+ * settings columns out of every entity UPDATE means no such save can reach them.
+ * {@code @DynamicUpdate} would not have been enough: a detached copy merged back counts its stale
+ * values as changes, and writes them.
+ *
+ * <p>⚠️ The consequence to know: setting one of these fields on an existing row and calling
+ * {@code save()} writes nothing to that column. Inserts are unaffected, and so is reading.
  */
 @Entity
 @Table(name = "app_user")
@@ -83,16 +99,31 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "last_active_at")
     private LocalDateTime lastActiveAt;
 
-    /** UK postcode for the user's home location (e.g. "DH1 3LE"). */
-    @Column(name = "home_postcode", length = 10)
+    /**
+     * UK postcode for the user's home location (e.g. "DH1 3LE").
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updateHome}.
+     */
+    @Column(name = "home_postcode", length = 10, updatable = false)
     private String homePostcode;
 
-    /** Latitude of the user's home location, resolved from postcode. */
-    @Column(name = "home_latitude")
+    /**
+     * Latitude of the user's home location, resolved from postcode.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updateHome}.
+     */
+    @Column(name = "home_latitude", updatable = false)
     private Double homeLatitude;
 
-    /** Longitude of the user's home location, resolved from postcode. */
-    @Column(name = "home_longitude")
+    /**
+     * Longitude of the user's home location, resolved from postcode.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updateHome}.
+     */
+    @Column(name = "home_longitude", updatable = false)
     private Double homeLongitude;
 
     /**
@@ -100,12 +131,22 @@ public class AppUserEntity implements UserDetails {
      *
      * <p>Null rather than a defaulted 22 so the column distinguishes "left alone" from
      * "deliberately set to 22" — {@code CloseToHomeService} applies the default when reading.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updateHome}.
      */
-    @Column(name = "local_radius_miles")
+    @Column(name = "local_radius_miles", updatable = false)
     private Integer localRadiusMiles;
 
-    /** When per-user drive times were last calculated from the home location. */
-    @Column(name = "drive_times_calculated_at")
+    /**
+     * When per-user drive times were last calculated from the home location.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Set only by
+     * {@code AppUserRepository.stampDriveTimesIfHomeIs}, which stamps only while the home is still
+     * the one the drive times were measured from, and cleared by
+     * {@code AppUserRepository.clearDriveTimesCalculatedAt} when the home moves.
+     */
+    @Column(name = "drive_times_calculated_at", updatable = false)
     private Instant driveTimesCalculatedAt;
 
     /**
@@ -115,8 +156,11 @@ public class AppUserEntity implements UserDetails {
      * <p>Null rather than a defaulted {@code "verdict"}, matching {@link #localRadiusMiles}'s
      * reasoning: it is what lets a later stage change the DEFAULT for callers who never chose
      * without overriding anyone who explicitly picked one.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updateMapColourScaleByUsername}.
      */
-    @Column(name = "map_colour_scale", length = 10)
+    @Column(name = "map_colour_scale", length = 10, updatable = false)
     private String mapColourScale;
 
     /**
@@ -128,8 +172,11 @@ public class AppUserEntity implements UserDetails {
      * the first tab open converts it to now via the client's quiet bootstrap write. Stored as the
      * instant; the Europe/London civil date the client compares against is derived at serve time
      * ({@code ForecastHorizon.civilDate}) so the timezone rule lives in one place.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updateComingUpLastSeenAtByUsername}.
      */
-    @Column(name = "coming_up_last_seen_at")
+    @Column(name = "coming_up_last_seen_at", updatable = false)
     private Instant comingUpLastSeenAt;
 
     /** When the user accepted the Terms &amp; Conditions. */
