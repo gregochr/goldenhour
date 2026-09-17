@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.service.BriefingVerdictEvaluator.StanddownReason;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -117,14 +118,32 @@ public final class BriefingGatingPolicy {
      * @return true iff the slot is STANDDOWN and its reason is a hard constraint
      */
     public static boolean isHardConstraintSkip(BriefingSlot slot) {
+        return hardConstraintReason(slot).isPresent();
+    }
+
+    /**
+     * The hard constraint gating this slot, decoded — or empty when the slot reaches Claude.
+     *
+     * <p>For callers that must say <em>which</em> constraint fired rather than merely that one
+     * did: {@code BriefingSlotBuilder} words the served {@code evaluationGate} per reason, and a
+     * boolean would have every future member of {@link #HARD_CONSTRAINT_REASONS} served in the
+     * tide's words.
+     *
+     * @param slot the briefing slot
+     * @return the gating reason, or empty for GO/MARGINAL, a weather stand-down, a null label or an
+     *         unrecognised one (the same safe default as {@link #isEligibleForEvaluation})
+     */
+    public static Optional<StanddownReason> hardConstraintReason(BriefingSlot slot) {
         if (slot.verdict() != Verdict.STANDDOWN) {
-            return false;
+            return Optional.empty();
         }
         String label = slot.standdownReason();
         if (label == null) {
-            return false;
+            return Optional.empty();
         }
         StanddownReason reason = REASON_BY_LABEL.get(label);
-        return reason != null && HARD_CONSTRAINT_REASONS.contains(reason);
+        return reason != null && HARD_CONSTRAINT_REASONS.contains(reason)
+                ? Optional.of(reason)
+                : Optional.empty();
     }
 }

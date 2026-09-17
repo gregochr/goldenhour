@@ -254,7 +254,7 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
             return new ConfidenceDeriver.RegionRoster(0, 0);
         }
         long scoreable = slots.stream()
-                .filter(slot -> !(slot.canopy() && slot.claudeRating() == null))
+                .filter(BriefingSlot::couldCarryRating)
                 .count();
         return new ConfidenceDeriver.RegionRoster(
                 (int) scoreable, BriefingSlot.votingSlots(slots).size());

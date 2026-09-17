@@ -1,11 +1,17 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.TideType;
+
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * The shared vocabulary every tide surface states its numbers in — clock times, metres, and the
@@ -111,5 +117,76 @@ final class TideWording {
                 : String.format(Locale.UK, "%dh%02d",
                         magnitude / MINUTES_PER_HOUR, magnitude % MINUTES_PER_HOUR);
         return duration + (signedMinutes >= 0 ? " after " : " before ") + solarWord;
+    }
+
+    /**
+     * States, in words, why a coastal slot was withheld from Claude on the tide.
+     *
+     * <p>Three clauses, the first two always, the third when there is a nearest extreme to name:
+     * <pre>
+     *   Tide not right at sunrise · needs low water, mid tide instead · HW 09:19 · 2h35 after sunrise
+     * </pre>
+     * "Needs" names the location's own {@code TideType} preference — the question the gate actually
+     * asked — and "instead" names the state the deriver found. Both are said because the gate is a
+     * <em>mismatch</em>, and a mismatch is unintelligible with only one side stated: "mid tide"
+     * alone does not tell a reader whether that is a problem here.
+     *
+     * <p>Lives in this vocabulary because the third clause is
+     * {@code BriefingSlot.TideInfo.nearestSolarOffsetPhrase} verbatim, and the same reader sees that
+     * phrase on the tide chip one line up. No contractions and no anthropomorphism, deliberately:
+     * every other served tide string is a terse declarative ("Tide mismatch", "low water bares the
+     * foreground", "the tide matters here"), and a first cut's "Tide's not right … wants low water,
+     * it's mid tide" was the only contracted copy on any served surface (adversarial review).
+     *
+     * @param wanted     the location's acceptable tide states; empty when it was never configured,
+     *                   which drops the "wants" clause rather than inventing a preference
+     * @param tideState  {@code "HIGH"}, {@code "MID"} or {@code "LOW"} — the state at the event
+     * @param nearest    the already-formatted nearest-extreme phrase, or null to omit that clause
+     * @param solarWord  {@code "sunrise"} or {@code "sunset"}
+     * @return the gate sentence, never null
+     */
+    static String tideGatePhrase(Set<TideType> wanted, String tideState, String nearest,
+            String solarWord) {
+        StringBuilder sb = new StringBuilder("Tide not right at ").append(solarWord).append(" · ");
+        List<String> wants = new ArrayList<>();
+        // HIGH, MID, LOW in a fixed order so two locations with the same preferences read alike.
+        // (EnumSet.copyOf rejects an EMPTY plain Set, and an unconfigured location has one.)
+        EnumSet<TideType> ordered = EnumSet.noneOf(TideType.class);
+        if (wanted != null) {
+            ordered.addAll(wanted);
+        }
+        for (TideType type : ordered) {
+            wants.add(stateWord(type.name()));
+        }
+        if (!wants.isEmpty()) {
+            sb.append("needs ").append(joinOr(wants)).append(", ");
+        }
+        sb.append(stateWord(tideState));
+        if (!wants.isEmpty()) {
+            sb.append(" instead");
+        }
+        if (nearest != null && !nearest.isBlank()) {
+            sb.append(" · ").append(nearest);
+        }
+        return sb.toString();
+    }
+
+    /** {@code HIGH → "high water"}, {@code LOW → "low water"}, {@code MID → "mid tide"}. */
+    private static String stateWord(String state) {
+        return switch (state == null ? "" : state) {
+            case "HIGH" -> "high water";
+            case "LOW" -> "low water";
+            case "MID" -> "mid tide";
+            default -> "an unknown tide";
+        };
+    }
+
+    /** {@code [a] → "a"}, {@code [a, b] → "a or b"}, {@code [a, b, c] → "a, b or c"}. */
+    private static String joinOr(List<String> words) {
+        if (words.size() == 1) {
+            return words.get(0);
+        }
+        return String.join(", ", words.subList(0, words.size() - 1))
+                + " or " + words.get(words.size() - 1);
     }
 }

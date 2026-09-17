@@ -1329,4 +1329,175 @@ class BriefingSlotBuilderTest {
         response.setHourly(hourly);
         return response;
     }
+
+    /**
+     * The served reason a slot was withheld from Claude — {@code BriefingSlot.evaluationGate}.
+     *
+     * <p>The drill-down fills an unscored window with its region's sky gloss, so a coastal location
+     * the tide gate ruled out read as "a Claude narrative but no score". The reason was known here
+     * all along (it is what the disposition trail records) and never served. Pinned through the
+     * policy rather than the builder's own {@code tidesNotAligned} flag, because
+     * {@code BriefingCandidateCollector} drops the slot with that same policy call and the two
+     * decisions must not be able to drift apart.
+     *
+     * <p>Same fixture geometry as {@code TideOnTheLightTests}: 2026-03-25 is before BST, so the
+     * clock in the phrase needs no timezone arithmetic.
+     */
+    @Nested
+    @DisplayName("Evaluation gate in buildSlot")
+    class EvaluationGateTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 3, 25, 18, 0);
+
+        private LocationEntity coastalLoc(Set<TideType> wants) {
+            return LocationEntity.builder()
+                    .id(10L).name("Seaham Chemical Beach").lat(54.83).lon(-1.32)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(wants)
+                    .solarEventType(Set.of())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+        }
+
+        private BriefingSlot buildCoastal(LocationEntity loc, TideData td, boolean aligned) {
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(SOLAR_TIME), anyLong(), anyLong()))
+                    .thenReturn(Optional.of(dual(td)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(aligned);
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            return slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("A tide mismatch serves the gate: event, wanted vs actual water, nearest extreme")
+        void tideMismatch_servesGatePhrase() {
+            // Wants low water; it is mid tide; the nearest extreme is LW 20 min after sunset.
+            TideData td = new TideData(TideState.MID, false, null, null, null, null,
+                    LocalDateTime.of(2026, 3, 25, 15, 0), LocalDateTime.of(2026, 3, 25, 18, 20));
+
+            BriefingSlot slot = buildCoastal(coastalLoc(Set.of(TideType.LOW)), td, false);
+
+            assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
+            assertThat(BriefingGatingPolicy.isHardConstraintSkip(slot))
+                    .as("the same call the candidate collector makes").isTrue();
+            assertThat(slot.evaluationGate()).isEqualTo(
+                    "Tide not right at sunset · needs low water, mid tide instead"
+                            + " · LW 18:20 · 20m after sunset");
+        }
+
+        @Test
+        @DisplayName("⚠️ A coastal WEATHER stand-down with the tide aligned serves no gate — it reaches Claude")
+        void weatherStanddown_tideAligned_noGate() {
+            // The case that separates "ask the policy" from "test the verdict": STANDDOWN, coastal,
+            // but the reason is cloud, which Gate 2 sends to Claude to be rated down. Keying the
+            // gate on the verdict would print a tide sentence over a window the tide is fine for.
+            TideData td = new TideData(TideState.HIGH, false, null, null, null, null,
+                    LocalDateTime.of(2026, 3, 25, 18, 10), null);
+            LocationEntity loc = coastalLoc(Set.of(TideType.HIGH));
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(SOLAR_TIME), anyLong(), anyLong()))
+                    .thenReturn(Optional.of(dual(td)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+            OpenMeteoForecastResponse overcast = buildForecastResponse();
+            overcast.getHourly().getCloudCoverLow().replaceAll(ignored -> 95);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, overcast),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+
+            assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
+            assertThat(slot.standdownReason()).isNotEqualTo("Tide mismatch");
+            assertThat(BriefingGatingPolicy.isEligibleForEvaluation(slot)).isTrue();
+            assertThat(slot.evaluationGate()).isNull();
+        }
+
+        @Test
+        @DisplayName("A sunrise gate names sunrise — the solar word follows the event, not a default")
+        void sunriseGate_namesSunrise() {
+            LocalDateTime dawn = LocalDateTime.of(2026, 3, 25, 6, 0);
+            LocationEntity loc = coastalLoc(Set.of(TideType.LOW));
+            stubSolarWindow();
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(dawn);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(dawn), anyLong(), anyLong()))
+                    .thenReturn(Optional.of(dual(new TideData(TideState.MID, false, null, null,
+                            null, null, LocalDateTime.of(2026, 3, 25, 9, 0), null))));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    dawn.toLocalDate(), TargetType.SUNRISE);
+
+            assertThat(slot.evaluationGate())
+                    .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead"
+                            + " · HW 09:00 · 3h00 after sunrise");
+        }
+
+        @Test
+        @DisplayName("The gate's third clause is the slot's OWN nearest-extreme phrase, verbatim")
+        void gateReusesTheServedNearestPhrase() {
+            TideData td = new TideData(TideState.MID, false, null, null, null, null,
+                    LocalDateTime.of(2026, 3, 25, 15, 0), LocalDateTime.of(2026, 3, 25, 18, 20));
+
+            BriefingSlot slot = buildCoastal(coastalLoc(Set.of(TideType.HIGH)), td, false);
+
+            // Two lines on one card describing one water must be spelt identically.
+            assertThat(slot.evaluationGate()).endsWith(slot.tide().nearestSolarOffsetPhrase());
+        }
+
+        @Test
+        @DisplayName("No nearby extreme at all → the gate still states the mismatch, without a clock")
+        void noNearestExtreme_gateOmitsTheClockClause() {
+            TideData td = new TideData(TideState.MID, false, null, null, null, null, null, null);
+
+            BriefingSlot slot = buildCoastal(coastalLoc(Set.of(TideType.HIGH)), td, false);
+
+            assertThat(slot.tide().nearestSolarOffsetPhrase()).isNull();
+            assertThat(slot.evaluationGate())
+                    .isEqualTo("Tide not right at sunset · needs high water, mid tide instead");
+        }
+
+        @Test
+        @DisplayName("An aligned tide serves no gate — the slot reaches Claude")
+        void alignedTide_noGate() {
+            TideData td = new TideData(TideState.HIGH, false, null, null, null, null,
+                    LocalDateTime.of(2026, 3, 25, 18, 10), null);
+
+            BriefingSlot slot = buildCoastal(coastalLoc(Set.of(TideType.HIGH)), td, true);
+
+            assertThat(slot.verdict()).isNotEqualTo(Verdict.STANDDOWN);
+            assertThat(slot.evaluationGate()).isNull();
+        }
+
+        @Test
+        @DisplayName("An inland location serves no gate — there is no tide to gate on")
+        void inland_noGate() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(11L).name("Durham").lat(54.8).lon(-1.6)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+
+            assertThat(slot.evaluationGate()).isNull();
+        }
+    }
 }

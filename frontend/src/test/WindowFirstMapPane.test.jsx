@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { lookupForWindow } from '../utils/locationSheet.js';
 
 /**
  * The window-first Map tab's pane.
@@ -269,6 +270,29 @@ describe('WindowFirstMapPane', () => {
     it('planHandoff is null when there is no handoff at all', () => {
       renderPane();
       expect(MapStub.lastProps.planHandoff).toBeNull();
+    });
+
+    it('hands the map the gated windows\' served reasons, built from the SAME briefing days as its other indexes', () => {
+      const gate = 'Tide not right at sunrise · needs low water, mid tide instead';
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+        heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+        homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+        effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true,
+        briefing: {
+          days: [{
+            date: DATES[0],
+            eventSummaries: [{
+              targetType: 'SUNRISE',
+              regions: [{ regionName: 'Durham Coast', slots: [
+                { locationId: 9, locationName: 'Seaham Chemical Beach', solarEventTime: `${DATES[0]}T05:30:00`, evaluationGate: gate },
+              ] }],
+            }],
+          }],
+        },
+      });
+      renderPane();
+      expect(lookupForWindow(MapStub.lastProps.evaluationGateIndex, 9, 'Seaham Chemical Beach', DATES[0], 'SUNRISE'))
+        .toEqual({ gate });
     });
 
     it('forwards onReturnToPlan straight through, by identity', () => {

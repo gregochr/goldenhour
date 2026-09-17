@@ -1,7 +1,11 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.TideType;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -69,5 +73,57 @@ class TideWordingTest {
         assertThat(TideWording.metres(4.9)).isEqualTo("4.9 m");
         assertThat(TideWording.metres(0.0)).isEqualTo("0.0 m");
         assertThat(TideWording.metres(4.85)).isEqualTo("4.9 m");
+    }
+
+    // ── tideGatePhrase — the served reason a coastal slot was withheld from Claude ──────────
+
+    @Test
+    @DisplayName("the gate names the event, the wanted water, the actual water and the nearest extreme")
+    void gateStatesBothSidesOfTheMismatch() {
+        // "mid tide" alone does not tell a reader whether that is a problem HERE; the wanted
+        // state is what makes it a mismatch rather than a fact.
+        assertThat(TideWording.tideGatePhrase(
+                Set.of(TideType.LOW), "MID", "HW 09:19 · 2h35 after sunrise", "sunrise"))
+                .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead"
+                        + " · HW 09:19 · 2h35 after sunrise");
+    }
+
+    @Test
+    @DisplayName("several wanted states read in a fixed HIGH, MID, LOW order whatever the set's order")
+    void wantedStatesReadInFixedOrder() {
+        assertThat(TideWording.tideGatePhrase(Set.of(TideType.LOW, TideType.HIGH), "MID", null, "sunset"))
+                .isEqualTo("Tide not right at sunset · needs high water or low water, mid tide instead");
+        assertThat(TideWording.tideGatePhrase(
+                Set.of(TideType.MID, TideType.LOW, TideType.HIGH), "LOW", null, "sunset"))
+                .isEqualTo("Tide not right at sunset · needs high water, mid tide or low water,"
+                        + " low water instead");
+    }
+
+    @Test
+    @DisplayName("no configured preference drops the wants clause rather than inventing one")
+    void noPreferenceDropsTheWantsClause() {
+        // No "instead" either — it contrasts with a stated preference, and there is none.
+        assertThat(TideWording.tideGatePhrase(Set.of(), "HIGH", null, "sunset"))
+                .isEqualTo("Tide not right at sunset · high water");
+        assertThat(TideWording.tideGatePhrase(null, "HIGH", null, "sunset"))
+                .isEqualTo("Tide not right at sunset · high water");
+    }
+
+    @Test
+    @DisplayName("a blank nearest-extreme phrase drops the clock clause")
+    void blankNearestDropsTheClockClause() {
+        assertThat(TideWording.tideGatePhrase(Set.of(TideType.HIGH), "MID", "  ", "sunrise"))
+                .isEqualTo("Tide not right at sunrise · needs high water, mid tide instead");
+    }
+
+    @Test
+    @DisplayName("an unrecognised or null tide state is named as unknown, never printed raw or thrown on")
+    void unknownTideStateIsNamedAsUnknown() {
+        // Unreachable from the builder (the gate requires a derived state), but this is served
+        // text with a documented contract, and the raw enum name must never leak into a sentence.
+        assertThat(TideWording.tideGatePhrase(Set.of(TideType.HIGH), "SLACK", null, "sunrise"))
+                .isEqualTo("Tide not right at sunrise · needs high water, an unknown tide instead");
+        assertThat(TideWording.tideGatePhrase(Set.of(), null, null, "sunrise"))
+                .isEqualTo("Tide not right at sunrise · an unknown tide");
     }
 }
