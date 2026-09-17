@@ -10,6 +10,7 @@ import { homeLabelItems, placeLabelPass, verdictWord } from '../../utils/mapLabe
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
+import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
 import { NO_DATA_COLOUR, STAND_DOWN_COLOUR } from '../markerUtils.js';
 
 /**
@@ -134,13 +135,16 @@ function darkenHex(hex, factor) {
  *
  * @param {object} props
  * @param {Array<{name: string, lat: number, lng: number, rid: string, rating: ?number,
- *   bortleClass: ?number, driveMinutes: ?number, named: ?boolean, isStandDown: ?boolean}>}
+ *   bortleClass: ?number, driveMinutes: ?number, named: ?boolean, isStandDown: ?boolean,
+ *   tideTier: ?('match'|'miss'), tideFitPhrase: ?string}>}
  *   props.spots the filtered pool for the current window — the SAME shape/source `MapView` already
  *   builds for `MapLabels` (`labelSpots`), so admin reveal toggles and every other filter already
  *   apply. `named` defaults to true when absent (map-tab-v2-plan.md §4.7 — every production
  *   location is named today). `isStandDown` distinguishes a triaged location from a plain unrated
  *   one (adversarial review C8) — both carry no `rating`, but only one is painted with the
- *   medallions' own `STAND_DOWN_COLOUR` rather than the shared `NO_DATA_COLOUR`.
+ *   medallions' own `STAND_DOWN_COLOUR` rather than the shared `NO_DATA_COLOUR`. `tideTier` is the
+ *   served preference-axis tier (tide-window-plan.md §3 T4 item 5) — the dot dims for a miss the
+ *   same way the label chip does, with the ramp fill untouched.
  * @param {?{lat: number, lon: number}} [props.homeCoords] the saved home postcode, or null
  * @param {?string} [props.selectedName] the selected location's name, for the tooltip/aria parity
  *   with the chip layer (pins carry no distinct "selected" treatment — `MapCallout`'s own
@@ -379,7 +383,20 @@ export default function PinsLayer({
             data-named={named ? 'true' : 'false'}
             data-stand-down={!hasRating && spot.isStandDown ? 'true' : undefined}
             data-selected={selectedName === spot.name ? 'true' : undefined}
-            aria-label={hasRating ? `${spot.name}, ${spot.rating} star` : spot.name}
+            // The served preference-axis tier (tide-window-plan.md §3 T4 item 5) — the dot dims
+            // the same way the label chip does; the ramp `fill`/`color` set below are UNTOUCHED
+            // by it (§7 check 12's rule, the CSS opacity dims the whole dot rather than re-colours
+            // it).
+            data-tide={spot.tideTier ?? undefined}
+            // Mirrors the chip's own aria-label extension (`MapLabels.jsx`, T4 item 2) — a pin's
+            // ONLY other statement of the tide fact is the hover tooltip below, and a screen
+            // reader user who never triggers a hover must not be left with nothing (adversarial
+            // review finding: the pin dot's visual dimming otherwise carries no textual
+            // equivalent at all, unlike the chip and the region-panel row).
+            aria-label={[
+              hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
+              tideAccessibleClause(spot.tideTier, spot.tideShortfall),
+            ].filter(Boolean).join(', ')}
             style={{
               left: `${x}px`,
               top: `${y}px`,
@@ -431,6 +448,17 @@ export default function PinsLayer({
           hover.bortleClass != null ? `sky ${hover.bortleClass}` : null,
         ].filter(Boolean).join(' · ')}
       </div>
+      {hover.tideTier && hover.tideFitPhrase && (
+        // Pins mode's own third line (tide-window-plan.md §3 T4 item 5) — the SAME served phrase,
+        // heading and ink split `MapLabels.jsx`'s chip tooltip carries; see that file's identical
+        // block for why a miss takes no `.wf-maplab-tip-t`.
+        <div
+          className={`wf-maplab-tip-s${hover.tideTier === 'match' ? ' wf-maplab-tip-t' : ''}`}
+          data-testid="map-pin-tip-tide"
+        >
+          {`${tideTierHeading(hover.tideTier)} — ${hover.tideFitPhrase}`}
+        </div>
+      )}
     </div>,
     chromeRoot,
   );
@@ -454,6 +482,11 @@ PinsLayer.propTypes = {
     driveMinutes: PropTypes.number,
     named: PropTypes.bool,
     isStandDown: PropTypes.bool,
+    /** The served preference-axis tier (tide-window-plan.md §3 T4 item 5) — null for "not a
+     * coastal slot with a served tide state", never a drawn claim either way. */
+    tideTier: PropTypes.oneOf(['match', 'miss']),
+    /** The formatted fit phrase for EITHER tier — the tooltip's third line reads this. */
+    tideFitPhrase: PropTypes.string,
   })).isRequired,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   selectedName: PropTypes.string,

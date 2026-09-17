@@ -37,6 +37,59 @@ export function tierOf(fact) {
 }
 
 /**
+ * The one canonical heading per tier (tide-window-plan.md §4 #8: "the spec's headings … are taken
+ * verbatim"), shared by every surface that prefixes a heading to a served phrase — the chip's
+ * tooltip (T4) and, by the same rule, the callout/sheet block (T5). A FIXED string per tier, never
+ * text built from the location's own wanted set: the served {@code fitPhrase} already opens a miss
+ * with its own "wants …" clause (`TideWording`, T1 item 4), so a heading that restated the want
+ * from {@code tideTypes} would print it twice on one line — the client is licensed to concatenate a
+ * heading to a phrase (§5 #5), never to format the want set itself.
+ *
+ * <p>⚠️ <b>Deliberate deviation, recorded rather than silent (adversarial review, T4).</b> T4's own
+ * task text quotes the chip tooltip's miss heading as "Wants high water —", matching the design
+ * bundle's dynamic `bindTip` line (`map-tide-v5.js:434-435`, `'Wants '+BANDW[tf.want]+' — '+…`) —
+ * a heading the design COMPUTES from the location's own want, which this file may not do (see
+ * this function's own doc above). Rather than invent a client-side want-formatter to match that
+ * one example literally, this reuses the SAME fixed miss heading the callout/sheet block (T5) and
+ * the design's own callout table (`docs/design/tide-window/README.md` §4) already use — "Wrong
+ * water, not wrong light" — so the tooltip and the block agree on one vocabulary rather than the
+ * tooltip alone matching a dynamic example the served `fitPhrase` already restates internally
+ * (T1 item 4's miss phrase opens "wants low water · …"; a want-specific heading on top of that
+ * would print the want twice on one line, which the doc above already forbids for a different
+ * reason). If a future phase decides the tooltip should instead name the specific want, that is a
+ * product call for the copy owner, not a client-side formatting fix.
+ *
+ * @param {?('match'|'miss')} tier
+ * @returns {?string} null when there is no tier to head (no served tide fact at all)
+ */
+export function tideTierHeading(tier) {
+  if (tier === 'match') return 'Tide lands on the light';
+  if (tier === 'miss') return 'Wrong water, not wrong light';
+  return null;
+}
+
+/**
+ * The accessible-name clause for a served preference-axis tier — shared by the chip's aria-label
+ * (`MapLabels.jsx`, T4 item 2) and the region panel row's `sr-only` span (`MapRegionPanel.jsx`, T4
+ * item 6), so the one glyph means the same thing in words wherever it is read aloud. Four FIXED
+ * strings, keyed on tier and (for a miss) the served shortfall direction — never a phrase built
+ * from the location's own wanted set, for the same reason {@link tideTierHeading} gives.
+ *
+ * @param {?('match'|'miss')} tier
+ * @param {?('HIGHER'|'LOWER')} [shortfall] only read when `tier === 'miss'`
+ * @returns {?string} null when there is no served tide fact at all (inland, or no stored extremes)
+ */
+export function tideAccessibleClause(tier, shortfall = null) {
+  if (tier === 'match') return 'tide right here';
+  if (tier === 'miss') {
+    if (shortfall === 'HIGHER') return 'wants the water higher';
+    if (shortfall === 'LOWER') return 'wants the water lower';
+    return 'wrong water';
+  }
+  return null;
+}
+
+/**
  * The order the backend's {@code TideWording#joinOr} reads a location's wanted set in — the
  * {@code TideType} enum's OWN declaration order ({@code entity/TideType.java}: HIGH, MID, LOW) —
  * reproduced here so a two-value want joins identically on the client and on the server: the gate

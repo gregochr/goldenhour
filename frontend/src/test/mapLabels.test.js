@@ -196,23 +196,45 @@ describe('mapLabels — chipCandidates', () => {
     expect(chipCandidates({ spots, zoom: 13 }).map((s) => s.name)).toEqual(['rated', 'unrated']);
   });
 
-  it('among equal stars, tide alignment is the tiebreaker — the aligned one survives a budget of one (bundle rev 2)', () => {
+  it('among equal stars, a served MATCH is the tiebreaker — it survives a budget of one (tide-window-plan.md §3 T4 item 3)', () => {
     // Two SAME-region spots, both out of view: the only slot either can reach is the region's own
     // single guaranteed "best" pick, so whichever the sort puts first is the ONLY one that survives
     // — a real budget-of-one, not merely a position within a longer list. Without the tiebreaker
-    // the closer, unaligned spot (drive 5) would win on the sort's OLD final key.
-    const notAligned = { ...spot('not-aligned', 'A', 4, 5), onTheLight: false };
-    const aligned = { ...spot('aligned', 'A', 4, 50), onTheLight: true };
+    // the closer, unmatched spot (drive 5) would win on the sort's OLD final key.
+    const notMatched = { ...spot('not-matched', 'A', 4, 5), tideTier: 'miss' };
+    const matched = { ...spot('matched', 'A', 4, 50), tideTier: 'match' };
     const result = chipCandidates({
-      spots: [notAligned, aligned], zoom: 13, inViewNames: new Set(),
+      spots: [notMatched, matched], zoom: 13, inViewNames: new Set(),
     });
-    expect(result.map((s) => s.name)).toEqual(['aligned']);
+    expect(result.map((s) => s.name)).toEqual(['matched']);
+  });
+
+  it('⚠️ a MISS is not demoted below a spot with no tide fact at all — the key only promotes a match', () => {
+    // Same "budget of one" shape as the promotion test above (both spots share a region and are
+    // out of view, so only ONE survives — `bestPerRegion`'s pick, whichever the sort puts first).
+    // The loser here carries NO tide fact at all — a bare inland spot — rather than a served
+    // miss. A `tideTier === 'match' ? 1 : 0` reads the same `0` for a MISS and for "no fact at
+    // all", so this comparator's own "never demotes" claim (design §3) needs a fixture where the
+    // two tie on every OTHER key and ONLY a wrongly-written negative score for 'miss' (e.g.
+    // `'miss' ? -1 : (match?1:0)`) could move them apart.
+    //
+    // ⚠️ Order is load-bearing. `missed` is listed FIRST: `Array.prototype.sort` is spec-stable
+    // (ES2019+), so the correct comparator (a genuine tie on every key) leaves this exact input
+    // order untouched and `missed` survives the budget of one. A demotion mutant would instead
+    // compare `ta=-1` (missed) against `tb=0` (inland) and swap them, so `inland` would survive
+    // instead — the one difference this test exists to catch. The promotion test above (`matched`
+    // last, `notMatched` first) could not also prove this: it already differs on the tide key BY
+    // DESIGN, so a demotion mutant and the correct code agree on its answer too.
+    const missed = { ...spot('missed', 'A', 4, 5), tideTier: 'miss' };
+    const inland = { ...spot('inland', 'A', 4, 5) };
+    const result = chipCandidates({ spots: [missed, inland], zoom: 13, inViewNames: new Set() });
+    expect(result.map((s) => s.name)).toEqual(['missed']);
   });
 
   it('tide alignment never overrides a HIGHER star rating — score is still the first sort key', () => {
-    const higherNotAligned = { ...spot('higher', 'A', 5, 5), onTheLight: false };
-    const lowerAligned = { ...spot('lower', 'A', 4, 5), onTheLight: true };
-    const result = chipCandidates({ spots: [lowerAligned, higherNotAligned], zoom: 13 });
+    const higherNotMatched = { ...spot('higher', 'A', 5, 5), tideTier: 'miss' };
+    const lowerMatched = { ...spot('lower', 'A', 4, 5), tideTier: 'match' };
+    const result = chipCandidates({ spots: [lowerMatched, higherNotMatched], zoom: 13 });
     expect(result.map((s) => s.name)).toEqual(['higher', 'lower']);
   });
 

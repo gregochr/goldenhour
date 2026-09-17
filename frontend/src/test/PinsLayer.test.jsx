@@ -365,6 +365,125 @@ describe('PinsLayer — hover tooltip parity with the P8 chip', () => {
   });
 });
 
+describe('PinsLayer — the tide-fit dot (tide-window-plan.md §3 T4 item 5)', () => {
+  it('carries data-tide="match" for a served match, and the ramp fill is untouched', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: 'match',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    expect(pin).toHaveAttribute('data-tide', 'match');
+    // §7 check 12's rule, applied to the pin the same way as the chip: the tier changes an
+    // attribute a CSS opacity rule keys off, never the inline ramp `background`.
+    const probe = document.createElement('div');
+    probe.style.background = rampHex(5);
+    expect(pin.style.background).toBe(probe.style.background);
+  });
+
+  it('carries data-tide="miss" for a served miss, with the ramp fill still untouched', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 3, tideTier: 'miss',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    expect(pin).toHaveAttribute('data-tide', 'miss');
+    const probe = document.createElement('div');
+    probe.style.background = rampHex(3);
+    expect(pin.style.background).toBe(probe.style.background);
+  });
+
+  it('carries no data-tide attribute when there is no served tide fact at all', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: null,
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    expect(pin).not.toHaveAttribute('data-tide');
+  });
+
+  it('renders an unrated coastal dot the same way as any other unrated dot — the gate makes it VISIBLE, not special', async () => {
+    // §7 check 13's own claim, drawn one layer down: a tide-gated coastal location bypasses
+    // `visibleLocations`' rating stage (`MapView.jsx`, T4 item 1) and reaches this pool with no
+    // rating at all — the dot it gets here is the ordinary no-data/stand-down shape, never a third
+    // visual class invented for the gate.
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: null, isStandDown: false, tideTier: 'miss',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    const probe = document.createElement('div');
+    probe.style.background = NO_DATA_COLOUR;
+    expect(pin.style.background).toBe(probe.style.background);
+    expect(pin).toHaveAttribute('data-tide', 'miss');
+  });
+
+  it('adds the third tooltip line for a MATCH, teal-inked, mirroring the chip', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: 5,
+        tideTier: 'match',
+        tideFitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    fireEvent.mouseEnter(pin);
+    const tideLine = document.querySelector('[data-testid="map-pin-tip-tide"]');
+    expect(tideLine).not.toBeNull();
+    expect(tideLine).toHaveTextContent(
+      'Tide lands on the light — high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+    );
+    expect(tideLine).toHaveClass('wf-maplab-tip-t');
+  });
+
+  it('adds the third tooltip line for a MISS, headed "Wrong water, not wrong light", with no teal ink', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: 5,
+        tideTier: 'miss',
+        tideFitPhrase: 'wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    fireEvent.mouseEnter(pin);
+    const tideLine = document.querySelector('[data-testid="map-pin-tip-tide"]');
+    expect(tideLine).not.toBeNull();
+    expect(tideLine).toHaveTextContent(
+      'Wrong water, not wrong light — wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+    );
+    expect(tideLine).not.toHaveClass('wf-maplab-tip-t');
+  });
+
+  it('adds no tide line when there is no served tide fact at all', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: null,
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    fireEvent.mouseEnter(pin);
+    expect(document.querySelector('[data-testid="map-pin-tip-tide"]')).toBeNull();
+  });
+});
+
 describe('PinsLayer — the hover tooltip answers for the window on screen, not the one it opened on', () => {
   // The same defect `MapLabels.test.jsx`'s block of this name pins, in the same shape: the pin's
   // hover handler stored a SNAPSHOT of the spot, so a keyboard window step under a resting pointer
