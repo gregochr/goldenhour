@@ -224,9 +224,9 @@ describe('WindowFirstShell — the origin', () => {
   describe('the / shortcut', () => {
     /**
      * Opens search with {@code /} and closes it again: the positive control every refusal below
-     * runs before its own press.
+     * runs before its own press, when what that refusal asserts is an absence.
      *
-     * <p>⚠️ <b>Without it, each refusal passes with its guard deleted when the test runs alone.</b>
+     * <p>⚠️ <b>Without it, each absence below holds with its guard deleted, when run alone.</b>
      * {@code PlanSearch} is {@code lazy()}, and the first time the shell renders it, it suspends,
      * even when its module is already loaded (measured). A press the guard failed to refuse then
      * commits only the {@code Suspense} fallback, which draws nothing, so
@@ -252,27 +252,101 @@ describe('WindowFirstShell — the origin', () => {
       expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
     });
 
-    it('⚠️ is ignored while the reader is typing in a field', async () => {
+    /**
+     * The four kinds of field the guard names, one case each, because each is its own clause:
+     * while only the input was tested, deleting any of the other three failed nothing.
+     *
+     * <p>⚠️ jsdom has no {@code isContentEditable}, and no {@code contentEditable} either: on jsdom
+     * 30.0.1, {@code 'isContentEditable' in HTMLElement.prototype} is false. An element carrying
+     * only the attribute is therefore no field here, and correct code opens search over it. So the
+     * host is given the {@code true} a browser computes from that attribute, and keeps the
+     * attribute too, so a guard that reads either one still refuses.
+     */
+    const FIELDS = [
+      ['an input', () => document.createElement('input')],
+      ['a textarea', () => document.createElement('textarea')],
+      ['a select', () => document.createElement('select')],
+      ['a contenteditable element', () => {
+        const host = document.createElement('div');
+        host.setAttribute('contenteditable', 'true');
+        Object.defineProperty(host, 'isContentEditable', { value: true });
+        return host;
+      }],
+    ];
+
+    it.each(FIELDS)('⚠️ is ignored while the reader is typing in %s', async (_kind, makeField) => {
       renderShell();
       await openAndCloseSearch();
-      const field = document.createElement('input');
+      const field = makeField();
       document.body.appendChild(field);
       try {
         field.focus();
-        fireEvent.keyDown(field, { key: '/' });
+        expect(field).toHaveFocus();
+        const press = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+        fireEvent(field, press);
         expect(screen.queryByTestId('plan-search')).toBeNull();
         expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+        // The `/` is the reader's own character here, so opening nothing is not enough: the press
+        // must still reach the field.
+        expect(press.defaultPrevented).toBe(false);
       } finally {
         field.remove();
       }
     });
 
-    it('⚠️ is ignored when a modifier is held, so browser shortcuts are untouched', async () => {
+    it.each(['metaKey', 'ctrlKey', 'altKey'])(
+      '⚠️ is ignored when %s is held, so browser shortcuts are untouched',
+      async (modifier) => {
+        renderShell();
+        await openAndCloseSearch();
+        const press = new KeyboardEvent('keydown', {
+          key: '/', bubbles: true, cancelable: true, [modifier]: true,
+        });
+        fireEvent(document, press);
+        expect(screen.queryByTestId('plan-search')).toBeNull();
+        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+        // Untouched means the browser still gets the press, not only that search stays shut.
+        expect(press.defaultPrevented).toBe(false);
+      },
+    );
+
+    it('⚠️ still opens with Shift held, because some keyboards need Shift to type it', async () => {
+      // On a German layout `/` is Shift+7, so the press arrives as `key: '/'` with `shiftKey` set.
+      // Shift is left out of the refusal above on purpose. The shell's arrow-key rule does refuse
+      // Shift, so a modifier check shared by the two would take this shortcut away from those
+      // readers, and until this test nothing failed when Shift was added.
       renderShell();
-      await openAndCloseSearch();
-      fireEvent.keyDown(document, { key: '/', metaKey: true });
-      expect(screen.queryByTestId('plan-search')).toBeNull();
-      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+      const press = new KeyboardEvent('keydown', {
+        key: '/', bubbles: true, cancelable: true, shiftKey: true,
+      });
+      fireEvent(document, press);
+      expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+    });
+
+    it('⚠️ is ignored while search is open, so what the reader typed survives', async () => {
+      // Search is keyed on its seed, so a `/` this guard let through would set the seed back to ''
+      // and remount the box empty. The seed comes from the beyond line's link: a box opened with
+      // `/` already has '' for a seed, and setting it again changes nothing on screen.
+      // No `openAndCloseSearch` first: what is asserted is a box that is already on screen, so the
+      // lazy boundary has resolved before the press.
+      renderShell({
+        reachById: new Map([[1, { driveMinutes: 400 }], [2, { driveMinutes: 40 }]]),
+      });
+      fireEvent.click(await screen.findByTestId('wf-heat-beyond-search'));
+      const input = await screen.findByTestId('plan-search-input');
+      expect(input).toHaveValue('Lake District');
+      fireEvent.change(input, { target: { value: 'Lake' } });
+      // Focus moves off the field first, because a `/` typed into the field is refused by the field
+      // guard whether or not this one works. A click on the panel that misses its controls, such
+      // as on a group heading, leaves focus on the dialog root (measured in Chromium, WebKit and
+      // Firefox, on a static page with the same structure).
+      const dialog = screen.getByRole('dialog', { name: 'Search days, regions and places' });
+      dialog.focus();
+      expect(dialog).toHaveFocus();
+
+      fireEvent.keyDown(dialog, { key: '/' });
+
+      expect(screen.getByTestId('plan-search-input')).toHaveValue('Lake');
     });
 
     it('⚠️ is ignored while a dialog this shell does not own is open', async () => {
