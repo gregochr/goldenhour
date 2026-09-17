@@ -415,34 +415,140 @@ describe('MapCallout — facts row (reachMeasured discipline)', () => {
   });
 });
 
-describe('MapCallout — the tide-alignment row (bundle rev 2\'s tide-chip tweak)', () => {
+/**
+ * The tide-fit block (T5, `docs/engineering/tide-window-plan.md`) — keyed on a served tide FACT
+ * existing at all (`tideOnLight != null` with a `fitPhrase`), never on `onTheLight` (bundle rev
+ * 2's different, on-the-light question). `TideFitBlock.test.jsx` covers the block's own rendering
+ * exhaustively; this file proves the HOST wires it correctly — the right fact, the right `want`,
+ * the resolved jump target, and the interaction with the evaluation gate row beside it.
+ */
+describe('MapCallout — the tide-fit block (T5)', () => {
   let restore;
   beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
   afterEach(() => restore());
 
-  const ALIGNED = { onTheLight: true, phrase: 'HW 19:52 · 36m before sunset' };
+  const MATCH = {
+    aligned: true, state: 'HIGH', onTheLight: true, phrase: 'HW 19:52 · 36m before sunset',
+    fitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+  };
+  const MISS = {
+    aligned: false, state: 'LOW', onTheLight: false, phrase: null, shortfall: 'HIGHER',
+    fitPhrase: 'wants high water · low tide, rising at 05:42 · 1.2 m of 4.3 m',
+  };
 
-  it('renders the row — glyph, bold heading, and the phrase — only when onTheLight is true', async () => {
-    await mount({ tideOnLight: ALIGNED });
-    const row = screen.getByTestId('map-callout-tide');
-    expect(row).toHaveTextContent('Tide lands on the light');
-    expect(row).toHaveTextContent('HW 19:52 · 36m before sunset');
-    expect(row.querySelector('svg')).toBeTruthy();
+  it('renders the match tier — glyph, the match heading, and the fit phrase', async () => {
+    await mount({ tideOnLight: MATCH });
+    const block = screen.getByTestId('tide-fit-block');
+    expect(block).toHaveAttribute('data-tier', 'match');
+    expect(block).toHaveTextContent('Tide lands on the light');
+    expect(block).toHaveTextContent('high water, falling · HW 19:52 · 36m before sunset · 3.9 m');
+    expect(block.querySelector('svg')).toBeInTheDocument();
   });
 
-  it('omits the row entirely when the tide is not on the light — never a "no alignment" line', async () => {
-    await mount({ tideOnLight: { onTheLight: false, phrase: 'LW 22:10 · 3h18 after sunset' } });
-    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
+  it('renders the miss tier — the miss heading and the fit phrase, no jump with no index supplied', async () => {
+    await mount({ tideOnLight: MISS });
+    const block = screen.getByTestId('tide-fit-block');
+    expect(block).toHaveAttribute('data-tier', 'miss');
+    expect(block).toHaveTextContent('Wrong water, not wrong light');
+    expect(block).toHaveTextContent('wants high water · low tide, rising at 05:42 · 1.2 m of 4.3 m');
+    // `location.tideType` is `['HIGH']` — the wanted set — so the denial names it even with no
+    // `tideAlignmentIndex` at all (the scan finds nothing to jump to, which reads as a denial).
+    expect(screen.getByTestId('tide-fit-denial'))
+      .toHaveTextContent('Nothing in these four days puts high water on the light here.');
   });
 
-  it('omits the row when no tideOnLight fact is supplied at all (an inland location)', async () => {
+  it('omits the block entirely when no tideOnLight fact is supplied at all (an inland location)', async () => {
     await mount({ tideOnLight: null });
-    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
+    expect(screen.queryByTestId('tide-fit-block')).toBeNull();
   });
 
-  it('omits the row when onTheLight is true but no phrase exists — never a heading with nothing under it', async () => {
-    await mount({ tideOnLight: { onTheLight: true, phrase: null } });
-    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
+  it('omits the block when a fact exists but carries no fitPhrase — never a heading with nothing under it', async () => {
+    await mount({ tideOnLight: { aligned: true, onTheLight: true, phrase: 'x', fitPhrase: null } });
+    expect(screen.queryByTestId('tide-fit-block')).toBeNull();
+  });
+
+  it('the jump calls onSelectEv with the resolved ROW OBJECT, found by scanning the served evRows', async () => {
+    const onSelectEv = vi.fn();
+    const LATER_EVENT = {
+      ...SUNSET_EVENT, id: 'solar:2026-06-17:SUNSET', date: '2026-06-17', dayLabel: 'Tomorrow', time: '20:25',
+    };
+    const tideAlignmentIndex = {
+      byId: new Map([[`${LOCATION.id}|2026-06-17|SUNSET`, { aligned: true, state: 'HIGH' }]]),
+      byName: new Map(),
+    };
+    await mount({
+      tideOnLight: MISS,
+      tideAlignmentIndex,
+      evRows: [SUNSET_EVENT, LATER_EVENT],
+      onSelectEv,
+    });
+    const jump = screen.getByRole('button', { name: /Next high water on the light · Tomorrow sunset 20:25/ });
+    fireEvent.click(jump);
+    expect(onSelectEv).toHaveBeenCalledTimes(1);
+    expect(onSelectEv).toHaveBeenCalledWith(LATER_EVENT);
+  });
+
+  it('says "beyond" (the denial) when the index carries no later fit for this location', async () => {
+    const tideAlignmentIndex = { byId: new Map(), byName: new Map() };
+    await mount({
+      tideOnLight: MISS, tideAlignmentIndex, evRows: [SUNSET_EVENT],
+    });
+    expect(screen.getByTestId('tide-fit-denial')).toHaveTextContent('Nothing in these four days');
+    expect(screen.queryByRole('button', { name: /Next/ })).toBeNull();
+  });
+});
+
+/**
+ * The gate row (#866) and the tide-fit block (T5) beside it — plan §5 #6's rule: no fact prints
+ * twice on one card. The gate sentence owns the offset clause; the block's miss phrase owns the
+ * level, height and "wants" clause, and T1 built it to omit the offset clause for exactly this
+ * reason. This is the composition test, not a re-test of either component's own content.
+ */
+describe('MapCallout — the gate row and the tide-fit block together (T5, §5 #6)', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const OFFSET_CLAUSE = 'LW 20:40 · 30m before sunset';
+  const GATE = `Tide not right at sunset · needs high water, mid tide instead · ${OFFSET_CLAUSE}`;
+  const GATED_DAY = {
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: 'North East',
+        slots: [{
+          locationId: LOCATION.id, locationName: LOCATION.name, solarEventTime: `${TODAY}T20:10:00`,
+          verdict: 'STANDDOWN', standdownReason: 'Tide mismatch', evaluationGate: GATE,
+        }],
+      }],
+    }],
+  };
+  const evaluationGateIndex = buildEvaluationGateIndex([GATED_DAY]);
+  // The block's own miss phrase, built by T1 to NEVER repeat the nearest-extreme offset clause
+  // the gate sentence above already states.
+  const GATED_MISS = {
+    aligned: false, state: 'HIGH', onTheLight: false, phrase: OFFSET_CLAUSE, shortfall: 'LOWER',
+    fitPhrase: 'wants high water, mid tide · low tide, rising at 20:40 · 1.2 m of 4.3 m',
+  };
+
+  it('renders BOTH the gate row and the tide-fit block, with the offset clause appearing exactly once in the card\'s text', async () => {
+    await mount({
+      rating: null, scoreIndex: null, evaluationGateIndex, tideOnLight: GATED_MISS,
+    });
+    const gate = screen.getByTestId('map-callout-gate');
+    const block = screen.getByTestId('tide-fit-block');
+    expect(gate).toHaveTextContent(GATE);
+    expect(block).toHaveAttribute('data-tier', 'miss');
+    expect(block).toHaveTextContent('Wrong water, not wrong light');
+
+    const cardText = screen.getByTestId('map-callout').textContent;
+    const occurrences = cardText.split(OFFSET_CLAUSE).length - 1;
+    expect(occurrences).toBe(1);
+    // And the "wants" clause is the block's alone — the gate sentence's own "needs …" clause
+    // names the water differently ("needs high water, mid tide instead"), so this checks the
+    // block's own clause appears, not a coincidental substring match against the gate's.
+    expect(cardText).toContain('wants high water, mid tide');
   });
 });
 
@@ -863,18 +969,16 @@ describe('MapCallout — anchoring lifecycle', () => {
   });
 
   it('re-measures the anchor when the ACTIVE EVENT changes, even though location/map do not (regression: adversarial review on the tide-chip PR)', async () => {
-    // The bug this pins: switching between an unaligned and an aligned window toggles the tide
-    // row's presence, changing the card's own rendered height — but `location` and `map` are
-    // unchanged, so neither `paint`'s identity nor `stripOpen` moved, and the anchor box stayed
-    // sized for the PREVIOUS window until an unrelated pan/zoom forced a re-measure. The fix keys
-    // the repaint effect on `event?.id` too, the same way it already keys on `stripOpen` — proven
-    // here by counting calls to the one `map.*` read `paint()` always makes,
-    // `latLngToContainerPoint`, since jsdom's faked `offsetHeight` (from `withMeasuredCard`) is a
-    // constant and cannot itself show the resulting box move.
+    // The bug this pins: switching between a window with no tide fact and one with a served fact
+    // toggles the tide-fit block's presence, changing the card's own rendered height — but
+    // `location` and `map` are unchanged, so neither `paint`'s identity nor `stripOpen` moved, and
+    // the anchor box stayed sized for the PREVIOUS window until an unrelated pan/zoom forced a
+    // re-measure. The fix keys the repaint effect on `event?.id` too, the same way it already keys
+    // on `stripOpen` — proven here by counting calls to the one `map.*` read `paint()` always
+    // makes, `latLngToContainerPoint`, since jsdom's faked `offsetHeight` (from
+    // `withMeasuredCard`) is a constant and cannot itself show the resulting box move.
     const OTHER_EVENT = { ...SUNSET_EVENT, id: 'solar:2026-06-16:SUNSET', date: '2026-06-16' };
-    const { rerender } = await mount({
-      event: SUNSET_EVENT, tideOnLight: { onTheLight: false, phrase: null },
-    });
+    const { rerender } = await mount({ event: SUNSET_EVENT, tideOnLight: null });
     const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
     const callsBeforeSwitch = paintSpy.mock.calls.length;
 
@@ -884,7 +988,10 @@ describe('MapCallout — anchoring lifecycle', () => {
           location={LOCATION}
           event={OTHER_EVENT}
           rating={4}
-          tideOnLight={{ onTheLight: true, phrase: 'HW 19:52 · 36m before sunset' }}
+          tideOnLight={{
+            aligned: true, onTheLight: true, phrase: 'HW 19:52 · 36m before sunset',
+            fitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+          }}
         />,
       );
     });

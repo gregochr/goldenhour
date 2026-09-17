@@ -1,16 +1,21 @@
 /**
  * Tests for `utils/mapTideFit.js` — the Map tab's tide-fit derivations
- * (`docs/engineering/tide-window-plan.md` T3, §1 #12, §5 #7/#8).
+ * (`docs/engineering/tide-window-plan.md` T3, §1 #12, §5 #7/#8, T5's `wantPhrase` and T6's
+ * `siblingEventTime`).
  *
  * Covers: the tier read (`tierOf`), the served-facts scan for the next window a location fits
- * (`nextAlignedRow`), and the strip's per-render model (`stripModel`) — visibility, the
+ * (`nextAlignedRow`), the strip's per-render model (`stripModel`) — visibility, the
  * coastal-and-in-view narrowing via `bounds.pad(0.12)`, the dimmed/matched split, the dominant-want
- * tally's tie-break in both directions, and the earliest-next-fit scan across every currently
- * dimmed spot wanting that want.
+ * tally's tie-break in both directions and its own count (`dominantWantCount`), and the
+ * earliest-next-fit scan across every currently dimmed spot wanting that want; `wantPhrase`'s own
+ * join, including the three-item Oxford-comma branch (`"a, b or c"`) no fixture elsewhere in the T5
+ * diff happens to exercise, since every `TideFitBlock`/`MapCallout`/`LocationFourDaySheet` test
+ * fixture wants 0, 1 or 2 tide types; and `siblingEventTime`'s lookup over the served EV list for
+ * the strip's sunrise/sunset chart labels.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  tierOf, nextAlignedRow, stripModel, siblingEventTime,
+  tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime,
 } from '../utils/mapTideFit.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
@@ -431,5 +436,40 @@ describe('siblingEventTime', () => {
   it('returns null for a non-array evRows or a null date, rather than throwing', () => {
     expect(siblingEventTime(null, DATE_1, 'SUNRISE')).toBeNull();
     expect(siblingEventTime(evRows, null, 'SUNRISE')).toBeNull();
+  });
+});
+
+/**
+ * `wantPhrase` (T5) — the location's wanted tide-types joined with "or", mirroring the backend's
+ * `TideWording#joinOr` exactly. Direct unit coverage rather than relying on the two-item cases
+ * `TideFitBlock`/`MapCallout`/`LocationFourDaySheet` fixtures happen to exercise (adversarial
+ * review: no fixture anywhere in the T5 diff wants all three `TideType`s, so the Oxford-comma
+ * three-item branch — `.slice(0, -1).join(', ')` between two non-last words — had zero coverage).
+ */
+describe('wantPhrase', () => {
+  it('states a single want with no join at all', () => {
+    expect(wantPhrase(['HIGH'])).toBe('high water');
+    expect(wantPhrase(['MID'])).toBe('mid tide');
+    expect(wantPhrase(['LOW'])).toBe('low water');
+  });
+
+  it('joins two wants with "or", in HIGH/MID/LOW order regardless of the array\'s own order', () => {
+    expect(wantPhrase(['LOW', 'HIGH'])).toBe('high water or low water');
+    expect(wantPhrase(['HIGH', 'MID'])).toBe('high water or mid tide');
+    expect(wantPhrase(['LOW', 'MID'])).toBe('mid tide or low water');
+  });
+
+  it('joins all three with an Oxford comma before "or" — the branch no two-item fixture reaches', () => {
+    expect(wantPhrase(['LOW', 'HIGH', 'MID'])).toBe('high water, mid tide or low water');
+  });
+
+  it('returns null for an empty or missing set — never guesses a want that was not served', () => {
+    expect(wantPhrase([])).toBeNull();
+    expect(wantPhrase(null)).toBeNull();
+    expect(wantPhrase(undefined)).toBeNull();
+  });
+
+  it('ignores an unrecognised entry rather than throwing', () => {
+    expect(wantPhrase(['HIGH', 'SPRING_TIDE'])).toBe('high water');
   });
 });

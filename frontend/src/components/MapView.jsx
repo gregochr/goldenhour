@@ -5126,6 +5126,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               driveMinutes={driveMinutesFor(selectedLoc.id)}
               distanceMiles={distanceMilesFor(selectedLoc.id)}
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
+              tideAlignmentIndex={tideAlignmentIndex}
               scoreIndex={scoreIndex}
               scoresKnown={scoresKnown}
               ratingKnown={ratingKnown}

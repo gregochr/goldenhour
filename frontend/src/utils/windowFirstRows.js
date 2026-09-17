@@ -56,9 +56,13 @@ const TIDE_KICKER = '≈ Tide';
 /**
  * Water level → the words the row states it in.
  *
- * <p>Exported since the tide-window increment's strip (`tide-window-plan.md` T6, §4 #8): the strip's
- * header phrase and footer "wants" clause read the SAME vocabulary this row does, rather than the
- * design bundle's own `mid water` — one word for one state, not two English phrasings of it.
+ * <p>Exported since the tide-window increment's T5 and T6 (`docs/engineering/tide-window-plan.md`),
+ * both of which reuse it rather than keeping a second copy of the same three strings:
+ * `utils/mapTideFit.js#wantPhrase` (T5) joins a location's wanted {@code TideType} set into words
+ * ("high water or low water") for the callout/sheet block's jump and denial lines, and the tide
+ * strip (T6, §4 #8) reads it for its header phrase and footer "wants" clause — never the design
+ * bundle's own `mid water`. One vocabulary for what a tide STATE is called, wherever the client
+ * names one.
  */
 export const STATE_WORD = { HIGH: 'high water', MID: 'mid tide', LOW: 'low water' };
 
