@@ -3438,6 +3438,21 @@ button.wf-hc.also.on:hover {
   outline-offset: 2px;
   border-radius: 2px;
 }
+/* The strip itself takes focus when `clear` removes itself while holding it (`MapBreadcrumb`'s
+   class comment), so it draws a ring of its own, in `--color-plex-gold`, the bone its two buttons'
+   rings use.
+   INSET, at minus its own width: the strip spans `.wf-body.wf-body--map` edge to edge, and that
+   panel clips overflow, so an outline drawn outside the strip would be cut away down both sides.
+   A real outline, not the `box-shadow` ring the tick line draws: forced-colours mode removes every
+   box-shadow and repaints an outline in a system colour, so this one needs no transparent twin.
+   Measured in Chromium and Firefox, both modes: the ring draws whole on all four sides. In forced
+   colours the bottom edge gains one pixel rather than two, because the strip's 1px bottom border is
+   repainted too and sits under the ring's outer pixel. Unlike ⌂ (whose `-3px` answers a border on
+   all four sides), the other three edges gain the whole ring, so the offset stays at the width. */
+.wf-map-breadcrumb:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
 @media (max-width: 639px) {
   .wf-map-breadcrumb {
     font-size: 10px;
