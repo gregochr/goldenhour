@@ -638,15 +638,26 @@ export default function UserSettingsModal({
               >
                 {/* The label names the slider and the hint describes it. Named by the whole label,
                     the slider read "Local radiusHow far counts as close to home." (measured in
-                    Chromium): no text separates the two, and the gap a sighted reader sees is the
-                    hint's margin, which is not text. Adding a space would widen that gap, so the
-                    split is by id instead: the first span has no class, and no text was added. */}
+                    Chromium), so the two are split by id.
+
+                    The label's own text needs a real space between them too. What reads that text
+                    rather than the slider's name — copy, `innerText`, and the accessibility tree a
+                    screen reader's reading mode walks — got the same glued words, because the gap a
+                    sighted reader sees used to be the hint's margin, and a margin is not text. A bare space would widen that gap by its own width, so the
+                    space sits in a fixed 0.5rem box that replaces the 0.5rem margin. Measured in
+                    Chromium, WebKit and Firefox with the web font loaded: every box identical at
+                    64 widths from 240 to 1440px, and each engine's `innerText` separated.
+                    ⚠️ `whitespace-pre` is load-bearing: without it the lone space collapses, and
+                    the text stays glued in all three. */}
                 <label
                   htmlFor="local-radius"
                   className="block text-sm text-plex-text mb-1"
                 >
                   <span id="local-radius-label">Local radius</span>
-                  <span id="local-radius-hint" className="text-plex-text-muted ml-2 text-xs">
+                  <span className="inline-block w-2 whitespace-pre" data-testid="settings-radius-label-gap">
+                    {' '}
+                  </span>
+                  <span id="local-radius-hint" className="text-plex-text-muted text-xs">
                     How far counts as close to home.
                   </span>
                 </label>

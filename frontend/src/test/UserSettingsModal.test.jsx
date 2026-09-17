@@ -200,6 +200,34 @@ describe('UserSettingsModal', () => {
 
       expect(slider).toHaveAccessibleDescription('How far counts as close to home.');
     });
+
+    it('separates the radius label\'s words in its own text, not only in the slider\'s name', async () => {
+      // Reading mode, copy and `innerText` take the label's text, not the slider's name — and read
+      // "Local radiusHow far…" while the only gap between the two was the hint's margin.
+      getSettings.mockResolvedValue(PRO_SETTINGS);
+      renderModal();
+      await screen.findByRole('slider', { name: 'Local radius' });
+
+      const label = screen.getByText('Local radius').closest('label');
+
+      expect(label).toHaveTextContent(/^Local radius How far counts as close to home\.$/);
+    });
+
+    it('keeps that space in a fixed box standing in for the margin, so the hint does not move', async () => {
+      // jsdom has no layout, so this pins what the browser measurement found rather than the pixels:
+      // the space renders only under `whitespace-pre` (otherwise it collapses and the text is glued
+      // again), its box is the 0.5rem the margin was, and the hint no longer adds a margin on top.
+      // Hidden from assistive tech, the space would separate nothing for the readers it is for.
+      getSettings.mockResolvedValue(PRO_SETTINGS);
+      renderModal();
+      await screen.findByRole('slider', { name: 'Local radius' });
+
+      const gap = screen.getByTestId('settings-radius-label-gap');
+
+      expect(gap).toHaveClass('inline-block', 'w-2', 'whitespace-pre');
+      expect(gap).not.toHaveAttribute('aria-hidden');
+      expect(screen.getByText('How far counts as close to home.')).not.toHaveClass('ml-2');
+    });
   });
 
   it('postcode input is enabled for PRO user', async () => {
