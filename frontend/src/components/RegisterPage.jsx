@@ -207,7 +207,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                 type="text"
                 data-testid="reg-username"
                 autoComplete="username"
-                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold ${
+                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold ${
                   username.length > 0 && !usernameValid ? 'border-red-700' : 'border-plex-border'
                 }`}
                 value={username}
@@ -227,7 +227,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                 type="email"
                 data-testid="reg-email"
                 autoComplete="email"
-                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold ${
+                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold ${
                   email.length > 0 && !emailValid ? 'border-red-700' : 'border-plex-border'
                 }`}
                 value={email}
@@ -247,7 +247,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                 type="email"
                 data-testid="reg-confirm-email"
                 autoComplete="email"
-                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold ${
+                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold ${
                   confirmEmail.length > 0 && !emailsMatch ? 'border-red-700' : 'border-plex-border'
                 }`}
                 value={confirmEmail}
@@ -401,7 +401,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                   type={showPassword ? 'text' : 'password'}
                   data-testid="sp-password"
                   autoComplete="new-password"
-                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
@@ -428,7 +428,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                   type={showConfirm ? 'text' : 'password'}
                   data-testid="sp-confirm"
                   autoComplete="new-password"
-                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   disabled={loading}
@@ -486,7 +486,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                 <input
                   type="email"
                   data-testid="waitlist-email"
-                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                   value={waitlistEmail}
                   onChange={(e) => setWaitlistEmail(e.target.value)}
                   placeholder="you@example.com"

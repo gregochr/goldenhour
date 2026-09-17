@@ -128,6 +128,18 @@ class PlanErrorBoundary extends React.Component {
         <div className="flex justify-center mb-4">
           <BrandLockup variant="compact" />
         </div>
+        {/* ⚠️ `outline-none` here is BARE — no `focus:`/`focus-visible:` prefix, unlike the 28 form-
+            field sites this codebase fixed for forced-colours mode (frontend-test-standards.md's
+            neighbouring test). Do not "complete" that fix by copy-pasting its `outline-hidden` here:
+            the prefix is what confines that utility's forced-colours branch to `:focus` in the first
+            place, so a bare `outline-hidden` would draw a PERMANENT 2px forced-colours box around
+            this heading at all times, on every crash render, whether it is focused or not — worse
+            than today's bare `outline-none`, not a parity fix. This heading also carries no ring or
+            border-colour focus styling at all (unlike the three exempt dialog roots, which suppress
+            an indicator that at least exists elsewhere on the same element) — deliberately out of
+            that PR's scope, since a correct fix here needs BOTH the missing `focus:` prefix AND a
+            real design call on whether a decorative, non-interactive landing heading wants a ring at
+            all, not a mechanical substitution. */}
         <h2 ref={this.headingRef} tabIndex={-1} className="text-red-400 font-medium mb-2 outline-none">
           The Plan stopped working
         </h2>

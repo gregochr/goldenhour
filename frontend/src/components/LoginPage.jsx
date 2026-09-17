@@ -57,7 +57,7 @@ export default function LoginPage({ onRegister = null }) {
               type="text"
               data-testid="login-username"
               autoComplete="username"
-              className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+              className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
               disabled={isPending}
               required
             />
@@ -74,7 +74,7 @@ export default function LoginPage({ onRegister = null }) {
                 type={showPassword ? 'text' : 'password'}
                 data-testid="login-password"
                 autoComplete="current-password"
-                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                 disabled={isPending}
                 required
               />

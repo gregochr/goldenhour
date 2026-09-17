@@ -144,7 +144,7 @@ export default function OutcomeModal({
               <textarea
                 id="outcome-notes"
                 data-testid="outcome-notes"
-                className="w-full bg-plex-surface-light border border-plex-border rounded-lg p-2 text-sm text-plex-text resize-none focus:outline-none focus:ring-2 focus:ring-plex-gold"
+                className="w-full bg-plex-surface-light border border-plex-border rounded-lg p-2 text-sm text-plex-text resize-none focus:outline-hidden focus:ring-2 focus:ring-plex-gold"
                 rows={3}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
