@@ -260,8 +260,10 @@ describe('WindowFirstShell — the origin', () => {
         // in the Tab order, so a reader can Tab out of it onto ⌂, and `onGoHome` closes the popup in
         // that press's commit. The popup's `useDialogFocus` cleanup — a PASSIVE effect — then found
         // focus nowhere and put them back on its opener card. An owner decision (2026-09-16) makes it
-        // the origin control on every route: the tick line's layout effect lands first, and the
-        // restore, finding focus somewhere real with no modal layer left, stands down.
+        // the origin control here too: the tick line's layout effect lands first, and the restore,
+        // finding focus somewhere real with no modal layer left, stands down. With `App`'s map
+        // overlay or settings dialog ALSO open the restore still picks the card, because that layer
+        // claims modality and the origin control reads as stranded. This test opens neither.
         renderHeld();
         const card = await screen.findByTestId('wf-heat-card');
         card.focus(); // a keyboard reader opens it from the card, which becomes its return address

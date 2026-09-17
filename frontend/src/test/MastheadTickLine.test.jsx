@@ -603,7 +603,7 @@ describe('MastheadTickLine — the origin slot keeps focus when its element is s
     expect(document.activeElement).toBe(screen.getByTestId('masthead-set-postcode'));
   });
 
-  it('on the other tabs the node is reused, so focus simply stays on it', () => {
+  it('on the Plan tab the node is reused, so focus simply stays on it', () => {
     const { rerender } = render(tick({ homePlace: null }));
     const nudge = screen.getByTestId('masthead-set-postcode');
     nudge.focus();
@@ -649,21 +649,32 @@ describe('MastheadTickLine — the origin slot keeps focus when its element is s
     expect(document.activeElement).toBe(document.body);
   });
 
-  it('never takes focus that something else placed in the same commit', () => {
+  it('never takes focus that something else placed in the same commit, nor on a later render', () => {
     // A sibling rendered BEFORE the line runs its layout effect first. Whatever it focuses in the
-    // commit that swaps the slot, the handoff must not overwrite — a placed focus is a decision.
+    // commit that swaps the slot, the handoff must not overwrite — a placed focus is a decision. And
+    // the record is spent in that commit though nothing was handed: left standing, the line's next
+    // render finds focus nowhere and puts a reader who has since clicked away on the statement.
     function PlacesFocus({ on }) {
       useLayoutEffect(() => { if (on) elsewhere.focus(); }, [on]);
       return null;
     }
     PlacesFocus.propTypes = { on: PropTypes.bool.isRequired };
     outsideButton();
-    const { rerender } = render(<><PlacesFocus on={false} />{tick({ isMapTab: true, homePlace: null })}</>);
+    const { rerender } = render(
+      <><PlacesFocus on={false} />{tick({ isMapTab: true, homePlace: null, light: null })}</>,
+    );
     screen.getByTestId('masthead-set-postcode').focus();
 
-    rerender(<><PlacesFocus on />{tick({ isMapTab: true, homePlace: 'Durham' })}</>);
+    rerender(<><PlacesFocus on />{tick({ isMapTab: true, homePlace: 'Durham', light: null })}</>);
 
     expect(document.activeElement).toBe(elsewhere);
+
+    elsewhere.blur(); // the reader clicks somewhere that takes no focus
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+    // The light arrives.
+    rerender(<><PlacesFocus on />{tick({ isMapTab: true, homePlace: 'Durham', light: LIGHT })}</>);
+
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('⚠️ under StrictMode, hands off once and takes nothing back on a later unrelated render', () => {
@@ -747,8 +758,8 @@ describe('MastheadTickLine — the origin slot keeps focus when its element is s
  *
  * <p>Found by reading the code once the slot handoff above existed, and reproduced here before it
  * was fixed: ⌂ renders only while away, and its press returns the origin home — so the press
- * destroys the node it was made on, and on every tab focus fell to `<body>`, where the next Tab
- * starts at the top of the document and a screen reader loses its place.
+ * destroys the node it was made on, and on every tab focus fell to `<body>`, where no ring shows
+ * and a screen reader can lose its place.
  *
  * <p>⚠️ `fireEvent.click` does not move focus, so a test that means a KEYBOARD press focuses ⌂
  * first, as a keyboard reader must. The one that leaves it unfocused models the press that
@@ -855,12 +866,15 @@ describe('MastheadTickLine — ⌂ hands focus to the origin slot when its own p
     expect(document.activeElement).toBe(document.body);
   });
 
-  it('never takes focus that something else placed in the commit ⌂ leaves in', () => {
+  it('never takes focus that something else placed in the commit ⌂ leaves in, nor on a later render', () => {
     // A sibling rendered BEFORE the line runs its layout effect first. Whatever it focuses as ⌂
-    // goes, the handoff must not overwrite — a placed focus is a decision.
+    // goes, the handoff must not overwrite — a placed focus is a decision. And the record is spent
+    // in that commit though nothing was handed: left standing, it waits for the line's next render
+    // to find focus nowhere, and puts a reader who has since clicked away on the origin button.
     elsewhere = document.createElement('button');
     document.body.appendChild(elsewhere);
-    render(<Away before={(origin) => <FocusWhen on={origin == null} target={toElsewhere} />} />);
+    const before = (origin) => <FocusWhen on={origin == null} target={toElsewhere} />;
+    const { rerender } = render(<Away before={before} light={null} />);
     const button = home();
     button.focus();
 
@@ -868,6 +882,12 @@ describe('MastheadTickLine — ⌂ hands focus to the origin slot when its own p
 
     expect(button.isConnected, 'precondition: the press removed ⌂').toBe(false);
     expect(document.activeElement).toBe(elsewhere);
+
+    elsewhere.blur(); // the reader clicks somewhere that takes no focus
+    expect(document.activeElement, 'precondition: focus is nowhere').toBe(document.body);
+    rerender(<Away before={before} light={LIGHT} />); // the light arrives
+
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('⚠️ under StrictMode, a ⌂ focused as it mounts is not recorded as having left', () => {

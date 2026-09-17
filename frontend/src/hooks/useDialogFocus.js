@@ -186,6 +186,14 @@ export default function useDialogFocus(active = true, { restoreFallback = null }
       // modality, or when they are inside the thing that is. Stranded outside one, they are not
       // choosing — they are orphaned, and the restore is what recovers them.
       //
+      // <p>⚠️ **"Choice" is read from where focus IS, never from who put it there**, and one route
+      // relies on that: the masthead's ⌂ closes the window popup in the commit that removes ⌂,
+      // and `MastheadTickLine`'s LAYOUT-effect handoff puts the reader on the origin control
+      // before this passive cleanup runs, so the restore stands down (an owner decision,
+      // 2026-09-16). Asking here whether focus moved during the close sends that reader back to
+      // the card with this hook's own tests still green (measured 2026-09-17);
+      // `planOriginShell.test.jsx`'s popup test is what fails.
+      //
       // <p>Arm C is unaffected, and that is why the narrowing is safe rather than a revert: the map
       // drilldown's two panels are `role="dialog"` WITHOUT `aria-modal` deliberately, so when the
       // four-day sheet closes over them nothing claims modality, `stranded` is false, and focus

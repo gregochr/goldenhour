@@ -182,8 +182,8 @@ function watchDeparture(departed, node) {
  * <p>The slot holds one of three elements — the nudge, the Map tab's statement, the origin button
  * — and on the Map tab the move from the first to the second is a DIFFERENT element: a
  * {@code <button>} replaced by a {@code <span>}. Elsewhere React reuses the button node and focus
- * rides it; here the focused node is destroyed and focus falls to {@code <body>}, from which the
- * next Tab starts at the top of the document. The route is the nudge's own purpose: press "set a
+ * rides it; here the focused node is destroyed and focus falls to {@code <body>}, where no ring
+ * shows and a screen reader can lose its place. The route is the nudge's own purpose: press "set a
  * postcode" and save one in the settings dialog. The page takes the new home from the save's own
  * response, so the nudge is replaced while the dialog is still open, and the dialog's recorded
  * opener is gone by the time it closes (the last paragraph below). The same swap can also land
@@ -206,7 +206,7 @@ function watchDeparture(departed, node) {
  * <p><b>⌂ is the same defect from outside the slot, and ends in the same place.</b> It renders
  * only while away, and its press returns the origin home — so the press destroys the very node it
  * was made on, on every tab, and the reader landed on {@code <body>}. It is watched for leaving
- * exactly as the slot's elements are — recorded only when it HELD focus, and never on StrictMode's
+ * exactly as the slot's elements are — recorded only when it HELD focus, and undone on StrictMode's
  * re-run — and the handoff puts the reader on whatever the slot holds once home: the origin button,
  * the statement, or the nudge when no home is saved. That element sits beside ⌂ in the same flex
  * item, and it is the one that now says what the press did ("Home · Durham").
@@ -217,9 +217,27 @@ function watchDeparture(departed, node) {
  * cleanup, a passive effect, used to find focus nowhere and put the reader back on the card that
  * opened the popup. The handoff is a layout effect, so it runs first; the restore then finds focus
  * somewhere real, with no layer left claiming modality, and stands down. An owner decision
- * (2026-09-16): the reader had left the dialog and acted in the masthead, so every route ends on
- * the origin control. Moving the handoff to a passive effect would reverse it, and
- * `planOriginShell.test.jsx`'s popup test is what says so.
+ * (2026-09-16): the reader had left the dialog and acted in the masthead, so the popup route ends
+ * on the origin control too. Moving the handoff to a passive effect would reverse it, and
+ * `planOriginShell.test.jsx`'s popup test is what says so. ⚠️ <b>Not while `App`'s map overlay or
+ * settings dialog is ALSO open</b> — the overlay opened over the popup, or the popup opened behind
+ * settings, both routes CLAUDE.md lists as open. That layer still claims modality, so the restore
+ * reads the origin control as stranded and returns the reader to the card, exactly as before this
+ * handoff existed (measured in jsdom through the real `App`, and in Chromium, WebKit and Firefox on
+ * a harness with the real `MapOverlay` and `Modal`).
+ *
+ * <p>⚠️ <b>It lands on a control the next key can press, and no gate on the input device is
+ * safe.</b> Chromium and Firefox focus a button on a mouse click, so a pointer press on ⌂ hands
+ * focus on too, with no ring drawn: a Space or Enter straight after it opens search (or, from the
+ * nudge, settings), where it used to scroll the page or do nothing. Holding Enter does the same by
+ * key repeat, in every engine. Both are a class the app already ships — a popup closed by a mouse
+ * click returns focus to its card, and Space reopens it. The tells for "that was a mouse" are
+ * refused: Chromium reports a screen-reader or voice-control press as a click with {@code detail}
+ * 1 and {@code pointerType} "mouse", Firefox gives it {@code detail} 1, a touch tap has
+ * {@code detail} 1 too, and Chromium focuses that press as a mouse focus, so {@code :focus-visible}
+ * would likely miss it as well — engine source read for the first two, the tap measured, the last
+ * inferred (and jsdom never matches {@code :focus-visible}). A gate on any of them would put the
+ * readers this handoff exists for back on {@code <body>}.
  *
  * <p>The nudge also hands its caller a way to FIND the slot later ({@code onSetPostcode}'s
  * argument), for the ordinary order: a save moves the home while the dialog is still open, the
