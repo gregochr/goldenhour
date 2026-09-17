@@ -69,6 +69,31 @@ import java.util.List;
  *                       curve is normalised over its own samples, and the event rarely falls on
  *                       one, so a peak between two samples could otherwise place the mark a
  *                       fraction outside the range this contract promises
+ * @param sunrisePosition where the representative's own sunrise falls through the local day, on
+ *                       the same 0–1 axis as {@link #windowPosition} — computed independently of
+ *                       which event this window itself is, so a sunset window still states where
+ *                       that same day's sunrise sat. Null when {@code SolarService} reports no
+ *                       sunrise for that day and location: its contract carries no non-null
+ *                       guarantee, and {@code NlcTwilightWindowCalculator} already treats the
+ *                       identical call as nullable for the same reason. The vendored solar-utils
+ *                       implementation does not itself return null even at a genuine polar day —
+ *                       it returns a degenerate midnight instant instead — so this guards the
+ *                       declared contract rather than a behaviour observed today
+ * @param sunsetPosition where the representative's own sunset falls through the local day, on the
+ *                       same axis, under the same guard
+ * @param extremes       every extreme — high or low — falling in the representative's local day,
+ *                       ascending, each positioned on the same 0–1 axis as {@link #windowPosition}
+ *                       and timed on the Europe/London clock. The same {@code date}-filtered list
+ *                       {@code range} and {@code rangeAnomaly} are already derived from; unlike
+ *                       {@link #curve} this states real, unsynthesised extremes only — a day
+ *                       bracketed at the shape's own ends never leaks a bookend into this list.
+ *                       Null on a {@code BriefingWindowTide} built through the legacy twelve-field
+ *                       constructor below — never a cached-payload concern, since this whole
+ *                       record is derived at serve time and is never itself persisted
+ * @param heightAtWindow the interpolated height at the window's own instant, in metres —
+ *                       {@link #windowLevel} restated as a real measurement rather than a
+ *                       normalised position, for the chart's height label. Null under the same
+ *                       legacy-constructor guard as {@link #extremes}
  */
 public record BriefingWindowTide(
         String locationName,
@@ -82,10 +107,62 @@ public record BriefingWindowTide(
         @JsonInclude(JsonInclude.Include.NON_NULL) String seas,
         List<Double> curve,
         double windowPosition,
-        double windowLevel) {
+        double windowLevel,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Double sunrisePosition,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Double sunsetPosition,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<Extreme> extremes,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String heightAtWindow) {
 
     public BriefingWindowTide {
         curve = curve == null ? List.of() : List.copyOf(curve);
+        extremes = extremes == null ? null : List.copyOf(extremes);
+    }
+
+    /**
+     * Legacy twelve-field constructor, retained so the many existing call sites (mostly tests)
+     * that predate the strip's window facts keep compiling unchanged. Defaults the four new
+     * fields to null, the same "unknown, not synthesised" convention the tide-on-the-light fields
+     * on {@code BriefingSlot.TideInfo} already use.
+     *
+     * @param locationName   the coastal location every figure is measured at
+     * @param state          the tide state at the window
+     * @param direction      whether the water is rising or falling
+     * @param nearestType    {@code "HW"} or {@code "LW"}
+     * @param nearestTime    that extreme's London clock time
+     * @param nearestOffset  its offset from this window's own solar event
+     * @param range          the day's tidal range
+     * @param rangeAnomaly   how that range compares with the location's own mean, or null
+     * @param seas           significant wave height with its sea-state band, or null
+     * @param curve          the day's tide shape, normalised 0–1
+     * @param windowPosition where the solar event falls through the local day
+     * @param windowLevel    the normalised water level at that instant
+     */
+    public BriefingWindowTide(
+            String locationName,
+            TideState state,
+            Direction direction,
+            String nearestType,
+            String nearestTime,
+            String nearestOffset,
+            String range,
+            String rangeAnomaly,
+            String seas,
+            List<Double> curve,
+            double windowPosition,
+            double windowLevel) {
+        this(locationName, state, direction, nearestType, nearestTime, nearestOffset, range,
+                rangeAnomaly, seas, curve, windowPosition, windowLevel, null, null, null, null);
+    }
+
+    /**
+     * One tide extreme within the representative's local day.
+     *
+     * @param kind     {@code "HW"} or {@code "LW"}
+     * @param position where it falls through the local day, on the same 0–1 axis as
+     *                 {@link BriefingWindowTide#windowPosition}
+     * @param time     its Europe/London clock time, {@code "08:35"}
+     */
+    public record Extreme(String kind, double position, String time) {
     }
 
     /**

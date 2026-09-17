@@ -1,6 +1,7 @@
 import React, { useCallback, useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { GOLDEN } from './shared/MastheadLight.jsx';
+import { watchDeparture } from '../utils/watchDeparture.js';
 
 /**
  * The same amber as a Tailwind class, for the nudge link's hover.
@@ -77,34 +78,6 @@ function Pin({ away }) {
 }
 
 Pin.propTypes = { away: PropTypes.bool.isRequired };
-
-/**
- * Starts watching {@code node} for leaving the line while it holds focus, and returns the ref
- * cleanup that answers it — the one question both of the line's handoffs ask (see the class
- * comment's last section), asked one way.
- *
- * <p>The answer is recorded in {@code departed}, for the layout effect to spend. React 19 calls the
- * cleanup on detach, BEFORE it removes the node — while "was the reader here" can still be answered
- * by {@code document.activeElement}.
- *
- * @param {{current: ?Element}} departed the record the tick line's handoff spends
- * @param {Element} node the element that has just attached
- * @returns {Function} the ref cleanup
- */
-function watchDeparture(departed, node) {
-  // ⚠️ A node attaching here cannot also have departed. StrictMode (the app mounts under it in
-  // development) re-runs a newly mounted node's ref — cleanup, then setup, after the commit — so
-  // the statement the effect below has just focused comes back through the cleanup still focused
-  // and is recorded as departed. Left standing, that record was spent by the tick line's NEXT
-  // render: the light arriving pulled a reader who had since clicked away back onto the statement,
-  // and a tab switch that really removed the statement put them on the origin button instead
-  // (both reproduced under StrictMode in jsdom, the second found by review after a narrower first
-  // fix). A real removal never re-attaches the node it removed; StrictMode always does, at once.
-  if (departed.current === node) departed.current = null;
-  return () => {
-    if (document.activeElement === node) departed.current = node;
-  };
-}
 
 /**
  * The masthead's tick line — where the plan is computed from, how to change it, and today's light.
@@ -193,15 +166,10 @@ function watchDeparture(departed, node) {
  * <p>So the statement is a programmatic focus target ({@code tabIndex={-1}}: focusable, never a tab
  * stop, so "panning IS the search" still holds for the Tab order), and a swap hands focus from the
  * departing element to its replacement — but only when the departing one HELD focus. That is
- * decided in the ref's cleanup, because React detaches a ref before it removes the node (measured
- * on React 19.3: the cleanup sees the node still connected and still focused), which is the last
- * moment the question can be answered — after the removal every departure looks the same. A
- * "focus is nowhere after a swap" test was the obvious alternative and is wrong here: a tab switch
- * swaps this slot too, and the shell moves focus deliberately around one (its `tabRequest`
- * handoff, which arrives with focus wherever a closing dialog left it). Focus-event tracking is
- * wrong for a different reason, also measured: Chromium fires {@code blur} on a focused node as it
- * is removed, WebKit and Firefox fire nothing, so a flag cleared on blur would already be cleared
- * in Chromium by the time the swap commits.
+ * decided in the ref's cleanup by `utils/watchDeparture.js`, whose doc says why a ref cleanup and
+ * never focus events. A "focus is nowhere after a swap" test was the obvious alternative and is
+ * wrong here: a tab switch swaps this slot too, and the shell moves focus deliberately around one
+ * (its `tabRequest` handoff, which arrives with focus wherever a closing dialog left it).
  *
  * <p><b>⌂ is the same defect from outside the slot, and ends in the same place.</b> It renders
  * only while away, and its press returns the origin home — so the press destroys the very node it
@@ -236,8 +204,9 @@ function watchDeparture(departed, node) {
  * 1 and {@code pointerType} "mouse", Firefox gives it {@code detail} 1, a touch tap has
  * {@code detail} 1 too, and Chromium focuses that press as a mouse focus, so {@code :focus-visible}
  * would likely miss it as well — engine source read for the first two, the tap measured, the last
- * inferred (and jsdom never matches {@code :focus-visible}). A gate on any of them would put the
- * readers this handoff exists for back on {@code <body>}.
+ * inferred (jsdom cannot check it: its {@code :focus-visible} is its selector engine's heuristic
+ * over the key, mouse and focus events it has recorded, not a browser's). A gate on any of them
+ * would put the readers this handoff exists for back on {@code <body>}.
  *
  * <p>The nudge also hands its caller a way to FIND the slot later ({@code onSetPostcode}'s
  * argument), for the ordinary order: a save moves the home while the dialog is still open, the

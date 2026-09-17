@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -180,6 +181,24 @@ class UserSettingsControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(post("/api/user/settings/drive-times/refresh"))
                 .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST drive-times/refresh returns 409, with its reason, when the home moved while "
+            + "drive times were measured")
+    void refreshDriveTimes_homeMoved_returns409WithReason() throws Exception {
+        // The status the settings dialog receives when a postcode save landed under its spinner.
+        // It renders any status but 429 and 400 as "Something went wrong — please try again",
+        // which is the remedy: the save released the cooldown, so the retry is allowed.
+        when(settingsService.refreshDriveTimes(any())).thenThrow(
+                new ResponseStatusException(CONFLICT, "Your home location changed while drive times "
+                        + "were being calculated, so nothing was saved."));
+
+        mockMvc.perform(post("/api/user/settings/drive-times/refresh"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Your home location changed while drive times "
+                        + "were being calculated, so nothing was saved."));
     }
 
     @Test

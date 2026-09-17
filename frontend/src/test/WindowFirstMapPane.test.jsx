@@ -80,6 +80,44 @@ const installResizeObserver = () => {
   global.ResizeObserver = RO;
 };
 
+/**
+ * jsdom implements a real `MutationObserver`, but a fake one — exactly like `installResizeObserver`
+ * above — lets a test fire the "something changed" signal deterministically and synchronously,
+ * rather than racing jsdom's own microtask timing for the real thing. What actually makes
+ * `foreignModalOverPane` true or false is a real DOM read (`foreignModalOver`, against the real
+ * document), so a test still appends and removes a real dialog element; only the NOTIFICATION that
+ * something changed is faked.
+ */
+let notifyForeignModalChange = () => {};
+let foreignModalObserverDisconnected = false;
+const installMutationObserver = () => {
+  foreignModalObserverDisconnected = false;
+  class MO {
+    constructor(cb) { notifyForeignModalChange = () => act(() => cb([])); }
+
+    observe() {}
+
+    disconnect() { foreignModalObserverDisconnected = true; }
+  }
+  global.MutationObserver = MO;
+};
+
+/**
+ * A dialog `foreignModalOver` counts as foreign to any pane — `role="dialog"`, `aria-modal="true"`,
+ * appended as a sibling of the render container rather than inside it, exactly how the four-day
+ * sheet or settings mount (never as this pane's own descendant). Tracked for the shared `afterEach`
+ * so a test that throws before removing its own dialog cannot leave one for the next test to find.
+ */
+let foreignDialogs = [];
+const openForeignDialog = () => {
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  document.body.appendChild(dialog);
+  foreignDialogs.push(dialog);
+  return dialog;
+};
+
 const renderPane = (props = {}) => render(
   <WindowFirstMapPane
     locations={[]}
@@ -94,7 +132,9 @@ beforeEach(() => {
   MapStub.lastProps = null;
   MapStub.renders = 0;
   delete global.ResizeObserver;
+  delete global.MutationObserver;
   triggerResize = () => {};
+  notifyForeignModalChange = () => {};
   // jsdom's document never has focus; the reader's page does. The pane counts itself on screen only
   // while it does (`isPageInFront`), so every test starts from the page a reader is looking at.
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
@@ -109,7 +149,13 @@ const withBox = (w = 800, h = 500) => {
   vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({ width: w, height: h });
   return pane;
 };
-afterEach(() => { delete global.ResizeObserver; vi.restoreAllMocks(); });
+afterEach(() => {
+  delete global.ResizeObserver;
+  delete global.MutationObserver;
+  foreignDialogs.forEach((d) => d.remove());
+  foreignDialogs = [];
+  vi.restoreAllMocks();
+});
 
 describe('WindowFirstMapPane', () => {
   /**
@@ -400,7 +446,7 @@ describe('WindowFirstMapPane', () => {
     });
   });
 
-  describe('being on screen for the reader — the panel, the document and the window\'s focus', () => {
+  describe('being on screen for the reader — the panel, the document, the window\'s focus, and a foreign dialog', () => {
     // `MapView` gates its status region on `paneVisible`: a live region announces a change, so it has
     // to be empty whenever the reader cannot perceive it and fill when they can. Each layer that can
     // hide the pane from the reader is pinned alone AND against the others — one flag that every
@@ -543,6 +589,102 @@ describe('WindowFirstMapPane', () => {
       unmount();
       expect(calls(docRemove, ['visibilitychange'])).toEqual(calls(docAdd, ['visibilitychange']));
       expect(calls(winRemove, ['focus', 'blur'])).toEqual(calls(winAdd, ['focus', 'blur']));
+    });
+
+    it('is off screen while a foreign dialog is open over the pane, and on screen again once it closes', () => {
+      // The four-day sheet opened as a peek, or settings, opens without leaving this tab and is not
+      // `inert` behind it (O-20) — so a failure filling the region while one is open sits behind a
+      // dialog the reader is actually looking at, not the map.
+      installMutationObserver();
+      renderPane();
+      expect(onScreen()).toBe(true);
+      const dialog = openForeignDialog();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(false);
+      dialog.remove();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('stays off screen while a foreign dialog is open, whatever the panel does', () => {
+      // One flag every layer writes, the last write winning, passed every single-layer test before
+      // (review Q1) — the same trap this pins for the panel/document/focus trio above.
+      installResizeObserver();
+      installMutationObserver();
+      renderPane();
+      const dialog = openForeignDialog();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(false);
+      // The panel reveals itself with a real box while the dialog is still open.
+      withBox();
+      triggerResize();
+      expect(onScreen()).toBe(false);
+      dialog.remove();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('stays off screen while a foreign dialog is open, whatever the page does', () => {
+      installMutationObserver();
+      renderPane();
+      const dialog = openForeignDialog();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(false);
+      // The reader's browser tab comes back to front while the dialog is still open.
+      setDocument('hidden');
+      fire(document, 'visibilitychange');
+      setDocument('visible');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(false);
+      dialog.remove();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('starts off screen when mounted with a foreign dialog already open, and comes on screen once it closes', () => {
+      // A map first mounted behind an already-open dialog must not count as on screen until it
+      // closes, or a failure before then fills the region behind it.
+      installMutationObserver();
+      const dialog = openForeignDialog();
+      renderPane();
+      expect(onScreen()).toBe(false);
+      dialog.remove();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('does not count a dialog rendered INSIDE the pane\'s own wrapper as foreign', () => {
+      // Containment, not "is any modal open anywhere" — `mapForeignModal.js`'s own rule, mirrored
+      // here rather than re-decided: nothing today renders `aria-modal` inline inside this pane, but
+      // the question this pane asks has to be answered against its OWN root, not against a hardcoded
+      // "nothing is mine" that would treat every dialog anywhere, inline or not, as foreign.
+      installMutationObserver();
+      renderPane();
+      const pane = screen.getByTestId('window-first-map-pane');
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      pane.appendChild(dialog);
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+      dialog.remove();
+    });
+
+    it('still counts itself on screen where there is no MutationObserver at all, rather than throwing', () => {
+      // jsdom has one; some older engines do not, and this pane must degrade to exactly what it was
+      // before the modal layer existed — on screen, per the panel and the page alone — not fail to
+      // render. `global.MutationObserver` is already absent by default (the outer `beforeEach`).
+      renderPane();
+      expect(screen.getByTestId('stub-map')).toBeInTheDocument();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('disconnects the modal observer when the pane goes away', () => {
+      installMutationObserver();
+      const { unmount } = renderPane();
+      expect(foreignModalObserverDisconnected).toBe(false);
+      unmount();
+      expect(foreignModalObserverDisconnected).toBe(true);
     });
   });
 });

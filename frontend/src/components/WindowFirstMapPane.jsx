@@ -18,6 +18,7 @@ import {
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
+import { foreignModalOver } from '../utils/mapForeignModal.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -45,6 +46,26 @@ function subscribePagePresence(onChange) {
 /** Whether this page is in front of the reader: its document visible, and its window focused. */
 function isPageInFront() {
   return document.visibilityState === 'visible' && document.hasFocus();
+}
+
+/**
+ * Subscribes to a foreign dialog mounting, unmounting, or toggling `aria-modal` anywhere in the
+ * document — a `MutationObserver` on `document.body`'s whole subtree, because a dialog foreign to
+ * this pane never arrives as this component's own descendant: `BottomSheet` portals straight to the
+ * body, and `UserSettingsModal` is a plain sibling of the shell, high above this pane, in `App`. The
+ * `attributes`/`attributeFilter` half catches the OTHER way a dialog changes without an add or a
+ * remove: `Modal`'s `stacked` prop drops a covered dialog's `aria-modal` rather than unmounting it
+ * (`Modal.jsx`), so a dialog stacking over — or coming out from under — another has to be seen too.
+ * Module-level, so `useSyncExternalStore` sees one stable subscribe and never resubscribes on a
+ * render, exactly like {@link subscribePagePresence} above.
+ */
+function subscribeForeignModalDom(onChange) {
+  if (typeof MutationObserver === 'undefined') return () => {};
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.body, {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'],
+  });
+  return () => observer.disconnect();
 }
 
 /**
@@ -168,10 +189,38 @@ export default function WindowFirstMapPane({
    */
   const pageInFront = useSyncExternalStore(subscribePagePresence, isPageInFront);
   /**
-   * Whether this pane is on screen for the reader: its panel shown, AND the page in front. `MapView`
-   * gates its status region on it: the region has to be empty whenever the reader cannot perceive
-   * it, and fill — a change, which is what a live region announces — when they can. Each layer that
-   * can hide it was a review finding on #848 or its follow-up:
+   * Whether a dialog FOREIGN to this pane — outside {@code wrapRef.current} — is open anywhere in
+   * the document: the four-day sheet opened as a peek from the callout or the region panel
+   * (`sheetSpot`), or settings. The fourth layer {@code paneVisible}'s own doc named as a residual
+   * when #850 closed the third (the document and the window's focus): neither dialog leaves this
+   * tab, and neither is `inert` behind (O-20 stands on arms A and B), so a failure filling the
+   * region while one is open sits behind a dialog the reader is actually looking at — and WebKit is
+   * understood to drop everything outside a visible `aria-modal` dialog from the accessibility tree
+   * altogether, so a screen reader following that rule would never reach the region at all, only to
+   * find it already full, unannounced, once the dialog closes.
+   *
+   * <p>Read through {@link foreignModalOver} — the SAME predicate every Escape rule and the
+   * outside-press channel on this tab already use (`utils/mapForeignModal.js`'s own doc: "the
+   * dismissal rules on this tab must never disagree") — against {@code wrapRef.current} rather than
+   * `MapView`'s own `mapPaneRef`: this pane's wrapper contains everything `MapView` renders (neither
+   * ever renders `aria-modal` inline — `mapForeignModal.js` verifies that by grep, not citation), and
+   * it exists whether or not `MapView` itself has mounted anything yet.
+   *
+   * <p>A `MutationObserver` ({@link subscribeForeignModalDom}), not a React-state-and-effect pair,
+   * for the identical reason {@link pageInFront} is one: it fires on the actual DOM write, wherever
+   * in the tree a portalled or plain-sibling dialog lands, not on whichever render React gets around
+   * to next — the same lazy-Suspense-commit-gap class of race a state-plus-effect pair already lost
+   * once on this file's own `pageInFront`.
+   */
+  const foreignModalOverPane = useSyncExternalStore(
+    subscribeForeignModalDom, () => foreignModalOver(wrapRef.current),
+  );
+  /**
+   * Whether this pane is on screen for the reader: its panel shown, the page in front, AND no
+   * foreign dialog over it. `MapView` gates its status region on it: the region has to be empty
+   * whenever the reader cannot perceive it, and fill — a change, which is what a live region
+   * announces — when they can. Each layer that can hide it was a review finding on #848 or its
+   * follow-up:
    * <ul>
    *   <li><b>The shell's panel</b> (Codex). Kept mounted under a `hidden` panel, the map went on
    *       retrying a failed night; a failure while the reader was on another app tab filled the
@@ -187,11 +236,14 @@ export default function WindowFirstMapPane({
    *       `visibilitychange`. The cost, accepted: a trip to the browser's own chrome (the address
    *       bar) blurs the window too, so a failure still on screen is announced again on the way
    *       back.</li>
+   *   <li><b>A foreign dialog over the pane</b> ({@link foreignModalOverPane}, above — the sheet peek
+   *       or settings). Neither closes this tab nor leaves the pane `inert` behind it, so without
+   *       this term a failure filled the region while the reader was looking at the dialog instead,
+   *       to be found already full — or never found at all, in an engine that prunes the pane from
+   *       the tree while the dialog stands — once it closes.</li>
    * </ul>
-   * A modal dialog over the pane is a fourth, and NOT handled here — it needs a signal this pane has
-   * no route to; the changelog states it as a residual.
    */
-  const paneVisible = panelShown && pageInFront;
+  const paneVisible = panelShown && pageInFront && !foreignModalOverPane;
   /**
    * Warms the four-day sheet's lazy chunk, the Map-tab twin of `WindowFirstShell`'s own
    * {@code warmStackedChunks} (which the PLAN routes get for free, since every one of them is
