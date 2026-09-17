@@ -1,18 +1,21 @@
 /**
  * Tests for `utils/mapTideFit.js` — the Map tab's tide-fit derivations
- * (`docs/engineering/tide-window-plan.md` T3, §1 #12, §5 #7/#8, and T5's `wantPhrase`).
+ * (`docs/engineering/tide-window-plan.md` T3, §1 #12, §5 #7/#8, T5's `wantPhrase` and T6's
+ * `siblingEventTime`).
  *
  * Covers: the tier read (`tierOf`), the served-facts scan for the next window a location fits
  * (`nextAlignedRow`), the strip's per-render model (`stripModel`) — visibility, the
  * coastal-and-in-view narrowing via `bounds.pad(0.12)`, the dimmed/matched split, the dominant-want
- * tally's tie-break in both directions, and the earliest-next-fit scan across every currently
- * dimmed spot wanting that want — and `wantPhrase`'s own join, including the three-item Oxford-comma
- * branch (`"a, b or c"`) no fixture elsewhere in the T5 diff happens to exercise, since every
- * `TideFitBlock`/`MapCallout`/`LocationFourDaySheet` test fixture wants 0, 1 or 2 tide types.
+ * tally's tie-break in both directions and its own count (`dominantWantCount`), and the
+ * earliest-next-fit scan across every currently dimmed spot wanting that want; `wantPhrase`'s own
+ * join, including the three-item Oxford-comma branch (`"a, b or c"`) no fixture elsewhere in the T5
+ * diff happens to exercise, since every `TideFitBlock`/`MapCallout`/`LocationFourDaySheet` test
+ * fixture wants 0, 1 or 2 tide types; and `siblingEventTime`'s lookup over the served EV list for
+ * the strip's sunrise/sunset chart labels.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  tierOf, nextAlignedRow, stripModel, wantPhrase,
+  tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime,
 } from '../utils/mapTideFit.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
@@ -180,6 +183,7 @@ describe('stripModel — visibility', () => {
       dimmed: [],
       matched: [],
       dominantWant: null,
+      dominantWantCount: 0,
       nextFitRow: -1,
     });
   });
@@ -280,6 +284,36 @@ describe('stripModel — dominant want tie-break', () => {
     expect(stripModel({ row, spots, bounds }).dominantWant).toBe('LOW');
   });
 
+  // `dominantWantCount` (T6, tide-window-plan.md §3 T6 #4) — the footer's "N of them want" clause
+  // reads this figure, so it must count only the spots actually wanting the WINNING water, not
+  // every dimmed spot.
+  it('dominantWantCount is the size of the wanting population, not the whole dimmed pool', () => {
+    const spots = [
+      spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('B', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('C', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('D', { lat: 0.4, lng: 0.4, tideTier: 'miss', tideTypes: ['HIGH'] }),
+    ];
+    const model = stripModel({ row, spots, bounds });
+    expect(model.dominantWant).toBe('LOW');
+    expect(model.dominantWantCount).toBe(3);
+    expect(model.dimmed.length).toBe(4);
+  });
+
+  it('dominantWantCount equals dimmed.length when every miss shares the one want', () => {
+    const spots = [
+      spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('B', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['HIGH'] }),
+    ];
+    const model = stripModel({ row, spots, bounds });
+    expect(model.dominantWantCount).toBe(model.dimmed.length);
+  });
+
+  it('dominantWantCount is 0 when nothing is dimmed', () => {
+    const spots = [spot('MatchOnly', { lat: 0.1, lng: 0.1, tideTier: 'match', tideTypes: ['HIGH'] })];
+    expect(stripModel({ row, spots, bounds }).dominantWantCount).toBe(0);
+  });
+
   it('counts a two-value want once in each of its own buckets', () => {
     const spots = [
       spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH', 'LOW'] }),
@@ -368,6 +402,40 @@ describe('stripModel — nextFitRow', () => {
     const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
     expect(model.dominantWant).toBe('HIGH');
     expect(model.nextFitRow).toBe(-1);
+  });
+});
+
+describe('siblingEventTime', () => {
+  const evRows = [
+    { kind: EVENT_KIND.SOLAR, date: DATE_1, eventType: 'SUNRISE', time: '05:44' },
+    { kind: EVENT_KIND.SOLAR, date: DATE_1, eventType: 'SUNSET', time: '20:27' },
+    // A NON-empty time, deliberately — an empty one would make the SOLAR-kind guard below
+    // untestable, since `sibling?.time || null` would coerce an empty string to null on its own
+    // and the test would pass whether or not the `kind === EVENT_KIND.SOLAR` filter still ran.
+    { kind: EVENT_KIND.ASTRO, date: DATE_1, eventType: 'ASTRO', time: '23:58' },
+    { kind: EVENT_KIND.SOLAR, date: DATE_2, eventType: 'SUNRISE', time: '' },
+  ];
+
+  it('reads the served time off the sibling solar row sharing the date', () => {
+    expect(siblingEventTime(evRows, DATE_1, 'SUNRISE')).toBe('05:44');
+    expect(siblingEventTime(evRows, DATE_1, 'SUNSET')).toBe('20:27');
+  });
+
+  it('returns null for a D-13 filler row whose time is the empty string', () => {
+    expect(siblingEventTime(evRows, DATE_2, 'SUNRISE')).toBeNull();
+  });
+
+  it('returns null when no row exists for the date at all', () => {
+    expect(siblingEventTime(evRows, DATE_3, 'SUNRISE')).toBeNull();
+  });
+
+  it('never matches a night row, even one sharing the date', () => {
+    expect(siblingEventTime(evRows, DATE_1, 'ASTRO')).toBeNull();
+  });
+
+  it('returns null for a non-array evRows or a null date, rather than throwing', () => {
+    expect(siblingEventTime(null, DATE_1, 'SUNRISE')).toBeNull();
+    expect(siblingEventTime(evRows, null, 'SUNRISE')).toBeNull();
   });
 });
 

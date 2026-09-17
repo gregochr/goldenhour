@@ -256,7 +256,7 @@ function dominantWantOf(dimmedSpots) {
  * @param {?{byId: Map, byName: Map}} [args.idx] `locationSheet.buildTideAlignmentIndex`'s
  *   result, for the scan
  * @returns {{visible: boolean, representative: ?string, namedCoastal: Array, dimmed: Array,
- *   matched: Array, dominantWant: ?string, nextFitRow: (object|-1)}}
+ *   matched: Array, dominantWant: ?string, dominantWantCount: number, nextFitRow: (object|-1)}}
  */
 export function stripModel({
   row, spots = [], bounds = null, evRows = [], evIndex = -1, idx = null,
@@ -273,6 +273,7 @@ export function stripModel({
       dimmed: [],
       matched: [],
       dominantWant: null,
+      dominantWantCount: 0,
       nextFitRow: -1,
     };
   }
@@ -281,14 +282,19 @@ export function stripModel({
   const dimmed = namedCoastal.filter((s) => s.tideTier === 'miss');
   const matched = namedCoastal.filter((s) => s.tideTier === 'match');
   const dominantWant = dominantWantOf(dimmed);
+  // The scan must fit the DOMINANT want, not any of the spot's wants: the footer's sentence
+  // names one water, and a {HIGH, LOW} spot aligned via LOW is not "next high water". Computed
+  // once and reused for BOTH the footer's own count (T6, tide-window-plan.md §3 T6 #4 — "9 of
+  // them want high water" is this same population's size) and the next-fit scan below, so the
+  // two can never disagree about who is "them".
+  const wanting = dominantWant
+    ? dimmed.filter((s) => (s.tideTypes ?? []).includes(dominantWant))
+    : [];
 
   let nextFitRow = -1;
   let nextFitRowIdx = Infinity;
-  if (dominantWant && Array.isArray(evRows) && evIndex >= 0) {
-    const wanting = dimmed.filter((s) => (s.tideTypes ?? []).includes(dominantWant));
+  if (wanting.length > 0 && Array.isArray(evRows) && evIndex >= 0) {
     for (const spot of wanting) {
-      // The scan must fit the DOMINANT want, not any of the spot's wants: the footer's sentence
-      // names one water, and a {HIGH, LOW} spot aligned via LOW is not "next high water".
       const candidate = nextAlignedRow(
         evRows, idx, { id: spot.id ?? null, name: spot.name }, evIndex, dominantWant,
       );
@@ -308,6 +314,32 @@ export function stripModel({
     dimmed,
     matched,
     dominantWant,
+    dominantWantCount: wanting.length,
     nextFitRow,
   };
+}
+
+/**
+ * The served clock time for the SUNRISE or SUNSET row sharing {@code date} — a lookup over the
+ * already-built EV list, never a formula: {@code BriefingWindowTide} states WHERE the sun rises
+ * and sets on the day's tide axis ({@code sunrisePosition}/{@code sunsetPosition}, T2) but not the
+ * clock time itself, and the strip's chart (T6) needs both to label the two verticals it draws.
+ * Reading the sibling solar row's own already-formatted {@code time} keeps the client from
+ * formatting a clock time itself (CLAUDE.md: backend formats all clock/offset prose) — the same
+ * shape the design prototype's own {@code tideChart} uses, scanning the day's own EV rows for the
+ * "am" and "pm" entries rather than inventing a new field.
+ *
+ * @param {Array<{kind: string, date: string, eventType: string, time: string}>} evRows
+ * @param {?string} date the representative's own local day — {@code row.date}, since the sunrise
+ *   and sunset drawn on the strip belong to the WINDOW on screen, not to the tide's own location
+ * @param {'SUNRISE'|'SUNSET'} eventType
+ * @returns {?string} the served clock time (e.g. {@code "05:44"}), or null when no served row
+ *   carries one for this date/type (a D-13 filler row, whose {@code time} is {@code ''})
+ */
+export function siblingEventTime(evRows, date, eventType) {
+  if (!Array.isArray(evRows) || date == null) return null;
+  const sibling = evRows.find(
+    (r) => r?.kind === EVENT_KIND.SOLAR && r.date === date && r.eventType === eventType,
+  );
+  return sibling?.time || null;
 }

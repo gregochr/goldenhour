@@ -280,6 +280,36 @@ describe('buildHeatStripCards — hotRegionName (field-geography plan §2.3)', (
   });
 });
 
+describe('buildHeatStripCards — tide (tide-window-plan.md T6)', () => {
+  // ⚠️ THE test a component-level fixture cannot replace, for the identical reason the
+  // `hotRegionName` block above states it: `WindowFirstMapPane`'s own fixture-driven tests hand
+  // `heatStripCards` straight in, so a field dropped from THIS fold would leave the Map tab's tide
+  // strip permanently invisible in production while every other test stayed green — exactly the
+  // gap browser verification against a live payload found. `windowFirstCards.test.js` pins where
+  // the value comes from (the served `window.tide`); this pins that it survives the strip's fold.
+  const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+  it('folds the card\'s tide through untouched', () => {
+    const tide = { locationName: 'Bamburgh Beach', state: 'MID', curve: [0, 1] };
+    expect(build(events, [card({ tide })])[0].tide).toBe(tide);
+  });
+
+  it('is null when the card carries none', () => {
+    expect(build(events, [card({ tide: null })])[0].tide).toBeNull();
+  });
+
+  it('is null on an away day, which has no card to fold it from', () => {
+    const AWAY_DAYS = [{
+      date: TODAY,
+      eventSummaries: [{ targetType: 'SUNSET', solarEventTime: `${TODAY}T20:11:00` }],
+    }];
+    const [only] = build(events, [], new Set([TODAY]), AWAY_DAYS);
+
+    expect(only.away).toBe(true);
+    expect(only.tide).toBeNull();
+  });
+});
+
 describe('buildHeatStripCards — absence', () => {
   it('returns an empty list for no events, rather than undefined', () => {
     expect(build([], [])).toEqual([]);

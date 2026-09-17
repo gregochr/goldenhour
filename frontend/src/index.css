@@ -3329,6 +3329,237 @@ button.wf-hc.also.on:hover {
   gap: 6px;
 }
 
+/* ── The tide strip (tide-window-plan.md T6, docs/design/tide-window/README.md §2) ──────────────
+   Mounted as the LAST CHILD of `.wf-map-chrome-bl` above — a plain flex child, never separately
+   `position: absolute`, so the legend chip and the viewline-upsell chip above it clear it by flex
+   order alone (§4 #6) and the obstacle seed `.wf-map-chrome-bl` already carries for `MapLabels`/
+   `PinsLayer` (§1 #8) grows to include it for free. Its own `z-index: 1100` below matters only to
+   `mapChromeZLadderCascade.test.jsx`'s isolated-element probe (T6 #8) — in the real DOM it is
+   already inside a `z-index: 1100` stacking context and needs no positioning of its own.
+
+   Surface/radius/shadow/blur are the design's own literal values, the same treatment `.wf-callout`
+   already uses for an identical floating panel over the map (rgba surface + blur, no named token —
+   this codebase has none for a translucent panel ground). Text ink, border and font ARE tokens
+   (§1 #9): `--color-tide` for the curve stroke (set on the `<path>` in MapTideStrip.jsx, never the
+   design's bare `#6FA8B0`), `--color-badge-tide` for the state word/dot/band-hit label (never the
+   design's bare `#8FC0C7`), `--color-verdict-marginal` for the sunrise/sunset rules (again set in
+   the component, via `stroke="var(--color-verdict-marginal)" strokeOpacity="0.5"` — SVG presentation
+   attributes resolve `var()` like any other CSS value), `--color-plex-text-muted` (`.66` under
+   `.wf-body--map`'s own override — never hard-code `.42`), `--color-plex-border`, `--font-mono`. The
+   night wash, water-area fill and the HIGH/MID/LOW dashed rules stay the design's literal rgba — no
+   named token exists for any of the three in this file.
+
+   ⚠️ Two class prefixes, not one, and both are literal strings the plan itself names: the ROOT is
+   `.wf-map-tide-strip` (T7's own phone override, `docs/engineering/tide-window-plan.md` §3 T7 #1,
+   quotes this selector verbatim, so it cannot be renamed to match `.wf-callout`/`.wf-legend`'s
+   single-prefix convention without breaking that phase's plan text), while every PART and the
+   `--tsh` toggle class are `wf-tide-strip-*` (T6 #6 also names `wf-tide-strip-on` verbatim). This
+   diverges from `.wf-callout-tide`'s single-prefix precedent (adversarial review, project-
+   conventions lens) — recorded here as a considered, plan-forced choice rather than an oversight. */
+.wf-map-tide-strip {
+  position: relative;
+  z-index: 1100;
+  width: 474px;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 15, 12, 0.94);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(7px);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+.wf-tide-strip-header {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 8px 10px 5px;
+}
+.wf-tide-strip-kicker {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+}
+.wf-tide-strip-state {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-badge-tide);
+  white-space: nowrap;
+}
+.wf-tide-strip-meta {
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-tide-strip-toggle {
+  margin-left: auto;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  background: none;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  min-height: 22px;
+  flex: none;
+}
+.wf-tide-strip-toggle:hover {
+  border-color: var(--color-plex-border-light);
+  color: var(--color-plex-text);
+}
+.wf-tide-strip-body {
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr);
+  gap: 0 8px;
+  padding: 2px 11px 0;
+}
+.wf-tide-strip-bands {
+  position: relative;
+  height: 48px;
+}
+.wf-tide-strip-band {
+  position: absolute;
+  right: 0;
+  font-size: 8px;
+  letter-spacing: .09em;
+  color: var(--color-plex-text-muted);
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+.wf-tide-strip-band[data-hit='true'] {
+  color: var(--color-badge-tide);
+  font-weight: 600;
+}
+.wf-tide-strip-chart {
+  position: relative;
+  height: 48px;
+}
+.wf-tide-strip-chart svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.wf-tide-strip-sun-label {
+  position: absolute;
+  top: -1px;
+  font-size: 8px;
+  font-weight: 500;
+  color: var(--color-verdict-marginal);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.wf-tide-strip-sun-label[data-edge='left'] {
+  transform: translateX(0);
+  margin-left: 4px;
+}
+.wf-tide-strip-sun-label[data-edge='right'] {
+  transform: translateX(-100%);
+  margin-left: -4px;
+}
+.wf-tide-strip-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-badge-tide);
+  box-shadow: 0 0 0 2px rgba(20, 15, 12, .95), 0 0 10px rgba(111, 168, 176, .85);
+  transform: translate(-50%, -50%);
+}
+.wf-tide-strip-dot-label {
+  position: absolute;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--color-badge-tide);
+  white-space: nowrap;
+  transform: translate(-50%, -135%);
+}
+.wf-tide-strip-extreme {
+  position: absolute;
+  bottom: -4px;
+  font-size: 8px;
+  letter-spacing: .04em;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.wf-tide-strip-extreme b {
+  color: var(--color-plex-text-secondary);
+  font-weight: 500;
+}
+.wf-tide-strip-axis {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  letter-spacing: .06em;
+  color: var(--color-plex-text-muted);
+  padding-top: 9px;
+}
+.wf-tide-strip-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 7px 11px;
+  border-top: 1px solid var(--color-plex-border);
+  background: rgba(0, 0, 0, .24);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  line-height: 1.45;
+}
+.wf-tide-strip-footer b {
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
+.wf-tide-strip-next {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-tide);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: right;
+}
+.wf-tide-strip-next:hover {
+  color: var(--color-badge-tide);
+}
+.wf-tide-strip-beyond {
+  margin-left: auto;
+  color: var(--color-plex-text-muted);
+}
+.wf-tide-strip-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  flex-wrap: wrap;
+}
+/* The strip publishes `--tsh` (its own real `offsetHeight`, in px) on `.wf-map-tab` and toggles
+   this class — open and collapsed are roughly 3× apart, so a fixed offset is wrong for one of them
+   (T6 #6, §7 check 4). Only the bottom-CENTRE counts footer needs the lift: the legend chip and the
+   viewline-upsell chip sit ABOVE the strip in the same flex column (§4 #6) and already clear it for
+   free, and the bottom-right scored-locations chip is out of the strip's column entirely. */
+.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer {
+  bottom: calc(var(--tsh, 120px) + 16px);
+}
+
 /* ── The counts footer (README "§9 Count footer") ──────────────────────────────────────────────
    Bottom-centre, matching `.wf-map-key`'s pill treatment so the new chrome reads as one family
    with the old. `--color-plex-panel` opaque for the same reason every map-floating chip is: a
