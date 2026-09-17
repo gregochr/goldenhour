@@ -3555,7 +3555,15 @@ button.wf-hc.also.on:hover {
    this class — open and collapsed are roughly 3× apart, so a fixed offset is wrong for one of them
    (T6 #6, §7 check 4). Only the bottom-CENTRE counts footer needs the lift: the legend chip and the
    viewline-upsell chip sit ABOVE the strip in the same flex column (§4 #6) and already clear it for
-   free, and the bottom-right scored-locations chip is out of the strip's column entirely. */
+   free, and the bottom-right scored-locations chip is out of the strip's column entirely.
+
+   ⚠️ This rule carries no media query, so it still fires on the phone (T7) — where the SAME
+   selector's `display: none` (below, inside `@media (max-width: 639px)`) already wins on the
+   element's visibility. The `bottom` this rule computes on the phone is therefore dead arithmetic,
+   never painted — left unscoped deliberately rather than wrapped in `@media (min-width: 640px)`,
+   since narrowing it risks nothing this rule alone can break and a media-query split here would be
+   one more thing for the phone rule to stay in sync with for no visible gain (adversarial review,
+   T7: flagged as a minor real finding, fixed with this comment rather than a second media block). */
 .wf-map-tab.wf-tide-strip-on .wf-map-counts-footer {
   bottom: calc(var(--tsh, 120px) + 16px);
 }
@@ -3877,6 +3885,44 @@ button.wf-hc.also.on:hover {
      are a DIFFERENT selector entirely and are untouched by this rule. */
   .wf-map-tab .leaflet-bottom.leaflet-right {
     padding-bottom: 76px;
+  }
+
+  /* ── The tide strip on the phone (tide-window-plan.md §3 T7, docs/design/tide-window/README.md
+     §6) ─────────────────────────────────────────────────────────────────────────────────────────
+     "The tide sentence is the more useful line at that width" (design §6), so the strip does not
+     share the counts footer's row — it REPLACES it: the footer is hidden outright (not merely
+     lifted, unlike every other row here) and the strip takes its `bottom: 112px` anchor instead.
+     ⚠️ The strip is `MapView.jsx`'s own SIBLING of `.wf-map-chrome-bl` on the phone, never nested
+     inside it the way the desktop mount is (T6, §4 #6) — it needs to span `left: 8px; right: 8px`
+     against the FRAME, the same containing block the footer/scored-legend rules above already use,
+     and `.wf-map-chrome-bl` is only ever left-anchored (no `right`), so a descendant of it could
+     never stretch edge to edge. `position: relative` (its own desktop/tablet rule, above the phone
+     query) is overridden here because a plain flex/sibling box has no `left`/`right`/`bottom` of
+     its own to override otherwise. */
+  .wf-map-tab .wf-map-tide-strip {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 112px;
+    width: auto;
+    max-width: none;
+  }
+  .wf-map-tab.wf-tide-strip-on .wf-map-counts-footer {
+    display: none;
+  }
+  /* Everything that used to clear the FOOTER's own assumed ~28px height now clears the STRIP's
+     real one instead (`--tsh`, T6 #6) — open and collapsed are roughly 4x apart (T6's own
+     1280x800 measurement: 167px vs 38px), so a fixed offset is wrong for one of the two states by
+     construction, the same argument that made `--tsh` exist in the first place (§7 check 4). Both
+     rows keep the SAME 26px/14px figures and the same ≥8px-clearance shape the pre-existing,
+     strip-off chain above already used (footer → scored-legend → chrome-bl), re-anchored onto the
+     strip's own bottom + real height rather than the footer's assumed one, so the stack's spacing
+     is byte-identical to before whenever there is no strip to displace the footer with. */
+  .wf-map-tab.wf-tide-strip-on .wf-map-scored-legend {
+    bottom: calc(112px + var(--tsh, 120px) + 12px);
+  }
+  .wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl {
+    bottom: calc(112px + var(--tsh, 120px) + 12px + 26px + 14px);
   }
 
   /* Pinch instead (README "Responsive" table: "Zoom buttons | hidden (pinch instead)"). Real

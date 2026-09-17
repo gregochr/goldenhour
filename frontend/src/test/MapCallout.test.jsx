@@ -1021,6 +1021,48 @@ describe('MapCallout — anchoring lifecycle', () => {
   });
 });
 
+describe('MapCallout — the tide strip is a band floor too (tide-window-plan.md T7)', () => {
+  beforeEach(() => { currentMap = makeMap(); });
+
+  // The strip is no longer covered transitively via `.wf-map-chrome-bl` once it moves to its own
+  // phone-only mount (T7) — `BAND_BAR_SELECTOR` in `MapCallout.jsx` carries its own
+  // `[data-testid="wf-tide-strip"]` entry for exactly that reason. `card.style.maxHeight` is the
+  // one rendered value that exposes `frame.band` (`{band.bot - band.top}px`, set unconditionally
+  // from `frame`, never from the measured `box`/`placement` — see the component's own comment on
+  // that style), so a real chrome sibling with that testid moving the band is observable without
+  // needing `withMeasuredCard` at all.
+  it('clamps the placement band above a real strip element, not merely above the counts footer', async () => {
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    const strip = document.createElement('div');
+    strip.setAttribute('data-testid', 'wf-tide-strip');
+    currentMap.container.parentElement.appendChild(strip);
+    // Lower half of the 500px-tall frame, comfortably over `calloutBand`'s own ≥50%-frame-width
+    // floor/ceiling test (780/800 ≈ 97.5%) — the phone strip's real `left:8px; right:8px` shape.
+    vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({
+      left: 10, right: 790, top: 400, bottom: 450, width: 780, height: 50,
+    });
+
+    await mount();
+
+    // No other chrome bar is present, so `band.top` stays the default 8px floor; `band.bot` is
+    // `min(frameHeight - 8, strip.top - 8)` = `min(492, 392)` = 392 → maxHeight 384px. Without the
+    // strip counted at all it would be `492 - 8` = 484px (the sibling "no strip" test below).
+    const card = screen.getByTestId('map-callout');
+    expect(card.style.maxHeight).toBe('384px');
+  });
+
+  it('is a no-op with no strip in the DOM — the band falls back to the frame\'s own floor', async () => {
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    await mount();
+    const card = screen.getByTestId('map-callout');
+    expect(card.style.maxHeight).toBe('484px');
+  });
+});
+
 describe('MapCallout — phone width (map-tab-v2-plan.md §3 P12, README §7: "286px (266px mobile)")', () => {
   let restore;
   beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });

@@ -609,3 +609,127 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     });
   });
 });
+
+/**
+ * The tide strip on the phone (tide-window-plan.md §3 T7, docs/design/tide-window/README.md §6):
+ * it takes the count footer's OWN row of the lifted stack rather than sharing space with it — "the
+ * tide sentence is the more useful line at that width" — so the footer is hidden outright, not
+ * merely lifted alongside it the way every other row above is. Everything that used to clear the
+ * footer's assumed ~28px height now has to clear the strip's REAL one instead (`--tsh`, T6 #6):
+ * open and collapsed are roughly 4x apart (T6's own 1280x800 measurement — 167px vs 38px — used as
+ * the stub here too, since this suite has no real layout to measure its own), so a fixed offset
+ * would be wrong for one of the two states by construction.
+ */
+describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
+  it('spans the frame edge-to-edge, anchored to the count footer\'s own row', () => {
+    const slice = extractRulesIncludingMedia('.wf-map-tide-strip');
+    const cleanup = inject(slice);
+    try {
+      const style = computedStyleFor('wf-map-tide-strip', ['wf-map-tab']);
+      expect(style.position).toBe('absolute');
+      expect(style.left).toBe('8px');
+      expect(style.right).toBe('8px');
+      expect(style.bottom).toBe('112px');
+      expect(style.width).toBe('auto');
+      expect(style.maxWidth).toBe('none');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps its desktop/tablet flex-column placement without the `.wf-map-tab` ancestor — the overlay and every wider viewport are untouched', () => {
+    const slice = extractRulesIncludingMedia('.wf-map-tide-strip');
+    const cleanup = inject(slice);
+    try {
+      const style = computedStyleFor('wf-map-tide-strip');
+      expect(style.position).toBe('relative');
+      expect(style.left).toBe('auto');
+      expect(style.width).toBe('474px');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('hides the count footer OUTRIGHT while the strip is on — never merely lifted, unlike every other row in the stack', () => {
+    const slice = extractRulesIncludingMedia('.wf-map-counts-footer');
+    const cleanup = inject(slice);
+    try {
+      // Both classes on the SAME node — `computedStyleFor`'s ancestor entries become one
+      // element's `className`, so a space-separated string sets both at once.
+      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab wf-tide-strip-on']).display).toBe('none');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('leaves the footer shown on the phone whenever the strip is NOT on', () => {
+    const slice = extractRulesIncludingMedia('.wf-map-counts-footer');
+    const cleanup = inject(slice);
+    try {
+      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).display).not.toBe('none');
+    } finally {
+      cleanup();
+    }
+  });
+
+  /**
+   * `calc(var(--tsh, …))` is exactly what `mapChromeZLadderCascade.test.jsx`'s own `--tsh` describe
+   * block already says jsdom cannot resolve numerically (`css: false`) — so, like that file, this
+   * reads the RAW rule text (pinning the formula's shape, not a computed style) and does the
+   * arithmetic itself in JS, with STUBBED heights standing in for the real `--tsh` a browser would
+   * write. Real numeric clearance at a real width is a browser measurement (plan §9, §7 check 8),
+   * not this unit test's job — this only proves the FORMULA cannot produce a collision for either
+   * of the two states T6 actually measured.
+   */
+  describe('the scored-legend chip and chrome-bl clear the strip\'s REAL height, not the footer\'s assumed one', () => {
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const scoredMatch = css.match(
+      /\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-scored-legend\s*\{[^}]*bottom:\s*calc\((\d+)px\s*\+\s*var\(--tsh,\s*(\d+)px\)\s*\+\s*(\d+)px\)/,
+    );
+    const chromeBlMatch = css.match(
+      /\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-chrome-bl\s*\{[^}]*bottom:\s*calc\((\d+)px\s*\+\s*var\(--tsh,\s*(\d+)px\)\s*\+\s*(\d+)px\s*\+\s*(\d+)px\s*\+\s*(\d+)px\)/,
+    );
+    const STRIP_BASE = 112; // the strip's own `bottom`, pinned literally by this file's first test above
+
+    it('both rules exist, in the anchor-plus-`--tsh`-plus-clearance shape', () => {
+      expect(scoredMatch, 'scored-legend bottom must be calc(112px + var(--tsh, Npx) + Mpx)').not.toBeNull();
+      expect(chromeBlMatch, 'chrome-bl bottom must chain off the scored-legend row the same way').not.toBeNull();
+      expect(Number(scoredMatch[1])).toBe(STRIP_BASE);
+      expect(Number(chromeBlMatch[1])).toBe(STRIP_BASE);
+    });
+
+    it.each([
+      ['open', 167],
+      ['collapsed', 38],
+    ])('clears every pairwise boundary with >= 8px to spare while %s (%dpx)', (_label, stripHeight) => {
+      // Read the bar's real `bottom` off the actual CSS rather than a bare literal — the same
+      // technique the rest of this file already uses (e.g. "PR #741: the scored-locations chip
+      // lifts clear of the bar", above), so a future retune of `.wf-map-chrome-tr`'s own phone
+      // offset cannot silently desync this check from the real geometry it claims to test.
+      const barSlice = extractRulesIncludingMedia('.wf-map-chrome-tr');
+      const barCleanup = inject(barSlice);
+      let barBottom;
+      try {
+        barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
+      } finally {
+        barCleanup();
+      }
+      const BAR_HEIGHT = 48; // documented assumption, matches the rest of this file
+      const barTop = barBottom + BAR_HEIGHT;
+      const stripTop = STRIP_BASE + stripHeight;
+
+      const [, , , scoredClearance] = scoredMatch.map(Number);
+      const scoredBottom = STRIP_BASE + stripHeight + scoredClearance;
+      const [, , , blClearanceA, blAssumedHeight, blClearanceB] = chromeBlMatch.map(Number);
+      const scoredTop = scoredBottom + blAssumedHeight; // the scored-legend chip's own measured/assumed height
+      const chromeBlBottom = STRIP_BASE + stripHeight + blClearanceA + blAssumedHeight + blClearanceB;
+
+      // 1. the strip itself never comes near the bar (its `bottom` is fixed regardless of state).
+      expect(STRIP_BASE - barTop).toBeGreaterThanOrEqual(8);
+      // 2. the scored-legend chip clears the strip's REAL top, open or collapsed alike.
+      expect(scoredBottom - stripTop).toBeGreaterThanOrEqual(8);
+      // 3. chrome-bl (the LITE viewline-upsell chip) clears the scored-legend chip's own top.
+      expect(chromeBlBottom - scoredTop).toBeGreaterThanOrEqual(8);
+    });
+  });
+});

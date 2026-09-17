@@ -54,11 +54,24 @@ const COUNTS_FOOTER_SELECTOR = '[data-testid="wf-map-counts-footer"]';
  * (P10) and Leaflet's own zoom+home corner join this list as they ship — the zoom+home corner
  * already does, via {@link LEAFLET_CORNER_SELECTOR} below, queried separately because it lives
  * INSIDE the Leaflet container rather than beside it (mirroring `MapLabels.jsx`'s identical split).
+ *
+ * <p>⚠️ The tide strip (`[data-testid="wf-tide-strip"]`, tide-window-plan.md T6/T7) joined this
+ * list at T7 — needed because the phone query hides the counts footer outright while the strip is
+ * on (`wf-tide-strip-on`), rather than merely lifting it, so `getBoundingClientRect` on a
+ * `display: none` footer returns a zero-size rect {@link calloutBand} already skips, and with
+ * nothing else naming the strip's own floor the card was free to grow down over it. No
+ * {@code always} opt-out needed the way the footer got one: on the phone the strip spans
+ * `left: 8px; right: 8px` (T7), comfortably over the 50%-of-frame-width test on any phone width
+ * this app supports; on desktop/tablet, where it lives nested in `.wf-map-chrome-bl` at a fixed
+ * `474px`, it will very rarely clear that same test against a wider frame — which is fine, since
+ * nothing asked this band to treat the desktop strip as a floor and `.wf-map-chrome-bl` itself
+ * still is not in this list either (an existing, separate omission this phase does not touch).
  */
 const BAND_BAR_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
   '[data-testid="wf-map-chrome-tr"]',
   COUNTS_FOOTER_SELECTOR,
+  '[data-testid="wf-tide-strip"]',
 ].join(', ');
 
 /** Leaflet's own bottom-right corner (zoom control + `CentreOnHomeControl`) — see `MapLabels.jsx`'s
