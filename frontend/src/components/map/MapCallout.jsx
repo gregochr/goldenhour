@@ -12,7 +12,8 @@ import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
 import { subjectWordsOf } from '../../utils/locationTypes.js';
-import TideWave from './TideWave.jsx';
+import { nextAlignedRow } from '../../utils/mapTideFit.js';
+import TideFitBlock from './TideFitBlock.jsx';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
@@ -132,22 +133,25 @@ function kindShort(event) {
  * @param {?number} [props.driveMinutes] measured drive time, or null when unmeasured
  * @param {?number} [props.distanceMiles] straight-line miles — HOME origin only; the caller passes
  *        null under an away origin (§1.12's `reachMeasured` discipline, `utils/planOrigin.js`)
- * @param {?{onTheLight: boolean, phrase: ?string, aligned: ?boolean, level: ?number,
- *   direction: ?string, height: ?string, shortfall: ?string, fitPhrase: ?string, gated: ?boolean}}
- *        [props.tideOnLight] this window's tide facts for THIS location, from
- *        `utils/locationSheet.buildTideAlignmentIndex` via `lookupForWindow`. ⚠️ Since the
- *        tide-window increment (T3, `docs/engineering/tide-window-plan.md`) the object carries
- *        BOTH axes — `onTheLight`/`phrase` (bundle rev 2's original on-the-light question) AND
- *        `aligned`/`level`/`direction`/`height`/`shortfall`/`fitPhrase`/`gated` (the preference
- *        question). This component still reads only the former pair below — the callout row below
- *        does not yet read `aligned`, that is T5's job — so "never `tideAligned`" is a statement
- *        about what THIS render currently does, not a ban on the shape carrying it: a future caller
- *        reading `aligned` here to answer the on-the-light question would still be the conflation
- *        the two-axes rule forbids, but reading it to answer the preference question it was built
- *        for is exactly what the increment's later phases do (CLAUDE.md's two-tide-axes rule; see
- *        `buildTideAlignmentIndex`'s own doc for the full argument). The row below is omitted
- *        entirely unless `onTheLight` is true AND a `phrase` exists, matching this component's own
- *        unmeasured-facts discipline
+ * @param {?{onTheLight: boolean, phrase: ?string, aligned: ?boolean, state: ?string,
+ *   level: ?number, direction: ?string, height: ?string, shortfall: ?string, fitPhrase: ?string,
+ *   gated: ?boolean}} [props.tideOnLight] this window's tide facts for THIS location, from
+ *        `utils/locationSheet.buildTideAlignmentIndex` via `lookupForWindow`. The object carries
+ *        BOTH axes — `onTheLight`/`phrase` (bundle rev 2's original on-the-light question, which
+ *        survives only as the offset clause inside `fitPhrase`) AND `aligned`/`state`/`level`/
+ *        `direction`/`height`/`shortfall`/`fitPhrase`/`gated` (the preference question). Since T5
+ *        (`docs/engineering/tide-window-plan.md`) this component reads the LATTER, through
+ *        `TideFitBlock`: the row is now keyed on `tideOnLight != null` (a served tide fact at all)
+ *        rather than `onTheLight`, and is omitted entirely when `tideOnLight` is null or carries no
+ *        `fitPhrase` — never a "no alignment" line, matching this component's own unmeasured-facts
+ *        discipline. Reading `aligned` here answers the question it was built for (CLAUDE.md's
+ *        two-tide-axes rule; see `buildTideAlignmentIndex`'s own doc for the full argument) — it
+ *        would only be the forbidden conflation if used to answer the ON-THE-LIGHT question instead
+ * @param {?object} [props.tideAlignmentIndex] the FULL index `tideOnLight` above is one entry of
+ *        (`utils/locationSheet.buildTideAlignmentIndex`'s own result, not `lookupForWindow`'s
+ *        single-window read) — needed only to scan FORWARD for this location's next fit
+ *        (`utils/mapTideFit.js#nextAlignedRow`), since a single window's own fact cannot answer
+ *        "when does it next align". Null renders the miss block's denial line rather than crashing
  * @param {?object} [props.scoreIndex] from `utils/locationSheet.buildScoreIndex` — the per-location
  *        per-window rating/summary join, reused rather than re-derived (plan §3 P9)
  * @param {boolean} [props.scoresKnown] whether the `scoreIndex` response has actually landed — a
@@ -195,7 +199,7 @@ function kindShort(event) {
  */
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
-  tideOnLight = null,
+  tideOnLight = null, tideAlignmentIndex = null,
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
@@ -212,6 +216,18 @@ export default function MapCallout({
   const cardRef = useRef(null);
   const paintRef = useRef(null);
   const rafRef = useRef(0);
+  /**
+   * The tide-fit block's "next fit" jump's own focus rescue (T5, adversarial review). The jump
+   * resolves to a window where THIS location is served aligned (`nextAlignedRow`'s own contract) —
+   * a match — so activating it makes `TideFitBlock` stop rendering the jump/denial line on the very
+   * next commit (a match never shows it): the button the reader just pressed unmounts from under
+   * them. `MapCallout` itself is never remounted by a window change (no `key` here), so without a
+   * rescue React drops focus to `<body>` — the exact bug class `MapView.jsx`'s own orphaned-focus
+   * note describes for the drilldown ✕ and the four-day-sheet handoff, "these cannot [survive], and
+   * need a survivor instead." The close button is this card's own survivor: rendered on every tier,
+   * every gate state, every window.
+   */
+  const closeRef = useRef(null);
 
   const locKey = location?.id ?? location?.name ?? null;
 
@@ -314,9 +330,16 @@ export default function MapCallout({
   // adds. The index, not the derived `gate` — that const is computed past the early return
   // below, where a hook may not sit. The index is memoised on `briefing.days`, so it changes
   // exactly when the paragraph can appear. Same shape as the tide-row P1 recorded above.
+  //
+  // ⚠️ And `tideAlignmentIndex` (T5), for the identical reason one level down: the fit BLOCK's
+  // jump-vs-denial line depends on it (via `nextFitRow`, below), and the index is memoised on the
+  // SAME `briefing.days` — so a briefing landing after a cold-load marker tap can flip a denial
+  // into a jump (or add the whole block where there was none) while `event?.id` stays put. Without
+  // this the card would carry the old height until an unrelated pan/zoom forced a re-measure — the
+  // evaluation-gate P1 in a different field.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, evaluationGateIndex,
-    repaintNow,
+    tideAlignmentIndex, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -446,6 +469,17 @@ export default function MapCallout({
   const coastalTidal = isCoastalTidalLocation(location);
   const topics = filterCalloutTopics(event.badges, coastalTidal);
 
+  // The tide-fit block's jump (T5, tide-window-plan.md §1 #11) — the first LATER solar row where
+  // THIS location is served aligned, to ANY of its wants (no `want` argument: "the callout's
+  // per-location jump passes no want, the any-want reading"). Read only on a served MISS — a match
+  // never needs it, and a null `tideOnLight` never reaches `TideFitBlock` at all (below).
+  // `evRows.findIndex` rather than a caller-supplied index: this component already receives
+  // `evRows` and `event` and is the one place that knows where "now" sits in that list.
+  const evIndex = Array.isArray(evRows) ? evRows.findIndex((row) => row.id === event.id) : -1;
+  const nextFitRow = tideOnLight && !tideOnLight.aligned
+    ? nextAlignedRow(evRows, tideAlignmentIndex, { id: location.id ?? null, name: location.name }, evIndex)
+    : -1;
+
   // The every-window strip's score: `scoreIndex` for a solar row, this location's own row out of
   // the served night results for an astro/aurora one — the SAME `astroConditionsByDate`/
   // `auroraResultsByDate` maps `utils/mapEvents.bestOfNight` already reads to build the EV row's
@@ -550,6 +584,7 @@ export default function MapCallout({
             </span>
           </div>
           <button
+            ref={closeRef}
             type="button"
             className="wf-callout-close"
             data-testid="map-callout-close"
@@ -682,19 +717,25 @@ export default function MapCallout({
           </div>
         )}
 
-        {tideOnLight?.onTheLight && tideOnLight?.phrase && (
-          // Omitted entirely when not aligned — this component's own unmeasured-facts discipline
-          // (`utils/mapCallout.js`), never a "no tide alignment" line. Styled on the repo's
-          // existing bordered-tide-row look (`.wf-frow`'s border/background/kicker-ink), not the
-          // design bundle's `.ctide` values verbatim (bundle rev 2's tide-chip tweak).
-          <div className="wf-callout-tide" data-testid="map-callout-tide">
-            <TideWave />
-            <span className="wf-callout-tide-text">
-              <b>Tide lands on the light</b>
-              {tideOnLight.phrase}
-            </span>
-          </div>
-        )}
+        {/* The tide-fit block (T5, design spec §4) — keyed on a served tide fact EXISTING at all
+            (`tideOnLight != null`), never on `onTheLight` (bundle rev 2's different, on-the-light
+            question, which survives only inside `fitPhrase`'s offset clause — §1 #6). `TideFitBlock`
+            itself carries the omitted-when-nothing-to-say discipline this row used to state inline.
+            ⚠️ The gate row above (`.wf-callout-gate`) keeps the offset clause on its own — this
+            block's miss phrase deliberately does not repeat it (T1 task 4), so a gated miss states
+            each fact exactly once across the two rows (§5 #6). */}
+        <TideFitBlock
+          fact={tideOnLight}
+          want={location.tideType}
+          nextFitRow={nextFitRow}
+          // ⚠️ Focuses this card's own survivor (`closeRef`, above) BEFORE handing off — the jump
+          // button itself is about to unmount once the window switch lands, so without this the
+          // press strands focus at `<body>` (adversarial review, accessibility lens). Mirrors the
+          // reason button's own self-focus above, adapted: that button survives its own press and
+          // focuses ITSELF as a return address; this one does not survive, so it hands focus to
+          // one that does.
+          onSelectEv={(row) => { closeRef.current?.focus(); onSelectEv?.(row); }}
+        />
 
         {topics.length > 0 && (
           <div className="wf-callout-topics" data-testid="map-callout-topics">
@@ -814,7 +855,14 @@ MapCallout.propTypes = {
   tideOnLight: PropTypes.shape({
     onTheLight: PropTypes.bool,
     phrase: PropTypes.string,
+    aligned: PropTypes.bool,
+    state: PropTypes.string,
+    fitPhrase: PropTypes.string,
+    shortfall: PropTypes.string,
+    gated: PropTypes.bool,
   }),
+  /** The full index `tideOnLight` is one entry of — see the JSDoc above. */
+  tideAlignmentIndex: PropTypes.object,
   scoreIndex: PropTypes.object,
   scoresKnown: PropTypes.bool,
   ratingKnown: PropTypes.bool,

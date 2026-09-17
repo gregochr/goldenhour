@@ -11,10 +11,11 @@ const ARROW_DOWN = 'M17.5 1.2V6.8M15.4 4.7L17.5 6.8L19.6 4.7';
  * §4 #11 record why the SAME wave now answers a different question).
  *
  * <p>The design bundle's own `TIDEGLYPH`/`missGlyph` paths verbatim (`map-tide-v5.js:152–161`),
- * extracted because four surfaces draw one or the other: the map label chip, the Pins tooltip, the
- * callout's tide row and the region panel's location rows. Copied into the first two independently
- * once already, and a further copy of a bezier nobody can proof-read is how the map ends up with
- * two subtly different waves.
+ * extracted because three surfaces draw one or the other: the map label chip, the callout/sheet
+ * block (`TideFitBlock.jsx`, T5) and the region panel's location rows. Pins mode (T4) states the
+ * same fact in words alone (the tooltip's third line, `PinsLayer.jsx`) — no glyph, so it is not a
+ * fourth mount. Copied into the first two independently once already, and a further copy of a
+ * bezier nobody can proof-read is how the map ends up with two subtly different waves.
  *
  * <p><b>{@code shortfall}</b> is null for a match (or for "no served tide fact at all" — a caller
  * simply does not mount this component then) and draws the PLAIN wave; {@code 'HIGHER'}/
@@ -37,12 +38,12 @@ export default function TideWave({ className = undefined, testId = undefined, sh
     // ⚠️ `width`/`height` attributes, not only a `viewBox`. Tailwind's preflight sets
     // `svg { display: block }`, so a `viewBox`-only SVG with no CSS size takes the full width of its
     // container — measured 399.98 × 228.56px unclassed. Every mount today happens to size it
-    // (`.wf-callout-tide svg`, `.wf-maplab-chip-tw`, `.wf-reg-tide`), but the whole point of the
-    // extraction is that a fifth is easy, and a fifth that forgets the class would get a full-width
-    // wave with nothing to catch it. A CSS rule still overrides these. The `data-wide` attribute is
-    // the arrow variant's own hook — its 21×8 viewBox needs a wider box than the 14×8 plain wave's,
-    // and every mount's CSS keys its widened rule off this attribute rather than a second class, so
-    // a caller never has to know which glyph variant it asked for.
+    // (`.wf-tide-fit svg`, `.wf-maplab-chip-tw`, `.wf-reg-tide`), but the whole point of the
+    // extraction is that a fourth is easy, and a fourth that forgets the class would get a
+    // full-width wave with nothing to catch it. A CSS rule still overrides these. The `data-wide`
+    // attribute (T4) is the arrow variant's own hook — its 21×8 viewBox needs a wider box than the
+    // 14×8 plain wave's, and every mount's CSS keys its widened rule off this attribute rather than
+    // a second class, so a caller never has to know which glyph variant it asked for.
     <svg
       className={className}
       data-testid={testId}
