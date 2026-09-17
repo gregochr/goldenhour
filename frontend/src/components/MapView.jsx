@@ -5563,11 +5563,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 coast on a solar window can be true with NEITHER other chip showing (Pins mode, or a
                 LITE reader with no alert). It mounts as the LAST child so the two chips above it
                 clear it by flex order alone (§4 #6) — never `position: absolute` and never its own
-                entry in the obstacle list, since `.wf-map-chrome-bl` already carries that seed. Gated
-                on `!overlayMode` (the frozen overlay never draws it) and `!isMobile` (T7 owns the
-                phone placement — full width, above the bar, not this column). */}
+                entry in the obstacle list, since `.wf-map-chrome-bl` already carries that seed. The
+                frozen overlay never draws it — this whole bottom-left wrapper already sits inside the
+                `!overlayMode` branch above, so no second `!overlayMode` test here (CodeQL flagged the
+                first cut's as an always-true negation) — and `!isMobile` because T7 owns the phone
+                placement (full width, above the bar, not this column). */}
             {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)
-              || (!overlayMode && !isMobile && tideStripModel.visible)) && (
+              || (!isMobile && tideStripModel.visible)) && (
               <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
                 {showViewlineUpsell && (
                   <div
@@ -5598,7 +5600,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     reachMeasured={mapReachMeasured}
                   />
                 )}
-                {!overlayMode && !isMobile && (
+                {!isMobile && (
                   <MapTideStrip
                     model={tideStripModel}
                     tide={activeMapEvent?.tide ?? null}
