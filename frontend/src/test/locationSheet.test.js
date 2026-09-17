@@ -211,6 +211,7 @@ describe('buildTideAlignmentIndex', () => {
     const idx = buildTideAlignmentIndex(daysWithTide(MATCH_SLOT));
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toEqual({
       aligned: true,
+      state: 'HIGH',
       onTheLight: true,
       phrase: 'HW 19:52 · 36m before sunset',
       level: 0.94,
@@ -285,6 +286,7 @@ describe('buildTideAlignmentIndex', () => {
     const idx = buildTideAlignmentIndex(daysWithTide({ tideState: 'HIGH', tideAligned: true }));
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toEqual({
       aligned: true,
+      state: 'HIGH',
       onTheLight: null,
       phrase: null,
       level: null,

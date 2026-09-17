@@ -9,7 +9,8 @@ import { EVENT_KIND } from './mapEvents.js';
  * and filter/map/select over served facts. Everything below is the second class — a viewport
  * filter for the strip's visibility and counts (the same shape `MapLabels`' own in-view set
  * already uses), a tally of served {@code tideType} values over the dimmed in-view locations, a
- * forward scan over served per-window {@code tideAligned} booleans, and {@code tier = aligned ?
+ * forward scan over served per-window {@code tideAligned} booleans (and, for the strip, the served
+ * {@code tideState} beside them), and {@code tier = aligned ?
  * 'match' : 'miss'} — a served boolean read. ⚠️ <b>Nothing here reads a height, a minute offset or
  * a threshold to decide anything</b> — {@code TideCurveCalculator} and {@code TideWording} own
  * that maths, server-side; a change here that starts comparing a number against a threshold has
@@ -50,9 +51,15 @@ export function tierOf(fact) {
  *   like {@link lookupForWindow}
  * @param {number} fromIndex the scan starts at {@code fromIndex + 1} — the row at this position is
  *   never itself a candidate, current or past
+ * @param {?('HIGH'|'MID'|'LOW')} [want] when given, the alignment must be to THIS water: the fact's
+ *   served {@code state} must equal it. ⚠️ Without it, {@code aligned} alone answers "does the
+ *   tide fit ANY of this spot's wants" — right for the callout's own jump, wrong for the strip's,
+ *   whose sentence names one water. A spot wanting {@code {HIGH, LOW}} is {@code aligned} in a LOW
+ *   window too, so "Next high water on the light" scanned on the bare flag jumped to low water
+ *   (a Codex P1 on #878). Null or omitted keeps the any-want reading.
  * @returns {object|-1} the row object of the first match, or {@code -1} when none exists
  */
-export function nextAlignedRow(evRows, idx, locationKey, fromIndex) {
+export function nextAlignedRow(evRows, idx, locationKey, fromIndex, want = null) {
   if (!Array.isArray(evRows)) return -1;
   for (let i = fromIndex + 1; i < evRows.length; i += 1) {
     const row = evRows[i];
@@ -60,7 +67,9 @@ export function nextAlignedRow(evRows, idx, locationKey, fromIndex) {
     const fact = lookupForWindow(
       idx, locationKey?.id ?? null, locationKey?.name ?? null, row.date, row.eventType,
     );
-    if (fact?.aligned) return row;
+    if (!fact?.aligned) continue;
+    if (want != null && fact.state !== want) continue;
+    return row;
   }
   return -1;
 }
@@ -180,7 +189,11 @@ export function stripModel({
   if (dominantWant && Array.isArray(evRows) && evIndex >= 0) {
     const wanting = dimmed.filter((s) => (s.tideTypes ?? []).includes(dominantWant));
     for (const spot of wanting) {
-      const candidate = nextAlignedRow(evRows, idx, { id: spot.id ?? null, name: spot.name }, evIndex);
+      // The scan must fit the DOMINANT want, not any of the spot's wants: the footer's sentence
+      // names one water, and a {HIGH, LOW} spot aligned via LOW is not "next high water".
+      const candidate = nextAlignedRow(
+        evRows, idx, { id: spot.id ?? null, name: spot.name }, evIndex, dominantWant,
+      );
       if (candidate === -1) continue;
       const candidateIdx = evRows.indexOf(candidate);
       if (candidateIdx !== -1 && candidateIdx < nextFitRowIdx) {

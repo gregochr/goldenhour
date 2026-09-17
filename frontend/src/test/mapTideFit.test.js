@@ -25,13 +25,13 @@ function nightRow(date) {
   return { kind: EVENT_KIND.ASTRO, date, eventType: 'ASTRO', tide: null };
 }
 
-/** A `buildTideAlignmentIndex`-shaped index built from a flat list of `{id, name, date, eventType, aligned}`. */
+/** A `buildTideAlignmentIndex`-shaped index built from a flat list of `{id, name, date, eventType, aligned, state?}`. */
 function tideIndex(entries) {
   const byId = new Map();
   const byName = new Map();
   for (const e of entries) {
     const tail = `${e.date}|${e.eventType}`;
-    const value = { aligned: e.aligned };
+    const value = { aligned: e.aligned, state: e.state ?? null };
     if (e.id != null) byId.set(`${e.id}|${tail}`, value);
     if (e.name != null) byName.set(`${e.name}|${tail}`, value);
   }
@@ -116,6 +116,25 @@ describe('nextAlignedRow', () => {
     const idx = tideIndex([{ id: 7, date: DATE_2, eventType: 'SUNSET', aligned: true }]);
     expect(nextAlignedRow(evRows, idx, { id: 7, name: 'Anything' }, 0)).toBe(evRows[1]);
     expect(nextAlignedRow(evRows, idx, { id: null, name: 'Anything' }, 0)).toBe(-1);
+  });
+
+  it('with a want, requires the alignment to be to THAT water, not to any of the spot\'s wants', () => {
+    const evRows = [
+      solarRow(DATE_1, 'SUNSET'),
+      solarRow(DATE_2, 'SUNRISE'),
+      solarRow(DATE_2, 'SUNSET'),
+    ];
+    // Aligned in both later rows — via LOW first, via HIGH second.
+    const idx = tideIndex([
+      { name: 'Both', date: DATE_2, eventType: 'SUNRISE', aligned: true, state: 'LOW' },
+      { name: 'Both', date: DATE_2, eventType: 'SUNSET', aligned: true, state: 'HIGH' },
+    ]);
+    expect(nextAlignedRow(evRows, idx, { name: 'Both' }, 0, 'HIGH')).toBe(evRows[2]);
+    expect(nextAlignedRow(evRows, idx, { name: 'Both' }, 0, 'LOW')).toBe(evRows[1]);
+    // No want: the any-want reading the callout's own jump uses — the first aligned row wins.
+    expect(nextAlignedRow(evRows, idx, { name: 'Both' }, 0)).toBe(evRows[1]);
+    // A want nothing later satisfies is -1, never a fall-back to the bare flag.
+    expect(nextAlignedRow(evRows, idx, { name: 'Both' }, 0, 'MID')).toBe(-1);
   });
 
   it('returns -1 for a non-array evRows rather than throwing', () => {
@@ -287,9 +306,10 @@ describe('stripModel — nextFitRow', () => {
       spot('Second', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['HIGH'] }),
     ];
     // Second fits sooner (DATE_2 SUNRISE) than First (DATE_3 SUNRISE) — the earlier one wins.
+    // Both alignments are to HIGH water — the dominant want — so both are real candidates.
     const idx = tideIndex([
-      { name: 'First', date: DATE_3, eventType: 'SUNRISE', aligned: true },
-      { name: 'Second', date: DATE_2, eventType: 'SUNRISE', aligned: true },
+      { name: 'First', date: DATE_3, eventType: 'SUNRISE', aligned: true, state: 'HIGH' },
+      { name: 'Second', date: DATE_2, eventType: 'SUNRISE', aligned: true, state: 'HIGH' },
     ]);
     const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
     expect(model.nextFitRow).toBe(evRows[1]);
@@ -310,6 +330,25 @@ describe('stripModel — nextFitRow', () => {
     expect(stripModel({ row, spots, bounds }).nextFitRow).toBe(-1);
   });
 
+  it('a {HIGH, LOW} spot aligned via LOW does not answer "next high water" — the scan fits the dominant want itself', () => {
+    const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+    const evRows = [row, solarRow(DATE_2, 'SUNRISE'), solarRow(DATE_2, 'SUNSET')];
+    // Two HIGH-only wanters make HIGH dominant; the two-value spot enters the scan because it
+    // wants HIGH too — but its sooner alignment is to LOW water, and must not surface.
+    const spots = [
+      spot('HighOne', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('HighTwo', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('Both', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['HIGH', 'LOW'] }),
+    ];
+    const idx = tideIndex([
+      { name: 'Both', date: DATE_2, eventType: 'SUNRISE', aligned: true, state: 'LOW' },
+      { name: 'Both', date: DATE_2, eventType: 'SUNSET', aligned: true, state: 'HIGH' },
+    ]);
+    const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
+    expect(model.dominantWant).toBe('HIGH');
+    expect(model.nextFitRow).toBe(evRows[2]);
+  });
+
   it('a spot NOT wanting the dominant want is never consulted for the scan', () => {
     const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
     const evRows = [row, solarRow(DATE_2, 'SUNRISE')];
@@ -320,7 +359,7 @@ describe('stripModel — nextFitRow', () => {
       spot('LowOne', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['LOW'] }),
     ];
     const idx = tideIndex([
-      { name: 'LowOne', date: DATE_2, eventType: 'SUNRISE', aligned: true },
+      { name: 'LowOne', date: DATE_2, eventType: 'SUNRISE', aligned: true, state: 'LOW' },
     ]);
     const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
     expect(model.dominantWant).toBe('HIGH');

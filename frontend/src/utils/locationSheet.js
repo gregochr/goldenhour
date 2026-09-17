@@ -335,8 +335,9 @@ export function buildEvaluationGateIndex(days) {
  *
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
- *          {@code {aligned, onTheLight, phrase, level, direction, height, shortfall, fitPhrase,
- *          gated}}
+ *          {@code {aligned, state, onTheLight, phrase, level, direction, height, shortfall,
+ *          fitPhrase, gated}} — {@code state} is the served {@code tideState} (HIGH/MID/LOW), so a
+ *          reader can ask WHICH want an alignment satisfied, not only that one did
  */
 export function buildTideAlignmentIndex(days) {
   const byId = new Map();
@@ -350,6 +351,11 @@ export function buildTideAlignmentIndex(days) {
         if (slot?.tideState == null) continue;
         index(byId, byName, slot.locationId, slot.locationName, tail, {
           aligned: Boolean(slot.tideAligned),
+          // The served HIGH/MID/LOW state itself, beside the aggregate `aligned`: a spot wanting
+          // {HIGH, LOW} is `aligned` in a LOW window too, so a scan for "the next HIGH window" has
+          // to read WHICH water the alignment was to (a Codex P1 on #878 — `mapTideFit.nextAlignedRow`
+          // scanned the bare flag and offered low water under a "Next high water" sentence).
+          state: slot.tideState,
           // Nullable, unlike `aligned` above: a genuine `false` and "no nearby extreme to name" are
           // different claims on this axis, and the old skip that required this to be non-null is
           // exactly what T3 removes — a coastal slot can have a served preference answer with no
