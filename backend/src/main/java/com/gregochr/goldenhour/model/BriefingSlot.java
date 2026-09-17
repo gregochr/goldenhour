@@ -349,6 +349,29 @@ public record BriefingSlot(
      *                                  shared {@code TideWording} vocabulary so no client ever
      *                                  formats a tide clock time itself; null alongside the three
      *                                  fields above
+     * @param tideLevel                 the water level at this slot's own solar event, 0.0 at the
+     *                                  series' lowest sampled water to 1.0 at its highest — the
+     *                                  same normalisation {@code BriefingWindowTide.windowLevel}
+     *                                  uses, from the same {@code TideCurveCalculator} cosine. A
+     *                                  <em>display</em> fact only: it never decides {@link
+     *                                  #tideAligned}, which stays time-proximity based (CLAUDE.md's
+     *                                  two-tide-axes rule). Null for inland or when no extremes are
+     *                                  stored
+     * @param tideDirection             {@code "RISING"} or {@code "FALLING"} at the light, null
+     *                                  alongside {@link #tideLevel}
+     * @param tideHeight                the interpolated height at the light, already formatted,
+     *                                  e.g. {@code "2.6 m"}; null alongside {@link #tideLevel}
+     * @param tideShortfall             {@code "HIGHER"} when the state sits below every water the
+     *                                  location wants, {@code "LOWER"} when it sits above every
+     *                                  water wanted, or null — on an aligned slot, or when the
+     *                                  wanted set straddles the state (a {@code HIGH}/{@code LOW}
+     *                                  location reading MID) and no single direction applies. Never
+     *                                  derived on the client from {@link #tideState} and a
+     *                                  location's wanted set — the server owns this formula
+     * @param tideFitPhrase             the map tab's tide-fit block body, already formatted by
+     *                                  {@code TideWording.tideFitPhrase} — one form when {@link
+     *                                  #tideAligned}, a different one naming the wanted water
+     *                                  otherwise; null alongside {@link #tideLevel}
      */
     public record TideInfo(
             String tideState,
@@ -363,7 +386,12 @@ public record BriefingSlot(
             @JsonInclude(JsonInclude.Include.NON_NULL) Integer nearestSolarOffsetMinutes,
             @JsonInclude(JsonInclude.Include.NON_NULL) String nearestExtremeKind,
             @JsonInclude(JsonInclude.Include.NON_NULL) Boolean tideOnTheLight,
-            @JsonInclude(JsonInclude.Include.NON_NULL) String nearestSolarOffsetPhrase) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String nearestSolarOffsetPhrase,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Double tideLevel,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String tideDirection,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String tideHeight,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String tideShortfall,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String tideFitPhrase) {
 
         /** Tide info for inland locations with no tide data. */
         public static final TideInfo NONE =
@@ -371,9 +399,9 @@ public record BriefingSlot(
 
         /**
          * Legacy 9-field constructor, retained so the many existing call sites (mostly tests)
-         * that predate the map-tab tide-alignment fields keep compiling unchanged. Defaults the
-         * four new fields to null — "unknown", not "not aligned" — the same convention
-         * {@link #NONE} already uses for the fields it predates.
+         * that predate the map-tab tide-alignment fields keep compiling unchanged. Defaults every
+         * field it predates to null — "unknown", not "not aligned" — the same convention
+         * {@link #NONE} already uses.
          *
          * @param tideState           HIGH, MID, LOW, or null for inland
          * @param tideAligned         true if tide matches location preference
@@ -392,6 +420,38 @@ public record BriefingSlot(
             this(tideState, tideAligned, nearestHighTideTime, nearestHighTideHeight,
                     heightAboveP95, heightAboveSpringThreshold, lunarTideType, lunarPhase,
                     moonAtPerigee, null, null, null, null);
+        }
+
+        /**
+         * Legacy 13-field constructor, retained so the many existing call sites (mostly tests)
+         * that predate the tide-fit fields (level, direction, height, shortfall, fit phrase) keep
+         * compiling unchanged. Defaults the five new fields to null, the same convention the
+         * 9-field constructor already uses for the fields it predates.
+         *
+         * @param tideState                 HIGH, MID, LOW, or null for inland
+         * @param tideAligned               true if tide matches location preference
+         * @param nearestHighTideTime       UTC time of nearest high tide, or null
+         * @param nearestHighTideHeight     height of nearest high tide in metres, or null
+         * @param heightAboveP95            true if the nearest high tide exceeds P95
+         * @param heightAboveSpringThreshold true if the nearest high tide exceeds 125% avg
+         * @param lunarTideType             astronomical tide classification, or null for inland
+         * @param lunarPhase                human-readable moon phase name, or null for inland
+         * @param moonAtPerigee             true if the moon is near perigee, or null for inland
+         * @param nearestSolarOffsetMinutes signed minutes from the light to the nearest extreme
+         * @param nearestExtremeKind        {@code "HW"} or {@code "LW"}, or null
+         * @param tideOnTheLight            true when that extreme lands inside the tight window
+         * @param nearestSolarOffsetPhrase  the same fact already formatted, or null
+         */
+        public TideInfo(String tideState, boolean tideAligned, LocalDateTime nearestHighTideTime,
+                BigDecimal nearestHighTideHeight, boolean heightAboveP95,
+                boolean heightAboveSpringThreshold, LunarTideType lunarTideType,
+                String lunarPhase, Boolean moonAtPerigee, Integer nearestSolarOffsetMinutes,
+                String nearestExtremeKind, Boolean tideOnTheLight,
+                String nearestSolarOffsetPhrase) {
+            this(tideState, tideAligned, nearestHighTideTime, nearestHighTideHeight,
+                    heightAboveP95, heightAboveSpringThreshold, lunarTideType, lunarPhase,
+                    moonAtPerigee, nearestSolarOffsetMinutes, nearestExtremeKind, tideOnTheLight,
+                    nearestSolarOffsetPhrase, null, null, null, null, null);
         }
 
         /**

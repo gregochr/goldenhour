@@ -407,6 +407,165 @@ class DailyBriefingResponseJsonTest {
         assertThat(slot.tide().nearestSolarOffsetPhrase()).isNull();
     }
 
+    // ── tide-fit fields (T1): level, direction, height, shortfall, fit phrase ─────────────
+
+    @Test
+    @DisplayName("populated tide-fit fields land FLAT on the slot JSON, never nested under \"tide\"")
+    void serialize_populatedTideFit_fieldsFlatOnSlot() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo(
+                "HIGH", true, LocalDateTime.of(2026, 4, 22, 19, 45), new BigDecimal("4.8"),
+                false, false, LunarTideType.REGULAR_TIDE, "Waxing gibbous", false,
+                25, "HW", true, "HW 20:20 · 25m after sunset",
+                0.92, "FALLING", "3.9 m", null,
+                "high water, falling · HW 20:20 · 25m after sunset · 3.9 m");
+        BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
+                LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
+                null, tide, List.of("Clear"), null);
+
+        String json = mapper.writeValueAsString(slot);
+        JsonNode node = mapper.readTree(json);
+
+        assertThat(node.has("tide"))
+                .as("TideInfo is @JsonUnwrapped — it must never appear as a nested object")
+                .isFalse();
+        assertThat(node.get("tideLevel").asDouble()).isEqualTo(0.92);
+        assertThat(node.get("tideDirection").asText()).isEqualTo("FALLING");
+        assertThat(node.get("tideHeight").asText()).isEqualTo("3.9 m");
+        assertThat(node.has("tideShortfall")).as("null on an aligned slot — omitted, not written null")
+                .isFalse();
+        assertThat(node.get("tideFitPhrase").asText())
+                .isEqualTo("high water, falling · HW 20:20 · 25m after sunset · 3.9 m");
+
+        BriefingSlot restored = mapper.readValue(json, BriefingSlot.class);
+        assertThat(restored.tide().tideLevel()).isEqualTo(0.92);
+        assertThat(restored.tide().tideDirection()).isEqualTo("FALLING");
+        assertThat(restored.tide().tideHeight()).isEqualTo("3.9 m");
+        assertThat(restored.tide().tideShortfall()).isNull();
+        assertThat(restored.tide().tideFitPhrase())
+                .isEqualTo("high water, falling · HW 20:20 · 25m after sunset · 3.9 m");
+    }
+
+    @Test
+    @DisplayName("a served shortfall (a miss) round-trips too")
+    void serialize_missShortfall_roundTrips() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo(
+                "LOW", false, null, null, false, false, LunarTideType.REGULAR_TIDE,
+                "Waxing gibbous", false, null, null, null, null,
+                0.0, "RISING", "1.0 m", "HIGHER",
+                "wants high water · low water, rising at 09:00 · 1.0 m of 4.0 m");
+        BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
+                LocalDateTime.of(2026, 1, 27, 9, 0), Verdict.STANDDOWN,
+                null, tide, List.of(), null);
+
+        String json = mapper.writeValueAsString(slot);
+        JsonNode node = mapper.readTree(json);
+        BriefingSlot restored = mapper.readValue(json, BriefingSlot.class);
+
+        // tideLevel is 0.0 here — the documented lower bound, and a value production genuinely
+        // emits at low water. @JsonInclude(NON_NULL) must write it (a NON_DEFAULT policy would
+        // silently drop it, since 0.0 is Double's default), and a field written as JSON `0.0`
+        // must round-trip as the boxed Double 0.0, not null.
+        assertThat(node.has("tideLevel")).as("0.0 is not absent under NON_NULL").isTrue();
+        assertThat(node.get("tideLevel").asDouble()).isEqualTo(0.0);
+        assertThat(restored.tide().tideLevel()).isEqualTo(0.0);
+        assertThat(restored.tide().tideShortfall()).isEqualTo("HIGHER");
+        assertThat(restored.tide().tideFitPhrase())
+                .isEqualTo("wants high water · low water, rising at 09:00 · 1.0 m of 4.0 m");
+    }
+
+    @Test
+    @DisplayName("inland slot: the five tide-fit fields are OMITTED via NON_NULL, not written null")
+    void serialize_inlandSlot_tideFitFieldsOmitted() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot slot = new BriefingSlot("Derwent Valley",
+                LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
+                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+
+        JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
+
+        assertThat(node.has("tideLevel")).isFalse();
+        assertThat(node.has("tideDirection")).isFalse();
+        assertThat(node.has("tideHeight")).isFalse();
+        assertThat(node.has("tideShortfall")).isFalse();
+        assertThat(node.has("tideFitPhrase")).isFalse();
+    }
+
+    @Test
+    @DisplayName("a payload written before the tide-fit fields existed (13 tide fields, the "
+            + "map-tab ones present) deserialises the five new ones to null")
+    void deserialize_preTideFitPayload_tideFitFieldsNull() throws Exception {
+        // daily_briefing_cache holds payloads written before this phase shipped — the 13
+        // pre-existing tide fields present (including the #866 map-tab ones), the five new ones
+        // absent entirely (not null-valued: ABSENT).
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        String legacy = """
+                {
+                  "locationName": "Bamburgh",
+                  "solarEventTime": "2026-04-22T19:55:00",
+                  "verdict": "GO",
+                  "flags": [],
+                  "tideState": "HIGH",
+                  "tideAligned": true,
+                  "nearestHighTideTime": "2026-04-22T19:45:00",
+                  "nearestHighTideHeight": 4.8,
+                  "heightAboveP95": false,
+                  "heightAboveSpringThreshold": false,
+                  "lunarTideType": "REGULAR_TIDE",
+                  "lunarPhase": "Waxing gibbous",
+                  "moonAtPerigee": false,
+                  "nearestSolarOffsetMinutes": 25,
+                  "nearestExtremeKind": "HW",
+                  "tideOnTheLight": true,
+                  "nearestSolarOffsetPhrase": "HW 20:20 · 25m after sunset"
+                }
+                """;
+
+        BriefingSlot slot = mapper.readValue(legacy, BriefingSlot.class);
+
+        assertThat(slot.tide().tideState()).isEqualTo("HIGH");
+        assertThat(slot.tide().tideOnTheLight()).isTrue();
+        assertThat(slot.tide().tideLevel()).isNull();
+        assertThat(slot.tide().tideDirection()).isNull();
+        assertThat(slot.tide().tideHeight()).isNull();
+        assertThat(slot.tide().tideShortfall()).isNull();
+        assertThat(slot.tide().tideFitPhrase()).isNull();
+    }
+
+    @Test
+    @DisplayName("a payload from before EVEN the map-tab fields existed (9 tide fields) still "
+            + "deserialises — every field this phase added reads null")
+    void deserialize_legacyNineFieldPayload_everyNewerFieldNull() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        String legacy = """
+                {
+                  "locationName": "Bamburgh",
+                  "solarEventTime": "2026-04-22T19:55:00",
+                  "verdict": "GO",
+                  "flags": [],
+                  "tideState": "HIGH",
+                  "tideAligned": true,
+                  "nearestHighTideTime": "2026-04-22T19:45:00",
+                  "nearestHighTideHeight": 4.8,
+                  "heightAboveP95": false,
+                  "heightAboveSpringThreshold": false,
+                  "lunarTideType": "REGULAR_TIDE",
+                  "lunarPhase": "Waxing gibbous",
+                  "moonAtPerigee": false
+                }
+                """;
+
+        BriefingSlot slot = mapper.readValue(legacy, BriefingSlot.class);
+
+        assertThat(slot.tide().tideState()).isEqualTo("HIGH");
+        assertThat(slot.tide().tideLevel()).isNull();
+        assertThat(slot.tide().tideDirection()).isNull();
+        assertThat(slot.tide().tideHeight()).isNull();
+        assertThat(slot.tide().tideShortfall()).isNull();
+        assertThat(slot.tide().tideFitPhrase()).isNull();
+    }
+
     // ── map tab tide strip's window facts (T2) ──────────────────────────────
     //
     // BriefingWindowTide's four new fields (sunrisePosition, sunsetPosition, extremes,

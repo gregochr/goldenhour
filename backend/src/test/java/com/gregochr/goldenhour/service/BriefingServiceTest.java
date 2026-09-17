@@ -136,6 +136,13 @@ class BriefingServiceTest {
     private EvaluationViewService evaluationViewService;
     @Mock
     private com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
+    /**
+     * The tide-fit curve's own extremes fetch. Left unstubbed throughout: Mockito answers an
+     * empty list, which degrades every slot's tide-fit fields to null — this suite's own
+     * assertions are about region rollups and confidence, not the map tab's tide-fit block.
+     */
+    @Mock
+    private com.gregochr.goldenhour.repository.TideExtremeRepository tideExtremeRepository;
 
     private BriefingService briefingService;
 
@@ -168,7 +175,7 @@ class BriefingServiceTest {
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                        new WoodlandVerdictEvaluator());
+                        new WoodlandVerdictEvaluator(), tideExtremeRepository);
         briefingService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
@@ -515,7 +522,7 @@ class BriefingServiceTest {
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                     solarService, locationService,
                     new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                            new WoodlandVerdictEvaluator());
+                            new WoodlandVerdictEvaluator(), tideExtremeRepository);
             BriefingService freshService = new BriefingService(
                     locationService, weatherLoader(),
                     jobRunService, briefingCacheRepository, mapper,
@@ -893,7 +900,7 @@ class BriefingServiceTest {
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                        new WoodlandVerdictEvaluator());
+                        new WoodlandVerdictEvaluator(), tideExtremeRepository);
         BriefingService freshService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository, mapper,
@@ -926,7 +933,7 @@ class BriefingServiceTest {
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                        new WoodlandVerdictEvaluator());
+                        new WoodlandVerdictEvaluator(), tideExtremeRepository);
         BriefingService freshService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
@@ -953,7 +960,7 @@ class BriefingServiceTest {
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                        new WoodlandVerdictEvaluator());
+                        new WoodlandVerdictEvaluator(), tideExtremeRepository);
         BriefingService freshService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
@@ -1495,7 +1502,7 @@ class BriefingServiceTest {
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                     solarService, locationService,
                     new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                            new WoodlandVerdictEvaluator());
+                            new WoodlandVerdictEvaluator(), tideExtremeRepository);
             BriefingService freshService = new BriefingService(
                     locationService, weatherLoader(),
                     jobRunService, briefingCacheRepository, mapper,
