@@ -53,11 +53,21 @@ export const CHART_H = 24;
  */
 const TIDE_KICKER = '≈ Tide';
 
-/** Water level → the words the row states it in. */
-const STATE_WORD = { HIGH: 'high water', MID: 'mid tide', LOW: 'low water' };
+/**
+ * Water level → the words the row states it in.
+ *
+ * <p>Exported since the tide-window increment's strip (`tide-window-plan.md` T6, §4 #8): the strip's
+ * header phrase and footer "wants" clause read the SAME vocabulary this row does, rather than the
+ * design bundle's own `mid water` — one word for one state, not two English phrasings of it.
+ */
+export const STATE_WORD = { HIGH: 'high water', MID: 'mid tide', LOW: 'low water' };
 
-/** Which way the water is going — a separate axis from the level, and both are needed. */
-const DIRECTION_WORD = { RISING: 'rising', FALLING: 'falling' };
+/**
+ * Which way the water is going — a separate axis from the level, and both are needed.
+ *
+ * <p>Exported alongside {@link STATE_WORD} for the same reason (tide-window-plan.md T6).
+ */
+export const DIRECTION_WORD = { RISING: 'rising', FALLING: 'falling' };
 
 /**
  * A fact segment at the row's base tone — `--color-plex-text-secondary`, 6.57:1 on the row.

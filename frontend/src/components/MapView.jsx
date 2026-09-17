@@ -42,7 +42,8 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
 import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
-import { tierOf } from '../utils/mapTideFit.js';
+import { tierOf, stripModel, siblingEventTime } from '../utils/mapTideFit.js';
+import MapTideStrip from './map/MapTideStrip.jsx';
 import MapLandingCard from './map/MapLandingCard.jsx';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
@@ -1505,6 +1506,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [heatArea, setHeatArea] = useState(true);
   const [heatFitNonce, setHeatFitNonce] = useState(0);
   /**
+   * The tide strip's own collapse state (tide-window-plan.md T6 §4 #12) — `MapView` state, not
+   * `sessionStorage`: the pane is never unmounted (`plan-to-map-doors-plan.md`'s D2 note), so
+   * "persists for the session" needs no storage and no try/catch, and it must survive a window
+   * change on purpose (design §2's own "does not reset on window change").
+   */
+  const [tideStripCollapsed, setTideStripCollapsed] = useState(false);
+  /**
    * The Regions jump list's own camera target (map-tab-v2-plan.md §3 P11) — an OVERRIDE of the
    * ordinary `heatArea`-derived bounds below, not a second `HeatBoundsController`.
    *
@@ -1676,6 +1684,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // would re-render (and so rebuild every marker) for a viewport that has not actually moved.
     setMapBounds((prev) => (prev && prev.every((v, i) => v === next[i]) ? prev : next));
   }, []);
+  /**
+   * The TAB's own viewport, as the raw Leaflet `LatLngBounds` object — not the plain
+   * `[south, west, north, east]` array {@code mapBounds} above stores for the overlay's simple box
+   * test. `mapTideFit.stripModel` needs a real {@code pad}/{@code contains} pair (tide-window-plan.md
+   * §1 #8: "no `bounds.pad()` existed anywhere in this codebase before this increment"), which
+   * Leaflet's own object already supplies — converting to and back from a plain array would only
+   * lose that. No identity-dedupe here: `stripModel` is one deliberately un-split function (T3's own
+   * documented tension) that DOES need to recompute on every pan (§5 "Derived per (window,
+   * viewport): recompute on pan"), so a fresh object each `moveend` is the intended behaviour, not
+   * the wasted-render risk {@code handleBounds} above guards against.
+   */
+  const [tideViewBounds, setTideViewBounds] = useState(null);
+  const handleTideBounds = useCallback((b) => setTideViewBounds(b), []);
   const { status: auroraStatus } = useAuroraStatus();
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
@@ -3556,6 +3577,39 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * The tide strip's own per-render model (tide-window-plan.md T6) — one call into the pure
+   * {@code mapTideFit.stripModel}, built fresh every render like {@code mapEvents}/{@code
+   * evVerdicts}/{@code landingModel} above and for the identical reason: {@code mapEvents} is a new
+   * array every render, so a {@code useMemo} listing it could never hit (T3's own documented tension
+   * over the "two independent memos" split — inert until a measured cost says otherwise).
+   *
+   * <p>{@code labelSpots} is the same pool `MapLabels`/`PinsLayer` draw from, so the strip's counts
+   * can never disagree with a chip a reader is looking at. {@code tideViewBounds} is the TAB's own
+   * Leaflet viewport (declared above, alongside the overlay's plain-array {@code mapBounds}) — never
+   * mounted in {@code overlayMode}, so this reads {@code null} there and the strip never visible.
+   */
+  const tideStripModel = stripModel({
+    row: activeMapEvent,
+    spots: labelSpots,
+    bounds: tideViewBounds,
+    evRows: mapEvents,
+    evIndex: activeEvIndex,
+    idx: tideAlignmentIndex,
+  });
+
+  /**
+   * The sunrise/sunset clock times the strip's chart labels — a lookup over the SAME EV list
+   * (tide-window-plan.md T6, `mapTideFit.siblingEventTime`), never a client-side formula:
+   * {@code BriefingWindowTide} states WHERE the sun rises/sets on the tide axis but not the clock
+   * time itself, and the sibling SUNRISE/SUNSET row for this date already carries it, served.
+   * Skipped entirely while the strip is not visible — there is nothing for either label to draw.
+   */
+  const tideStripSunriseTime = tideStripModel.visible
+    ? siblingEventTime(mapEvents, activeMapEvent?.date, 'SUNRISE') : null;
+  const tideStripSunsetTime = tideStripModel.visible
+    ? siblingEventTime(mapEvents, activeMapEvent?.date, 'SUNSET') : null;
   /**
    * The window panel's rows and its note — the drilldown's first level (map-landing-plan.md §3 L5).
    *
@@ -4858,6 +4912,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             </>
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
+          {/* The tab's own viewport, for the tide strip's in-view coastal count (tide-window-plan.md
+              T6) — the frozen overlay never mounts the strip, so it never needs this. */}
+          {!overlayMode && <BoundsTracker onBounds={handleTideBounds} />}
           {/* Tab only — the overlay has no ground-click behaviour of its own.
 
               ⚠️ **A ground press does exactly one thing now: it deselects** (map-landing-plan.md
@@ -5498,8 +5555,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 never coexist; a live browser pass proved otherwise (adversarial review C1/C3).
                 Both chips are plain flex children of ONE positioned wrapper now — neither carries
                 its own `absolute` placement any more — so they can only ever stack with a gap,
-                never overlap. */}
-            {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)) && (
+                never overlap.
+
+                ⚠️ The tide strip (tide-window-plan.md T6) is a THIRD reason this wrapper renders —
+                added to the condition below rather than left implicit, since a viewport holding
+                coast on a solar window can be true with NEITHER other chip showing (Pins mode, or a
+                LITE reader with no alert). It mounts as the LAST child so the two chips above it
+                clear it by flex order alone (§4 #6) — never `position: absolute` and never its own
+                entry in the obstacle list, since `.wf-map-chrome-bl` already carries that seed. Gated
+                on `!overlayMode` (the frozen overlay never draws it) and `!isMobile` (T7 owns the
+                phone placement — full width, above the bar, not this column). */}
+            {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)
+              || (!overlayMode && !isMobile && tideStripModel.visible)) && (
               <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
                 {showViewlineUpsell && (
                   <div
@@ -5528,6 +5595,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     onToggleRings={() => setRingsEnabled((v) => !v)}
                     hasHome={hasHomeCoords}
                     reachMeasured={mapReachMeasured}
+                  />
+                )}
+                {!overlayMode && !isMobile && (
+                  <MapTideStrip
+                    model={tideStripModel}
+                    tide={activeMapEvent?.tide ?? null}
+                    activeRow={activeMapEvent}
+                    sunriseTime={tideStripSunriseTime}
+                    sunsetTime={tideStripSunsetTime}
+                    collapsed={tideStripCollapsed}
+                    onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
+                    onSelectEv={selectEvRow}
+                    mapPaneRef={mapPaneRef}
                   />
                 )}
               </div>

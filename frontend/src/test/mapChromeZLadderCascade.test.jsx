@@ -82,7 +82,14 @@ function sliceRules(needle) {
   return rules.join('\n');
 }
 
-const CHROME_CLASSES = ['wf-map-chrome-tl', 'wf-map-chrome-tr', 'wf-map-chrome-bl', 'wf-map-counts-footer'];
+// `wf-map-tide-strip` joined at T6 (tide-window-plan.md T6 #8) — the tide strip is a plain flex
+// child of `.wf-map-chrome-bl`, never separately `position: absolute` in the real DOM (it inherits
+// the wrapper's stacking context by flex order alone, §4 #6), but it declares the SAME chrome-tier
+// `z-index: 1100` directly on itself so this file's isolated-element probe reads it correctly too.
+const CHROME_CLASSES = [
+  'wf-map-chrome-tl', 'wf-map-chrome-tr', 'wf-map-chrome-bl', 'wf-map-counts-footer',
+  'wf-map-tide-strip',
+];
 const CALLOUT_CLASSES = ['wf-selmk', 'wf-callout'];
 // `wf-legend-panel` joined at P10 (map-tab-v2-plan.md §3 P10) — the Legend popover must beat chrome
 // and the callout exactly like the window/filters menus do; it is the same popover-exclusivity
@@ -183,5 +190,24 @@ describe('the Map tab\'s full-frame chrome z-ladder (map-tab-v2-plan.md §3 P7)'
     for (const tipCls of TOOLTIP_CLASSES) {
       expect(menuZ).toBeGreaterThan(zIndexOf(tipCls));
     }
+  });
+});
+
+/**
+ * The tide strip lifts the bottom-CENTRE counts footer via `--tsh` while it is on screen
+ * (tide-window-plan.md T6 #6, plan §7 check 4) — a `bottom: calc(var(--tsh, 120px) + 16px)` rule
+ * jsdom cannot resolve numerically (`css: false` means no `var()`/`calc()` support at all), so this
+ * asserts the RAW rule text rather than a computed style, the same reason `sliceRules` above reads
+ * source text instead of trusting `getComputedStyle`. Real numeric clearance is a browser
+ * measurement (plan §9), not a unit test's job.
+ */
+describe('the tide strip lifts the counts footer via --tsh (tide-window-plan.md T6 #6)', () => {
+  it('declares the lift scoped to BOTH the tab root\'s strip-on class and the counts footer', () => {
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    // Scoped to both classes together — a bare `.wf-map-counts-footer { bottom: … }` would lift the
+    // footer on every render, not only while the strip is actually mounted and visible.
+    expect(css).toMatch(
+      /\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-counts-footer\s*\{[^}]*bottom:\s*calc\(var\(--tsh,\s*120px\)\s*\+\s*16px\)/,
+    );
   });
 });

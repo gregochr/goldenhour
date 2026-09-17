@@ -320,14 +320,35 @@ function openLegend() {
 }
 
 /**
+ * A minimal Leaflet-`LatLngBounds`-shaped stand-in for `target.getBounds()` — never a real
+ * viewport, just enough that neither `BoundsTracker` consumer throws. `getSouth`/`getWest`/
+ * `getNorth`/`getEast` are the overlay's own `handleBounds`; `pad`/`contains` are
+ * `mapTideFit.stripModel`'s (tide-window-plan.md T6), reached now that `MapView.jsx` mounts a
+ * SECOND `BoundsTracker` for the tab (`!overlayMode`) as well as the overlay's own. `contains`
+ * always answers false — this file's fixtures are not testing the tide strip, so a stray "visible"
+ * would be a second, accidental thing to explain in an unrelated assertion.
+ */
+function boundsStub() {
+  return {
+    getSouth: () => 0,
+    getWest: () => 0,
+    getNorth: () => 0,
+    getEast: () => 0,
+    pad: () => ({ contains: () => false }),
+  };
+}
+
+/**
  * Fires `zoomend` on every registered `useMapEvents` caller — `MapViewBasemapDress.test.jsx`'s own
  * idiom, needed here for the first time by the Legend handover indicator's integration tests
  * (adversarial review C7), which must drive a REAL zoom rather than rely on the `useState(9)` mount
- * default every earlier test in this file was content with.
+ * default every earlier test in this file was content with. `getBounds` was added for
+ * tide-window-plan.md T6 — `BoundsTracker`'s own `zoomend` handler calls it unconditionally, and a
+ * SECOND `BoundsTracker` now mounts on the tab as well as the overlay.
  */
 function fireZoomend(zoom) {
   act(() => {
-    const target = { getZoom: () => zoom };
+    const target = { getZoom: () => zoom, getBounds: boundsStub };
     for (const handlers of mapEventHandlers) {
       handlers.zoomend?.({ target });
     }

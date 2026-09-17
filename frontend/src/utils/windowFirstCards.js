@@ -574,6 +574,18 @@ export function buildWindowCards(
       // window had no spots at all, which is a card the lens never touched and must not carry a
       // line about it.
       rows,
+      // The raw served `BriefingWindowTide`, carried alongside `rows` above rather than only
+      // inside it — `rows` is `buildWindowRows(win)`'s PRESENTATION form (segments/tones for the
+      // Plan tab's tide fact row), and the Map tab's tide strip (tide-window-plan.md T6) needs the
+      // object itself: its curve, positions and extremes, none of which `rows` carries forward.
+      // Without this, `WindowFirstMapPane`'s `heat.windows` mapper (built from `buildHeatStripCards`,
+      // itself folded from THIS card) has no `tide` field to copy onto the EV row `mapEvents.js`
+      // reads from — `MapView`'s tide strip would receive a served, correct `window.tide` from
+      // `GET /api/briefing` and never see it, since the whole chain between the payload and the map
+      // runs through this card. Found in browser verification: T3's unit tests fed `solarRow` a
+      // hand-built `served` object that already had `.tide`, so the gap in this real pipeline never
+      // surfaced until the strip was actually rendered against a live payload.
+      tide: win?.tide ?? null,
       // ⚠️ ONE badge list now, and the before/after pair is gone with the surface that needed it.
       // Through M1 there was also a `badges` holding the post-promotion remainder — what the card
       // header drew after `buildWindowRows` had turned some of them into snow attribute rows. The
