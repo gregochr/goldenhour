@@ -293,9 +293,9 @@ public class WindowTideRollupBuilder {
             return null;
         }
         boolean sunrise = targetType == TargetType.SUNRISE;
-        LocalDateTime eventUtc = sunrise
-                ? solarService.sunriseUtc(location.getLat(), location.getLon(), date)
-                : solarService.sunsetUtc(location.getLat(), location.getLon(), date);
+        LocalDateTime sunriseUtc = solarService.sunriseUtc(location.getLat(), location.getLon(), date);
+        LocalDateTime sunsetUtc = solarService.sunsetUtc(location.getLat(), location.getLon(), date);
+        LocalDateTime eventUtc = sunrise ? sunriseUtc : sunsetUtc;
         int eventMinutes = clockMinutesFrom(eventUtc, date);
 
         TideExtremeEntity nearest = nearestExtreme(extremes, eventUtc);
@@ -327,7 +327,57 @@ public class WindowTideRollupBuilder {
                 seas(location.getId(), date, targetType),
                 shape.curve(),
                 round(Math.min(1.0, Math.max(0.0, (double) eventMinutes / MINUTES_PER_DAY))),
-                shape.levelOf(heightAt(series, eventMinutes)));
+                shape.levelOf(heightAt(series, eventMinutes)),
+                positionOf(sunriseUtc, date),
+                positionOf(sunsetUtc, date),
+                extremesOn(extremes, date),
+                TideWording.metres(heightAt(series, eventMinutes)));
+    }
+
+    /**
+     * Where a solar event falls on {@code date}'s local clock axis, 0.0 at midnight to 1.0 at the
+     * next — the same fraction {@link #rollup} computes for {@code windowPosition}, but for a
+     * solar event that may not be the one this window itself is.
+     *
+     * @param solarUtc the event's UTC instant, or null when {@link SolarService} reports none for
+     *                 that day and location — its contract carries no non-null guarantee, and
+     *                 {@code NlcTwilightWindowCalculator} already treats the identical call as
+     *                 nullable for the same reason. Not observed from the vendored solar-utils
+     *                 implementation even at a genuine polar day, which returns a degenerate
+     *                 midnight instant rather than null — this guards the declared contract, not
+     *                 a behaviour seen today
+     * @param date     the local day to place it on
+     * @return the 0–1 position, or null when {@code solarUtc} is null
+     */
+    private static Double positionOf(LocalDateTime solarUtc, LocalDate date) {
+        if (solarUtc == null) {
+            return null;
+        }
+        int minutes = clockMinutesFrom(solarUtc, date);
+        return round(Math.min(1.0, Math.max(0.0, (double) minutes / MINUTES_PER_DAY)));
+    }
+
+    /**
+     * Every extreme in the representative's local day, positioned on the same axis
+     * {@link #positionOf} and {@code windowPosition} use.
+     *
+     * <p>Built from {@link #pointsOn}, the same real-extremes-only list {@code range} and
+     * {@code rangeAnomaly} already read — never {@link #seriesAround}'s bracketed or gap-filled
+     * series, whose bookends and implied troughs are shape only and name no water actually
+     * measured.
+     *
+     * @param extremes one location's stored extremes
+     * @param date     the local day to list
+     * @return the day's extremes, ascending
+     */
+    private static List<BriefingWindowTide.Extreme> extremesOn(List<TideExtremeEntity> extremes,
+            LocalDate date) {
+        return pointsOn(extremes, date).stream()
+                .map(p -> new BriefingWindowTide.Extreme(
+                        p.high() ? "HW" : "LW",
+                        round(Math.min(1.0, Math.max(0.0, (double) p.minutes() / MINUTES_PER_DAY))),
+                        TideWording.clock(p.minutes())))
+                .toList();
     }
 
     /**

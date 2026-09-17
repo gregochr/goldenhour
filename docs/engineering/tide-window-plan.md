@@ -40,15 +40,18 @@ added `BriefingSlot.evaluationGate`, the callout's `.wf-callout-gate` row and th
 
 ## §0 Status
 
-**Status: PLANNED — no phase started.** Plan written 2026-09-17 against `origin/main` at `75ff1f90`
-(#871). Owner decisions this plan needs are listed in §6; **none blocks T1–T3**, and §5 #1 (keep the
-gate) lets T4–T8 proceed without one — the owner challenges §5 on the plan PR, not in code.
+**Status: T2 BUILT.** T1 had not landed as of T2 — `TideCurveCalculator` does not exist on
+`origin/main` — so T2 computed from `WindowTideRollupBuilder`'s existing private statics directly,
+per its own instruction 2; T1's lift will pick these calls up automatically once it merges, same
+methods, different receiver. Owner decisions this plan needs are listed in §6; **none blocks T3**,
+and §5 #1 (keep the gate) lets T4–T8 proceed without one — the owner challenges §5 on the plan PR,
+not in code. Plan written 2026-09-17 against `origin/main` at `75ff1f90` (#871).
 
 Phase log (T1 creates the first row; every phase appends its own in the same commit as its code):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| T2 | `feature/tide-t2-window-facts` | `ddbfe1ff` | 2026-09-17 | Adds `sunrisePosition`/`sunsetPosition`, `extremes` (`record Extreme(kind, position, time)`) and `heightAtWindow` to `BriefingWindowTide`, computed inside `WindowTideRollupBuilder.rollup` from data it already fetches — both solar events now called unconditionally rather than only the window's own (T1 had not merged; computed from the private statics in place per T2's instruction 2). New legacy twelve-field constructor mirrors `BriefingSlot.TideInfo`'s own, keeping the three existing direct-construction call sites (`BriefingEventSummaryWindowSerializationTest`, `PlanWindowProjectorTest`, `BriefingServiceTest`) compiling unchanged. ⚠️ Adversarial review (3 read-only lenses: correctness/wiring, test quality, docs/contract/conventions) found one real test gap and two documentation overclaims, all fixed pre-commit. Test gap: both `heightAtWindow` tests were degenerate — one landed exactly on a stored extreme (f=1, collapsing interpolation to the raw height), the other used a flat day (every extreme equal) — so the cosine arithmetic itself was unverified; added a hand-computed interior-point case (11:00 between an 08:35 high and a 14:45 low, height = 3.8996 m → `"3.9 m"`) plus the symmetric sunset-null guard. Documentation: the `sunrisePosition`/`sunsetPosition` Javadoc claimed the sun-does-not-rise-or-set case is a live path "for a high-latitude anchor near midsummer" — empirically false of the vendored solar-utils 2.1.0 (`SolarCalculator.sunrise`/`sunset` at 78°N returns a degenerate midnight instant, never null, confirmed by direct invocation); reworded to state the real justification — `SolarService`'s contract carries no non-null guarantee, and `NlcTwilightWindowCalculator` already treats the identical call as nullable for the same reason. And `extremes`/`heightAtWindow`'s Javadoc claimed nullability was for "a payload cached before this field existed" — false: `BriefingHierarchyBuilder.buildSummary` always attaches `window = null` on the build path `persistBriefing` serialises, so `BriefingWindow`/`BriefingWindowTide` is never itself part of `daily_briefing_cache`, old shape or new; corrected to name the true reason, the legacy twelve-field constructor's existing call sites. Gate green: `./mvnw checkstyle:check` 0 violations, `./mvnw clean verify -Dtest='!**/integration/**'` 8156 tests, 0 failures, 0 errors, BUILD SUCCESS. No browser-visible change — backend only. |
 
 ---
 

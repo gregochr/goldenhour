@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.entity.LunarTideType;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -403,6 +405,94 @@ class DailyBriefingResponseJsonTest {
         assertThat(slot.tide().nearestExtremeKind()).isNull();
         assertThat(slot.tide().tideOnTheLight()).isNull();
         assertThat(slot.tide().nearestSolarOffsetPhrase()).isNull();
+    }
+
+    // ── map tab tide strip's window facts (T2) ──────────────────────────────
+    //
+    // BriefingWindowTide's four new fields (sunrisePosition, sunsetPosition, extremes,
+    // heightAtWindow) ride the same days -> eventSummaries -> window -> tide path the fields
+    // above are nested three levels below the flat BriefingSlot payloads this file otherwise
+    // tests. All four are NON_NULL. Unlike BriefingSlot.tide above, BriefingWindow.tide is never
+    // itself part of daily_briefing_cache — BriefingHierarchyBuilder always attaches window=null
+    // on the build path persistBriefing serialises, and BriefingWindowTide is derived only at
+    // serve time. So there is no "cached before this field existed" row to worry about here; the
+    // wire contract these tests pin is the JSON shape any caller reading this response gets, and
+    // the legacy twelve-field constructor the many existing call sites (mostly tests) still use.
+
+    @Test
+    @DisplayName("the strip's window facts round-trip through the full response, nested under days")
+    void roundTrip_windowTideStripFields_contentPreserved() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingWindowTide tide = new BriefingWindowTide("Whitby", TideState.MID,
+                BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
+                "4.9 m", "1.2 m above an average tide", "0.3 m · smooth",
+                List.of(0.0, 0.5, 1.0), 0.88, 0.42,
+                0.34, 0.69,
+                List.of(new BriefingWindowTide.Extreme("LW", 0.1, "02:20"),
+                        new BriefingWindowTide.Extreme("HW", 0.6, "14:24")),
+                "1.7 m");
+        DailyBriefingResponse original = withTide(tide);
+
+        String json = mapper.writeValueAsString(original);
+        DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
+
+        BriefingWindowTide restoredTide =
+                restored.days().get(0).eventSummaries().get(0).window().tide();
+        assertThat(restoredTide.sunrisePosition()).isEqualTo(0.34);
+        assertThat(restoredTide.sunsetPosition()).isEqualTo(0.69);
+        assertThat(restoredTide.heightAtWindow()).isEqualTo("1.7 m");
+        assertThat(restoredTide.extremes()).hasSize(2);
+        assertThat(restoredTide.extremes().get(0).kind()).isEqualTo("LW");
+        assertThat(restoredTide.extremes().get(0).position()).isEqualTo(0.1);
+        assertThat(restoredTide.extremes().get(0).time()).isEqualTo("02:20");
+        assertThat(restoredTide.extremes().get(1).kind()).isEqualTo("HW");
+        // The pre-existing fields ride along untouched by the new ones.
+        assertThat(restoredTide.locationName()).isEqualTo("Whitby");
+        assertThat(restoredTide.range()).isEqualTo("4.9 m");
+    }
+
+    @Test
+    @DisplayName("a tide built through the legacy twelve-field constructor round-trips to nulls")
+    void deserialize_legacyWindowTidePayload_newFieldsAreNull() throws Exception {
+        // The shape any existing call site's BriefingWindowTide has: the twelve original tide
+        // fields present, the four new ones absent entirely (not null-valued — ABSENT) because the
+        // legacy constructor defaults them and NON_NULL omits them from the JSON.
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingWindowTide legacyTide = new BriefingWindowTide("Whitby", TideState.MID,
+                BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
+                "4.9 m", "1.2 m above an average tide", "0.3 m · smooth",
+                List.of(0.0, 0.5, 1.0), 0.88, 0.42);
+        String json = mapper.writeValueAsString(withTide(legacyTide));
+        JsonNode tideNode = navigateToTide(mapper.readTree(json));
+
+        assertThat(tideNode.has("sunrisePosition")).isFalse();
+        assertThat(tideNode.has("sunsetPosition")).isFalse();
+        assertThat(tideNode.has("extremes")).isFalse();
+        assertThat(tideNode.has("heightAtWindow")).isFalse();
+
+        DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
+        BriefingWindowTide restoredTide =
+                restored.days().get(0).eventSummaries().get(0).window().tide();
+        assertThat(restoredTide.sunrisePosition()).isNull();
+        assertThat(restoredTide.sunsetPosition()).isNull();
+        assertThat(restoredTide.extremes()).isNull();
+        assertThat(restoredTide.heightAtWindow()).isNull();
+        // The pre-existing fields are unaffected by the omission.
+        assertThat(restoredTide.locationName()).isEqualTo("Whitby");
+    }
+
+    private static DailyBriefingResponse withTide(BriefingWindowTide tide) {
+        BriefingWindow window = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
+                null, List.of(), null, tide);
+        BriefingEventSummary summary =
+                new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of(), null, window);
+        return new DailyBriefingResponse(GENERATED_AT, "Test",
+                List.of(new BriefingDay(LocalDate.of(2026, 4, 22), List.of(summary))),
+                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+    }
+
+    private static JsonNode navigateToTide(JsonNode root) {
+        return root.get("days").get(0).get("eventSummaries").get(0).get("window").get("tide");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

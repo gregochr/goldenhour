@@ -599,6 +599,185 @@ class WindowTideRollupBuilderTest {
         }
     }
 
+    // ── the strip's window facts ─────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("the strip's window facts")
+    class WindowFacts {
+
+        @Test
+        @DisplayName("sunrise and sunset positions are the same clock fraction windowPosition reads,"
+                + " computed for both events independently of which one this window is")
+        void sunriseAndSunsetPositionsAreClockFractions() {
+            stubSunrise();
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(whitbyDay(DAY));
+
+            // A SUNSET window still states where that same day's 08:10 sunrise (490 min) and its
+            // own 16:30 sunset (990 min) sat — the same axis windowPosition reads.
+            BriefingWindowTide tide = rollup(DAY, TargetType.SUNSET);
+
+            assertThat(tide.sunrisePosition()).isEqualTo(Math.round(490 / 1440.0 * 1000) / 1000.0);
+            assertThat(tide.sunsetPosition()).isEqualTo(Math.round(990 / 1440.0 * 1000) / 1000.0);
+            assertThat(tide.sunsetPosition()).isEqualTo(tide.windowPosition());
+            // Monotone with clock time: the later event sits at the later position.
+            assertThat(tide.sunrisePosition()).isLessThan(tide.sunsetPosition());
+        }
+
+        @Test
+        @DisplayName("a sun that does not rise or set that day reads as a null position, not a"
+                + " fabricated one")
+        void aMissingSolarEventReadsAsNullPosition() {
+            // SolarService's contract carries no non-null guarantee, and
+            // NlcTwilightWindowCalculator already treats the identical call as nullable for the
+            // same reason — this is what the row must state rather than crash on or silently
+            // zero out, whatever the vendored solar-utils implementation does today.
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(whitbyDay(DAY));
+            when(solarService.sunriseUtc(anyDouble(), anyDouble(), eq(DAY))).thenReturn(null);
+
+            assertThat(rollup(DAY, TargetType.SUNSET).sunrisePosition()).isNull();
+        }
+
+        @Test
+        @DisplayName("the same null guard applies to sunsetPosition, independently of sunrisePosition")
+        void aMissingSunsetAlsoReadsAsNullPosition() {
+            stubSunrise();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(whitbyDay(DAY));
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(DAY))).thenReturn(null);
+
+            // The window itself is SUNRISE here, since a null sunsetUtc would otherwise make
+            // eventUtc null and the rollup itself null — this isolates the guard on the OTHER
+            // position from the window's own event.
+            BriefingWindowTide tide = rollup(DAY, TargetType.SUNRISE);
+
+            assertThat(tide.sunsetPosition()).isNull();
+            assertThat(tide.sunrisePosition()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("a spring-forward day's positions still sit on the class's own 1440-unit axis")
+        void dstDayKeepsThe1440UnitAxis() {
+            // UK clocks go forward at 01:00 UTC on 29 March 2026. The axis is CLOCK position
+            // (00:00-24:00), never elapsed duration, so the day's real 23-hour length must not
+            // leak into the division — the class's own rule (clockMinutesFrom's doc).
+            LocalDate dstDay = LocalDate.of(2026, 3, 29);
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(day(ID_WHITBY, dstDay,
+                    low("02:20", 0.6), high("08:35", 5.4), low("14:45", 0.9), high("20:55", 5.2)));
+            // 05:30 UTC = 06:30 BST (past the change); 18:00 UTC = 19:00 BST.
+            when(solarService.sunriseUtc(anyDouble(), anyDouble(), eq(dstDay)))
+                    .thenReturn(dstDay.atTime(5, 30));
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(dstDay)))
+                    .thenReturn(dstDay.atTime(18, 0));
+
+            BriefingWindowTide tide = rollup(dstDay, TargetType.SUNSET);
+
+            assertThat(tide.sunrisePosition()).isEqualTo(Math.round(390 / 1440.0 * 1000) / 1000.0);
+            assertThat(tide.sunsetPosition()).isEqualTo(Math.round(1140 / 1440.0 * 1000) / 1000.0);
+            assertThat(tide.windowPosition()).isEqualTo(tide.sunsetPosition());
+        }
+
+        @Test
+        @DisplayName("extremes carries every real extreme of the local day, positioned on the same"
+                + " axis, and an extreme at 23:59 never crosses 1.0")
+        void extremesCarriesTheDaysOwnExtremesInOrder() {
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(day(ID_WHITBY, DAY,
+                    low("00:05", 0.6), high("08:35", 5.4), low("14:45", 0.9), high("23:59", 5.2)));
+
+            List<BriefingWindowTide.Extreme> extremes = rollup(DAY, TargetType.SUNSET).extremes();
+
+            assertThat(extremes).extracting(BriefingWindowTide.Extreme::kind)
+                    .containsExactly("LW", "HW", "LW", "HW");
+            assertThat(extremes).extracting(BriefingWindowTide.Extreme::time)
+                    .containsExactly("00:05", "08:35", "14:45", "23:59");
+            // 5, 515, 885 and 1439 minutes into a 1440-minute day.
+            assertThat(extremes).extracting(BriefingWindowTide.Extreme::position)
+                    .containsExactly(0.003, 0.358, 0.615, 0.999);
+            assertThat(extremes.get(3).position()).isLessThanOrEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("extremes states only real water — never a bracketed bookend or a filled gap")
+        void extremesExcludesSynthesisedPoints() {
+            // gappedByAMissingLow() has an implied low midway between its two stored highs, purely
+            // for the trace's shape. This row's worded facts must never name it.
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(gappedByAMissingLow());
+
+            List<BriefingWindowTide.Extreme> extremes = rollup(DAY, TargetType.SUNSET).extremes();
+
+            assertThat(extremes).extracting(BriefingWindowTide.Extreme::kind)
+                    .containsExactly("LW", "HW", "HW");
+            assertThat(extremes).extracting(BriefingWindowTide.Extreme::time)
+                    .containsExactly("02:20", "08:30", "20:30");
+        }
+
+        @Test
+        @DisplayName("heightAtWindow states the interpolated height in the shared vocabulary's metres")
+        void heightAtWindowIsFormattedMetres() {
+            // The window lands exactly on the day's second high water, so the cosine interpolation
+            // resolves to that extreme's own stored height (f = 1 at the endpoint) — no separate
+            // arithmetic needs re-deriving here to pin the wiring to TideWording.metres.
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(whitbyDay(DAY));
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(DAY)))
+                    .thenReturn(DAY.atTime(20, 55));
+
+            assertThat(rollup(DAY, TargetType.SUNSET).heightAtWindow()).isEqualTo("5.2 m");
+        }
+
+        @Test
+        @DisplayName("heightAtWindow interpolates at a genuinely interior point, not just a value"
+                + " that happens to coincide with the nearest extreme")
+        void heightAtWindowInterpolatesAtAnInteriorPoint() {
+            // 11:00 sits strictly between the 08:35 high (5.4 m) and the 14:45 low (0.9 m) —
+            // neither extreme's raw height would pass here by coincidence, unlike a window landing
+            // exactly on an extreme (f = 1, above) or a flat day (below): this pins the cosine
+            // arithmetic itself.
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(whitbyDay(DAY));
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(DAY)))
+                    .thenReturn(DAY.atTime(11, 0));
+
+            // f = (660-515)/(885-515) = 0.39189; eased = (1-cos(pi*f))/2 = 0.33343;
+            // height = 5.4 + (0.9-5.4)*0.33343 = 3.8996 m, formatting to "3.9 m".
+            assertThat(rollup(DAY, TargetType.SUNSET).heightAtWindow()).isEqualTo("3.9 m");
+        }
+
+        @Test
+        @DisplayName("heightAtWindow is the raw metres windowLevel only normalises")
+        void heightAtWindowIsNotNormalised() {
+            // A flat day normalises windowLevel to 0.5 regardless of the actual height — the raw
+            // metres must not collapse the same way, or the chart's height label would read
+            // "flat" on a real 3.0 m tide.
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(day(ID_WHITBY, DAY,
+                    low("02:20", 3.0), high("08:35", 3.0), low("14:45", 3.0)));
+
+            BriefingWindowTide tide = rollup(DAY, TargetType.SUNSET);
+
+            assertThat(tide.windowLevel()).isEqualTo(0.5);
+            assertThat(tide.heightAtWindow()).isEqualTo("3.0 m");
+        }
+    }
+
     // ── a lost extreme ────────────────────────────────────────────────────────
 
     @Nested
