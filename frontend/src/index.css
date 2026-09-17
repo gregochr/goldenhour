@@ -4935,12 +4935,20 @@ button.wf-hc.also.on:hover {
 /* The wave sits INSIDE the name cell, which is `nowrap` + `text-overflow: ellipsis` — so it is
    inline-block rather than the `flex: none` the bundle gives it, and a long name ellipses through
    the glyph rather than the glyph being pushed out of the box. `--color-tide` is this app's
-   objective-tide channel (`.wf-maplab-chip-tw` reads the same token). */
+   objective-tide channel (`.wf-maplab-chip-tw` reads the same token) — kept for BOTH tiers here,
+   deliberately: unlike the chip (T4 item 2), this row carries no opacity-dimming treatment of its
+   own, so nothing about this glyph's ink needs to change for a miss to still read as legible; the
+   tier decides only WHETHER the row wears a glyph and WHICH shape it wears
+   (tide-window-plan.md §3 T4 item 6). */
 .wf-reg-tide {
   display: inline-block;
   width: 14px;
   height: 8px;
   color: var(--color-tide);
+}
+/* The arrow variant's wider box — see `.wf-maplab-chip-tw[data-wide]`'s identical note. */
+.wf-reg-tide[data-wide='true'] {
+  width: 19px;
 }
 /* The region's served narrative. Serif italic is this app's prose voice on the map — the callout's
    own `.wf-callout-reason` — so the one piece of real writing on either panel does not arrive in
@@ -5374,9 +5382,35 @@ button.wf-hc.also.on:hover {
 /* The tide-alignment ring (bundle rev 2's tide-chip tweak) — inset teal at the bundle's own
    strength (rgba(111,168,176,.45)), placed BEFORE `:hover`/`[data-selected]` below so the cascade's
    own last-rule-wins tie-break (all three share one specificity) gives hover and selection their
-   existing precedence over this static ring unchanged. */
-.wf-maplab-chip[data-tide='true'] {
+   existing precedence over this static ring unchanged. ⚠️ `[data-tide='match']`, not the bundle's
+   `'true'` (tide-window-plan.md §3 T4 item 2) — the chip now answers the served PREFERENCE
+   question, and a miss gets its OWN treatment below rather than the absence this used to mean. */
+.wf-maplab-chip[data-tide='match'] {
   box-shadow: inset 0 0 0 1px rgba(111, 168, 176, .45);
+}
+/* The miss de-emphasis (design §3: `opacity:.72`, restored by hover and selection) — `.72` WON
+   over `.wf-loc-row`'s own `.8` precedent (index.css:8395's note). See T4's phase log for the full
+   working: analytically, not pixel-sampled (the Esri tile is cross-origin, so a canvas sample of
+   the live basemap throws a tainted-canvas error; the compositing itself was verified live —
+   `getComputedStyle` on a real seeded chip confirmed `opacity: 0.72` and the star/swatch untouched).
+   The chip's OWN plate (`rgba(14,11,9,.84)`, below) is already near-opaque, so unlike
+   `.wf-loc-row`'s translucent card — which genuinely failed AA at a lower value because the page's
+   own background showed through it — the container opacity barely moves the LOCAL text-vs-plate
+   contrast at all: composited over a representative dark basemap (`rgb(20,15,12)`, this app's own
+   figure for "the basemap's darkest sampled tile" elsewhere in this plan) the name text still reads
+   ~8.5:1; even composited over this app's own light land tone (~`rgb(170,165,150)`, sampled by eye
+   from a seeded screenshot) it holds ~6.2:1 — both comfortably clear AA's 4.5:1, so `.8` bought
+   nothing here that `.72` did not already have. Applied to the WHOLE chip (name, star, swatch
+   included) — never excluded per-element the way `.wf-loc-row`'s dim spares its rating badge —
+   because §5 #2's own rule is that a rated miss shows its STAR dimmed; §7 check 12 pins that the
+   star's computed colour is untouched, only its opacity (confirmed live: a real 2★ miss chip's
+   swatch `background-color` matched `rampHex(2)` exactly, opacity aside). */
+.wf-maplab-chip[data-tide='miss'] {
+  opacity: .72;
+}
+.wf-maplab-chip[data-tide='miss']:hover,
+.wf-maplab-chip[data-tide='miss'][data-selected='true'] {
+  opacity: 1;
 }
 .wf-maplab-chip:hover {
   background: rgba(14, 11, 9, .94);
@@ -5399,12 +5433,25 @@ button.wf-hc.also.on:hover {
 /* The wave glyph (bundle rev 2) — a glyph, not a second number, sitting between the name and the
    star exactly like the design bundle's own chip markup. `currentColor` + `--color-tide` rather
    than the badge ink: this is a small vector stroke on a near-black plate, not text needing the
-   lifted contrast `--color-badge-tide` exists for. */
+   lifted contrast `--color-badge-tide` exists for. ⚠️ Miss ink is `--color-plex-text-muted` below,
+   NOT `--color-tide` — a miss is not "the objective tide channel, muted", it is a DIFFERENT claim
+   (this spot's water is wrong), and the design's own `rgba(242,231,211,.5)` is this app's muted-ink
+   family, not its tide-teal one (tide-window-plan.md §3 T4 item 2). */
 .wf-maplab-chip-tw {
   width: 13px;
   height: 7px;
   flex: none;
   color: var(--color-tide);
+}
+/* The arrow variant's wider box (`TideWave`'s own `data-wide`, 21×8 viewBox vs the plain wave's
+   14×8) — 19×8 rendered, matching the plain glyph's own "smaller than its viewBox" convention
+   (13×7 rendered from a 14×8 box) rather than the raw viewBox size. */
+.wf-maplab-chip-tw[data-wide='true'] {
+  width: 19px;
+  height: 8px;
+}
+.wf-maplab-chip[data-tide='miss'] .wf-maplab-chip-tw {
+  color: var(--color-plex-text-muted);
 }
 .wf-maplab-chip-n {
   font-family: var(--font-mono);
@@ -5454,10 +5501,17 @@ button.wf-hc.also.on:hover {
   font-size: 10px;
   color: var(--color-plex-text-secondary);
 }
-/* The tide-alignment line's ink (bundle rev 2) — `--color-badge-tide` (#9CCBD1, measured 9.68:1 on
-   this tooltip's own near-black plate), NOT the design bundle's raw `#8FC0C7` and NOT
-   `--color-tide`, which is reserved for borders/accents rather than small text (see that token's
-   own note further down this file). Combined with `.wf-maplab-tip-s` for the shared font/size. */
+/* The MATCH tide line's ink (bundle rev 2; the design's own `#tip .tt`) — `--color-badge-tide`
+   (#9CCBD1, measured 9.68:1 on this tooltip's own near-black plate), NOT the design bundle's raw
+   `#8FC0C7` and NOT `--color-tide`, which is reserved for borders/accents rather than small text
+   (see that token's own note further down this file). Combined with `.wf-maplab-tip-s` for the
+   shared font/size. ⚠️ A MISS line (tide-window-plan.md §3 T4 item 4) does NOT get this class — the
+   design's own `#tip .tm` inks the miss line `rgba(242,231,211,.72)`, a bespoke value distinct
+   from both of this app's named ink tokens (`--color-plex-text-secondary` is `.66`,
+   `--color-plex-text-muted` is `.42`, `.66` under this tab — CLAUDE.md §1 #9). Rather than a new
+   token for one line, this reuses `--color-plex-text-secondary` — already `.wf-maplab-tip-s`'s own
+   colour, so a miss line needs no second rule at all — as the CLOSEST existing one; ⚠️ this is an
+   approximation, not a verified equivalence, and reads ~0.06 dimmer than the design's own figure. */
 .wf-maplab-tip-t {
   color: var(--color-badge-tide);
 }
@@ -5653,6 +5707,18 @@ button.wf-hc.also.on:hover {
 }
 .wf-pin[data-selected='true'] {
   box-shadow: 0 0 0 1.5px var(--color-home);
+}
+/* Pins mode's own miss de-emphasis (tide-window-plan.md §3 T4 item 5) — the SAME `.72`/restore
+   rule the label chip carries (`.wf-maplab-chip[data-tide='miss']`), so the two views of one
+   window never disagree about how strongly a miss recedes. The ramp `fill`/`background` is set
+   inline in `PinsLayer.jsx` and untouched by this rule — opacity dims the whole dot including its
+   own fill, never re-colours it (§7 check 12's rule, applied to the pin the same way as the chip). */
+.wf-pin[data-tide='miss'] {
+  opacity: .72;
+}
+.wf-pin[data-tide='miss']:hover,
+.wf-pin[data-tide='miss'][data-selected='true'] {
+  opacity: 1;
 }
 .wf-pin:focus-visible {
   outline: 2px solid var(--color-plex-gold);

@@ -2968,8 +2968,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ), [locations, activeTypeFilters]);
 
   const hasStandDown = typeFiltered.some((loc) => isStandDownLocation(loc));
+  // ⚠️ Excludes a tide-gated coastal location (tide-window-plan.md §3 T4 item 1): it is not
+  // "unknown" — it carries a served reason (`evaluationGate`) or a served miss — so it must not
+  // make the admin "unknown" toggle read as actionable, nor be the thing that toggle's title
+  // claims exists to reveal. `visibleLocations` below already lets it through the rating stage
+  // unconditionally; this just stops it also being counted as the OTHER kind of absence.
   const hasUnrated = typeFiltered.some((loc) => (
     !isStandDownLocation(loc) && getRatingForLocation(loc) == null
+    && !getTideOnLightForLocation(loc)
   ));
 
   // Full filter pipeline → the markers actually rendered. Memoised so a re-render that touches no
@@ -2978,13 +2984,44 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const visibleLocations = useMemo(() => {
     const ratingFiltered = typeFiltered.filter((loc) => {
       if (isStandDownLocation(loc)) return showStandDown;
+      // Tide-window increment (T4, tide-window-plan.md §3 T4 item 1): a coastal slot with a
+      // served tide fact — aligned or not, gated, or RATED (the weather-stood-down-then-rated
+      // path, §1 #3, which can land a real 1–2★) — passes the rating stage WHATEVER that rating
+      // is, before either the null-rating branch below or the ordinary star floor at the foot of
+      // this callback. It is withheld or answered for a STATED reason, never "nothing scored
+      // yet"; type, drive, dark-sky, scope and `focus` (below and in the caller) still narrow it
+      // like anything else (plan §5 #9).
+      //
+      // ⚠️ Moved here from inside the `rating == null` branch (Codex review, PR #880 P1): the
+      // plan's own item 1 gives the literal rule as `if (tideFact) return true` ahead of the
+      // rating stage, not merely ahead of the null-rating fallback — checking it only inside that
+      // branch let a served coastal MISS that also carries a real 1–2★ rating be removed by the
+      // default 3★+ floor a few lines down, which is exactly the "coast disappears for tide"
+      // defect this item exists to fix. (`isStandDownLocation` above is untouched: a location
+      // triaged for a genuinely unrelated, non-tide reason — a real `triageReason` with no
+      // rating, `resolveStandDown`'s own test — stays behind the pre-existing `showStandDown`
+      // toggle regardless of tide, which is that toggle's own job, not this item's.)
+      //
+      // ⚠️ Deliberately ANY served tide fact, not only a served `gated` one (adversarial
+      // review, T4) — §5 #9's own prose says "tide-gated…and nothing else", but its own item 1
+      // gives the literal rule as `if (tideFact) return true` before ever checking `.gated`.
+      // The tide fact (`tideState`/`tideAligned`/…) is computed from stored extremes
+      // independently of the evaluation pipeline (§1 #4), so a `null` rating alongside one is
+      // already evidence the pipeline reached this slot and had something to say about its
+      // water — narrower than "genuinely never looked at" even when the null rating's cause is
+      // not itself the tide gate (e.g. a still-rated-elsewhere miss that happens to read null
+      // for this window). Reading `.gated` here would leave such a slot behind the "unknown"
+      // toggle regardless, which is the exact defect this item exists to fix.
+      if (getTideOnLightForLocation(loc)) return true;
       const types = loc.locationType ?? [];
       const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
       const rating = getRatingForLocation(loc);
-      // Wildlife has no sky rating by design, so the sky-quality threshold must not
-      // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
-      // the "unknown" toggle, so the default 3★+ map reads quality-first.
-      if (rating == null) return isPureWildlife || showUnrated;
+      if (rating == null) {
+        // Wildlife has no sky rating by design, so the sky-quality threshold must not
+        // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
+        // the "unknown" toggle, so the default 3★+ map reads quality-first.
+        return isPureWildlife || showUnrated;
+      }
       return rating >= minStars;
     });
 
@@ -3012,7 +3049,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
         : darkSkyFiltered;
   }, [
-    typeFiltered, locations, isStandDownLocation, getRatingForLocation,
+    typeFiltered, locations, isStandDownLocation, getRatingForLocation, getTideOnLightForLocation,
     showStandDown, showUnrated, minStars, driveTimeFilter, driveMinutesFor,
     darkSkyFilter, focus, isAstroMode,
   ]);

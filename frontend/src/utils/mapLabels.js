@@ -213,9 +213,15 @@ export function ringLabelItems({
  *
  * <p>Sorted best score first, then TIDE ALIGNMENT, then nearest (missing values sort last in every
  * tier — README: "so when space runs out it is always the weakest names that go"). Among equal
- * stars, the location whose tide lands on the light for THIS window is the one worth the drive, so
- * it is also the one that keeps its label when space runs out (bundle rev 2's tide-chip tweak,
- * mirroring {@code map-tab-v2.js}'s own {@code tideFit(b,e)?1:0)-(tideFit(a,e)?1:0)} rule). The
+ * stars, the location whose water this window is the one this spot WANTS is worth the drive, so it
+ * is also the one that keeps its label when space runs out (bundle rev 2's tide-chip tweak,
+ * mirroring {@code map-tab-v2.js}'s own {@code tideFit(b,e)?1:0)-(tideFit(a,e)?1:0)} rule) — moved
+ * from the on-the-light axis onto the served PREFERENCE axis by the tide-window increment (T4,
+ * tide-window-plan.md §3): {@code tideTier === 'match'}, not {@code onTheLight}, is the fact worth
+ * a label now (§1 #6/§5 #3 — the two axes disagree exactly where this tiebreak matters). ⚠️ A
+ * {@code 'miss'} does NOT sort below a spot with no tide fact at all — this key only ever PROMOTES
+ * a match; a miss falls through to the drive-time tiebreak like every other tier, never demoted
+ * below the rest (plan §3 T4 item 3, "dimmed, not dropped" applied to the label budget itself). The
  * best-in-region candidate for EVERY region is always included, from the FULL {@code spots} list,
  * not the in-view subset — "a named region always contains a named destination." The in-view
  * subset is then capped at {@link chipBudget}. Identity is the location NAME (this catalogue's
@@ -224,7 +230,7 @@ export function ringLabelItems({
  *
  * @param {object} args
  * @param {Array<object>} args.spots the filtered pool (every field {@code chipCandidates} reads:
- *        {@code name, rid, rating, onTheLight, driveMinutes})
+ *        {@code name, rid, rating, tideTier, driveMinutes})
  * @param {?Set<string>} [args.inViewNames] names currently inside the map's bounds. Null/undefined
  *        treats every spot as in view (a caller with no bounds yet, e.g. before the first
  *        {@code moveend}) — the safe direction is to offer more candidates, never fewer, since the
@@ -242,8 +248,8 @@ export function chipCandidates({
     const ra = Number.isFinite(a.rating) ? a.rating : -Infinity;
     const rb = Number.isFinite(b.rating) ? b.rating : -Infinity;
     if (rb !== ra) return rb - ra;
-    const ta = a.onTheLight ? 1 : 0;
-    const tb = b.onTheLight ? 1 : 0;
+    const ta = a.tideTier === 'match' ? 1 : 0;
+    const tb = b.tideTier === 'match' ? 1 : 0;
     if (tb !== ta) return tb - ta;
     const da = Number.isFinite(a.driveMinutes) ? a.driveMinutes : Infinity;
     const db = Number.isFinite(b.driveMinutes) ? b.driveMinutes : Infinity;

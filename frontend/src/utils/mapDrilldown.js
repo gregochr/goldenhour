@@ -5,6 +5,7 @@ import { regionDriveMinutes } from './planningArea.js';
 import { formatDriveDuration } from './briefingDisplay.js';
 import { eventInstantOf, lookupForWindow } from './locationSheet.js';
 import { calloutLeaveBy } from './mapCallout.js';
+import { tierOf } from './mapTideFit.js';
 
 /**
  * The Map tab's drilldown — window → regions (map-landing-plan.md §3 L5,
@@ -272,12 +273,18 @@ export const REGION_PANEL_LOCATIONS = 4;
  *
  * <h2>⚠️ The two per-location facts are LOOKED UP, never re-derived</h2>
  *
- * <p><b>The tide glyph</b> reads {@code BriefingSlot.TideInfo.tideOnTheLight} through
- * {@code locationSheet.buildTideAlignmentIndex} — served since #749, per location, per window. The
- * plan says it in as many words: <em>do not</em> re-derive one representative coastline's geometry.
- * CLAUDE.md's tide-axis rule is why a served answer is the only acceptable one here — the run row's
- * extremes belong to a separately-selected representative and its {@code tideAligned} sibling asks a
- * preference-weighted question this glyph must not answer.
+ * <p><b>The tide glyph</b> read {@code BriefingSlot.TideInfo.tideOnTheLight} through
+ * {@code locationSheet.buildTideAlignmentIndex} — served since #749, per location, per window —
+ * until the tide-window increment (T4, tide-window-plan.md §3) moved it onto the served
+ * <em>preference</em> axis instead ({@code tierOf}, over the SAME index's {@code aligned} field):
+ * the map's one tide question is "is it the water this spot wants", not "does an extreme land on
+ * the light" (CLAUDE.md's two-tide-axes rule — this glyph now answers the PREFERENCE question on
+ * purpose, the same move T4 makes to the chip and Pins dot). {@code tideOnTheLight} is not read
+ * here at all any more; the offset fact it once carried survives only inside the served
+ * {@code tideFitPhrase} the callout/sheet block (T5) reads. CLAUDE.md's tide-axis rule is why a
+ * served answer is the only acceptable one here regardless of which axis: the run row's extremes
+ * belong to a separately-selected representative, and re-deriving anything from them for one
+ * location's own row would answer a question this file has no business asking.
  *
  * <p><b>The leave-by time</b> comes from {@code mapCallout.calloutLeaveBy} over
  * {@code locationSheet.eventInstantOf} — the SAME recovery the callout already makes for its own
@@ -326,6 +333,7 @@ export function buildRegionLocationRows({
       lookupForWindow(scoreIndex, point.id, name, date, targetType), targetType,
     );
     const leave = calloutLeaveBy(eventTimeIso, driveMinutes);
+    const tideFact = lookupForWindow(tideIndex, point.id, name, date, targetType);
     rows.push({
       id: point.id ?? null,
       name,
@@ -334,11 +342,13 @@ export function buildRegionLocationRows({
       driveLabel: driveMinutes == null ? null : formatDriveDuration(driveMinutes),
       leaveTime: leave?.time ?? null,
       leaveDayWord: leave?.dayWord ?? null,
-      // ⚠️ A MISSING entry and a `false` one are different claims and only the deriver knows which
-      // is true (`buildTideAlignmentIndex` skips rather than indexes an underivable slot), so this
-      // is read for TRUTH alone — the glyph is drawn or it is not, and nothing anywhere says
-      // "the tide does not land on the light here".
-      tideOnLight: Boolean(lookupForWindow(tideIndex, point.id, name, date, targetType)?.onTheLight),
+      // ⚠️ A MISSING entry (`tierOf` → null) and a served `miss` are different claims and only the
+      // deriver knows which is true (`buildTideAlignmentIndex` skips rather than indexes an
+      // underivable slot) — tide-window-plan.md §3 T4 item 6 moves this glyph onto the same
+      // preference axis the chip and Pins dot now read, so `null` still means "not a coastal slot
+      // with a served tide state" and never a drawn claim either way.
+      tideTier: tierOf(tideFact),
+      tideShortfall: tideFact?.shortfall ?? null,
     });
   }
   rows.sort((a, b) => (b.rating - a.rating)
