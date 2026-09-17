@@ -525,3 +525,79 @@ describe('MapView — the crumb\'s clear button really resets the map (integrati
     expect(carrying).not.toHaveTextContent('Lake District');
   });
 });
+
+describe('MapView — the crumb\'s clear keeps a keyboard reader inside the pane', () => {
+  // A door carrying a 4★ floor and a location: `clear` resets the floor to 3★, which ends the only
+  // clause and takes `clear` with it, while `Near` (5★) stays selected — a selection the pane's own
+  // Escape rule is there to clear, and so the proof that a key pressed after the press reaches it.
+  const DOOR = { ...DOOR_BASE, minRating: 4, locationName: 'Near', nonce: 1 };
+
+  async function pressClear() {
+    const clear = screen.getByRole('button', { name: 'clear' });
+    // `fireEvent.click` does not move focus, so a keyboard reader's focus is put there first.
+    clear.focus();
+    expect(clear).toHaveFocus();
+    await act(async () => {
+      fireEvent.click(clear);
+    });
+  }
+
+  it('lands the reader on the crumb when the press takes clear away', async () => {
+    await renderTab({ planHandoff: DOOR });
+
+    await pressClear();
+
+    expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('navigation', { name: 'Where you came from' }));
+  });
+
+  it('lets an Escape pressed straight after it reach the pane, which clears the selection', async () => {
+    await renderTab({ planHandoff: DOOR });
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Near');
+
+    await pressClear();
+    // The premise, asserted: an Escape pressed while `clear` itself still held focus would reach the
+    // pane too, so this test proves nothing unless the press really took `clear` away.
+    expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('navigation', { name: 'Where you came from' }));
+    // At the FOCUSED node, as a keyboard sends it — from `<body>` the pane's `onKeyDown` never runs.
+    await act(async () => {
+      fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    });
+
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+  });
+
+  it('lands the reader on the crumb with a dialog from outside the pane open over it — no foreign-modal '
+      + 'guard, by decision', async () => {
+    // The four-day sheet is exactly this to the pane: an `aria-modal` dialog outside it, holding no
+    // trap, so a keyboard reader can Tab back onto `clear` and press it. `MapBreadcrumb`'s class
+    // comment records why the handoff does not stand down for it, as `useRowFocusRescue` would.
+    await renderTab({ planHandoff: DOOR });
+    const sheet = document.createElement('div');
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    document.body.appendChild(sheet);
+    try {
+      await pressClear();
+
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole('navigation', { name: 'Where you came from' }));
+    } finally {
+      sheet.remove();
+    }
+  });
+
+  it('leaves clear standing, with the reader on it, when the carried floor is the map\'s own 3★ default', async () => {
+    // The premise is asserted, not assumed: if the map's default floor ever moves, `clear` no longer
+    // survives this press and the test must say so rather than pass on the other branch.
+    await renderTab({ planHandoff: { ...DOOR_BASE, minRating: 3, nonce: 1 } });
+    const clear = screen.getByRole('button', { name: 'clear' });
+
+    await pressClear();
+
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('carrying 3★+ clear');
+    expect(screen.getByRole('button', { name: 'clear' })).toBe(clear);
+    expect(document.activeElement).toBe(clear);
+  });
+});
