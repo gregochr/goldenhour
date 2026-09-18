@@ -56,10 +56,14 @@ const COUNTS_FOOTER_SELECTOR = '[data-testid="wf-map-counts-footer"]';
  * INSIDE the Leaflet container rather than beside it (mirroring `MapLabels.jsx`'s identical split).
  *
  * <p>⚠️ The tide strip (`[data-testid="wf-tide-strip"]`, tide-window-plan.md T6/T7) joined this
- * list at T7 — needed because the phone query hides the counts footer outright while the strip is
- * on (`wf-tide-strip-on`), rather than merely lifting it, so `getBoundingClientRect` on a
- * `display: none` footer returns a zero-size rect {@link calloutBand} already skips, and with
- * nothing else naming the strip's own floor the card was free to grow down over it. No
+ * list at T7 — needed because the phone query visually hides the counts footer outright while the
+ * strip is on (`wf-tide-strip-on`), rather than merely lifting it, so `getBoundingClientRect` on
+ * the hidden footer returned a zero-size rect {@link calloutBand} already skipped, and with
+ * nothing else naming the strip's own floor the card was free to grow down over it. ⚠️ Since §6
+ * Q8 (decided 2026-09-18) that hide is an `sr-only`-style clip rather than `display: none` — kept
+ * in the accessibility tree on purpose, so its rect is a real, non-zero `1×1` rather than `0×0`.
+ * `calloutBand`'s own zero-size skip reads `> 1` rather than `> 0` for exactly this reason: see
+ * its doc for why a `1×1` box must count as "nothing" here too. No
  * {@code always} opt-out needed the way the footer got one: on the phone the strip spans
  * `left: 8px; right: 8px` (T7), comfortably over the 50%-of-frame-width test on any phone width
  * this app supports; on desktop/tablet, where it lives nested in `.wf-map-chrome-bl` at a fixed

@@ -739,6 +739,32 @@ Numbered so a phase log can cite them. Each phase appends; T8 reconciles.
     right: 8px` shape clears `calloutBand`'s own ≥50%-frame-width floor/ceiling test comfortably at
     any supported phone width, confirmed both by the arithmetic and by live measurement (the callout
     card clamped exactly `BAND_EDGE_PAD` = 8px above the strip's real top edge, phase log).
+19. **The phone counts footer's `display: none` (T7, item 16 above) became a visually-hidden clip
+    (§6 Q8, decided 2026-09-18, option 2)** — the design's own §6 reasoning for replacing the row
+    rather than lifting it is about screen SPACE ("stacking both pushes the map to nothing"), which
+    a non-visual reader has none of, so honouring the design and keeping the count accessible are
+    not in tension: the footer stays out of view exactly as before, `sr-only`-clipped
+    (`position: absolute; width/height: 1px; overflow: hidden; clip-path: inset(50%)`, Tailwind's
+    own recipe, written out because the selector lives inside a media query) rather than
+    `display: none`, so it survives in the accessibility tree while the strip is showing. No
+    VISUAL consequence — the unconditional (no-media-query) `bottom: calc(var(--tsh, 120px) +
+    16px)` rule directly above the phone rule in `index.css` still computes a real, live `bottom`
+    for the clipped box (it was never dead — the media-query `display: none` this replaces simply
+    made the position irrelevant, and the clip keeps it irrelevant the same way), but a 1px,
+    `overflow: hidden` box paints nothing observable at any `bottom`.
+    ⚠️ **It was not consequence-free, though**: `MapCallout.jsx`'s `calloutBand` treats
+    `COUNTS_FOOTER_SELECTOR` as an `always: true` bar (opted OUT of the ≥50%-frame-width test, §3
+    T7 item 18), and its zero-size skip (`!(bar.width > 0) || !(bar.height > 0)`) is what excluded
+    the footer while it was a genuine `0×0` under `display: none` — a `1×1` clipped box clears that
+    bare `> 0` test, so without a further fix the invisible footer would have become a live
+    floor/ceiling bar for the callout's placement band on the phone while the strip is on
+    (adversarial review, CSS-cascade lens, this fix). Currently harmless only by coincidence of the
+    two `bottom` anchors' relative values, not by any enforced invariant — fixed by widening
+    `calloutBand`'s skip to `> 1` (any dimension) rather than `> 0`, which a real chrome bar can
+    never trip and a `1×1` sr-only clip always does; see that function's own doc in
+    `utils/mapCallout.js` and the stale `MapCallout.jsx` comment it also corrected (it had
+    described the footer's zero-size rect as a fact of `display: none` specifically, which stopped
+    being true the moment this fix landed).
 
 ---
 
@@ -854,18 +880,20 @@ shipped** (T8 sweep):
 - **Q7 — `TideIndicator.jsx` and the duplicate `fetchTidesForDate`/`fetchTideStats` in
   `forecastApi.js`.** Overlay-only, pre-v2, not a building block here. Cleanup candidate for O-6
   (overlay convergence), recorded so nobody reaches for it.
-- **Q8 — the phone counts footer has no accessible substitute while the strip is showing.** T7
-  hides `.wf-map-counts-footer` outright (`display: none`) rather than lifting it, per the design's
-  own §6 ("the tide sentence is the more useful line at that width... stacking both pushes the map
-  to nothing"). That reasoning is sound for screen SPACE, and was never evaluated for a non-visual
-  reader, who has no such space contention — a screen-reader user on the phone loses the count/
-  rated/filtered figures for as long as the strip is on, with no `aria-live`/status equivalent
-  anywhere else on the tab (adversarial review, T7, accessibility lens). Not a T7-introduced
-  regression — it is what the spec asks for, faithfully built — and not fixed here, since fixing it
-  would mean overriding the design's own stated behaviour rather than reporting on it. Options for
-  whoever picks this up: an `sr-only` copy of the footer's sentence kept in the DOM (visually hidden,
-  not `display: none`) while the strip is on; or accept the loss as the phone's own tradeoff and
-  record it as intentional in the design bundle too. Not this series.
+- **Q8 — the phone counts footer has no accessible substitute while the strip is showing.**
+  **DECIDED (option 2), 2026-09-18.** T7 hid `.wf-map-counts-footer` outright (`display: none`)
+  rather than lifting it, per the design's own §6 ("the tide sentence is the more useful line at
+  that width... stacking both pushes the map to nothing"). That reasoning is sound for screen
+  SPACE, and was never evaluated for a non-visual reader, who has no such space contention — a
+  screen-reader user on the phone lost the count/rated/filtered figures for as long as the strip
+  was on, with no `aria-live`/status equivalent anywhere else on the tab (adversarial review, T7,
+  accessibility lens). Not a T7-introduced regression — it was what the spec asked for, faithfully
+  built. **Fixed by option 2**: the footer is now visually hidden (an `sr-only`-shaped clip) rather
+  than `display: none` while the strip is on, so a sighted reader sees exactly the design's
+  intended layout and a screen-reader user still gets the count — see §4 #19. Option 1 (accept the
+  loss, record it as intentional in the design bundle) was rejected: the loss was never a design
+  decision to begin with, only an unexamined side effect of `display: none`, so there was nothing
+  in the design's own reasoning to defer to.
 - **Q9 — the jump/denial text can disagree with the served `fitPhrase` on the same card.**
   `TideFitBlock`'s want-derived jump ("Next high water…") and denial ("Nothing in these four days
   puts high water on the light here") read the **live** roster (`location.tideType`, the location's
