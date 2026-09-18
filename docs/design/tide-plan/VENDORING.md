@@ -20,3 +20,9 @@ standalone, and its README says so ("do not port it twice"). In this codebase th
 **time-based and served** — `BriefingSlot.TideInfo.tideAligned`, `tideState`, `nearestSolarOffsetMinutes`
 (see `docs/engineering/tide-window-plan.md` §1 #2) — so nothing of it is ported at all; the plan's
 §1 #1 and §4 #1–#2 say what replaces `fit`, `tier` and `meanFit`.
+
+**Final count, C4 sweep (2026-09-18):** the port plan's §4 "Disagreements with the spec, on purpose"
+closed at **10 entries** once every phase (C0–C3) had shipped — the original 8 written before any code
+existed, plus #9 (C3's declined `heightAtWindow` popup fact) and #10 (the chip's tooltip states the
+served window tide's state and direction only, never a height or a clock time) found true only once
+the code was read back against this spec.
