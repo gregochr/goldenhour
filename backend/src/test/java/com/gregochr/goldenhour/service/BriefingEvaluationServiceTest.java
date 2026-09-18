@@ -7,6 +7,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
@@ -427,7 +428,8 @@ class BriefingEvaluationServiceTest {
             service.mergeBluebellFromBatch(cacheKey, List.of(
                     new BriefingEvaluationResult("Rannerdale", 5, null, null,
                             "Golden light rakes the slope if they are in flower", null, null,
-                            "Raking fell light")));
+                            "Raking fell light")),
+                    Map.of("Rannerdale", BluebellExposure.OPEN_FELL));
 
             Map<String, BriefingEvaluationResult> scores =
                     service.getCachedScores(REGION, DATE, TargetType.SUNSET);
@@ -446,7 +448,8 @@ class BriefingEvaluationServiceTest {
             service.mergeBluebellFromBatch(cacheKey, List.of(
                     new BriefingEvaluationResult("Bluebell Wood", 4, null, null,
                             "Bright still light if they are in flower", null, null,
-                            "Soft canopy light")));
+                            "Soft canopy light")),
+                    Map.of("Bluebell Wood", BluebellExposure.WOODLAND));
 
             Map<String, BriefingEvaluationResult> scores =
                     service.getCachedScores(REGION, DATE, TargetType.SUNSET);
@@ -454,6 +457,52 @@ class BriefingEvaluationServiceTest {
             assertThat(merged.rating()).isEqualTo(4);
             assertThat(merged.fierySkyPotential()).isNull();
             assertThat(merged.summary()).contains("Bright still light");
+        }
+
+        @Test
+        @DisplayName("WOODLAND exposure with a stale prior sky entry does NOT recombine — the "
+                + "location's actual exposure decides, never the shape of the cache")
+        void woodlandExposure_withStalePriorSkyEntry_doesNotRecombine() {
+            // A bluebell location whose exposure is WOODLAND but which is NOT isWoodlandOnly() —
+            // it also carries a sky-eligible LocationType (e.g. LANDSCAPE), so it is still
+            // sky-scored off-season. A stale, months-old pre-season sky entry is still sitting in
+            // the cache when bluebell season starts and the first bluebell mini-batch lands.
+            service.writeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Emsworthy Mire", 2, 30, 25,
+                            "Stale pre-season sky forecast")));
+
+            service.mergeBluebellFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Emsworthy Mire", 5, null, null,
+                            "Bright still light if they are in flower", null, null,
+                            "Soft canopy light")),
+                    Map.of("Emsworthy Mire", BluebellExposure.WOODLAND));
+
+            BriefingEvaluationResult merged = service.getCachedScores(
+                    REGION, DATE, TargetType.SUNSET).get("Emsworthy Mire");
+            // The bluebell rating stands alone: WOODLAND is never averaged with sky, regardless
+            // of what a prior cache entry happens to look like (regression guard — this used to
+            // be inferred from `existing.fierySkyPotential() != null` instead of the location's
+            // own exposure, and would have averaged here: round(avg(2, 5)) = 4, wrongly).
+            assertThat(merged.rating()).isEqualTo(5);
+            assertThat(merged.fierySkyPotential()).isNull();
+            assertThat(merged.summary()).contains("Bright still light");
+        }
+
+        @Test
+        @DisplayName("missing/null exposure defaults to not-WOODLAND (averages), matching "
+                + "RatingCombiner.selectRatingPeers's own default")
+        void missingExposure_defaultsToAveraging() {
+            service.writeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Rannerdale", 3, 60, 55, "sky")));
+
+            service.mergeBluebellFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Rannerdale", 5, null, null, "bluebell",
+                            null, null, null)),
+                    Map.of());
+
+            // round(avg(3, 5)) = 4 — averaged, as OPEN_FELL would be.
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)
+                    .get("Rannerdale").rating()).isEqualTo(4);
         }
 
         @Test
@@ -465,7 +514,8 @@ class BriefingEvaluationServiceTest {
 
             service.mergeBluebellFromBatch(cacheKey, List.of(
                     new BriefingEvaluationResult("Rannerdale", 4, null, null, "bluebell",
-                            null, null, null)));
+                            null, null, null)),
+                    Map.of("Rannerdale", BluebellExposure.OPEN_FELL));
 
             Map<String, BriefingEvaluationResult> scores =
                     service.getCachedScores(REGION, DATE, TargetType.SUNSET);
@@ -483,9 +533,23 @@ class BriefingEvaluationServiceTest {
             BriefingEvaluationResult bluebell =
                     new BriefingEvaluationResult("X", 5, null, null, "bb", null, null, null);
             // avg(4, 5) = 4.5 → 5.
-            assertThat(service.recombineBluebell(sky, bluebell).rating()).isEqualTo(5);
+            assertThat(service.recombineBluebell(sky, bluebell, BluebellExposure.OPEN_FELL)
+                    .rating()).isEqualTo(5);
             // A null prior (woodland) returns the bluebell unchanged.
-            assertThat(service.recombineBluebell(null, bluebell)).isSameAs(bluebell);
+            assertThat(service.recombineBluebell(null, bluebell, BluebellExposure.OPEN_FELL))
+                    .isSameAs(bluebell);
+        }
+
+        @Test
+        @DisplayName("recombineBluebell never averages a WOODLAND exposure, even with a "
+                + "present prior sky entry")
+        void recombineBluebell_woodlandNeverAverages() {
+            BriefingEvaluationResult sky =
+                    new BriefingEvaluationResult("X", 4, 70, 65, "sky");
+            BriefingEvaluationResult bluebell =
+                    new BriefingEvaluationResult("X", 5, null, null, "bb", null, null, null);
+            assertThat(service.recombineBluebell(sky, bluebell, BluebellExposure.WOODLAND))
+                    .isSameAs(bluebell);
         }
 
         @Test
@@ -503,7 +567,8 @@ class BriefingEvaluationServiceTest {
 
             service.mergeBluebellFromBatch(cacheKey, List.of(
                     new BriefingEvaluationResult("Rannerdale", 5, null, null, "bluebell",
-                            null, null, null)));
+                            null, null, null)),
+                    Map.of("Rannerdale", BluebellExposure.OPEN_FELL));
 
             BriefingEvaluationResult merged = service.getCachedScores(
                     REGION, DATE, TargetType.SUNSET).get("Rannerdale");
@@ -516,7 +581,8 @@ class BriefingEvaluationServiceTest {
         void woodland_isStampedWithThisWrite() {
             service.mergeBluebellFromBatch(cacheKey, List.of(
                     new BriefingEvaluationResult("Bluebell Wood", 4, null, null, "bluebell",
-                            null, null, null)));
+                            null, null, null)),
+                    Map.of("Bluebell Wood", BluebellExposure.WOODLAND));
 
             assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)
                     .get("Bluebell Wood").evaluatedAt()).isNotNull();

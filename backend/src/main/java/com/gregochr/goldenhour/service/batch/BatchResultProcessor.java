@@ -9,6 +9,7 @@ import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.models.messages.batches.MessageBatchResult;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
@@ -142,6 +143,12 @@ public class BatchResultProcessor {
         // region cache entry, never replaced — a bluebell mini-batch carries only the bluebell
         // sites of a region, so a replace would wipe that region's sky locations.
         Map<String, List<BriefingEvaluationResult>> bluebellByKey = new HashMap<>();
+        // The recombination decision (average onto a prior sky entry, or stand alone) must key on
+        // the location's ACTUAL exposure, not on the shape of whatever is sitting in the cache —
+        // BriefingEvaluationResult carries no exposure field, so it is captured here, at the one
+        // point in the pipeline where the LocationEntity is still in hand, and carried alongside
+        // bluebellByKey rather than being re-derived (or guessed) downstream.
+        Map<String, BluebellExposure> bluebellExposureByLocation = new HashMap<>();
         Map<String, List<BriefingEvaluationResult>> woodlandByKey = new HashMap<>();
         int succeeded = 0;
         int errored = 0;
@@ -322,6 +329,8 @@ public class BatchResultProcessor {
                     Map<String, List<BriefingEvaluationResult>> sink;
                     if (isBluebell) {
                         sink = bluebellByKey;
+                        bluebellExposureByLocation.put(
+                                location.getName(), location.getBluebellExposure());
                     } else if (isWoodland) {
                         sink = woodlandByKey;
                     } else {
@@ -343,7 +352,8 @@ public class BatchResultProcessor {
             // Flushing here is safe precisely because these writes MERGE rather than replace —
             // the same property that lets coastal, inland, bluebell and woodland buckets share a
             // region key. A partial flush therefore adds what it has and disturbs nothing else.
-            int flushed = flushAccumulated(byKey, bluebellByKey, woodlandByKey);
+            int flushed = flushAccumulated(
+                    byKey, bluebellByKey, bluebellExposureByLocation, woodlandByKey);
             LOG.error("Forecast batch: failed to stream results for {} after {} succeeded — "
                             + "flushed {} cache key(s) before failing: {}",
                     batch.getAnthropicBatchId(), succeeded, flushed, e.getMessage(), e);
@@ -390,7 +400,7 @@ public class BatchResultProcessor {
         // Merging costs a stale location lingering in a region entry until that key ages out;
         // replacing costs a paid-for evaluation. The retry path has merged for exactly this reason
         // since it was written.
-        flushAccumulated(byKey, bluebellByKey, woodlandByKey);
+        flushAccumulated(byKey, bluebellByKey, bluebellExposureByLocation, woodlandByKey);
 
         LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written "
                         + "({} sky + {} bluebell + {} woodland)",
@@ -732,22 +742,27 @@ public class BatchResultProcessor {
      * for. It is safe to call with partial contents because all three writes <b>merge</b> rather
      * than replace — see the caller's comment for why that property exists.
      *
-     * @param byKey         sky results, keyed region|date|event
-     * @param bluebellByKey bluebell results; the merge additionally recombines the rating with a
-     *                      prior sky result for OPEN_FELL sites (C3b)
-     * @param woodlandByKey woodland results; merging preserves the region's sky locations, since
-     *                      the mini-batch holds only its canopy sites
+     * @param byKey                     sky results, keyed region|date|event
+     * @param bluebellByKey             bluebell results; the merge additionally recombines the
+     *                                  rating with a prior sky result for non-WOODLAND sites (C3b)
+     * @param bluebellExposureByLocation each bluebell location's actual {@code BluebellExposure},
+     *                                  captured at parse time so the recombination decision never
+     *                                  has to infer it from the cache
+     * @param woodlandByKey             woodland results; merging preserves the region's sky
+     *                                  locations, since the mini-batch holds only its canopy sites
      * @return the number of cache keys written across all three sinks
      */
     private int flushAccumulated(
             Map<String, List<BriefingEvaluationResult>> byKey,
             Map<String, List<BriefingEvaluationResult>> bluebellByKey,
+            Map<String, BluebellExposure> bluebellExposureByLocation,
             Map<String, List<BriefingEvaluationResult>> woodlandByKey) {
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : byKey.entrySet()) {
             forecastResultHandler.mergeCacheKey(entry.getKey(), entry.getValue());
         }
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : bluebellByKey.entrySet()) {
-            forecastResultHandler.mergeBluebellCacheKey(entry.getKey(), entry.getValue());
+            forecastResultHandler.mergeBluebellCacheKey(
+                    entry.getKey(), entry.getValue(), bluebellExposureByLocation);
         }
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : woodlandByKey.entrySet()) {
             forecastResultHandler.mergeWoodlandCacheKey(entry.getKey(), entry.getValue());
