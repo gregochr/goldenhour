@@ -25,4 +25,8 @@ standalone, and its README says so ("do not port it twice"). In this codebase th
 closed at **10 entries** once every phase (C0–C3) had shipped — the original 8 written before any code
 existed, plus #9 (C3's declined `heightAtWindow` popup fact) and #10 (the chip's tooltip states the
 served window tide's state and direction only, never a height or a clock time) found true only once
-the code was read back against this spec.
+the code was read back against this spec. ⚠️ **#9 no longer describes the shipped state**: an owner
+asked for `heightAtWindow` directly after C4 closed, and the plan's own C5 phase (§6 Q7, decided
+2026-09-18) added it — #9 is kept as the historical record of C3's own reasoning (why the phase that
+first considered it declined), not as a current claim; the plan's own §4 #9 text says so explicitly.
+A new #11 records the wording decision C5 made.

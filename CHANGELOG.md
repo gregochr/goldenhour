@@ -5,6 +5,152 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.21.0] - 2026-09-18
+
+### Docs — Map tab "tide on the window": close out the series (T8)
+
+`docs/engineering/tide-window-plan.md`'s T8 (the final phase of eight) sweeps the port plan and
+its vendored spec now that T1–T7 have all merged (#876–#882): §0 flips to complete with every
+phase-log commit column filled in from `git log` (including T3's pre-merge Codex fix, `1507aa3c`,
+named separately since the squash-merge hides it from `main`'s own history), §1 #12's licensed
+client-derivation count is corrected from five members to six (T6 added `siblingEventTime` without
+updating the count), and §4's 18 numbered disagreements-with-the-spec were re-verified directly
+against the shipped code — `TideRepresentativeSelector`, the gate's `HARD_CONSTRAINT_REASONS`, the
+strip's mount point and tokens, the absent `'near'` tier, the rating-stage bypass — and found
+accurate; no renumbering was needed.
+
+§6 gains a preamble mapping the design spec's five `OPEN` items onto what shipped, and a new **Q9**
+recording an accepted, narrow risk T5's own review found: the callout/sheet block's jump and denial
+text read the location's *live* wanted-water set while the served fit phrase's own "wants" clause
+is frozen inside the cached forecast row, so the two can drift apart between an admin's edit and
+the next pipeline cycle. §7 gains a `§7b` table transcribing the phase log's own measured numbers
+(chip contrast, strip geometry at desktop and phone widths) rather than leaving them buried in
+prose.
+
+CLAUDE.md now documents the shipped increment: the Map tab (v2) bullet describes the tide strip,
+the dimmed-not-dropped chip and the rule that the map asks one tide question (the preference one);
+the Locations bullet notes the map reads `TideType` as the wanted water; a new seventh Backend-heavy
+licensed client-derivation class names the six tide-fit helpers (`stripModel`, `dominantWantCount`,
+`nextAlignedRow`, `tierOf`, `wantPhrase`, `siblingEventTime`); and the "Two tide axes" bullet notes
+that the same "neither axis may answer for the other" rule now also separates the map's preference
+question (`tideAligned`) from the pre-existing on-the-light fact (`tideOnTheLight`).
+
+`docs/design/tide-window/VENDORING.md` records the plan's final §4 count (18). No code changes.
+
+### Docs — the tide-plan-card sweep (C4)
+
+Closes out `docs/engineering/tide-plan-card-plan.md`: flips §0 to complete, fills the phase log's
+commit column with the four PR numbers (C0 #888, C1 #889, C2 #891, C3 #890 — kept in phase order,
+noted as not the merge order), and reconciles §4 against the shipped code — two entries added
+(C3's declined `heightAtWindow` popup fact; C2's chip tooltip states the served window tide's
+state and direction only, never a height or a clock time) that the phases recorded but the plan
+had not yet numbered.
+
+Answers the design spec's four `OPEN` items in §6 with what shipped (fully reach-bound marks; no
+run vocabulary to share, since Hot Topics' `SPRING RUN n/N` chip no longer exists; the location
+`TideType` set already expresses "both extremes"; the phone measurement's actual numbers), and adds
+§7b, transcribing the phase log's measured-versus-tested figures into one table rather than
+re-deriving them.
+
+CLAUDE.md: the Backend-heavy bullet's Plan-tab reach-scoped class gains `card.tideFit` and the
+strip's `tideRun`, and nothing else; the Plan tab (day × event matrix) bullet gains one note on the
+wave glyph, the `N on tide` chip and the silence rule below its gate; the "Two tide axes" bullet
+notes the Plan card's glyph and chip read the same preference axis (`tideAligned`) as the Map tab's
+own chip. None of the tide-window series' own T8 additions to these bullets are touched.
+
+Docs only — no code changed.
+
+### Added — the tide-fit fact on the Plan tab window popup (C3)
+
+The window popup's existing tide row gains one trailing fact, read from C1's `card.tideFit`: how
+many of the reach-gated coastal pool get the water they want on this window — `"9 of 14 coastal
+locations in reach on tide"`, or `"… coastal locations on tide"` when the account has no drive
+times to have gated on. Omitted entirely when the pool holds no coastal spot at all, rather than
+printing a claim about a roster of zero.
+
+Built by `WindowSheetDialog.jsx`, never inside `utils/windowFirstRows.js#tideFacts` — that module
+maps served window facts only, and this count is reach-scoped client data, the same class the
+spread histogram and the best-reachable line already belong to. It reaches the row through
+`WindowAttributeRow`'s new `extraFacts` prop, appended after the row's served facts in the same
+`{segments, optional}` shape, so the served and client facts can never be confused for one another
+by a later reader of either file.
+
+No score, verdict, chart or existing fact is touched.
+
+### Added — two tide marks on the Plan tab window card (C2)
+
+`WindowFirstHeatStrip.jsx`'s card gains the two marks `docs/engineering/tide-plan-card-plan.md`
+§3 C2 specifies, both reusing C0/C1's served/derived data — nothing is re-scored, re-coloured, or
+computed here beyond formatting.
+
+A wave glyph (`components/map/TideWave.jsx`, no `shortfall`) sits before the best-reachable spot's
+name whenever `card.bestReach.tideAligned === true` — the preference axis, never the timing phrase
+"on the light". Its claim reaches a screen reader only through a new clause on
+`bestReachLine`'s `spoken` string ("the tide is right here"), since the card's whole value grid is
+`aria-hidden`; a miss or an inland spot draws and says nothing.
+
+A `N on tide` topic chip is the first element of the topics line whenever `card.tideFit.live`,
+carrying a tooltip naming the matched/coastal count (qualified "in reach" only when
+`card.reachMeasured`), the served window tide's state and direction, and — only when more than one
+window in the strip is live (`utils/windowFirstTideRun.js#tideRun`, C1) — a run-size clause and,
+on the ranked best, `best of N` in a heavier, pilled emphasis on the same `--color-badge-tide` ink
+(never a third tide hue). The chip's own accessible-name clause mirrors the served topic badges'
+own construction.
+
+CSS: four new rules beside the existing `.wf-hc-tw[data-channel="tide"]` block — `.wf-hc-tide`,
+`.wf-hc-tide[data-best]`, `.wf-hc-tide-best`, `.wf-hc-best-tw` — all plain rgba tints of the
+existing `--color-tide`/`--color-badge-tide` tokens. `.wf-hc-best-tw` carries `display:
+inline-block`, found missing by adversarial review and matching the established `.wf-reg-tide`
+precedent: without it, Tailwind's `svg { display: block }` preflight drops the glyph onto its own
+line instead of sitting before the name.
+
+Browser-verified against a live local stack (four seeded coastal locations, a served
+`tideAlignmentQuality` pattern reproducing a live/live/miss/single-match run across four sunsets):
+the glyph renders inline at 1280/834/390px; the emphasised chip measures 7.90:1 ink-on-pill and the
+plain chip 10.01:1 against the card, both clearing AA; no chip's visible box exceeds its card's
+edge at any of the three widths (a benign ~2px "logical" overflow of `.wf-hc-tps`'s own content box
+— the pill's own literal `margin: -1px -2px` — never breaches the card, which has `overflow:
+visible` and 6px of padding to spare); the accessible name carries both new clauses exactly as
+specified and neither on a miss.
+
+### Added — tide data on the Plan tab window card's pool, per-window summary and run (C1)
+
+`utils/windowFirstSpots.js#buildWindowSpots` copies three tide facts flat onto each spot
+descriptor — `tideState`, `tideAligned` (null unless `tideState` is served, never a stray `false`
+for an inland spot), and `tideQuality` (C0's served `tideAlignmentQuality`) — so the card's
+reach-gated pool, spread histogram and best-reachable line all read one population, never a second
+index. `utils/windowFirstCards.js#buildWindowCards` derives a new per-window summary,
+`card.tideFit` — deliberately never `tide`, which already names the served `BriefingWindowTide` the
+tide-window series forwards to the Map tab's strip — `{coastal, matched, live, meanQuality}` over
+that same pool: `live` at half the coastal pool in reach, floored at three
+(`TIDE_LIVE_MIN_COASTAL`/`TIDE_LIVE_FLOOR`/`TIDE_LIVE_SHARE`), `meanQuality` averaged over the
+matched spots that carry a served quality. `utils/windowFirstStrip.js` forwards `tideFit` beside
+`tide`. New `utils/windowFirstTideRun.js#tideRun(cards)` ranks the live windows in one forecast —
+`matched` first, then the served mean quality (nulls last), then strip order — and names the one
+window to take only where more than one is live.
+
+No visible change — nothing renders this data yet (C2). `card.tideFit` and `tideRun` are new,
+named members of CLAUDE.md's reach-scoped Backend-heavy licensed class ("and only those"): the pool
+is per-user, so no servable answer exists on the shared `GET /api/briefing`, the same reasoning
+that already licenses the spread histogram and the best-reachable line.
+
+### Added — a served tide alignment quality figure (Plan tab tide card, C0)
+
+`BriefingSlot.TideInfo` and `TideDerivation` gain `Double tideAlignmentQuality`
+(`@JsonInclude(NON_NULL)`, 0..1, null unless `tideAligned`): how well-centred a coastal location's
+water is in its wanted state at the light, on the same time axis `tideAligned` is decided on — for
+a HIGH or LOW want, distance to that extreme; for a MID want, distance to the midpoint between the
+bracketing extremes (`TideService.isMidPointAligned`'s own geometry, now exposed via
+`TideService.nearestMidpointOffsetMinutes`); the best of them when more than one want is aligned.
+Computed in `TideFactDeriver.derive()` and relayed by `BriefingSlotBuilder` unchanged.
+
+No visible change and no migration — this is the served figure Phase C1 of
+`docs/engineering/tide-plan-card-plan.md` needs to rank a run of live tide windows by *how well*
+each is matched, not just whether it is. Both `BriefingSlot.TideInfo` legacy constructors and a new
+16-field legacy `TideDerivation` constructor keep every predating call site compiling. A WARN logs
+the one avenue the two fields can disagree on (a MID want's second extremes fetch racing a tide
+refresh) rather than letting the degraded case pass silently.
+
 ## [v2.20.6] - 2026-09-18
 
 ### Fixed — the release promotion no longer false-positives on a large CHANGELOG

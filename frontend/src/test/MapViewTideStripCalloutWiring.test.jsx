@@ -230,3 +230,38 @@ describe('MapView — tideStripHeight reaches MapCallout (T7 follow-up, Codex P1
     expect(document.querySelectorAll('[data-testid="probe-tide-strip"]')).toHaveLength(1);
   });
 });
+
+/**
+ * §6 Q8 (tide-window-plan.md, decided 2026-09-18, option 2): the phone counts footer used to be
+ * `display: none` while the strip was on, which also removed it from the accessibility tree —
+ * fixed by an `sr-only`-shaped CSS clip instead (pinned at the cascade level by
+ * `mapPhoneChromeCascade.test.jsx`). jsdom does not resolve `index.css`'s real cascade (no
+ * component test here renders a `<style>` tag full of it), so what THIS file can and must prove is
+ * the React/DOM half of the fix: nothing in `MapView`'s own markup hides the footer from assistive
+ * tech, or stops rendering it, once `wf-tide-strip-on` is the class in force — regardless of that
+ * class, which is a pure CSS hook the real `MapTideStrip` toggles via `pane.classList.add`
+ * (`MapTideStrip.jsx`), simulated here directly the same way `MapCallout.test.jsx`'s own tide-strip
+ * band tests build a bare DOM sibling rather than wiring up a real served tide fact.
+ */
+describe('MapView — phone counts footer stays in the accessibility tree while the tide strip is on (tide-window-plan.md §6 Q8, decided)', () => {
+  it('is present, carries no aria-hidden on itself or an ancestor, and its count text is still reachable', async () => {
+    mockIsMobile = true;
+    await renderMap();
+
+    const pane = document.querySelector('.wf-map-tab');
+    expect(pane).toBeTruthy();
+    pane.classList.add('wf-tide-strip-on');
+
+    const footer = screen.getByTestId('wf-map-counts-footer');
+    expect(footer).not.toHaveAttribute('aria-hidden');
+    for (let node = footer.parentElement; node; node = node.parentElement) {
+      expect(node).not.toHaveAttribute('aria-hidden', 'true');
+    }
+    // `toHaveTextContent` reads accessibility-relevant text off real DOM nodes rather than
+    // trusting a static stub — exact string (not merely the denominator) so a numerator
+    // regression fails here too. This file's own scope is the React/DOM half of the fix (see the
+    // doc comment above); the CSS half — that the footer paints nowhere while this class is set —
+    // is `mapPhoneChromeCascade.test.jsx`'s job, since jsdom never applies `index.css` here.
+    expect(footer).toHaveTextContent('1 of 1 shown');
+  });
+});

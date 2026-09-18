@@ -36,6 +36,6 @@ re-weight tide alignment on top of the combined rating (`claudeAverageRating` no
 tide) — flagged for the owner rather than edited; prompt changes and regression-test assertions
 stay the owner's call per CLAUDE.md.
 
-See `docs/engineering/tide-window-plan.md` §4 #19 and §6 Q1 for the full reasoning, including why
+See `docs/engineering/tide-window-plan.md` §4 #20 and §6 Q1 for the full reasoning, including why
 this deviates from the vendored design's own `OPEN 5` warning against representing a tide mismatch
 twice (the gate lift removes the double-representation rather than adding to it).
