@@ -703,6 +703,142 @@ describe('buildWindowCards', () => {
       });
     });
 
+    describe('the tide fit summary (tide-plan-card-plan.md C1)', () => {
+      /** A slot with the served tide facts C0 adds, over `tideFit`'s own pool. */
+      function tideSlot(id, {
+        tideState = 'HIGH', tideAligned = false, tideAlignmentQuality = null,
+      } = {}) {
+        return {
+          locationId: id,
+          locationName: `Spot ${id}`,
+          claudeRating: 3,
+          canopy: false,
+          tideState,
+          tideAligned,
+          tideAlignmentQuality,
+        };
+      }
+
+      /** `coastalCount` coastal slots, the first `matchedCount` of them aligned. */
+      function coastalSlots(coastalCount, matchedCount, quality = null) {
+        return Array.from({ length: coastalCount }, (_, i) => {
+          const aligned = i < matchedCount;
+          return tideSlot(i + 1, {
+            tideAligned: aligned,
+            tideAlignmentQuality: aligned ? quality : null,
+          });
+        });
+      }
+
+      const inlandSlot = (id) => ({
+        locationId: id,
+        locationName: `Inland ${id}`,
+        claudeRating: 3,
+        canopy: false,
+        tideState: null,
+        tideAligned: false,
+        tideAlignmentQuality: null,
+      });
+
+      function buildWithSlots(slots, window = {}) {
+        const days = [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [{ regionName: 'Northumberland & Tyneside', slots }],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [], ...window },
+        }])];
+        return buildWindowCards(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
+      }
+
+      describe('the gate — coastal >= 4 && matched >= max(3, ceil(coastal * 0.5))', () => {
+        it('is never live below four coastal spots, however many match', () => {
+          const [card] = buildWithSlots(coastalSlots(3, 3));
+          expect(card.tideFit).toMatchObject({ coastal: 3, matched: 3, live: false });
+        });
+
+        it('is not live at four coastal with only two matched — below the floor of three', () => {
+          const [card] = buildWithSlots(coastalSlots(4, 2));
+          expect(card.tideFit).toMatchObject({ coastal: 4, matched: 2, live: false });
+        });
+
+        it('is live at four coastal with three matched — the floor, not the share, governs', () => {
+          // ceil(4 * 0.5) = 2, so the flat floor of three is what fires here — the spec's own
+          // reason for a floor at all (a pure share put a chip on all six cards in the first build).
+          const [card] = buildWithSlots(coastalSlots(4, 3));
+          expect(card.tideFit).toMatchObject({ coastal: 4, matched: 3, live: true });
+        });
+
+        it('is not live at eight coastal with only three matched — the share now governs', () => {
+          // ceil(8 * 0.5) = 4, so three clears the floor but not the share.
+          const [card] = buildWithSlots(coastalSlots(8, 3));
+          expect(card.tideFit).toMatchObject({ coastal: 8, matched: 3, live: false });
+        });
+
+        it('is live at eight coastal with four matched — exactly half', () => {
+          const [card] = buildWithSlots(coastalSlots(8, 4));
+          expect(card.tideFit).toMatchObject({ coastal: 8, matched: 4, live: true });
+        });
+      });
+
+      describe('meanQuality', () => {
+        it('averages only the MATCHED spots\' quality, never the whole coastal pool', () => {
+          const slots = [
+            tideSlot(1, { tideAligned: true, tideAlignmentQuality: 0.4 }),
+            tideSlot(2, { tideAligned: true, tideAlignmentQuality: 0.8 }),
+            tideSlot(3, { tideAligned: false, tideAlignmentQuality: null }),
+          ];
+          const [card] = buildWithSlots(slots);
+          expect(card.tideFit.meanQuality).toBeCloseTo(0.6);
+        });
+
+        it('is null when no matched spot carries a quality at all', () => {
+          const slots = [
+            tideSlot(1, { tideAligned: true, tideAlignmentQuality: null }),
+            tideSlot(2, { tideAligned: true, tideAlignmentQuality: null }),
+          ];
+          const [card] = buildWithSlots(slots);
+          expect(card.tideFit.meanQuality).toBeNull();
+        });
+
+        it('tolerates a mix — C0\'s own documented cache-staleness case', () => {
+          // C0's phase log: a payload written before C0's build reads `tideAligned: true` with a
+          // null `tideAlignmentQuality` until the next briefing build. `meanQuality` must average
+          // over the matched spots that carry a figure, not fail or zero out the missing one.
+          const slots = [
+            tideSlot(1, { tideAligned: true, tideAlignmentQuality: 0.9 }),
+            tideSlot(2, { tideAligned: true, tideAlignmentQuality: null }),
+          ];
+          const [card] = buildWithSlots(slots);
+          expect(card.tideFit.meanQuality).toBeCloseTo(0.9);
+        });
+      });
+
+      it('counts an inland spot in neither coastal nor matched', () => {
+        const slots = coastalSlots(4, 4).concat([inlandSlot(99)]);
+        const [card] = buildWithSlots(slots);
+        expect(card.tideFit.coastal).toBe(4);
+        expect(card.tideFit.matched).toBe(4);
+      });
+
+      it('§7 #9 — coastal plus inland accounts for every spot in the pool', () => {
+        const slots = coastalSlots(4, 3).concat([inlandSlot(99), inlandSlot(100)]);
+        const [card] = buildWithSlots(slots);
+        const inland = card.pool.length - card.tideFit.coastal;
+        expect(inland).toBe(2);
+        expect(card.tideFit.coastal + inland).toBe(card.pool.length);
+      });
+
+      it('§7 #9 — leaves the served window tide (`card.tide`) untouched by this series', () => {
+        // `tideFit` is a new, separate field — `tide` (T6's served `BriefingWindowTide`, forwarded
+        // to the Map tab's strip) must still carry exactly what the window served.
+        const TIDE = { locationName: 'Bamburgh Beach', state: 'MID', curve: [0, 1] };
+        const [card] = buildWithSlots(coastalSlots(4, 3), { tide: TIDE });
+        expect(card.tide).toBe(TIDE);
+        expect(card.tideFit).not.toBe(card.tide);
+        expect(card.tideFit).toMatchObject({ coastal: 4, matched: 3, live: true });
+      });
+    });
+
     describe('the rating floor beside it', () => {
       it('drops a spot below the floor and keeps the one exactly on it', () => {
         const [card] = buildWithLens(THREE_SPOTS, REACH, {

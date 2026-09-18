@@ -115,6 +115,62 @@ export const VERDICT_LABEL = {
 export const CONFIDENCE_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
 
 /**
+ * The gate's two thresholds (tide-plan-card-plan.md §3 C1 #2, the spec's §2 verbatim).
+ *
+ * <p>A flat floor of three put a chip on all six cards in the prototype's first build — a caption
+ * rather than a signal — so the gate is the SHARE, floored at three: half the coastal pool in reach,
+ * never fewer than three regardless of how small that pool is. Tying it to the share also means it
+ * tightens sensibly as the reach filter does, rather than a constant count that means less at a wide
+ * tier and more at a narrow one.
+ */
+const TIDE_LIVE_MIN_COASTAL = 4;
+const TIDE_LIVE_FLOOR = 3;
+const TIDE_LIVE_SHARE = 0.5;
+
+/**
+ * The per-window tide-fit summary — is the coast live on this window, and how well served.
+ *
+ * <p><b>One pool, three readers (plan §2).</b> Computed over {@code pool} — the SAME reach-gated,
+ * pre-rating-floor list the spread histogram and the best-reachable line already read
+ * (plan-matrix A10/A11) — so the chip, the histogram and the named spot can never disagree about
+ * which locations exist: they never see different lists. Building a second index in the shell and
+ * looking the head up was rejected for exactly this reason (tide-plan-card-plan.md §1 #3, §5 #2).
+ *
+ * <p><b>A new, licensed member of CLAUDE.md's reach-scoped class</b> (Backend-heavy bullet): the
+ * pool is per-user (reach), so no servable answer exists on the shared, ETag-revalidated
+ * {@code GET /api/briefing} — the identical argument that licensed the histogram and the
+ * best-reachable line. `card.tideFit` and {@code windowFirstTideRun.js}'s `tideRun` are the two new
+ * members, and only those (tide-plan-card-plan.md §5 #1).
+ *
+ * <p>{@code coastal} counts every pool spot with a served {@code tideState} — coastal WITH a
+ * derivable answer, never "coastal by location type" (§4 #8) — {@code matched} counts those that are
+ * {@code tideAligned}, and {@code meanQuality} averages {@code tideQuality} over the matched spots
+ * that carry one. It is deliberately NOT an average over every matched spot with a fallback of zero:
+ * C0's own phase-log records that a cache payload written before C0 can read {@code tideAligned:
+ * true} with a null quality until the next briefing build, and folding that missing figure in as a
+ * zero would understate a window that is, in fact, well served. `null` when no matched spot carries
+ * one at all (an all-legacy-cache pool, or a coastal pool that matched nothing).
+ *
+ * @param {Array} pool the card's reach-gated, pre-floor spot pool
+ * @returns {{coastal: number, matched: number, live: boolean, meanQuality: ?number}}
+ */
+function tideFit(pool) {
+  const coastalSpots = pool.filter((spot) => spot.tideState != null);
+  const matchedSpots = coastalSpots.filter((spot) => spot.tideAligned === true);
+  const coastal = coastalSpots.length;
+  const matched = matchedSpots.length;
+  const live = coastal >= TIDE_LIVE_MIN_COASTAL
+    && matched >= Math.max(TIDE_LIVE_FLOOR, Math.ceil(coastal * TIDE_LIVE_SHARE));
+  const qualities = matchedSpots
+    .map((spot) => spot.tideQuality)
+    .filter((quality) => quality != null);
+  const meanQuality = qualities.length === 0
+    ? null
+    : qualities.reduce((sum, quality) => sum + quality, 0) / qualities.length;
+  return { coastal, matched, live, meanQuality };
+}
+
+/**
  * How many of the drawn spots the header may call "within reach", or null when it may not.
  *
  * <p>Three conditions, and all are about honesty rather than presentation. The tier has to carry a
@@ -545,6 +601,10 @@ export function buildWindowCards(
       // The same array `reachedTotal` counts, so a count and a picture of the same set cannot
       // describe two different populations.
       pool: reached,
+      // Is the coast live on this window, and how well served — over the SAME `pool` above, never a
+      // second index (§1 #3, §2). Named `tideFit`, never `tide`: that name is taken by the served
+      // `BriefingWindowTide` below, which the Map tab's strip forwards untouched (T6, §1 #3).
+      tideFit: tideFit(reached),
       // The pool's HEAD — the best location this reader could actually drive to for this window.
       //
       // ⚠️ It is `reached[0]` and nothing else, because the pool arrives ordered by

@@ -63,7 +63,7 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  *   label: string, time: string, verdict: ?string, verdictLabel: string, bestRating: ?number,
  *   pickKind: ?string, away: boolean, confidence: ?string, movement: ?object, pool: Array,
  *   reachMeasured: boolean, bestReach: ?object, badges: Array,
- *   hotRegionName: ?string, tide: ?object}>} descriptors
+ *   hotRegionName: ?string, tide: ?object, tideFit: ?object}>} descriptors
  */
 export function buildHeatStripCards(
   upcomingEvents, windowCards, travelDayDates, briefingDays, todayStr, tomorrowStr,
@@ -171,6 +171,12 @@ export function buildHeatStripCards(
       // mapper, which is where `mapEvents.js#solarRow` reads it from in turn. Null, never absent,
       // on an away day (no card) exactly like every other folded field above.
       tide: card?.tide ?? null,
+      // The card's reach-scoped tide summary (tide-plan-card-plan.md C1) — a different field from
+      // `tide` above, which is the served window rollup; this is the client-derived gate/count/mean
+      // over `pool`. Folded like everything else here rather than re-derived, so `windowFirstTideRun`
+      // (which reads this off the strip's own cards) can never disagree with the card it opens. Null
+      // on an away day, exactly like every other folded field above.
+      tideFit: card?.tideFit ?? null,
     };
   });
 }
