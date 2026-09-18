@@ -218,6 +218,90 @@ describe('MapTideStrip — --tsh clearance (plan §7 check 4)', () => {
   });
 });
 
+/**
+ * `onHeightChange` (T7 follow-up, Codex P1 on the T7 PR) — the SAME write that publishes `--tsh`
+ * also reports the number to this callback, so `MapView` can retrigger `MapCallout`'s own repaint
+ * when the strip's real rect changes. This suite pins the callback's own contract in isolation
+ * (called with the right number, on the right occasions, `null` on cleanup) — `MapCallout.test.jsx`
+ * pins the OTHER half, that a changing prop actually re-triggers that component's repaint.
+ */
+describe('MapTideStrip — onHeightChange (T7 follow-up, Codex P1)', () => {
+  let restoreRO;
+  let restoreHeight;
+
+  beforeEach(() => {
+    restoreRO = installResizeObserver();
+    restoreHeight = null;
+  });
+
+  afterEach(() => {
+    restoreRO();
+    restoreHeight?.();
+  });
+
+  it('is called with the real height, open', () => {
+    restoreHeight = stubOffsetHeight(166);
+    const ref = mapPane();
+    const onHeightChange = vi.fn();
+    render(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref}
+        onHeightChange={onHeightChange}
+      />,
+    );
+    expect(onHeightChange).toHaveBeenCalledWith(166);
+  });
+
+  it('is called with the real height, collapsed — a DIFFERENT number from open, matching --tsh exactly', () => {
+    restoreHeight = stubOffsetHeight(34);
+    const ref = mapPane();
+    const onHeightChange = vi.fn();
+    render(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} collapsed mapPaneRef={ref}
+        onHeightChange={onHeightChange}
+      />,
+    );
+    expect(onHeightChange).toHaveBeenCalledWith(34);
+    expect(ref.current.style.getPropertyValue('--tsh')).toBe('34px');
+  });
+
+  it('is called with null on unmount — a stale height is exactly as wrong as no height', () => {
+    restoreHeight = stubOffsetHeight(166);
+    const ref = mapPane();
+    const onHeightChange = vi.fn();
+    const { unmount } = render(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref}
+        onHeightChange={onHeightChange}
+      />,
+    );
+    onHeightChange.mockClear();
+    unmount();
+    expect(onHeightChange).toHaveBeenCalledWith(null);
+  });
+
+  it('is never called at all when the strip never mounts (not visible)', () => {
+    const ref = mapPane();
+    const onHeightChange = vi.fn();
+    render(
+      <MapTideStrip
+        model={baseModel({ visible: false })} tide={null} activeRow={activeRow} mapPaneRef={ref}
+        onHeightChange={onHeightChange}
+      />,
+    );
+    expect(onHeightChange).not.toHaveBeenCalled();
+  });
+
+  it('tolerates no onHeightChange at all — the desktop-vs-phone mount split means only one caller ever passes it live at a time, but neither may crash without it', () => {
+    restoreHeight = stubOffsetHeight(166);
+    const ref = mapPane();
+    expect(() => render(
+      <MapTideStrip model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={ref} />,
+    )).not.toThrow();
+  });
+});
+
 describe('TY — the design\'s vertical mapping', () => {
   it('maps level 1 (high water) to y 6 of 32, i.e. 18.75%', () => {
     expect(TY(1)).toBeCloseTo((6 / 32) * 100, 5);

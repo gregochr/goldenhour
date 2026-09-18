@@ -1019,6 +1019,41 @@ describe('MapCallout — anchoring lifecycle', () => {
 
     expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeChange);
   });
+
+  it('re-measures the anchor when tideStripHeight changes — the strip toggling open/collapsed underneath the card (T7 follow-up, Codex P1)', async () => {
+    // The bug this pins: `MapCallout`'s own placement band treats the tide strip as one of its
+    // floor/ceiling bars (`BAND_BAR_SELECTOR`, T7), but nothing in this component's own repaint
+    // triggers ever fired when the STRIP's own rect changed — a reader who selected a location
+    // while the strip was collapsed, then opened it, kept the collapsed band boundary while the
+    // strip's real rect grew underneath the card, until an unrelated pan/zoom forced a re-measure.
+    // Counted the same way as the two tests above: jsdom's faked height cannot show the box move,
+    // but `paint()` always reads `latLngToContainerPoint` once per run, so a rising call count is
+    // proof the repaint fired.
+    const { rerender } = await mount({ tideStripHeight: 34 });
+    const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const callsBeforeResize = paintSpy.mock.calls.length;
+
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} tideStripHeight={166} />);
+    });
+
+    expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeResize);
+  });
+
+  it('re-measures the anchor when the strip appears/disappears underneath the card, not only when it resizes', async () => {
+    // The `null` half of the same contract — `MapTideStrip` reports `null` on unmount (the strip
+    // going from visible to invisible, or vice versa), which must retrigger a repaint exactly like
+    // a real resize does, since the strip stops or starts being one of `paint()`'s bars either way.
+    const { rerender } = await mount({ tideStripHeight: null });
+    const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const callsBeforeAppear = paintSpy.mock.calls.length;
+
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} tideStripHeight={166} />);
+    });
+
+    expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeAppear);
+  });
 });
 
 describe('MapCallout — the tide strip is a band floor too (tide-window-plan.md T7)', () => {

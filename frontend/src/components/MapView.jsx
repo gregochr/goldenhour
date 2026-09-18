@@ -1513,6 +1513,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [tideStripCollapsed, setTideStripCollapsed] = useState(false);
   /**
+   * The tide strip's own real, measured height (T7 follow-up, Codex P1) — written from
+   * `MapTideStrip`'s `onHeightChange`, the same `ResizeObserver` callback that already publishes
+   * `--tsh` onto `.wf-map-tab`. `null` while the strip is not on screen. Exists ONLY to retrigger
+   * `MapCallout`'s repaint when the strip's own rect changes (open ⇄ collapsed, or it appearing/
+   * disappearing) — `MapCallout` treats the strip as one of its placement-band bars
+   * (`BAND_BAR_SELECTOR`, T7) and re-measures it fresh off the DOM every time it repaints, but
+   * nothing in that component's own trigger list ever fired on the strip's OWN resize, so the
+   * card kept a stale band until an unrelated pan/zoom forced a re-measure. `MapView` is the one
+   * place both components already meet, so it is the one place this can be wired without either
+   * importing the other or a second `ResizeObserver` duplicating the one `MapTideStrip` already
+   * runs. Fed to whichever of the two `<MapTideStrip>` mounts is actually on screen (desktop/
+   * tablet nested in `.wf-map-chrome-bl`, phone as `.wf-map-chrome-bl`'s own sibling, T7 #16) —
+   * only one is ever mounted at a time, so one shared state serves both.
+   */
+  const [tideStripHeight, setTideStripHeight] = useState(null);
+  /**
    * The Regions jump list's own camera target (map-tab-v2-plan.md §3 P11) — an OVERRIDE of the
    * ordinary `heatArea`-derived bounds below, not a second `HeatBoundsController`.
    *
@@ -5174,6 +5190,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               astroConditionsByDate={astroConditionsByDate}
               auroraResultsByDate={auroraResultsByDate}
               pendingNightRowIds={pendingNightRowIds}
+              tideStripHeight={tideStripHeight}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
@@ -5648,6 +5665,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
                     onSelectEv={selectEvRow}
                     mapPaneRef={mapPaneRef}
+                    onHeightChange={setTideStripHeight}
                   />
                 )}
               </div>
@@ -5746,6 +5764,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
                 onSelectEv={selectEvRow}
                 mapPaneRef={mapPaneRef}
+                onHeightChange={setTideStripHeight}
               />
             )}
           </>

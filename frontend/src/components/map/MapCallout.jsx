@@ -197,6 +197,15 @@ function kindShort(event) {
  * @param {Set<string>} [props.pendingNightRowIds] ids of the night EV rows whose served rows those
  *        two maps have not answered yet — in flight, or failed (`MapView.jsx`'s own set). A night
  *        cell for one reads "…" rather than "—"; see the strip's note
+ * @param {?number} [props.tideStripHeight] the tide strip's own real, measured height in px, or
+ *        `null` when it is not on screen — `MapView.jsx`'s state, written from `MapTideStrip`'s own
+ *        `onHeightChange` (the same `ResizeObserver` callback that already publishes `--tsh`). Read
+ *        for NOTHING but a repaint trigger below: `paint()` re-measures the strip's real rect fresh
+ *        off the DOM every time it runs (`BAND_BAR_SELECTOR` already includes it, T7), so this value
+ *        is never used as a number here — only its IDENTITY changing is what matters, the same shape
+ *        every other repaint-trigger prop in this list already takes (Codex P1 on the T7 PR: the
+ *        strip toggling open/collapsed changed its real rect with nothing in this component's
+ *        listeners to notice, so the callout's card kept the stale band until an unrelated pan/zoom)
  * @param {?Function} [props.onSelectEv] `(row) => void` — switches the active window (the P6
  *        selection path, `MapView.jsx`'s `selectEvRow`)
  * @param {?Function} [props.onOpenSheet] `() => void` — the clamped prose's `Four days here ›`
@@ -216,6 +225,7 @@ export default function MapCallout({
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
+  tideStripHeight = null,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
   const map = useMap();
@@ -350,9 +360,22 @@ export default function MapCallout({
   // into a jump (or add the whole block where there was none) while `event?.id` stays put. Without
   // this the card would carry the old height until an unrelated pan/zoom forced a re-measure — the
   // evaluation-gate P1 in a different field.
+  //
+  // ⚠️ And `tideStripHeight` (T7 follow-up, Codex P1 on the T7 PR) — a DIFFERENT class of gap
+  // from every entry above: those all name something that changes THIS CARD's own content or
+  // height; the tide strip is a SEPARATE, sibling element that `BAND_BAR_SELECTOR` reads as one
+  // of `paint()`'s floor/ceiling bars (T7). Nothing above notices the strip toggling open ⇄
+  // collapsed — `paint`'s identity is keyed on `[map, location]`, neither of which moves — so a
+  // reader who selects a location while the strip is collapsed and then opens it kept the
+  // COLLAPSED band boundary while the strip's real rect grew ~100px upward underneath the card,
+  // until an unrelated pan/zoom forced a re-measure. `tideStripHeight` carries no number this
+  // component ever reads — `paint()` re-measures the strip's own live rect off the DOM the same
+  // way it does every other bar — it exists purely so its IDENTITY changing (open→collapsed,
+  // collapsed→open, or the strip appearing/disappearing entirely) is a repaint trigger, the same
+  // shape every dependency above already takes.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, evaluationGateIndex,
-    tideAlignmentIndex, repaintNow,
+    tideAlignmentIndex, tideStripHeight, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -887,6 +910,7 @@ MapCallout.propTypes = {
   astroConditionsByDate: PropTypes.instanceOf(Map),
   auroraResultsByDate: PropTypes.instanceOf(Map),
   pendingNightRowIds: PropTypes.instanceOf(Set),
+  tideStripHeight: PropTypes.number,
   onSelectEv: PropTypes.func,
   onOpenSheet: PropTypes.func,
   onOpenInPlan: PropTypes.func,
