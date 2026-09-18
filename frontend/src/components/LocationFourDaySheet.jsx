@@ -571,6 +571,7 @@ export default function LocationFourDaySheet({
                     nextFitRow={nextFitRow}
                     onSelectEv={(target) => focusRow(target.key)}
                     horizonWord={horizonWord}
+                    combinedRating={row.rating}
                   />
                   {/* The evaluation gate — the pipeline's own reason this window has no score, in
                       the backend's words (`BriefingSlot.evaluationGate`). Above the prose because

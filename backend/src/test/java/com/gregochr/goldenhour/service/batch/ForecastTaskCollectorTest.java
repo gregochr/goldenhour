@@ -159,21 +159,33 @@ class ForecastTaskCollectorTest {
     }
 
     @Test
-    @DisplayName("collectScheduledBatches: all TIDE_MISMATCH STANDDOWN slots → empty result")
-    void collectScheduledBatches_allTideMismatchStanddown_returnsEmpty() {
-        // Tide mismatch is the only hard-constraint STANDDOWN reason that still gates
-        // after the Gate 2 redesign — a coastal slot whose tide is wrong is geometrically
-        // unphotographable regardless of weather, so Claude is not asked.
-        when(briefingService.getCachedBriefing())
-                .thenReturn(buildBriefingWithStanddownReason(
-                        TODAY, "Durham UK",
-                        BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label()));
+    @DisplayName("⚠️ collectScheduledBatches: a TIDE_MISMATCH STANDDOWN slot now reaches triage — "
+            + "the tide gate lift")
+    void collectScheduledBatches_tideMismatchStanddown_reachesTriage() {
+        // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1),
+        // TIDE_MISMATCH was the one hard-constraint STANDDOWN reason still gating after the
+        // Gate 2 redesign, and this test asserted an empty result. The owner lifted the gate —
+        // BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is now empty — so a tide-mismatched slot
+        // follows the identical path the weather-STANDDOWN test below already exercises: it
+        // reaches Claude and TideVisitor's R1 penalty is averaged into the star instead of the
+        // slot being withheld.
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        DailyBriefingResponse briefing = buildBriefingWithStanddownReason(
+                TODAY, loc.getName(),
+                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
 
-        assertThat(result.isEmpty()).isTrue();
-        verifyNoInteractions(openMeteoService, forecastService);
+        assertThat(result.nearInland()).hasSize(1);
+        verify(forecastService).fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -1229,24 +1241,33 @@ class ForecastTaskCollectorTest {
     }
 
     @Test
-    @DisplayName("dispositions: HARD_CONSTRAINT (tide mismatch) recorded with standdown reason")
-    void dispositions_hardConstraint_recordedWithStanddownReason() {
+    @DisplayName("⚠️ dispositions: a tide mismatch is no longer SKIPPED_HARD_CONSTRAINT — it is "
+            + "EVALUATED, like any other STANDDOWN reason since the Gate 2 redesign")
+    void dispositions_tideMismatch_recordedAsEvaluated() {
+        // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) this
+        // test asserted SKIPPED_HARD_CONSTRAINT with a null location_id (the hard-constraint path
+        // never performs a location lookup). BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is now
+        // empty, so a tide-mismatched slot is eligible, reaches the same triage path a weather
+        // STANDDOWN already does, and gets a real location lookup + an EVALUATED disposition.
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
         when(briefingService.getCachedBriefing())
                 .thenReturn(buildBriefingWithStanddownReason(
-                        TODAY, "Durham UK",
+                        TODAY, loc.getName(),
                         BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label()));
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY, 0));
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
 
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
-        assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_HARD_CONSTRAINT);
-        // Hard-constraint skips do not perform a location lookup, so location_id stays null
-        assertThat(d.locationId()).isNull();
-        assertThat(d.locationName()).isEqualTo("Durham UK");
-        assertThat(d.detail()).isEqualTo(
-                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+        assertThat(d.category()).isEqualTo(DispositionCategory.EVALUATED);
+        assertThat(d.locationId()).isEqualTo(loc.getId());
+        assertThat(d.locationName()).isEqualTo(loc.getName());
     }
 
     @Test
@@ -1331,7 +1352,11 @@ class ForecastTaskCollectorTest {
         // The "the totals add up" guarantee. The briefing has six slots split across:
         //   • 1 past-date slot
         //   • 2 cached slots (one region)
-        //   • 1 hard-constraint (tide mismatch) STANDDOWN slot
+        //   • 1 tide-mismatch STANDDOWN slot whose location is not in the enabled roster
+        //     (⚠️ SKIPPED_UNKNOWN_LOCATION since the tide gate lift, 2026-09-18,
+        //     docs/engineering/tide-window-plan.md §6 Q1 — no longer SKIPPED_HARD_CONSTRAINT,
+        //     because BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is empty and the slot now
+        //     reaches the location lookup that used to be short-circuited before it)
         //   • 1 unknown-location slot
         //   • 1 valid GO slot reaching triage → EVALUATED
         // Total dispositions MUST equal 6 — the UI arithmetic depends on this.
@@ -1403,9 +1428,12 @@ class ForecastTaskCollectorTest {
                         java.util.stream.Collectors.counting()));
         assertThat(counts).containsEntry(DispositionCategory.SKIPPED_PAST_DATE, 1L);
         assertThat(counts).containsEntry(DispositionCategory.SKIPPED_CACHED, 2L);
-        assertThat(counts).containsEntry(DispositionCategory.SKIPPED_HARD_CONSTRAINT, 1L);
-        assertThat(counts).containsEntry(DispositionCategory.SKIPPED_UNKNOWN_LOCATION, 1L);
+        // Both the tide-mismatch slot and the deliberately-unknown one land here now — neither
+        // is in `locationService.findAllEnabled()`'s roster (only `goLoc` is), and the tide slot
+        // no longer short-circuits before that lookup runs.
+        assertThat(counts).containsEntry(DispositionCategory.SKIPPED_UNKNOWN_LOCATION, 2L);
         assertThat(counts).containsEntry(DispositionCategory.EVALUATED, 1L);
+        assertThat(counts).doesNotContainKey(DispositionCategory.SKIPPED_HARD_CONSTRAINT);
     }
 
     private BriefingDay buildSingleSlotDay(LocalDate date, String name, Verdict verdict,

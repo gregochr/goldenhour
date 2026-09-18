@@ -76,59 +76,15 @@ class TideWordingTest {
         assertThat(TideWording.metres(4.85)).isEqualTo("4.9 m");
     }
 
-    // ── tideGatePhrase — the served reason a coastal slot was withheld from Claude ──────────
-
-    @Test
-    @DisplayName("the gate names the event, the wanted water, the actual water and the nearest extreme")
-    void gateStatesBothSidesOfTheMismatch() {
-        // "mid tide" alone does not tell a reader whether that is a problem HERE; the wanted
-        // state is what makes it a mismatch rather than a fact.
-        assertThat(TideWording.tideGatePhrase(
-                Set.of(TideType.LOW), "MID", "HW 09:19 · 2h35 after sunrise", "sunrise"))
-                .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead"
-                        + " · HW 09:19 · 2h35 after sunrise");
-    }
-
-    @Test
-    @DisplayName("several wanted states read in a fixed HIGH, MID, LOW order whatever the set's order")
-    void wantedStatesReadInFixedOrder() {
-        assertThat(TideWording.tideGatePhrase(Set.of(TideType.LOW, TideType.HIGH), "MID", null, "sunset"))
-                .isEqualTo("Tide not right at sunset · needs high water or low water, mid tide instead");
-        assertThat(TideWording.tideGatePhrase(
-                Set.of(TideType.MID, TideType.LOW, TideType.HIGH), "LOW", null, "sunset"))
-                .isEqualTo("Tide not right at sunset · needs high water, mid tide or low water,"
-                        + " low water instead");
-    }
-
-    @Test
-    @DisplayName("no configured preference drops the wants clause rather than inventing one")
-    void noPreferenceDropsTheWantsClause() {
-        // No "instead" either — it contrasts with a stated preference, and there is none.
-        assertThat(TideWording.tideGatePhrase(Set.of(), "HIGH", null, "sunset"))
-                .isEqualTo("Tide not right at sunset · high water");
-        assertThat(TideWording.tideGatePhrase(null, "HIGH", null, "sunset"))
-                .isEqualTo("Tide not right at sunset · high water");
-    }
-
-    @Test
-    @DisplayName("a blank nearest-extreme phrase drops the clock clause")
-    void blankNearestDropsTheClockClause() {
-        assertThat(TideWording.tideGatePhrase(Set.of(TideType.HIGH), "MID", "  ", "sunrise"))
-                .isEqualTo("Tide not right at sunrise · needs high water, mid tide instead");
-    }
-
-    @Test
-    @DisplayName("an unrecognised or null tide state is named as unknown, never printed raw or thrown on")
-    void unknownTideStateIsNamedAsUnknown() {
-        // Unreachable from the builder (the gate requires a derived state), but this is served
-        // text with a documented contract, and the raw enum name must never leak into a sentence.
-        assertThat(TideWording.tideGatePhrase(Set.of(TideType.HIGH), "SLACK", null, "sunrise"))
-                .isEqualTo("Tide not right at sunrise · needs high water, an unknown tide instead");
-        assertThat(TideWording.tideGatePhrase(Set.of(), null, null, "sunrise"))
-                .isEqualTo("Tide not right at sunrise · an unknown tide");
-    }
-
     // ── tideFitPhrase — the map tab's tide-fit block body, both tiers ──────────────────────
+    //
+    // tideGatePhrase (the served reason a coastal slot was withheld from Claude) was removed with
+    // the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) — no producer
+    // calls it any more (BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is empty, so
+    // BriefingSlotBuilder's evaluationGate switch never reaches a TIDE_MISMATCH case). The fixed
+    // HIGH/MID/LOW want-word ordering and the "never repeat the nearest-extreme offset" rule it
+    // used to pin are still exercised below, through tideFitPhrase's miss form, which shares the
+    // same orderedWantWords helper.
 
     /** 18:16 UTC on this date is 18:16 London — outside BST, so clock arithmetic reads bare. */
     private static final LocalDateTime SOLAR_EVENT = LocalDateTime.of(2026, 1, 27, 18, 16);
@@ -183,11 +139,11 @@ class TideWordingTest {
     }
 
     @Test
-    @DisplayName("the miss form never repeats the nearest-extreme offset the gate sentence "
-            + "already carries")
+    @DisplayName("the miss form never repeats the nearest-extreme offset")
     void missNeverRepeatsTheNearestExtremeOffset() {
         // The nearest-solar-offset phrase is passed but must not appear anywhere in the miss
-        // form — that clause is the gate sentence's alone (CLAUDE.md's "no fact twice" rule).
+        // form (CLAUDE.md's "no fact twice" rule) — the miss states the light's own clock time
+        // instead.
         String phrase = TideWording.tideFitPhrase(false, Set.of(TideType.LOW), "MID", "RISING",
                 "HW 09:19 · 2h35 after sunrise", SOLAR_EVENT, "2.6 m", "4.3 m");
         assertThat(phrase).doesNotContain("HW 09:19").doesNotContain("2h35");
@@ -203,5 +159,23 @@ class TideWordingTest {
         assertThat(TideWording.tideFitPhrase(true, Set.of(TideType.HIGH), "HIGH", null, null,
                 SOLAR_EVENT, "3.9 m", "4.3 m"))
                 .isEqualTo("high water, moving · 3.9 m");
+    }
+
+    @Test
+    @DisplayName("an unrecognised or null tide state is named as unknown, never printed raw or "
+            + "thrown on — stateWord's sibling fail-soft default, exercised via tideFitPhrase "
+            + "now that tideGatePhrase (its only other caller) is gone")
+    void unknownTideStateIsNamedAsUnknown() {
+        // This coverage used to run through the deleted tideGatePhrase; stateWord's own contract
+        // (never leak a raw enum name into served text) still needs a live exerciser now that
+        // tideFitPhrase is its only caller (adversarial review — found missing after the
+        // tide gate lift's test deletions, the same asymmetry unknownDirectionIsNamedAsMoving
+        // above already guards for directionWord).
+        assertThat(TideWording.tideFitPhrase(true, Set.of(TideType.HIGH), "SLACK", "FALLING", null,
+                SOLAR_EVENT, "3.9 m", "4.3 m"))
+                .isEqualTo("an unknown tide, falling · 3.9 m");
+        assertThat(TideWording.tideFitPhrase(true, Set.of(TideType.HIGH), null, "FALLING", null,
+                SOLAR_EVENT, "3.9 m", "4.3 m"))
+                .isEqualTo("an unknown tide, falling · 3.9 m");
     }
 }
