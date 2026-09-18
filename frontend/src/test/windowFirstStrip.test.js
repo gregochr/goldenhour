@@ -310,6 +310,34 @@ describe('buildHeatStripCards — tide (tide-window-plan.md T6)', () => {
   });
 });
 
+describe('buildHeatStripCards — tideFit (tide-plan-card-plan.md C1)', () => {
+  // The strip never sees `buildWindowCards`' output directly (see the `tide` suite above) — this is
+  // the one place `windowFirstTideRun.js#tideRun` can read the client-derived summary, so a field
+  // dropped from THIS fold would leave every live window unlabelled with the count and every day
+  // silently un-rankable, while `windowFirstCards.test.js` stayed green.
+  const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+  it('folds the card\'s tideFit through untouched', () => {
+    const tideFit = { coastal: 9, matched: 6, live: true, meanQuality: 0.72 };
+    expect(build(events, [card({ tideFit })])[0].tideFit).toBe(tideFit);
+  });
+
+  it('is null when the card carries none', () => {
+    expect(build(events, [card({ tideFit: null })])[0].tideFit).toBeNull();
+  });
+
+  it('is null on an away day, which has no card to fold it from', () => {
+    const AWAY_DAYS = [{
+      date: TODAY,
+      eventSummaries: [{ targetType: 'SUNSET', solarEventTime: `${TODAY}T20:11:00` }],
+    }];
+    const [only] = build(events, [], new Set([TODAY]), AWAY_DAYS);
+
+    expect(only.away).toBe(true);
+    expect(only.tideFit).toBeNull();
+  });
+});
+
 describe('buildHeatStripCards — absence', () => {
   it('returns an empty list for no events, rather than undefined', () => {
     expect(build([], [])).toEqual([]);

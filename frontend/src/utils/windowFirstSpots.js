@@ -241,6 +241,24 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null)
         driveMinutes,
         distanceMiles: reach?.distanceMiles ?? null,
         far: isFarSpot(driveMinutes, farOverMinutes),
+        // The three tide facts `windowFirstCards.js#buildWindowCards` derives `tideFit` from, and
+        // `windowFirstTideRun.js` ranks the run on — copied flat off `BriefingSlot.TideInfo` (C0,
+        // `@JsonUnwrapped` onto the slot) rather than looked up a second time, so the pool itself is
+        // the one population every reader of tide on this card counts (plan §2/§5 #2).
+        //
+        // Coastal is `tideState != null` — the server's own "coastal with a derivable answer"
+        // predicate (tide-plan-card-plan.md §1 #1, §4 #8, §5 #5), the same test
+        // `buildTideAlignmentIndex` uses. `tideAligned` is therefore keyed off `tideState` rather
+        // than read on its own: `TideInfo.tideAligned` is a `boolean` primitive, always `false` when
+        // absent (`TideInfo.NONE` and the legacy constructors both default it, never null), so an
+        // inland slot would otherwise read `false` — a claim about a mismatch nobody has a want for
+        // — rather than "no fit answer at all". `tideQuality` needs no such guard: C0 already leaves
+        // it null except on an aligned slot (`@JsonInclude(NON_NULL)`), and C0's own phase-log
+        // records that a payload cached before C0's build still reads `tideAligned=true` with a
+        // null quality — `meanQuality` below already treats a matched spot's quality as optional.
+        tideState: slot.tideState ?? null,
+        tideAligned: slot.tideState != null ? Boolean(slot.tideAligned) : null,
+        tideQuality: slot.tideAlignmentQuality ?? null,
       };
     })
     .sort(compareSpots);

@@ -182,6 +182,55 @@ describe('buildWindowSpots', () => {
     });
   });
 
+  describe('the tide facts (tide-plan-card-plan.md C1)', () => {
+    it('copies the three served tide fields onto a coastal, aligned spot', () => {
+      const [s] = buildWindowSpots(summary([
+        slot({ tideState: 'HIGH', tideAligned: true, tideAlignmentQuality: 0.82 }),
+      ]), new Map());
+      expect(s.tideState).toBe('HIGH');
+      expect(s.tideAligned).toBe(true);
+      expect(s.tideQuality).toBe(0.82);
+    });
+
+    it('leaves all three null for an inland spot, which carries no tideState at all', () => {
+      // `TideInfo.tideAligned` is a primitive `boolean` and defaults to `false` when the slot has
+      // no tide facts at all (`TideInfo.NONE`) — so an inland spot with no `tideState` must not
+      // copy that `false` through as a mismatch. Coastal is `tideState != null` (§1 #1, §5 #5).
+      const [s] = buildWindowSpots(summary([
+        slot({ tideState: null, tideAligned: false, tideAlignmentQuality: null }),
+      ]), new Map());
+      expect(s.tideState).toBeNull();
+      expect(s.tideAligned).toBeNull();
+      expect(s.tideQuality).toBeNull();
+    });
+
+    it('reads a coastal miss as tideAligned: false, not null', () => {
+      const [s] = buildWindowSpots(summary([
+        slot({ tideState: 'LOW', tideAligned: false, tideAlignmentQuality: null }),
+      ]), new Map());
+      expect(s.tideState).toBe('LOW');
+      expect(s.tideAligned).toBe(false);
+      expect(s.tideQuality).toBeNull();
+    });
+
+    it('reads a matched slot with a null quality — C0\'s own documented cache-staleness case', () => {
+      // C0's phase log: a `daily_briefing_cache` payload written before C0 can read
+      // `tideAligned: true` with a null `tideAlignmentQuality` until the next build.
+      const [s] = buildWindowSpots(summary([
+        slot({ tideState: 'MID', tideAligned: true, tideAlignmentQuality: null }),
+      ]), new Map());
+      expect(s.tideAligned).toBe(true);
+      expect(s.tideQuality).toBeNull();
+    });
+
+    it('defaults every field absent from the slot to null, never to a falsy primitive', () => {
+      const [s] = buildWindowSpots(summary([slot()]), new Map());
+      expect(s.tideState).toBeNull();
+      expect(s.tideAligned).toBeNull();
+      expect(s.tideQuality).toBeNull();
+    });
+  });
+
   it('returns an empty list for a window whose regions carry no slots', () => {
     // Not hypothetical — this is exactly what the local briefing serves, and the card must then
     // render neither strip nor footer.
