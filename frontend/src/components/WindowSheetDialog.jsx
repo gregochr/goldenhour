@@ -219,6 +219,35 @@ export default function WindowSheetDialog({
   const tideRow = (card.rows || []).find((row) => row.channel === 'tide') || null;
 
   /**
+   * The tide row's one client fact — how many of the reachable coastal pool get the water they
+   * want on this window, from {@code card.tideFit} (`{coastal, matched, live, meanQuality}`,
+   * `utils/windowFirstCards.js`; tide-plan-card-plan.md §3 C3).
+   *
+   * <p>⚠️ <b>Built HERE, never inside {@code windowFirstRows.js#tideFacts}.</b> That module maps
+   * served window facts only (§5 #6) — this count is reach-scoped client data, a member of
+   * CLAUDE.md's reach-scoped class the same way the histogram and the best-reachable line are. It
+   * reaches the row through {@code WindowAttributeRow}'s own {@code extraFacts} prop rather than
+   * riding {@code tideRow.facts}, so the served facts and this one client fact can never be
+   * confused for the same kind of data by a later reader of either file.
+   *
+   * <p>Omitted entirely when the pool holds no coastal spot at all ({@code coastal === 0}) — a
+   * zero is not a fact about tonight, it is a fact about the roster. "In reach" only when
+   * {@code reachMeasured} says a drive time exists to have gated on (§1 #11, §4 #7); otherwise the
+   * same sentence without that clause, never a claim the account cannot back.
+   */
+  const tideFitFacts = useMemo(() => {
+    const fit = card.tideFit;
+    if (!fit || fit.coastal === 0) return [];
+    const reachClause = reachMeasured ? ' in reach' : '';
+    return [{
+      segments: [{
+        text: `${fit.matched} of ${fit.coastal} coastal locations${reachClause} on tide`,
+        tone: 'base',
+      }],
+    }];
+  }, [card.tideFit, reachMeasured]);
+
+  /**
    * The locations the field may name, in the order they deserve the space.
    *
    * <p>⚠️ <b>An ORDERING over the gated pool, never a filter by the focused region</b> — plan §5:
@@ -580,7 +609,7 @@ export default function WindowSheetDialog({
 
           {tideRow && (
             <div className="wf-rows">
-              <WindowAttributeRow row={tideRow} />
+              <WindowAttributeRow row={tideRow} extraFacts={tideFitFacts} />
             </div>
           )}
 
@@ -683,6 +712,14 @@ WindowSheetDialog.propTypes = {
      * field's own note for why it is a claim about the reader rather than about the survivors.
      */
     reachMeasured: PropTypes.bool,
+    // The per-window tide-fit summary this dialog reads for the tide row's trailing fact
+    // (tide-plan-card-plan.md §3 C3) — `{coastal, matched, live, meanQuality}`, `windowFirstCards.js`.
+    tideFit: PropTypes.shape({
+      coastal: PropTypes.number.isRequired,
+      matched: PropTypes.number.isRequired,
+      live: PropTypes.bool.isRequired,
+      meanQuality: PropTypes.number,
+    }),
     pool: PropTypes.array,
     bestReach: PropTypes.object,
     reachTotal: PropTypes.number,

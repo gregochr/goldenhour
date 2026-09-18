@@ -1024,6 +1024,80 @@ describe('WindowSheetDialog — the rows below', () => {
     expect(screen.queryByTestId('window-attribute-row')).toBeNull();
   });
 
+  // tide-plan-card-plan.md §3 C3: the tide row's trailing fact, built here from `card.tideFit`
+  // and `card.reachMeasured` and handed down through `WindowAttributeRow`'s own `extraFacts` prop
+  // — never added inside `windowFirstRows.js#tideFacts`, which maps served facts only (§5 #6).
+  const TIDE_ROW = {
+    key: 'tide', channel: 'tide', kicker: '≈ Tide', facts: [{ segments: [{ text: 'HW 21:02', tone: 'strong' }] }], chart: null,
+  };
+
+  it('appends the coastal-pool count as a trailing fact on the tide row', () => {
+    renderDialog({
+      card: card({
+        rows: [TIDE_ROW],
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+      }),
+    });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts).toHaveLength(2);
+    expect(facts[1]).toHaveTextContent('9 of 14 coastal locations in reach on tide');
+  });
+
+  it('says "in reach" only when reachMeasured — otherwise states the count alone', () => {
+    renderDialog({
+      card: card({
+        rows: [TIDE_ROW],
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+        reachMeasured: false,
+      }),
+    });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts[1]).toHaveTextContent('9 of 14 coastal locations on tide');
+    expect(facts[1]).not.toHaveTextContent('in reach');
+  });
+
+  it('omits the fact entirely when the pool holds no coastal spot', () => {
+    // A zero is a fact about the roster, not about tonight — the row states the served facts
+    // alone rather than printing "0 of 0 coastal locations on tide".
+    renderDialog({
+      card: card({
+        rows: [TIDE_ROW],
+        tideFit: { coastal: 0, matched: 0, live: false, meanQuality: null },
+      }),
+    });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts).toHaveLength(1);
+    expect(screen.getByTestId('window-attribute-row')).not.toHaveTextContent('coastal locations');
+  });
+
+  it('states the fact at zero matched, as long as the coastal pool is non-empty', () => {
+    // The gate the plan names is `coastal === 0`, not `matched === 0` — a live pool that nobody
+    // currently matches is still a fact about tonight ("0 of 5"), and a mutation swapping one
+    // field for the other must fail this test, not only the coastal===0 one above where both
+    // fields happen to be zero together.
+    renderDialog({
+      card: card({
+        rows: [TIDE_ROW],
+        tideFit: { coastal: 5, matched: 0, live: false, meanQuality: null },
+      }),
+    });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts[facts.length - 1]).toHaveTextContent('0 of 5 coastal locations in reach on tide');
+  });
+
+  it('omits the fact entirely when the card carries no tideFit at all', () => {
+    // A window built before C1's per-window summary, or a legacy cache payload — absence, never
+    // a claim about zero coastal locations.
+    renderDialog({ card: card({ rows: [TIDE_ROW] }) });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts).toHaveLength(1);
+  });
+
   it('joins topics through the shared util, including the NIGHT bucketing', () => {
     // The popup and the matrix cell that opened it must name the same topics — one join, one
     // filter, in `windowFirstTopics.js`. Driven through the real index so the join is exercised.
