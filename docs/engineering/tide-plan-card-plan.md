@@ -33,19 +33,20 @@ depends only on the **served** fields T1 (#877) and T2 (#876) landed (§1 #1).
 
 ## §0 Status
 
-**Status: PLANNED — no phase started.** Five phases (C0–C4; C0 was added on the plan PR after a Codex
-review found the offset tiebreak inverted for MID wants). Plan written 2026-09-17 against `origin/main` at `0f9273ca`
+**Status: IN PROGRESS — C0 shipped, C1–C4 not started.** Five phases (C0–C4; C0 was added on the plan
+PR after a Codex review found the offset tiebreak inverted for MID wants). Plan written 2026-09-17
+against `origin/main` at `0f9273ca`
 (#878); re-checked 2026-09-18 against `de396bd2` after the tide-window series' T4–T7 merged (#879–#882) —
 nothing this plan builds on moved: the served `BriefingSlot.TideInfo`/`BriefingWindowTide` fields are
 unchanged, and T4–T7 touched the Map tab only. Owner decisions this plan needs are listed in §6; **none blocks any phase** — §5 takes the
 spec's two OPENs that would, and the owner challenges §5 on the plan PR, not in code.
 
-Phase log (C1 creates the first row; every phase appends its own in the same commit as its code —
+Phase log (C0 creates the first row; every phase appends its own in the same commit as its code —
 the commit column names the PR once it lands, since a phase cannot name its own hash):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| C0 | `feature/tide-card-c0-quality` | (PR pending) | 2026-09-18 | `BriefingSlot.TideInfo`/`TideDerivation` gain `Double tideAlignmentQuality` (`@JsonInclude(NON_NULL)`, null unless `tideAligned`); computed in `TideFactDeriver.derive()` on the same time axis alignment is decided on — nearest-extreme offset for HIGH/LOW, `TideService.nearestMidpointOffsetMinutes` (new, a second extremes fetch) for MID, best-of when more than one want aligns. `TideService.isMidPointAligned` now delegates to the shared `computeMidpointOffsetMinutes` geometry rather than a separate loop. No migration; both `TideInfo` legacy constructors and `TideDerivation` gain one more (16-field) to keep every predating call site compiling. A WARN logs the one avenue `tideAligned` and the new field can disagree (MID's second fetch racing a tide refresh) rather than degrading silently. No visible change — C1 is the first consumer.
 
 ---
 

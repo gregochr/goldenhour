@@ -372,6 +372,12 @@ public record BriefingSlot(
      *                                  {@code TideWording.tideFitPhrase} — one form when {@link
      *                                  #tideAligned}, a different one naming the wanted water
      *                                  otherwise; null alongside {@link #tideLevel}
+     * @param tideAlignmentQuality      how well-centred the water is in the wanted state at the
+     *                                  light, on the same time axis {@link #tideAligned} is
+     *                                  decided on — 0.0 at the edge of the tight alignment window,
+     *                                  1.0 dead centre. {@code null} unless {@link #tideAligned}.
+     *                                  Never level- or height-derived (CLAUDE.md's two-tide-axes
+     *                                  rule); the run ranking's own tiebreak, not shown on the card
      */
     public record TideInfo(
             String tideState,
@@ -391,7 +397,8 @@ public record BriefingSlot(
             @JsonInclude(JsonInclude.Include.NON_NULL) String tideDirection,
             @JsonInclude(JsonInclude.Include.NON_NULL) String tideHeight,
             @JsonInclude(JsonInclude.Include.NON_NULL) String tideShortfall,
-            @JsonInclude(JsonInclude.Include.NON_NULL) String tideFitPhrase) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String tideFitPhrase,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Double tideAlignmentQuality) {
 
         /** Tide info for inland locations with no tide data. */
         public static final TideInfo NONE =
@@ -451,7 +458,7 @@ public record BriefingSlot(
             this(tideState, tideAligned, nearestHighTideTime, nearestHighTideHeight,
                     heightAboveP95, heightAboveSpringThreshold, lunarTideType, lunarPhase,
                     moonAtPerigee, nearestSolarOffsetMinutes, nearestExtremeKind, tideOnTheLight,
-                    nearestSolarOffsetPhrase, null, null, null, null, null);
+                    nearestSolarOffsetPhrase, null, null, null, null, null, null);
         }
 
         /**

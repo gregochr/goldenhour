@@ -224,7 +224,8 @@ public class BriefingSlotBuilder {
                 tideResult.nearestExtremeKind(), tideResult.tideOnTheLight(),
                 tideResult.nearestSolarOffsetPhrase(), tideResult.tideLevel(),
                 tideResult.tideDirection(), tideResult.tideHeight(),
-                tideResult.tideShortfall(), tideResult.tideFitPhrase());
+                tideResult.tideShortfall(), tideResult.tideFitPhrase(),
+                tideResult.tideAlignmentQuality());
 
         BriefingSlot slot = new BriefingSlot(loc.getId(), loc.getName(), solarTime, verdict,
                 weather, tideInfo, flags, standdownReason);
@@ -310,6 +311,10 @@ public class BriefingSlotBuilder {
      *                                  BriefingSlot.TideInfo#tideShortfall}
      * @param tideFitPhrase             the map tab's tide-fit block body, formatted; null
      *                                  alongside {@link #tideLevel}
+     * @param tideAlignmentQuality      how well-centred the water is in the wanted state at the
+     *                                  light (C0's served figure) — see {@link
+     *                                  BriefingSlot.TideInfo#tideAlignmentQuality}; relayed
+     *                                  unchanged from {@link com.gregochr.goldenhour.model.TideDerivation}
      */
     record TideResult(String tideState, boolean tideAligned,
             LocalDateTime nearestHighTime, BigDecimal nearestHighHeight,
@@ -317,11 +322,12 @@ public class BriefingSlotBuilder {
             LunarTideType lunarTideType, String lunarPhase, Boolean moonAtPerigee,
             Integer nearestSolarOffsetMinutes, String nearestExtremeKind, Boolean tideOnTheLight,
             String nearestSolarOffsetPhrase, Double tideLevel, String tideDirection,
-            String tideHeight, String tideShortfall, String tideFitPhrase) {
+            String tideHeight, String tideShortfall, String tideFitPhrase,
+            Double tideAlignmentQuality) {
 
         static final TideResult NONE =
                 new TideResult(null, false, null, null, false, false, null, null, null,
-                        null, null, null, null, null, null, null, null, null);
+                        null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -423,7 +429,8 @@ public class BriefingSlotBuilder {
                 d.nextHighTideHeightMetres(), heightAboveP95, heightAboveSpringThreshold,
                 d.lunarTideType(), d.lunarPhase(), d.moonAtPerigee(),
                 nearestOffsetMinutes, nearestKind, tideOnTheLight, nearestOffsetPhrase,
-                tideLevel, tideDirection, tideHeight, tideShortfall, tideFitPhrase);
+                tideLevel, tideDirection, tideHeight, tideShortfall, tideFitPhrase,
+                d.tideAlignmentQuality());
     }
 
     /**
