@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import com.gregochr.goldenhour.entity.EvaluationDeltaLogEntity;
 import com.gregochr.goldenhour.entity.ForecastStability;
@@ -274,36 +275,51 @@ public class BriefingEvaluationService {
 
     /**
      * Merges bluebell mini-batch results into the region cache entry, recombining the rating with
-     * a prior sky result where one exists (the OPEN_FELL merge-join, Pass 3 C3b).
+     * a prior sky result where the location's own exposure calls for it (the OPEN_FELL merge-join,
+     * Pass 3 C3b).
      *
-     * <p>For each incoming bluebell result, the prior cache entry for that location decides the
-     * shape:
+     * <p>For each incoming bluebell result, the location's own {@code bluebellExposure} — not the
+     * shape of the prior cache entry — decides which shape applies:
      * <ul>
-     *   <li><b>OPEN_FELL</b> — a prior sky-scored entry exists (non-null
+     *   <li><b>OPEN_FELL (or unset)</b> — when a prior sky-scored entry exists (non-null
      *       {@code fierySkyPotential}): the served rating becomes
      *       {@code round(avg(sky rating, bluebell rating))}, keeping the sky narrative
      *       (fiery/golden potentials, summary, headline) so the card still reads as a sky
      *       forecast with the bluebell display folded into the star rating. The SKY and BLUEBELL
      *       component rows in {@code forecast_score} remain the separate audit trail.</li>
-     *   <li><b>WOODLAND</b> — no prior sky entry (the gate excludes woodland from the sky
-     *       buckets in season): the bluebell result stands alone as the served entry.</li>
+     *   <li><b>WOODLAND</b> — the bluebell result always stands alone as the served entry, even
+     *       if a prior sky-scored entry happens to be sitting in the cache (a stale pre-season
+     *       write, or a force-submit run that skipped the {@code hasColourTypes()} gate). Averaging
+     *       a WOODLAND rating with any sky score is the wrong axis — see
+     *       {@code RatingCombiner.selectRatingPeers}, the authoritative rule this mirrors.</li>
      * </ul>
+     *
+     * <p>Bluebell exposure by design has only two values and no location reaches this merge
+     * without being a bluebell location, but a caller can only supply what it resolved; a location
+     * missing from {@code exposureByLocation} (or carrying a {@code null} exposure) is treated as
+     * not-WOODLAND, matching {@code RatingCombiner}'s own default (only an explicit WOODLAND
+     * exposure withholds the sky peer).
      *
      * <p><b>Ordering.</b> The recombination reads the sky entry from the prior cache, so it is
      * correct when the sky batch's write precedes the bluebell merge — the common case, since the
      * near-term sky and bluebell buckets are submitted together. If the bluebell mini-batch
-     * happens to complete first, the open-fell location merges as woodland (bluebell-alone) for
+     * happens to complete first, an OPEN_FELL location merges as woodland (bluebell-alone) for
      * that cycle and the sky write then overlays its own rating; the next cycle reconciles. The
      * {@code forecast_score} component rows are unaffected by this ordering — they are the
      * authoritative record. A fully order-independent join (post-wait reconciliation) is a future
      * refinement; it is not needed before the in-season validation because the feature ships
      * dormant.
      *
-     * @param cacheKey        the cache key in the format "regionName|date|targetType"
-     * @param bluebellResults the bluebell results to merge (each with a null fiery/golden)
+     * @param cacheKey            the cache key in the format "regionName|date|targetType"
+     * @param bluebellResults     the bluebell results to merge (each with a null fiery/golden)
+     * @param exposureByLocation  each incoming result's location name mapped to its
+     *                            {@code LocationEntity.getBluebellExposure()}, resolved by the
+     *                            caller from the same {@code LocationEntity} the batch response
+     *                            was parsed against
      */
     public void mergeBluebellFromBatch(String cacheKey,
-            List<BriefingEvaluationResult> bluebellResults) {
+            List<BriefingEvaluationResult> bluebellResults,
+            Map<String, BluebellExposure> exposureByLocation) {
         CachedEvaluation prior = cache.get(cacheKey);
         ConcurrentHashMap<String, BriefingEvaluationResult> merged = new ConcurrentHashMap<>();
         if (prior != null) {
@@ -314,7 +330,8 @@ public class BriefingEvaluationService {
         Instant now = Instant.now();
         for (BriefingEvaluationResult bluebell : bluebellResults) {
             BriefingEvaluationResult existing = merged.get(bluebell.locationName());
-            BriefingEvaluationResult combined = recombineBluebell(existing, bluebell);
+            BluebellExposure exposure = exposureByLocation.get(bluebell.locationName());
+            BriefingEvaluationResult combined = recombineBluebell(existing, bluebell, exposure);
             // ⚠️ Stamp only what this write actually produced. An OPEN_FELL recombination returns
             // the PRIOR sky entry's prose, potentials and headline with only the rating blended, so
             // it carries that entry's write time out of `recombineBluebell` and must keep it. The
@@ -360,14 +377,25 @@ public class BriefingEvaluationService {
 
     /**
      * Recombines a bluebell result with a prior cache entry: averages the rating onto the sky
-     * narrative for OPEN_FELL (a prior sky-scored entry exists), or returns the bluebell result
-     * unchanged for WOODLAND (no prior sky entry). Package-private for direct unit testing.
+     * narrative when the location's own {@code bluebellExposure} is not WOODLAND and a prior
+     * sky-scored entry exists, or returns the bluebell result unchanged otherwise (WOODLAND, or
+     * no prior sky entry to average with). Package-private for direct unit testing.
+     *
+     * <p>{@code exposure} is the location's actual {@code BluebellExposure} — never inferred from
+     * whether the prior cache entry looks sky-scored. Inferring it from {@code existing} alone
+     * would average a stale, months-old pre-season sky entry into a WOODLAND-exposure location's
+     * rating the moment bluebell season starts, for any bluebell site that also carries a
+     * sky-eligible {@code LocationType} (so it is not {@code isWoodlandOnly()} and therefore still
+     * gets sky-scored off-season) — the same "averaged across the wrong axis" defect class as the
+     * OPEN_FELL tide double-count this mirrors. {@code null} (unresolved or unset exposure) is
+     * treated as not-WOODLAND, matching {@code RatingCombiner.selectRatingPeers}'s own default.
      */
     BriefingEvaluationResult recombineBluebell(BriefingEvaluationResult existing,
-            BriefingEvaluationResult bluebell) {
-        boolean openFell = existing != null && existing.fierySkyPotential() != null
-                && existing.rating() != null && bluebell.rating() != null;
-        if (!openFell) {
+            BriefingEvaluationResult bluebell, BluebellExposure exposure) {
+        boolean averageWithSky = existing != null && existing.fierySkyPotential() != null
+                && existing.rating() != null && bluebell.rating() != null
+                && exposure != BluebellExposure.WOODLAND;
+        if (!averageWithSky) {
             return bluebell;
         }
         int averaged = Math.round((existing.rating() + bluebell.rating()) / 2.0f);

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.entity.BatchState;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.InversionDetails;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -324,15 +326,20 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
     /**
      * Merges a group of bluebell mini-batch results into the region cache entry, recombining the
-     * rating with a prior sky result for OPEN_FELL sites (C3b). Delegates to
+     * rating with a prior sky result for non-WOODLAND sites (C3b). Delegates to
      * {@link BriefingEvaluationService#mergeBluebellFromBatch}; the processor selects this path
      * for {@code bb-} responses.
      *
-     * @param cacheKey region cache key
-     * @param results  the bluebell results for that cache key
+     * @param cacheKey            region cache key
+     * @param results             the bluebell results for that cache key
+     * @param exposureByLocation  each result's location name mapped to that location's actual
+     *                            {@code BluebellExposure}, resolved by the caller from the same
+     *                            {@code LocationEntity} the batch response was parsed against —
+     *                            see {@link BriefingEvaluationService#mergeBluebellFromBatch}
      */
-    public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
-        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results);
+    public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results,
+            Map<String, BluebellExposure> exposureByLocation) {
+        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results, exposureByLocation);
     }
 
     /**
