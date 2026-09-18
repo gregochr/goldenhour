@@ -613,12 +613,18 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
 /**
  * The tide strip on the phone (tide-window-plan.md §3 T7, docs/design/tide-window/README.md §6):
  * it takes the count footer's OWN row of the lifted stack rather than sharing space with it — "the
- * tide sentence is the more useful line at that width" — so the footer is hidden outright, not
- * merely lifted alongside it the way every other row above is. Everything that used to clear the
- * footer's assumed ~28px height now has to clear the strip's REAL one instead (`--tsh`, T6 #6):
+ * tide sentence is the more useful line at that width" — so the footer is visually hidden outright,
+ * not merely lifted alongside it the way every other row above is. Everything that used to clear
+ * the footer's assumed ~28px height now has to clear the strip's REAL one instead (`--tsh`, T6 #6):
  * open and collapsed are roughly 4x apart (T6's own 1280x800 measurement — 167px vs 38px — used as
  * the stub here too, since this suite has no real layout to measure its own), so a fixed offset
  * would be wrong for one of the two states by construction.
+ *
+ * ⚠️ "Visually" is load-bearing since §6 Q8 (decided 2026-09-18, option 2, tide-window-plan.md §4
+ * #19): T7 originally hid the footer with `display: none`, which also pulled it out of the
+ * accessibility tree — an unexamined side effect of a decision the design's own §6 only reasoned
+ * about screen SPACE. The footer is now `sr-only`-clipped instead (still absent from the
+ * rendered layout, still not painted) so a screen-reader user keeps the count.
  */
 describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
   it('spans the frame edge-to-edge, anchored to the count footer\'s own row', () => {
@@ -650,13 +656,23 @@ describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
     }
   });
 
-  it('hides the count footer OUTRIGHT while the strip is on — never merely lifted, unlike every other row in the stack', () => {
+  it('visually hides the count footer while the strip is on — an sr-only clip, never `display: none` (§6 Q8, decided)', () => {
     const slice = extractRulesIncludingMedia('.wf-map-counts-footer');
     const cleanup = inject(slice);
     try {
       // Both classes on the SAME node — `computedStyleFor`'s ancestor entries become one
       // element's `className`, so a space-separated string sets both at once.
-      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab wf-tide-strip-on']).display).toBe('none');
+      const style = computedStyleFor('wf-map-counts-footer', ['wf-map-tab wf-tide-strip-on']);
+      // `display: none` would also remove the element from the accessibility tree (§6 Q8) — the
+      // fix is specifically that this must NOT be `none` any more.
+      expect(style.display).not.toBe('none');
+      // The `sr-only` recipe itself: a 1px, clipped, off-flow box — visually equivalent to
+      // `display: none` (nothing paints) without the accessibility-tree removal.
+      expect(style.position).toBe('absolute');
+      expect(style.width).toBe('1px');
+      expect(style.height).toBe('1px');
+      expect(style.overflow).toBe('hidden');
+      expect(style.clipPath).toBe('inset(50%)');
     } finally {
       cleanup();
     }
@@ -666,7 +682,11 @@ describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
     const slice = extractRulesIncludingMedia('.wf-map-counts-footer');
     const cleanup = inject(slice);
     try {
-      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).display).not.toBe('none');
+      const style = computedStyleFor('wf-map-counts-footer', ['wf-map-tab']);
+      expect(style.display).not.toBe('none');
+      // Not the sr-only clip either — the strip-off footer keeps its full on-screen size.
+      expect(style.width).not.toBe('1px');
+      expect(style.clipPath).not.toBe('inset(50%)');
     } finally {
       cleanup();
     }

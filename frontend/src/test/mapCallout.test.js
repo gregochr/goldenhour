@@ -110,6 +110,21 @@ describe('calloutBand', () => {
     expect(band).toEqual({ top: 8, bot: 592 });
   });
 
+  it('ignores a 1×1 bar too — the sr-only-clipped counts footer\'s real rect while the tide strip is on (§6 Q8, decided)', () => {
+    // Q8 replaced the phone counts footer's `display: none` (a genuine 0×0 rect this test's
+    // sibling above already covers) with a visually-hidden `sr-only` clip — `position: absolute;
+    // width: 1px; height: 1px; overflow: hidden` — kept in the accessibility tree on purpose. Its
+    // `always: true` (the footer's own opt-out, tested above) bypasses only the WIDTH test, so
+    // without this `> 1` guard a 1×1 box positioned deep in the frame would still bind a floor/
+    // ceiling nobody can see. `always: true` here proves the width opt-out alone cannot save it —
+    // the size guard has to be the thing that excludes it.
+    const bars = [{
+      top: 500, bottom: 501, width: 1, height: 1, always: true,
+    }];
+    const band = calloutBand({ frameWidth: 400, frameHeight: 600, bars });
+    expect(band).toEqual({ top: 8, bot: 592 });
+  });
+
   it('tolerates a missing/undefined bars array', () => {
     expect(calloutBand({ frameWidth: 400, frameHeight: 600, bars: undefined }))
       .toEqual({ top: 8, bot: 592 });

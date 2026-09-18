@@ -65,6 +65,20 @@ const BAND_EDGE_PAD = 8;
  * the width test was standing in for: bottom-centred chrome the card must clear at any width. Every
  * other bar keeps the width rule unchanged.
  *
+ * <h2>A bar with a real-but-degenerate rect never counts either</h2>
+ *
+ * <p>⚠️ The zero-size skip below reads {@code > 1}, not the more obvious {@code > 0} (tide-window-
+ * plan.md §6 Q8, decided 2026-09-18): the counts footer's own {@code getBoundingClientRect()} used
+ * to return a genuine {@code 0×0} while it was `display: none` on the phone with the tide strip
+ * showing, which this skip already excluded. The Q8 fix replaced that `display: none` with a
+ * visually-hidden `sr-only`-style clip (`position: absolute; width: 1px; height: 1px; overflow:
+ * hidden`, kept in the accessibility tree on purpose) — so the footer's rect became a genuine,
+ * non-zero {@code 1×1}, which would otherwise clear a bare {@code > 0} test and let a chip nobody
+ * can see bind the callout's floor/ceiling (it already opts OUT of the width test via
+ * {@code always: true}, below). {@code > 1} treats "1px or smaller in either dimension" as the same
+ * kind of nothing a {@code 0×0} rect already was — real chrome is always many pixels in both
+ * dimensions, so this only ever changes behaviour for a clipped, invisible element.
+ *
  * @param {object} args
  * @param {number} args.frameWidth  the map container's width, px
  * @param {number} args.frameHeight the map container's height, px
@@ -77,7 +91,7 @@ export function calloutBand({ frameWidth, frameHeight, bars }) {
   let top = BAND_EDGE_PAD;
   let bot = frameHeight - BAND_EDGE_PAD;
   for (const bar of Array.isArray(bars) ? bars : []) {
-    if (!bar || !(bar.width > 0) || !(bar.height > 0)) continue;
+    if (!bar || !(bar.width > 1) || !(bar.height > 1)) continue;
     if (!bar.always && bar.width < frameWidth * 0.5) continue;
     if (bar.bottom < frameHeight * 0.5) {
       top = Math.max(top, bar.bottom + BAND_EDGE_PAD);

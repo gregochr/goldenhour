@@ -3606,12 +3606,14 @@ button.wf-hc.also.on:hover {
    free, and the bottom-right scored-locations chip is out of the strip's column entirely.
 
    ⚠️ This rule carries no media query, so it still fires on the phone (T7) — where the SAME
-   selector's `display: none` (below, inside `@media (max-width: 639px)`) already wins on the
-   element's visibility. The `bottom` this rule computes on the phone is therefore dead arithmetic,
-   never painted — left unscoped deliberately rather than wrapped in `@media (min-width: 640px)`,
-   since narrowing it risks nothing this rule alone can break and a media-query split here would be
-   one more thing for the phone rule to stay in sync with for no visible gain (adversarial review,
-   T7: flagged as a minor real finding, fixed with this comment rather than a second media block). */
+   selector is visually hidden (below, inside `@media (max-width: 639px)`, an `sr-only`-shaped
+   clip rather than `display: none` since the accessibility fix for §6 Q8) regardless of this
+   `bottom`. The value this rule computes on the phone is therefore visually inert — a 1px clipped
+   box paints at whatever position `bottom` puts it, but nothing about that position is observable
+   — left unscoped deliberately rather than wrapped in `@media (min-width: 640px)`, since narrowing
+   it risks nothing this rule alone can break and a media-query split here would be one more thing
+   for the phone rule to stay in sync with for no visible gain (adversarial review, T7: flagged as
+   a minor real finding, fixed with this comment rather than a second media block). */
 .wf-map-tab.wf-tide-strip-on .wf-map-counts-footer {
   bottom: calc(var(--tsh, 120px) + 16px);
 }
@@ -3938,8 +3940,17 @@ button.wf-hc.also.on:hover {
   /* ── The tide strip on the phone (tide-window-plan.md §3 T7, docs/design/tide-window/README.md
      §6) ─────────────────────────────────────────────────────────────────────────────────────────
      "The tide sentence is the more useful line at that width" (design §6), so the strip does not
-     share the counts footer's row — it REPLACES it: the footer is hidden outright (not merely
-     lifted, unlike every other row here) and the strip takes its `bottom: 112px` anchor instead.
+     share the counts footer's row — it REPLACES it: the footer is visually hidden outright (not
+     merely lifted, unlike every other row here) and the strip takes its `bottom: 112px` anchor
+     instead. ⚠️ Visually, not `display: none` — §6 Q8 (adversarial review, T7) found the earlier
+     `display: none` also pulled the count/rated/filtered figures out of the accessibility tree
+     for as long as the strip was showing, with no `aria-live`/status substitute anywhere else on
+     the tab. The design's own reasoning ("stacking both pushes the map to nothing") is a claim
+     about screen SPACE, which a non-visual reader has none of — so the owner decision (2026-09-18,
+     option 2) keeps the design's visual behaviour exactly and restores the count to the
+     accessibility tree via the same `sr-only`-shaped clip this file already writes out elsewhere
+     (`.wf-win-pick-words`, further down this file) for a selector that has to apply from a media query rather than
+     a class on the element.
      ⚠️ The strip is `MapView.jsx`'s own SIBLING of `.wf-map-chrome-bl` on the phone, never nested
      inside it the way the desktop mount is (T6, §4 #6) — it needs to span `left: 8px; right: 8px`
      against the FRAME, the same containing block the footer/scored-legend rules above already use,
@@ -3955,8 +3966,24 @@ button.wf-hc.also.on:hover {
     width: auto;
     max-width: none;
   }
+  /* Visually hidden, NOT `display: none` (tide-window-plan.md §6 Q8, decided 2026-09-18, option
+     2) — a screen-reader user has no stake in the space contention the design's own §6 reasoning
+     is about, so hiding the count VISUALLY honours the design while keeping it in the
+     accessibility tree. The recipe is Tailwind's own `sr-only` utility (confirmed against
+     `node_modules/tailwindcss`: `clip-path: inset(50%)`, not the older `clip: rect(...)`), written
+     out rather than applied as a class because this selector only exists inside a media query.
+     `.wf-map-counts-footer`'s own base rule already carries `pointer-events: none` (below), so
+     this 1px box can never intercept a tap either way. */
   .wf-map-tab.wf-tide-strip-on .wf-map-counts-footer {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
   }
   /* Everything that used to clear the FOOTER's own assumed ~28px height now clears the STRIP's
      real one instead (`--tsh`, T6 #6) — open and collapsed are roughly 4x apart (T6's own
