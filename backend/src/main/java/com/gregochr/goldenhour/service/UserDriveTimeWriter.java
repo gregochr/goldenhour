@@ -102,7 +102,8 @@ public class UserDriveTimeWriter {
     }
 
     /**
-     * Discards a user's drive times outright, leaving them unknown until the next refresh.
+     * Discards a user's drive times outright, leaving them unknown until a refresh measures them
+     * from the new home.
      *
      * <p><b>Unknown is safe here; wrong is not.</b> A drive time is measured from one origin, and
      * the moment the user's home moves every stored row describes a journey nobody is going to
@@ -113,7 +114,11 @@ public class UserDriveTimeWriter {
      *
      * <p>Deliberately not a re-route. Recalculating means an external routing call per location,
      * which is slow, rate-limited and able to fail — none of which belongs inside saving a
-     * postcode. The user refreshes when they are ready.
+     * postcode. Whichever of two refreshes first measures from the new home ends the gap: the
+     * nightly {@link DriveTimeRefreshJob}, which routes every enabled user with a saved home, or
+     * the user's own press of <em>Refresh drive times</em> in the Settings dialog
+     * ({@code UserSettingsService.refreshDriveTimes}). The dialog enables that button for Pro and
+     * admin accounts only, so a LITE account waits for the nightly run.
      *
      * <p>Callers must hold the user row's lock first, as {@code UserSettingsService.saveHome}
      * does: that is the ordering {@link #storeIfHomeUnchanged} relies on.
