@@ -51,6 +51,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -425,10 +426,10 @@ class ForecastResultHandlerTest {
     }
 
     @Test
-    @DisplayName("parseBluebellBatchResponse: coastal OPEN_FELL never re-derives tide — the sky "
-            + "task pairs with it and recombineBluebell folds tide in via the sky rating; "
+    @DisplayName("parseBluebellBatchResponse: coastal OPEN_FELL with the sky side already cached "
+            + "does NOT re-derive tide — recombineBluebell folds tide in via that sky rating; "
             + "re-deriving it here would double-count it")
-    void parseBluebellBatchResponse_coastalOpenFell_doesNotDeriveTide() {
+    void parseBluebellBatchResponse_coastalOpenFell_skyAlreadyCached_doesNotDeriveTide() {
         LocationEntity location = coastalOpenFellBluebellLocation(55L, "Rannerdale", "Lake District");
         ForecastIdentity identity = new ForecastIdentity(55L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
@@ -440,6 +441,11 @@ class ForecastResultHandlerTest {
         when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new BluebellEvaluation(
                         5, "Golden light rakes the slope.", "Raking fell light"));
+        // The paired sky task's own batch already completed and flushed — the same signal
+        // recombineBluebell itself keys on (a non-null fierySkyPotential).
+        when(briefingEvaluationService.getCachedScores("Lake District", DATE, SUNRISE))
+                .thenReturn(Map.of("Rannerdale",
+                        new BriefingEvaluationResult("Rannerdale", 3, 60, 55, "Broken cloud")));
 
         Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
                 location, identity, outcome,
@@ -465,6 +471,47 @@ class ForecastResultHandlerTest {
         assertThat(captor.getValue())
                 .singleElement()
                 .satisfies(c -> assertThat(c.type()).isEqualTo(ForecastType.BLUEBELL));
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: coastal OPEN_FELL with NO sky entry cached yet "
+            + "(race, or the paired sky task failed) DOES derive tide — the only signal available "
+            + "this cycle; dropping it would silently overrate a misaligned-tide coastal slot")
+    void parseBluebellBatchResponse_coastalOpenFell_noSkyEntryYet_derivesTideAsFallback() {
+        LocationEntity location = coastalOpenFellBluebellLocation(57L, "St Bees", "Cumbria Coast");
+        ForecastIdentity identity = new ForecastIdentity(57L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-57-2026-04-16-SUNRISE",
+                "{\"rating\":5,\"summary\":\"Golden light rakes the slope.\","
+                        + "\"headline\":\"Raking fell light\"}",
+                new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(
+                        5, "Golden light rakes the slope.", "Raking fell light"));
+        // No stub for getCachedScores — Mockito's default answer for a Map-returning method is
+        // an empty map, exactly matching "the sky task has not been cached yet" (whether it is
+        // still in flight, or has already failed permanently this cycle).
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
+                .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        // avg(tide 1 [misaligned], bluebell 5) = 3 — tide contributes exactly once, as the sole
+        // fallback signal for a cycle where no sky rating is available to blend with instead.
+        assertThat(result.get().result().rating()).isEqualTo(3);
+        verify(forecastDataAugmentor).deriveTideContext(location, DATE, SUNRISE);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ComponentScore>> captor = ArgumentCaptor.forClass(List.class);
+        verify(forecastScoreWriter).writeComponents(
+                eq(location), eq(DATE), eq(SUNRISE), captor.capture(), eq(null));
+        assertThat(captor.getValue())
+                .extracting(ComponentScore::type)
+                .containsExactlyInAnyOrder(ForecastType.BLUEBELL, ForecastType.TIDAL);
     }
 
     @Test
