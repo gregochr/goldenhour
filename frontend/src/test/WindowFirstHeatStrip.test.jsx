@@ -644,6 +644,64 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
     await renderStrip({ cards: [stripCard({ away: true, verdict: null, verdictLabel: 'Not forecast' })] });
     expect(screen.queryByTestId('wf-heat-best')).toBeNull();
   });
+
+  /**
+   * The tide glyph before the named spot (tide-plan-card-plan.md §3 C2 task 1). §7 check 4: the
+   * glyph is match-only, and it must stay silent — no mark, no recolour — on every other state.
+   */
+  describe('the tide glyph on the named spot', () => {
+    it('draws the glyph and adds the axis clause to the tooltip and the accessible name when the water matches', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          pool: [poolSpot({ tideState: 'HIGH', tideAligned: true, tideQuality: 0.9 })],
+        })],
+      });
+      expect(screen.getByTestId('wf-heat-best-tide')).toBeInTheDocument();
+      // The timing phrase ("high water on the light") is never used — the glyph asks the
+      // preference question, not the timing one (§1 #6, §4 #3, §7 check 10).
+      expect(screen.getByTestId('wf-heat-best')).toHaveAttribute(
+        'title',
+        'Northumberland & Tyneside · 40 min · leave 20:11 · high water — the water it wants',
+      );
+      expect(screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
+          + 'Northumberland & Tyneside, 40 min, leave 20:11, the tide is right here',
+      })).toBeInTheDocument();
+    });
+
+    it('leaves the name\'s class untouched when the glyph shows — the glyph carries the signal, not a recolour', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          pool: [poolSpot({ tideState: 'HIGH', tideAligned: true, tideQuality: 0.9 })],
+        })],
+      });
+      // No conditional class and no inline colour: `--color-plex-text` stays the only ink rule in
+      // play, whichever way the water lies.
+      expect(screen.getByTestId('wf-heat-best').className).toBe('wf-hc-best');
+      expect(screen.getByTestId('wf-heat-best')).not.toHaveAttribute('style');
+    });
+
+    it('draws no glyph, and adds no clause anywhere, when the best-reach spot is coastal but its water misses', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          pool: [poolSpot({ tideState: 'LOW', tideAligned: false, tideQuality: null })],
+        })],
+      });
+      expect(screen.queryByTestId('wf-heat-best-tide')).toBeNull();
+      expect(screen.getByTestId('wf-heat-best'))
+        .toHaveAttribute('title', 'Northumberland & Tyneside · 40 min · leave 20:11');
+      expect(screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
+          + 'Northumberland & Tyneside, 40 min, leave 20:11',
+      })).toBeInTheDocument();
+    });
+
+    it('draws no glyph when the best-reach spot is inland', async () => {
+      // `poolSpot()`'s default carries no tide fields at all — the ordinary inland shape.
+      await renderStrip({ cards: [ratedCard()] });
+      expect(screen.queryByTestId('wf-heat-best-tide')).toBeNull();
+    });
+  });
 });
 
 describe('WindowFirstHeatStrip — topics on the card', () => {
@@ -763,6 +821,269 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
       hotTopics: [AURORA_TOPIC],
     });
     expect(screen.queryByTestId('wf-heat-topics')).toBeNull();
+  });
+
+  /**
+   * The tide chip, first in the topics line (tide-plan-card-plan.md §3 C2 task 2). It is a
+   * client-derived mark rather than a served badge, so it is asserted here rather than as a member
+   * of {@code facts.topics}.
+   */
+  describe('the tide chip', () => {
+    it('renders nothing when the window is below the gate', async () => {
+      await renderStrip({
+        cards: [ratedCard({ tideFit: { coastal: 4, matched: 2, live: false, meanQuality: null } })],
+      });
+      expect(screen.queryByTestId('wf-heat-tide-chip')).toBeNull();
+    });
+
+    it('renders nothing when the card carries no tide fit at all', async () => {
+      await renderStrip({ cards: [ratedCard()] });
+      expect(screen.queryByTestId('wf-heat-tide-chip')).toBeNull();
+    });
+
+    it('names the matched count and the served window state in its tooltip when live', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+          tide: { state: 'MID', direction: 'FALLING' },
+          reachMeasured: true,
+        })],
+      });
+      const chip = screen.getByTestId('wf-heat-tide-chip');
+      expect(chip).toHaveTextContent('9 on tide');
+      expect(chip).not.toHaveAttribute('data-best');
+      expect(chip).toHaveAttribute(
+        'title',
+        '9 of 14 coastal locations in reach get the water they want — mid tide, falling',
+      );
+    });
+
+    it('drops "in reach" from the tooltip when the reach axis could not have acted', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+          tide: { state: 'HIGH', direction: 'RISING' },
+          reachMeasured: false,
+        })],
+      });
+      const title = screen.getByTestId('wf-heat-tide-chip').getAttribute('title');
+      expect(title).not.toContain('in reach');
+      expect(title).toContain('9 of 14 coastal locations get the water they want');
+    });
+
+    it('carries no emphasis and no run clause when it is the only live window', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+          tide: { state: 'HIGH', direction: 'RISING' },
+        })],
+      });
+      const chip = screen.getByTestId('wf-heat-tide-chip');
+      expect(chip).not.toHaveAttribute('data-best');
+      expect(chip).not.toHaveTextContent('best of');
+      const title = chip.getAttribute('title');
+      expect(title).not.toContain('windows in this run are live');
+      expect(title).not.toContain('the most of any of them');
+    });
+
+    it('emphasises only the run\'s ranked best when more than one window is live', async () => {
+      const lowerQuality = ratedCard({
+        key: `${TODAY}:SUNSET`,
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.3 },
+        tide: { state: 'HIGH', direction: 'RISING' },
+      });
+      const higherQuality = ratedCard({
+        key: '2026-08-05:SUNRISE',
+        date: '2026-08-05',
+        targetType: 'SUNRISE',
+        sunrise: true,
+        dow: 'Wed',
+        label: 'Tomorrow sunrise',
+        time: '05:20',
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.9 },
+        tide: { state: 'HIGH', direction: 'RISING' },
+      });
+      await renderStrip({ cards: [lowerQuality, higherQuality] });
+      const chips = screen.getAllByTestId('wf-heat-tide-chip');
+      expect(chips).toHaveLength(2);
+      const emphasised = chips.filter((c) => c.hasAttribute('data-best'));
+      expect(emphasised).toHaveLength(1);
+      expect(emphasised[0]).toHaveTextContent('best of 2');
+      expect(emphasised[0].getAttribute('title')).toContain('2 windows in this run are live');
+      expect(emphasised[0].getAttribute('title')).toContain('the most of any of them');
+      // The non-winning window states only its own count — already the comparison.
+      const other = chips.find((c) => c !== emphasised[0]);
+      expect(other).toHaveTextContent('9 on tide');
+      expect(other).not.toHaveTextContent('best of');
+      expect(other.getAttribute('title')).toContain('2 windows in this run are live');
+      expect(other.getAttribute('title')).not.toContain('the most of any of them');
+    });
+
+    it('adds its own clause to the accessible name, and only when live', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          key: `${TODAY}:SUNSET`,
+          pool: [poolSpot()],
+          tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+          tide: { state: 'HIGH', direction: 'RISING' },
+        })],
+      });
+      expect(screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
+          + 'Northumberland & Tyneside, 40 min, leave 20:11, 9 on tide',
+      })).toBeInTheDocument();
+    });
+
+    it('says "9 on tide, best of 3" in the accessible name of the run\'s best live card', async () => {
+      const a = ratedCard({
+        key: `${TODAY}:SUNSET`,
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.3 },
+        tide: { state: 'HIGH', direction: 'RISING' },
+      });
+      const b = ratedCard({
+        key: '2026-08-05:SUNRISE',
+        date: '2026-08-05',
+        targetType: 'SUNRISE',
+        sunrise: true,
+        dow: 'Wed',
+        label: 'Tomorrow sunrise',
+        time: '05:20',
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.6 },
+        tide: { state: 'HIGH', direction: 'RISING' },
+      });
+      const c = ratedCard({
+        key: '2026-08-06:SUNRISE',
+        date: '2026-08-06',
+        targetType: 'SUNRISE',
+        sunrise: true,
+        dow: 'Thu',
+        label: 'Thursday sunrise',
+        time: '05:22',
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.9 },
+        tide: { state: 'HIGH', direction: 'RISING' },
+      });
+      await renderStrip({ cards: [a, b, c] });
+      // Through the real accessible-name algorithm (`getByRole`'s own route via `aria-labelledby`),
+      // not `textContent` — the visible chip's own DOM has no comma between its two text runs, so a
+      // `textContent` match would prove less than it claims to.
+      expect(screen.getByRole('button', { name: /Thursday sunrise.*9 on tide, best of 3/ }))
+        .toBeInTheDocument();
+    });
+
+    it('never renders the timing phrase "on the light" anywhere on the card', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          pool: [poolSpot({ tideState: 'HIGH', tideAligned: true, tideQuality: 0.9 })],
+          tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+          tide: { state: 'HIGH', direction: 'RISING' },
+        })],
+      });
+      expect(document.body.innerHTML).not.toContain('on the light');
+    });
+
+    it('places no sr-only element inside the aria-hidden value grid — only the one hidden sentence', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          pool: [poolSpot({ tideState: 'HIGH', tideAligned: true, tideQuality: 0.9 })],
+          tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+          tide: { state: 'HIGH', direction: 'RISING' },
+        })],
+      });
+      const grid = screen.getByTestId('wf-heat-value-grid');
+      expect(grid.querySelector('.sr-only')).toBeNull();
+    });
+  });
+});
+
+describe('WindowFirstHeatStrip — the tide chip\'s gate across a six-card fixture (tide-plan-card-plan.md §7 checks 1 and 2)', () => {
+  const SIX = [
+    stripCard({
+      key: `${TODAY}:SUNRISE`, targetType: 'SUNRISE', sunrise: true, label: 'Today sunrise', time: '05:49',
+      tideFit: { coastal: 14, matched: 2, live: false, meanQuality: null },
+    }),
+    stripCard({
+      key: `${TODAY}:SUNSET`, targetType: 'SUNSET', label: 'Tonight Sunset', time: '21:11',
+      tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.3 },
+      tide: { state: 'HIGH', direction: 'RISING' },
+    }),
+    stripCard({
+      key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', sunrise: true, dow: 'Wed',
+      label: 'Tomorrow sunrise', time: '05:51',
+      tideFit: { coastal: 14, matched: 1, live: false, meanQuality: null },
+    }),
+    stripCard({
+      key: '2026-08-05:SUNSET', date: '2026-08-05', targetType: 'SUNSET', dow: 'Wed',
+      label: 'Tomorrow sunset', time: '21:09',
+      tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.6 },
+      tide: { state: 'HIGH', direction: 'RISING' },
+    }),
+    stripCard({
+      key: '2026-08-06:SUNRISE', date: '2026-08-06', targetType: 'SUNRISE', sunrise: true, dow: 'Thu',
+      label: 'Thursday sunrise', time: '05:53',
+      tideFit: { coastal: 14, matched: 0, live: false, meanQuality: null },
+    }),
+    stripCard({
+      key: '2026-08-06:SUNSET', date: '2026-08-06', targetType: 'SUNSET', dow: 'Thu',
+      label: 'Thursday sunset', time: '21:07',
+      tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.9 },
+      tide: { state: 'HIGH', direction: 'RISING' },
+    }),
+  ];
+
+  it('renders a chip count equal to the gate count — the spec\'s own 3-of-6 shape (§7 check 1)', async () => {
+    await renderStrip({ cards: SIX });
+    expect(screen.getAllByTestId('wf-heat-tide-chip')).toHaveLength(3);
+  });
+
+  it('emphasises exactly one of the three live chips (§7 check 2)', async () => {
+    await renderStrip({ cards: SIX });
+    const best = screen.getAllByTestId('wf-heat-tide-chip').filter((c) => c.hasAttribute('data-best'));
+    expect(best).toHaveLength(1);
+    expect(best[0]).toHaveTextContent('best of 3');
+  });
+});
+
+describe('WindowFirstHeatStrip — the tide chip and glyph leave scoring untouched (tide-plan-card-plan.md §7 check 5)', () => {
+  /**
+   * Identical ratings and pool either way — only the tide facts differ, and they differ enough to
+   * put BOTH marks on screen in the `matches` fixture and neither in the miss one: `coastal: 14,
+   * matched: 9` genuinely clears the live gate (`>= 4` coastal, `>= max(3, ceil(coastal*0.5))`
+   * matched), rather than a `coastal` too small for the gate to ever fire regardless of `matches` —
+   * the fixture found NOT to exercise the chip at all by adversarial review's first cut.
+   */
+  function fixture(matches) {
+    return ratedCard({
+      pool: [
+        poolSpot({ tideState: matches ? 'HIGH' : 'LOW', tideAligned: matches, tideQuality: matches ? 0.9 : null }),
+        poolSpot({
+          locationId: 2, locationName: 'Blyth', rating: 2,
+          tideState: matches ? 'HIGH' : 'LOW', tideAligned: matches, tideQuality: matches ? 0.8 : null,
+        }),
+      ],
+      tideFit: matches
+        ? { coastal: 14, matched: 9, live: true, meanQuality: 0.85 }
+        : { coastal: 14, matched: 0, live: false, meanQuality: null },
+      tide: { state: 'HIGH', direction: 'RISING' },
+    });
+  }
+
+  it('keeps the verdict word, the histogram bars and the star chip byte-identical whether the water matches or misses', async () => {
+    await renderStrip({ cards: [fixture(true)] });
+    // Both new marks are genuinely ON here — otherwise this test would prove nothing about them.
+    expect(screen.getByTestId('wf-heat-tide-chip')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-heat-best-tide')).toBeInTheDocument();
+    const verdict = screen.getByTestId('wf-heat-verdict').textContent;
+    const bars = screen.getAllByTestId('wf-heat-spread-bar').map((b) => b.getAttribute('style'));
+    const star = screen.getByTestId('wf-heat-best-rating').textContent;
+
+    cleanup();
+    await renderStrip({ cards: [fixture(false)] });
+    // And genuinely OFF here.
+    expect(screen.queryByTestId('wf-heat-tide-chip')).toBeNull();
+    expect(screen.queryByTestId('wf-heat-best-tide')).toBeNull();
+    expect(screen.getByTestId('wf-heat-verdict').textContent).toBe(verdict);
+    expect(screen.getAllByTestId('wf-heat-spread-bar').map((b) => b.getAttribute('style'))).toEqual(bars);
+    expect(screen.getByTestId('wf-heat-best-rating').textContent).toBe(star);
   });
 });
 
@@ -2565,5 +2886,53 @@ describe('the stylesheet half, which jsdom cannot evaluate (matrix-axis plan §5
     // and a literal-text search would trip over its own explanation.
     const withoutComments = readCss().replace(/\/\*[\s\S]*?\*\//g, '');
     expect(withoutComments).not.toContain('.wf-hc.on .wf-hc-sun');
+  });
+
+  /** The tide chip and glyph's own rules (tide-plan-card-plan.md §3 C2 task 3). */
+  describe('the tide chip and glyph', () => {
+    it('gives the chip its own ink and a flex layout for the glyph and the two text runs', () => {
+      const rule = flatRule('.wf-hc-tide');
+      expect(rule).toContain('color: var(--color-badge-tide);');
+      expect(rule).toContain('display: inline-flex;');
+      expect(rule).toContain('align-items: center;');
+      expect(rule).toContain('gap: 6px;');
+    });
+
+    it('emphasises the run\'s best chip with weight and a hairline pill on the SAME tide hue', () => {
+      const rule = flatRule('.wf-hc-tide[data-best]');
+      expect(rule).toContain('font-weight: 700;');
+      expect(rule).toContain('border-radius: 999px;');
+      expect(rule).toContain('background: rgba(111, 168, 176, 0.15);');
+      expect(rule).toContain('box-shadow: inset 0 0 0 1px rgba(111, 168, 176, 0.42);');
+    });
+
+    it('⚠️ never adds a third tide tint — the spec\'s own emphasised-chip #B4DDE2 (§4 #4)', () => {
+      // Emphasis is weight and a hairline pill on the existing --color-badge-tide, the arm's
+      // established pattern — never a brighter hue of its own (§1 #5).
+      expect(readCss().toLowerCase()).not.toContain('#b4dde2');
+    });
+
+    it('sets the "best of N" divider on the same tide rgba, normal-styled against <em>\'s italic default', () => {
+      const rule = flatRule('.wf-hc-tide-best');
+      expect(rule).toContain('font-style: normal;');
+      expect(rule).toContain('font-weight: 600;');
+      expect(rule).toContain('border-left: 1px solid rgba(111, 168, 176, 0.45);');
+    });
+
+    it('sizes the best-reach glyph smaller than its own viewBox, on the badge ink', () => {
+      const rule = flatRule('.wf-hc-best-tw');
+      expect(rule).toContain('width: 13px;');
+      expect(rule).toContain('height: 7px;');
+      expect(rule).toContain('margin-right: 5px;');
+      expect(rule).toContain('vertical-align: 1px;');
+      expect(rule).toContain('color: var(--color-badge-tide);');
+    });
+
+    it('⚠️ keeps the glyph inline, against Tailwind\'s own svg-is-block preflight (found by adversarial review)', () => {
+      // `.wf-hc-best` is a plain `display: block` span, not a flex row (unlike `.wf-maplab-chip`,
+      // which is what lets `.wf-maplab-chip-tw` skip this) — without an explicit inline display the
+      // SVG drops onto its own line above the name and `vertical-align` becomes a no-op.
+      expect(flatRule('.wf-hc-best-tw')).toContain('display: inline-block;');
+    });
   });
 });
