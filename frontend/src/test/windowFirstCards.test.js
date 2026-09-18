@@ -117,6 +117,24 @@ describe('buildWindowCards', () => {
     });
   });
 
+  describe('tide (tide-window-plan.md T6)', () => {
+    // This is the ONE hop between the raw served `window.tide` (`GET /api/briefing`) and every
+    // downstream reader that folds this card — `buildHeatStripCards`, `WindowFirstMapPane`'s
+    // `heat.windows`, and ultimately the Map tab's tide strip. A dropped field here breaks that
+    // whole chain silently: found in browser verification against a live payload, because every
+    // other layer's own unit tests feed it a hand-built object that already has `.tide` on it.
+    it('carries the window\'s own served tide object verbatim', () => {
+      const tide = { locationName: 'Bamburgh Beach', state: 'MID', curve: [0, 1] };
+      const [card] = build(oneWindow({ tide }));
+      expect(card.tide).toBe(tide);
+    });
+
+    it('is null when the window carries no tide (inland, or no coastal representative)', () => {
+      const [card] = build(oneWindow());
+      expect(card.tide).toBeNull();
+    });
+  });
+
   describe('the verdict', () => {
     it.each([
       ['WORTH_IT', 'Worth it'],

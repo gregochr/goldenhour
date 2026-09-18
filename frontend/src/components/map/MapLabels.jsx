@@ -13,6 +13,7 @@ import {
 } from '../../utils/mapLabels.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import { rampHex } from '../../utils/scoreRamp.js';
+import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
 import TideWave from './TideWave.jsx';
 
 /**
@@ -85,6 +86,11 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tr"]',
   '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
+  // The tide strip (tide-window-plan.md T6/T7) — see `PinsLayer.jsx`'s identical entry/comment:
+  // on desktop it is a plain child of `.wf-map-chrome-bl` above and needs no entry of its own; on
+  // the phone (T7) it is mounted as that element's SIBLING instead, so without its own selector
+  // here a label could place itself under an uncovered strip on that one viewport.
+  '[data-testid="wf-tide-strip"]',
   // The empty state's CHIP, centred in the map body — never its `inset: 0` wrapper, which would
   // seed the whole frame and drop every label. Present in the DOM only while the map has no
   // forecast for the window on screen, i.e. only while the rating gate has already removed every
@@ -582,13 +588,18 @@ export default function MapLabels({
       {frame.chips.map(({ spot }) => {
         const key = `chip:${spot.name}`;
         const hasRating = Number.isFinite(spot.rating);
-        const onTheLight = Boolean(spot.onTheLight);
+        // The served PREFERENCE-axis tier (tide-window-plan.md §3 T4 item 2) — supersedes bundle
+        // rev 2's `onTheLight`-only glyph. `tideTier` is null for "not a coastal slot with a
+        // served tide state" (inland, or no stored extremes), so this chip carries no tide clause
+        // at all in that case — the on-the-light fact survives only as the offset clause folded
+        // inside the served `tideFitPhrase` (§1 #6), never read directly by this component again.
+        const tideTier = spot.tideTier ?? null;
         // Extends the rating announcement rather than replacing it — an aria-label REPLACES the
         // rendered text entirely, so the glyph's own meaning has to be spelled out here or a
         // screen-reader user never hears it at all.
         const ariaLabel = [
           hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
-          onTheLight ? 'tide on the light' : null,
+          tideAccessibleClause(tideTier, spot.tideShortfall),
         ].filter(Boolean).join(', ');
         return (
           <button
@@ -601,7 +612,7 @@ export default function MapLabels({
             className="wf-maplab-chip"
             data-testid="map-label-chip"
             data-selected={selectedName === spot.name ? 'true' : undefined}
-            data-tide={onTheLight ? 'true' : undefined}
+            data-tide={tideTier ?? undefined}
             style={styleFor(key)}
             aria-label={ariaLabel}
             onClick={() => onSelect?.(spot.name)}
@@ -614,10 +625,17 @@ export default function MapLabels({
               style={{ background: hasRating ? rampHex(spot.rating) : 'var(--color-plex-border-light)' }}
             />
             <b className="wf-maplab-chip-n">{spot.name}</b>
-            {onTheLight && (
-              // A glyph, not a second number (bundle rev 2's tide-chip tweak) — this window's
-              // tide lands on the light here. The path is the design bundle's TIDEGLYPH verbatim.
-              <TideWave className="wf-maplab-chip-tw" testId="map-label-chip-tide" />
+            {tideTier && (
+              // A glyph, not a second number (bundle rev 2's tide-chip tweak, moved onto the
+              // preference axis by T4) — the path is the design bundle's TIDEGLYPH/`missGlyph`
+              // verbatim. `shortfall` is null for a match, so the plain wave still draws there;
+              // for a miss it is the served `HIGHER`/`LOWER` direction, or null for a straddling
+              // want, which `TideWave` itself draws as the plain wave rather than guessing.
+              <TideWave
+                className="wf-maplab-chip-tw"
+                testId="map-label-chip-tide"
+                shortfall={tideTier === 'miss' ? spot.tideShortfall : null}
+              />
             )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
           </button>
@@ -659,12 +677,19 @@ export default function MapLabels({
           hover.bortleClass != null ? `sky ${hover.bortleClass}` : null,
         ].filter(Boolean).join(' · ')}
       </div>
-      {hover.onTheLight && hover.nearestSolarOffsetPhrase && (
-        // A third line, teal-inked (`.wf-maplab-tip-t`, `--color-badge-tide` — measured 9.68:1,
-        // never the raw bundle hex nor `--color-tide`, which is for borders/accents) — only when
-        // this window's water actually lands on the light (bundle rev 2's tide-chip tweak).
-        <div className="wf-maplab-tip-s wf-maplab-tip-t" data-testid="map-label-tip-tide">
-          {`Tide lands on the light — ${hover.nearestSolarOffsetPhrase}`}
+      {hover.tideTier && hover.tideFitPhrase && (
+        // A third line reading the served `fitPhrase` for EITHER tier, prefixed by the one
+        // canonical heading per tier (tide-window-plan.md §3 T4 item 4) — supersedes bundle rev
+        // 2's on-the-light-only line. Teal-inked (`.wf-maplab-tip-t`, `--color-badge-tide` —
+        // measured 9.68:1) ONLY for a match, matching the design bundle's own `#tip .tt`/`.tm`
+        // split; a miss takes the base `.wf-maplab-tip-s` ink (`--color-plex-text-secondary`,
+        // the mapped token for the design's own `rgba(242,231,211,.72)` miss-line ink) because the
+        // served phrase already carries the "wants …" clause and needs no teal emphasis of its own.
+        <div
+          className={`wf-maplab-tip-s${hover.tideTier === 'match' ? ' wf-maplab-tip-t' : ''}`}
+          data-testid="map-label-tip-tide"
+        >
+          {`${tideTierHeading(hover.tideTier)} — ${hover.tideFitPhrase}`}
         </div>
       )}
     </div>,
@@ -692,11 +717,24 @@ MapLabels.propTypes = {
      * caller that draws pins alongside chips; untyped until now (`MapView.jsx`'s `spotOf` always
      * sets it). */
     isStandDown: PropTypes.bool,
-    /** Bundle rev 2's tide-chip tweak — true when THIS window's water lands on the light here. */
+    /** Bundle rev 2's tide-chip tweak — true when THIS window's water lands on the light here.
+     * Carried on every spot (`MapView.jsx#spotOf`) but no longer read by THIS component — the
+     * chip's glyph/ring/tiebreak/tooltip all moved onto `tideTier` below (tide-window-plan.md §3
+     * T4 item 2, §5 #3); the fact survives only inside the served `tideFitPhrase`'s offset clause. */
     onTheLight: PropTypes.bool,
-    /** The formatted "HW 19:52 · 36m before sunset" phrase, or null — only meaningful (and only
-     * rendered) alongside `onTheLight: true`. */
+    /** The formatted "HW 19:52 · 36m before sunset" phrase — see `onTheLight`'s own note; unused
+     * here for the same reason. */
     nearestSolarOffsetPhrase: PropTypes.string,
+    /** The served preference-axis tier (tide-window-plan.md §3 T4) — null for "not a coastal slot
+     * with a served tide state" (inland, or no stored extremes near this event), never a drawn
+     * claim either way. */
+    tideTier: PropTypes.oneOf(['match', 'miss']),
+    /** Only meaningful (and only read) alongside `tideTier: 'miss'` — null when a wanted set
+     * straddles the served state, drawing the plain wave rather than guessing a direction. */
+    tideShortfall: PropTypes.oneOf(['HIGHER', 'LOWER']),
+    /** The formatted fit phrase for EITHER tier — the tooltip's third line reads this alongside
+     * `tideTier`, never `nearestSolarOffsetPhrase`. */
+    tideFitPhrase: PropTypes.string,
   })).isRequired,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   rings: PropTypes.bool,

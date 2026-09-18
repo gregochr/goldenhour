@@ -32,11 +32,11 @@ const REGION = {
 const LOCATIONS = [
   {
     id: 1, name: 'Ashness Bridge', rating: 5, driveLabel: '1h 35min',
-    leaveTime: '14:25', leaveDayWord: null, tideOnLight: false,
+    leaveTime: '14:25', leaveDayWord: null, tideTier: null, tideShortfall: null,
   },
   {
     id: 2, name: 'Buttermere', rating: 4, driveLabel: '40 min',
-    leaveTime: '15:21', leaveDayWord: null, tideOnLight: true,
+    leaveTime: '15:21', leaveDayWord: null, tideTier: 'match', tideShortfall: null,
   },
 ];
 
@@ -140,7 +140,7 @@ describe('MapRegionPanel — the location rows', () => {
     expect(within(rows[0]).getByTestId('wf-reg-panel-stars')).toHaveTextContent('5★');
   });
 
-  it('draws the tide glyph only where this window\'s water lands on the light', () => {
+  it('draws the tide glyph only where this window has a served tier — the preference axis, not on-the-light', () => {
     renderPanel();
 
     const rows = screen.getAllByTestId('wf-reg-panel-row');
@@ -149,19 +149,33 @@ describe('MapRegionPanel — the location rows', () => {
   });
 
   /** A bare wave announces as nothing at all — the glyph is hidden and the fact is spoken. */
-  it('speaks the tide fact in words beside the hidden glyph', () => {
+  it('speaks the tide fact in words beside the hidden glyph, for a match', () => {
     renderPanel();
 
     const row = screen.getAllByTestId('wf-reg-panel-row')[1];
     expect(within(row).getByTestId('wf-reg-panel-tide')).toHaveAttribute('aria-hidden', 'true');
-    expect(row).toHaveTextContent('the tide lands on the light here');
+    expect(row).toHaveTextContent('tide right here');
+  });
+
+  it('draws the arrow variant and the matching words for a MISS, per its served shortfall', () => {
+    renderPanel({
+      locations: [{
+        id: 5, name: 'Grasmere', rating: 3, driveLabel: '20 min', leaveTime: '15:40',
+        leaveDayWord: null, tideTier: 'miss', tideShortfall: 'LOWER',
+      }],
+    });
+
+    const row = screen.getByTestId('wf-reg-panel-row');
+    const glyph = within(row).getByTestId('wf-reg-panel-tide');
+    expect(glyph).toHaveAttribute('data-wide', 'true');
+    expect(row).toHaveTextContent('wants the water lower');
   });
 
   it('⚠️ omits the drive and the departure together where no drive is measured — never a dash', () => {
     renderPanel({
       locations: [{
         id: 3, name: 'Wastwater', rating: 4, driveLabel: null, leaveTime: null,
-        leaveDayWord: null, tideOnLight: false,
+        leaveDayWord: null, tideTier: null, tideShortfall: null,
       }],
     });
 
@@ -179,7 +193,7 @@ describe('MapRegionPanel — the location rows', () => {
     renderPanel({
       locations: [{
         id: 4, name: 'Bamburgh', rating: 5, driveLabel: '4h 20min',
-        leaveTime: '23:35', leaveDayWord: 'Thu', tideOnLight: false,
+        leaveTime: '23:35', leaveDayWord: 'Thu', tideTier: null, tideShortfall: null,
       }],
     });
 
@@ -439,7 +453,7 @@ describe('MapRegionPanel — what it announces', () => {
     renderPanel();
 
     expect(screen.getAllByTestId('wf-reg-panel-row')[1])
-      .toHaveAccessibleName(/the tide lands on the light here/);
+      .toHaveAccessibleName(/tide right here/);
   });
 
   it('tells a screen reader that a location row opens something', () => {

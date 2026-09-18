@@ -63,7 +63,7 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  *   label: string, time: string, verdict: ?string, verdictLabel: string, bestRating: ?number,
  *   pickKind: ?string, away: boolean, confidence: ?string, movement: ?object, pool: Array,
  *   reachMeasured: boolean, bestReach: ?object, badges: Array,
- *   hotRegionName: ?string}>} descriptors
+ *   hotRegionName: ?string, tide: ?object}>} descriptors
  */
 export function buildHeatStripCards(
   upcomingEvents, windowCards, travelDayDates, briefingDays, todayStr, tomorrowStr,
@@ -165,6 +165,12 @@ export function buildHeatStripCards(
       // survives the fold, because the component tests hand fixture cards straight in and cannot
       // see one dropped here.
       hotRegionName: card?.hotRegionName ?? null,
+      // Folded like everything else here (tide-window-plan.md T6) — the strip never sees
+      // `buildWindowCards`' output directly, so this is the one place the raw served
+      // `BriefingWindowTide` on the card can reach `WindowFirstMapPane`'s own `heat.windows`
+      // mapper, which is where `mapEvents.js#solarRow` reads it from in turn. Null, never absent,
+      // on an away day (no card) exactly like every other folded field above.
+      tide: card?.tide ?? null,
     };
   });
 }

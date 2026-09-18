@@ -16,7 +16,9 @@ import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
 import { originAction, scopeRegions } from '../utils/planOrigin.js';
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
 import { buildPlanConflict } from '../utils/planConflicts.js';
-import { buildScoreIndex, buildSlotIndex, sheetSpotOf } from '../utils/locationSheet.js';
+import {
+  buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex, sheetSpotOf,
+} from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
@@ -1061,6 +1063,18 @@ export default function WindowFirstShell({
     [sheetSpot, briefing?.days],
   );
   /**
+   * The tide-fit block's source on this sheet (T5, `docs/engineering/tide-window-plan.md`) — the
+   * SAME join `WindowFirstMapPane.jsx`'s own `tideAlignmentIndex` builds for the Map tab's chip and
+   * callout, over the SAME `briefing.days`, so a location's tide fact never disagrees between the
+   * card that opened this sheet and the sheet itself. Null-until-open, like `slotIndex` beside it:
+   * nothing reads this while the sheet is closed, so building it unconditionally would cost every
+   * poll a walk of the whole roster for a dialog most polls never open.
+   */
+  const sheetTideAlignmentIndex = useMemo(
+    () => (sheetSpot ? buildTideAlignmentIndex(briefing?.days) : null),
+    [sheetSpot, briefing?.days],
+  );
+  /**
    * The detail surfaces' ratings, built from the RAW rows rather than taken from {@code scoreIndex}.
    *
    * <p>The provider's index is keyed on {@code date|targetType|locationName} alone; this one joins
@@ -2067,6 +2081,8 @@ export default function WindowFirstShell({
             // The prose FALLBACK, so this sheet can never show less than the callout that routes
             // into it — the callout has had a region gloss behind its summary since P9.
             regionGlossIndex={sheetGlossIndex}
+            // The tide-fit block, per solar row (T5).
+            tideAlignmentIndex={sheetTideAlignmentIndex}
             escapeEnabled={searchSeed == null}
             // The footer's origin action (M4.3, D-4). `planFrom` is null when the shell holds no
             // record for the place's region, which is the honest answer rather than a guessed

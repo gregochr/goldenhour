@@ -48,9 +48,17 @@ const REACH = new Map([[1, { driveMinutes: 40 }], [2, { driveMinutes: 120 }], [3
 // `pickKind` is what `buildHeatStripCards` publishes — it narrows the served `Pick` record to its
 // kind alone — so the fixture carries that and never a `pick` object. The map's forwarding is
 // asserted against this shape below.
+// `tide` is the raw served `BriefingWindowTide` `buildHeatStripCards` folds through untouched
+// (tide-window-plan.md T6) — present on the SUNSET card, absent (null) on the away SUNRISE one,
+// mirroring how a real payload has no coastal representative for every window.
+const TIDE = { locationName: 'Bamburgh Beach', state: 'MID', curve: [0, 1] };
 const STRIP_CARDS = [
-  { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '20:41', bestRating: 4, confidence: 'high', away: false, pickKind: 'best' },
-  { key: '2026-08-14:SUNRISE', date: '2026-08-14', targetType: 'SUNRISE', label: 'Fri sunrise', time: '05:31', bestRating: null, confidence: null, away: true, pickKind: null },
+  {
+    key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '20:41', bestRating: 4, confidence: 'high', away: false, pickKind: 'best', tide: TIDE,
+  },
+  {
+    key: '2026-08-14:SUNRISE', date: '2026-08-14', targetType: 'SUNRISE', label: 'Fri sunrise', time: '05:31', bestRating: null, confidence: null, away: true, pickKind: null, tide: null,
+  },
 ];
 
 function context(overrides = {}) {
@@ -189,6 +197,19 @@ describe('WindowFirstMapPane — the heat prop', () => {
 
     expect(MapStub.lastProps.heat.windows[0].pickKind).toBe('best');
     expect(MapStub.lastProps.heat.windows[1].pickKind).toBeNull();
+  });
+
+  it('forwards each window\'s served tide object, and null when there is none', () => {
+    // ⚠️ The identical join, one field over — and the one that actually shipped broken: the pure
+    // builder (`windowFirstCards.test.js`) was tested, the EV row (`mapEvents.test.js`) was
+    // tested, and this fold read no `tide` at all, so `card.tide` never reached `heat.windows`
+    // and the Map tab's tide strip stayed invisible in production with a fully green suite. Found
+    // in browser verification against a live payload, not by any test — this is the test that
+    // would have caught it.
+    renderPane();
+
+    expect(MapStub.lastProps.heat.windows[0].tide).toBe(TIDE);
+    expect(MapStub.lastProps.heat.windows[1].tide).toBeNull();
   });
 
   it('forwards each window\'s TRAVEL flag — the landing card needs it and the fold dropped it', () => {

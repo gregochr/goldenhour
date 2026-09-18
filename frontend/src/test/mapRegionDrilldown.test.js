@@ -46,6 +46,9 @@ const DAYS = [{
           // T3's index keys on `tideState`, not `tideOnTheLight` — a served tide-fit slot always
           // carries both, so the fixture must too (tide-window-plan.md §3 T3).
           tideState: 'HIGH', tideAligned: false, tideOnTheLight: false,
+          // T4's own field — a miss carrying a served direction, so `buildRegionLocationRows`'
+          // forwarding of it has something to prove (tide-window-plan.md §3 T4 item 6).
+          tideShortfall: 'HIGHER',
         },
         {
           locationId: 3, locationName: 'Buttermere', rating: 4,
@@ -238,14 +241,15 @@ describe('buildRegionLocationRows — the two looked-up facts', () => {
     expect(row.leaveTime).toBeNull();
   });
 
-  it('flags the tide only where the payload says the water lands on the light', () => {
-    const tide = Object.fromEntries(build().map((r) => [r.name, r.tideOnLight]));
+  it('reads the tier off the served PREFERENCE axis (tide-window-plan.md §3 T4 item 6), not on-the-light', () => {
+    const tide = Object.fromEntries(build().map((r) => [r.name, r.tideTier]));
 
-    expect(tide.Castlerigg).toBe(true);
-    // Served `false` — the deriver looked and said no.
-    expect(tide.Buttermere).toBe(false);
-    // Not indexed at all — the deriver could not answer. Same silence, different claim.
-    expect(tide['Ashness Bridge']).toBe(false);
+    expect(tide.Castlerigg).toBe('match');
+    // Served `tideAligned: false` — the deriver looked and said no.
+    expect(tide.Buttermere).toBe('miss');
+    // Not indexed at all (no `tideState`) — the deriver could not answer. Same silence, different
+    // claim from a served miss, so `tierOf` reads `null` rather than guessing.
+    expect(tide['Ashness Bridge']).toBeNull();
   });
 
   /**
@@ -254,17 +258,29 @@ describe('buildRegionLocationRows — the two looked-up facts', () => {
    * sunrise row carries a light boundary this index can recover an instant from. A lookup with
    * `'SUNSET'` hard-coded into it now fails; before, it survived all 191 tests.
    */
-  it('reads the window it is asked about — the tide answer flips with it', () => {
+  it('reads the window it is asked about — the tier flips with it', () => {
     const tide = Object.fromEntries(
-      build({ targetType: 'SUNRISE' }).map((r) => [r.name, r.tideOnLight]),
+      build({ targetType: 'SUNRISE' }).map((r) => [r.name, r.tideTier]),
     );
 
-    expect(tide.Castlerigg).toBe(false);
-    expect(tide.Buttermere).toBe(true);
+    expect(tide.Castlerigg).toBe('miss');
+    expect(tide.Buttermere).toBe('match');
     // …and the reverse on the sunset, from the same fixture.
-    const sunset = Object.fromEntries(build().map((r) => [r.name, r.tideOnLight]));
-    expect(sunset.Castlerigg).toBe(true);
-    expect(sunset.Buttermere).toBe(false);
+    const sunset = Object.fromEntries(build().map((r) => [r.name, r.tideTier]));
+    expect(sunset.Castlerigg).toBe('match');
+    expect(sunset.Buttermere).toBe('miss');
+  });
+
+  it('forwards the served shortfall alongside a miss, and null for a match', () => {
+    const rows = build({ targetType: 'SUNRISE' });
+    const castlerigg = rows.find((r) => r.name === 'Castlerigg');
+    const buttermere = rows.find((r) => r.name === 'Buttermere');
+
+    expect(castlerigg.tideTier).toBe('miss');
+    expect(castlerigg.tideShortfall).toBe('HIGHER');
+    // A match carries no shortfall — there is nothing wrong with the water to point an arrow at.
+    expect(buttermere.tideTier).toBe('match');
+    expect(buttermere.tideShortfall).toBeNull();
   });
 
   /**

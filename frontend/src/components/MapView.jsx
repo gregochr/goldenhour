@@ -42,7 +42,8 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
 import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
-import { tierOf } from '../utils/mapTideFit.js';
+import { tierOf, stripModel, siblingEventTime } from '../utils/mapTideFit.js';
+import MapTideStrip from './map/MapTideStrip.jsx';
 import MapLandingCard from './map/MapLandingCard.jsx';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
@@ -1505,6 +1506,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [heatArea, setHeatArea] = useState(true);
   const [heatFitNonce, setHeatFitNonce] = useState(0);
   /**
+   * The tide strip's own collapse state (tide-window-plan.md T6 §4 #12) — `MapView` state, not
+   * `sessionStorage`: the pane is never unmounted (`plan-to-map-doors-plan.md`'s D2 note), so
+   * "persists for the session" needs no storage and no try/catch, and it must survive a window
+   * change on purpose (design §2's own "does not reset on window change").
+   */
+  const [tideStripCollapsed, setTideStripCollapsed] = useState(false);
+  /**
+   * The tide strip's own real, measured height (T7 follow-up, Codex P1) — written from
+   * `MapTideStrip`'s `onHeightChange`, the same `ResizeObserver` callback that already publishes
+   * `--tsh` onto `.wf-map-tab`. `null` while the strip is not on screen. Exists ONLY to retrigger
+   * `MapCallout`'s repaint when the strip's own rect changes (open ⇄ collapsed, or it appearing/
+   * disappearing) — `MapCallout` treats the strip as one of its placement-band bars
+   * (`BAND_BAR_SELECTOR`, T7) and re-measures it fresh off the DOM every time it repaints, but
+   * nothing in that component's own trigger list ever fired on the strip's OWN resize, so the
+   * card kept a stale band until an unrelated pan/zoom forced a re-measure. `MapView` is the one
+   * place both components already meet, so it is the one place this can be wired without either
+   * importing the other or a second `ResizeObserver` duplicating the one `MapTideStrip` already
+   * runs. Fed to whichever of the two `<MapTideStrip>` mounts is actually on screen (desktop/
+   * tablet nested in `.wf-map-chrome-bl`, phone as `.wf-map-chrome-bl`'s own sibling, T7 #16) —
+   * only one is ever mounted at a time, so one shared state serves both.
+   */
+  const [tideStripHeight, setTideStripHeight] = useState(null);
+  /**
    * The Regions jump list's own camera target (map-tab-v2-plan.md §3 P11) — an OVERRIDE of the
    * ordinary `heatArea`-derived bounds below, not a second `HeatBoundsController`.
    *
@@ -1676,6 +1700,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // would re-render (and so rebuild every marker) for a viewport that has not actually moved.
     setMapBounds((prev) => (prev && prev.every((v, i) => v === next[i]) ? prev : next));
   }, []);
+  /**
+   * The TAB's own viewport, as the raw Leaflet `LatLngBounds` object — not the plain
+   * `[south, west, north, east]` array {@code mapBounds} above stores for the overlay's simple box
+   * test. `mapTideFit.stripModel` needs a real {@code pad}/{@code contains} pair (tide-window-plan.md
+   * §1 #8: "no `bounds.pad()` existed anywhere in this codebase before this increment"), which
+   * Leaflet's own object already supplies — converting to and back from a plain array would only
+   * lose that. No identity-dedupe here: `stripModel` is one deliberately un-split function (T3's own
+   * documented tension) that DOES need to recompute on every pan (§5 "Derived per (window,
+   * viewport): recompute on pan"), so a fresh object each `moveend` is the intended behaviour, not
+   * the wasted-render risk {@code handleBounds} above guards against.
+   */
+  const [tideViewBounds, setTideViewBounds] = useState(null);
+  const handleTideBounds = useCallback((b) => setTideViewBounds(b), []);
   const { status: auroraStatus } = useAuroraStatus();
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
@@ -2947,8 +2984,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ), [locations, activeTypeFilters]);
 
   const hasStandDown = typeFiltered.some((loc) => isStandDownLocation(loc));
+  // ⚠️ Excludes a tide-gated coastal location (tide-window-plan.md §3 T4 item 1): it is not
+  // "unknown" — it carries a served reason (`evaluationGate`) or a served miss — so it must not
+  // make the admin "unknown" toggle read as actionable, nor be the thing that toggle's title
+  // claims exists to reveal. `visibleLocations` below already lets it through the rating stage
+  // unconditionally; this just stops it also being counted as the OTHER kind of absence.
   const hasUnrated = typeFiltered.some((loc) => (
     !isStandDownLocation(loc) && getRatingForLocation(loc) == null
+    && !getTideOnLightForLocation(loc)
   ));
 
   // Full filter pipeline → the markers actually rendered. Memoised so a re-render that touches no
@@ -2957,13 +3000,44 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const visibleLocations = useMemo(() => {
     const ratingFiltered = typeFiltered.filter((loc) => {
       if (isStandDownLocation(loc)) return showStandDown;
+      // Tide-window increment (T4, tide-window-plan.md §3 T4 item 1): a coastal slot with a
+      // served tide fact — aligned or not, gated, or RATED (the weather-stood-down-then-rated
+      // path, §1 #3, which can land a real 1–2★) — passes the rating stage WHATEVER that rating
+      // is, before either the null-rating branch below or the ordinary star floor at the foot of
+      // this callback. It is withheld or answered for a STATED reason, never "nothing scored
+      // yet"; type, drive, dark-sky, scope and `focus` (below and in the caller) still narrow it
+      // like anything else (plan §5 #9).
+      //
+      // ⚠️ Moved here from inside the `rating == null` branch (Codex review, PR #880 P1): the
+      // plan's own item 1 gives the literal rule as `if (tideFact) return true` ahead of the
+      // rating stage, not merely ahead of the null-rating fallback — checking it only inside that
+      // branch let a served coastal MISS that also carries a real 1–2★ rating be removed by the
+      // default 3★+ floor a few lines down, which is exactly the "coast disappears for tide"
+      // defect this item exists to fix. (`isStandDownLocation` above is untouched: a location
+      // triaged for a genuinely unrelated, non-tide reason — a real `triageReason` with no
+      // rating, `resolveStandDown`'s own test — stays behind the pre-existing `showStandDown`
+      // toggle regardless of tide, which is that toggle's own job, not this item's.)
+      //
+      // ⚠️ Deliberately ANY served tide fact, not only a served `gated` one (adversarial
+      // review, T4) — §5 #9's own prose says "tide-gated…and nothing else", but its own item 1
+      // gives the literal rule as `if (tideFact) return true` before ever checking `.gated`.
+      // The tide fact (`tideState`/`tideAligned`/…) is computed from stored extremes
+      // independently of the evaluation pipeline (§1 #4), so a `null` rating alongside one is
+      // already evidence the pipeline reached this slot and had something to say about its
+      // water — narrower than "genuinely never looked at" even when the null rating's cause is
+      // not itself the tide gate (e.g. a still-rated-elsewhere miss that happens to read null
+      // for this window). Reading `.gated` here would leave such a slot behind the "unknown"
+      // toggle regardless, which is the exact defect this item exists to fix.
+      if (getTideOnLightForLocation(loc)) return true;
       const types = loc.locationType ?? [];
       const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
       const rating = getRatingForLocation(loc);
-      // Wildlife has no sky rating by design, so the sky-quality threshold must not
-      // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
-      // the "unknown" toggle, so the default 3★+ map reads quality-first.
-      if (rating == null) return isPureWildlife || showUnrated;
+      if (rating == null) {
+        // Wildlife has no sky rating by design, so the sky-quality threshold must not
+        // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
+        // the "unknown" toggle, so the default 3★+ map reads quality-first.
+        return isPureWildlife || showUnrated;
+      }
       return rating >= minStars;
     });
 
@@ -2991,7 +3065,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
         : darkSkyFiltered;
   }, [
-    typeFiltered, locations, isStandDownLocation, getRatingForLocation,
+    typeFiltered, locations, isStandDownLocation, getRatingForLocation, getTideOnLightForLocation,
     showStandDown, showUnrated, minStars, driveTimeFilter, driveMinutesFor,
     darkSkyFilter, focus, isAstroMode,
   ]);
@@ -3556,6 +3630,39 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * The tide strip's own per-render model (tide-window-plan.md T6) — one call into the pure
+   * {@code mapTideFit.stripModel}, built fresh every render like {@code mapEvents}/{@code
+   * evVerdicts}/{@code landingModel} above and for the identical reason: {@code mapEvents} is a new
+   * array every render, so a {@code useMemo} listing it could never hit (T3's own documented tension
+   * over the "two independent memos" split — inert until a measured cost says otherwise).
+   *
+   * <p>{@code labelSpots} is the same pool `MapLabels`/`PinsLayer` draw from, so the strip's counts
+   * can never disagree with a chip a reader is looking at. {@code tideViewBounds} is the TAB's own
+   * Leaflet viewport (declared above, alongside the overlay's plain-array {@code mapBounds}) — never
+   * mounted in {@code overlayMode}, so this reads {@code null} there and the strip never visible.
+   */
+  const tideStripModel = stripModel({
+    row: activeMapEvent,
+    spots: labelSpots,
+    bounds: tideViewBounds,
+    evRows: mapEvents,
+    evIndex: activeEvIndex,
+    idx: tideAlignmentIndex,
+  });
+
+  /**
+   * The sunrise/sunset clock times the strip's chart labels — a lookup over the SAME EV list
+   * (tide-window-plan.md T6, `mapTideFit.siblingEventTime`), never a client-side formula:
+   * {@code BriefingWindowTide} states WHERE the sun rises/sets on the tide axis but not the clock
+   * time itself, and the sibling SUNRISE/SUNSET row for this date already carries it, served.
+   * Skipped entirely while the strip is not visible — there is nothing for either label to draw.
+   */
+  const tideStripSunriseTime = tideStripModel.visible
+    ? siblingEventTime(mapEvents, activeMapEvent?.date, 'SUNRISE') : null;
+  const tideStripSunsetTime = tideStripModel.visible
+    ? siblingEventTime(mapEvents, activeMapEvent?.date, 'SUNSET') : null;
   /**
    * The window panel's rows and its note — the drilldown's first level (map-landing-plan.md §3 L5).
    *
@@ -4858,6 +4965,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             </>
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
+          {/* The tab's own viewport, for the tide strip's in-view coastal count (tide-window-plan.md
+              T6) — the frozen overlay never mounts the strip, so it never needs this. */}
+          {!overlayMode && <BoundsTracker onBounds={handleTideBounds} />}
           {/* Tab only — the overlay has no ground-click behaviour of its own.
 
               ⚠️ **A ground press does exactly one thing now: it deselects** (map-landing-plan.md
@@ -5069,6 +5179,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               driveMinutes={driveMinutesFor(selectedLoc.id)}
               distanceMiles={distanceMilesFor(selectedLoc.id)}
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
+              tideAlignmentIndex={tideAlignmentIndex}
               scoreIndex={scoreIndex}
               scoresKnown={scoresKnown}
               ratingKnown={ratingKnown}
@@ -5079,6 +5190,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               astroConditionsByDate={astroConditionsByDate}
               auroraResultsByDate={auroraResultsByDate}
               pendingNightRowIds={pendingNightRowIds}
+              tideStripHeight={tideStripHeight}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
@@ -5498,8 +5610,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 never coexist; a live browser pass proved otherwise (adversarial review C1/C3).
                 Both chips are plain flex children of ONE positioned wrapper now — neither carries
                 its own `absolute` placement any more — so they can only ever stack with a gap,
-                never overlap. */}
-            {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)) && (
+                never overlap.
+
+                ⚠️ The tide strip (tide-window-plan.md T6) is a THIRD reason this wrapper renders —
+                added to the condition below rather than left implicit, since a viewport holding
+                coast on a solar window can be true with NEITHER other chip showing (Pins mode, or a
+                LITE reader with no alert). It mounts as the LAST child so the two chips above it
+                clear it by flex order alone (§4 #6) — never `position: absolute` and never its own
+                entry in the obstacle list, since `.wf-map-chrome-bl` already carries that seed. The
+                frozen overlay never draws it — this whole bottom-left wrapper already sits inside the
+                `!overlayMode` branch above, so no second `!overlayMode` test here (CodeQL flagged the
+                first cut's as an always-true negation) — and `!isMobile` because the phone gets its
+                OWN mount below (T7, full width, above the bar, never nested in this column). */}
+            {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)
+              || (!isMobile && tideStripModel.visible)) && (
               <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
                 {showViewlineUpsell && (
                   <div
@@ -5528,6 +5652,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     onToggleRings={() => setRingsEnabled((v) => !v)}
                     hasHome={hasHomeCoords}
                     reachMeasured={mapReachMeasured}
+                  />
+                )}
+                {!isMobile && (
+                  <MapTideStrip
+                    model={tideStripModel}
+                    tide={activeMapEvent?.tide ?? null}
+                    activeRow={activeMapEvent}
+                    sunriseTime={tideStripSunriseTime}
+                    sunsetTime={tideStripSunsetTime}
+                    collapsed={tideStripCollapsed}
+                    onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
+                    onSelectEv={selectEvRow}
+                    mapPaneRef={mapPaneRef}
+                    onHeightChange={setTideStripHeight}
                   />
                 )}
               </div>
@@ -5600,6 +5738,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   <span data-testid="wf-map-counts-second" className="wf-map-counts-second">{countsSecondLine}</span>
                 )}
               </div>
+            )}
+
+            {/* T7 — the phone tide strip (tide-window-plan.md §3 T7, docs/design/tide-window/
+                README.md §6). ⚠️ Deliberately NOT nested inside `.wf-map-chrome-bl` the way the
+                desktop mount above is (T6, §4 #6): on the phone it needs to span
+                `left: 8px; right: 8px` against the FRAME itself — the same containing block
+                `.wf-map-counts-footer`/`.wf-map-scored-legend` already use — and `.wf-map-chrome-bl`
+                is only ever left-anchored (`left: 8px`, no `right`), so an element positioned
+                relative to IT could never stretch edge to edge. Mounted here as a plain sibling of
+                every other independently-positioned chrome chip instead, so `index.css`'s phone
+                query can give it its own `position: absolute; left: 8px; right: 8px; bottom: 112px`
+                — the count footer's own row of the lifted stack, which is why that footer is hidden
+                (not merely lifted) in the same query while `wf-tide-strip-on`. Unconditioned on
+                `tideStripModel.visible` for the same reason the desktop mount is: `MapTideStrip`
+                itself returns `null` when not visible. */}
+            {isMobile && (
+              <MapTideStrip
+                model={tideStripModel}
+                tide={activeMapEvent?.tide ?? null}
+                activeRow={activeMapEvent}
+                sunriseTime={tideStripSunriseTime}
+                sunsetTime={tideStripSunsetTime}
+                collapsed={tideStripCollapsed}
+                onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
+                onSelectEv={selectEvRow}
+                mapPaneRef={mapPaneRef}
+                onHeightChange={setTideStripHeight}
+              />
             )}
           </>
         )}

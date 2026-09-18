@@ -1,5 +1,6 @@
 import { lookupForWindow } from './locationSheet.js';
 import { EVENT_KIND } from './mapEvents.js';
+import { STATE_WORD } from './windowFirstRows.js';
 
 /**
  * The Map tab's tide-fit derivations — pure logic only, the client's licensed slice of the
@@ -33,6 +34,103 @@ import { EVENT_KIND } from './mapEvents.js';
 export function tierOf(fact) {
   if (!fact) return null;
   return fact.aligned ? 'match' : 'miss';
+}
+
+/**
+ * The one canonical heading per tier (tide-window-plan.md §4 #8: "the spec's headings … are taken
+ * verbatim"), shared by every surface that prefixes a heading to a served phrase — the chip's
+ * tooltip (T4) and, by the same rule, the callout/sheet block (T5). A FIXED string per tier, never
+ * text built from the location's own wanted set: the served {@code fitPhrase} already opens a miss
+ * with its own "wants …" clause (`TideWording`, T1 item 4), so a heading that restated the want
+ * from {@code tideTypes} would print it twice on one line — the client is licensed to concatenate a
+ * heading to a phrase (§5 #5), never to format the want set itself.
+ *
+ * <p>⚠️ <b>Deliberate deviation, recorded rather than silent (adversarial review, T4).</b> T4's own
+ * task text quotes the chip tooltip's miss heading as "Wants high water —", matching the design
+ * bundle's dynamic `bindTip` line (`map-tide-v5.js:434-435`, `'Wants '+BANDW[tf.want]+' — '+…`) —
+ * a heading the design COMPUTES from the location's own want, which this file may not do (see
+ * this function's own doc above). Rather than invent a client-side want-formatter to match that
+ * one example literally, this reuses the SAME fixed miss heading the callout/sheet block (T5) and
+ * the design's own callout table (`docs/design/tide-window/README.md` §4) already use — "Wrong
+ * water, not wrong light" — so the tooltip and the block agree on one vocabulary rather than the
+ * tooltip alone matching a dynamic example the served `fitPhrase` already restates internally
+ * (T1 item 4's miss phrase opens "wants low water · …"; a want-specific heading on top of that
+ * would print the want twice on one line, which the doc above already forbids for a different
+ * reason). If a future phase decides the tooltip should instead name the specific want, that is a
+ * product call for the copy owner, not a client-side formatting fix.
+ *
+ * @param {?('match'|'miss')} tier
+ * @returns {?string} null when there is no tier to head (no served tide fact at all)
+ */
+export function tideTierHeading(tier) {
+  if (tier === 'match') return 'Tide lands on the light';
+  if (tier === 'miss') return 'Wrong water, not wrong light';
+  return null;
+}
+
+/**
+ * The accessible-name clause for a served preference-axis tier — shared by the chip's aria-label
+ * (`MapLabels.jsx`, T4 item 2) and the region panel row's `sr-only` span (`MapRegionPanel.jsx`, T4
+ * item 6), so the one glyph means the same thing in words wherever it is read aloud. Four FIXED
+ * strings, keyed on tier and (for a miss) the served shortfall direction — never a phrase built
+ * from the location's own wanted set, for the same reason {@link tideTierHeading} gives.
+ *
+ * @param {?('match'|'miss')} tier
+ * @param {?('HIGHER'|'LOWER')} [shortfall] only read when `tier === 'miss'`
+ * @returns {?string} null when there is no served tide fact at all (inland, or no stored extremes)
+ */
+export function tideAccessibleClause(tier, shortfall = null) {
+  if (tier === 'match') return 'tide right here';
+  if (tier === 'miss') {
+    if (shortfall === 'HIGHER') return 'wants the water higher';
+    if (shortfall === 'LOWER') return 'wants the water lower';
+    return 'wrong water';
+  }
+  return null;
+}
+
+/**
+ * The order the backend's {@code TideWording#joinOr} reads a location's wanted set in — the
+ * {@code TideType} enum's OWN declaration order ({@code entity/TideType.java}: HIGH, MID, LOW) —
+ * reproduced here so a two-value want joins identically on the client and on the server: the gate
+ * sentence ("needs low water, mid tide instead") and the fit phrase's own "wants" clause both come
+ * from the server already in this order, and {@link wantPhrase} states the SAME set for the
+ * block's jump/denial line, which sits on the same card. ⚠️ Unrelated to {@link WANT_TIE_ORDER}
+ * below, which breaks a tie for a DIFFERENT question (which want is the strip's dominant one) —
+ * this one never picks a winner, it orders every member of a set that is printed in full.
+ */
+const WANT_PHRASE_ORDER = ['HIGH', 'MID', 'LOW'];
+
+/**
+ * A location's wanted tide-types joined with "or" — {@code [a] → "a"}, {@code [a, b] → "a or b"},
+ * {@code [a, b, c] → "a, b or c"} — mirroring the backend's {@code TideWording#joinOr} exactly, so
+ * the same two-value want reads identically in the block's jump/denial line as it does in the
+ * gate sentence and the fit phrase's own "wants" clause sitting beside it on the same card
+ * (tide-window-plan.md T5 task 1: "{@code <want>} is the location's wanted set joined with 'or'").
+ *
+ * <p>Reuses {@code windowFirstRows.js}'s {@code STATE_WORD} vocabulary rather than a second copy
+ * of "high water"/"mid tide"/"low water" — the same table T6's strip header reads for the served
+ * {@code state}/{@code direction} phrase, so there is exactly one place that spells a tide state
+ * out in words on this tab.
+ *
+ * <p>This is a filter/map/select over an already-served, static field
+ * ({@code location.tideType}) — CLAUDE.md's Backend-heavy licence's second class — never a
+ * decision about WHETHER the tide fits, which stays server-owned (§5 #5's "every string is
+ * server-formatted" governs the FIT PHRASE and the gate sentence; joining a configuration set into
+ * words is the same lexical mapping {@code STATE_WORD} already performs client-side elsewhere).
+ *
+ * @param {?Array<string>} tideTypes e.g. {@code location.tideType}
+ * @returns {?string} null when given no wants at all (should not happen for a coastal location —
+ *          {@code isCoastal()} is exactly a non-empty set — but this stays defensive rather than
+ *          throwing on a malformed fixture)
+ */
+export function wantPhrase(tideTypes) {
+  const words = WANT_PHRASE_ORDER
+    .filter((type) => Array.isArray(tideTypes) && tideTypes.includes(type))
+    .map((type) => STATE_WORD[type]);
+  if (words.length === 0) return null;
+  if (words.length === 1) return words[0];
+  return `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`;
 }
 
 /**
@@ -158,7 +256,7 @@ function dominantWantOf(dimmedSpots) {
  * @param {?{byId: Map, byName: Map}} [args.idx] `locationSheet.buildTideAlignmentIndex`'s
  *   result, for the scan
  * @returns {{visible: boolean, representative: ?string, namedCoastal: Array, dimmed: Array,
- *   matched: Array, dominantWant: ?string, nextFitRow: (object|-1)}}
+ *   matched: Array, dominantWant: ?string, dominantWantCount: number, nextFitRow: (object|-1)}}
  */
 export function stripModel({
   row, spots = [], bounds = null, evRows = [], evIndex = -1, idx = null,
@@ -175,6 +273,7 @@ export function stripModel({
       dimmed: [],
       matched: [],
       dominantWant: null,
+      dominantWantCount: 0,
       nextFitRow: -1,
     };
   }
@@ -183,14 +282,19 @@ export function stripModel({
   const dimmed = namedCoastal.filter((s) => s.tideTier === 'miss');
   const matched = namedCoastal.filter((s) => s.tideTier === 'match');
   const dominantWant = dominantWantOf(dimmed);
+  // The scan must fit the DOMINANT want, not any of the spot's wants: the footer's sentence
+  // names one water, and a {HIGH, LOW} spot aligned via LOW is not "next high water". Computed
+  // once and reused for BOTH the footer's own count (T6, tide-window-plan.md §3 T6 #4 — "9 of
+  // them want high water" is this same population's size) and the next-fit scan below, so the
+  // two can never disagree about who is "them".
+  const wanting = dominantWant
+    ? dimmed.filter((s) => (s.tideTypes ?? []).includes(dominantWant))
+    : [];
 
   let nextFitRow = -1;
   let nextFitRowIdx = Infinity;
-  if (dominantWant && Array.isArray(evRows) && evIndex >= 0) {
-    const wanting = dimmed.filter((s) => (s.tideTypes ?? []).includes(dominantWant));
+  if (wanting.length > 0 && Array.isArray(evRows) && evIndex >= 0) {
     for (const spot of wanting) {
-      // The scan must fit the DOMINANT want, not any of the spot's wants: the footer's sentence
-      // names one water, and a {HIGH, LOW} spot aligned via LOW is not "next high water".
       const candidate = nextAlignedRow(
         evRows, idx, { id: spot.id ?? null, name: spot.name }, evIndex, dominantWant,
       );
@@ -210,6 +314,32 @@ export function stripModel({
     dimmed,
     matched,
     dominantWant,
+    dominantWantCount: wanting.length,
     nextFitRow,
   };
+}
+
+/**
+ * The served clock time for the SUNRISE or SUNSET row sharing {@code date} — a lookup over the
+ * already-built EV list, never a formula: {@code BriefingWindowTide} states WHERE the sun rises
+ * and sets on the day's tide axis ({@code sunrisePosition}/{@code sunsetPosition}, T2) but not the
+ * clock time itself, and the strip's chart (T6) needs both to label the two verticals it draws.
+ * Reading the sibling solar row's own already-formatted {@code time} keeps the client from
+ * formatting a clock time itself (CLAUDE.md: backend formats all clock/offset prose) — the same
+ * shape the design prototype's own {@code tideChart} uses, scanning the day's own EV rows for the
+ * "am" and "pm" entries rather than inventing a new field.
+ *
+ * @param {Array<{kind: string, date: string, eventType: string, time: string}>} evRows
+ * @param {?string} date the representative's own local day — {@code row.date}, since the sunrise
+ *   and sunset drawn on the strip belong to the WINDOW on screen, not to the tide's own location
+ * @param {'SUNRISE'|'SUNSET'} eventType
+ * @returns {?string} the served clock time (e.g. {@code "05:44"}), or null when no served row
+ *   carries one for this date/type (a D-13 filler row, whose {@code time} is {@code ''})
+ */
+export function siblingEventTime(evRows, date, eventType) {
+  if (!Array.isArray(evRows) || date == null) return null;
+  const sibling = evRows.find(
+    (r) => r?.kind === EVENT_KIND.SOLAR && r.date === date && r.eventType === eventType,
+  );
+  return sibling?.time || null;
 }

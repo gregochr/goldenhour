@@ -455,6 +455,15 @@ export default function WindowFirstMapPane({
           // need only the kind — their subject is the window — but the region panel's header is
           // about one region, and a medallion there has to know whether it is that one.
           pickRegion: card.pickRegion,
+          // The served `BriefingWindowTide`, folded straight off the card (tide-window-plan.md T6)
+          // — `mapEvents.js#solarRow` reads THIS field as `served.tide` and forwards it verbatim
+          // onto the EV row `MapView`'s tide strip consumes. Without this the chain from
+          // `GET /api/briefing`'s real `window.tide` to the map breaks silently: every earlier link
+          // (`buildWindowCards`, `buildHeatStripCards`) already carries it, so a missing copy HERE
+          // is invisible to any test that stubs `heat.windows` directly rather than building it
+          // through the real fold — exactly how this gap first shipped and was only caught in
+          // browser verification against a live payload.
+          tide: card.tide ?? null,
           // ⚠️ **The verdict is NOT forwarded, and that is the phase's central decision.**
           // `card.verdict` is the Plan tab's answer: the whole roster's top region (or the origin's
           // region when planning from one). The MAP's verdict has to move with the map's own scope
