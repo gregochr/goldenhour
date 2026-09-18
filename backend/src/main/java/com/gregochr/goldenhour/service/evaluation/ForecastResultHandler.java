@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.entity.BatchState;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.InversionDetails;
@@ -621,15 +622,32 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * GOLDEN_HOUR rows, since there is no sky evaluation behind a bluebell-only slot.
      *
      * <p>The serving payload carries no 0–100 potentials (both null); the bluebell summary and
-     * headline are the user-facing prose. C3b refines the OPEN_FELL case to recombine the rating
-     * with the sky score at the cache-merge step; until then an open-fell bluebell result lands
-     * its own bluebell-derived rating (never reached in production out of season).
+     * headline are the user-facing prose. C3b recombines the OPEN_FELL case with the sky score
+     * at the cache-merge step ({@code BriefingEvaluationService.recombineBluebell}) — see the
+     * tide handling note below for why this method must not pre-average tide into that case.
+     *
+     * <p><b>Tide is never re-derived for an OPEN_FELL site here.</b> {@code ForecastTaskCollector}
+     * always pairs an in-season OPEN_FELL bluebell task with a sky task for the same slot, and
+     * {@code RatingCombiner.selectRatingPeers} treats OPEN_FELL bluebell as a rating peer (unlike
+     * WOODLAND, where bluebell alone is the rating). The sky task's own combine
+     * ({@link #buildResult}) already derives this exact tide context and averages it into the
+     * sky rating, and {@code recombineBluebell} then blends that sky+tide rating with this
+     * method's bluebell rating. Deriving tide again here would average it in a second time —
+     * {@code round(avg(round(avg(sky, tide)), round(avg(tide, bluebell))))} double-counts tide
+     * against sky and bluebell, each of which enters only once. So an OPEN_FELL combine here
+     * always runs bluebell alone; the composite's tide contribution comes from the sky side.
+     * WOODLAND is unaffected either way — {@code selectRatingPeers} excludes TIDAL from a
+     * WOODLAND rating regardless of what this method passes — so WOODLAND still derives tide,
+     * both because it is harmless to the rating and because an in-season WOODLAND site has no
+     * sky call to record a TIDAL {@code forecast_score} component otherwise.
      */
     private BriefingEvaluationResult buildBluebellResult(LocationEntity location,
             BluebellEvaluation bluebell, LocalDate date, TargetType targetType, String regionName,
             String modelName, Long pipelineRunId) {
         Set<TideType> tideTypes = location.getTideType();
-        TideContext tide = (tideTypes != null && !tideTypes.isEmpty())
+        boolean deriveTide = location.getBluebellExposure() != BluebellExposure.OPEN_FELL
+                && tideTypes != null && !tideTypes.isEmpty();
+        TideContext tide = deriveTide
                 ? forecastDataAugmentor.deriveTideContext(location, date, targetType).orElse(null)
                 : null;
         RatingCombiner.CombinedRating combined =
