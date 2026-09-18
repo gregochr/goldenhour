@@ -3,7 +3,16 @@ import {
   buildWindowRows, tideSparkline, topicFacts,
 } from '../utils/windowFirstRows.js';
 
-/** A tide rollup as `BriefingWindowTide` serialises one. */
+/**
+ * A tide rollup as `BriefingWindowTide` serialises one.
+ *
+ * <p>⚠️ {@code heightAtWindow} is deliberately OMITTED by default (`undefined`, matching a payload
+ * built before T2 #876 added the field) rather than given a baseline value the way every other
+ * field here is — every test in this file that does not explicitly ask for the fifth fact
+ * (tide-plan-card-plan.md §6 Q7) must keep seeing the same four-fact row it always has, so the
+ * pre-existing `chips(row)[1]`/`row.facts[1]` assertions below stay pinned to the nearest-extreme
+ * fact rather than silently shifting under them.
+ */
 function tide(overrides = {}) {
   return {
     locationName: 'Whitby',
@@ -86,6 +95,54 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
       const [row] = buildWindowRows({ tide: tide({ direction: 'RISING' }), badges: [] });
 
       expect(chips(row)[0]).toBe('mid tide, rising');
+    });
+
+    describe('heightAtWindow — the fifth served fact (tide-plan-card-plan.md §6 Q7, decided)', () => {
+      it('states the height at the window\'s own instant, directly after the state/direction fact', () => {
+        const [row] = buildWindowRows({
+          tide: tide({ heightAtWindow: '2.6 m' }), badges: [],
+        });
+
+        expect(chips(row)[0]).toBe('mid tide, falling');
+        expect(chips(row)[1]).toBe('2.6 m at the light');
+        // The nearest-extreme fact (previously index 1) is pushed one place back, not replaced.
+        expect(chips(row)[2]).toBe('HW 19:28 · 1h43 before sunset');
+      });
+
+      it('emphasises the number, not the words — the range fact\'s own tone reversed', () => {
+        const [row] = buildWindowRows({
+          tide: tide({ heightAtWindow: '2.6 m' }), badges: [],
+        });
+
+        expect(row.facts[1].segments).toEqual([
+          { text: '2.6 m', tone: 'strong' },
+          { text: 'at the light', tone: 'base' },
+        ]);
+      });
+
+      it('is never the row\'s droppable fact on a phone — only sea state opts out', () => {
+        const [row] = buildWindowRows({
+          tide: tide({ heightAtWindow: '2.6 m' }), badges: [],
+        });
+
+        expect(row.facts[1].optional).toBeFalsy();
+        expect(row.facts.filter((f) => f.optional).map((f) => f.segments[0].text))
+          .toEqual(['seas 0.3 m · smooth']);
+      });
+
+      it('omits the fact entirely when heightAtWindow is null — a payload cached before T2 #876', () => {
+        const [row] = buildWindowRows({ tide: tide({ heightAtWindow: null }), badges: [] });
+
+        expect(chips(row).join(' ')).not.toContain('at the light');
+        expect(chips(row)[0]).toBe('mid tide, falling');
+        expect(chips(row)[1]).toBe('HW 19:28 · 1h43 before sunset');
+      });
+
+      it('omits the fact when heightAtWindow is absent altogether (this file\'s own default fixture)', () => {
+        const [row] = buildWindowRows({ tide: tide(), badges: [] });
+
+        expect(chips(row).join(' ')).not.toContain('at the light');
+      });
     });
 
     it('names the coastal location every figure was measured at', () => {

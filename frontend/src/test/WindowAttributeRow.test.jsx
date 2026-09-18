@@ -39,6 +39,28 @@ describe('WindowAttributeRow', () => {
     ]);
   });
 
+  it('renders the fifth heightAtWindow fact after the state/direction one, real DOM text and all (tide-plan-card-plan.md §6 Q7, decided)', () => {
+    render(<WindowAttributeRow row={tideRow({ heightAtWindow: '2.6 m' })} />);
+
+    // Real DOM concatenation, not the `chips()`-style space-joined helper `windowFirstRows.test.js`
+    // uses for its own logical-composition assertions — `.wf-facts > span { gap: … }` (index.css)
+    // supplies the sighted reader's visual gap, matching the two pre-existing multi-segment facts
+    // ("mid tide,falling", "HW 19:28 ·1h43 before sunset") this file already pins with no space.
+    expect(screen.getAllByTestId('window-attribute-fact').map((f) => f.textContent)).toEqual([
+      'mid tide,falling',
+      '2.6 mat the light',
+      'HW 19:28 ·1h43 before sunset',
+      'seas 0.3 m · smooth',
+      '4.9 m · 1.2 m above an average tide · at Whitby',
+    ]);
+  });
+
+  it('renders no fifth fact when heightAtWindow is absent — the pre-T2 payload shape', () => {
+    render(<WindowAttributeRow row={tideRow()} />);
+
+    expect(screen.getAllByTestId('window-attribute-fact')).toHaveLength(4);
+  });
+
   it('marks its emphasised segments so the two facts a reader acts on carry weight', () => {
     // The tone is what `.wf-facts [data-tone="strong"]` styles, and it is the only difference
     // between "falling" and the words around it — asserting the text alone would survive its loss.

@@ -104,12 +104,32 @@ function isFinite_(value) {
 
 
 /**
- * The tide row's facts, in the order the design reads them: where the water is, the extreme nearest
- * the light, the sea, and the range with the caveat that names the coast it was measured on.
+ * The tide row's facts, in the order the design reads them: where the water is, its height at this
+ * instant, the extreme nearest the light, the sea, and the range with the caveat that names the
+ * coast it was measured on.
  *
  * <p>Each is skipped rather than half-stated when its inputs are missing. The whole row is the
  * accessible answer — the sparkline beside it is `aria-hidden` — so a fact that cannot be completed
  * must be absent, never approximated.
+ *
+ * <h2>{@code heightAtWindow}, a fifth served fact (tide-plan-card-plan.md §6 Q7, decided 2026-09-18)</h2>
+ *
+ * <p>C3 declined it for file-scope and marginal-benefit reasons, not because it was wrong to add
+ * (§4 #9, §6 Q7 of that plan) — an owner later asked for it directly. It is served
+ * (`BriefingWindowTide.heightAtWindow`, T2 #876), so it belongs here rather than riding a caller's
+ * `extraFacts` prop the way the popup's reach-scoped coastal count does (§5 #6 of that same plan:
+ * "nothing reach-scoped enters `windowFirstRows.js`" — this fact is the opposite case, a served one
+ * that DOES belong here). Independently nullable from every other tide field: it was added after
+ * `BriefingWindowTide`'s other fields, so a payload cached before T2 has every other tide fact but
+ * not this one — dropped, never approximated, the same rule every fact on this row already follows.
+ *
+ * <p>Placed directly after the state/direction fact, ahead of the nearest-extreme one: state/
+ * direction and the height are both "what the water is doing right now", while the nearest-extreme
+ * fact looks to a different moment (the light itself) and the final fact states the day's whole
+ * range. Worded {@code "<height> at the light"} — the row already states the day's range in metres
+ * (`"4.9 m · 1.2 m above an average tide · at Whitby"`), so a bare second metre figure would read as
+ * a disagreement between two facts on the same row; naming its own instant makes plain that this one
+ * is the window's, not the day's.
  */
 function tideFacts(tide) {
   const facts = [];
@@ -120,6 +140,10 @@ function tideFacts(tide) {
     facts.push(fact([base(`${state},`), strong(direction)]));
   } else if (state || direction) {
     facts.push(fact([strong(state || direction)]));
+  }
+
+  if (tide.heightAtWindow) {
+    facts.push(fact([strong(tide.heightAtWindow), base('at the light')]));
   }
 
   if (tide.nearestType && tide.nearestTime && tide.nearestOffset) {
