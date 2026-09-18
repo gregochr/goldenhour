@@ -418,7 +418,7 @@ class DailyBriefingResponseJsonTest {
                 false, false, LunarTideType.REGULAR_TIDE, "Waxing gibbous", false,
                 25, "HW", true, "HW 20:20 · 25m after sunset",
                 0.92, "FALLING", "3.9 m", null,
-                "high water, falling · HW 20:20 · 25m after sunset · 3.9 m");
+                "high water, falling · HW 20:20 · 25m after sunset · 3.9 m", null);
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
                 LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
                 null, tide, List.of("Clear"), null);
@@ -454,7 +454,7 @@ class DailyBriefingResponseJsonTest {
                 "LOW", false, null, null, false, false, LunarTideType.REGULAR_TIDE,
                 "Waxing gibbous", false, null, null, null, null,
                 0.0, "RISING", "1.0 m", "HIGHER",
-                "wants high water · low water, rising at 09:00 · 1.0 m of 4.0 m");
+                "wants high water · low water, rising at 09:00 · 1.0 m of 4.0 m", null);
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
                 LocalDateTime.of(2026, 1, 27, 9, 0), Verdict.STANDDOWN,
                 null, tide, List.of(), null);
@@ -531,6 +531,101 @@ class DailyBriefingResponseJsonTest {
         assertThat(slot.tide().tideHeight()).isNull();
         assertThat(slot.tide().tideShortfall()).isNull();
         assertThat(slot.tide().tideFitPhrase()).isNull();
+    }
+
+    // ── tideAlignmentQuality (C0) ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("a populated tideAlignmentQuality round-trips, flat on the slot JSON")
+    void roundTrip_tideAlignmentQuality_survives() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo(
+                "HIGH", true, LocalDateTime.of(2026, 4, 22, 19, 45), new BigDecimal("4.8"),
+                false, false, LunarTideType.REGULAR_TIDE, "Waxing gibbous", false,
+                25, "HW", true, "HW 20:20 · 25m after sunset",
+                0.92, "FALLING", "3.9 m", null,
+                "high water, falling · HW 20:20 · 25m after sunset · 3.9 m", 0.75);
+        BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
+                LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
+                null, tide, List.of("Clear"), null);
+
+        String json = mapper.writeValueAsString(slot);
+        JsonNode node = mapper.readTree(json);
+
+        assertThat(node.has("tide"))
+                .as("TideInfo is @JsonUnwrapped — it must never appear as a nested object")
+                .isFalse();
+        assertThat(node.get("tideAlignmentQuality").asDouble()).isEqualTo(0.75);
+
+        BriefingSlot restored = mapper.readValue(json, BriefingSlot.class);
+        assertThat(restored.tide().tideAlignmentQuality()).isEqualTo(0.75);
+    }
+
+    @Test
+    @DisplayName("a null tideAlignmentQuality (not aligned, or inland) is OMITTED via NON_NULL, "
+            + "not written null")
+    void serialize_nullTideAlignmentQuality_omitted() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo(
+                "LOW", false, null, null, false, false, LunarTideType.REGULAR_TIDE,
+                "Waxing gibbous", false, null, null, null, null,
+                0.0, "RISING", "1.0 m", "HIGHER",
+                "wants high water · low water, rising at 09:00 · 1.0 m of 4.0 m", null);
+        BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
+                LocalDateTime.of(2026, 1, 27, 9, 0), Verdict.STANDDOWN,
+                null, tide, List.of(), null);
+
+        JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
+
+        assertThat(node.has("tideAlignmentQuality")).isFalse();
+
+        BriefingSlot inland = new BriefingSlot("Derwent Valley",
+                LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
+                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+        assertThat(mapper.readTree(mapper.writeValueAsString(inland))
+                .has("tideAlignmentQuality")).isFalse();
+    }
+
+    @Test
+    @DisplayName("a payload written before tideAlignmentQuality existed (the 18 T1-and-earlier "
+            + "tide fields, no key at all) deserialises the new field to null")
+    void deserialize_preC0Payload_tideAlignmentQualityNull() throws Exception {
+        // daily_briefing_cache holds payloads written before this phase shipped — every field
+        // through tideFitPhrase present, tideAlignmentQuality absent entirely (not null-valued:
+        // ABSENT), even on an aligned slot where a live build would compute a real figure.
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        String legacy = """
+                {
+                  "locationName": "Bamburgh",
+                  "solarEventTime": "2026-04-22T19:55:00",
+                  "verdict": "GO",
+                  "flags": [],
+                  "tideState": "HIGH",
+                  "tideAligned": true,
+                  "nearestHighTideTime": "2026-04-22T19:45:00",
+                  "nearestHighTideHeight": 4.8,
+                  "heightAboveP95": false,
+                  "heightAboveSpringThreshold": false,
+                  "lunarTideType": "REGULAR_TIDE",
+                  "lunarPhase": "Waxing gibbous",
+                  "moonAtPerigee": false,
+                  "nearestSolarOffsetMinutes": 25,
+                  "nearestExtremeKind": "HW",
+                  "tideOnTheLight": true,
+                  "nearestSolarOffsetPhrase": "HW 20:20 · 25m after sunset",
+                  "tideLevel": 0.92,
+                  "tideDirection": "FALLING",
+                  "tideHeight": "3.9 m",
+                  "tideFitPhrase": "high water, falling · HW 20:20 · 25m after sunset · 3.9 m"
+                }
+                """;
+
+        BriefingSlot slot = mapper.readValue(legacy, BriefingSlot.class);
+
+        assertThat(slot.tide().tideAligned()).isTrue();
+        assertThat(slot.tide().tideLevel()).isEqualTo(0.92);
+        assertThat(slot.tide().tideAlignmentQuality())
+                .as("absent in the cached payload, not recomputed on read").isNull();
     }
 
     @Test

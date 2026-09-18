@@ -242,6 +242,100 @@ class TideServiceTest {
         assertThat(tideService.buildTideData(extremes, event).nearMidPoint()).isFalse();
     }
 
+    // -------------------------------------------------------------------------
+    // computeMidpointOffsetMinutes / nearestMidpointOffsetMinutes (C0)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("computeMidpointOffsetMinutes: negative when the event falls AFTER the midpoint")
+    void computeMidpointOffsetMinutes_negativeAfterMidpoint() {
+        // HIGH at 06:00, LOW at 12:00 → midpoint at 09:00; event at 09:30, 30 min after it, so
+        // the midpoint is 30 minutes in the event's own past — negative, matching the "positive
+        // when the midpoint falls after eventTime" convention this method documents.
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime lowTime = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8),
+                extreme(lowTime, TideExtremeType.LOW, 0.2));
+
+        assertThat(TideService.computeMidpointOffsetMinutes(extremes, event)).isEqualTo(-30L);
+    }
+
+    @Test
+    @DisplayName("computeMidpointOffsetMinutes: positive when the event falls BEFORE the midpoint")
+    void computeMidpointOffsetMinutes_positiveBeforeMidpoint() {
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime lowTime = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 8, 15); // 45 min before 09:00
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8),
+                extreme(lowTime, TideExtremeType.LOW, 0.2));
+
+        assertThat(TideService.computeMidpointOffsetMinutes(extremes, event)).isEqualTo(45L);
+    }
+
+    @Test
+    @DisplayName("computeMidpointOffsetMinutes: with several consecutive pairs, reports the "
+            + "closest one — the same pair isMidPointAligned would have matched")
+    void computeMidpointOffsetMinutes_picksTheClosestPair() {
+        // Three extremes → two pairs, midpoints at 09:00 and 15:00. The event sits nearer the
+        // second (15:05, 5 min after it) than the first (6h05m after it).
+        LocalDateTime t1 = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime t2 = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime t3 = LocalDateTime.of(2026, 2, 24, 18, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 15, 5);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(t1, TideExtremeType.HIGH, 1.8),
+                extreme(t2, TideExtremeType.LOW, 0.2),
+                extreme(t3, TideExtremeType.HIGH, 1.9));
+
+        assertThat(TideService.computeMidpointOffsetMinutes(extremes, event)).isEqualTo(-5L);
+    }
+
+    @Test
+    @DisplayName("computeMidpointOffsetMinutes: fewer than two extremes → null")
+    void computeMidpointOffsetMinutes_tooFewExtremes_returnsNull() {
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+        List<TideExtremeEntity> single = List.of(
+                extreme(LocalDateTime.of(2026, 2, 24, 6, 0), TideExtremeType.HIGH, 1.8));
+
+        assertThat(TideService.computeMidpointOffsetMinutes(single, event)).isNull();
+        assertThat(TideService.computeMidpointOffsetMinutes(List.of(), event)).isNull();
+    }
+
+    @Test
+    @DisplayName("nearestMidpointOffsetMinutes: fetches this location's extremes around the "
+            + "event and reports the bracketing midpoint's signed offset")
+    void nearestMidpointOffsetMinutes_fetchesAndComputes() {
+        Long locationId = 42L;
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime lowTime = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8),
+                extreme(lowTime, TideExtremeType.LOW, 0.2));
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(locationId), eq(event.minusDays(2)), eq(event.plusDays(2))))
+                .thenReturn(extremes);
+
+        Optional<Long> offset = tideService.nearestMidpointOffsetMinutes(locationId, event);
+
+        assertThat(offset).contains(-30L);
+    }
+
+    @Test
+    @DisplayName("nearestMidpointOffsetMinutes: no stored extremes around the event → empty")
+    void nearestMidpointOffsetMinutes_noExtremes_returnsEmpty() {
+        Long locationId = 42L;
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(locationId), any(), any()))
+                .thenReturn(List.of());
+
+        assertThat(tideService.nearestMidpointOffsetMinutes(locationId, event)).isEmpty();
+    }
+
     @Test
     @DisplayName("buildTideData() returns null nextHighTideTime when no future HIGH extreme exists")
     void buildTideData_noFutureHigh_nextHighIsNull() {

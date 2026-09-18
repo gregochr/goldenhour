@@ -601,16 +601,64 @@ public class TideService {
 
     private boolean isMidPointAligned(List<TideExtremeEntity> extremes, LocalDateTime eventTime,
             long windowMinutes) {
+        Long offset = computeMidpointOffsetMinutes(extremes, eventTime);
+        return offset != null && Math.abs(offset) <= windowMinutes;
+    }
+
+    /**
+     * Signed minutes from {@code eventTime} to the midpoint of whichever consecutive pair of
+     * stored extremes brackets it most closely, or {@code null} when fewer than two extremes are
+     * given. Positive when the midpoint falls after {@code eventTime}.
+     *
+     * <p>The same bracketing geometry {@link #isMidPointAligned} tests for a MID-preference
+     * location — that method now delegates here and compares the magnitude against its window,
+     * so the two can never disagree about which pair is "the" bracketing one. Package-private and
+     * static so {@code TideServiceTest} can exercise the geometry directly, without a database.
+     *
+     * @param extremes  stored tide extremes, in chronological order
+     * @param eventTime UTC time of the solar event
+     * @return the signed minutes to the nearest bracketing midpoint, or {@code null} when fewer
+     *     than two extremes are given
+     */
+    static Long computeMidpointOffsetMinutes(List<TideExtremeEntity> extremes,
+            LocalDateTime eventTime) {
+        Long best = null;
         for (int i = 0; i < extremes.size() - 1; i++) {
             LocalDateTime t1 = extremes.get(i).getEventTime();
             LocalDateTime t2 = extremes.get(i + 1).getEventTime();
             long halfSeconds = ChronoUnit.SECONDS.between(t1, t2) / 2;
             LocalDateTime midpoint = t1.plusSeconds(halfSeconds);
-            if (Math.abs(ChronoUnit.MINUTES.between(midpoint, eventTime)) <= windowMinutes) {
-                return true;
+            long offset = ChronoUnit.MINUTES.between(eventTime, midpoint);
+            if (best == null || Math.abs(offset) < Math.abs(best)) {
+                best = offset;
             }
         }
-        return false;
+        return best;
+    }
+
+    /**
+     * Signed minutes from {@code eventTime} to the midpoint of whichever consecutive pair of this
+     * location's stored extremes brackets it most closely — the raw distance behind a MID-want's
+     * {@code nearMidPoint} flag, for a caller that already knows alignment held (via {@link
+     * TideData#nearMidPoint()}) and wants to measure how well-centred it is.
+     *
+     * <p>Re-fetches the location's stored extremes: a second query beyond {@link
+     * #deriveDualWindowTideData}'s single fetch, over the identical ± day range (see {@link
+     * #fetchExtremesAround}). Reserve it for the case that actually needs the figure — {@link
+     * com.gregochr.goldenhour.service.TideFactDeriver}'s {@code tideAlignmentQuality}, computed
+     * only for a MID-aligned slot — rather than calling it on every coastal location.
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @return the signed minutes to the nearest bracketing midpoint, or empty when fewer than two
+     *     extremes are stored around the event
+     */
+    public Optional<Long> nearestMidpointOffsetMinutes(Long locationId, LocalDateTime eventTime) {
+        List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime);
+        if (extremes.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(computeMidpointOffsetMinutes(extremes, eventTime));
     }
 
     /**

@@ -1651,6 +1651,22 @@ class BriefingSlotBuilderTest {
         }
 
         @Test
+        @DisplayName("C0: tideAlignmentQuality reaches the served slot — 1.0 on an aligned light "
+                + "landing exactly on its extreme, null on a miss")
+        void tideAlignmentQuality_reachesTheServedSlot() {
+            // Same fixture as alignedOnTheLight_levelDirectionHeightAndPhrase: the light lands
+            // exactly on the 09:00 LOW, so the offset from the light to that extreme is zero and
+            // the quality is the tight window's own maximum, 1.0 — real TideFactDeriver wiring,
+            // not a re-derivation of the C0 unit tests' arithmetic.
+            BriefingSlot aligned = build(coastalLoc(Set.of(TideType.LOW)), TideState.LOW, true);
+            assertThat(aligned.tide().tideAlignmentQuality()).isEqualTo(1.0);
+
+            BriefingSlot missed = build(coastalLoc(Set.of(TideType.HIGH)), TideState.LOW, false);
+            assertThat(missed.tide().tideAlignmentQuality())
+                    .as("no alignment, no quality to report").isNull();
+        }
+
+        @Test
         @DisplayName("a miss above every wanted band: shortfall LOWER")
         void missAboveEveryWantedBand_shortfallLower() {
             // Wants LOW; served HIGH is above the top of a low-only preference. Re-derive off a

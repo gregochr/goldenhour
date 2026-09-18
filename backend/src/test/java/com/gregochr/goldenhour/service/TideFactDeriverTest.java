@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -8,14 +11,18 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideDerivation;
 import com.gregochr.goldenhour.model.TideStats;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -58,6 +65,29 @@ class TideFactDeriverTest {
     private static final double LAT = 55.0;
     private static final double LON = -1.6;
     private static final Set<TideType> COASTAL = Set.of(TideType.HIGH);
+
+    private ListAppender<ILoggingEvent> logAppender;
+    private ch.qos.logback.classic.Logger deriverLogger;
+
+    @BeforeEach
+    void setUpLogCapture() {
+        deriverLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TideFactDeriver.class);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        deriverLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void tearDownLogCapture() {
+        deriverLogger.detachAppender(logAppender);
+    }
+
+    private List<String> warnLogMessages() {
+        return logAppender.list.stream()
+                .filter(e -> e.getLevel() == Level.WARN)
+                .map(ILoggingEvent::getFormattedMessage)
+                .toList();
+    }
 
     /** p95 = 5.50, springThreshold = 5.00 — the two thresholds under test. */
     private static final BigDecimal P95 = new BigDecimal("5.50");
@@ -325,5 +355,194 @@ class TideFactDeriverTest {
                 .tightAlignmentWindowMinutes(LAT, LON, EVENT_TIME, TargetType.SUNRISE);
 
         assertThat(minutes).isEqualTo(20);
+    }
+
+    // ── tideAlignmentQuality (C0) ────────────────────────────────────────────
+    //
+    // stubDerivable() calls stubSolarWindow(), whose fixed golden/blue span
+    // (EVENT_TIME-30 .. EVENT_TIME) makes a SUNSET tight window of exactly 15 minutes
+    // (tightAlignmentWindowMinutes_sunset pins the same figure directly), so every quality
+    // figure below is 1 - |offsetMinutes| / 15.
+
+    private TideData tideAt(TideState state, boolean nearMidPoint, LocalDateTime nearestHigh,
+            LocalDateTime nearestLow) {
+        return new TideData(state, nearMidPoint, null, null, null, null, nearestHigh, nearestLow);
+    }
+
+    @Test
+    @DisplayName("HIGH-aligned, the light exactly on the high water → quality 1.0")
+    void highAligned_lightOnTheExtreme_qualityOne() {
+        TideData tideData = tideAt(TideState.HIGH, false, EVENT_TIME, null);
+        stubDerivable(tideData, true);
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, COASTAL, LAT, LON, TargetType.SUNSET).orElseThrow();
+
+        assertThat(d.tideAlignmentQuality()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("HIGH-aligned, the light at the tight window's own edge → quality ~0")
+    void highAligned_lightAtWindowEdge_qualityZero() {
+        // Tight window is 15 minutes; the extreme lands exactly on that edge.
+        TideData tideData = tideAt(TideState.HIGH, false, EVENT_TIME.plusMinutes(15), null);
+        stubDerivable(tideData, true);
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, COASTAL, LAT, LON, TargetType.SUNSET).orElseThrow();
+
+        assertThat(d.tideAlignmentQuality()).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("HIGH-aligned, the extreme lands BEFORE the light — the offset is negative and "
+            + "must score identically to the same magnitude after it")
+    void highAligned_extremeBeforeTheLight_sameQualityAsAfter() {
+        // Same 5-minute distance as highOrLowWant_reportsTheAlignedOnesOwnQuality below, but on
+        // the other side of the light — proves Math.abs() is doing real work, not just present.
+        TideData tideData = tideAt(TideState.HIGH, false, EVENT_TIME.minusMinutes(5), null);
+        stubDerivable(tideData, true);
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, COASTAL, LAT, LON, TargetType.SUNSET).orElseThrow();
+
+        // 1 - |-5|/15 = 0.667, the same figure the symmetric +5-minute case reports.
+        assertThat(d.tideAlignmentQuality())
+                .isCloseTo(2.0 / 3.0, org.assertj.core.data.Offset.offset(0.001));
+    }
+
+    @Test
+    @DisplayName("MID-aligned, the light exactly on the bracketing midpoint → quality 1.0")
+    void midAligned_lightOnTheMidpoint_qualityOne() {
+        TideData tideData = tideAt(TideState.MID, true, null, null);
+        stubDerivable(tideData, true);
+        when(tideService.nearestMidpointOffsetMinutes(LOC_ID, EVENT_TIME))
+                .thenReturn(Optional.of(0L));
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, Set.of(TideType.MID), LAT, LON, TargetType.SUNSET)
+                .orElseThrow();
+
+        assertThat(d.tideAlignmentQuality()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("⚠️ a MID match nearer the midpoint outscores one nearer an extreme — the case the "
+            + "nearest-extreme offset ordering got backwards")
+    void midAligned_nearerMidpointBeatsNearerExtreme() {
+        // Two MID-aligned slots, distinguished only by how far the light sits from the
+        // bracketing midpoint. A better-centred MID match is FARTHER from either extreme, so a
+        // tiebreak built on nearestSolarOffsetMinutes (distance to the nearest extreme) would
+        // rank these the wrong way round; tideAlignmentQuality, built on the midpoint distance
+        // instead, must not.
+        TideData atMidpoint = tideAt(TideState.MID, true, null, null);
+        stubDerivable(atMidpoint, true);
+        when(tideService.nearestMidpointOffsetMinutes(LOC_ID, EVENT_TIME))
+                .thenReturn(Optional.of(0L));
+        double atMidpointQuality = deriver()
+                .derive(LOC_ID, EVENT_TIME, Set.of(TideType.MID), LAT, LON, TargetType.SUNSET)
+                .orElseThrow().tideAlignmentQuality();
+
+        TideData nearExtreme = tideAt(TideState.MID, true, null, null);
+        stubDerivable(nearExtreme, true);
+        when(tideService.nearestMidpointOffsetMinutes(LOC_ID, EVENT_TIME))
+                .thenReturn(Optional.of(12L));
+        double nearExtremeQuality = deriver()
+                .derive(LOC_ID, EVENT_TIME, Set.of(TideType.MID), LAT, LON, TargetType.SUNSET)
+                .orElseThrow().tideAlignmentQuality();
+
+        assertThat(atMidpointQuality).isEqualTo(1.0);
+        assertThat(nearExtremeQuality).isCloseTo(0.2, org.assertj.core.data.Offset.offset(0.001));
+        assertThat(atMidpointQuality).isGreaterThan(nearExtremeQuality);
+    }
+
+    @Test
+    @DisplayName("a {HIGH, LOW} want takes the better of the two — here only HIGH is itself "
+            + "the aligned one, and its own quality is what is reported")
+    void highOrLowWant_reportsTheAlignedOnesOwnQuality() {
+        TideData tideData = tideAt(TideState.HIGH, false, EVENT_TIME.plusMinutes(5), null);
+        stubDerivable(tideData, true);
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, Set.of(TideType.HIGH, TideType.LOW), LAT, LON,
+                        TargetType.SUNSET)
+                .orElseThrow();
+
+        // 1 - 5/15 = 0.667
+        assertThat(d.tideAlignmentQuality())
+                .isCloseTo(2.0 / 3.0, org.assertj.core.data.Offset.offset(0.001));
+    }
+
+    @Test
+    @DisplayName("when two wanted states are BOTH aligned, the higher quality of the two wins")
+    void twoAlignedWants_bestOfTheTwoWins() {
+        // HIGH is aligned (offset 12 → quality 0.2) and, independently, the light also sits near
+        // the bracketing midpoint (offset 3 → quality 0.8): a location wanting {HIGH, MID} takes
+        // the better of the two, not the first or the state-matched one.
+        TideData tideData = tideAt(TideState.HIGH, true, EVENT_TIME.plusMinutes(12), null);
+        stubDerivable(tideData, true);
+        when(tideService.nearestMidpointOffsetMinutes(LOC_ID, EVENT_TIME))
+                .thenReturn(Optional.of(3L));
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, Set.of(TideType.HIGH, TideType.MID), LAT, LON,
+                        TargetType.SUNSET)
+                .orElseThrow();
+
+        // MID's 0.8 beats HIGH's 0.2.
+        assertThat(d.tideAlignmentQuality()).isCloseTo(0.8, org.assertj.core.data.Offset.offset(0.001));
+    }
+
+    @Test
+    @DisplayName("a non-aligned slot reports no quality — null, not zero")
+    void notAligned_qualityIsNull() {
+        TideData tideData = tideAt(TideState.HIGH, false, EVENT_TIME, null);
+        stubDerivable(tideData, false);
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, COASTAL, LAT, LON, TargetType.SUNSET).orElseThrow();
+
+        assertThat(d.tideAlignmentQuality()).isNull();
+    }
+
+    @Test
+    @DisplayName("⚠️ a non-aligned MID want never pays for the midpoint lookup — the guard on "
+            + "tideAligned is checked BEFORE any want is evaluated, not per-want")
+    void notAligned_midWantNearTheMidpoint_neverCallsTheMidpointLookup() {
+        // nearMidPoint() is TRUE here — if the tideAligned ? ... : null guard in derive() were
+        // ever weakened to a per-want check instead, this fixture is exactly the one that would
+        // start calling nearestMidpointOffsetMinutes despite the mocked overall alignment being
+        // false. A HIGH-only want set (as in notAligned_qualityIsNull above) could never catch
+        // that regression, because MID is never in scope for it either way.
+        TideData tideData = tideAt(TideState.MID, true, null, null);
+        stubDerivable(tideData, false);
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, Set.of(TideType.MID), LAT, LON, TargetType.SUNSET)
+                .orElseThrow();
+
+        assertThat(d.tideAlignmentQuality()).isNull();
+        verify(tideService, never()).nearestMidpointOffsetMinutes(any(), any());
+    }
+
+    @Test
+    @DisplayName("⚠️ tideAligned=true but the MID lookup's second fetch finds nothing (a tide "
+            + "refresh landed between the two queries) → quality null, and a WARN so the "
+            + "degraded sample never dies silently")
+    void alignedButMidpointLookupEmpty_qualityNullAndWarned() {
+        TideData tideData = tideAt(TideState.MID, true, null, null);
+        stubDerivable(tideData, true);
+        when(tideService.nearestMidpointOffsetMinutes(LOC_ID, EVENT_TIME))
+                .thenReturn(Optional.empty());
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, Set.of(TideType.MID), LAT, LON, TargetType.SUNSET)
+                .orElseThrow();
+
+        assertThat(d.tideAlignmentQuality()).isNull();
+        assertThat(warnLogMessages())
+                .as("the one avenue tideAligned and tideAlignmentQuality can disagree on must "
+                        + "not degrade silently")
+                .anyMatch(msg -> msg.contains(LOC_ID.toString()) && msg.contains("tideAligned=true"));
     }
 }
