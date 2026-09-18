@@ -5,6 +5,4339 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.20.6] - 2026-09-18
+
+### Fixed — the release promotion no longer false-positives on a large CHANGELOG
+
+`scripts/promote-changelog.sh` proves its rewrite added exactly its insertion block and removed
+nothing by diffing the old and new `CHANGELOG.md`. It called plain `diff`, whose Apple/BSD
+implementation uses a non-minimal heuristic on large files by default — inserting the v2.20.6
+block (4283 lines into a 12k+ line file) produced a larger, non-minimal edit script (4286 added /
+3 removed) instead of the true minimal one, and the guard refused a legitimate promotion. The
+`diff` calls now pass `-d` to force a minimal diff; a no-op for GNU diff, which is already minimal
+by default.
+
+### Docs — `clearForUser`'s javadoc names the nightly refresh as well as the button
+
+`UserDriveTimeWriter.clearForUser` discards a user's drive times when `UserSettingsService.saveHome`
+sees the home move. Its javadoc said they stay unknown "until the next refresh", then "The user
+refreshes when they are ready", as if that press were the only way back. It never was: the sentence
+arrived with #423 on 2026-08-04, a week after #345 had added `DriveTimeRefreshJob`, the nightly
+`drive_time_refresh` job that V133 seeds ACTIVE at 02:40. It was incomplete on the day it was
+written, not stale later.
+
+The javadoc now says the gap ends at whichever refresh first measures from the new home: the nightly
+run, or the user's own **Refresh drive times** in the Settings dialog. It also records that the
+dialog enables that button for Pro and admin accounts only, so a LITE account waits for the nightly
+run. The "unknown is safe; wrong is not" paragraph is unchanged, because V145's migration comment and
+`RegionDriveTimeWriter` both cite it.
+
+A sweep of the whole tree (backend, frontend, `CLAUDE.md`, `docs/`, the changelogs) found no other
+present-tense copy of the claim. The past-tense history in V133, in `DriveTimeRefreshJob`'s class
+javadoc and in `UserSettingsModal`'s stamp comment is accurate and stays.
+
+Javadoc only; no behaviour changes.
+
+### Fixed — a postcode saved while drive times recalculate is no longer put back to the old one
+
+A reader could save a new postcode and press **Refresh drive times** before the save had
+committed; the settings dialog allows it. The refresh read the old home, routed from it for
+several seconds, stored those drive times over the save's discard, and then saved the whole user
+row it had loaded, writing the old postcode and coordinates back over the new ones. The server
+ended on the old home, with drive times measured from it, while the page showed the new one. The
+same shape lost other writes: a colour or home save made while the nightly drive-time job routed
+that user was reverted by the job's save, and a home save and a colour save in two tabs could lose
+one of the two. `AppUserEntity` has neither `@Version` nor `@DynamicUpdate`, so every one of those
+saves wrote every column from its own copy.
+
+**The fix.**
+- **Every settings write is column-scoped**, following `updateComingUpLastSeenAtByUsername`:
+  `updateHome` writes the postcode, coordinates and radius together, `updateMapColourScaleByUsername`
+  writes the colour alone, and the drive-time stamp has its own two statements. A null radius keeps
+  the stored one (`coalesce`), as the in-memory save did.
+- **The seven settings columns are `updatable = false`.** Column-scoping protects a column only
+  if no whole-entity save still writes it, and several do: the JWT filter's last-active save (at
+  most hourly, from whichever authenticated request comes first), login, a password change, the
+  marketing opt-in and the admin paths. None of those can now write a home, colour, radius, stamp or
+  Coming-up instant. ⚠️ So `setX()` then `save()` on an existing user writes none of these columns;
+  inserts are unaffected.
+- **A refresh stores only while the home is still the one it measured from.**
+  `DriveDurationService` now only measures (`measureForUser`). `UserDriveTimeWriter.storeIfHomeUnchanged`
+  compare-and-sets the stamp on the measured coordinates FIRST, then replaces the rows in the same
+  transaction, and writes nothing when that matched no row. The coordinates are compared because they
+  are the measurement's whole input, and `DOUBLE PRECISION` round-trips a Java `double` exactly.
+- **`POST /api/user/settings/drive-times/refresh` answers 409** when the home moved while it measured,
+  having written nothing. It does not re-measure: a retry re-runs every precondition against the row as
+  it stands, including the cooldown, which answers 429 if another refresh already measured from the
+  new home. The retry is always allowed after a move, because the save released the cooldown.
+- **The nightly job stores through the same guard** and counts a moved user as superseded, not failed.
+- **`saveHome` decides whether the home moved from a `SELECT … FOR UPDATE` read**
+  (`findByUsernameForUpdate`), so nothing can change the row between that decision and the commit.
+  Both it and the store take the user row before the drive-time rows, so they cannot deadlock.
+
+**Why not `@Version` or `@DynamicUpdate`.**
+- `@DynamicUpdate` narrows the save of a *managed* entity to the columns that changed. With
+  open-in-view on (Boot's default, not overridden here), the manual refresh held a managed entity, so
+  it would have stopped that refresh writing the old postcode back. It cannot help a save that merges a
+  detached copy, as the nightly job and the JWT filter's last-active write do: a merge counts every
+  stale value as a change. And it does nothing about the drive-time rows, which the refresh stored for
+  the old home either way.
+- `@Version` would catch every stale write, at two costs. It turns independent writes into conflicts
+  whenever they overlap: a colour save, a home save, the hourly last-active bump. And it needs a
+  migration plus a conflict response at every writer. The one real conflict is narrower than "the row
+  changed": drive times measured from a home that has since moved. A compare-and-set on the
+  coordinates answers exactly that.
+
+**Behaviour changes to know.**
+- The nightly job no longer clears a user's drive times when ORS answers with no valid duration to any
+  location. It stores nothing then, as it already did for an empty response, so the stored drive times
+  keep matching their stamp. The manual refresh still clears in that case.
+- The cooldown and both stamps read the injected `Clock` rather than `Instant.now()`.
+
+**The frontend contract is unchanged.** The refresh's response is still
+`{locationsUpdated, calculatedAt}`, and `useReaderSettings` still compares stamps as instants. The
+dialog renders a 409 as "Something went wrong — please try again", and focus goes back to the Refresh
+button; pressing it again is the remedy. The reason reaches the client in the error body's `error`
+field.
+
+**Tests.**
+- **Mocked unit tests** pin each write to its column-scoped method with explicit arguments, and pin
+  that none calls `save()`. They also cover both branches of the guard, the 409, the cooldown at
+  1799/1800/1801 s on a fixed clock, that the locked read comes before every write, and the job's
+  branches.
+- **`AppUserRepositoryTest` (H2)** proves each update writes its own columns and no others, covers
+  both compare-and-set branches (latitude and longitude varied alone), and shows the `coalesce`. It
+  also reproduces the lost update itself: a stale copy saved back now emits an `UPDATE` without the
+  settings columns, and a positive control proves that save really wrote.
+- **`UserSettingsRaceSequenceTest` (H2)** replays each failure through the real services and
+  transactions, driving the interleaving from inside the stubbed routing call: a postcode saved
+  mid-refresh (409, the new home kept, nothing stored, the retry measuring from the new home), a
+  colour saved mid-refresh (kept, and no conflict), a home saved while the nightly job routes, a move
+  releasing the cooldown, and a radius-only save keeping drive times. A second connection proves the
+  locked read really holds the row.
+- **`UserSettingsRowLockIntegrationTest` (Postgres, CI only; not run locally, since there is no
+  Docker here)** proves that a store waits on a save holding the row and then matches the home that
+  save committed. It also replays the postcode failure against the production engine.
+
+**Proved by mutation**, in a scratch copy of `backend/`, running only the classes each mutant
+concerns. After every run the file was restored and checked byte for byte. All 31 were caught locally:
+30 by an assertion, and one by an error from the product itself.
+
+| mutant | caught by |
+|---|---|
+| `updatable = false` removed from each of the 7 settings columns (7 mutants) | the stale whole-entity save test, each on its own column |
+| compare-and-set ignores latitude / longitude / the whole home (3) | the matching compare-and-set test; the whole-home one also by the postcode sequence (no 409) |
+| `updateHome` resets a null radius | the `coalesce` test and the radius-only sequence |
+| `updateHome` also clears the stamp | the column-scoping test and the radius-only sequence |
+| `@Lock` removed from `findByUsernameForUpdate` | the second-connection lock test |
+| the store ignores the compare-and-set's result | the writer test, and both the refresh and nightly sequences |
+| the store deletes rows before the compare-and-set | the writer's order and no-write tests |
+| the no-answer stamp always reports success | the writer test |
+| `saveHome` decides from an unlocked read | `readsUnderTheLockBeforeWriting`, among others |
+| a move keeps the stamp / keeps the rows (2) | the unit tests; the stamp one also by the cooldown sequence (429) |
+| every save / no save counts as a move (2) | the unit tests and the radius-only sequence / the cooldown sequence |
+| the refresh reports success when nothing was stored | both 409 tests and the postcode sequence |
+| the cooldown reads the wall clock | the 429 tests |
+| the cooldown boundary made inclusive | the 1800 s case errors on the mutant's own 429 |
+| the no-answer stamp skips the guard | the no-answer and 409 tests |
+| the colour saved through the whole entity | the unit test and the colour sequence (`verdict` written back) |
+| the radius no longer clamped | the clamp tests |
+| the job stores an empty measurement / saves the user row back / stamps from the wall clock (3) | the job tests; the wall-clock one also by the nightly sequence |
+| an answer with no valid duration collapses to no answer | the measurement test |
+
+**Not proved here.** The Postgres-only properties — the compare-and-set re-checking its condition
+after a lock wait, and the absence of a deadlock between a save and a store — rest on
+`UserSettingsRowLockIntegrationTest`, which runs only in CI. Nothing was checked in the running app.
+
+**Found on the way, not fixed here.** The shared region matrix has the same race: its nightly job
+routes from a region's base and stores unconditionally, so an admin moving the base during that run
+gets the old base's drive times. The account columns still left updatable (enabled, role, password
+and the rest) are still written back whole by the JWT filter's last-active save, so an admin's
+change landing in that gap can be undone.
+
+### Docs — Map tab "tide on the window": port plan and session prompts
+
+`docs/engineering/tide-window-plan.md` is the port plan for the owner's `design_handoff_tide_window`
+bundle (vendored verbatim at `docs/design/tide-window/`, with a `VENDORING.md` saying what was and was
+not copied), and `docs/engineering/tide-window-prompts.md` is one paste-ready kickoff prompt per phase
+for fresh Sonnet sessions. Eight phases (T1–T8): two backend (the per-slot tide facts, the strip's
+window facts), one data-plumbing, then the chip, the callout and sheet block, the strip, the phone
+layout, and the sweep.
+
+The plan's §1 records where the codebase already answers the spec's open questions, and three of
+those corrections change what gets built:
+
+- the location's "want" already exists as a multi-select `TideType` (HIGH/MID/LOW) edited on the
+  Locations screen, so the spec's one new column, API field and editor (`OPEN 1`) are not built;
+- this app's tide axis is **time-based** (`classifyTideState`, the gate, `TideVisitor`), not the
+  spec's level-based `1 − |level − target|`, and `TideSurfaceAgreementTest` exists to stop a second
+  definition — so the chip's tiers read the served `tideAligned` and the level is a display fact;
+- a tide-mismatched coastal slot is not rated low, it is **withheld from Claude** and served unrated
+  (`BriefingGatingPolicy`, `evaluationGate`), which with the map's default "hide unknown" is the
+  exact mechanism behind the spec's "the coast disappears". The plan keeps the gate and the score
+  untouched this series (§5 #1) and draws the gated location dimmed without a star; lifting the gate
+  is an owner decision with a measurement query attached (§6 Q1).
+
+No code changes.
+
+### Added — the Map tab's tide strip reaches the phone (T7 of the tide-window increment)
+
+T6 gated the strip on `!isMobile`; this phase lifts that gate. On the phone the strip takes the
+count footer's own row of the lifted chrome stack rather than sharing space with it — "the tide
+sentence is the more useful line at that width" (design §6) — so the footer is hidden outright
+while the strip is on, not merely lifted alongside it the way every other row in that stack is.
+Everything above the strip (the scored-locations chip, the LITE viewline-upsell chip) now clears
+its *real* published height (`--tsh`, T6) instead of the footer's assumed ~28px one: open and
+collapsed are roughly 4x apart (T6's own measurement, 167px vs 38px), so a fixed offset would be
+wrong for one of the two states by construction — the same argument that put `--tsh` on the strip
+in the first place.
+
+The strip is mounted as a plain **sibling** of `.wf-map-chrome-bl` on the phone rather than nested
+inside it the way the desktop mount is (T6, §4 #6): it has to span `left: 8px; right: 8px` against
+the frame itself, the same containing block the count footer and the scored-legend chip already
+use, and `.wf-map-chrome-bl` is only ever left-anchored (no `right`), so a descendant of it could
+never stretch edge to edge. `MapView.jsx` renders the same `<MapTideStrip>` a second time, gated on
+`isMobile` alongside the existing `!isMobile`-gated desktop mount; the component itself needed no
+change — it already returns `null` unless `model.visible`, on either mount.
+
+Two knock-on fixes, both because the phone strip is no longer covered by `.wf-map-chrome-bl`'s own
+existing obstacle/band seeding:
+
+- `MapLabels.jsx`/`PinsLayer.jsx`'s `OBSTACLE_SELECTOR` gained `[data-testid="wf-tide-strip"]` — on
+  desktop the strip is already covered as a descendant of the seeded `.wf-map-chrome-bl`, but on the
+  phone it is a sibling with no obstacle entry of its own, so a label or pin could place itself
+  underneath an uncovered strip on that one viewport.
+- `MapCallout.jsx`'s `BAND_BAR_SELECTOR` gained the same testid. The phone query *hides* the count
+  footer outright (rather than lifting it) while the strip is on, so `getBoundingClientRect` on a
+  `display: none` footer returns a zero-size rect `calloutBand` already skips — with nothing else
+  naming the strip's own floor, the callout card was free to grow down over it.
+
+`frontend/src/test/mapPhoneChromeCascade.test.jsx` gains the strip's row: its own static geometry
+(`position: absolute; left: 8px; right: 8px; bottom: 112px; width: auto; max-width: none`, and that
+it reverts to the desktop flex-column placement without the `.wf-map-tab` ancestor); the count
+footer hidden while `wf-tide-strip-on` and shown otherwise; and — since `calc(var(--tsh))` is
+exactly what this suite's jsdom environment cannot resolve numerically (the same constraint
+`mapChromeZLadderCascade.test.jsx`'s own `--tsh` test already documents) — a raw-rule-text
+extraction of the scored-legend/chrome-bl lift formulas, replayed as arithmetic in JS with T6's own
+measured heights (167px open, 38px collapsed) standing in for `--tsh`, proving every pairwise
+boundary clears by at least 8px in both states. `MapLabels.test.jsx`/`PinsLayer.test.jsx` each gain
+a case in their existing obstacle-seeding `it.each` table for the new selector.
+
+**Adversarial review (5 lenses: runtime behaviour, CSS/tokens, test quality, accessibility, project
+conventions) found and fixed three real issues:** a pre-existing, unconditional (no media query)
+`.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer { bottom: calc(...) }` rule still fires on the
+phone, where the new `display: none` for the same selector already wins visually — harmless, but
+dead arithmetic on that one viewport; fixed with a comment rather than a second media-query split.
+`mapPhoneChromeCascade.test.jsx`'s new pairwise-clearance check hardcoded the bar's `bottom` as a
+bare literal, unlike every other check in that file, which reads it live off the real CSS; fixed to
+match. And no test anywhere exercised `MapCallout.jsx`'s `BAND_BAR_SELECTOR` at all — not even for
+the pre-existing entries, a gap this phase inherited rather than introduced — closed with two new
+`MapCallout.test.jsx` cases proving the callout's placement band clamps above a real `wf-tide-strip`
+DOM sibling (and is a no-op without one); both passed on the first run. One accessibility finding
+recorded as an owner item rather than fixed: hiding the counts footer outright removes its count/
+rated/filtered figures from the accessibility tree while the strip shows, with no substitute
+anywhere else on the tab — faithful to the design's own screen-space reasoning, never evaluated for
+a non-visual reader; recorded as `tide-window-plan.md` §6 Q8.
+
+`npm run lint && npm test && npm audit --audit-level=high && npm run build` all green — 251 files,
+6413 tests, 0 vulnerabilities, build succeeded.
+
+**Browser-verified at 390×844**, headless Chromium via `playwright-core` (`chromium-1208`'s own
+binary, since the worktree's `playwright-core` resolved a revision the local cache did not have),
+against a freshly seeded local backend and Vite dev server — the same three coastal locations/wants
+as T5/T6 (Bamburgh Beach LOW, Dunstanburgh Castle HIGH, Tynemouth Priory HIGH+LOW) — with real
+`boundingBox()`/`getComputedStyle` reads, no numbers assumed:
+
+| check | open | collapsed |
+|---|---|---|
+| strip bottom edge vs bar top edge | 47.5px clear | 47.5px clear (strip `bottom` is a fixed anchor) |
+| scored-legend bottom edge vs strip top edge | 12.47px clear | 12.5px clear |
+| callout card bottom edge vs strip top edge | — | 8.0px clear, exactly `calloutBand`'s `BAND_EDGE_PAD` |
+| counts footer `display` while the strip is on | `none` | `none` |
+
+Strip's own real height: **166.53px open, 63.5px collapsed** — confirming a review-flagged risk was
+real: the collapsed row's phone-width height (63.5px) is *not* T6's desktop 38px (open, 166.53px,
+does match closely). The geometry held regardless, because everything above the strip is anchored
+off its real `--tsh` rather than an assumed constant — proof by measurement of the reason that
+mechanism exists. The callout (Bamburgh Beach, Pins mode) rendered fully above the collapsed strip
+with no overlap; the strip itself rendered its full content correctly at this width, footer reading
+"2 of 3 coastal spots are dimmed — they want low water" with the "beyond these four days" denial.
+
+### Added — the Map tab's tide strip (T6 of the tide-window increment)
+
+Bottom-left of the Map tab, mounted as the last child of `.wf-map-chrome-bl` so the legend and
+viewline-upsell chips clear it by flex order — the day's tide curve with HIGH/MID/LOW ruled across
+it, night shaded, sunrise and sunset marked, the light on the curve with its height, and a footer
+naming what is dimmed and jumping to the next window that fits. Visible only when the window on
+screen is solar, the briefing served a window tide fact, and at least one coastal location sits in
+the viewport padded 12% — never a mode, never a toggle; the only control is collapse, held in
+`MapView` state so it survives a window change. Publishes its own real height as `--tsh` on the
+`.wf-map-tab` root so the bottom-centre counts footer clears it (`calc(var(--tsh, 120px) + 16px)`);
+the legend and upsell chips above it need no such arithmetic, since flex order already clears them.
+
+**A real wiring gap between the served payload and the map was found and fixed.** T3's own
+`mapEvents.js#solarRow` already read `served.tide`, but nothing between `GET /api/briefing`'s real
+`window.tide` and that `served` object ever copied it forward: `buildWindowCards` (Plan tab
+matrix), `buildHeatStripCards` (the heat strip's thumbnails) and `WindowFirstMapPane`'s own
+`heat.windows` mapper each build their own reduced shape of a window, and none of the three carried
+`tide` through. Every layer's own unit tests fed the next one a hand-built fixture that already had
+`.tide` on it, so the gap was invisible to a fully green suite and only surfaced once the strip was
+rendered against a live payload in browser verification. Fixed by threading `tide: win?.tide ?? null`
+through all three folds, with a targeted test at each hop (`windowFirstCards.test.js`,
+`windowFirstStrip.test.js`, `WindowFirstMapPaneHeat.test.jsx`) — the last named for exactly this
+failure mode, mirroring the file's own precedent test for a prior instance of the same defect class
+(`pickKind`).
+
+New `components/map/MapTideStrip.jsx`; `utils/mapTideFit.js` gains `dominantWantCount` (the
+footer's "N of them want" population, computed once and shared with the next-fit scan so the two
+can never disagree) and `siblingEventTime` (a lookup, not a formula, for the chart's sunrise/sunset
+clock labels — `BriefingWindowTide` states where the sun rises/sets on the tide axis but not the
+clock time itself, and the sibling solar EV row already carries it, served). `windowFirstRows.js`
+exports its existing `STATE_WORD`/`DIRECTION_WORD` tables for reuse rather than a second copy.
+`MapView.jsx` gains the mount, a `tideStripCollapsed` state, a second `BoundsTracker` for the tab's
+own Leaflet viewport (the overlay's own stays plain-array; the strip needs a real `pad`/`contains`
+pair), and the `stripModel`/sibling-time wiring. New CSS block in `index.css`, tokens throughout
+(`--color-tide` for the curve stroke, `--color-badge-tide` for the state word/dot/band-hit label,
+`--color-verdict-marginal` for the sunrise/sunset rules, `--color-plex-text-muted`, `--color-plex-border`,
+`--font-mono`) — no bare hex.
+
+**Adversarial review (6 lenses: runtime behaviour, CSS/tokens, test quality, accessibility, project
+conventions, impact on the next phone phase) found and fixed:**
+
+- The curve stroke and the sunrise/sunset rules hardcoded their hex values instead of referencing
+  `--color-tide`/`--color-verdict-marginal` (the values happened to match, so nothing looked wrong
+  on screen) — fixed to reference the tokens (the marginal rule via `stroke-opacity`, since the
+  design's alpha isn't baked into that token).
+- **The chart's `aria-hidden` was on the `<svg>` alone, not the whole overlay.** The sunrise/sunset,
+  extrema and light-height labels are real HTML text siblings of the svg, so a screen reader
+  landing on that block by linear navigation read disconnected fragments ("↑ 05:44", "HW 08:47",
+  "2.6 m") with none of the sentence structure the header and footer already state them in — exactly
+  what "the whole chart is aria-hidden" (the design's own rule, and this file's own header doc) was
+  supposed to prevent. Fixed by moving `aria-hidden` onto the chart's wrapping div.
+- The collapsed row's "Open ▴" button had no accessible-name treatment for its glyph, unlike the
+  open state's "Collapse" and unlike `MapCallout`'s identical ▾/▴ toggle, which wraps the caret in
+  its own `aria-hidden` span. Fixed to match that precedent.
+- No focus management on the next-fit jump: activating it commonly resolves the very fact the
+  button existed for, so it unmounts on the next render with nothing to catch focus, silently
+  dropping a keyboard/screen-reader user to `<body>`. Fixed by giving the strip's root a
+  programmatic `tabIndex={-1}` and moving focus onto it after the jump, and by adding
+  `role="group" aria-label="Tide"` so the strip is a landmark a screen reader can jump to as one
+  unit in the first place.
+- A tautological test: the dot-on-curve self-consistency check built its fixture's `windowLevel`
+  by calling the exact same interpolation function the test then used to verify it, so two calls to
+  one deterministic function could never disagree regardless of a real bug. Fixed by deriving the
+  fixture's `windowLevel` from an independent continuous formula and sampling the discrete `curve`
+  against it — mirroring `TideSurfaceAgreementTest`'s own two-independent-computations shape.
+- An `offsetHeight` stub was restored inline at the end of each test body rather than in `afterEach`,
+  so a failed assertion earlier in any of those three tests would leave
+  `HTMLElement.prototype.offsetHeight` pinned globally for every later test in the file. Fixed.
+- A `siblingEventTime` guard test used a night row whose own `time` field was already empty, so
+  removing the `kind === SOLAR` filter it existed to prove would have passed anyway (the `|| null`
+  fallback coerces empty strings regardless). Fixed by giving that row a real time.
+- Missing coverage the phase's own task list named directly: a night-rect-widths test, a rendered
+  (not just pure-function) assertion of the footer's leading count sentence, and the
+  `windowLevel`-not-finite half of the dot-placement guard. Added.
+- One `container.querySelector('svg')` reach-into-DOM-structure, against this project's own test
+  standards — swapped for a `data-testid` on the element.
+
+`npm run lint && npm test && npm audit --audit-level=high && npm run build` all green (6355 tests,
+0 vulnerabilities, build succeeded).
+
+**Browser-verified, not merely asserted** — headless Chromium via `playwright-core` (the Browser
+pane would not composite in this session), against a locally seeded fixture: three SEASCAPE
+locations with real `tide_extreme` rows and distinct wants (Bamburgh Beach HIGH, Dunstanburgh
+Castle LOW, Tynemouth Priory HIGH+LOW, reaching the null-shortfall arrow case), a built briefing.
+Measured at 1280×800: strip height 167px open / 38px collapsed; `--tsh` and the counts footer's
+computed `bottom` agreed exactly in both states (167+16=183px; 38+16=54px); the light dot's
+`left`/`top` matched `windowPosition·100`/`TY(windowLevel)` to the pixel, and the night rects'
+`x`/`width` matched the served `sunrisePosition`/`sunsetPosition` exactly; every text node's
+contrast against the actual rendered (blurred, composited) background ranged 7.13:1–15.42:1, clear
+of the 4.5:1 floor. Panned to the Lake District and zoomed in tight on it: the strip disappeared,
+`--tsh` and the `wf-tide-strip-on` class were removed, and the counts footer's `bottom` returned to
+exactly `8px`. **Not seen live**: a night/astro row hiding the strip — the seeded fixture offered no
+astro or aurora EV rows to pick without additional dark-sky seeding outside this phase's scope; that
+branch is covered by the automated suite (`mapTideFit.test.js`'s `stripModel` visibility tests, and
+`MapTideStrip.test.jsx`'s own visibility suite) rather than observed on screen.
+
+### Added — the tide-fit block on the map callout and the location sheet (T5 of the tide-window increment)
+
+A coastal location's tide fact now reads as a sentence, not a wave with no words: a new shared
+`TideFitBlock` component renders **Tide lands on the light** over the served match phrase, or
+**Wrong water, not wrong light** over the served miss phrase — carrying either a text-button jump to
+the next window this spot fits, or an honest denial when nothing in the forecast horizon does. It
+mounts in two places that used to say less about the same fact: the map callout's tide row (which
+used to say only whether an extreme landed on the light, a different question) and every solar row
+of the location sheet (which had no per-window tide fact at all). Both surfaces read the same served
+alignment index, so the sentence never disagrees between the card that opened a sheet and the sheet
+itself.
+
+The evaluation gate row is untouched and sits beside the block rather than under it: the gate states
+why there is no score (the offset clause — "HW 09:19 · 2h35 after sunrise"), the block states what
+the water is and what it would need to be — no fact prints twice on a gated card.
+
+Frontend only, no backend or migration change. `TideFitBlock.jsx` is new; `MapCallout.jsx` and
+`LocationFourDaySheet.jsx` (via a new `tideAlignmentIndex` prop, threaded from `WindowFirstShell.jsx`)
+both mount it. A new `mapTideFit.wantPhrase` joins a location's wanted tide states into words for the
+jump/denial line, mirroring the backend's own wording exactly. `.wf-callout-tide*` CSS is renamed to
+a shared `.wf-tide-fit*` namespace with a new miss-tier tint built from this app's existing tokens.
+
+Adversarial review (5 read-only lenses) found and fixed two P1s before this landed: the callout's
+jump had no focus rescue, so activating it (which always lands on a matched window) unmounted the
+very button under the reader's finger and dropped keyboard focus to the top of the document — fixed
+by focusing the card's own close button first. And the block's client-read "wants" wording can
+briefly disagree with the server-frozen phrase beside it if a location's tide preference is edited
+between pipeline cycles — a narrow, accepted edge recorded in the component's own documentation
+rather than closed here, since closing it needs a backend field outside this phase's scope. Also
+fixed: a contrast failure on the denial's ink (reused a token this file has already corrected for
+the same reason elsewhere), a scan that could jump a reader to a travel day with no guard against it,
+an aria-expanded race on the sheet's own focus move, and two test-quality gaps (a tautological "away
+row" test, and zero coverage of the three-way "wants" join). `npm run lint && npm test && npm audit
+--audit-level=high && npm run build` all green.
+
+### Added — the map's tide chip dims, not drops (T4 of the tide-window increment)
+
+A coastal location whose tide misses now stays on the map, at reduced emphasis, instead of
+vanishing behind the "unknown" toggle. `visibleLocations` (`MapView.jsx`) lets a location with a
+served tide fact past the rating stage whatever its rating — it is withheld for a stated reason or
+rated, never "nothing scored yet" — while type, drive, dark-sky, scope and `focus` still narrow it
+as before; `hasUnrated` excludes the same locations so the admin "unknown" toggle is never made to
+look actionable by a location that already has a reason.
+
+The label chip's glyph, ring and label-budget tiebreak all move from the on-the-light axis onto the
+served preference axis: `data-tide` is now `'match'` or `'miss'`, a miss dims to `opacity: .72`
+(restored on hover/selection), and `TideWave` grows a `shortfall` prop drawing the design bundle's
+21×8 arrow (↑ wants higher, ↓ wants lower, the plain wave for a straddling want with no served
+direction). The star and the ramp swatch are never touched — dimming is a container `opacity`, never
+a re-colour. The tiebreak in `utils/mapLabels.js` promotes a match and never demotes a miss below an
+inland spot of equal score. The chip's tooltip, the Pins mode dot (`PinsLayer.jsx`, gaining tide data
+for the first time) and the region panel's location row (`MapRegionPanel.jsx`/`mapDrilldown.js`) all
+move onto the same tier, reading the served `fitPhrase` behind one of two canonical headings ("Tide
+lands on the light" / "Wrong water, not wrong light") via two small shared helpers in the new
+`mapTideFit.tideTierHeading`/`tideAccessibleClause`.
+
+Frontend only. New/changed tests across `MapLabels.test.jsx`, `mapLabels.test.js`,
+`MapRegionPanel.test.jsx`, `mapRegionDrilldown.test.js`, `PinsLayer.test.jsx` and
+`MapViewHeat.test.jsx` cover every tier/shortfall combination (including the gated-miss and
+straddling-want cases), the promote-not-demote comparator (both directions, with a fixture built to
+distinguish it from a demotion mutant), and the plan's own §7 checks 1 (heat untouched across
+HIGH/MID/LOW), 2 (nothing dropped, every coastal slot flipped at once), 12 (star/swatch never
+re-coloured) and 13 (a gated coastal location renders and the "unknown" toggle is unaffected by it).
+`npm run lint && npm test && npm audit --audit-level=high && npm run build` all green (6323
+pre-existing tests plus 428 in the eight touched/added files, re-confirmed after review fixes).
+
+Adversarial review (6 read-only lenses: runtime behaviour, CSS/tokens, test quality, accessibility,
+project conventions, impact on T5/T6) found and fixed: `PinsLayer`'s pin carried no accessible-name
+statement of the tide fact at all — only a mouse-hover tooltip — unlike the chip's aria-label and the
+region panel's `sr-only` span, so a keyboard/screen-reader user in Pins mode had no way to learn a
+dot's tide state; fixed by extending the pin's aria-label with the same `tideAccessibleClause` the
+chip uses. A CSS comment overclaimed that `--color-plex-text-secondary` (.66) was "the mapped token
+for" the design's bespoke `.72` miss-tooltip ink; corrected to state it as the closest existing
+token and name the ~0.06 gap honestly. The tooltip's miss heading ("Wrong water, not wrong light")
+diverges from the plan text's literal quoted example ("Wants high water —", copied from the design
+bundle's own want-specific tooltip composition); recorded as a deliberate choice in
+`mapTideFit.tideTierHeading`'s own doc, reusing the canonical miss heading T5's callout block will
+also use rather than inventing a client-side want-formatter the codebase's "every string is
+server-formatted" rule would forbid. `visibleLocations`' bypass predicate is broader than "tide-gated"
+— it lets through any coastal slot with a served tide fact and a null rating, matching this phase's
+own literal worked example (`if (tideFact) return true`) rather than §5 #9's narrower prose; recorded
+inline rather than narrowed, since narrowing it to `.gated` would reopen the "coast disappears" defect
+for a miss that is rated null for an unrelated reason. Five test-quality gaps were closed: a banned
+`toBeTruthy()` on a new assertion, a missing swatch-fill-unchanged assertion for a miss chip
+(§7 check 12's other half), a missing gated-miss (no rating + `tideTier: 'miss'`) combination test at
+the chip level, a heat-untouched check that only compared HIGH vs LOW (now also MID, the design's own
+"straddling want" case), and a nothing-dropped check that only flipped one location instead of every
+coastal slot in the pool at once. No confirmed runtime-behaviour or project-convention defects.
+
+**Follow-up, browser-verified against a real seeded backend once the shared machine's load eased.**
+Three real `tide_extreme` cycles seeded (Bamburgh Beach → LOW, Dunstanburgh Castle → HIGH, Tynemouth
+Priory → HIGH+LOW), phased so today's sunset gave a match, a directional miss and a straddling-want
+miss in one fixture — unplanned but welcome, since it covers every tier and the null-shortfall case
+at once. `GET /api/briefing` served exactly the designed triple, `evaluationGate` included for the
+gated one. On the live Map tab, `getComputedStyle` read directly off the DOM confirmed: Bamburgh
+`data-tide="match"`, `opacity:1`, plain wave, `"Bamburgh Beach, 5 star, tide right here"`; Dunstanburgh
+`data-tide="miss"`, `opacity:0.72`, the design's up-arrow path byte-identical, swatch colour unchanged
+from `rampHex(2)`, `"Dunstanburgh Castle, 2 star, wants the water higher"`; Tynemouth `data-tide="miss"`,
+`opacity:0.72`, plain wave (no shortfall), `"Tynemouth Priory, wrong water"`. Pins mode showed the same
+triple. The chip's hover tooltip, screenshotted, read the served `fitPhrase` behind the canonical
+heading exactly as coded. Not seen: the pin's own hover tooltip (a synthetic event failed to trigger
+it, and the browser pane went unavailable before a real hover could be tried) — inferred sound from
+the identical, already-seen chip code path, not independently observed.
+
+**The `.72` vs `.8` contrast measurement is answered analytically, not by a live pixel sample** — the
+Esri tile is cross-origin (a canvas read throws `SecurityError`, confirmed live), and the browser pane
+became unavailable before a screenshot-based workaround could be tried. Computed from the real CSS
+values against two representative basemaps: ≈8.5:1 (this app's own "darkest sampled tile" figure) and
+≈6.2:1 (an eyeballed light-land tone), both clearing AA with room to spare — the chip's own near-opaque
+plate absorbs most of the outer opacity's effect on local contrast, unlike `.wf-loc-row`'s translucent
+card, so `.8` bought nothing `.72` did not already clear. `.72` is what shipped; the working is recorded
+in `index.css`'s own comment on the rule.
+
+### Added — the map tab's tide-fit plumbing (T3 of the tide-window increment)
+
+Every fact T1 and T2 put on `GET /api/briefing` now reaches the frontend structures the chip, the
+callout/sheet block and the tide strip will draw from in the phases that follow — still no
+browser-visible change this phase.
+
+`utils/locationSheet.js#buildTideAlignmentIndex` now indexes every coastal slot carrying a served
+`tideState`, not only one with a derivable on-the-light fact, and each entry carries the full
+tide-fit family (`aligned`, `onTheLight`, `phrase`, `level`, `direction`, `height`, `shortfall`,
+`fitPhrase`, `gated`) rather than the two on-the-light-only fields it held before. Reading
+`tideAligned` here does not revive the two-tide-axes conflation CLAUDE.md warns against — the
+index's readers ask the preference question on purpose, and the on-the-light fact survives
+unchanged for the offset clause alone.
+
+`MapView.jsx`'s `spotOf` copies each location's own id (load-bearing for `mapTideFit`'s id-first
+lookup — without it, two coastal locations sharing a display name would silently conflate), its
+tide want (`tideTypes`), whether it is coastal-and-tidal at all (`coastal`, reusing
+`mapCallout.js#isCoastalTidalLocation`), this window's served tier (`tideTier`, via the new
+`mapTideFit.tierOf`), its shortfall arrow, its fit-block body text (`tideFitPhrase`, which T4's
+tooltip needs for both tiers), and whether it is tide-gated onto `labelSpots` — the pool both the
+label chips and the Pins layer read.
+
+`utils/mapEvents.js#solarRow` forwards the served `BriefingWindowTide` verbatim as `tide` on a
+served solar row, and `null` on a D-13 filler or a night row.
+
+A new pure module, `utils/mapTideFit.js`, holds the increment's licensed client derivations
+(CLAUDE.md's Backend-heavy bullet): `tierOf` (a served-boolean read), `nextAlignedRow` (a forward
+scan over the served per-window alignment index — a lookup, never a formula over a single anchor's
+curve), and `stripModel` (the strip's own per-render shape — the coastal-and-in-view viewport
+filter via `bounds.pad(0.12)`, the dimmed/matched split, the dominant unmet want tallied across the
+dimmed pool with a stated HIGH > LOW > MID tie-break, and the earliest next-fit window across every
+currently-dimmed spot wanting that want).
+
+Frontend only. `mapTideFit.test.js` is new (every branch, both tie-break directions, `pad` proven
+against points either side of the exact 12% edge); `locationSheet.test.js` gains coverage for the
+index entry the old skip used to drop (a served miss with no derivable on-the-light fact) and the
+gated field; `mapEvents.test.js` gains a `tide`-forwarding suite (served, filler, night, and the
+chronological interleave unchanged). Three existing test fixtures (`MapViewHeat.test.jsx`,
+`mapRegionDrilldown.test.js`) gained a `tideState` field their slots were missing, now required by
+the narrower index skip. `npm run lint && npm test && npm audit --audit-level=high && npm run
+build` all green (6302 tests).
+
+Adversarial review (4 read-only lenses: runtime behaviour, project conventions including the
+Backend-heavy licence and the two-tide-axes rule, test quality, what it makes harder for T4–T6)
+found and fixed: `spotOf` never set an `id` on label spots, leaving `nextAlignedRow`'s id-first
+lookup unreachable in production (two lenses found this independently); `spotOf` was missing
+`tideFitPhrase`, which T4's own tooltip requirement needs; `mapTideFit.js`'s tide-index parameter
+was named `index`, colliding in meaning with the unrelated `evIndex` array position beside it in
+the same call (renamed to `idx`, matching `lookupForWindow`'s own convention); the pad-boundary
+tests bounded the ratio to a wide range rather than pinning the documented `0.12` figure (tightened
+to bracket the exact edge); a redundant interleave test duplicated an existing ordering test's exact
+fixture and re-asserted values already proven elsewhere (trimmed); `buildTideAlignmentIndex`'s doc
+comment sat above a different function's declaration (moved to its own); and `MapCallout.jsx`'s
+stale `tideOnLight` prop doc still said "never `tideAligned`", now factually wrong about the shape
+flowing into it (corrected). Browser-verified against a locally seeded coastal fixture (three
+locations, one with a two-value want to reach the null-shortfall case): `GET /api/briefing` served
+every T1/T2/T3 field correctly, including the null-shortfall arrow for the two-value want; the Map
+tab, its callout, its location sheet and Pins mode all rendered with zero console errors and zero
+failed network requests. Not seen: a `match`-tier chip on screen (the seeded tide cycles happened to
+miss every window in the fixture) — the served `aligned: true` case is covered by the automated
+suite instead.
+
+### Added — the map tab tide strip's window facts (T2)
+
+`BriefingWindowTide` (the Plan tab's per-window tide rollup, served on `GET /api/briefing`) gains
+four additive fields the tide-window increment's strip chart needs and the existing sparkline did
+not: `sunrisePosition`/`sunsetPosition` (where the representative coastal location's own sunrise and
+sunset fall through the local day, 0.0–1.0 on the same axis as `windowPosition` — computed for both
+events regardless of which one this window itself is, and null when `SolarService` reports no
+sunrise or sunset for that day, the same defensive read `NlcTwilightWindowCalculator` already gives
+the identical call), `extremes` (every high and low water in the representative's local day, each
+positioned on that axis and timed on the Europe/London clock — real stored extremes only, never a
+bracketed or gap-filled shape point), and `heightAtWindow` (the interpolated height at the window's
+own instant, in metres — `windowLevel` restated as a real measurement rather than a normalised
+position, for the chart's height label).
+
+All four are `@JsonInclude(NON_NULL)` and computed at serve time inside `WindowTideRollupBuilder`
+from data `rollup` already fetches — no new query, no migration, no client fetch (every curve in
+this app is a Europe/London day; the client must never draw one from the UTC-day `/api/tides`
+endpoint). A new legacy twelve-field constructor keeps every existing `BriefingWindowTide` call site
+compiling unchanged, the same "unknown, not synthesised" convention `BriefingSlot.TideInfo`'s own
+legacy constructor already uses.
+
+No browser-visible change — nothing yet renders these fields; a later phase draws the strip itself.
+
+Backend only. `WindowTideRollupBuilderTest` gains a nested `WindowFacts` suite (positions monotone
+with clock time; an extreme at 23:59 never crosses 1.0; a spring-forward day still yields the
+class's own 1440-unit axis; `heightAtWindow` at a genuinely interior point, not just a value that
+happens to coincide with the nearest extreme; both solar-null guards independently); every
+pre-existing assertion in that file is unchanged. `DailyBriefingResponseJsonTest` gains a full
+`DailyBriefingResponse` round-trip and a legacy-shape deserialisation test for the four new fields.
+
+### Added — the map tab's per-slot tide-fit facts (T1 of the tide-window increment)
+
+Every coastal `BriefingSlot` now carries five display facts for the map tab's tide-fit chip,
+tooltip, callout and location sheet — none of it wired to the frontend yet (T3+), and none of it
+browser-visible this phase. `BriefingSlot.TideInfo` gains `tideLevel` (0.0–1.0, the same
+normalisation the Plan tab's window rollup uses), `tideDirection` (`RISING`/`FALLING`),
+`tideHeight` (formatted metres at the light), `tideShortfall` (`HIGHER`/`LOWER`/null — null when
+aligned, or when the location's wanted tide states straddle the served one and no single arrow
+applies), and `tideFitPhrase` (the served block body, one wording for a match and a different one
+for a miss — the miss form states the light's own clock and the day's high water, and deliberately
+never repeats the nearest-extreme offset the gate sentence beside it already carries). All five ride
+`daily_briefing_cache`'s JSON — no migration, and a payload written before this shipped
+deserialises every one of them to null.
+
+The one cosine interpolation the app has — previously private to `WindowTideRollupBuilder` — is
+lifted into a new package-private `TideCurveCalculator`, with `WindowTideRollupBuilder` delegating
+to it; its own extensive test suite passes with zero assertion changes, proving the lift changed
+nothing about what the Plan tab's tide row already draws. `BriefingSlotBuilder` fetches the same
+coastal location's extremes a second time, through the identical repository method and window
+`TideService` already uses, to build the new per-slot facts from the same curve.
+
+The served alignment stays the *tight* one — `TideFactDeriver`'s existing gate input — never the
+widened scoring-only band, confirmed against the tree and pinned by a dedicated test.
+
+### Docs — Plan tab "tide alignment on the window card": port plan and session prompts
+
+`docs/engineering/tide-plan-card-plan.md` is the port plan for the owner's `design_handoff_tide_plan`
+bundle (vendored verbatim at `docs/design/tide-plan/`, with a `VENDORING.md`), and
+`docs/engineering/tide-plan-card-prompts.md` is one paste-ready kickoff prompt per phase for Sonnet
+sessions. Five phases (C0–C4): a served per-slot alignment quality (the one backend change — the
+nearest-extreme offset orders a mid-tide match the wrong way), the data on the card's pool, the two
+marks on the card, the popup fact and the phone check, the sweep.
+
+The plan's §1 records where the codebase already answers the spec: the fit model the spec names as a
+prerequisite was never built as a level formula (the app's tide axis is time-based and served), so
+`match` reads the served `tideAligned` and the run ranking's tiebreak is a served alignment
+quality (C0); the card's spread histogram and best-reachable line already share one reach-gated pool, and
+the new chip counts that same pool; and the counts are reach-scoped, so they join CLAUDE.md's named
+reach-scoped client class with `reachMeasured` gating the words "in reach". The summary lives on
+`card.tideFit`, never `card.tide`, which the Map tab's strip already reads.
+
+No code changes.
+
+### Fixed — the `/` shortcut's refusal tests now fail when their guard is deleted, whichever test runs first
+
+`planOriginShell.test.jsx`'s "the / shortcut" block has five tests asserting that `/` does *not*
+open search: while the reader types in a field, with a modifier held, over a dialog the shell does
+not own, on an arm greyed for a dead backend, and on another tab. Each passed when run alone with its
+guard deleted from `WindowFirstShell.jsx`'s keydown effect. In the whole file each failed as it
+should, but only because earlier tests had already opened search. Test-only: no product code
+changes.
+
+**Why.** `PlanSearch` is `lazy()`, and the first time the shell renders it, it suspends. A press
+the guard failed to refuse therefore commits only the `Suspense` fallback, which draws nothing, so
+`queryByTestId('plan-search')` is null whether or not the press opened search. Importing
+`PlanSearch.jsx` before the press does not help. Measured with the tab guard deleted, search is
+still absent at the synchronous assertion and arrives later. Once search has opened through the
+shell, the next opening renders in that press's own commit.
+
+**The fix** follows #860's "⚠️ opens nothing when the place in the tick line is pressed on Coming
+up" in `WindowFirstShellTabs.test.jsx`. Each refusal now starts with a positive control,
+`openAndCloseSearch`: it presses `/`, waits for search, closes it with Escape and asserts it has
+gone. Then it presses the key under test and asserts synchronously that `plan-search` is absent and
+no dialog is open (over a foreign dialog, that the foreign dialog is the only one). The greyed-arm
+test now renders a live shell, runs the control, then re-renders with `contentDisabled`. A greyed
+arm refuses the control too, and this is also the app's order: health status starts unknown, so
+the shell first mounts live and greys only once the status reads DOWN.
+
+**Proved by mutation**, in a scratch copy of `frontend/`, restored and compared with `cmp` after
+every run:
+
+| deleted from the `/` effect | test alone, before | test alone, after | whole file, after |
+|---|---|---|---|
+| `if (effectiveTab !== 'plan') return undefined;` | passed | failed | failed |
+| the field guard (`INPUT`/`TEXTAREA`/`SELECT`/contenteditable) | passed | failed | failed |
+| `event.metaKey` | passed | failed | failed |
+| `if (foreign) return;` | passed | failed | failed |
+| `if (contentDisabled) return;` | passed | failed | failed |
+| `effectiveTab` from the dependency array | — | failed | failed |
+| `contentDisabled` from the dependency array | — | failed | failed |
+
+Each mutant fails only its own test, at the absence asserted after the press rather than at the
+control. With those five post-press `plan-search` assertions removed, the new dialog assertions
+still fail all five guard mutants on their own.
+
+**Found on the way, not fixed here.** No test in the three files that press `/` (this one,
+`WindowFirstShell.test.jsx` and `locationSheetShell.test.jsx`) pins the field guard's `TEXTAREA`,
+`SELECT` or contenteditable clauses, the `ctrlKey` or `altKey` clauses, or the
+`searchSeed != null` return: deleting any one of them fails nothing. `WindowFirstShell.test.jsx`'s
+"⚠️ still refuses it over a layer stacked ON the popup" does not share this defect, and fails alone
+with its guard deleted.
+
+### Added — tests for the six `/` shortcut guard clauses that nothing pinned, and for a `/` typed with Shift
+
+`WindowFirstShell.jsx`'s `/` keydown effect refuses the press in a field (an input, a textarea, a
+select or anything contenteditable), with a modifier held (`metaKey`, `ctrlKey`, `altKey`), and
+while search is already open. Only the input and `metaKey` clauses had tests. Deleting any one of
+the other six (`tag === 'TEXTAREA'`, `tag === 'SELECT'`, `el?.isContentEditable`, `event.ctrlKey`,
+`event.altKey`, or the whole `if (searchSeed != null) return;` line) failed none of the 120 tests in
+the three files that press `/`: `planOriginShell.test.jsx`, `WindowFirstShell.test.jsx` and
+`locationSheetShell.test.jsx`. Nothing pinned that Shift is *not* refused either: adding
+`event.shiftKey` to the modifier check failed none of those tests. Test-only: no product code
+changes.
+
+**What was added**, in `planOriginShell.test.jsx`'s "the / shortcut" block:
+
+- The field refusal is now one case per kind of field: an input, a textarea, a select and a
+  contenteditable element. jsdom 30.0.1 implements neither `isContentEditable` nor
+  `contentEditable`, so an element carrying only the attribute is not a field there, and the
+  unchanged guard opens search over it (measured). The test element is given the `true` a browser
+  computes, and keeps the attribute.
+- The modifier refusal is now one case each for `metaKey`, `ctrlKey` and `altKey`.
+- A new test presses `/` with Shift held and expects search to open. On a German layout `/` is
+  Shift+7, so the press arrives with `shiftKey` set. The shell's arrow-key rule does refuse Shift,
+  so a modifier check shared by the two would take the shortcut away from those readers.
+- A new test opens search from the strip's beyond line, which pre-fills the box with a region name.
+  It then edits the query, moves focus to the dialog root and presses `/`. Search is keyed on its
+  pre-filled text, so with the guard deleted the press resets that text to `''` and remounts the
+  box empty. Opening search with `/` instead would show nothing, because that box already starts
+  from `''`. Focus goes to the dialog root because that is where a click on the panel away from its
+  controls leaves it in Chromium 151, WebKit 26.5 and Firefox 153 (measured on a static page with
+  the same structure).
+- The field and modifier cases also assert that the press keeps its default: `defaultPrevented`
+  must be false. In a field, the `/` is the reader's own character, and with a modifier held the
+  press belongs to the browser. Nothing in the three files checked this before: moving
+  `preventDefault()` ahead of the guards failed none of their tests.
+
+Each field and modifier case runs the `openAndCloseSearch` control from #864 before its press, so
+its absence assertions cannot pass on an unresolved lazy boundary. The search-open and Shift tests
+need no such control: each asserts that a box is on screen, which an unresolved lazy boundary
+cannot fake.
+
+**Proved by mutation**, in a scratch copy of `frontend/`. Each mutation was anchored inside the `/`
+effect, because the field guard's line also appears in the arrow-key effect below it. After every
+run the file was restored and compared with `cmp`.
+
+| deleted or changed in the `/` effect | three files, before | its test alone, after | three files, after |
+|---|---|---|---|
+| `tag === 'TEXTAREA'` | passed | failed | failed, that test only |
+| `tag === 'SELECT'` | passed | failed | failed, that test only |
+| `el?.isContentEditable` | passed | failed | failed, that test only |
+| `event.ctrlKey` | passed | failed | failed, that test only |
+| `event.altKey` | passed | failed | failed, that test only |
+| `if (searchSeed != null) return;` | passed | failed | failed, that test only |
+| `searchSeed` from the dependency array | passed | failed | failed, that test only |
+| `event.shiftKey` added to the modifier check | passed | failed | failed, that test only |
+| `preventDefault()` moved to just after the key and modifier check | passed | the four field cases failed | failed, those four only |
+| `preventDefault()` moved ahead of every check | passed | all seven cases failed | failed, those seven only |
+| `tag === 'INPUT'` (already pinned) | failed | failed | failed, that test only |
+| `event.metaKey` (already pinned) | failed | failed | failed, that test only |
+
+Under the first of the two `preventDefault()` mutants the modifier cases pass, because the modifier
+check still comes before the moved call. Every clause mutant fails at an assertion made after the
+press, never at the control. Two more runs showed that each kind of assertion is enough alone. With
+the `defaultPrevented` assertions removed, the absence assertions still fail all seven field and
+modifier mutants when each test runs alone. With `openAndCloseSearch` removed instead, the absence
+assertions pass without testing anything, and `defaultPrevented` fails all seven.
+
+**Left unpinned on purpose.** Replacing `searchSeed != null` with a truthiness test
+(`if (searchSeed) return;`) fails nothing. The two differ only for a box opened with `/`, which
+starts from `''`. For that box, the only difference is that the press's default is prevented, and
+nothing on screen changes.
+
+### Fixed — the settings dialog's radius label reads as words in its own text, not "Local radiusHow"
+
+#861 gave the radius slider its own name, "Local radius", but the label's text was left as it was.
+Anything that reads that text rather than the slider's name still got
+`Local radiusHow far counts as close to home.` That includes a screen reader's reading mode, copy
+and paste, and `innerText`. The only gap between the two words was the hint's margin, which is not
+text.
+
+**The fix.** A real space now separates the label from its hint. It sits in a fixed 0.5rem
+inline-block, which replaces the hint's 0.5rem margin, so the hint does not move. The box needs
+`whitespace-pre`. Without it, a lone space at the start of the box collapses, and the text stays
+glued in all three engines (measured). The slider's name and description are unchanged.
+
+**Two simpler fixes were measured and rejected:**
+- A bare space moves the hint 3.3 px (IBM Plex Sans at 14 px).
+- A space plus a halved margin moves it −0.7 px.
+
+**What was measured.** These readings are from the dialog's rendered DOM under the built stylesheet,
+with the web fonts loaded. Main and this change were each served their own CSS, and every reading
+was taken in Chromium, WebKit and Firefox, with and without a saved home, at 64 widths from 240 to
+1440 px.
+
+- **`innerText`:** was `Local radiusHow far counts as close to home.` in every engine, and is now
+  `Local radius How far counts as close to home.`
+- **Layout:** every text box and control box is identical to main at every width. A positive
+  control confirmed the comparison can see a change: main's own layout differs at all 64 widths,
+  and the bare-space variant differed from main at all 64 widths in each engine.
+- **Chromium's native accessibility tree:** there is now a whitespace text node between the label's
+  two text nodes, where before there was none. The field is still named `HOME LOCATION`, and the
+  slider still `Local radius` with its hint as the description.
+- **CSS:** the bundle gains one rule, `.whitespace-pre{white-space:pre}`, and loses none.
+- **Not measured:** any screen reader's reading mode itself. The claim rests on the engines' text
+  extraction and Chromium's accessibility tree. The running app was not seen either, because it sits
+  behind sign-in.
+
+**Tests.** One test pins that the label's own text reads as words. jsdom has no layout, so a second
+pins the classes the browser measurement relies on:
+- the space's box is `inline-block w-2 whitespace-pre`;
+- it is not hidden from assistive tech;
+- the hint no longer carries `ml-2`.
+
+8 mutants were run, and all 8 were killed, each by the test that names its rule. Main's own
+component fails both tests.
+
+### Fixed — the Map's "Couldn't load" announcement goes quiet behind a dialog, not just behind a tab
+
+Closes the residual `changelog.d/20260915-map-status-document-hidden.md` (#850) named and left open:
+a dialog foreign to the Map pane — the four-day sheet opened as a peek from the callout's
+"Four days here ›" or the region panel's location rows, or settings opened from the map's own ⌂ —
+opens without leaving the Map tab and is not `inert` behind it (O-20 stands on arms A and B). Until
+now the status region counted the pane as on screen through all of that: a night's request failing
+while such a dialog was open filled the region while the reader was looking at the dialog instead of
+the map, and closing the dialog revealed it already full, unannounced.
+
+- `WindowFirstMapPane`'s `paneVisible` — the signal `MapView`'s live status region gates on — now
+  also requires that no dialog foreign to the pane is open anywhere in the document, read through
+  the same `foreignModalOver` predicate every Escape rule and the outside-press channel on this tab
+  already use (`utils/mapForeignModal.js`), so the live region can never disagree with them about
+  what counts as foreign. It is read against the pane's own wrapper rather than `MapView`'s
+  `mapPaneRef`, so the check needs no new plumbing across the shell/pane boundary and exists whether
+  or not `MapView` has mounted anything yet.
+- Kept reactive with a `MutationObserver` on the whole document, not a React-state-and-effect pair —
+  the same reasoning that made the document/focus layer (#850) one — so a dialog that mounts as a
+  portal or as a plain sibling of the shell, wherever in the tree it lands, is caught the moment it
+  actually lands rather than on whichever render React gets to next. The observer watches for a
+  dialog mounting or unmounting AND for `aria-modal` toggling on an existing node, because `Modal`'s
+  `stacked` prop drops a covered dialog's `aria-modal` without unmounting it when another dialog
+  stacks over it.
+
+Measured rather than assumed (Playwright 1.62.1, Chromium/WebKit/Firefox, `MutationObserver` config
+identical to the one shipped here): the callback fires within ~0–1 ms of the mutation in every
+engine, for a dialog mounting, unmounting, or an `aria-modal` attribute-only toggle alike — the "gap
+between the modal mounting and the observer firing" is not a meaningful delay in practice. Separately
+measured and reported as a limit, not a confirmation: Playwright's own cross-engine `ariaSnapshot()`
+— a tree computed from the DOM by the ARIA computation algorithm, not each engine's native platform
+accessibility bridge — shows no pruning of a sibling live region in any of the three engines while an
+`aria-modal="true"` dialog is present. That does not confirm or rule out the platform-level behaviour
+WebKit is understood to apply for a real screen reader (`AccessibilityObject::ignoredFromModalPresence`),
+which needs real Safari and VoiceOver to observe and was not run here. The fix does not depend on
+that question either way: whether or not the region is also pruned from the tree, a reader attending
+to an open dialog should not hear the map behind it announce a failure meant for the map.
+
+Pinned by seven new tests in `WindowFirstMapPane.test.jsx`, added to the existing panel/document/focus
+block: the layer alone (opens off screen, closes back on); against the panel and against the page,
+each in both orders, matching the "one flag every layer writes, the last write winning" trap already
+guarded against for the other three layers; mounting behind an already-open dialog; a dialog rendered
+*inside* the pane's own wrapper does **not** count as foreign (containment, not "is any modal open
+anywhere" — mirrors `mapForeignModal.js`'s own rule rather than re-deciding it); degrading to the
+pane's pre-existing on-screen answer where there is no `MutationObserver` at all; and disconnecting
+the observer when the pane unmounts. Eight mutants of the new lines were run one at a time
+(`cp`-backed, restored and diffed byte-identical against the original after every run): removing the
+`MutationObserver`-absent guard, dropping the new term's negation, dropping the term outright, no-op'ing
+the disconnect, and hardcoding the containment root to `null` — all five killed, the last one only
+after the containment test above was added to catch it; it survived against every earlier test in the
+file, which is itself the reason that test exists rather than being assumed unnecessary.
+
+`MapView.jsx`'s own doc on `statusLine`/`paneVisible` and `utils/mapForeignModal.js`'s "who reads
+this" note are updated to record the new consumer; neither file's behaviour changes; `MapView`
+continues to consume `paneVisible` as a single boolean exactly as before.
+
+### Fixed — pressing `clear` on the Map breadcrumb no longer drops a keyboard reader on `<body>`
+
+A door from the Plan tab lands on the map with a strip above it that says what it carried
+("carrying 4★+ · within 2h 30"), and `clear` resets all of it. That usually ends every clause, so
+`clear` removed itself while it held focus. Focus fell to `<body>` in Chromium 151, WebKit 26.5 and
+Firefox 153, with Enter and with Space (measured on development React, StrictMode active). That put
+it outside the map pane's own key handler, so Escape stopped reaching the pane, and no ring showed
+where the reader was. Tab itself was spared: each engine went on from where the button had been.
+
+The strip is now a place focus can be put (`tabIndex={-1}`, never a Tab stop), and a `clear` that
+leaves while holding focus hands that focus to it, in the same commit. The record is made in
+`clear`'s ref cleanup by `watchDeparture`, the mechanism the tick line's ⌂ uses. It moves out of
+`MastheadTickLine.jsx` into `utils/watchDeparture.js` now that it has a second owner, unchanged in
+behaviour, with the rules an owner must keep now written into its doc. The strip draws its own ring
+on `:focus-visible`, in the bone its two buttons' rings use (`--color-plex-gold`). The ring is
+inset, because `.wf-body--map` clips overflow and the strip spans it edge to edge. It is an outline
+rather than a box-shadow, so forced-colours mode keeps it: all four sides in Chromium and Firefox.
+
+**Focus goes to the strip, not to `← Plan`, the one control that survives.** Measured with the
+handoff aimed at `← Plan` instead, on a harness where `← Plan` only counts presses: a held Enter
+pressed it on every key repeat, and a second Enter pressed it once, in all three engines. In the
+app the first such press leaves the Map tab. Landing on the strip, neither pressed anything. The
+price is one Tab stop in all three engines (WebKit reaching buttons with Option+Tab): from the
+strip, Tab goes to `← Plan` and Shift+Tab to what precedes the strip. A narrower landing on the
+window span ("Tonight sunset") avoids that stop, and was measured and passed over: it is announced
+without the landmark's name, it needs a fallback when there is no row, and it adds a departure of
+its own when the row retires.
+
+The edges:
+- **A clause can survive the press.** `clear` resets the floor to the map's own 3★ default, so a
+  door that carried 3★+ still matches. The same button stays, and so does the reader.
+- **Position is never taken.** A reader on another control when `clear` goes keeps their place, and
+  so does focus another component placed in the same commit. The record is spent either way, so no
+  later render pulls anyone onto the strip.
+- **No gate on how the press arrived.** The signals a gate could read report a screen-reader or
+  voice-control press as a mouse press (`detail` and `pointerType` in Chromium's source, `detail`
+  in Firefox's, and likely `:focus-visible`), so a gate would strand exactly those readers.
+  Chromium and Firefox focus a clicked button, so a mouse press hands off too. No ring shows at the
+  press; a later key draws it in Chromium and WebKit, not Firefox, and it stays until focus moves,
+  much as Leaflet's own map container does after a click. WebKit focuses the strip itself on the
+  click, since it does not mouse-focus buttons. A click on the strip's own text now focuses the
+  strip as well; before, in all three engines, it sent focus to `<body>`. After a pointer lands on
+  the strip, Tab restarts at `← Plan` in Chromium and Firefox.
+- **No guard for the four-day sheet over the map, unlike `useRowFocusRescue`.** That hook keeps its
+  record after focus has gone; this one exists only for a `clear` that held focus as it left. With
+  the sheet open, a keyboard reader who has Tabbed back onto `clear` and pressed it lands on the
+  strip. Escape then closes the sheet, the pane standing down for it, and they stay on the strip.
+  Before, the sheet's restore sent them back to the control that opened it. In WebKit that held
+  only for a sheet opened from the keyboard; after a click, which focuses no button there, it sent
+  them to `<body>`.
+- **The confirmation is visual.** The strip's text loses the cleared clauses, but focus lands on a
+  node named "Where you came from" before and after, with no live region.
+
+An adversarial review (six lenses, then nine refuters) changed no design decision. It corrected the
+WebKit Tab claims, the mouse route's ring, and the tick line's "jsdom never matches
+`:focus-visible`": jsdom's `:focus-visible` is its selector engine's heuristic over the events it
+has recorded. It also found test gaps where a broken handoff shipped green: the refused
+foreign-modal guard, the record spent on a stand-down, clauses other than the floor, and overrides
+of the ring.
+The browser results come from a harness using the real breadcrumb and the real `Modal` inside the
+map's real ancestor classes, in all three engines. They were not seen in the running app, which
+needs a sign-in, and no screen reader was driven.
+
+Tests: fifteen on the breadcrumb, four through the real `MapView` (Leaflet and the map's other
+children mocked), and six on `watchDeparture` directly. The ring's rule is pinned as text: a jsdom
+cascade test of it does not hold, because jsdom decides `:focus-visible` from the events it has
+recorded, and a focus change clears neither its selector-match cache nor its computed-style cache.
+Mutation-tested: twenty-nine mutants, twenty-seven killed. The two survivors are equivalent: a ref
+callback recreated every render, whose re-attached node clears its own record before the handoff
+reads it, and dropping `<html>` from the "focus is nowhere" check, where no route leaves focus.
+
+### Fixed — a fresh local H2 database boots more than once
+
+On the local profile (H2 file database, no Flyway, `ddl-auto: update`) the app started once and then
+failed on every later start with `Value not permitted for column "('SENTINEL_SAMPLING',
+'TIDE_ALIGNMENT')": "SKIP_LOW_RATED"` from `OptimisationStrategyService.seedDefaults`. Hibernate 7
+generates an `@Enumerated(STRING)` column on H2 as a native `ENUM(...)` of the enum's current
+constants, and H2 refuses to compare that column with any other value — and the startup prune, by
+design, names only the seven types V153 retired. The first boot got through because the table was
+still empty: H2 converts the bound value to the column's type only when it compares it against a
+row, so the first boot's seed rows are what made every later boot fail. Production runs Flyway,
+whose column is a plain `VARCHAR(30)` (V41), and was never affected.
+
+**The fix** is one clause: `OptimisationStrategyRepository.deleteByStrategyTypeIn` now compares
+`CAST(strategy_type AS VARCHAR)`, which makes the comparison a string one on H2 and changes nothing
+on Postgres. Mapping the column as VARCHAR so H2's schema matched V41 was tried first and rejected:
+Hibernate then adds a `CHECK (strategy_type IN (...))` of the current constants that neither a
+`columnDefinition` nor an `AttributeConverter` removes, and H2 2.4.240 stops evaluating such a
+check once the connection that created the table closes (`Check constraint invalid ... The database
+has been closed`), so every write to the table would have failed as soon as Hikari retired
+Hibernate's schema-update connection — a worse defect than the one being fixed.
+`OptimisationStrategyRepositoryTest` gains the second boot as a test: the prune's own seven-name
+list against the ENUM column exactly as Hibernate generates it, and it fails with the production
+error when the cast is deleted. Its pre-V153 fixtures moved out of `@BeforeEach` so that test runs
+on the untouched schema.
+
+Still true, and unchanged: a local database built before an enum gained a constant refuses the
+`INSERT` seeding it, because `ddl-auto: update` never widens an existing column. That is every H2
+enum column's rule — reset the local database after adding a constant — not this table's.
+
+### Docs — the test standards say an absence across a lazy boundary needs a control
+
+`frontend-test-standards.md`'s "What NOT to do" list gains a bullet for the trap #864 fixed in
+`planOriginShell.test.jsx`: asserting that an action opened nothing across a `React.lazy` boundary
+before that component has rendered once in the file. A lazy component suspends the first time it
+renders, so the absence holds whether or not the action opened it, and a whole-file run hides that
+whenever an earlier test has already rendered the component. Until now the doc had only the mirror
+rule ("do not open a lazy subtree and leave before it has mounted"), and this one lived in test
+comments.
+
+The bullet names two fixes that look right and do not work, and three that do. Each was measured in
+a scratch copy of main at `f6da8965`, with a guard deleted and the test run alone:
+
+- **Importing the module first** still left `PlanSearch` absent at a synchronous assertion.
+- **Pressing inside `await act(async () => …)`** found it in 3 runs of 3 when the module had been
+  imported first, and in none of 3 with nothing loaded.
+- **Rendering it once first** (open, wait, close) is what #864 did, and it makes each of the five
+  `/` guard mutants fail its test.
+- **Asserting on a layer that is already mounted**: with the beyond-line search link's guard deleted,
+  `locationSheetShell.test.jsx`'s THIRD-layer test still passed its `plan-search` absence, and failed
+  on the location sheet's `inert` attribute. Deleting the masthead button's guard failed the other
+  THIRD-layer test on the same attribute.
+- **Reading what the handler decided**: with the tab guard deleted and nothing loaded,
+  `fireEvent.keyDown` returned `false` (`preventDefault()` had been called); unmutated it returned
+  `true`.
+
+Docs only: no code or test changes.
+
+### Fixed — pressing ⌂ in the masthead no longer drops a keyboard reader on `<body>`
+
+⌂ ("Plan from home again") exists only while the plan's origin is away, so pressing it removes
+it. The focused button was destroyed and focus fell to `<body>` on every tab, where nothing on the
+page shows focus and a screen reader can lose its place (not measured). The fall to `<body>` was
+measured before the fix, with Enter and Space, in Chromium 151, WebKit 26.5 and Firefox 153. It
+also reproduces in jsdom on the Plan tab, on the Map tab, with no home saved, and under StrictMode.
+
+⌂ now hands focus to the tick line's origin slot, reusing the handoff #859 built for the slot's own
+element swaps. ⌂'s ref cleanup runs while React still has the node attached, and records the
+departure only if ⌂ held focus. The same layout effect then focuses whatever the slot holds once
+home:
+- on the Plan tab, the origin button ("Home · Durham");
+- on every other tab (Map, Coming up, Operations), the statement, which can take focus but is
+  never a tab stop;
+- with no home saved, the "set a postcode" nudge.
+
+It acts only while nothing has focus, so focus placed earlier in the same commit is left alone.
+The departure record and #859's StrictMode guard now live in one helper, `watchDeparture`, which
+the slot and ⌂ share.
+
+**One route now lands somewhere different, by owner decision.** The shell's `onGoHome` also closes
+the window popup, and ⌂ is reachable from inside the popup by Tab. On that route, focus used to go
+back to the card that opened the popup, restored by the popup's `useDialogFocus` cleanup (a passive
+effect). The handoff is a layout effect, so it now runs first. The restore then finds focus
+somewhere real and no modal layer left, and stands down, so this route ends on the origin control
+too. A test through the real shell pins this order: moving the handoff to a passive effect fails it.
+The exception is unchanged: if `App`'s map overlay or the settings dialog is still open as well,
+the restore treats the origin control as stranded and returns the reader to the card, as before.
+
+A mouse press hands focus on the same way wherever the browser focuses a button on click (Chromium
+and Firefox), with no focus ring drawn. A Space or Enter straight after it then opens search, or
+settings from the nudge, where it used to scroll the page or do nothing; holding Enter does the
+same by key repeat in every engine. That is a class the app already ships (a popup closed by a mouse
+click returns focus to its card, and Space reopens it), and it is left alone on purpose: the signals
+a gate could read also report a screen-reader or voice-control press as a mouse press (`detail` and
+`pointerType` in Chromium's source, `detail` in Firefox's, and likely `:focus-visible`), so a gate
+would strand exactly the readers this fix is for. WebKit does not focus a button on click, and
+nothing changes there.
+
+The browser results come from a harness built on development React with StrictMode active, using
+the real tick line and the real `Modal`, in all three engines. They were not seen in the running
+app, which needs a sign-in. Mutation-tested: eight mutants, each killed by the test that targets
+it, one of them only after an adversarial review extended the placed-focus tests to catch a record
+left standing. The Map breadcrumb's `clear` has the same defect and is tracked separately.
+
+### Fixed — settings no longer opens over a Plan dialog or the map overlay, whichever control opened it
+
+The settings dialog is a sibling of the Plan shell in `App`, so it cannot be stacked against one of
+the shell's dialogs. It can only open with none of them up; otherwise two elements claim
+`aria-modal="true"`, and the lower dialog's Escape listener, still armed, closes the dialog the
+reader cannot see. M5 made the ⚙ cog take every Plan dialog down first. Three other routes did not
+hold:
+
+- **The tick line's "set a postcode" nudge** was wired straight to `App`'s handler. With a window
+  popup open the tick line keeps its tab stops, and the popup is not a focus trap, so a keyboard
+  reader could Tab out of it onto the nudge and open settings over the popup.
+- **The Map tab's ⌂** in its no-postcode state reaches `App` through the map pane, never through the
+  shell. The four-day sheet that `Four days here ›` opens over the map leaves the map behind it
+  reachable by Tab (O-20 arm A), so the same thing happened over the sheet.
+- **App's map overlay** — opened by the aurora banner, a Plan door, a pick or Coming up — is
+  `aria-modal`, no trap, and painted at `zIndex: 200`. A reader who Tabbed out of it and pressed ⚙,
+  the nudge or the ⌂ got settings underneath it, holding focus in a dialog they could not see.
+
+The cog's own close had a gap too: it took down the popup and the layers stacked over it, but not
+search, and the cog is reachable from an open search box. `selectTab` had the same gap, so **search
+now closes on a tab switch** — before, a reader who Tabbed out of the box onto the tab bar could
+arrow to another tab with search still open, and over the map the four-day peek then opened `inert`
+beneath it.
+
+**The fix.** The shell has one close list, `selectTab`, which now carries search. Called with the
+tab already in force it moves nothing, the form the map's peek already used. The cog and the nudge
+call it before opening settings, and the nudge forwards its handler's arguments untouched. `App`
+tells the shell when settings is open (`settingsOpen`, the value the dialog mounts on). On the rising
+edge the shell calls the same `selectTab` during render, so the close lands in the commit that mounts
+settings; that covers the ⌂ and any later route. On that edge `App` also closes its own map overlay.
+Neither closes on the level, and neither moves the tab — the peek's back-track (O-18) still works.
+
+Where focus lands when settings closes: if a dialog was open, its cleanup runs in the commit that
+mounts settings and restores focus to that dialog's own recorded opener, which settings then records
+as its own. So closing settings returns focus wherever the covered dialog would have: the matrix card
+a popup was opened from, the ⌕ button for search or a popup picked from it, the map's peek control
+(the callout's `Four days here ›`, or the window pill when the region panel opened it), or the aurora
+banner for the overlay it opened. With nothing open, a keyboard press returns to the control pressed.
+The cog has landed this way since M5. If that opener has gone by the time settings closes — a window
+that passed meanwhile — focus is left where the browser put it.
+
+**Tested, not seen.** `AppSettingsRoutes.test.jsx` drives the routes through the real `App` and
+counts `aria-modal` dialogs against the real settings dialog. On the parent commit the nudge and ⌂
+cases counted two; now each counts one, including a second opening. It also pins where focus lands,
+that no tab moves, and that the Plan has not crashed behind settings. `WindowFirstShellSheet.test.jsx`
+pins the shell's half without `App`: the nudge's and cog's own closes, the arguments, and the
+`settingsOpen` edge (including its re-arm). `WindowFirstShellTabs.test.jsx` pins search closing on a
+tab switch. A mutation sweep of 22 mutants over the fix killed all 22; three needed tests added after
+the first run (a cog or nudge that moved the tab, and `App`'s overlay close latching). Nothing was
+checked in a browser — the routes sit behind sign-in — and the ⌂'s Tab-reachability from the peek comes
+from O-20's record, not a new measurement.
+
+An adversarial review (six lenses, nine refuters) ran on the first cut. It found the overlay route,
+search surviving a tab switch, a second close list beside `selectTab`, an untested second opening,
+tests that a crashed Plan would pass, and several overclaiming docs. All of those are fixed here.
+
+Not addressed, and traced rather than tested:
+
+- **The map overlay opened OVER a Plan dialog.** The regional planner's 🗺 and the aurora banner
+  still open it without closing the dialog under it — unguarded keyboard routes that
+  `v1-retirement-plan.md` §8 item 9 already records.
+- **An Operations-tab admin `Modal` under settings.** It is left open on purpose, because it can hold
+  data a close would lose (a generated password).
+- **The reverse route.** Tab out of the open settings dialog and open a Plan dialog or the overlay
+  behind it.
+- **Search from the Coming up tab.** The ⌕ still works there, and a window picked from it opens a Plan
+  popup over Coming up.
+- **Phone sheets.** At ≤639px the Map tab's Filters and Regions sheets (non-modal, `z-index: 10000`)
+  paint over settings opened from ⚙ or the nudge.
+
+### Fixed — the settings dialog's postcode field and radius slider are named by the words they show
+
+**The postcode field had no name of its own.** It has no `<label>`, `aria-label` or
+`aria-labelledby`, so its accessible name came from its placeholder, "Enter UK postcode". HTML-AAM
+uses a placeholder only when nothing else names a field. The text is an instruction rather than a
+name, and it is out of sight whenever the field holds a value, which it does whenever a home is
+saved. This is the field that the masthead's "set a postcode" nudge and the Map tab's ⌂ both open
+settings onto (`focusField="postcode"`). Landing a reader there is those routes' whole purpose.
+
+**The radius slider had a label, but its hint ran into it.** Chromium named it
+`Local radiusHow far counts as close to home.` (measured, native). No text separates the label from
+its hint span. The gap a sighted reader sees is the span's margin, and a margin is not text.
+
+**The fix.** Nothing on screen moves.
+
+- The postcode field is `aria-labelledby` the section's "Home location" heading, the text directly
+  above it. The name and the visible words are then one string by construction (WCAG 2.5.3). The
+  placeholder stays as it was.
+- The slider's label is split into two spans. The first ("Local radius") names the slider through
+  `aria-labelledby`. The second (the hint) describes it through `aria-describedby`. The
+  `<label for>` relationship is unchanged.
+- The other controls were checked and needed nothing. The two colour radios are named by the labels
+  that wrap them, and every button's name is its text or its `aria-label` ("Close" on the ×).
+
+⚠️ **The postcode field's name is a decision, and it can be read the other way.** W3C's
+Understanding document for 2.5.3 says a heading is not normally a control's label. It also says a
+placeholder can count as the label when no other text sits in the label position. A strict reading
+would therefore want "Enter UK postcode" inside the name, on the empty field. The placeholder is
+deliberately not folded in, because HTML-AAM exposes it through its own hint property whatever the
+name is (`AXPlaceholderValue`, UIA `HelpText`, IA2/ATK `placeholder-text`). A name that also carried
+"Enter UK postcode" would say it twice, on the empty field that both routes land on. That rests on
+the specification; no screen reader was run. If the owner prefers the strict reading, the change is
+one more id in `aria-labelledby`, and the cost is that repetition.
+
+**What was measured.** Readings were taken on the dialog's own rendered DOM, captured from the
+component with and without a saved home, under the built stylesheet.
+
+- **Chromium, native accessibility tree (CDP).** Before: `Enter UK postcode`, taken from the
+  placeholder, and the run-together slider name above. After: `HOME LOCATION`, taken from
+  `aria-labelledby`, and `Local radius` with the description `How far counts as close to home.`.
+  Chromium applies the heading's `uppercase` to the name, which is also how it reads the heading
+  itself.
+- **WebKit and Firefox.** These readings come from Playwright's own accessible-name algorithm, not
+  the engines' native trees (this Playwright has no native API for either). They agree:
+  `Home location` and `Local radius`.
+- **Layout.** Every text node's box and every control's box is identical before and after. That was
+  checked in Chromium, WebKit and Firefox, at 1280 and 375 px, with and without a saved home. As a
+  positive control, one inserted space moved the hint 3.8–3.9 px in all three, so the comparison can
+  see a change that small. The built CSS is byte-identical to `main`'s.
+- **Not measured:** any screen reader or speech-input product, and the running app. The dialog sits
+  behind sign-in, which this session cannot do.
+
+**Tests.** No focus code changed. Two parts of the landing had no test, and now do:
+
+- The field's `select()` on landing had no test (deleting it failed nothing). A test now pins it.
+- Only the nudge's landing on the field was tested. The ⌂'s is now pinned too, through the real
+  `App` in `AppSettingsRoutes.test.jsx`.
+
+The existing autofocus test now finds the field by its name. It also no longer depends on a
+`getSettings` answer left behind by the test before it. `AppSettingsRoutes.test.jsx`'s
+`settingsSettled` now waits on the named field rather than a test id, so the route tests fail if the
+name regresses: all 19 in that file did when `aria-labelledby` was removed.
+
+**Mutation testing.** 12 mutants were run on a scratch copy, and 11 were killed.
+
+- With the component reverted to `main`, exactly the five name-bearing tests in
+  `UserSettingsModal.test.jsx` fail, and its other 103 pass.
+- Removing the slider's `aria-describedby`, or the field's `select()`, fails only the test that pins
+  it. So does dropping the focus field from the ⌂'s handler in `App`, or from the nudge's.
+- The survivor is an `aria-label` repeating the heading's text, which gives the same name today.
+  What `aria-labelledby` adds is that the name cannot drift from the heading, and no rendered test
+  can see drift that has not happened yet.
+
+### Fixed — search opens from the Plan tab only, so a pick can no longer open a Plan dialog over Coming up
+
+On Coming up and Operations the masthead still offered two ways into search: the ⌕, and the origin
+button beside it, which opens search too. Search finds only Plan things (the six windows, regions to
+plan from, places), and its picks act on the Plan. A window picked on Coming up opened the window
+popup over the almanac feed, and a place opened the four-day sheet there, with the tab left on Coming
+up. That is the state the shell's tab switch closes every one of its dialogs to prevent. The `/`
+shortcut had refused off the Plan tab since M3, and the ⌕ draws `/` as its keyboard hint, so on Coming
+up the button advertised a key that did nothing there. Reproduced in jsdom through both buttons.
+
+**Two ways to fix it, and why this one.**
+
+- **Search on the Plan tab only** (this change): withhold both buttons on every other tab, as the Map
+  tab already did.
+- **Search from any tab, with every pick moving to Plan.** Rejected. The ⌕'s `/` hint would still name
+  a key that does nothing off Plan, unless that recorded decision were reversed too. The box would
+  search nothing on the tab it opens over. And each kind of pick would become a tab change with focus
+  handling of its own. The Map tab's design already calls choosing an origin a Plan question, and the
+  Coming up design draws no search in its masthead.
+
+The cost is one press: a reader on Coming up selects Plan before searching.
+
+**The fix.** The shell hands the tick line its search handler on the Plan tab only. With no handler
+the tick line withholds both search controls rather than drawing buttons that do nothing, which
+plan-matrix §3 rule 14 bans. The origin becomes the plain statement the Map tab already draws, and the
+⌕ and its separator go. The Map's "drive times from here" caption stays on the Map alone, since Coming
+up and Operations show no drive time. The Map keeps its own rule as well — `isMapTab` withholds search
+whatever a caller hands over — so the Map's decision does not come to depend on the shell's. The
+postcode nudge and the away ⌂ stay on every tab: one opens settings and the other moves the origin,
+and neither searches. The Plan tab is unchanged.
+
+**Tested, and seen only in a harness.** `WindowFirstShellTabs.test.jsx` drives the real shell across
+tabs. It pins the masthead's exact controls on Coming up (at home, away, and with no postcode saved),
+on Operations, and on Map with its caption. It checks that pressing the drawn place on Coming up opens
+nothing, after a control press on Plan has loaded search's lazy chunk, and that both buttons come back
+on Plan. `MastheadTickLine.test.jsx` pins the handler rule, the Map's own rule and the caption rule.
+Six of the new shell tests failed before the fix. The signed-in app was not checked, because the tabs
+sit behind sign-in. Instead the real shell's masthead for each tab was rendered in jsdom and
+screenshotted in headless Chromium with the built stylesheet, at 1280px and 390px. There the tick line
+keeps its height on every tab, and the pill looks the same as the Map tab's, without the caption.
+
+### Fixed — three tests that could leave a fake clock running for whatever test came after them
+
+Three tests across two files restored the clock on their own last line rather than in `afterEach` or
+a `finally`, so a failing assertion above that line skipped the restore and left the clock installed
+for later tests in the same file — which then failed for the wrong reason, or passed against a frozen
+date, pointing at the wrong test.
+
+`SchedulerView.test.jsx`'s "polls for job updates at the configured interval" called
+`vi.useFakeTimers({ shouldAdvanceTime: true })` and called `vi.useRealTimers()` only after its final
+`vi.waitFor`; its `describe` has no hook that restores timers. `WindowFirstShell.test.jsx`'s "states
+the forecast's age, and never the model that produced it" and "reads the age as UTC, which is how the
+backend writes it" both called `vi.setSystemTime(...)` with no prior `vi.useFakeTimers()` — which
+installs a clock faking only `Date`/`Temporal` — and each called `vi.useRealTimers()` on its own last
+line; the file's `afterEach(() => vi.restoreAllMocks())` clears mock call state, not a clock.
+
+All three now restore the clock in a `try`/`finally` around the test body, matching the convention
+`SchedulerView.test.jsx`'s own "Run Now confirmation" tests already use. No behaviour changes when a
+test passes — only what happens after one throws.
+
+Proved with scratch copies of both files (built, exercised, then deleted — never committed). Each
+copy captured a real-time or real-timer reference before any test ran, broke one assertion inside the
+affected test so it threw before reaching its own restore line, and added a probe test immediately
+after it: for `WindowFirstShell`, one asserting `Date.now()` stays near that captured reference; for
+`SchedulerView`, one asserting `vi.isFakeTimers()` is `false` (its test installs full fake timers, so
+`isFakeTimers()` reflects the leak directly; `setSystemTime` alone does not flip that flag even while
+`Date` stays frozen — the drift check is what catches that case). Against the unmodified files, both
+probes failed alongside the deliberately-broken test, on a fake clock frozen at `2026-08-04`. With the
+`try`/`finally` in place and the same deliberate failure still forced, the broken test still failed
+(as intended) but every probe passed.
+
+This is the same defect class documented in `docs/engineering/frontend-test-standards.md`'s "What NOT
+to do" (landing with `fix/create-event-source-timer-leak`): a real resource armed by a test outlives
+that test whenever its release sits on a line an earlier throw can skip.
+
+### Fixed — an alert ending no longer empties the map's rating floor, or deletes the one you saved
+
+When aurora mode stops being available under a reader — an alert ends while they are in it, and the
+map's list of stored aurora nights is empty — the map goes back to Sunset. On the way it set the
+rating floor to `null`, a value the floor has not otherwise held since June's filter-bar tidy
+(7618a02c), and cleared the saved floor. On the Plan-tab overlay the context bar showed an empty chip
+(React logged a missing key for it) and the drawer's hint read "showing ★ and above". On both surfaces
+every star button read pressed, the floor counted as a filter — the overlay offered a Clear, the Map
+tab's chip read "Filters (1)" — and every rated pin was drawn whatever the floor. The next visit
+opened on 3★+, whatever floor the reader had saved.
+
+No reader asks for that change of event, so it now leaves what the reader set alone. That is an owner
+decision, taken over this change's first cut, which reset the floor to the 3★+ default the way the
+explicit kind changes do. The rating floor and the stand-down lens keep their values and their saved
+copies, the subject, drive-time and dark-sky filters stand, and only the admin "unknown" lens and a
+kept-local night reset, as before. Entering aurora mode through a handoff already kept the floor, so
+leaving it now matches. The explicit kind changes — a window picked on the Map tab, an event picked in
+the overlay's drawer — still reset the floor and clear it; `map-landing-plan.md` §4 #21(a) records
+the Map tab's (`selectEvRow`) as inherited, not chosen.
+
+`setMinStars(null)` came in with a5a23f2e (March), when a null floor meant "no floor" and a cleared
+key read back as null too. 7618a02c made the floor always hold a value and moved the event selector's
+reset and the drawer's Clear to the default, but not this effect; b51af333 (#731) created
+`selectEvRow` on the default and added a line to this effect without touching the null. It survived
+because no test checked what this reset does: the tests that meet it arrange a live alert or a stored
+night to avoid it, and #814 recorded "nulling the rating floor on the way out" as a side effect.
+
+Pinned in `MapViewAuroraUnavailableFloor.test.jsx`, sixteen tests through the real
+`AuroraStatusProvider` and a window focus, on the overlay and the Map tab. A saved 4★+ stays on the
+context bar, pressed in the drawer and in the popover, in the drawer's hint, in the Clear and the
+chip's count, in the pins, and in storage, where a fresh map mounted afterwards reads it back. A
+reader with no saved floor stays on 3★+, with no Clear and nothing saved. A saved stand-down lens and
+a drive-time filter chosen in aurora mode stand too, and an admin's "unknown" lens goes. The pressed
+state is read from the two buttons either side of the floor, so it holds whichever pressed contract
+that group settles on (below). The tests run on an afternoon clock, so the Sunset the map lands on is
+still to come. Three explicit resets gain page-level tests: the Map tab's window control (whose test
+read only storage), and the overlay drawer's event change and Clear (which had none). Each now reads
+the page as well as storage, including the chip's count or the Clear: the context bar alone cannot
+tell a floor of the wrong type, such as the string `'3'`, from 3.
+
+Twenty-three mutants, all killed, each by the tests that name what it breaks, and none by a file
+failing to load. At the bounce: main's own `null` and cleared storage (twelve of the sixteen tests
+fail); the first cut's reset to the default, with and without its clear; the clear alone (only the
+fresh-mount test); `null`, `undefined`, 1, 5 and the string `'3'`; three stand-down resets (only the
+stand-down tests); a drive-time reset (only the drive-time test); and the "unknown" lens left on
+(only its test). At each of the window control's, the drawer event selector's and the drawer Clear's
+resets: a `null`, the string `'3'`, and a missing storage clear. Before these tests, a `null` at any
+of those three resets passed all 706 tests in the 34 `MapView*`, `WindowFirstMapPane*` and `App*`
+test files, which include every file that renders the real map.
+
+Reviewed by six adversarial lenses (38 charges, many overlapping) and six refutation agents, then a
+second round of three self-refuting lenses over the reworked change (five charges). Every upheld
+charge on this change is fixed above, including history and route facts corrected from the refuters'
+reading. Found on the same route, pre-existing, and left as named follow-ups:
+
+- **A map mounted into aurora mode after an alert has ended leaves it before its stored-nights list
+  answers**, even when a stored night exists — the first visit to the Map tab through the overlay's
+  hatch, say. The fix that works waits for the list to answer, success or failure, and exempts LITE,
+  which never asks. A Map tab whose list answered before a night was stored leaves too, and waiting
+  for the answer does not reach that case: the tab's map asks once and stays mounted.
+- **At night the overlay lands on a sunset already over**, under its "Aurora tonight" title. The
+  auto-selection cannot fix it, because the overlay cannot change its date; it is a design question.
+- **Focus falls to `<body>` when an alert ends** and removes the aurora card's "Centre map" button — on
+  every alert end, bounce or not — and when the change of event re-keys an open popup; and the
+  drawer's Aurora button turns `disabled` under focus.
+- **The rating-floor buttons announce every star at or above the floor as pressed**, where the app's
+  other toggle groups press one; and **the overlay's event selector exposes no selected state**.
+- Nothing announces that an alert has ended. An owner call, closer to an enhancement than a defect.
+
+Tested, not seen in a browser: the map sits behind sign-in.
+
+### Fixed — text inputs, selects and textareas show focus in Windows High Contrast again
+
+The 28 remaining call sites the button focus fix (`.btn`/`.btn-primary`/`.btn-secondary`, see the
+neighbouring entry) left open: every text input, `<select>` and `<textarea>` that pairs
+`focus:ring-1`/`focus:ring-2` (a `box-shadow`) or `focus:border-indigo-500` with `focus:outline-none`
+— the sign-in and registration pages, change password, the settings postcode field, the admin user,
+region and location management views, `SortableHeader`'s per-column filter, the Plan-overlay
+drive-time `<select>`, and the aurora simulation form. Forced-colours mode (Windows High Contrast)
+removes every `box-shadow` and repaints border colours regardless of what a `focus:border-*` utility
+specified, and `focus:outline-none` — Tailwind 4's `outline-style: none`, the name the v3→v4 migration
+(`3e45d18b`, 2026-03-01) kept for what v4 renamed `outline-hidden` — left nothing standing in for
+either. All 28 now use `focus:outline-hidden`, unconditionally invisible outside forced colours and a
+transparent 2px outline at a 2px offset inside it, which the mode repaints in a system colour.
+
+**The variant stays `focus:`, not `focus-visible:`.** These fields already ring on `focus:` — any
+focus, mouse included — and that is existing, intended behaviour, not the defect the shared buttons
+had (a ring drawn by a mouse press and left standing through a busy state). Measured before choosing:
+a `<select>` does not universally get `:focus-visible` on a mouse click. Chromium's does; Firefox's
+does not. Scoping the new outline to `focus-visible:` would have shipped a `<select>` whose forced-
+colours outline works by keyboard and silently does nothing on a mouse click in Firefox — invisibly,
+since the only page this project measures live (sign-in) has no `<select>`. `focus:outline-hidden`
+shows it either way, and changes nothing else: `focus:ring-*`/`focus:border-*` already fire on any
+focus, so the fix rides the same trigger they already use.
+
+**Measured**, headless Chromium 151 and Firefox 153 (Playwright 1.62.1), `forced-colors: active`,
+pixel-diffing a 14px frame round each field, blurred vs focused, both keyboard (a real Tab press) and
+mouse (a real click):
+
+- *The built sign-in page's username field*, before this fix: Chromium already repaints the field's
+  own 1px border on focus — a native behaviour, independent of any authored CSS — so it degrades
+  (806 of 24,948 pixels) rather than vanishing outright; Firefox changes not one pixel (0/24,948) and
+  is left with only the caret. After: Chromium rises to 2,422 (the native repaint plus a real
+  outline), Firefox from 0 to 1,617. Normal, non-forced rendering is pixel-identical before and after
+  in both engines (0/24,948) — `outline-hidden` is `outline-style: none` outside forced colours, the
+  same as `outline-none`.
+- *A `<select>` and a `<textarea>` carrying the exact class lists above*, against Tailwind's own
+  compiler output for the project's real theme (not the sign-in page, which has neither): before,
+  Chromium already shows a small native repaint (526–585/15,624–21,328) on both inputs and selects;
+  Firefox shows none on either (0). After, both rise by roughly the same amount in both engines
+  (+1,085 to +1,777) for keyboard focus, and the `focus:` choice above is what keeps that true for a
+  *mouse-clicked* `<select>` in Firefox too — the `focus-visible:` alternative measured 0 there.
+
+WebKit renders no forced colours in either state (the emulated media query matches, but the mode's
+colour substitution never fires) — moot in practice, since Safari does not run on Windows.
+
+**Tests.** `formFieldFocusRules.test.js` pins the same three places `buttonFocusRules.test.js` does,
+adapted for plain `className` utilities rather than a shared `@apply`'d class: every call site
+carrying an outline utility (found both in inline `className=` values and in the six
+`const someClass = '…'` definitions three of these views build once and apply at several call sites)
+uses `outline-hidden` under `focus:`, never `focus-visible:`, except the three dialog roots
+`useDialogFocus` focuses programmatically (`shared/Modal.jsx`, `MapOverlay.jsx`, `BottomSheet.jsx`,
+excluded by name); and what Tailwind's own compiler makes of the bare `focus:outline-hidden` and
+`focus-visible:outline-hidden` utilities against the real theme (`compile().build([...])`, no full
+source scan needed), guarding the same "a Tailwind release renames what a utility means" risk the
+button test does. Five hand-run mutants were killed: reverting a plain `className=` site and a
+`const xClass=` site back to `outline-none`, reverting a `focus:border-indigo-500` (Aurora) site, and
+switching either the input or the `<select>` site to `focus-visible:`.
+
+Not addressed: `PlanErrorBoundary.jsx`'s programmatically-focused heading has a bare, unprefixed
+`outline-none` with no ring or border-colour utility beside it — a different declaration (always no
+outline, not "no outline standing in for a focus ring") and outside this task's scope. A comment on
+that class now says so directly, because a targeted adversarial review (below) found the obvious
+"complete the fix" edit — swapping it to a bare `outline-hidden` — would draw a *permanent*
+forced-colours box round the heading, not a focus-only one; `formFieldFocusRules.test.js` pins that
+it never happens silently.
+
+**A four-agent targeted review** (not the full sweep — the diff is one token swapped identically 28
+times, already measured pixel-identical outside forced colours) found two things worth fixing and
+confirmed two decisions sound:
+
+- **The scanner had no comment-awareness — fixed with `blankComments`.** Neither
+  `classNameAttributeValues` nor `classVariableDefinitions` stripped comments before scanning, so a
+  comment merely *narrating* old `className="...focus:outline-none..."` syntax would read as a real
+  call site. Worse: a comment nested inside a template literal's `${…}` interpolation — the real
+  shape at `ModelTestView.jsx:654`'s row-selection ternary, which already carries a `//` comment
+  there — could have its own apostrophe misread as opening a string, desyncing the whole walk and
+  failing every test in the file's first `describe` at once. Reproduced against that real,
+  currently-shipping file by changing four characters of its prose; confirmed fixed by re-running the
+  exact same mutation against the real file post-fix (14/14 green, no crash). `blankComments` blanks
+  `//` and `/* */` comments to spaces (offsets preserved) while leaving every string and template's
+  own text untouched, mirroring — for JS — what this file's `stripComments` already did for CSS.
+- **The "three dialog roots" exemption comment undersold the mechanism — corrected.**
+  `useDialogFocus.js`'s own docblock names a *fourth* consumer, `RegionsJump.jsx`; it simply carries
+  no outline utility at all today, so it has nothing to exempt, but the test's comment now says so
+  explicitly rather than implying three is the complete count of `useDialogFocus` call sites.
+- **Confirmed sound, no change**: keeping the outline on `focus:` rather than `focus-visible:` — an
+  independent re-verification, live in a real Chromium instance, found the mechanism is type- and
+  engine-agnostic by construction (`:focus` fires unconditionally, inheriting exactly the pre-existing
+  ring/border trigger) — and the three named dialog-root exemptions, each independently re-traced to
+  confirm `useDialogFocus`'s ref and the `outline-none` class sit on the same literal element.
+
+### Fixed — the event-source tests no longer fail a run in which every test passed
+
+`createEventSource.test.js` could make the whole Vitest run exit 1 with nothing failing: `Vitest
+caught 1 unhandled error`, a `TypeError: EventSource is not a constructor` thrown from a timer in
+`createEventSource.js`. Seen on 2026-09-16 in two of three full-suite runs made concurrently under a
+16-process CPU load, each passing 242 of 242 files and 6,004 of 6,004 tests. The utility's code is
+untouched; one stale line of its JSDoc is corrected.
+
+**A test left a real timer armed, and its globals were put back underneath it.** "calls onError even
+when readyState is CLOSED" ran on real timers and drove the CLOSED branch, which arms a 5 s
+reconnect, but never called the cleanup `createEventSource` returns. `afterEach` then restored
+`EventSource` to jsdom's, which has none. If the file's worker was still alive five seconds later,
+the retry fired, `connect()` ran `new EventSource(url)`, and Vitest could attribute the throw only
+to the last test that had run. The rest of the file takes milliseconds, so this was only ever seen
+under load.
+
+The test is older than the retry. `45f00dcd` wrote it as "skips onError when readyState is CLOSED",
+when the handler returned early for a CLOSED source. `1d6f7f0a` removed that guard, so `onError`
+fired whatever the state, and gave the test its current name. `13e270c7` then added a CLOSED branch
+with a real 5 s timer and tested the retry on fake timers, leaving the older test on real ones.
+
+**The fix has three parts: every connection is released after every test, the whole file runs on
+the fake clock, and the hook checks for both kinds of leak.**
+
+- **Release.** Each test opens its connections through a small wrapper that records the cleanup
+  `createEventSource` returns. `afterEach` calls every one, whether the test passed or threw. The
+  cleanup is the only handle on a connection's retry timer and its visibility listeners; closing
+  the mock source reaches neither. The import is renamed, so the natural call in a test is the
+  tracked one.
+- **Fake clock.** `beforeEach` installs the fake clock for every test, so no retry a test arms can
+  fire after it, and `afterEach` restores the real one. Five tests used to restore the real clock
+  on their last line, which a failing assertion never reached.
+- **Check.** The hook fails the test on either of two leaks, and each check sees one the other
+  cannot:
+  - a mock source still open (`connections left open`, with its URL) is a connection nothing
+    released, with or without a retry;
+  - a fake timer still pending (`retries left armed`) is a retry nothing cancelled, even behind a
+    source the test closed itself.
+
+One test is added: cleanup cancels a retry that is already pending. Deleting the `clearTimeout` from
+the cleanup failed nothing before, measured against two suites:
+
+- the old suite, where no test called cleanup while a retry was pending;
+- this fix on the real clock without the new test, where the hook did call it, but `closed` turned
+  that retry into a no-op.
+
+The new test counts pending timers and fails that deletion; the hook's own count now fails the
+CLOSED test too.
+
+The JSDoc correction: `createEventSource` still documented `onError` as called only "when readyState
+!== CLOSED", which has not been true since `1d6f7f0a`. The production build is byte-identical across
+the edit.
+
+**How the design got here.** This fix first kept the file on the real clock and checked only for
+open sources. An adversarial review then found a test that check passes: it bypasses the wrapper and
+reaches the CLOSED branch through the mock's own `close()`, which leaves a live 5 s retry behind a
+source marked closed.
+
+- Under that version, the test passed on a quiet run and brought the original TypeError back under
+  the probe below.
+- Under this one, the count fails it on every run. With the count deleted it passes, and the fake
+  clock still stops it firing.
+
+The same review's first proposal, the fake clock with only the count, misses the opposite case: a
+test that opens a connection outside the wrapper and arms no retry passes under it, while the
+open-source check fails that test. Moving only the leaking test onto fake timers would have fixed
+that one test and none written later.
+
+**Proved with a probe that makes the original failure deterministic.** A scratch copy of the file
+had one test appended at top level that outlives the retry:
+`await new Promise((r) => { setTimeout(r, 5600); })`, with a 10 s budget. Results with the probe:
+
+- The original exits 1 with the TypeError, and all 20 of its tests pass, the probe included.
+- Filtered to the CLOSED test plus the probe, the original still exits 1.
+- Filtered to the not-CLOSED test plus the probe (the control), it exits 0.
+- The fixed file exits 0 under all three.
+
+Mutation-checked, each on a scratch copy, on a quiet run without the probe unless stated:
+
+- Deleting the hook's cleanup call, or dropping the wrapper's record, fails 15 tests with
+  `connections left open`. On the fake clock the leftover retry cannot fire, so the probe shows no
+  unhandled error. On the real-clock version of this fix, the same deletion brought the TypeError
+  back.
+- Calling the untracked import from the CLOSED test, or from "constructs URL with base, path,
+  params, and token", which arms no retry, fails exactly that test with `connections left open`.
+  From a test that calls the cleanup itself, as "returns cleanup function that closes source" does,
+  it leaves nothing behind, and passes.
+- The review's bypass through the mock's `close()` fails that test with `retries left armed`.
+- Deleting the fake clock from `beforeEach` fails all 20 tests: the timer APIs are not mocked.
+- Deleting the hook's `vi.useRealTimers()` passes, but the fake clock outlives the file's last test,
+  so the probe times out.
+- A deliberately wrong assertion in "cancels the pending throttled retry and reconnects at once on
+  visibility" is that test's only failure.
+
+Against a copy of the utility:
+
+- A cleanup without `clearTimeout` fails the new test, and the CLOSED test on the hook's count.
+- A cleanup without `closed = true` fails only "does not reconnect after cleanup is called".
+- A cleanup that never closes its source fails 19 tests.
+
+The concurrent load reproduction was not re-run, because the probe produces its condition, a worker
+alive past the retry, on every run.
+
+### Fixed — a focused button shows in Windows High Contrast again, and a click no longer leaves a ring on it
+
+Every `.btn`, `.btn-primary` and `.btn-secondary` in the app lost its focus indicator in forced
+colours, and `.btn` and `.btn-primary` also drew their ring on a mouse press. They are in the admin
+views, the sign-in, registration and change-password pages, the settings dialog, `ConfirmDialog` and
+the Plan's error boundary, among others. Both defects are fixed in the three `@apply` rules in
+`index.css`.
+
+**No focus indicator in forced-colours mode.** The focus ring is a Tailwind `ring`, which is a
+`box-shadow`, and forced-colours mode (Windows High Contrast) removes every box-shadow. Beside it
+the classes said `focus:outline-none`, which Tailwind 4 compiles to `outline-style: none`, so a
+focused button showed nothing at all. It was not always so: Tailwind 3's `outline-none` was a
+transparent outline that the mode repaints, Tailwind 4 renamed that utility `outline-hidden`, and
+the v4 migration (`3e45d18b`, 2026-03-01) kept the old name. The classes now use `outline-hidden`,
+which is `outline-style: none` everywhere except under `forced-colors: active`. There it is a
+transparent 2px outline at a 2px offset, repainted by the mode in a system colour, in the band the
+ring draws in (`ring-offset-2`, then `ring-2`).
+
+**A ring on every mouse press.** `.btn-primary` and `.btn` keyed their ring on `focus:`. Chromium and
+Firefox focus a button when it is pressed (Safari does not), so every click drew the ring, and it
+stayed until focus moved on. `.btn-secondary` moved to `focus-visible:` in #431; the other two now
+match. The new outline is on `focus-visible:` as well. Tailwind's upgrade guide suggests
+`focus:outline-hidden`, which would have drawn the forced-colours outline on a mouse press.
+
+**Measured before and after**, in headless Chromium 151, Firefox 153 and WebKit 26.5 (Playwright),
+against the built stylesheet: six call-site class lists, plus `.btn-primary` at a busy button's 40%
+opacity, inside `Modal`'s own element chain, each focused by keyboard and by mouse, with forced
+colours off and on (dark and light), compared pixel by pixel in a 5px frame round each button. Of 126
+states, the 38 that changed are exactly the intended ones:
+
+- *Forced colours, keyboard:* before, not one pixel round the button changed on focus. Now a 2px
+  outline stands 2px off the button's edge: cyan on black in Chromium's dark palette (8.7:1),
+  indigo on white in its light one (11.3:1), and black on white in Firefox (21:1), 2px clear of
+  the grey button face. At 40% opacity the outline dims with the button, to 2.1–2.9:1. The
+  settings dialog's Save and Look up are in that state while busy, since #859 keeps them focused
+  with `aria-disabled`.
+- *Mouse press, forced colours off:* `.btn-primary` and `.btn` drew the ring in Chromium and Firefox,
+  and now draw nothing.
+
+Keyboard focus with forced colours off is pixel-identical before and after in all three engines.
+WebKit changed nowhere: it renders no forced colours (the emulated media query matches and the ring
+still paints), and it does not focus a pressed button. The built app's real sign-in page shows the
+same in Chromium and Firefox, without a backend. Against its base at the time (`86b70436`), the
+built CSS differed only in the three rules, and the JS bundles only in their hashes.
+
+**Tests.** jsdom renders no CSS, so `buttonFocusRules.test.js` pins the rules as text, in three
+places:
+
+- *The `@apply` lists as written.* No `focus:` utility. `focus-visible:outline-hidden` is the only
+  outline utility. The ring is on `focus-visible:` at `ring-2`/`ring-offset-2`, and gold on primary
+  and secondary. No other rule in `index.css` gives these classes an outline or a box-shadow.
+- *What Tailwind's own compiler makes of the real stylesheet.* The only outline declarations per
+  class are `outline-style: none` on `:focus-visible`, plus the transparent outline and its offset
+  under `forced-colors: active`. This guards against a Tailwind release that changes a utility under
+  an unchanged name, which is how the first defect arrived.
+- *Every `className=` in `src/` carrying a `.btn*` class.* None may add an outline or ring utility,
+  because utilities sit in a later cascade layer and would beat the class.
+
+A mutation sweep killed all 21 mutants: the old rules, each utility moved back or dropped, a plain
+`outline: none` inside a rule, two override rules, three call-site overrides, two blinded call-site
+scanners, and a Tailwind whose `outline-hidden` had lost its forced-colours outline.
+
+**#859's entry is superseded on two points.** `20260915-settings-dialog-focus-targets.md` says the
+settings dialog's button landings have no forced-colours indicator, and that `.btn-primary`'s ring
+is a `focus:` rule that stays drawn after a mouse press. Neither holds after this change. The two
+`UserSettingsModal.jsx` comments that said so now describe the classes' own treatment.
+
+Not addressed: 28 class lists on text inputs, selects and textareas pair `focus:outline-none` with a
+`focus:ring-1` or a focus border colour — the auth pages, the admin forms, the settings postcode
+field, `SortableHeader`, the map overlay's drive-time filter. Measured on the sign-in username field
+only: in forced colours Chromium still marks focus by repainting the field's 1px border in its focus
+colour, while in Firefox nothing round the field changes and the caret is the only sign. Selects and
+textareas were not measured.
+
+### Fixed — two App tests that could pass or fail on when they happened to run
+
+`App.test.jsx`'s "the date handed to the Map pane" block (six tests, on top of
+`fix/app-test-aurora-overlay-order`'s reordering fix) had two wall-clock dependences an adversarial
+review found rather than a failing run — neither has been observed to fail here. Test-only: no
+product code changes.
+
+**A fixture computed once could go stale mid-run.** `TOMORROW` and `YESTERDAY` were computed by
+calling `ukDateStrOffset` when the file loaded, but `App.jsx` reads `ukDateStr()` fresh on every
+render. A run whose module load and whose execution of this block straddle a UK midnight leaves the
+fixture's `YESTERDAY` a day behind `App`'s own live "today" — and `mapDates.isNightOver` then
+measures a night that is still genuinely in progress against a `todayStr` that has moved on,
+refusing it. Reproduced directly against the real `isNightOver`/`ukDateStr`/`ukDateStrOffset`: a
+`YESTERDAY` fixed at 23:50 BST on the 13th, checked against a live `ukDateStr()` read at 00:10 BST
+on the 14th (the same 20-minute crossing a slow suite could straddle for real), comes back
+`isNightOver === true` — wrongly over. The same check with both reads pinned to one frozen instant
+comes back `false`.
+
+**A control that read the clock immediately was paired with a wait that didn't.** The last test's
+control assertion — selectedDate still honours the night immediately after a status with
+`currentNightEndsAt: now + 1.5s` lands — is genuinely safe, since nothing can make a 1.5s
+real `setTimeout` fire in the same microtask turn. The `waitFor` two lines later that then waits for
+the night to clear is not: `AuroraStatusContext`'s re-check loop schedules a real 1.5s timer, and
+under CPU contention a real timer can fire late enough to miss Testing Library's 4s ceiling.
+Reproduced by exaggerating the same shape: a required real delay of 4.5s against the OLD
+`waitFor(..., { timeout: 4000 })` pattern threw after genuinely spending 4188ms finding out, while
+the fixed pattern's deterministic clock jump handled the identical 4.5s requirement in 12ms.
+
+**The fix.** The whole block now freezes `Date` (`vi.useFakeTimers({ shouldAdvanceTime: true })` +
+`vi.setSystemTime`, matching `WindowFirstBriefingContext.test.jsx`'s established shape) at
+`mapDates.js`'s own documented example — 00:30 BST on 2026-08-14, where the UK and UTC calendars
+already disagree — so every read of "now", fixture and app-side alike, answers from one instant
+regardless of when the suite runs; `YESTERDAY`/`TODAY`/`LATER` are literals derived from it rather
+than a second `ukDateStrOffset` call, and the local `pastAndFutureForecasts` no longer reaches for
+the file's module-level `FORECASTS`/`TOMORROW`, which are still real-wall-clock-derived and would
+otherwise mix a real calendar date into a block pinned to a fictional one. The last test switches to
+a fully fake, manually driven clock (`shouldAdvanceTime: false`) once its setup no longer needs
+`findBy*` to resolve, and replaces the `waitFor` with one deliberate `vi.advanceTimersByTimeAsync`
+jump past the end — the night-in-progress case itself stays real, in the small hours, as asked.
+
+**Proved.** Default order and ten shuffle seeds (1, 2, 3, 7, 8, 9, 42, 123456, 424242, 999999) each
+pass all 45 tests. The simulated-crossing and forced-delay reproductions above each fail on the OLD
+pattern and pass on the fixed one. Mutation-checked: dropping the aurora banner route's night
+provenance in `App.jsx` (`{ isNight: trigger.kind === 'aurora' }` → `{ isNight: false }`) fails
+"honours the NIGHT in progress" and "clears the night licence" on the date
+(`expected '2026-08-21' to be '2026-08-13'`), leaving the other five green; disabling
+`AuroraStatusContext`'s re-render-at-end (`setNightEnded`) fails "moves the map off the night" on
+its own assertion, confirming the rewritten wait still exercises the real mechanism rather than
+passing by construction.
+
+### Fixed — the App tests that press the aurora banner no longer depend on the tests before them
+
+`App.test.jsx`'s "honours the NIGHT in progress when the aurora banner asks for it" failed under
+`--sequence.shuffle.tests --sequence.seed=424242` at 48e8aa2a — `No "getAuroraLocations" export is
+defined on the "../api/auroraApi.js" mock`, thrown from `MapView`'s aurora-scores effect — and
+passed in the default order. Test-only: no product code changes.
+
+**What an earlier test left behind was a loaded chunk, not a mock.** The banner opens the Plan-tab
+map overlay — `MapOverlay` framing a real `MapView`, both behind `React.lazy` in `App.jsx` — and a
+lazy chunk stays loaded for the rest of the file once any test has loaded it, which no `beforeEach`,
+`mockReset` or `vi.restoreAllMocks` can undo. Neither banner test waited for the overlay it opened,
+and `MapView`'s chunk is requested only when `MapOverlay` renders, so the real map could mount
+inside a press only if an earlier banner test had still been mounted when `MapOverlay` loaded, and
+`MapView` had loaded since. Instrumented under that seed, that is what happened: "clears the night
+licence" ran first, and `MapOverlay` loaded 5 ms before it ended and asked for `MapView` 3 ms
+before; `MapView` finished loading during the next test, the one that waits out a 1.5 s night end;
+and "honours the NIGHT" then mounted the real map inside its press, where the first of the map's
+reads the file had never mocked threw. In the default order neither test ever mounted the map.
+Importing the two modules in a throwaway `beforeAll` failed BOTH banner tests in the default order,
+3 runs of 3.
+
+**It is a race as well as an order.** By 04386b5c — #842 had added 23 tests and changed `App.jsx`
+and `MapView.jsx`, and #850 had changed `MapView.jsx` — the failure was no longer repeatable:
+seed 10 ran the same order twice and failed once. A 31-seed sweep left running overnight also failed
+eight other tests, in runs spread over hours while the machine slept, and each of those seeds passed
+when run awake, with this fix and without it. Named in case one of them turns out to be flaky after
+all: "picks up a change on every opening of the dialog, not just the first", "does NOT let a stale
+solar pick borrow the night licence (Codex, #803)", "lets the mount read land after the dialog has
+answered without changing anything", "reads them once and hands one home to both the provider and
+the Map pane", "does not take one drive-time stamp, read back at the database's precision, for a
+change", "does not take a recalculation for a move — a save that lands under its spinner stands",
+"moves the map off the night when its end passes with no new status — the provider re-renders App"
+and "accepts a night the pane asks for with provenance, whatever asked for it".
+
+**The fix: wait for the overlay, and stub the map inside it.** Both tests press the banner through
+one helper, `pressAuroraBanner`, which waits for the overlay's dialog and for the map stub inside
+it, so every order runs the same code. `MapView` is stubbed rather than kept real with its reads
+mocked: no assertion in the file reads that map, `MapView`'s own suites mount it with Leaflet
+stubbed, and keeping it real meant mocking the four reads it makes on this route
+(`getAuroraLocations`, `getAuroraForecastResults`, `getAuroraForecastAvailableDates`,
+`getAstroAvailableDates`) and fixturing its aurora rules — a status without `active: true` dropped
+it out of aurora mode as it mounted. The first cut did keep it real, and under the load reproduction
+in `frontend-test-standards.md` (the whole suite three times at once under 16 busy loops) the cold
+overlay wait — both chunks, Leaflet included, and the first render — took 2.8–3.8 s against Testing
+Library's 4 s ceiling. A harsher variant, twelve copies of this file at once under the same busy
+loops, failed 17 tests, every one of them at that wait; the same variant with the stub failed none,
+and neither did 24 copies. `frontend-test-standards.md` gains the rule (**Do not open a lazy subtree
+and leave before it has mounted, unless mounting it is inert**), says when a stub like this one is
+not the child-mocking it bans, and no longer says a seed always reproduces an order dependency.
+
+**Proved.** The default order and 42 seeds (1–40, 424242, 7777777) each pass all 45 tests, with no
+console output beyond the provider-crash test's own `Error: boom`, and so does the `beforeAll`
+variant in the default order and three seeds. Mutation-checked: removing the `MapView` stub fails
+both banner tests in the default order and three seeds, naming `getAuroraLocations`, so the real map
+cannot come back unnoticed or in only some orders; dropping the banner route's night provenance in
+`App.jsx` fails both on the date (`expected '2026-09-17' to be '2026-09-15'`); dropping the overlay
+fails both at the wait. Removing the wait alone fails nothing, and the helper's comment says why it
+stays. The whole suite, three runs at once under 16 busy loops, passed all 242 files and 6,004 tests
+in each run with this change. Two of those runs, with the load average peaking at 713, also caught
+one unhandled error each from `createEventSource.test.js`: a real 5 s reconnect timer that one of
+its tests leaves armed. That leak predates this change, which does not touch it.
+
+### Fixed — the settings dialog no longer drops a keyboard reader on `<body>`
+
+An accessibility review of #842 found places around the settings dialog where focus fell to
+`<body>`. From there the next Tab starts at the top of the document, behind the dialog's
+backdrop, and a screen reader loses its place. On the Map tab `<body>` is also outside `MapView`'s
+pane-scoped `onKeyDown`. The review listed four; Look up, which fails for the same reason as Save,
+made five. Each now has a deliberate focus target:
+
+- **The masthead's "set a postcode" nudge, on the Map tab.** A known home swaps that `<button>`
+  for the statement's `<span>` ("Home · Keswick — drive times from here"). That is a different
+  element, so the node the dialog recorded as its opener is destroyed. On other tabs React reuses
+  the button node and focus rides it. The statement is now a programmatic focus target
+  (`tabIndex={-1}`: focusable, never a tab stop). Since #842 the swap happens in two orders, each
+  held by its own mechanism:
+  - *Before the close — the ordinary save.* The page takes the new home from the save's own
+    response, so the nudge is replaced while the dialog is still open. The nudge hands `App` a
+    resolver for the slot's current element, and `App` passes it to the dialog as
+    `restoreFocusFallback`, a new **caller opt-in** on `Modal`/`useDialogFocus`. It is consulted
+    only when the recorded opener cannot take focus back (detached, disabled, or `<body>` to begin
+    with), only under the same "the reader has not chosen somewhere else" guard as the ordinary
+    restore, and never for an element outside a dialog that still claims `aria-modal` beneath.
+    The hook keeps the fallback it held while the dialog was open, so a caller that stays mounted
+    and clears it in the closing update still gets it. `App` clears its own on close, so a later
+    opening from the cog cannot inherit it. The other three render sites (`BottomSheet`,
+    `MapOverlay`, `RegionsJump`) and every other `Modal` pass nothing and behave exactly as before.
+  - *After the close — the dialog's own settings read answering late.* The dialog has already
+    handed focus back to the nudge when the answer names a home saved elsewhere. The tick line
+    hands focus from the departing element to its replacement, but only when the departing one
+    held focus. That is read in the ref's cleanup, which React runs while the old node is still
+    attached and focused (measured on React 19.3). StrictMode's development-only re-run of a ref
+    runs that cleanup and then the setup again on the same, still-focused node, so the setup now
+    clears a record naming its own node. Left in place, that record pulled a reader who had
+    clicked away back onto the statement at the line's next render, and onto the new tab's slot
+    after a tab switch that does not move focus, as a click on a tab does in Safari (both
+    reproduced under `StrictMode` in the tests). A looser "focus is nowhere after a swap" rule was
+    rejected: a tab switch swaps this slot too, and the shell's `tabRequest` handoff moves focus
+    itself. Focus-event tracking was rejected too: Chromium fires `blur` on a node as it is
+    removed, WebKit and Firefox fire nothing.
+
+  Every route into settings closes the dialogs it would open over (#858), and a closing dialog
+  hands focus back to its own opener, which settings then records as its opener. So on a covered
+  route the close restores to that control, and the fallback is asked only if the control has gone
+  by then — a window that passed meanwhile, which #858 left on `<body>`. From the nudge, that now
+  lands on the origin slot. The cog and the ⌂ pass no fallback, so they still leave it there.
+- **Save, and Look up.** A successful save removed its own button, and focus now lands on the
+  line naming the new home. The field is the fallback, and the dialog root the last resort. Both
+  buttons were also `disabled` while busy. Measured in Chromium, WebKit and Firefox: a focused
+  control that becomes `disabled` loses focus, at once in Chromium and within one to four frames
+  in the other two. A failed save therefore left the reader on `<body>` too. Both now say they
+  are busy with `aria-disabled`, styled with `.btn-primary`'s own `disabled:` treatment, and
+  refuse a second press. That also stops repeated Enters in the postcode field from racing two
+  lookups for one result. It does not look identical in two cases. Forced-colours mode repaints a
+  `disabled` button's text and border in GrayText and leaves an `aria-disabled` one alone
+  (measured in Chromium), so there the busy state shows only as the dimming. And a button pressed
+  with the mouse now keeps its focus through the request, so in Chromium, which focuses a pressed
+  button, `.btn-primary`'s `focus:` ring stays drawn.
+- **The drive-time refresh**, which replaces the whole dialog body three times. Focus now moves
+  spinner status line → "Back to settings" (described by the count it reports) → the "Last
+  calculated" line the refresh changed. On a failure it returns to "Refresh drive times",
+  described by the error. Each view's first element is now keyed. Without the keys, React
+  reconciled the spinner's focused status `<p>` into the result's `<p>` by position, stripping
+  its `tabindex`. jsdom left focus on it; the browsers do not (measured: removing `tabindex` from
+  a focused element sends focus to `<body>`).
+- **The map-colour radios** sat in a `<fieldset disabled>` while saving. They stay enabled now,
+  as the radius slider does, with "Saving…" in the existing live status. The fieldset had also
+  kept saves from overlapping, so every choice now joins **one line of saves for the page**
+  (`utils/colourSaveQueue.js`), which `App` owns and hands to every opening of the dialog. The
+  line sends one save at a time, in the order chosen, and skips a choice a newer one has overtaken
+  when its turn comes, so the newest choice is always the last one written. It is the page's
+  rather than the dialog's because the dialog's saves outlive it: review found that a line per
+  opening let a closed dialog's waiting choice go out after a newer one made in the reopened
+  dialog, leaving the server and the map on the older scale. Every save that lands still reports
+  its scale to the page (`onColourSaved`), in the order the choices were made. A dialog opened
+  while a choice is still in the line opens on that choice and follows it ("Saving…", then the
+  error if it fails) until the reader chooses again. One whose read answers after a save has
+  landed shows the save, not the read's older scale. On the base, a reopen that overlapped a save
+  showed the scale that save had just replaced whenever the server took the read before the save
+  committed (driven that way in all three engines). The line ends with the page. Signing out
+  unmounts `App`, but a choice still waiting in the line used to go out anyway when its turn
+  came, under whichever token was stored by then. If another account had signed in meanwhile, the
+  signed-out reader's choice overwrote that account's colour (found by Codex on #859, reproduced
+  in a test). Once the line has ended, no waiting choice is sent, and a save already out reports
+  nothing to the next page's ramp.
+
+Each landing moves the reader only when focus has actually been orphaned (`<body>`, the document
+or the dialog's own root). A reader who has moved on is left alone: a Tab away during a save, or
+out of the dialog during a refresh.
+
+The text landings (the new home, the refresh's status line, "Last calculated" and the refresh
+error) draw an **outline**, not the buttons' `ring`, for two measured reasons. Forced-colours mode
+(Windows High Contrast) removes every `box-shadow`, so a ring left no focus indicator at all. And
+the ring's 2px offset stood 4px proud, exactly the gap between "Last calculated" and the Refresh
+button, so it sat on the button's edge. The two button landings, "Back to settings" and Refresh,
+keep their `.btn-*` ring, so in forced colours they still land with no indicator. That is true of
+every `.btn-*` in the app and is left to its own change. The tick line's shared focus rule gained a
+transparent inset outline for the same forced-colours reason, with ⌂'s inset a pixel further to
+clear its own 1px border. The outline paints nothing outside forced colours. Inside it the
+statement now shows focus (measured), and the nudge, the origin button, ⌕ and ⌂ take the same
+outline from the same rule (not separately measured).
+
+**Verified:**
+- **Tests.** 91 more tests than the base, across `useDialogFocus`, `Modal`, `MastheadTickLine`,
+  `UserSettingsModal`, `App`, `AppSettingsRoutes` and the new `colourSaveQueue`. The `App` tests
+  drive #842's real routes: a save from the Map-tab nudge, the dialog's read answering after the
+  close, a later opening from the cog, and colour choices across a close and a reopen. Two more
+  drive #858's covered routes where the covered dialog's opener can no longer take focus at the
+  close: from the nudge the reader lands on the nudge, and from the cog they are left on
+  `<body>`. #858's shell test that pinned the nudge's argument as a click event now pins it as
+  the tick line's resolver. The forced-colours outline rules are pinned by reading `index.css`,
+  since jsdom renders no CSS. That the landing runs in a layout effect, in the commit that removes
+  the pressed control, is pinned too: a page's own layout effect in that commit already sees the
+  landing.
+- **Mutation sweep.** 77 mutants against the final tree, all killed, each by the tests written for
+  it; the ones touching `App` were run again after rebasing onto #858. They cover the fallback's
+  consultation and its guards, the handoff and its StrictMode record, every landing and whether its
+  target can take focus, the busy buttons, the colour line's order, skipping, `pending` and
+  landings, the carried choice, `App`'s wiring, and the forced-colours rules. The
+  layout-to-passive mutant, which the first sweep could not kill, now fails the same-commit test.
+  One candidate was left out as equivalent: reporting the handler's own choice instead of the
+  scale the line passes back, which is the same value now that each choice has its own reporter.
+- **Real browsers.** A harness mounted the real components on development React under
+  `StrictMode`, with a faked settings API and the page's settings wiring as `App` has it
+  (including #842's reports). It was driven with real key events in Chromium 151, WebKit 26.5 and
+  Firefox 153, against main before this change (#858 changed none of the components it mounts) and
+  with it. Before, every landing left the reader on `<body>`, except "Back to settings" in WebKit,
+  which left them on the dialog root. With this change every landing reached its target in all
+  three engines. That covers both nudge orders, a colour choice waiting in a closed dialog behind a
+  newer one made after reopening, and a reopen whose read answered after a save had landed.
+- **Forced colours.** Chromium's forced-colours emulation measured no indicator before and an
+  outline after, for both the "Last calculated" landing and the statement.
+- **Not seen:** the app itself (sign-in required), any screen reader, and a real Windows High
+  Contrast theme. Not driven in a browser, and tested in jsdom only: #858's covered routes, a
+  fallback declined beneath a dialog still claiming `aria-modal`, a still-mounted caller clearing
+  its fallback on close, and the cog after the nudge. Busy buttons now keep focus at
+  `.btn-primary`'s 40% opacity: the ring then composites to about 3.3:1, computed, not measured.
+
+Not announced, and left to their own change: a lookup's result or error, a failed postcode save
+(which still shows no message), and a change a reader who has moved away from it misses. A polite
+status region shared by the dialog's three views is the likely shape.
+
+### Fixed — one record of your settings: the tick line's home and the map's come from one answer, and a saved home or colour shows as the save lands
+
+The reader's own settings reached the page through two reads of `GET /api/user/settings`: the Plan
+provider's, for the tick line's home and the Coming up latch, and `App`'s own (`loadHomeCoords`),
+for the map's HOME marker, reach rings and ⌂ control and for the colour ramp — each on mount and
+again on every close of the settings dialog, both unguarded. Either could fail or land out of order
+on its own, and the two split: the tick line on the new home beside a map on the old one, or one of
+them on none. `App`'s, landing late, could put the old home back on the map; the provider's could
+put a pre-save "Set a postcode" back on the tick line, or an older Coming up date back and the badge
+with it. Traced in the code; not seen in a browser.
+
+`App`'s `useReaderSettings` now holds one record of them. It reads once, on mount, and after that
+takes the settings dialog's own answers, never a read of its own:
+
+- **the dialog's read on opening** — so a home, or its drive times, changed elsewhere (on another
+  device, by the nightly drive-time job, or by a save whose response was lost) reaches the page when
+  the dialog opens. Closing it used to do that by re-reading everything, whether or not anything had
+  changed;
+- **a saved home's response**, named from the postcode lookup because the save itself does not
+  geocode — so the new home is on the tick line and the map the moment the save lands, with no
+  follow-up read to fail. The dialog now names it that way too, where it showed the bare postcode;
+- **a recalculation's new drive-time stamp**, and only the stamp, set on the home on record: the
+  server measures from the home it has stored, where the dialog's own copy of the home can be older
+  than a postcode save that landed under the recalculation's spinner;
+- **a saved colour's response** — so the ramp changes when the save lands. It used to wait for the
+  dialog to close, and a read that failed there left the old scale on every surface.
+
+**The newest answer asked wins, whichever lands last.** Each read is numbered as it is made — the
+page's own, and each opening of the dialog — and each save as it lands, since its answer is the
+server's state from then; an answer numbered below the newest one applied is dropped. The server
+geocodes the postcode on every read, so a read can be slow, and a dialog closed before its read
+answered still reports it. Without the order, that answer, landing after a save made in a later
+opening, would put the old home back on the tick line and the map while the light and reach, asked
+again of a server holding the new home, answered for it — or put the old ramp back on every surface.
+The same rule keeps the mount read from overwriting anything the dialog has said, and settles a
+StrictMode remount's two mount reads.
+
+The provider takes the tick line's home and the Coming up latch as props and reads no settings
+itself, so the tick line's home, the map's and the Plan tab's home dot come from one answer. (The
+tick line's light row names the home from `GET /api/user/settings/light`, which is asked again when
+the home changes, so for that round trip it can still name the old one.) The dialog's read fills the
+Coming up date only while it is unknown, which also closes the old race in which a settings read
+made before `Mark seen` landed brought an older date, and the badge, back. The two counters the
+reach fetch and the light key on move only when an answer changes the home or its drive times (a
+companion entry). The drive-time stamp is compared as an instant, not as a string: the server hands
+a recalculation's stamp back from its clock — nanoseconds on its Linux host — and stores it to the
+microsecond, so every later answer spells the same instant differently. A millisecond of slack
+covers the database rounding it into the next one; Chromium 151, WebKit 26.5 and Firefox 153 all
+read a six- or nine-digit fraction to the millisecond.
+
+**"Not known" stays apart from "no postcode", all the way to the map.** The home is `undefined`
+until the mount read answers, and after a failed one until the dialog does; `null` only when the
+server says no postcode is saved. The map's ⌂ control answers `null` with "Set your home postcode in
+Settings", so `WindowFirstMapPane` and `MapView` lose their `homeCoords = null` defaults, and the
+control renders nothing while the home is unknown and no origin is in force. It used to show the
+prompt to a reader who reached the Map tab before the settings answered, and after a read that
+failed, until the settings dialog was next closed or the page reloaded. Its empty Leaflet container
+keeps its box without painting it (`visibility: hidden`): its content is sized like the button, as a
+content box, inside the same 1px border, so the two boxes match wherever that border lands —
+including where WebKit snaps it to a device pixel at a fractional ratio. So the zoom bar above it
+stays put, and a press there reaches the map; the phone layout still hides the control outright.
+Measured on the built CSS in the same three engines at device-pixel ratios from 1 to 3 in quarter
+steps: the empty box the size of the filled one to a thousandth of a pixel in every case (WebKit
+drawing the border at 0.57 to 1px, and the empty box following it), the zoom bar not moving, a press
+at the empty box's centre landing on the map, and `display: none` at 390px. (Collapsed, the box
+would drop the zoom bar 50px and raise it again when the ⌂ came back, putting the ⌂ where "−" had
+just been.)
+
+Pinned in `useReaderSettings.test.jsx` — twenty-two tests on the record's rules, a pure reducer,
+among them a recalculation's own action and the stamp compared as an instant at three precisions. In
+`App.test.jsx`, twenty-three, through the hook's one consumer with the real dialog and the real
+provider: one read on mount, feeding one home to both the provider and the Map pane, named by its
+postcode when no place resolved; an unknown home handed down as unknown, never as "no postcode"; a
+saved postcode taken from its response and named from the lookup, with no read after it; a re-save,
+an opening on the same settings and a close asking for nothing; a recalculation asking for reach and
+not the light, keeping the coordinates object, and not taken for a move when a save lands under its
+spinner; one stamp read back at the database's precision not taken for a change; a remote change
+picked up on every opening of the dialog, a move in longitude alone included; a closed dialog's read
+dropped after a newer answer — a later opening's save, a save still out as it reopened, a colour save
+still out as it reopened, and a newer read; a saved colour reaching the ramp from its response; the
+mount read landing after the dialog's answer and changing nothing; a failed mount read leaving the
+home unknown and the ramp alone, and retried by opening the dialog; the Coming up date filled from
+the dialog only while unknown, and the tab's own write handed back; and a StrictMode remount's first
+read dropped. In `UserSettingsModal.test.jsx`, nineteen, on the dialog's four reports: its read
+started as it is asked and reported once it lands, and each save's report once, when its answer
+lands, carrying it — none for a close or a failed save. In `WindowFirstBriefingContext.test.jsx`,
+three on the provider's pass-through. For the ⌂, `MapViewCentreOnHome.test.jsx` stubs Leaflet as
+1.9.4 behaves — a container per corner, and a re-added bottom-corner control above the zoom bar —
+and `mapHomeControlCascade.test.jsx` resolves the kept box against the button's own rule, with
+Tailwind's preflight in force so that the override is weighed. Every late answer a negative names is
+settled by hand inside an awaited `act`, beside a control showing it landed.
+
+Eighty-seven mutants: eighty-four killed, each by the tests that name what it breaks, and none by a
+file that failed to load; three equivalent, named below.
+- **the record's rules (twenty-one)** — an answer with nothing on record not counting as a change;
+  the postcode, the latitude or the longitude left out of the comparison; the place name not carried
+  for the same home, carried to a moved one, or not taken on its own; the stamp never a change, or
+  not one from nothing; a new record for an identical answer; either counter set rather than
+  counted; the mount read moving the counters; stamps compared as strings, or without the
+  millisecond of slack; a recalculation moving its counter for the stamp on record, putting no stamp
+  on record, moving the home counter, inventing a home while nothing is on record, setting its
+  counter rather than counting it, or comparing its stamp as a string;
+- **the order and the hook (twenty-one)** — the order never refusing an answer, or never recording
+  one; the mount read not numbered; the dialog's read numbered as it lands; a saved home or colour
+  taking no place in the order; a dropped read still reaching the ramp, or the mount read's still
+  writing the date; the dialog's read overwriting a known last-seen date, not filling an unknown one,
+  or not reaching the ramp; a saved colour not reaching it; the defaulted flag stuck at false; no
+  postcode fallback for the place; an unknown home handed down as null; a failed mount read recorded
+  as no home, or reaching the ramp; the coordinates not memoised, or memoised without the longitude.
+  One is equivalent: a recalculation taking no place in the order, since no read can be out to lose
+  to it while the dialog cannot be closed under its spinner;
+- **the dialog (fifteen)** — its read unreported, or started as it lands; a saved home not named from
+  the lookup, or reported on the press; a recalculation unreported, reported without its stamp,
+  reported as the dialog's copy of the home, or reported on the press; a saved colour unreported,
+  reported as a home too, or reported on the click; a radius save reported; a postcode save reported
+  as a recalculation. Two are equivalent: the read started through the prop rather than its ref, or
+  the ref never kept current — the read is made once, at mount, when the two are the same function;
+- **the provider (seven)** — reach not keyed on the drive-time counter; its catch unguarded or
+  writing nothing; its answer unguarded; no cleanup; the home, or the latch setter, it is handed
+  dropped;
+- **`App` (nine)** — the light keyed on the drive-time counter; the provider not handed the
+  drive-time counter, the home or the latch setter; the pane handed null for an unknown home; each
+  of the dialog's four reports left unwired;
+- **the kept box (five)** — painted, collapsed, sized as a border box, wider than the button, or the
+  button resized alone;
+- **the ⌂ (nine)** — a `= null` default in the control, in `MapView` or in the pane; unknown ignoring
+  an origin; the button rendered while unknown; null treated as unknown; the control re-added when
+  the home becomes known; the control, or the zoom bar, in another corner.
+
+### Fixed — the Models screen's unmount-timer test no longer fails under load
+
+`ModelSelectionView.test.jsx`'s "cancels its pending dismiss timer when it unmounts" failed
+intermittently in full-suite runs on a heavily loaded machine — `expected 0 to be greater than 0` —
+and passed when its file ran alone. Test-only: the component is untouched.
+
+**The wait was satisfied before the thing it counted existed.** The test waited for the banner with
+`findByText`, which resolves on the commit that renders it, but the dismiss timer the next line
+counts is armed by a passive effect. Outside `act`, the commit a resolved request makes leaves its
+passive effects to a later scheduler task, and React always yields between the two, because every
+commit requests a paint. Testing Library resumes the test on a real `setTimeout(0)`, which races
+that next `setImmediate` slice: if Node's millisecond clock ticks over before the event loop comes
+back round — heavy load makes that likely — the timer wins and the test counts before the effect
+has armed anything. The test did wait for what the response renders, as `frontend-test-standards.md`
+asks; what it then counted is not rendered at all. The doc now says so (**And a commit is not its
+effects**), including that a `findBy*` on a frozen fake clock hangs rather than races.
+
+**The fix** puts the test on the fake clock and settles it with the file's own `pump()` — an awaited
+`act` — as its three sibling fake-clock banner tests already do. An awaited `act` keeps flushing
+until React's queue is empty, passive effects included, so the count no longer depends on which
+macrotask wins, and on a frozen clock the 3 s dismiss cannot fire before the unmount however slow
+the run. The original assertions are unchanged: a 3000 ms timer must be pending, and the unmount
+must clear the last one scheduled. One is added, which the frozen clock makes free: nothing may be
+left pending after the unmount (`vi.getTimerCount()` is zero). The dismiss is the only timer this
+tree arms, and a cleanup that cleared it but armed a replacement at any other delay passed the
+original test, because its `ms === 3000` filter cannot see one. The spies now wrap the fake clock's
+functions and come off *before* the clock is uninstalled — restored after it, they put the fake
+`setTimeout` back on the global (measured).
+
+**Proved before and after, under load.** The original and the fixed test bodies, each repeated in a
+scratch file and both run in the same Vitest invocation so they shared the load (16–24 busy-loop
+processes on 8 logical CPUs — 4 physical cores — at load averages of 42–223): the original failed
+41 of 2,700 repetitions, every one with `expected 0 to be greater than 0`; the fixed body failed 0
+of 2,700, the last 1,350 of them with the added count in place. With the race forced — a 2 ms spin
+right after Testing Library schedules its drain timer — the original failed 20 of 20.
+Mutation-checked against the component: deleting the effect's cleanup, or moving the timer back
+into the handler (the pre-#809 shape), fails the fixed test at its unmount assertion, as it failed
+the original; a component with no dismiss timer fails at the precondition; a cleanup that arms a
+2999 ms replacement fails only the new count, and passes the original; the idle null→null timer an
+earlier version over-rejected still passes; and a handler-armed timer with an unmount cleanup still
+passes here and fails the sibling "does not arm a dismiss timer when the request settles after it
+unmounts" test, whose job that is.
+
+### Fixed — the Map's "Couldn’t load" announcement waits for the reader to be looking at the page
+
+The status region #848 added to the Map tab announces "Couldn’t load — trying again" to a
+screen-reader user when the line appears. It has to be empty whenever the reader cannot perceive
+it, and fill — a change, which is what a live region announces — when they can. #848 gated it on the
+app's own tab panel; Codex's post-merge review found the layer above that, and this change's own
+review the one beside it. With the whole browser tab in the background, or with another app in front
+of a still-visible window (side by side, a second monitor), the Map panel keeps its box, so the pane
+still counted as on screen: a night's request that failed then filled the region while the screen
+reader was presenting something else, and the reader's return found it already full, announced to
+nobody. That return fires `focus` for the window case, not `visibilitychange`, so it could not even
+be noticed.
+
+- `WindowFirstMapPane` now counts itself on screen only while its panel is shown AND the page is in
+  front of the reader — the document visible and the window focused — and hands `MapView` the two
+  together as `paneVisible`. A failure while the reader is elsewhere leaves the region empty and
+  fills it on the return, which is announced.
+- The page's state is a `useSyncExternalStore` on `visibilitychange`, `focus` and `blur`, not a
+  value read at render plus a listener added afterwards: the pane is `lazy()` behind a Suspense
+  fallback whose commit React can hold back, and a change in that gap reached no listener. The store
+  reads the page again once it has subscribed. A map mounted with the reader elsewhere starts off
+  screen.
+
+The layers that can hide the region, listed rather than left for review to find one at a time: the
+callout (the region's first home, mounted by the selection — fixed in #848), the app's tab panel
+(#848), the document and the window's focus (here). Not addressed, and stated rather than implied:
+
+- **A modal dialog over the Map tab** — the four-day sheet opened as a peek from the callout, or
+  search, or settings, each `aria-modal="true"`, over a pane that is not `inert` behind them (O-20).
+  WebKit is understood to drop everything outside a visible `aria-modal` dialog from the
+  accessibility tree, so in Safari with VoiceOver a failure while the sheet is open would fill the
+  region out of the screen reader's reach, and closing the sheet would reveal it already full —
+  unverified here, and other engines may simply announce it over the sheet. Gating on it needs a
+  live "a modal is over the pane" signal, which the pane has no route to (its `sheetSpot`
+  plumbing is the residual its own docs already name). If O-20's shell-root `inert` is ever adopted
+  (`docs/engineering/o20-shell-inert-plan.md`), this becomes a hiding layer in every browser, and
+  will need that signal.
+- **A return that races its own early re-ask.** Coming back sends a waiting retry at once, in the
+  same moment the region fills, so the reader hears "Couldn’t load — trying again" while that
+  request is in flight; if it succeeds a moment later, the rating that replaces the line is not
+  announced — no rating is. The line is true when it is spoken (the last request failed and it is
+  being asked again), and holding it through a re-ask is #848's deliberate rule; delaying the
+  announcement until the re-ask settles would need timing this does not add.
+- **The browser's own chrome.** A trip to the address bar blurs the window, so a failure still on
+  screen is announced again on the way back. Accepted as the cost of the focus layer.
+
+Pinned by nine tests in `WindowFirstMapPane.test.jsx`, grouped as their own block: each layer alone —
+the panel (#848's test, moved here), the document, the window's focus — and each against the
+others, since one flag that every layer wrote to, the last write winning, passed every single-layer
+test (the panel hidden while the page comes and goes; the page away while the box changes); a mount
+with the reader elsewhere, both ways; the page read again after subscribing; and every listener
+removed with the arguments it was added with. Page state is faked through spies on jsdom's own
+getters, `visibilityState` and `hidden` together. Nine mutants were run one at a time against the
+new lines — each half of `paneVisible` and of the page test dropped, each subscription removed, one
+removal left out, and the first cut's read-once-then-listen shape in place of the store — and all
+nine are killed, each by the test written for it (the last by the re-read test alone), none by a
+timeout. Two lenses reviewed the first cut, runtime and test quality; every charge is fixed above or
+stated as a limit. `MapView` is unchanged but for its
+`statusLine` and `paneVisible` docs. Tested, not seen in a browser: the Map tab sits behind sign-in,
+and no screen reader was run.
+
+### Fixed — `MapCallout`'s one import was defeating the Map tab's `d3-geo` lazy boundaries
+
+`MapView.jsx`'s comment above its `lazy()` calls claimed the selection callout (`MapCallout.jsx`)
+"imports no `d3-geo`-carrying module" and so needed no lazy boundary of its own. That was false:
+`MapCallout.jsx` statically imported `verdictWord` from `utils/mapLabels.js`, and `mapLabels.js`
+is not a leaf — it statically imports `centroid` from `utils/heatField.js`, which statically
+imports `d3-geo` and `topojson-client`. "MapCallout only reads `verdictWord`, which never touches
+`centroid`" is true and irrelevant: a source-level `import` names a module, not the one export a
+caller happens to use, and Rollup's chunk-splitting did not cleanly separate the two.
+
+Measured on the pre-fix build, the eager `MapView` chunk's full transitive closure was 18 chunks /
+842,323 bytes raw. Two of those chunks were the `geo` chunk (`d3-geo` + `d3-array`, forced into
+its own chunk by `vite.config.js`'s `manualChunks`) and a second, Rollup-merged chunk holding
+`centroid`, the heat-field canvas kernel and topojson's feature decoder — `regionLabelItems`/
+`hottestRegion`, dead code on this path since `MapCallout` calls neither, were duplicated straight
+into the `MapView` chunk alongside `verdictWord`, and pulled that merged chunk in with them. Net
+effect: ~32.3 KB raw / ~12.75 KB gzip of `d3-geo`/topojson/heat-kernel code was loading eagerly
+for every Map tab open **and** every Plan-tab overlay mount (`WindowFirstMapPane.jsx`, which
+mounts `MapView` before a reader has chosen Heat or Pins, or opened the callout at all) — precisely
+the weight the `lazy()` boundaries around `MapHeatLayer`/`MapLabels`/`PinsLayer` exist to keep off
+that network path, for the two sessions (Pins-only, and the overlay) that never render any of them.
+
+Fixed by extracting `verdictWord` (and its two threshold constants) out of `mapLabels.js` into its
+own leaf module, `utils/verdictWord.js`, with nothing else in it for a future addition to
+accidentally import `heatField.js` next to. `MapCallout.jsx` now imports directly from there;
+`mapLabels.js` re-exports the same three bindings (pinned by a test) so `MapLabels.jsx`/
+`PinsLayer.jsx` need no import-path change. Verified two ways rather than reasoned:
+`MapCallout.jsx`'s full source-level transitive import closure (21 files) no longer reaches
+`mapLabels.js`, `heatField.js`, `d3-geo` or `topojson-client` at all — a structural absence of the
+edge, not Rollup tree-shaking one away — and the built `MapView` chunk's own transitive closure
+dropped to 17 chunks / 809,126 bytes raw, with neither the `geo` chunk nor any heat-field/topojson
+code present.
+
+`MapView.jsx`'s comment now names `MapCallout`'s real leaf-module imports (`utils/mapCallout.js`,
+`utils/verdictWord.js`, `utils/scoreRamp.js`, `utils/locationSheet.js`, `utils/locationTypes.js`,
+`utils/windowFirstSpots.js`) and records the measurement, so the next audit has the numbers rather
+than another one-hop claim to re-verify from scratch.
+
+### Changed — reach and the light are asked again when your home changes, and reach alone when its drive times do — not on every close of the settings dialog
+
+`App` moved `homeSettingsVersion` — the counter behind the Plan provider's reach fetch and the
+masthead's light — on every close of the settings dialog, saved or not, and re-read the reader's
+settings each time. With the reach fetch now dropping any request a newer move supersedes (the
+companion fetch-order fix), a move that is not a real change would throw away a correct answer: a
+reader who saved a postcode, then reopened and dismissed the dialog before the save's answer landed,
+would have had it dropped, and the pre-save state would have stood until the dismissal's own request
+answered — longest in Chrome, where requests to one URL queue behind each other. The adversarial
+review of the fetch-order fix found it.
+
+There are two counters now, and `App`'s record of the reader's settings (`useReaderSettings`, a
+companion entry) moves each only when an answer from the settings dialog changes what it counts:
+`homeSettingsVersion` when the home's postcode or coordinates differ from the record — the exact test
+the server's `originMoved` makes — and `driveTimesVersion` when the drive-time stamp names a
+different instant. Reach keys on both, the light on the first (which is also asked again when the UK
+day turns). So:
+
+- re-saving the same postcode moves neither; the close after it used to move the counter, saved or
+  not;
+- a recalculation asks for reach again, and not for the light, which it cannot change;
+- a close moves nothing;
+- a home, or its drive times, changed elsewhere moves them when the dialog's own read finds it (the
+  record entry).
+
+The price, taken knowingly: a close no longer retries a reach or light request that failed at page
+load; the next real change or a reload does. Opening the dialog retries them only when the page has
+no record of the settings at all — its own read then counts as a change.
+
+Pinned in `useReaderSettings.test.jsx`, among the tests on the record's rules: a re-saved postcode
+keeping the record object itself; the postcode, the latitude and the longitude each counting on
+their own; a new stamp moving only the drive-time counter, and the same instant at another precision
+moving nothing; and every change counting, not just the first. In `App.test.jsx`, through the real
+dialog and the real provider: a re-save asks for nothing, a recalculation asks for reach and not the
+light, and a close asks for nothing. In `UserSettingsModal.test.jsx`, each report arrives once, when
+its save lands, and not for a close, a radius save or a failed save.
+
+### Changed — a failed drive-time refetch empties the drive times rather than leaving the old home's standing
+
+When the Plan provider's `GET /api/user/settings/reach` failed after the reader's home or its drive
+times changed, it kept the figures from before: after a move, the old house's drive times and
+leave-by lines on every spot, beside a tick line naming the new home. The owner's decision
+(2026-09-15) is to empty them instead: unknown claims nothing, and the old figures claimed a drive
+and a leave-by time the reader no longer had. Traced in the code; not seen in a browser.
+
+The `.catch` now sets the empty map — the state of a reader with no postcode — and is guarded by the
+effect's cleanup like the answer, so a superseded request's failure cannot empty a map the newest
+request has filled, and one landing first cannot empty it while the newest is still out. It lasts
+until the next change to the home or its drive times, or a reload.
+
+What the empty map looks like: the strip loses its reach lines and the footer stops naming drive
+time; the map callout drops its drive and leave-by lines, and the ring labels fall back to miles. On
+the Map tab, "My area" widens to the whole catalogue and its scope row goes, the camera refits to it
+(in My area, with no region jump in force), and the window pill's verdict and the landing card answer
+for everywhere — the same state every move already gives until the drive times are recalculated,
+because a move clears the stored drive times. Now that re-saving the same postcode moves nothing (a
+companion entry), no save that changed nothing can end here.
+
+⚠️ **Not fixed here, and named so it reads as known:** the Map tab's drive filter hides a spot with no
+measured drive time, where the Plan tab's reach lens lets it through (`reachLens.js`), so a tier
+carried onto the map through a Plan→Map door shows none of the spots once the map is empty — "0 of N
+shown · carrying within 45 min". That predates this change — a PRO reader with a postcode and no
+drive times yet meets it already — and is filed separately.
+
+Pinned in `WindowFirstBriefingHomeSettingsFetchOrder.test.jsx`: the newest request failing empties an
+answer on screen, a superseded failure landing first leaves it, and one landing after the newest
+answer leaves that — each settled inside an awaited `act`, each beside a control showing the answer
+landed. Mutation-checked with the rest of the change (see the settings-record entry).
+
+### Fixed — two review findings against the aurora simulation-isolation fix
+
+Two P1 findings from an automated review, both confirmed real:
+
+**A simulated forecast run could delete a night's real results.** `AuroraForecastResultWriter
+.replaceNightResults` unconditionally called the unfiltered `deleteByForecastDateIn` before
+inserting, real run or simulated. An admin simulating a night that already had stored real,
+user-facing results would delete those real rows and replace them with simulated ones every
+read method excludes — the night would read as never forecast at all. The writer now takes an
+explicit `simulated` flag from the caller (an empty result list carries no signal of its own) and
+picks the delete accordingly: a real run still clears real and simulated rows alike (an earlier
+admin test run must not survive a real one), but a simulated run now calls a new,
+`simulated`-scoped delete that only ever touches rows an earlier simulated run left behind.
+
+**A lingering simulation could suppress a later real alert indefinitely.**
+`AuroraStateCache.evaluate()` — the real NOAA polling path — never touched `simulated`/
+`simulatedData`, only `activateSimulation()` and `reset()` did. If an admin activated a simulation
+and never explicitly cleared it, a real quiet reading would CLEAR the machine back to IDLE as
+normal, but leave the simulation flag standing; a later genuine alert would then reactivate the
+machine while `isSimulated()` still read `true`, silently suppressed by every gate this PR just
+added (hot topics, the best-bet prompt) until an admin manually reset or cleared the simulation.
+The CLEAR transition now clears the simulation fields too, since `evaluate()` is exclusively the
+real-data path — any real reading superseding an active state means an earlier simulation is
+stale, whatever produced it.
+
+### Fixed — an admin's aurora simulation reached signed-in users as a real alert
+
+`POST /api/aurora/admin/simulate` is documented as admin UI testing: it injects a fake Kp/storm
+reading into `AuroraStateCache` so an admin can preview the banner and run the Claude scoring
+pipeline against invented severe-weather data without waiting for a real geomagnetic storm. Nothing
+downstream of the cache checked `isSimulated()`, so the fake reading was indistinguishable from a
+real one everywhere else it was read:
+
+- **Hot topics.** `AuroraHotTopicStrategy.detectTonight` read `getCurrentLevel()`/`getLastTriggerKp()`
+  unconditionally, so a daytime STRONG simulation put "Aurora possible · Kp 7 forecast tonight" on
+  every signed-in user's Plan cards, lasting until dusk.
+- **The best-bet advisor's prompt.** `BriefingRollupBuilder` fed the same simulated level/Kp into the
+  Claude rollup JSON, and `BriefingAuroraSummaryBuilder.buildAuroraTonight` (which
+  `AuroraHotTopicStrategy` also reads, for the clear-location count and moon data) built a summary
+  from it the moment the state machine read ACTIVE — which `activateSimulation` always sets.
+- **Forecast-run persistence.** `POST /api/aurora/forecast/run`, while a simulation is active, makes
+  a real Claude call against real weather triage and the fake Kp/storm data, and persisted the
+  result identically to a real run. `AuroraForecastResultEntity` carried no simulation marker, so
+  `GET /api/aurora/forecast/results` served it to every PRO/ADMIN user on the map, until the run was
+  re-run or the results aged out — long after the admin cleared the simulation.
+
+All three now check `AuroraStateCache.isSimulated()` and refuse to surface anything while it is
+true. The third also gets a durable marker: `aurora_forecast_result.simulated` (V154), stamped from
+`isSimulated()` at write time. `AuroraForecastResultRepository`'s read methods
+(`findByForecastDateAndSimulatedFalse`, its location-fetching sibling, and
+`findDistinctForecastDatesExcludingSimulated`) all exclude `simulated = true` rows — for the map
+read path and for `TopicDailyLogJob`'s nightly AURORA presence log, which would otherwise have
+logged a false presence for a night nothing real was ever measured on. `deleteByForecastDateIn`
+stays unfiltered on purpose, so a real re-run of a night still clears out an earlier simulated test
+run for that same night. The admin who ran a simulated forecast still sees exactly what Claude
+scored, in the synchronous response `POST /api/aurora/forecast/run` already returns — nothing here
+removes that.
+
+All three gates are tested against a real `AuroraStateCache` driven through `activateSimulation()`,
+not a mocked `isSimulated()` answer, since `activateSimulation` always sets ACTIVE alongside the
+simulation flag and a mock could let the two disagree in a way production never can.
+
+### Fixed — a CLEAR landing mid-briefing no longer fails that cycle's best bet
+
+`BriefingRollupBuilder.buildRollupJson` checked whether an aurora alert was active and
+alert-worthy, made a DB call (`TravelDayService.isTravelDay`) to decide whether tonight is excluded
+as a travel day, and only then wrote the alert into the rollup — re-reading
+`AuroraStateCache.getCurrentLevel()` a second time inside `appendAuroraEvent`. The cache's getters
+are independent unlocked volatiles with no lock spanning the two reads, so a real alert clearing or
+an admin's reset landing during that DB round trip nulled the level in between: the second read
+threw a `NullPointerException`, which `BriefingBestBetAdvisor.advise` catches and reports as that
+cycle's best bet FAILED, in place of the mechanical headline fallback the class exists to guarantee.
+The two `getCurrentLevel()` calls inside the eligibility check itself are nanoseconds apart with
+nothing between them and were never the exploitable window — the DB read is.
+
+The alert level, trigger Kp, dark-sky count and clear count are now read once, before the
+travel-day check, and passed into `appendAuroraEvent` rather than it re-reading the cache. A CLEAR
+landing mid-check now either excludes the alert (when it lands before the snapshot) or writes it as
+the alert that was running when the decision to include it was made (when it lands after) — one
+coherent state either way, never a crash and never a level from one moment paired with counts from
+another.
+
+Pinned in a new `BriefingRollupBuilderAuroraSnapshotTest`, a plain unit test with a real
+`AuroraStateCache` whose CLEAR is made from inside the stubbed `isTravelDay` call — the same
+"transition inside the stub" technique `AuroraControllerStatusSnapshotTest` used for the sibling
+bug in `AuroraController.getStatus`. Against the old code the race test fails with exactly this
+`NullPointerException`; a second, non-racing test pins the ordinary case unchanged.
+
+### Fixed — a cleared aurora simulation could NPE a Kp preview or forecast run
+
+`AuroraForecastRunService.getPreview` and `.runForecast` each read
+`AuroraStateCache.isSimulated()`, then — separately — `getSimulatedData()`. Between the two reads,
+an admin clearing the simulation (`POST /api/aurora/admin/simulate/clear`) or a real geomagnetic
+event overriding it could null the data out from under a flag that had already read `true`, and the
+second read's `.kp()` (preview) or `buildSimulatedSpaceWeather(...)` (run) threw a
+`NullPointerException` on a still-true flag with no data behind it. Both call sites now read
+`getSimulatedData()` exactly once and derive "simulated" from `!= null`, reusing that one reference
+for everything downstream — closing the gap outright rather than narrowing it, since a single
+`volatile` field read of an immutable record can never observe a half-written state.
+
+Found while coordinating with a sibling branch fixing the same class of bug elsewhere in
+`AuroraStateCache`'s own callers (`fix/aurora-simulation-lifecycle`); this project's two call sites
+were pre-existing and outside that branch's scope.
+
+### Fixed — POST /api/aurora/forecast/run and GET /preview are ADMIN-only
+
+Both were gated `hasAnyRole('ADMIN', 'PRO_USER')`, the same class-level annotation that legitimately
+covers the two read endpoints on this controller (`/results`, `/results/available-dates` — the map's
+normal PRO read path). But `/run` spends real Claude API cost the same way every other forecast-run
+endpoint in this app does (all ADMIN-gated), `AuroraForecastRunService`'s own javadoc says it "runs
+on demand from the Admin UI", and the only frontend caller of either endpoint is
+`AuroraForecastModal`, mounted only inside the Operations tab, itself gated on `isAdmin` in
+`App.jsx`. A PRO_USER had no UI path to either endpoint, only a direct API call — the same shape as
+two previously-fixed gates on this project (`POST /api/locations`, `GET /api/forecast/history` and
+`/compare`): the code was more permissive than the product ever intended, with nothing depending on
+the gap. Both endpoints now carry `@PreAuthorize("hasRole('ADMIN')")`, overriding the class-level
+gate; `/results` and `/results/available-dates` are unchanged.
+
+### Added — a test for #814's stored-aurora late-failure guard, which shipped unpinned
+
+#814 gave the map's stored-aurora fetch a `cancelled` flag guarding both its `.then` and its
+`.catch`, but only the `.then` half had a test. The late-response test never reaches a `.catch`, so
+deleting that guard left `MapViewAuroraLiveNight.test.jsx` green, all eleven tests — measured before
+this change. Unguarded, a failure for a night the reader had already left cleared the results of the
+night on screen; off the night in progress, where no live score stands behind them, that left nothing
+rated for a night that had a stored run, until the next selection.
+
+A late-*failure* test now sits beside the late-response one: night A's request fails after night B's
+has answered, and B's marker must still be drawn. Mutation-checked: deleting the `.catch` guard fails
+only this test; deleting the `.then` guard fails only the existing late-response test; deleting
+`cancelled = true` from the cleanup fails both. The rejection settles inside an **awaited** `act` —
+measured: left un-awaited, this test passes with the guard deleted, because the unguarded clear is
+never committed before the marker count is read.
+
+Two things the adversarial review found in the file itself are fixed with it:
+
+- **The stored-results block has no live scores any more.** The file-level fixture rates the test
+  location 5★ live. That is withheld off the night in progress, but a marker count of one could not
+  tell B's stored 3 from a leaked live 5 — a double mutant that made every night read as live *and*
+  deleted the `.catch` guard survived the new test. It is killed now.
+- **The API mocks' call history is cleared per test.** Nothing cleared it, so #814's own
+  `toHaveBeenCalled()` waits, which stand as proof that a test's own fetch ran, were met by the first
+  test's call in every test after it.
+
+### Fixed — the masthead's light-times gap is 16px on desktop again, and a test holds every tier
+
+The plan-matrix prototype spaces the tick line's light times at 16px on desktop, 12px on iPad and
+9px on a phone. The base `.wf-tick-times` rule had drifted to 12px — the iPad value — so desktop was
+drawing iPad spacing. It is 16px again.
+
+⚠️ **That was not a one-line change, and the reason is the useful part.** The base rule is the one
+every width inherits unless overridden, and the iPad band had no rule of its own: it was right only
+by inheriting the drifted 12px. Raising the base to 16px alone would have silently taken every iPad
+up to the desktop gap. So the iPad block now states 12px explicitly, and the phone rule keeps its
+9px — which already matched the prototype exactly, text size and tracking included.
+
+**Measured in real headless Chromium against the compiled stylesheet:** 9px at 390px, 12px across
+the whole iPad band (640, 767, 834, 1023), 16px from 1024 up. And the wider desktop gap moves
+nothing else: with a deliberately long away label (`The Lake District · from Keswick`) the times
+stay on the origin's line at every width from 834 up, before and after, and the pre-existing wrap at
+390 and 640px is unchanged. ⚠️ The first same-line check compared the two groups' `top` edges and
+read "wrapped" at every width including 1280 with 460px to spare — under `align-items: center` two
+items of different heights on one line have different tops. It was replaced by a vertical-overlap
+test, which reports a wrap where there genuinely is one and none where there is not.
+
+**A cascade test now pins all three tiers** (`tickTimesGapCascade.test.jsx`). For each width it
+keeps only the rules whose media condition holds there, injects them in source order, and reads what
+the cascade resolves — both edges of every band, so a breakpoint moved by a pixel or an override
+that stops winning fails the case that names it. Mutation-tested three ways, each caught: deleting
+the iPad override (5 failures), the desktop base back at 12px (3), and **the iPad override moved
+ahead of the base in source order (4)** — the exact way this drifted. ⚠️ It reads `gap`, not
+`columnGap`: jsdom does not expand the `gap` shorthand, so a rule declaring `gap: 16px` reports
+`columnGap: 'normal'` — measured, and a test reading it would see `'normal'` at every tier.
+
+**Which prototype, stated.** Every design bundle carries a copy of the Plan-tab prototype (16/12/9),
+but the tabs' own pages — `Map Tab v2.html`, `Map Landing.html`, `Coming Up.html` — specify 15px,
+and the map pages an 8px phone gap. The masthead is one component on all four tabs
+(`map-tab-v2-plan.md`: "a per-tab state of `MastheadTickLine`, not a fork"), so one value serves
+every tab; 16px is the Plan tab's, 1px from the others' 15px where 12px was 3px away. An adversarial
+review caught the first draft's comment calling it simply "the prototype" — the unqualified-bundle
+claim this series has now made three times.
+
+This also closes what #821's iPad entry recorded as "the tick-times gap is right for iPad; the
+desktop drifted onto it", which is no longer true. Not seen in the populated masthead: it renders
+only behind sign-in, which carries a Cloudflare Turnstile challenge that was not worked around.
+
+### Docs — the Plan popup's desktop region rail keeps 128px, and the spec records why
+
+An audit flagged the desktop rail's 128px minimum as drift: the prototype's rule for a rail in the
+popup's side column is `.wside .rrail` at **112px**, and since the rail only ever renders there,
+that is the value the prototype shows. The README's 128px is the bare `.rrail` rule it loses to.
+
+Measured in real headless Chromium before anything was changed, loading the built stylesheet and
+building the popup's actual desktop chain:
+
+| | 128px (kept) | 112px (prototype) |
+|---|---|---|
+| with the field map | 3 × 143px | 3 × 143px — identical |
+| without it | 5 × 145px, meta on one line | 6 × 120px, **meta wraps on every card** |
+
+With the map — the only layout the prototype ever draws — the popup is capped at 780px, the rail is
+442px wide, and both minimums fit exactly three tracks, so the two render the same. Without it —
+the full-width rail shown while the heat catalogue loads or has failed, which the prototype never
+draws — 112px fits a sixth column and every card's `best 5★ · 10 in reach` breaks onto two lines,
+growing the cards from 63–76px to 90px. **The value has no visible effect where it was designed and
+a visible cost where it was not**, so 128px stays (owner decision, 2026-09-14).
+
+The rule now carries that reason in its own comment, so the next audit does not "fix" it back, and
+`docs/design/plan-matrix/README.md` records it beside the region-card spec. That line also said
+**iPad `150px`**, which has been wrong since #821 shipped 130px — the prototype's `.wside .rrail`
+again beating its bare rule — and is corrected here. With this the three tiers read, in both the
+spec and the code: 128px desktop (deliberate), 130px iPad, two up on phone.
+
+⚠️ This also corrects an earlier claim: the rail was described as matching the prototype "on iPad
+and phone only". Visually it already matched on desktop too — in the only layout the prototype
+draws, both values render 3 × 143px. The 128/112 difference was in the rule's text, not on screen.
+
+Documentation and a comment only; no rendered value changes.
+
+### Fixed — the Plan popup's region rail is two columns on every phone again
+
+The design's phone rail is two up, with the "All regions" cell on its own row. It rendered three or
+four columns on the wider phones. The phone rule, `.wf-rrail { grid-template-columns: 1fr 1fr }`,
+was 0,1,0 and never once won: the rail is only ever mounted inside the popup, where the unscoped
+`.wf-wsh .wf-rrail { repeat(auto-fit, minmax(128px, 1fr)) }` is 0,2,0 — so on a phone the desktop
+auto-fit decided the columns. The prototype had the matching rule all along
+(`.wrap.mob .wside .rrail`); the port kept only its unscoped twin.
+
+The fix writes `.wf-wsh .wf-rrail { 1fr 1fr }` into the popup's own phone block, after the desktop
+rule — equal specificity, later source order — and retires the dead line with a pointer, so it is
+not re-added at the specificity that cannot win.
+
+**Measured in real headless Chromium, inside the popup's actual chain** (the modal root the phone
+rule targets by `data-testid="window-sheet"`, `.wf-wsh-b`'s 12px padding, `.wf-wsh-side`), with the
+old rule re-imposed for the "before" column rather than computed:
+
+| phone width | 375 | 390 | 414 | 430 | 500 | 600 | 639 |
+|---|---|---|---|---|---|---|---|
+| rail width | 351 | 366 | 390 | 406 | 476 | 576 | 615 |
+| before | 2 | 2 | 2 | **3** | **3** | **4** | **4** |
+| after | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+
+iPad (640, 834) and desktop (1024) are identical before and after, and the rail's margins stay 0 at
+every width.
+
+⚠️ **This corrects the record in #821's entry**, which said the rail "renders 3 columns where the
+spec says 2" and — in its PR and commit — "3 columns at 390px". That was measured in a probe box
+forced to 398px wide. On a real 375–414px phone the broken rule happens to give two columns,
+because the rail is too narrow for a third 128px track; the defect only shows from 430px (an iPhone
+Pro Max) upward. The fix is the same; the reach was narrower than stated.
+
+**Deliberately NOT changed:** the phone block's two MARGIN rules beside it are dead too, and on
+purpose. `.wf-wsh .wf-rrail { margin: 0 }` and `.wf-wsh .wf-rlab { margin: 0 0 5px }` override them
+inside the dialog, where the body already owns the inset — reviving them would indent the rail
+twice. Only the columns were an accident, so only the columns moved.
+
+An adversarial review (read-only, one lens) refuted all six charges it was set: the rail has no
+renderer outside the popup, so the retired line was never live anywhere; the phone and iPad ranges
+meet without overlapping; the All cell still spans; no margin was revived; the arithmetic
+reproduces from the rail's 6px gap; and no test pins the old line. It also re-derived the table
+above independently.
+
+**Found in passing, and decided rather than fixed:** the desktop rail has the same README-versus-
+prototype split the iPad block settled — the prototype's rendered value is `.wside .rrail` at 112px,
+where the code has 128px. Measured before changing it, it is not a difference anyone can see in the
+layout the prototype draws, and 112px would break card text in the one it does not; the owner kept
+128px. See `20260914-plan-rail-desktop-128.md`.
+
+### Fixed — the drive times answer the newest request, not the last to land
+
+`WindowFirstBriefingProvider` asks `GET /api/user/settings/reach` on mount and again whenever the
+reader's home or its drive times change, and published whichever answer landed. With two requests
+out at once (the mount's and a change's, or two changes' — a move, then a recalculation — on a
+connection slow enough) the older one answers a question that has since changed, and it was
+published anyway: landing last, it stayed; landing first, it stood in until the newer one arrived.
+Drive times measured before the latest change came back on every spot — from the old house after a
+move, or, from before a first postcode was saved, no figures at all, so every reach line went absent
+again: the "setting appeared to do nothing" the refetch exists to cure. Traced in the code rather
+than seen in a browser.
+
+**Which engines — measured, not assumed.** A throwaway local server sent this path's real headers
+(Spring Security's default `no-store`, no ETag), held a first request, and a second, sent later by
+XHR with an `Authorization` header, went to the same URL. WebKit 26.5 and Firefox 153 sent both at
+once and the second overtook the first, so there the older answer can land last and stay. Chromium
+151 held the second request back until the first was answered, cold or warm — its HTTP cache lock,
+which the same probe also reproduced on an ETag'd path — but for 20 s at most: with the first held
+21, 25 or 30 s, the second went to the network 20 s after it was sent and landed first, and the
+older answer landed last there too. With the cache disabled through the DevTools protocol, Chrome
+sent both at once. So in Chrome the older answer lands first and stands in for a round trip when it
+answers within 20 s of the newer request, and can land last after that. Playwright's engines are
+not an iPhone, and the production service worker's effect on the lock was not probed.
+
+The effect now carries a cleanup — `let cancelled = false; … return () => { cancelled = true; }` —
+that drops the request a newer one supersedes, guarding its `.then` and its `.catch` (which writes:
+a failed refetch empties the map — a companion entry). It is the shape `useTodaysLight` already had,
+and the owner's call over a request-number guard, which suits a poll: a poll re-asks the same
+question, so an older answer landing on its own is still the freshest there is, where here the
+older request answers a question a change has made stale. The two rules part company in three places
+— a superseded answer landing first, one landing after the newest request failed, and a superseded
+failure landing first — and a request-number guard would let each through. Nothing is cleared when
+the refetch is asked: the previous answer stands until the newest replaces it.
+
+⚠️ **The cleanup is only right while every refetch follows a real change.** It did not: the review
+found the refetch keyed on a counter `App` moved on every close of the settings dialog, saved or not,
+so a close could supersede — and drop — a save's own correct answer. A companion entry moves the
+counters onto real changes alone. The provider also read `GET /api/user/settings` itself, on the same
+counter, for the tick line's home and the Coming up latch, with the same race, beside a second read
+of that endpoint in `App` for the map's home; both are now one record in `App` (a third companion
+entry), and the provider reads no settings of its own.
+
+Pinned in `WindowFirstBriefingHomeSettingsFetchOrder.test.jsx`: the real provider under a probe of
+the reach map, the API module mocked, the out-of-order answers held by hand, the home and drive-time
+counters moved through `rerender` as `App` moves them, and every late settle inside an awaited
+`act`. Ten tests: the two late answers — the mount's landing after a saved postcode's, and a move's
+after the recalculation's — one for each place the two rules part company, the newest failure
+emptying an answer on screen, a superseded failure landing after the newest answer, a recalculation
+asking again on its own counter, no request on a re-render that moves neither, and no settings read
+at all. The
+tests where the rules part company move house, Morpeth to Keswick, so the harm shows on screen — a
+first-run answer has only null figures, which every consumer draws as nothing. Mutation-checked with
+the rest of the change (see the settings-record entry).
+
+### Fixed — the Plan tab's briefing and ratings are applied in the order they were asked for, not the order they land
+
+`WindowFirstBriefingProvider` asks `GET /api/briefing` and `GET /api/briefing/evaluate/scores` on
+mount, on a 10-minute poll and on every window focus, and published whatever answered — so with two
+requests out at once (a poll and a focus, or two focuses) the answer that *landed* last won, not the
+one *asked* last. Two requests finish in whatever order their server work does, and the briefing's is
+real work (assembled at serve time: hot topics recomputed live, the cached ratings re-enriched), so the
+older one can land second; how often requests overlap and cross is not measured. Both ways it showed
+are traced in the code rather than seen in a browser:
+
+- **An older briefing** put the older windows back on every surface the provider feeds — a "Worth
+  it" the forecast had since withdrawn, or a "Poor" it had since lifted — until the next poll or
+  focus. And it was **written to the SWR cache**, so the next cold start painted it first.
+- **Older ratings** put the older rows back under the heat field and the map handoff: a re-scored
+  window back at its old rating, or a window the batch had just rated blank again — the same symptom,
+  "best spot 5★" over a blank thumbnail, that the provider's comment records from production for a
+  different cause (the ratings fetch once ran on mount only).
+
+Each fetch now numbers its requests and drops an answer older than the one already applied, and the
+briefing's check sits before its cache write, so a dropped briefing is never cached. The request's own
+number is what counts, not the briefing's `generatedAt`, which two serves of one build share while
+differing in content. It composes with the provider's two existing rules rather than replacing either:
+the cache generation is still taken *before* the await, so a briefing in flight across a logout is
+still refused by the sweep; and a null (204) is still ignored — which also means it moves nothing, so
+it cannot block an older real briefing that lands after it. An empty ratings response is treated the
+same way for the same reason: it withdraws no rows, so it blocks none.
+
+⚠️ **Two numberings, not one.** The two requests go out together on every refresh and land in either
+order; numbered as one, the ratings landing first would count as newer than the briefing asked for
+beside them, and that briefing would be dropped. Nor are the ratings ordered *through* the briefing —
+they are separate fetches, each ordered on its own. As for the NLC banner beside it, only an *applied*
+answer moves a mark, and to that answer's own number — not `useComingUpFeed`'s latest-issued-wins, and
+not the newest request made. The counters are refs, so the numbering spans StrictMode's two runs of the
+effect. The provider's comment also says why an effect-cleanup flag cannot do this job — every poll and
+focus request is made inside one run of the effect — and which of its fetches such a flag does fit.
+
+Pinned in a new `WindowFirstBriefingFetchOrder.test.jsx`: the real provider under a probe — it has no
+single natural consumer, so the probe prints the slices the ordering guards protect — with the API
+modules mocked, the real SWR cache, the out-of-order answers held by hand and every late settle inside
+an awaited `act`. Against the unfixed provider eight of its twenty tests fail (both directions for each
+fetch, the cache write, a same-build serve, and StrictMode's two runs for each), while the in-order,
+failed-newer, null-or-empty-newer, three-request, failed-refresh, logout and two-numberings tests pass,
+as they should. Twenty-six mutants: twenty-two killed, each by the tests that name what it breaks —
+among them the cache write moved above the check, the generation taken after the await, a null or
+empty answer moving the mark, the mark moved to the newest request made, ordering by `generatedAt`,
+one count shared by both fetches, counters held per run of the effect, and a `catch` that clears what
+is on screen. Four survive: `<=` for `<` in each guard, equivalent because request numbers are unique;
+and two that differ from the shipped refs only if the role-scoped cache key changed while the provider
+is mounted — counter objects rebuilt every render, and the ratings counters reset on each run of the
+effect — which cannot happen, since `AuthGate` renders the provider only while signed in and every
+change of role is a sign-in or a sign-out. With the settle helper's `await` removed, all twenty tests
+fail.
+
+The same provider's reach and settings fetches, keyed on `homeSettingsVersion`, have the other shape of
+this race: a newer request there follows a settings change, so the older one answers a superseded
+question. That wants the effect-cleanup kind of fix, not this one, and is a change of its own.
+
+### Fixed — the NLC sighting banner applies answers in the order they were asked for, not the order they land
+
+`useNlcSighting` asks `GET /api/nlc/sighting` on mount, on a 10-minute poll and on every window
+focus, and published whatever answered — so with two requests out at once (a poll and a focus, or two
+focuses) the answer that *landed* last won, not the one *asked* last. Two requests finish in whatever
+order their server work does, and a sighting request that finds the backend's NLCNET cache stale
+scrapes the page before it answers, so the older one can land second; how often requests overlap and
+cross is not measured. Three ways it showed, all traced in the code rather than seen in a browser:
+
+- **A report taken before it aged out, landing after the newer "nothing to show"**, put the banner
+  back up until the next poll or focus.
+- **The same late report, landing after a newer one the reader had dismissed**, put it back up too.
+  The dismissal is keyed by `reportedAt` so that a newer report re-shows the banner — and an older
+  report has a different key as well, so it read as one the reader had not seen.
+- **A "nothing to show" taken before a report arrived, landing after it**, took the banner down.
+
+Each request is now numbered, and an answer older than the one already applied is dropped. A failed
+fetch still writes nothing and leaves the banner as it was. A null — what the API module answers for a
+reader the banner is not for (401/403) — is an answer like any other here: applied, and it moves the
+mark, unlike the Plan briefing's 204. It is the same race as `AuroraStatusProvider`'s, the provider
+this hook is shaped after.
+
+⚠️ **Deliberately not `useComingUpFeed`'s shape**, where only the most recently *made* request may
+write: under that rule a failed newer request would have an older answer dropped too, leaving the
+banner older than it needs to be until the next poll. Here only an *applied* answer moves the mark,
+and to that answer's own number — not to the newest request made, or an older answer landing while two
+newer requests are out would drop the one in between. The two counters are refs rather than locals in
+the effect, so the numbering spans StrictMode's two runs of it — two sighting requests at once on
+every dev load.
+
+**Residual, accepted:** request order stands in for data order, and not perfectly. A newer request
+whose scrape fails fast answers from the backend's cache as it stood, so it can land first and drop an
+older request's slower, successful scrape until the next poll or focus. It needs a fast failure to race
+a slow success, and its cure is one scrape at a time on the backend, not a rule in this hook.
+
+Pinned in a new `useNlcSighting.test.jsx`: the real hook under its only consumer, the real
+`NlcSightingBanner`, with the API module mocked, the out-of-order answers held by hand and every late
+settle inside an awaited `act`. Against the unfixed hook five of its nine tests fail — a report after
+"nothing to show", a report after a dismissed newer one, "nothing to show" after a report, an older
+report after a newer null, and StrictMode's two runs — while the in-order, failed-newer, three-request
+and failed-refresh tests pass, as they should. Eleven mutants of the guard: ten killed, each by the
+tests that name what it breaks — deleting the check, deleting the mark, latest-issued-wins, moving the
+mark on a failure, when the request is made, or to the newest request made, counters as effect
+locals, the Plan briefing's null rule ported here, a null applied without moving the mark, and a
+`catch` that clears the banner — and one equivalent (`<=` for `<`: request numbers are unique). With
+the settle helper's `await` removed, all nine tests fail rather than letting a negative pass.
+
+### Fixed — the map says "Couldn’t load — trying again" once a night's own request has failed
+
+The gap the night-scores loading-state entry left open, and named: through a long outage the map
+went on saying "Loading…" between the ten-minute asks, when nothing was in flight. A failed astro or
+aurora night request is asked again (2s, 10s, a minute, then every ten minutes, and at once when the
+reader comes back to the page), and from its first failure the tab now says "Couldn’t load — trying
+again". "Loading…" claims a load under way; "trying again" claims only that the asking goes on — a
+retry waiting or one in flight — which is true for as long as the night is on screen, so the line
+does not flicker back to "Loading…" as each retry goes out.
+
+- **Where it shows.** The callout's null-rating headline on an astro or aurora night; and Heat
+  view's key slot on an astro night with nothing to draw, which said "This event is not scored yet"
+  — a claim about the forecast that a failed request is no evidence for — beside the callout's
+  failure line, the two contradicting each other on one screen. Both print one shared string.
+- **Whose failure, and for how long.** It belongs to the night on screen, for this visit: a failure
+  that arms a retry records it against that night, and leaving the night takes it back, so a
+  return reads "Loading…" while the fresh request goes, until that fails in turn. The first cut
+  kept it until the night's own next answer, which was false twice over: an answer that lands after
+  the reader has left is dropped like any late response, so a night whose last request loaded read
+  "Couldn’t load" on the return; and another night's failure overwrote it anyway. The record is
+  tagged with its night because a step renders the new night before the old one's cleanup runs, and
+  on a step React does not flush synchronously that frame is painted.
+- **What outranks it.** A rating — the night's answer, the window control's preview rows, the live
+  aurora state — shows as before; so does a night's answer still in hand through a failed refresh,
+  "Not scored yet" included, because a failure takes nothing away. The strip's cell for the window
+  on screen reads "…" for both still-to-come lines, never "—".
+- **Heard, not only seen.** A status region, mounted with the tab, announces the failure line
+  whenever it is on screen — in the callout or in the key slot — and nothing else, so stepping
+  between windows does not chatter. It sat in the callout at first, where the selection mounted it:
+  a night that failed before a place was picked arrived there already holding the sentence, and a
+  live region announces changes, not what it is mounted with — so in the commonest order a
+  screen-reader user heard nothing (Codex). For the same reason it speaks only while the Map pane is
+  on screen: the shell keeps the map mounted under a hidden tab panel, where it goes on retrying, and
+  a failure there filled the region outside the accessibility tree, to be revealed already full —
+  unannounced — on the return. Now it fills on the return instead (the pane reports the reveal from
+  the ResizeObserver it already had), and a failure on another tab is not read out on that tab.
+- **The card follows its headline.** The callout re-measures and re-places itself when its headline
+  changes in place — a night's answer landing, or its request failing — not only on a new window or
+  selection. The failure line (≈207px) can never share the verdict row with the kind chip, so it
+  always adds a line, ≈24px, and a card placed above its point grew down over the ring and the dot,
+  or one clamped to the band's floor into the chrome below, until an unrelated pan or zoom.
+  "Loading…" → "Not scored yet" could already do the same.
+- **Enlarged text wraps.** The unscored headline lines may now wrap (the rated pill still may not).
+  Under text enlarged on its own — a minimum font size, or Zoom Text Only — the unwrappable line
+  overran the phone card's 220px row from about 111% and was clipped.
+- The words are the ones asked for, set with the typographic apostrophe the Map tab's other copy
+  uses. Also corrects a `MapView` comment that still said `useEffectEvent` cannot work in a memo
+  component: react-dom 19.3.0 (#832) swaps an Effect Event in for memo and forwardRef fibers too.
+
+Not addressed, and stated rather than implied:
+
+- While an astro night's FIRST request is in flight with no preview rows to draw, Heat view's key
+  slot still says "This event is not scored yet" beside the callout's "Loading…" — the
+  loading-state entry's limit, unchanged: holding it back needs a third, loading state for the
+  colour key.
+- A sunrise or sunset whose scores fetch fails still reads "Loading…" until the briefing's next poll
+  answers: that fetch exposes no failure (its `.catch` keeps what is on screen), so there is nothing
+  to say one with. Giving it one is a change to the briefing context.
+- The frozen Plan-tab overlay asks once and never again, so it has nothing to be "trying"; it
+  renders no callout, and its popups are unchanged.
+- The widths above are reasoned from the stylesheet (IBM Plex Mono at 11.5px, a 0.6em advance) and
+  not measured in a browser: the Map tab sits behind sign-in.
+
+Pinned by twenty-six new tests in `MapViewNightScoresLoading.test.jsx` (78 → 104), through a real
+`MapView` and the real callout, every shared rule run for astro and for aurora: the line walked
+through the backoff into the ten-minute beat on fake timers; the status region, including the order
+Codex found; and the three rules that live only in the frame before a cleanup runs — whose night the
+record speaks for, a left night's late failure, and a night's record on a sunrise or sunset — read
+commit by commit through a `React.Profiler`, since `act` has run the cleanup by the time it returns.
+Nine more in `MapCallout.test.jsx` (64 → 73), the precedence and the re-measure among them; three in
+`MapViewHeat.test.jsx` for the key slot; two in a new `mapCalloutVerdictWrap.test.js` for the
+stylesheet. Four existing assertions that read "Loading…" straight after a failure now read the new
+line. Seventy-four mutants were run one at a time: every new rule; the four gaps a reviewer found by
+reasoning — a record keyed to `date`, the live aurora night, drawn rows hiding a failure — which
+survived the first cut and are killed now; the 27 older mutants on code this touched; the status
+region's six, run after it moved out of the callout; and six more on the pane's visibility, run
+after that (the other 62 ran before either move, which touched neither their code nor the tests that
+kill them). Seventy-three are killed, each by the test written for it and none by a timeout. The
+survivor keeps a repeating
+failure's record the same object; without it each failed retry re-renders the map once more, which
+nothing on screen shows. Three read-only review lenses ran on the first cut — runtime, test quality,
+and copy, accessibility and docs — and every charge is fixed above or answered: a copy lens asked for
+other words ("will retry", or naming what failed), and the ones asked for stand, with the claims
+made about them now exact. Tested, not seen in a browser: the Map tab sits behind sign-in.
+
+### Fixed — the map callout says "Loading…" while a night's own scores load, never "Not scored yet"
+
+The follow-up the astro night-fetch race fix named, for its own path and for the same gap #814
+left on the aurora side. Those fixes drew nothing for a night on every night step until its own
+request answered, so one night's stars could no longer stand in for another's — and for that round
+trip the callout said "Not scored yet" in the definitive voice. A null rating reads "Loading…" only
+while the flag it is handed is false, and it was handed `scoresKnown`, the SOLAR scores fetch's
+flag, true on every night step once the solar scores had landed. It could sit directly above a strip
+cell already showing that night's star, because the strip reads the window control's preview.
+
+- **A night-aware flag.** `MapView` derives `ratingKnown` beside the rating accessor: the solar flag
+  for a sunrise or sunset and, for a night, whether that night's own request has answered —
+  `nightDate`, never `date`, since the two part company whenever the window control keeps a night
+  row local. A night's answer is set by a successful response and by nothing else: not by a preview
+  row, and not by a failure, which is not evidence that nothing was rated.
+- **The preview's rows in the meantime, derived at render.** Each night kind now holds its last
+  answer tagged with the night it answers for, and every reader draws `nightScoresFor`: that answer
+  when it names the night on screen, otherwise the window control's preview rows for that night,
+  otherwise nothing. So the pins, the labels, the counts, the astro field and the callout keep
+  drawing a night through its round trip; a preview that lands after the step, or after the night's
+  own request has failed, fills it in; stepping back to a night whose answer is still held shows it
+  at once while the request goes out again; and no frame is left in which the old night's rows
+  answer for the new one. The preview is never a dependency of the fetch, so its arrival re-renders
+  the night and never re-requests it. A failed request writes nothing: it is asked again instead
+  (below).
+- **The strip.** A night cell asks whether its own night's preview has answered
+  (`pendingNightRowIds`, built from the same list of nights the preview fetches), never the solar
+  flag. The note there claimed that flag could only err towards "…"; with the solar scores in and a
+  preview in flight, the cell printed "—". The cell for the window on screen now restates the
+  headline, so the card cannot print two answers for one place and one window. Strip cells also
+  carry `data-ev-id`, as the window control's rows do.
+- **The preview's own failures.** Each run is merged into what the preview already had: a night
+  whose request fails keeps its earlier rows, and one that never answered stays out of the map rather
+  than posing as `[]`, the endpoint's own "nothing is rated".
+- **A failed night request is asked again** (`askNightUntilAnswered`, which both single-night
+  fetches share): 2s, 10s and a minute after the first three failures, then every ten minutes — the
+  same interval as the briefing's poll, though on its own timer — until it answers or the night
+  changes, including while the Map tab is hidden (its pane is never unmounted); and at once,
+  whenever a retry is waiting and the reader comes back to the page (window focus, or the tab
+  becoming visible), the way `createEventSource` reconnects. The retry timer is armed after an
+  await, which is safe here only because the effect's cleanup stops it first or clears it after —
+  `SchedulerView`'s timer fix, #818, records the version of that timer that leaked (the hole #809
+  closed in `ModelSelectionView`). The frozen Plan-tab overlay still asks once, as it always has.
+
+⚠️ **Not `useEffectEvent`, which was the first cut.** In react-dom 19.2.8 an Effect Event's
+implementation is swapped in during the commit only for a plain function-component fiber, and
+`React.memo(MapView)` renders as a simple-memo fiber, so the event kept its mount-time closure and
+never saw a preview at all. The tests caught it; the derived shape needs neither it nor the ref that
+briefly replaced it.
+
+Not addressed, and stated rather than implied:
+
+- While a night with no preview rows waits on its own request — in flight, or failed and waiting to
+  be asked again — Heat view's "This event is not scored yet" (astro only) sits beside the callout's
+  "Loading…", because that line reads the empty field; holding it back needs a third, loading state
+  for the colour key it toggles against.
+- Through a long outage the callout keeps saying "Loading…" between the ten-minute asks, when
+  nothing is in flight. A failure wording of its own ("couldn't load — trying again") would say what
+  is true; it is a product decision, and not made here.
+- A night the preview never asks about — outside its solar horizon, which includes every past night
+  and, after midnight, the night still in progress — reads "—" in the strip unless it is the window
+  on screen. Nothing is loading for it, so "…" would be the false claim, but "—" still claims more
+  than anything here knows.
+- The window control's own `N★ best` and the Regions jump list read "—" for a night whose preview is
+  still in flight, or has failed with no earlier rows to keep, where the strip now reads "…".
+- On the aurora night in progress, while the live-state fetch itself is in flight, a place the
+  stored run did not rate reads "Not scored yet" a moment early: the flag asks the stored request
+  alone.
+- The frozen Plan-tab overlay fetches no preview, so a night there still draws nothing through its
+  round trip, and its popups meanwhile still say "No astro conditions data for this date" or "Not
+  suitable for aurora photography" — unchanged.
+
+Pinned by `MapViewNightScoresLoading.test.jsx` — 78 tests through a real `MapView` and the real
+callout, every shared rule run for astro and for aurora off one table, the retry walked on fake
+timers to the millisecond — and by fifteen new or rewritten cases in `MapCallout.test.jsx`, which
+goes from 55 tests to 64. Fifty-three mutants were run one at a time — the derivation's three rules
+and its night key, the late-answer guard and the failure path, the retry's arming, stop and
+schedule (a cap, and a failure count outliving its night, among them), the early re-ask on return
+and its listeners, both overlay gates, the fetch-dependency rule, every arm of `ratingKnown` (a
+`date`-for-`nightDate` swap and a live-state shortcut among them), the pending set's scope, the
+preview's merge and failure handling, the nameless-row guard and the callout's six rules — and all
+fifty-three are killed. Six adversarial review lenses ran on the first cut, and three more on the
+retry; their charges are fixed here or stated above, and the pull request lists the rest. Tested,
+not seen in a browser: the Map tab sits behind sign-in.
+
+### Fixed — the Map tab's hover tooltip answers for the window on screen, not the one it opened on
+
+Hovering a label chip (Heat view) or a pin (Pins view) opens a tooltip whose second line pairs the
+window's name with that place's star — *Saturday night · 3★ Maybe*. The hover handler stored a
+**snapshot** of the spot object, while the window's name was read live from props. Rest the pointer
+on a chip and step the window with the keyboard, and the tooltip read *Sunday night · 3★ Maybe* —
+Saturday's star, and Saturday's tide line, under Sunday's name — until the pointer moved: a chip
+that stays mounted under a still pointer gets no `mouseleave`. When the chip unmounted instead (its
+location leaving the pool while a night's scores load), the tooltip hung over nothing and outlived
+the new answer landing, because a removed node gets no `mouseleave` either. Pre-existing, and the
+same for solar and night windows.
+
+Both layers now store only the hovered **name** and resolve it on every render against the live
+pool, so the card reads the same figures as the chip or pin beneath it. A hover whose place has gone
+is forgotten, not merely hidden, so the place's return cannot reopen a card at a pointer position
+the reader may since have left; when the pointer really is still there, the browser's own
+`mouseenter` reopens it.
+
+**The label layer needed one condition more than the pool.** `chipCandidates` ranks the zoom budget
+by rating, so a window step — or a wheel zoom-out over a chip, since `disableClickPropagation` stops
+clicks but not the wheel — can unmount a chip whose location never left `spots`. Checked against
+the pool alone, that tooltip stayed up over nothing, carrying the new window's figures. `MapLabels`
+therefore also requires the name's chip to be one it mounts (`frame.chips`). `PinsLayer` needs no
+such rule: every spot is a pin.
+
+**Sixteen tests**, each hovering once and then firing no mouse event at all — that silence is the
+scenario. Twelve fail against `main`. Ten print the reported defect verbatim
+(`Sunday night · 5★ Worth it`); the tide test prints Saturday's tide line under Sunday's name, and
+the zoom-out test a card still standing over a chip that is gone:
+
+- the star following a step, in both layers
+- no star when the new window has none, or stood the place down
+- the tide line following a step
+- closing when the location leaves the pool, and not reopening when it returns, in both layers
+- closing when a window step or a zoom-out drops the chip from the budget, and not reopening when a
+  step back returns it
+
+The other four pin what `main` already did right and the fix could have broken: the card survives a
+repaint, and a fresh pool that keeps its place (found by name, not object identity), in both layers.
+
+**Mutated four ways, all killed.** Restoring the snapshot fails the twelve. Resolving against the
+pool alone fails exactly the three budget tests. Hiding without forgetting fails exactly the three
+no-reopen tests. Forgetting only when the place leaves the pool — merely hiding a chip the budget
+dropped — fails exactly the budget no-reopen test, which review added after finding that this
+mutant passed everything else.
+
+**Browser behaviour was measured rather than assumed** (headless Playwright: Chromium 151, WebKit
+26.5, Firefox 153; pointer held still; frames rendering). A node *removed* under the pointer gets no
+`mouseleave` in any of them, which is why unmounting is the case this change handles itself. A chip
+that stays mounted and is hidden or moved by the placer gets one within ~30 ms in Chromium and
+~240 ms at worst in the other two, closing its card through the ordinary path. A node appearing under
+the pointer gets `mouseenter` in all three. ⚠️ An idle page renders no frame, and there Chromium and
+Firefox hold those events until the pointer moves. The first draft of this change measured that way
+and recorded a Chromium "residual" that review showed a live page does not have.
+
+**The astro half was fixed separately.** Review found that on a step from one astro night to the
+next, `MapView` kept the previous night's scores until the new night's request landed, so the chips,
+pins and field went stale together — not a tooltip defect, but one the card would faithfully repeat.
+#822 fixed it in `MapView` while this was in review. With both in place, a step between astro nights
+shows the new night's figures or none at all, and the card follows the chip beneath it.
+
+**Tested, not seen.** No in-app browser check was made: the local app sits behind a sign-in, and a
+local database with no evaluation run has no stars to step between.
+
+### Fixed — keyboard focus survives a row leaving the Map tab's open window menu or callout strip
+
+The Map tab's window menu and the selection callout's *Every event here* strip both draw the event
+list, which is rebuilt against the clock: yesterday's filler solar rows leave at UK midnight, and since
+D-14 last night's rows leave at dawn (at UK midnight for LITE). A row removed that way took keyboard
+focus with it. Focus fell to `<body>` with the menu or strip still open, and Escape and ←/→ — handled
+on the control's own wrapper — stopped reaching anything until the reader found the control again. The
+drilldown already had a recovery for the same shape; these two lists had none.
+
+A new `useRowFocusRescue` hook hands that focus to the control that stays mounted: the window pill
+for the menu, the strip's toggle for the strip. It acts only on the transition a removal causes —
+the row that last took focus has gone and focus is now on `<body>` — and never on `<body>` focus
+alone, which is ordinary on these surfaces (a click on text that cannot take focus, a WebKit button
+click) and would otherwise steal focus on an unrelated render. Focus moving to a real element, a
+press elsewhere in the list, or the list closing all end its record of the row, and it stands down
+behind a dialog from outside the map pane, as the drilldown's recovery does.
+
+**Eight new tests**, six on the menu and two on the strip, each firing its follow-up key at
+`document.activeElement` — a key fired at the control passes while focus is lost. Seven mutants, each
+killed: no focus move, a blur or a press that never ends the record, no closed-list gate, a
+state-triggered version, and either list left unwired. Closing a menu from inside it still drops focus
+as it always has; that is a separate residual this does not reach into. Not seen in a browser.
+
+### Fixed — the Map tab's window list no longer carries every past astro and aurora night
+
+The Map tab's window control built a night row for every date the astro and aurora available-date
+endpoints returned. Both endpoints are a `SELECT DISTINCT forecastDate` over tables that nothing
+prunes, so they answer with every night ever stored, and the list opened on that history. Each past
+night appeared under a bare weekday — *Thursday night* beside a *THU 13* heading, with no month to
+tell April from next week — read "—" because the preview fetch never covered it, and could be walked
+into with the `‹` stepper. The selection callout's *Every event here* strip carried a cell for each
+one too. Solar rows were never affected: the briefing withdraws an elapsed window, and D-13's filler
+rows were already clipped to the UK today.
+
+A night row is now offered only while its night is not over: tonight and later, plus the night in
+progress, which between UK midnight and dawn is still yesterday's date. The night in progress comes
+from the backend's `currentNightDate`. The status provider keeps the last status when a later fetch
+fails, so a status can outlive its night — Codex found the case that matters, a status taken before
+dawn naming yesterday's night all day. So `GET /api/aurora/status` now also sends
+`currentNightEndsAt`, the instant that night ends, from the same read of the backend's clock as the
+date, and `resolveAuroraNight` believes the date only until then. The provider re-renders the page
+once that instant has passed, because while the polls fail the status never changes and the
+memoised map would not ask again. It looks at the wall clock at least once a minute, so a device
+asleep at dawn catches up within a minute of waking. A status without the field is still believed
+only as yesterday. `mapDates.isNightOver` is now the one answer to "is this night over", read by the
+list, by `App`'s `resolveMapDate`, and by a new `mapEvents.isForwardableRow`, which decides which
+picked rows the pane hands to `App`: exactly the ones `App` will take. That moved one behaviour. The
+night in progress used to be kept in the pane when it was picked after UK midnight, so it stayed on
+screen past dawn, while the same night picked before midnight was moved on by `App`'s clamp at dawn.
+It is now handed over like any other night, and every night ends at dawn the same way. The
+past-dated rows the list keeps are in the preview fetch as well, so they show a best and a time.
+Recorded as owner decision D-14 in `map-tab-v2-plan.md` §5. The comments that called the unclipped
+list deliberate had been describing the code; no decision existed.
+
+**One exception: the night the map is already showing** keeps its row after it ends, until the map
+leaves it, so the pill never reads *No forecast* over stars still painted for that night (#803's
+shape). For a night `App` holds it is only a bridge — one render at dawn, or until `App`'s next render
+after UK midnight for LITE, about 30 seconds while its health stream is connected. It lasts longer
+only for a night the pane kept local, and picking that one again keeps it local, since `App` would
+refuse it.
+
+**Two costs, both accepted by the owner.** LITE cannot read aurora status, so for LITE yesterday's
+astro night now drops off at UK midnight rather than dawn: a LITE reader can no longer reach the
+night still running over them, which the old list offered. The exit, a night-in-progress signal LITE
+can read, is §6 O-21. And astro rows are written only by hand-started colour runs, so on a day past the
+last run's horizon the tab offers no astro row at all; a scheduled producer is §6 O-22.
+
+**63 new frontend tests and nine backend cases**, counting each `it.each` row: eight for
+`isNightOver` and `resolveMapDate`'s stale-status case, four for `resolveAuroraNight`'s end,
+twenty-nine in `mapEvents.test.js` — including agreement checks that drive the list and
+`isForwardableRow` against `resolveMapDate` from one set of inputs, over every kind of row the list
+can build — sixteen in `MapViewPastNights.test.jsx`, which moves the map's date through a parent
+running the real `resolveMapDate` so the dawn cases go through the real clamp, one new #803 case in
+`MapViewAuroraNight.test.jsx`, which computes `App`'s refusal in the test rather than asserting it
+in a comment, three in `AuroraStatusContext.test.jsx` — every poll failing across the end of a
+night, a device asleep through it, and a night ending between the render and the provider's first
+look — and two in `App.test.jsx` that take the real `App` and provider past a night's end. The
+backend cases pin that the end is the instant `currentNightDate` moves on and the dawn of the
+night's own window, with dawn moving by the day, and that the controller reads the night before its
+NOAA calls. Thirty-nine mutants of this change, each killed on the final code: dropping the clip,
+ignoring the night in progress or believing a stale one, ignoring the night's end or misjudging it
+at the boundary, a provider that never looks at a status's end, looks without re-rendering, trusts
+one long timer, re-renders before the end or skips an end that already looks past, `App` reading the
+night without its end or once per status, an end or a window taken from the wrong morning, a
+controller that reads the date and its end with two calls, after its NOAA calls, or drops the end,
+dropping the on-screen exception or widening it to a range or to either kind, keying it on the
+parent's date, reverting the forwarding rule to the calendar or letting it forward any night, an
+off-by-one boundary, and each way of leaving a past row out of the preview, among them.
+
+**Eight existing frontend tests failed against the change, each because it used a past night as a
+convenient fixture**, and each is re-anchored rather than loosened. Three are #829's, in
+`MapViewNightScoresLoading.test.jsx`, each run for astro and aurora: they named a past night as the
+one the preview never asks about, and now name a night beyond the forecast's dates — the case D-14
+leaves — still failing if the headline restatement, the pending set's preview check or the
+night-date split is removed. In `MapViewAuroraNight.test.jsx` the kept-local pair now uses a night
+beyond the forecast dates, the stepper-ticks case uses tonight — which brackets its aurora row with a
+solar window on both sides for the first time — and the #803 case is split in two: the night in
+progress is now forwarded (`App` takes it), and an ended night picked again is kept local (`App`
+refuses it). `MapViewSelectionOrdering`'s strip-switch case ran a fixed January date against the real
+clock, and now pins it. `MapViewAstro.test.jsx` read the wall clock on the runner's UTC calendar:
+measured in the hour after UK midnight under BST, three of its nine tests already failed there and
+this change made it four, so it now pins its clock too. One backend test changed with the API:
+`AuroraControllerTest`'s status case stubbed `currentNightDate()`, which the controller no longer
+calls, and now stubs `currentNight()` and checks the date and its end. Not seen in a browser;
+covered by tests only.
+
+### Docs — the frontend test standards say how to pin a late response
+
+`docs/engineering/frontend-test-standards.md` gains a section, "A late response is only 'dropped'
+once it has landed", recording five rules that four fetch-race test files on the map each learned
+from a test that passed, or would have passed, with the behaviour it names broken: settle hand-held
+requests inside an **awaited** `act`; route a positive control through the same settle helper; give a
+`.catch` its own late-failure test; count markers rather than `markerLabelAndColour` calls; and, where
+the claim is "never offered", log every render rather than reading only `result.current`.
+
+The first had lived only in test-file comments and changelog entries — nowhere a new test author is
+sent. ⚠️ **It was also stated wrongly.** The astro fix's own entry (#822) and its test's comment
+blamed a "synchronous `act`", and so did this branch's first drafts; the variable that matters is
+the `await`. Measured with each file's guard deleted: an un-awaited `act(() => …)` let the late test
+pass in all four files, and an un-awaited async callback did too where that was tried, while
+`await act(() => …)` — a plain callback, awaited — failed it in each of the three files where it was
+tried. The astro test's comment is corrected here; #822's own entry file is another change's, and
+`changelog.d/README.md` has those left as written.
+
+### Fixed — a briefing build or a tide refresh can no longer run twice at once
+
+Neither job had a guard of its own, and the scheduler's `wrapTarget` has none either. The batch
+submissions and the cloud-verification backfill already refuse an overlapping run; these two now do
+as well.
+
+**The tide refresh** could be started by three routes at once:
+
+- the Monday `tide_refresh` schedule;
+- the Scheduler screen's Run Now;
+- the Job Runs screen's "Refresh Tide Data", which answers 202 immediately, so it could be pressed
+  again straight away.
+
+Two refreshes that reached a location before either had committed it both paid WorldTides for the
+same window. Each then deleted and re-inserted that window in its own transaction under
+`uq_tide_extreme (location_id, event_time)`. The slower one's inserts could collide with the rows
+the faster one had written, and its run logged a failure for a location that had in fact been
+refreshed.
+
+**The briefing** could be built by the batch pipeline's BRIEFING phase and the admin
+`POST /api/briefing/run` at once. Two builds each fetch the whole roster's weather and each pay for
+the gloss and best-bet Claude calls. Both then race to write the in-memory cache, the last-known-good
+copy and `daily_briefing_cache`, where the last writer wins — and the last writer can be the build
+that started first and read older evaluations.
+
+**The two guards differ, on purpose.**
+
+- **Tide:** one `AtomicBoolean` in `ScheduledForecastService`, shared by every route. The admin
+  route now takes the guard on the request thread, *before* handing the refresh to the executor,
+  and the task releases it when it ends. So there is no accepted-but-not-started gap in which a
+  second press could also be accepted. A lock could not do this, because a lock is owned by the
+  thread that took it. A refused admin press gets **409**. A refused schedule fire or Run Now is
+  logged and skipped.
+- **Briefing:** a `ReentrantLock` in `BriefingService` with two entry points.
+  - `refreshBriefingIfIdle()` refuses when a build is running. The admin endpoint uses it, and
+    answers **409**. So does the dormant `daily_briefing` scheduler target.
+  - `refreshBriefing()` **waits** for the running build and then runs its own. This is the
+    pipeline's entry point, and it must not refuse. Its build is the first to see its own cycle's
+    batch results, and `PipelineOrchestrator` persists this cycle's picks from the cache straight
+    afterwards. Had it refused, it would have persisted whichever build the cache held — possibly
+    one that read the evaluations from before this cycle's batches landed.
+  - ⚠️ **The wait is not short.** It lasts as long as the running build, and the gloss and best-bet
+    Claude calls run under the Anthropic SDK's per-request timeout and retries, not the 30-second
+    REST read timeout. So in the worst case a BRIEFING phase now takes two builds' time rather than
+    one. It logs when it starts waiting, so a phase queued behind an admin build does not read as a
+    hung one.
+  - A `ReentrantLock` rather than `synchronized`, because a held monitor pins a virtual thread on
+    Java 21.
+
+The Job Runs screen now shows a 409 as "… is already in progress. Wait for it to complete.",
+matching the batch buttons' existing wording, instead of "… failed. Check the logs." There is
+nothing in the logs to check.
+
+**Two corrections to the entry below**, *a double-click on the Scheduler's Run Now queues one run,
+not two*:
+
+- It says the daily briefing and the tide refresh have no guard, "so one double-click ran them
+  twice". For the briefing it could not have. V103 deleted the `daily_briefing` scheduler row, so
+  the Scheduler screen has no Run Now for the briefing; the briefing is built at the tail of each
+  pipeline cycle. The tide half stands.
+- Its "giving the briefing and the tide refresh the same guard is an owner decision, and it is not
+  built here" is superseded: this entry builds it.
+
+**Still open.**
+
+- The Scheduler's Run Now still shows "Triggered ✓" for a tide refresh the guard then skips,
+  because `triggerNow` queues the run before the guard is consulted.
+- `wrapTarget` records a skipped fire as the job's last run.
+- The tide guard covers the roster-wide refresh only. It does not cover the 12-month backfill, or
+  the single-location fetch `LocationService` makes when a coastal location is added or edited. A
+  refresh that picks up a location in the moment between its save and that fetch can still collide
+  with it.
+- An admin tide refresh that throws outside its per-location loop is still not logged, because the
+  `CompletableFuture` is discarded. This predates the change; the scheduler route does log.
+- The guards are per JVM. Production runs one.
+
+**Tests.** 16 new backend tests and 4 frontend ones.
+
+- **Tide:** the guard is an `AtomicBoolean`, owned by no thread, so its tests stay single-threaded:
+  an executor that queues without running, and a re-entrant call from inside a running refresh.
+  Each refusal is followed by a second probe, so a refusal that released the guard it never took
+  is caught.
+- **Briefing:** the lock is owned by the thread that holds it and is re-entrant, so its tests hold a
+  build open on a real second thread, with every wait bounded. The build is held through *each*
+  entry point in turn, so an admin entry that only looked at the lock is caught too. The "a throwing
+  build releases the lock" test retries on another thread for the same reason: on the thread whose
+  build threw, a missing unlock would go unnoticed.
+- **Frontend:** each 409 test is paired with the sharpest input that must NOT read as "in
+  progress" — an adjacent 400, and a network error with no response.
+
+**Mutated 22 ways, all killed.** Four of them survived the first cut and were found by review.
+
+- **Tide guard, seven:**
+  - unguarded scheduler target;
+  - unguarded admin route;
+  - admin task never releases;
+  - rejected executor never releases;
+  - release only on success;
+  - a skip that releases the guard it never took;
+  - an admin refusal that does the same.
+- **Briefing lock, five:**
+  - the pipeline entry refusing instead of waiting;
+  - the pipeline entry unlocked;
+  - the admin entry unlocked;
+  - the admin entry checking `isLocked()` without taking the lock;
+  - unlock only on success.
+- **Callers, four:**
+  - the dormant scheduler target taking the waiting entry point;
+  - the briefing endpoint taking the waiting entry point;
+  - the briefing endpoint building twice per press;
+  - the tide endpoint ignoring the refusal.
+- **Frontend, six:** each 409 branch dropped; each made to swallow every error; a dropped optional
+  chain; any 4xx read as a 409.
+
+**Tested, not seen.** No browser check was made. The Job Runs screen is behind the admin sign-in.
+
+### Fixed — the aurora viewline offers only the line it was fetched as
+
+`useAuroraViewline` — behind the map's aurora boundary and the aurora banner's "visible as far south
+as" line — fetches one of two different lines: the live OVATION nowcast, polled every five minutes, or
+the forecast line, a lookup the backend builds from the Kp the alert was triggered on. Nothing tied
+the line on hand to what it had been fetched as:
+
+- **a late live response replaced the forecast line** — a live request still out when the alert
+  turned forecast-triggered could land after the forecast line, and the forecast mode, which asked
+  once and never again, never put it back;
+- **a stale window** — nothing withheld the previous line on a trigger change or when a later alert
+  began, so it was offered as the new one's until its first request landed, and kept for good if that
+  request failed in forecast mode;
+- **a changed Kp** — an escalation inside a forecast-triggered alert re-sets the Kp the forecast line
+  is built from (`AuroraController.getForecastViewline` reads `lastTriggerKp`, which the status serves
+  as `forecastKp`) without moving `enabled` or the mode, so nothing re-asked, and the pre-escalation
+  line stood for the rest of the alert beneath an overlay label quoting the new Kp. ⚠️ The adversarial
+  review found this one — five of its six lenses, independently — after the first cut of this change
+  had claimed the class closed while keying on `enabled` and the mode alone.
+
+Each answer is now held with the key it was fetched as — the live line, or the forecast line for one
+Kp — and handed out only while that key is still in force, so a trigger flip or a changed Kp withholds
+the old line in the very render that makes the change, not a commit later after an effect. `MapView`
+now passes the status's `forecastKp`. A `cancelled` flag set in the cleanup drops any answer from a
+superseded run. And the held line is cleared whenever the hook is disabled, because a later alert may
+want the very same key and must start with no line rather than the ended alert's; the banner, which
+always asks for the live line, gains exactly that — it no longer repeats the previous alert's summary
+until the new alert's first answer lands.
+
+⚠️ **The forecast mode now retries a failed fetch.** It used to ask exactly once. Now that a change
+withholds the line it had, one failed request would otherwise leave the map with no line for the rest
+of the alert, so it re-asks on the five-minute cadence until an answer lands, then stops, since the
+line changes only with its Kp. A failed live poll still keeps the previous poll's line — only ever the
+same key's.
+
+⚠️ **`null` and `'realtime'` are one key.** Both mean the live line, whose endpoint reads no trigger
+state, so a flip between them neither withholds the line nor re-asks for it (it used to refetch,
+invisibly). The live line ignores the forecast Kp for the same reason.
+
+Pinned in `useAuroraViewline.test.js`, which now logs every render as well as reading
+`result.current`: `rerender` flushes effects inside `act`, so `result.current` cannot see a line handed
+out by the render that made a change, before any effect ran. The review showed that blind spot was
+real — clearing on the way *in* rather than on the way out left every test green while the first
+re-enabled render handed out the ended alert's line — and the new-alert test now fails on it. Against
+`main`'s hook, seven of the new and changed tests fail, each at the assertion that names its defect;
+the other two pass there by construction (`main` never took the Kp, and already had the `enabled`
+derivation). Every part was then mutated alone and killed by the tests aimed at it: the key match (the
+mode-change, failed-fetch and Kp tests), the Kp in the forecast key, the Kp kept out of the live key,
+the mode keying, the disable clear and its mirror image, the `enabled` derivation (the strengthened
+disable test), the write guard and `cancelled = true` (the late-answer test), and the retry, both
+ways. A new test in `MapViewViewline.test.jsx` pins what `MapView` hands the hook, which no consumer
+test did — each mocks the hook and ignores its arguments — and it fails against `main`'s wiring. ⚠️
+**Measured here as on the map:** with the guard deleted, an un-awaited `act(() => settle())` lets the
+late-answer test pass, and the same callback awaited fails it.
+
+**Residual — an owner call, not an oversight:** the banner asks for the live line even during a
+forecast-triggered alert, so it can quote the live nowcast's extent beside a "Kp 7 forecast" headline
+while the map draws the forecast line. Pre-existing — the banner has never taken the trigger — and
+possibly intended as a nowcast.
+
+### Fixed — an aurora status response no longer straddles its own NOAA calls
+
+`GET /api/aurora/status` read the alert level — and whether the machine was simulated, to choose its
+branch — before its live NOAA calls, and `active`, the scored, dark-sky and clear counts,
+`detectedAt`, the trigger and its Kp, and the simulated flag again after them. Those calls can wait
+on NOAA for as long as a cache refresh takes (the solar-wind cache lasts only a minute, and
+refreshing it is two HTTP requests), and the polling job can move the state machine meanwhile, so a
+single response could answer for two states at once:
+
+- across a **CLEAR**, `MODERATE` with `active: false`, no counts and no detection time — a level the
+  banner shows an alert for, beside a flag the map's aurora availability had already dropped;
+- across a **NOTIFY** and the trigger recorded after it, `QUIET` with `active: true`, a detection
+  time, a trigger and a `G1` storm scale;
+- across an admin's **simulation**, the live readings marked `simulated: true`, active and carrying
+  the simulation's forecast trigger, with no storm scale.
+
+Every state-machine field is now read once, up front, before the NOAA calls. The frontend fix beside
+this entry orders whole responses; this one makes each response agree with itself, which no ordering
+on the client can. The two also compose: a response's state-machine fields now describe the moment
+its request arrived, so the order the client applies answers in — the order they were asked — is
+also the order of the states they describe, for requests that reach the controller in the order they
+were sent. Nothing guarantees that last part (the JWT filter's user lookup, the proxy hops and the
+401 refresh-and-retry can each swap two requests), but a swap is normally milliseconds wide, against
+the NOAA round trips the ordering exists for; and in Chromium, whose HTTP cache held a second request
+to this URL back until the first was answered (measured — see the frontend entry), overlapping
+requests did not reach it together at all. The live NOAA readings and `currentNightDate` are still
+taken as the request finishes: the readings are whatever that request's own fetches returned, and
+moving the clock-derived night date up front was weighed and left — across dawn it changes which of
+two overlapping answers carries the newer night, not what a reader ends up seeing.
+
+⚠️ **Narrowed, not closed — and one part cannot be closed here.** Two residuals, stated so that
+neither is read as fixed:
+
+- **The orchestrator writes one NOTIFY in several steps, with I/O between them.** On the forecast
+  lookahead, `AuroraOrchestrator` moves the level and the flag, then fetches from NOAA, then records
+  the trigger; the counts land after an Open-Meteo triage and the scores after a Claude call. (The
+  real-time path records the trigger straight after the NOTIFY.) CLEAR never resets the trigger, so
+  for that whole fetch the machine itself holds the new level beside the previous alert's trigger and
+  storm scale — and this endpoint now serves exactly that, faithfully, from one read. Only the
+  orchestrator handing over level and trigger together would close it; a snapshot inside
+  `AuroraStateCache` would not.
+- **The fields are separate volatiles, read one after another.** A writer part-way through its writes
+  can still be caught between two of the reads: during an admin simulation, the simulated level and
+  trigger beside `simulated: false`, or `simulated: true` with no data yet — a 500 the client ignores,
+  unchanged from before. The window is a few adjacent field writes rather than NOAA round trips;
+  closing it needs the reads to be atomic with a writer's writes — one published snapshot, a lock or
+  a version check.
+
+A trade-off, named rather than hidden: the trigger is now read up to one NOAA wait earlier, so
+`GET /api/aurora/viewline/forecast` — which reads the trigger Kp again, on its own request — can
+disagree with the status for that much longer. A trigger write in the gap draws the new Kp's line
+under the old Kp's label, or a forecast line after a flip to a real-time trigger, until the next
+status poll or focus. Cosmetic and brief; passing the Kp to that endpoint would close it, but would
+change an API contract, so it is not done here.
+
+Pinned in a new `AuroraControllerStatusSnapshotTest`, a plain unit test with a real
+`AuroraStateCache` whose transitions — a CLEAR, a NOTIFY with its trigger, a simulation — are made
+from inside the first NOAA stub, `fetchKp`, mid-request. Against the old controller all three fail.
+Twelve mutants: eleven each moving one read back after the NOAA calls, and one reading the trigger
+Kp between two of the calls — all killed. The adversarial review found that last one alive in the
+first version, which moved the machine only during the last NOAA call; and one of the eleven (the
+simulated flag read late by the storm-scale guard) died only once the simulation test was given a
+live Kp.
+
+### Fixed — the aurora status on screen never steps back to an older answer
+
+`AuroraStatusProvider` asks `GET /api/aurora/status` on mount, on a 5-minute poll and on every window
+focus, and published whatever answered — so with two requests out at once (a poll and a focus, or
+two focuses) the answer that *landed* last won, not the one *asked* last. Nothing in the app kept
+them in order: each status request can wait on up to three live NOAA fetches of its own (four HTTP
+requests — solar wind is two), which the backend caches separately for 1, 5 and 15 minutes and does
+not share with a request already in flight. Two directions, both traced in the code rather than seen
+in a browser:
+
+- **A status from before an alert ended, landing after the all-clear**, put the banner back up and
+  switched the viewline back on — `GET /api/aurora/viewline` does not check the alert state, and the
+  map draws the line wherever it is still in aurora mode — until the next poll or focus. The
+  live-scores refetch it also set off came back empty, because the backend empties its scores on
+  CLEAR.
+- **A status from before an alert began, landing after the alert**, took the banner down mid-alert,
+  cleared the map's live scores and, on a Map tab showing aurora with no stored aurora run to keep
+  the mode available, bounced it to Sunset, clearing the saved rating floor as it went.
+
+**Which browsers it reaches was measured, and Chrome is not one of them.** A throwaway server set
+this endpoint's caching headers (a body-derived ETag, `Cache-Control: private, no-cache`) and held
+the first of two requests sent 50 ms apart, with an `Authorization` header as axios sends one.
+Chromium's HTTP cache kept the second request back until the first was answered — for the whole
+1.5 s hold — so on Chrome and Edge the two arrived, and landed, in order. WebKit and Firefox sent
+both at once, and in both the second overtook the first. WebKit here is Playwright's, not an iPhone;
+how long Chromium would hold a request back, and how often two overlap in real use, were not
+measured.
+
+Each request is now numbered, and an answer older than the one already applied is dropped. A failed
+fetch still writes nothing and leaves the status on screen. A 401 or 403, which `getAuroraStatus`
+answers as null, is an answer like any other: it applies, and it outranks anything asked before it.
+This closes the residual #827's entry named for this provider — statuses published out of order,
+"one level up" from the live-scores fetch that change fixed.
+
+⚠️ **Deliberately not `useComingUpFeed`'s shape**, where only the most recently *made* request may
+write — and that shape is right there, for a reason to check before copying either one. Its requests
+can ask different questions (two overlap only across a date roll, so the older one asks for
+yesterday's feed and its answer is wrong, not merely older). Every status request asks the same
+question, so an older answer is only older, and dropping it while a newer request is out would leave
+the status older than it needs to be if that request then failed. Here only an *applied* answer
+moves the mark, so a failed request blocks nothing — pinned by its own test. Both rules rest on the
+effect having no dependencies and the catch writing nothing, and the provider's comment says so: an
+effect keyed on anything would need a per-run cancel as well, because its cleanup cancels nothing.
+
+The two counters are refs rather than locals in the effect, because StrictMode runs the effect twice
+on mount in development — two status requests at once on every dev load — and the numbering has to
+span both runs. Also pinned.
+
+Pinned in a new `AuroraStatusContext.test.jsx`: the real provider, with the real `AuroraBanner` — and
+its real viewline hook — as the consumer, the API module mocked, the out-of-order answers held by hand
+and every late settle inside an awaited `act`. Against the unfixed provider the five ordering tests
+fail (an alert after an all-clear, an all-clear after an alert, an alert after a "no access" answer,
+two stale answers after the newest, and StrictMode's two runs), while the in-order, failed-newer and
+failed-refresh tests pass, as they should. Twelve mutants of the guard: eleven killed, each by the
+test that names what it breaks, and one equivalent (`<=` for `<` — request numbers are unique, so the
+two never differ). With the settle helper's `await` removed, every test in the file fails rather than
+letting a negative pass.
+
+⚠️ **Two adversarial reviews of the first version found three holes in that file, all real.** With no
+test holding more than two requests out, a mutant setting the mark to the newest request *made*
+instead of the landed answer's own number passed every test, and so did one where a dropped answer
+lowered the mark to its own number — which lets the second of two stale answers back in, the very
+defect this fixes, one answer late. A third mutant, ignoring null answers, passed every file that
+reaches the real provider, because nothing resolved one. There are now three-request tests landing
+in order and newest-first, and one ordering a "no access" answer; each fails under its mutant. The
+reviews also found that a request no test expected was answered `undefined` — which the provider
+*applies*, taking the banner down, the very state several negatives assert. It is now refused, and
+a refused request writes nothing.
+
+Also corrects two comments #827 left behind, in `MapView.jsx` and `MapViewAuroraLiveFetch.test.jsx`,
+which still said the provider publishes whatever answers. The `cancelled` guard they explain stays:
+both races it stops are between locations requests, which no order of statuses prevents.
+
+⚠️ **Not fixed here, and named so it reads as known:** `useNlcSighting` has the identical race — it
+names `useAuroraStatus` as its model, though it already differed in cadence and in being a hook per
+consumer rather than a shared provider — and `WindowFirstBriefingContext`'s briefing and scores
+fetches have the same shape, where an older briefing landing last is also written to the SWR cache.
+Both are being fixed separately.
+
+### Fixed — an aurora simulation ends at the next real reading, instead of outliving the alert it faked
+
+An admin's aurora simulation (`POST /api/aurora/admin/simulate`) outlived the alert it faked. The
+state machine held it in two fields, `simulated` and `simulatedData`, and only `activateSimulation`
+and `reset()` wrote them. The CLEAR branch of `evaluate` reset the level, the state, `activeSince`,
+the scores and the counts, and left the simulation where it was. So when the admin did not press
+Clear:
+
+1. The first night-time real-time poll read a quiet sky and CLEARed. The banner went away, so the
+   simulation looked finished. The flag stayed set.
+2. From then on `GET /api/aurora/status` took its simulated branch. It never called NOAA, and it
+   served the simulation's frozen Kp, OVATION, Bz and G-scale.
+3. When a real alert later NOTIFYed, every Pro user's banner said "(SIMULATED)", with the
+   simulation's G-scale — and its Kp, until the new alert recorded a trigger of its own. It skipped
+   the all-overcast gate, and it offered "Generate scores →", a hash write that does nothing. The
+   admin forecast preview and runs used the fake data too.
+4. While the simulation was still ACTIVE, a real alert at or below its level was SUPPRESSed. It was
+   measured against the fake storm, and never scored.
+
+The javadocs claimed the opposite. `AuroraStateCache` said the polling job "will override this state
+once a real geomagnetic event is detected", and `AuroraAdminController` said much the same.
+
+**What a simulation does now.** The next real reading the machine evaluates ends it.
+
+- A quiet reading CLEARs it, as it would any alert.
+- An alert reading is a new alert at the real level, answered as it would be from IDLE: it starts
+  clean, with no previous level and nothing of the simulation, and it is scored. A simulated alert
+  was never a real one, so there is nothing to suppress a real alert against or escalate it from.
+- After dark the real-time path evaluates a reading on every poll, whether or not NOAA answers — its
+  client fails open, to its cache or to an empty reading, which derives QUIET. So a night-time
+  simulation lasts until the next poll: five minutes at most by default. On a quiet night it already
+  vanished from the banner in that time; now the flag goes with it.
+- By day only the forecast lookahead evaluates, and only when tonight's forecast reaches the alert
+  threshold. So a daytime simulation still lasts until dusk unless a real alert arrives first.
+- With `aurora.enabled=false` or the `aurora_polling` job paused, nothing evaluates, and a
+  simulation lasts until it is cleared, as before.
+
+The admin Job Runs screen's "🧪 Simulated" button now goes back to "🧪 Simulate" once a real reading
+has ended a simulation, at the screen's next status fetch. The forecast modal's simulated badges
+follow from its next opening.
+
+**Clear clears only a simulation.** `POST /api/aurora/admin/simulate/clear` used to reset the
+machine whatever it held. The admin screen polls its status, so it can go on showing a simulation
+for minutes after a real reading has ended it. If that reading was an alert, a Clear pressed there
+wiped the real alert, scores and all, for every Pro user until the next poll paid to score it again.
+The stuck flag used to put a real alert under that button indefinitely, so the exposure was worse
+before. Now Clear ends a simulation only if one is running, and otherwise answers 200 saying nothing
+was cleared. The modal still shows its own "Simulation cleared." either way.
+
+**Every transition writes a whole state.** CLEAR, `reset()` and a simulation ended by a real reading
+return every field to the value a fresh machine starts with. The start of a new alert or a simulation
+writes every field too. All of them go through one private `become(…)`. Each route used to write only
+the fields its author remembered, which is how CLEAR came to leave the simulation behind. Three
+consequences reach beyond the simulation. The first two bring the code into line with its own
+javadoc:
+
+- **A CLEAR drops the trigger type and Kp.** `getLastTriggerType()` and `getLastTriggerKp()` have
+  always said "`null` when IDLE", and no CLEAR ever made them so. A simulation plants a trigger — a
+  forecast trigger, with its fake Kp — and a forecast-lookahead NOTIFY records its own trigger only
+  after a further NOAA fetch. For that fetch the leftover trigger stood in: the simulation's, or the
+  last real event's, in the new alert's banner Kp and G-scale, its forecast viewline, the aurora hot
+  topic and the briefing. Nothing shows the trigger while the machine is idle. The status still
+  serves it, but the banner and the viewline wait for an alert level, and the hot topic and the
+  briefing wait for the level or `active`.
+- **A simulation keeps nothing of what it replaces** — a real alert or another simulation — its
+  scores and counts included. The clear count's javadoc already said it is `null` "during
+  simulation".
+- **A new alert starts clean**, so a scoring that landed after the previous alert ended no longer
+  carries into it.
+
+**A simulation cleared mid-request no longer throws.** `AuroraController.getStatus` read
+`isSimulated()` and then `getSimulatedData()`, as two separate volatile reads. `activateSimulation`
+wrote the flag before the data, and `reset()` cleared the flag before the data. So a request could
+find the flag set and no data in two ways: its two reads fell between an activation's two writes,
+or a Clear's two writes fell between its two reads. Either way it hit a `NullPointerException` at
+`simData.kp()`, served as a 500. `AuroraForecastRunService.getPreview` and `runForecast` read the
+pair the same way.
+
+- The simulation is now one reference. Its presence is the flag.
+- `isSimulated()` is gone, so the pairing cannot be written again.
+- Each reader reads the simulation once.
+
+The status also reads it **first**, before the level, and `become` writes it on the side that serves
+such a reader: a new simulation is set before the level, an ending one cleared after it. So a
+request that finds no simulation cannot then find a simulated level that is only now ending and serve
+it as a real alert. That torn read would otherwise have been new with this change, on every CLEAR
+after a simulation. A switch from one simulation to another never shows none.
+
+**The thread-safety javadoc was wrong.** It said the machine was written "from a single background
+thread", and that `evaluate` needed no guard because "only the polling job calls it". In fact the
+machine is written from four places:
+
+- the scheduler's threads — a scheduled poll and a Scheduler Run Now can overlap;
+- the admin `run` endpoint, which calls the orchestrator's real-time path, `evaluate` included;
+- the admin `simulate`, `simulate/clear` and `reset` endpoints, on request threads;
+- the batch result path (`AuroraResultHandler`).
+
+Every write now holds one `ReentrantLock` for the whole of its transition. It is a lock rather than
+`synchronized` because the request threads are virtual, and a held monitor pins a virtual thread on
+Java 21. This change needs the lock. A CLEAR now writes the simulation, so a simulation starting while
+a CLEAR ran could have kept the simulated level and lost the simulation: a fake alert served as a real
+one, by day until dusk. It also closes an older race: two evaluations at once — a poll and an admin
+`run`, or a scheduled poll and a Run Now — could both find the machine IDLE, both NOTIFY, and pay for
+scoring twice.
+
+A SpotBugs exclusion for the class gave the same single-writer reason. It is deleted: SpotBugs'
+inconsistent-synchronisation detector skips volatile fields, and every field here is volatile or
+final, so it never matched anything.
+
+**Reconciled with #849**, which landed on `main` first and rewrote the polling paths around this
+same class while this branch was in review. Neither fix changed the other's reason for existing —
+#849 stops one poll evaluating the machine twice in a night; this stops a simulation outliving the
+alert it faked — but both touch `evaluate`, so landing second meant merging behaviour, not just text:
+
+- **#849 added `wouldNotify`/`wouldClear`**, a peek a poll asks before fetching the data a scoring
+  needs, backed by static `notifies`/`clears` predicates shared with `evaluate`. The takeover this
+  fix adds had to become part of that shared logic, or a poll's peek could disagree with what
+  `evaluate` decided a moment later. `notifies` now takes a third argument, whether a simulation is
+  running, and answers NOTIFY for any alert-worthy reading while one is — never measured against the
+  simulated level, so a real reading at exactly that level now NOTIFIES where it used to read false.
+  Two rows of #849's own truth table (`SIM_MODERATE, MODERATE` and `SIM_STRONG, STRONG`) flip from
+  `false, false` to `true, false` for exactly that reason, and both `wouldNotify`/`wouldClear` now
+  take the transition lock too, so a poll's peek can never straddle an admin write mid-read.
+- **#849 removed the lock** (there wasn't one to remove — this branch is the one that adds it) and
+  instead reads `state`, `currentLevel` (and now, on this branch, whether a simulation is running)
+  into locals at the top of `evaluate`, deciding every branch from those locals rather than the
+  fields again. That shape is kept, now inside the lock: belt-and-suspenders once locked, and it
+  matches the class's existing style.
+- **#849's own class javadoc claimed single-writer-via-polling-cycle**, true of its own change but
+  never of this branch's admin/batch writes; rewritten to describe the lock, what it does and does
+  not serialise (a poll's peek and its own evaluate are still two separate lock acquisitions, so an
+  admin write between them can still move what the peek answered for — #849's own callers already
+  re-fetch on that mismatch rather than trust the peek).
+- **#849's "a CLEAR does not reset it" trigger-getter javadocs are now false**, superseded by this
+  branch's CLEAR-drops-the-trigger rule; corrected in place rather than left standing, since they
+  describe the method these tests now pin the opposite of.
+- **#849's own status-endpoint javadoc already narrowed the "NOTIFY in several steps" residual**:
+  both polls fetch NOAA before the state machine moves, so the gap this branch's own first cut
+  described as "a new alert's level with no trigger yet" now lasts only a few field writes, not a
+  whole NOAA round trip — folded into this entry's own residual below rather than left overstated.
+- **`AuroraSimulationLifecycleTest` was ported**, not merely fixed to compile: #849 made
+  `AuroraOrchestrator.runForecastLookahead`/`runNightPoll` package-private, reachable only through
+  the new `AuroraPollingJob.runCycleIfIdle()`, so the reported sequence is now driven through the
+  real polling job rather than the orchestrator directly. Its scenarios moved to night polls (dusk
+  already passed) with an empty `kpForecast`, so the level comes from `recentKp` alone and #849's
+  hold-for-a-late-reading behaviour (`pendingHold`, `readingDue`) never engages — a deliberate
+  simplification, since that machinery belongs to #849's fix, not this one, and is untouched here.
+- **Left alone, on purpose**: #849's `pendingHold` — a night poll's alert held open across the
+  dawn boundary while its Kp block's reading is still due — can be handed a hold that started under
+  a simulation, or under a real alert an admin then reset or re-simulated over; #849's own PR lists
+  this as an open follow-up. `become()` does not reach into `AuroraOrchestrator`, and fixing it means
+  deciding what a hold *for* a state that no longer exists should do, which is `AuroraOrchestrator`'s
+  call, not this class's.
+
+**Reconciled with #841**, which landed after the #849 reconciliation above and, separately, added
+`currentNightDate`/`currentNightEndsAt` to this same status response and a `CurrentNight` read to
+this same method — the map's window list needed to stop offering nights that are already over. No
+behavioural overlap: #841 never reads or writes the simulation, and this fix never touches the night
+fields, so the two diffs collided only textually, both inserting new reads immediately after
+`activeSince` in `getStatus()`. Resolved by keeping this fix's reordering (the simulation read first,
+before `cachedLevel`) and folding #841's `CurrentNight` block in after it, dropping the now-redundant
+`isSimulated()`/`getSimulatedData()` re-read #841's diff carried from the pre-fix code it branched
+from. `AuroraControllerStatusSnapshotTest` gained #841's own
+`dawnDuringNoaaCalls_answersWithTheNightTheRequestBeganIn` case in the same fold — unrelated to this
+fix, listed here only because it now lives in a file this entry also changes. The full local gate
+(8056 backend tests, Checkstyle, JaCoCo, SpotBugs) re-ran clean after this fold.
+
+**Reconciled with #847**, which landed after the #841 reconciliation above. #847's own title is "an
+admin's simulation stops at the admin, never reaches real users": it gates three call sites
+(`AuroraHotTopicStrategy`, `BriefingAuroraSummaryBuilder`, `BriefingRollupBuilder`) on
+`AuroraStateCache.isSimulated()`, so a running simulation cannot reach a real user's Plan cards, the
+best-bet prompt, or a persisted tonight summary; and it adds a durable `simulated` marker
+(`aurora_forecast_result.simulated`, V154) so a forecast run made against fake data is never served
+back as real. `isSimulated()` is exactly the flag this fix deletes, so **all three call sites needed
+the straight substitution** — `getSimulatedData() != null` — agreed with the peer session that built
+#847 before either branch landed (see [[aurora-simulation-leak]]).
+
+That part was mechanical. Two parts were not, and are worth recording precisely:
+
+- **#847 independently found and partly fixed the exact bug this whole entry is about.** A later
+  commit on #847 (a Codex-review fix) added `simulated = false; simulatedData = null;` to
+  `evaluate()`'s CLEAR branch, with a comment describing the identical scenario as this entry's
+  opening section: a lingering simulation surviving a real CLEAR and silently suppressing the next
+  real alert from every `isSimulated()`-gated reader. Its fix is a strict subset of this branch's
+  `become()` unification — same two fields cleared, but not the trigger (this branch's own,
+  separately-decided CLEAR-drops-the-trigger rule), and by a direct field write rather than through
+  one shared path — so on rebase this branch's `become(State.IDLE, …)` call simply superseded #847's
+  two lines outright: same outcome for the fields #847 touches, plus everything else `become()`
+  already did. Nothing of #847's intent was lost; there was nothing left for its patch to do once
+  `become()` ran first.
+- **#847 also independently fixed the identical two-read NPE this entry fixes**, in
+  `AuroraForecastRunService.getPreview()` and `.runForecast()` — the same `isSimulated()`-then-
+  `getSimulatedData()` pattern, the same single-read cure. Unlike the CLEAR-branch case, #847's
+  version was the one kept: its `simulated`/`isSimulated` locals feed straight into the new
+  `.simulated(...)` marker it stamps on every persisted row and the `replaceNightResults(date, …,
+  simulated)` calls beside them, code this branch never had reason to write. Adopting #847's version
+  of both methods outright (rather than this branch's differently-named equivalent) kept that
+  plumbing intact without re-deriving it. `AuroraForecastRunServiceTest` gained #847's own
+  `runForecast_simulated_marksPersistedResultsAsSimulated` and this branch's three NPE/real-CLEAR
+  tests side by side — different questions about the same two methods, not a real conflict.
+  `AuroraStateCacheTest` auto-merged without a marked conflict, but silently kept two of #847's own
+  new cases calling the now-deleted `isSimulated()`; fixed to `getSimulatedData()` semantics, no
+  behavioural change.
+
+The full local gate re-ran clean again after this fold: **8074 tests, 0 failures**, Checkstyle 0
+violations, SpotBugs "BugInstance size is 0", JaCoCo "All coverage checks have been met".
+
+**Still open.**
+
+- **Readers take no lock**, so a reader that reads several fields can still straddle a transition.
+  That is the second residual of *an aurora status response no longer straddles its own NOAA calls*.
+  Of the two simulation cases that entry names:
+  - the 500 is gone: `simulated: true` with no data can no longer be read;
+  - a simulation starting mid-read can still be read as its level beside `simulated: false`. It now
+    takes a request whose two reads straddle both of the start's writes.
+
+  There is also a new case, the reverse: a request that found the simulation just before a real alert
+  ended it can serve that alert's level beside the simulation's data. Each is one response, which a
+  client can go on showing until its next status fetch. One immutable snapshot published per
+  transition would close all of them.
+- **The orchestrator still writes a NOTIFY in several steps.** That is the same entry's first
+  residual, and #849 already narrowed it: both polls fetch their NOAA snapshot before the state
+  machine moves, so the gap between a NOTIFY and its trigger being recorded is a few field writes,
+  not a NOAA round trip. Its "CLEAR never resets the trigger" no longer holds under this branch's
+  rule, so what stands in that gap has changed: a new alert now shows no trigger for those few
+  writes, where it used to show the leftover one — the simulation's, or the last real event's. An
+  escalation still shows the previous NOTIFY's trigger, for the same few writes. The banner reads a
+  missing trigger as real-time, so for that gap a forecast-triggered alert can say "Aurora active
+  now"; that was already so after every restart, reset or Clear, and is now also so after a CLEAR.
+  Only a poll's own NOAA-outage fallback (an admin write it missed) still fetches after the state has
+  moved, which is the residual #849's own status javadoc names. The orchestrator handing over level
+  and trigger in one write would close both. The same split lets a scoring's writes land after a
+  later transition has moved past the alert they were computed for: a CLEAR, a reset, a simulation,
+  or a later NOTIFY whose trigger, counts and scores they overwrite.
+- **At night an admin has five minutes at most between Simulate and a forecast run** meant to use the
+  simulated values. The forecast modal fetches its preview once, when it opens. A run started after
+  the next poll uses real NOAA data while the modal still says "Using simulated geomagnetic data",
+  and the result does not say which data it used. The stuck flag used to keep the preview and the
+  run simulated for as long as it stood.
+- **The order inside `become` is not pinned by a test.** A mutant that sets or clears the simulation
+  on the other side of the level survives, because the order matters only to a reader racing the
+  writes themselves, and no deterministic test can place one there. The rule is written at `become`
+  and in the class comment instead.
+- **The lock test cannot see a write that waits for the lock and then writes after releasing it.**
+  It catches a write that takes no lock, or never lets it go. Telling the two apart needs a hook
+  inside the transition.
+
+**Tests.** 47 new backend test cases against #849's `main`, counting each parameterised case, and the
+existing simulation tests moved off `isSimulated()`:
+
+- **`AuroraStateCacheTest`** (37), on the real machine:
+  - a real CLEAR ends a simulation and everything it planted, for QUIET and MINOR;
+  - a real alert during a simulation is a new alert, starting clean, for all eight pairings of a
+    simulated QUIET, MINOR, MODERATE or STRONG with a real MODERATE or STRONG, with a scoring landed
+    under the simulation first. Every one used to keep the simulation, and three were SUPPRESSed;
+  - after a CLEAR ends a simulation, the machine is idle and unsimulated before the next alert;
+  - CLEAR drops the trigger;
+  - a simulation keeps nothing of a scored real alert or of another simulation;
+  - every route to IDLE — five, including a Clear — lands on a fresh machine's state;
+  - `endSimulation` ends a running simulation, and leaves alone a real alert that took one over;
+  - an evaluation queued behind a simulation's start ends that simulation, and two evaluations of
+    one alert from IDLE notify once;
+  - `wouldNotify` and `wouldClear` each wait for a transition in progress too, answering for the
+    state a queued admin write left behind, not the one they were called against;
+  - every write, including every branch of `evaluate`, waits for a transition in progress, then goes
+    through and lets go. The lock is held on the test thread and each write runs on a second one,
+    because the lock is re-entrant. Every wait is bounded.
+
+  Two of #849's own truth-table rows (a real MODERATE or STRONG reading at exactly a simulated
+  MODERATE or STRONG) flip from `false, false` to `true, false` — the takeover, not an escalation,
+  so it fires even at equal severity.
+- **`AuroraSimulationLifecycleTest`** (3) drives the real admin controller, the real
+  `AuroraPollingJob` and orchestrator, and the real status controller, through
+  `AuroraPollingJob.runCycleIfIdle()` — the only entry point left once #849 made the orchestrator's
+  poll methods package-private. Only NOAA, weather triage, the roster and twilight are faked, as
+  night polls with an empty Kp forecast, so the level comes from the latest reading alone and #849's
+  hold-for-a-late-reading behaviour never engages. It runs the reported sequence end to end: simulate,
+  a quiet poll (asserting the state between), a real storm, then the status. It also shows a real
+  alert below the simulated level being scored, where it used to be suppressed, and a Clear pressed
+  after such a takeover leaving the real alert alone.
+- **`AuroraControllerStatusSnapshotTest`** (2) lands a Clear, and then a real CLEAR, between the
+  request's own state reads, through a getter overridden on the real machine. The simulation's
+  G-scale is one its Kp would never derive, so a response that derived one cannot pass for it.
+- **`AuroraForecastRunServiceTest`** (3) has a preview on a real machine whose simulation a real CLEAR
+  ended. Its preview and run tests answer a second read of the simulation with nothing.
+- **`AuroraAdminControllerTest`** (2) pins that Clear ends a running simulation and calls
+  `endSimulation()`, never `reset()`, and that Clear with no simulation running resets nothing.
+
+334 aurora tests pass together, #849's own included: `AuroraPollingCycleTest` (774 lines, replaying
+whole nights) and `AuroraNightRuleAgreementTest` neither regressed.
+
+Most of these were written first and failed against the pre-fix code, one as a
+`NullPointerException` itself and the rest on their assertions; a handful passed as they should,
+pinning behaviour the fix keeps (a simulation starts; `reset()` already cleared everything). The
+adversarial review then asked for more: `endSimulation()`'s own tests and the two lock-ordering
+tests (`evaluationThatWaitedBehindASimulationsStart_endsIt`,
+`twoEvaluationsOfOneAlertFromIdle_notifyOnce`) exercise API the pre-fix code has no equivalent
+of — `AuroraStateCache` had neither a lock nor a way to end just a simulation — so they were never
+run red; they are pinned by the mutants under "Mutated" below instead. The torn-read tests moved
+from overriding `isSimulated()` to overriding `getSimulatedData()`, because the flag no longer
+exists.
+
+**Mutated in two rounds.**
+
+- **The first round: 19 mutants, 18 killed.**
+  - Lifecycle, seven: CLEAR keeping the simulation; IDLE keeping the trigger; no takeover; a takeover
+    that drops only the data; one that keeps the trigger; a simulation inheriting the counts; and
+    clearing the simulation first, the order survivor.
+  - Lock, seven: each of the six writes taking no lock, and `evaluate` never releasing.
+  - Readers, five: the status reading the simulation twice, or the level first; the preview reading
+    it twice, for its Kp or for its flag; the run reading it twice.
+- **A six-lens adversarial review of the diff found gaps the first round's tests could not see, and
+  seven mutants built from those findings — all killed once the tests above were added:**
+  - `evaluate`'s CLEAR branch written outside the lock. The first round's lock test drove only the
+    NOTIFY-from-IDLE branch, so a CLEAR (or a takeover) hoisted above `lock()` — the exact race the
+    lock exists for — passed every test. Killed by the new per-branch `Write` cases.
+  - the takeover branch, same shape, same fix.
+  - the takeover's `simulatedData != null` check decided before waiting on the lock, so a poll
+    queued behind an admin's simulate call judged the alert against no simulation instead of the one
+    that had just started. Killed by `evaluationThatWaitedBehindASimulationsStart_endsIt`, which
+    queues an evaluation, starts a simulation on the holding thread, then releases.
+  - the same shape for the IDLE check, which would let two queued evaluations both NOTIFY. Killed
+    by `twoEvaluationsOfOneAlertFromIdle_notifyOnce`.
+  - a simulation keeping the scores of a real alert it replaces (only counts were pinned).
+  - a takeover keeping a simulation's scores and counts (same gap, the other direction).
+  - the storm-scale guard re-reading `getSimulatedData()` instead of the value already in hand,
+    reopening the two-read defect for one derived field. Killed by giving the fixture a G-scale its
+    Kp would never derive.
+- **A second set of seven, aimed at the new behaviour directly rather than at review findings:**
+  `become()` never clearing a stale simulation; no takeover at all; `activateSimulation` writing its
+  fields piecemeal instead of through `become()`; `endSimulation()` resetting unconditionally, or
+  returning `true` without having cleared anything; the Clear endpoint calling `reset()` regardless
+  of `endSimulation()`'s answer; and `endSimulation()` itself missing the lock. All seven killed,
+  mostly by `AuroraSimulationLifecycleTest.clearAfterARealAlertTookTheSimulationOver_leavesTheRealAlert`
+  and its `AuroraStateCacheTest` counterpart — the pair written for the review's most serious finding.
+
+**33 mutants run across both passes; 32 killed, one documented survivor** (the `become()` write-order
+mutant above).
+
+**Correction to an earlier entry.** `changelog.d/20260914-aurora-status-one-state.md:37` ("CLEAR
+never resets the trigger, so...") describes `AuroraStateCache` as it stood when that entry was
+written. This entry's CLEAR-drops-the-trigger rule supersedes it; per `changelog.d/README.md` that
+file is left as-is rather than rewritten.
+
+**Tested, not seen.** No browser check was made. The banner needs an aurora alert and a Pro or admin
+sign-in. The sequence is proven through the real controllers instead.
+
+### Fixed — aurora alerts no longer pay for themselves every five minutes after dark
+
+After dark, each five-minute aurora poll could evaluate the one state machine twice: first a forecast
+lookahead (whenever tonight's forecast reached the MODERATE threshold), then a real-time path. The two
+read tonight differently. The lookahead took the highest Kp of every 3-hour block that overlapped
+tonight's dark window, including blocks that were already over, because NOAA's product keeps its
+observed blocks for a week. The real-time path looked only six hours ahead of now.
+
+The flap happened whenever the lookahead reached an alert level and the real-time path did not —
+after a storm that peaked earlier in the night, or with a peak forecast more than six hours ahead.
+Every poll then went:
+
+1. The lookahead NOTIFIED.
+2. That paid for weather triage and, if any location was clear, a synchronous Claude call, with a
+   `job_run` and an `api_call_log` row.
+3. The real-time path CLEARED the scores it had just bought.
+4. The next poll started from IDLE and paid again.
+
+That is up to about twelve times an hour. Meanwhile `GET /api/aurora/status` almost never showed the
+alert. When the real-time path came out *higher*, the poll that raised the alert NOTIFIED twice and
+threw the first scoring away. NOTIFY never sent email or push; it only scores. A test of two
+consecutive polls reproduced the flap against the old code, and whole-night replays now pin the fix;
+it has not been confirmed in the production logs.
+
+**Every poll now evaluates the state machine at most once.**
+
+- **In daylight** it reads the forecast for tonight.
+- **After dark** it takes the higher of the forecast for the rest of tonight — the blocks still ahead
+  before dawn, the running one included and finished ones never — and the conditions now.
+- **The alert is attributed to the forecast**, with planning wording and tonight's window, when the
+  forecast alone reaches that level. It is real-time ("act now") only when the conditions now go
+  beyond it.
+
+So a heads-up for a small-hours peak now stays up through the evening, and is paid for once.
+
+- **The Kp for now is NOAA's figure for the most recently completed block**: its published reading
+  once it is out, and NOAA's estimate for the block until then. A reading appears only after its
+  block ends and then sits in the client's 15-minute cache, so without the estimate the level would
+  dip at the end of an isolated storm block. The running block, whose value is a forecast, is never
+  reported as "now".
+- **A night poll does not end an alert on the estimate for the block just ended while that block's
+  reading is due.** An estimate can be revised when its reading is published (the 09:00-12:00 block
+  on 2026-09-14 was estimated at Kp 3 and published at 2). So for up to an hour after a block ends,
+  while its reading is not out, a night poll that would CLEAR holds the alert instead, whatever
+  raised it. Otherwise a block NOAA under-estimated would CLEAR at the boundary, then NOTIFY and pay
+  again when its reading landed. The hold has three limits, all deliberate:
+  - A reading more than an hour late means a late or stale feed, and the estimate ends the alert.
+  - A hold lasts no longer than the night. If dawn comes first, the first daylight poll makes the
+    CLEAR the night deferred, as its one evaluation, reading nothing. After dawn no poll acts on the
+    Kp for now, so the reading could decide nothing, and no daylight poll ends an alert on its own
+    reading of tonight, so otherwise the night's alert and scores would stand until the next dusk.
+  - It covers only the block that has ended. An alert that falls mid-block, on NOAA's low estimate
+    for the block still running, is still cleared, and bought again if that block is published
+    higher.
+- **A night poll decides on one NOAA snapshot and one clock reading.** The daylight poll now fetches
+  the full snapshot before the state machine moves, and still only when it is about to NOTIFY
+  (`AuroraStateCache.wouldNotify`), so an unexpected error from that fetch leaves the state machine
+  untouched. The client fails open, so this guards the unexpected, not an outage. At nautical dawn
+  itself the night is now over, on both of the app's night rules.
+- **The daylight poll records the trigger straight after its NOTIFY**, as the night poll always has.
+  Part of the residual recorded under *an aurora status response no longer straddles its own NOAA
+  calls* was a new level served beside the previous alert's trigger for the length of a NOAA fetch.
+  That part now lasts a few field writes, unless an admin reset or simulation lands mid-poll. The
+  counts and scores still land after the triage and the Claude call.
+- **A lowered `aurora.triggers.kp-threshold` now applies in daylight too.** The lookahead used to map
+  Kp through a fixed 5, so at 4.5 it would have cleared what the real-time path raised.
+- **`POST /api/aurora/admin/run` now runs the scheduled cycle itself, through the same guard.** It
+  answers 409 while a cycle is running, and still runs on the request thread. Before, it called the
+  real-time path directly, with that path's own horizon and no guard, so it could clear a heads-up the
+  next poll would pay to raise again, or run alongside a scheduled cycle. In daylight it no longer
+  ends an alert on its own reading: the one exception is the first cycle after a night that ended on
+  a hold, which makes that deferred CLEAR. `POST /api/aurora/admin/reset` clears anything else. Its
+  response is now
+  `{status, dark, level, action, trigger, held}` rather than `{status, action}`, where `held` says a
+  night poll held the alert, so its level below MODERATE and action NONE do not read as a quiet
+  night. No screen calls it.
+- **The same guard absorbs the scheduler's own overlap.** Saving an edited schedule, Resume and Run
+  Now on the Scheduler screen can each start a poll while one is still running; the guard skips it.
+
+`AuroraNightRuleAgreementTest` now pins the polling job's night rule to `AuroraForecastRunService`'s
+across a year of instants. That comparison could not be written while the job read the wall clock.
+`poll-interval-minutes`, `kp-clear-threshold` and `ovation-clear-threshold` are now documented as
+unread.
+
+### Fixed — the map's live aurora scores answer for the latest alert state
+
+The live aurora scores (`getAuroraLocations()`, the NOAA-triggered state for the night in progress)
+are fetched by an effect keyed on the shared aurora status — and that status is a fresh object on
+every successful 5-minute poll and every successful window focus, because `AuroraStatusProvider`
+publishes whatever the status endpoint answers. So the effect re-requested on each, with no
+cancellation, and a superseded request could still write:
+
+- **after the alert ended** — a poll saying the alert was over cleared the scores, and a request the
+  previous poll had made, landing after that, wrote the ended alert's stars straight back into every
+  live reader: the rating's live fallback, the aurora medallions, the overlay popup and the "🏆 best
+  location" card, until the next poll or focus;
+- **out of order** — two refreshes close together each made a request, and the older one landing
+  last replaced the newer answer with its own.
+
+The effect now carries the cancellation half of the fetch shape #814 gave the stored-results fetch
+beside it: a `cancelled` flag set in the cleanup drops any response whose status has been superseded.
+"Latest" means the latest status *published* — the provider does not order its own responses, a
+separate and pre-existing race named below.
+
+⚠️ **Only that half, on purpose — no clear before the request, and a failure writes nothing.** The
+stored-results fetch clears on every change because it answers for a night the reader selected. This
+is the backend's live cache, and nothing on the status marks a change in it that a clear could key
+on: `detectedAt` moves on an escalation while the backend still holds the pre-escalation list (it
+re-scores after the NOTIFY), so a clear keyed on it would blank the map and redraw the same list; the
+night can roll while the backend holds last night's list, so a clear keyed on the night gains
+nothing; and a clear on every re-poll would blank every reader of the live scores for a round trip
+every five minutes. Any clear would also turn a place kept on the map by tonight's stored result into
+a denial in the overlay's popup, which reads a missing live score as "Not suitable for aurora
+photography" — the false negative #814 refused. The adversarial review challenged the decision twice,
+proposing clears keyed on `detectedAt` and on the night; a refuter traced both through the backend and
+the decision stood. Both halves of it are pinned by their own tests, so a tidy-up that "completes" the
+shape fails loudly.
+
+**Residuals, named so they read as known rather than overlooked:**
+
+- A device that missed the gap between two alerts — asleep, offline, a throttled tab — and whose
+  first refetch after it then fails, shows the earlier alert's answer until the next poll or focus.
+- When the newer of two overlapping requests fails and the older succeeded, the older answer is still
+  dropped, and what was on screen before both stays until the next poll or focus.
+- The commit that brings the alert-ended status still renders the ended alert's stars once, before the
+  effect clears them — the same one-commit window the per-night fetches have.
+- On an alert's first request nothing is held yet, and the overlay's popup reads that as "Not suitable
+  for aurora photography" until the answer lands. The popup has no "not known yet" state, which is a
+  change to `MarkerPopupContent`, not to this fetch. Pre-existing.
+- `AuroraStatusProvider` can publish statuses out of order: a poll and a focus in flight together land
+  in either order, and whichever lands last is published. Pre-existing, one level up.
+
+Pinned in a new `MapViewAuroraLiveFetch.test.jsx`, which drives the status through the real
+`AuroraStatusProvider` and a window `focus` — the production trigger. The sibling files' ref-backed
+status stub is read only when the memoised `MapView` happens to re-render for some other reason, so a
+"re-poll" through it is whatever render the harness causes, not the route production uses. Both race
+tests failed against the unfixed effect, each at its final negative. Each part was then mutated
+alone: deleting the `.then` guard, or `cancelled = true` from the cleanup, fails the two race tests;
+adding a clear before the request fails the two decision tests; clearing in the `.catch` fails only
+the failed-refresh test. ⚠️ **The late requests settle inside an *awaited* `act`, and the `await` is
+load-bearing — measured:** with the guard deleted, an un-awaited `act` — plain callback or async —
+lets the alert-ended test pass, while `await act(() => …)` fails it.
+
+Also corrects `utils/mapEvents.js`, whose note still said the live cache could answer for a night the
+reader was not looking at — #814 closed that in `MapView` — and has the astro fetch's comment name the
+stored-aurora fetch it refers to, since the live fetch above both now takes a different shape.
+
+### Docs — the accessible-name notes say what measured them
+
+`#825`'s reviewer stalled and was only resumed after the merge. Its late review, and a second
+review of this change, found the accessible-name notes still overstating their evidence, and
+`#825`'s own entry miscounting. Nothing about *which* spaces matter was wrong: every separator the
+harness found changing a name carries a note, and every note's conclusion holds. Comments only:
+the production build is byte-identical.
+
+- **Eighteen comments credited a reading to Chromium, WebKit and Firefox, "every engine",
+  "browsers" or "a screen reader".** Those readings came from Playwright's accessible-name
+  algorithm run over each engine's layout. The only native reading is Chromium's own accessibility
+  tree: the Coming up handoff and entry card on 2026-09-05, and all 4,167 separators on 2026-09-14.
+  Each comment now says which instrument read what, or states the rule and points to the class doc
+  that does.
+- **Ten comments stated JSX's whitespace rule too broadly.** Seven said, in one wording or another,
+  that JSX drops whitespace-only text between tags. `#825`'s three reflow warnings said "JSX drops
+  whitespace that contains a line break". In fact JSX drops whitespace-only text that contains a
+  line break. A space on the same line as its neighbours is kept, and a line break inside text
+  collapses to one space.
+- **Three notes said a name *reads* the glued pair.** In fact the name only contains it, among the
+  rest of the row or card: `PromptTestView`, `ComingUpTideSparkline` and `WindowComingUpEntry`.
+- **`MapRegionPanel`'s test blamed its `5stars` on the polyfill gluing any adjacent
+  contributions.** The polyfill also trims the leading space inside the `sr-only` " stars" span,
+  which browsers keep.
+- **Two notes claimed less than was measured.** All three of `RegisterPage`'s terms separators
+  were measured on 2026-09-14, as was the Coming up conditions' `peak` / date separator.
+- **The canonical class doc now says what its runs bear on.** They cover the rule's first two
+  items, except the browse-mode clause, which no run read. They also cover the fifth, through the
+  space inside `SlotLocationName`'s icon span. The third and fourth items rest on earlier targeted
+  probes.
+- **Three corrections to `#825`'s entry**, which this directory's rules do not allow rewriting:
+  - The 119 name-changing separators sit at `#825`'s four sites or at *three* places `#819` had
+    annotated, not at "four" places with "both" of `RegisterPage`'s separators. The three places
+    are all *three* of `RegisterPage`'s terms separators (which the harness grouped as two shapes),
+    `WindowComingUpConditions`' name and cadence, and the Coming up tide chart.
+  - The other 906 change no accessible name, but they do change the layout. Where one sits in
+    plain inline text, the rule says browse mode reads the two words glued as well. That was never
+    measured, so "change only what is drawn" claimed more than was known.
+  - JSX deletes whitespace-only text that contains a line break, not "any whitespace" that does.
+
+### Fixed — the four separators an accessible name really depends on now say so
+
+A rebuilt measurement harness found four spaces that an accessible name genuinely depends on, and
+none of them carried a note — while the separators that do nothing were the ones with warnings on
+them. Each now states what it holds up. Comments only: no rendered or runtime change.
+
+| where | without the space, the name reads |
+|---|---|
+| `MapView` subject filter chips | "🏔️Landscape" |
+| `SlotLocationName` (Plan grid) | "🏔️Angel of the North" |
+| `WindowControl`'s "Back to" row | "Back toThis morning — sunrise or sunset?" |
+| `PromptTestView` run progress | "⟳2/5" |
+
+Three of the four — `MapView`, `SlotLocationName` and `PromptTestView` — are **literal spaces written
+straight into the JSX**, not `{' '}` expressions, and JSX deletes any whitespace that contains a line
+break, so reflowing one of those lines would remove the space with no other sign. Their notes say
+so. (`WindowControl`'s is an explicit `{' '}`.) `SlotLocationName`'s also sits *inside* its element
+(`<span>{icon} </span>`) — a position browsers keep, and only jsdom's polyfill trims.
+
+**How it was found.** Every whitespace-only text node in the DOMs the test suite renders — 4,167
+across 921 distinct DOMs, captured at the end of each test and after every `fireEvent` — was
+removed one at a time against the production-built stylesheet, at widths drawn from that
+stylesheet's own breakpoints. Names were read by Playwright's accessible-name algorithm over each
+of Chromium's, WebKit's and Firefox's own layout, and by Chromium's native accessibility tree,
+which agreed with Playwright on all 4,167. 119 change an accessible name; every one belongs to the
+four sites above or to the four `#819` already annotated (both `RegisterPage` terms separators,
+`WindowComingUpConditions`' name and cadence, the Coming up tide chart). 906 change only what is
+drawn — ordinary visible spaces, left unannotated, since removing one would show on screen.
+
+It also confirmed by measurement two claims `#819` had made from the rule: `MapBreadcrumb`'s window
+label renders glued without its space ("Tonightsunset") yet changes no name — its `<nav>` is named
+by `aria-label` — and the Coming up `peak`/date separator is inert.
+
+**The canonical doc's evidence is now stated correctly.** `WindowFirstComingUpHandoff` said the rule
+was "measured in Chromium, WebKit and Firefox". Those readings were Playwright's own algorithm run
+over each engine's styles — not three native implementations. It now says what was measured and by
+what, and that native readings exist for Chromium alone.
+
+### Added — the Plan tab has an iPad tier, 640px to 1023px
+
+The plan-matrix handoff specifies three tiers — desktop, iPad, phone — and the Plan arm had two, so
+every iPad value in the spec resolved to the desktop one. This adds the third, as one unlayered
+`@media (min-width: 640px) and (max-width: 1023px)` block at the end of `index.css`.
+
+**Why that range.** Not invented: `BrandLockup`'s masthead wordmark has carried a tablet tier on
+exactly this band all along (Tailwind's `sm` 640 and `lg` 1024). It sits flush against the phone
+query (`max-width: 639px`, also `useIsMobile`). An iPad in portrait (820–834px) lands inside it; in
+landscape (1180–1194px) it lands on desktop, matching the handoff's own 1180px desktop frame.
+
+**What it changes** — values from the prototype's `.wrap.pad` rules, which is what renders: the
+masthead's top padding to 13px; the legend's desktop-only clause hidden; the popup's region rail to
+a 130px minimum; the "All regions" cell onto its own full row, as on phone; the prose slot to 112px;
+the ranked spot strip to 2.6 across. The strip's own note had deferred exactly this ("widening it is
+the responsive pass's call").
+
+**Two places the README and the prototype disagree, settled by the prototype:**
+- Region cards: the README says 150px. The prototype has 150px on `.rrail` *and* 130px on
+  `.wside .rrail`, and `regionRail()` is only ever called inside `.wside`, so 130px renders.
+- The masthead: the prototype pads it `13px 20px 0` but gives the tab bar, lens bar and body no iPad
+  rule, so they keep 22px. That would put the masthead 2px in from everything below it on this band
+  alone, which is exactly what the shared `--wf-gutter` exists to prevent. The masthead takes the
+  13px top and **stays on the 22px gutter** — the one deliberate departure, and one value to change.
+
+⚠️ **A defect the first cut shipped to itself, and caught by measuring.** It set the popup to
+`max-width: none`. Measured inside a real `Modal`, the popup then filled the viewport — 968px at
+1000, 991px at 1023 — and snapped to the desktop cap of 780px at 1024: widening the window one pixel
+shrank the popup by 211px. The spec only ever drew an iPad popup on an 834px frame (834 − 28 =
+806px), so that is the cap now: 802px at 834, 806px across the rest of the band, and a 26px step to
+780 at the desktop edge instead of 211.
+
+**Not changed, and recorded:** the wordmark (already on this band, at sizes 2px above the spec at
+*every* tier — a brand decision, not an iPad gap); the tick-times gap (already right for iPad —
+it is the desktop that drifted onto the iPad value). And a **phone** defect found in passing: the
+popup's region rail renders 3 columns where the spec says 2, because the phone rule's `.wf-rrail`
+(0,1,0) loses to the unscoped desktop `.wf-wsh .wf-rrail` (0,2,0). This block writes its rail rule
+at the higher specificity so it cannot fall into the same trap; the phone is left for its own fix.
+
+**Verified in real headless Chromium**, reading computed styles at 639 / 640 / 834 / 1023 / 1024 /
+1180px: every rule applies inside the band and not outside it. The rail's 130px is proven by track
+count in a 398px box — 2 tracks at iPad, 3 at desktop — after a first probe at 384px turned out to
+be **blind**, giving 2 tracks at both because it ignored the rail's 6px gap. Blast radius checked by
+tracing every selector to its component: all popup-only except the shared masthead, and the
+drill-down's cards are kept out by the child combinator.
+
+⚠️ **What was not seen:** the popup rendered with real data. It needs a signed-in session with
+forecast ratings, and the login carries a Cloudflare Turnstile challenge that a fresh browser cannot
+pass and that was not worked around. The two automated review agents also stalled out on a machine
+running at a load of 60–86 on 8 cores, so the adversarial checks were done by hand instead.
+
+### Fixed — a double-click on the Scheduler's Run Now queues one run, not two
+
+`SchedulerView`'s `RunNowButton` disabled itself only once `triggerJob` had *resolved*
+(`disabled={disabled || triggered}`), and `main`'s button had the same rule. So the second press of
+a double-click landed on a button that was still enabled and sent a second
+`POST /api/admin/scheduler/jobs/{jobKey}/trigger`. `DynamicSchedulerService.triggerNow` queues an
+immediate run for every call it receives, and `wrapTarget` has no overlap guard. The daily briefing
+and the tide refresh have none of their own either, so one double-click ran them twice, possibly at
+the same moment on the five-thread scheduler pool. The batch pipeline jobs refuse a concurrent
+submission through a shared lock. There the second run could lose that lock and be recorded as a
+failed pipeline run for nothing.
+
+This supersedes two passages in the entry just below it, *the Scheduler screen's "Triggered ✓"
+confirmation no longer arms a timer nobody owns*:
+
+- its present-tense "the button is disabled only once a call resolves, so a double-click sends two
+  calls";
+- its bullet calling the in-flight guard "a plausible follow-up rather than a bug".
+
+It was a bug: two runs of a job from one intended press.
+
+**The button is now disabled from the click until the call settles.** A `pending` state is set
+before the await and cleared in a `finally`, and `disabled` reads `disabled || pending || triggered`.
+React flushes a click's state update before the browser dispatches the next input event, and a
+browser dispatches no click to a disabled button. So a press while the call is in flight never
+reaches the handler. The label stays "Run Now" while the call is in flight, because "Triggered ✓"
+would claim a run the server has not yet accepted. The `finally` hands the button back after a
+failure too, so the retry the error banner asks for goes through.
+
+The dismiss timer stays in the effect keyed on `triggered`, where the earlier entry put it. It has
+not moved back into the handler, and there is no `isMounted` ref.
+
+**This guards the button's own round trip and nothing more.** `triggerNow` returns as soon as the
+run is queued, so the button is free again two seconds after the confirmation appears, while the job
+may still be running. A second run can still be queued by any of these:
+
+- a press after the confirmation clears;
+- a second browser tab;
+- switching tab and back while the call is in flight;
+- a retry after a failed response that the server had in fact acted on.
+
+Some targets already refuse an overlapping run: the batch submissions (`forecastBatchRunning`,
+`auroraBatchRunning`) and the cloud-verification backfill. Giving the briefing and the tide refresh
+the same guard is an owner decision, and it is not built here.
+
+**Two costs this accepts.**
+
+- **Keyboard focus.** A keyboard user who presses Run Now loses focus to `<body>` when the button
+  disables. It already did that on success, when `triggered` disabled it. On a failed call it is
+  new: focus used to stay on the button. This is the same pattern as the app's other in-flight
+  buttons.
+- **No timeout.** The API client sets no timeout, so a stalled request leaves the button disabled
+  until the connection gives up. The alternative was a duplicate run.
+
+**Tests.** The earlier entry's two double-click tests are replaced. They sent two calls on purpose,
+and the in-flight guard makes that impossible. Measured against the new component:
+
+- the orphan test fails at `toHaveBeenCalledTimes(2)`, receiving 1;
+- the fresh-window test fails at `toHaveBeenCalledTimes(3)`, receiving 2.
+
+Two tests take their place:
+
+- **A second press while the call is in flight sends no second call.** The button is found by role
+  and name, asserted disabled while the call is pending, and confirms once when it settles.
+- **The retry after a failed call actually sends.** The existing error test pins only that the
+  button is enabled after a failure. On its own that would pass a guard that latched once per
+  mount.
+
+The unmount-mid-call timer test is kept unchanged.
+
+**Mutated five ways, all killed.**
+
+- Dropping `pending` from `disabled` fails the in-flight test.
+- Never setting `pending` fails the in-flight test.
+- Clearing `pending` only on success fails the retry test and the error test.
+- Never clearing `pending` fails those two and the confirmation-window test.
+- A ref that latches on the first press, beside `pending`, fails only the retry test.
+
+**Tested, not seen.** No browser check was made. The Scheduler screen is behind the admin sign-in.
+
+### Fixed — the Scheduler screen's "Triggered ✓" confirmation no longer arms a timer nobody owns
+
+`SchedulerView`'s Run Now handler armed its dismiss timer *after* awaiting `triggerJob`, and its
+unmount cleanup cleared only the timers that already existed. `ManageView` renders the screen behind
+`activeTab === 'scheduler'`, so switching tab while the call was in flight unmounted it before any
+timer existed. The cleanup had nothing to cancel, and the continuation then armed a timer with no
+owner. This is the arm-after-await hole #809 closed in `ModelSelectionView`. #809 found this second
+instance too and left it for its own change. In jsdom such a callback can fire after teardown, and
+vitest fails the run on that unhandled error while still reporting every test as passing.
+
+A second leak lived in the same slot. The button is disabled only once a call resolves, so a
+double-click sends two calls. Each response armed a timer into the one
+`timerRefs.current[jobKey]` slot without clearing the previous id, and the cost was visible. The
+first response's timer ended the confirmation at 2 s, which re-enabled the button. The second
+response's timer was still pending, due at 2.5 s. A fresh Run Now pressed in that half-second had
+its confirmation wiped by it, well short of its own two seconds. The first timer, meanwhile, was out
+of the unmount cleanup's reach.
+
+**The fix is the repo's existing idiom, adapted per job.** Each job's button is now a small
+`RunNowButton` that owns its own `triggered` state and dismisses it from an effect keyed on that
+state — the shape of #809's success banner and `RegisterPage`'s cooldown. An effect never
+runs after unmount, so the arm-after-await window is gone and no `isMounted` guard is needed. #809's
+review rejected that guard as a pattern React discourages. A second response while the confirmation
+is showing sets `triggered` to the value it already holds. The effect's deps then compare equal, so
+it does not re-run, and there is only ever one timer per button. The `timerRefs` and
+`triggeredJobs` maps are both gone.
+
+**Seven tests.** Three fail against `main`'s component, each for the reason it names:
+
+- a timer still pending after an unmount mid-call
+- an orphan still pending after a double-click
+- a fresh confirmation wiped at 2.5 s
+
+The other four pin behaviour `main` already had right, so the new structure cannot regress it:
+
+- the delay: still showing at 1999 ms, gone at 2000 ms
+- the unmount cancelling a dismiss that is really pending
+- the error path
+- the confirmation staying on the job that was triggered
+
+**Mutated eleven ways, and ten are killed.**
+
+- Dropping the effect's cleanup.
+- A shorter delay and a longer one.
+- Empty deps.
+- An effect that never arms the dismiss.
+- Moving the timer back into the handler with no cleanup: four tests reject it. `main`'s own shape, which adds the unmount cleanup, fails the three above.
+- Dropping the disable-while-triggered.
+- Swallowing the error.
+- Dropping the poll interval's `clearInterval`, which the "nothing left on the clock" assertions also count.
+- Disabling the button while a call is in flight. This is a plausible follow-up rather than a bug, and it fails only the two double-click tests, whose premise it removes.
+
+The eleventh, dropping the effect's `!triggered` guard, **survives, correctly**. It only arms an
+idle timer that sets `false` to `false`, which the unmount then cancels, so it is an equivalent
+mutant.
+
+The timer tests run on a frozen fake clock rather than `shouldAdvanceTime`, which would charge real
+elapsed time against the window under test. Review found that a queued `mockReturnValueOnce`
+survives `vi.clearAllMocks()`, so a test that failed before consuming its deferred call handed that
+never-settling promise to the next test's click. The in-flight-guard mutant showed it: the
+unrelated error test failed. The block now resets the mock in `beforeEach` and releases any
+outstanding call in `afterEach`.
+
+**Tested, not seen.** No browser check was made for this change. Everything above is tested. The
+`RunNowButton` markup is unchanged from `main`'s button: the same classes, `data-testid`, text and
+`disabled` rule.
+
+### Removed — six optimisation strategies unable to act since v2.7.2, and the claims made for them
+
+The Run Config screen's **Cost Optimisation** panel listed eight toggles. A deliberate trace found
+that six of them had been unable to affect any run for five months, and that the panel never
+touched the scheduled batches at all.
+
+**What was dead, and how it got that way.** `SKIP_LOW_RATED`, `SKIP_EXISTING`, `FORCE_IMMINENT`,
+`FORCE_STALE`, `EVALUATE_ALL` and `NEXT_EVENT_ONLY` were evaluated only inside
+`OptimisationSkipEvaluator.shouldSkip`. They did act at first (V41, 2026-03-03), skipping slots on
+hand-started runs. v2.7.2 (2026-04-06) put that call behind `!triggeredManually`, deliberately:
+`SKIP_LOW_RATED` was dropping locations from an explicit Run Forecast. Every caller of that engine —
+the five `ForecastController` endpoints that reach it — passes `manual = true`, and its scheduled
+triggers had been retired on 2026-02-27, before the strategies existed. So from v2.7.2 none of the six
+could act on any path. They are removed, along with the evaluator, the never-built `BATCH_API`
+placeholder and every mutual-exclusion rule (the two survivors are independent). **V153** deletes
+their rows; because the enum values go in the same change and `strategy_type` maps through
+`@Enumerated(STRING)`, a row left behind would make Hibernate throw on read.
+
+**What stays, and what it actually does.** `SENTINEL_SAMPLING` and `TIDE_ALIGNMENT` are read straight
+from the enabled set, outside that guard, so they do act — on hand-started runs only: the
+Very-Short-Term, Short-Term and Long-Term runs on Job Runs, and Run Forecast on a map location.
+Scheduled batches, overnight and intraday, read neither: all five of their calls into
+`fetchWeatherAndTriage` pass `tideAlignmentEnabled = false`, and they have no sentinel phase. A
+hand-started run's rows are still served by `GET /api/forecast`, so what these toggles change can reach
+readers. The panel now says all of this on screen.
+
+**Claims corrected.**
+- `TIDE_ALIGNMENT` was labelled "Weather/Tide Triage", described as applying four checks, and said to
+  give a slot "a canned 1★ result". Weather triage runs unconditionally, the switch only adds the tide
+  check, and a tide-triaged slot is stood down with no rating at all. It is now "Tide Triage", and its
+  help text says each of those things.
+- The run confirmation dialog warned that "JFDI (Always Evaluate Today)" or "Next Event Only" would
+  override the reader's slot selection. That was never true: a deselected slot is excluded before any
+  strategy is consulted (`excludedSlots.contains(...) || … || shouldSkip(...)`), so no strategy could
+  bring one back — and after v2.7.2 none was consulted on these runs at all. The warning had no test.
+  It is gone. (It also named `FORCE_IMMINENT` "JFDI", which was `EVALUATE_ALL`'s label.)
+- CLAUDE.md's "active strategies snapshot on each job_run" is never written on a current path: all
+  five endpoints pre-create the run with a null snapshot, so the job_run holds no record of which
+  strategies a run used (the executor still logs them at INFO). CLAUDE.md now says so; the snapshot
+  itself is left as it is.
+
+**Fixed along the way.**
+- **A request body the server cannot read now returns 400, not 500 — app-wide.**
+  `GlobalExceptionHandler`'s catch-all turned `HttpMessageNotReadableException` into a 500 for any
+  malformed body, the same gap it had already closed for missing parameters. Retiring the enum values
+  made it reachable a new way: a stale client naming one sends a body that cannot be read. The
+  response message is fixed and nothing is logged, so caller-supplied content is neither echoed nor
+  written to the logs. Outbound read failures and server-side converter errors stay 500 — Spring wraps
+  them in other exception types.
+- **The sentinel threshold's buttons** fell back to 3 when no value was stored — Skip Low-Rated's
+  default. The sentinel's is 2, so the panel highlighted a threshold the run was not using. They also
+  now expose `aria-pressed`, and each strategy toggle has an accessible name and the scope note as
+  its description; before, a screen reader heard only "ON" or "OFF".
+- **Local dev no longer breaks on the retired rows.** It runs no migrations, so V153 never reaches a
+  local H2 database. `OptimisationStrategyService` now deletes the same explicit list at startup, then
+  fills any missing default row — so an existing local database also gains the `TIDE_ALIGNMENT` rows
+  the old seed never wrote.
+- ⚠️ **The startup delete is an explicit list, deliberately.** An earlier cut deleted "every type the
+  enum does not know". That runs on every start in every profile, and production sets
+  `validate-on-migrate: false`, so an older image redeployed against a database that had since gained
+  a newer type would boot and silently, permanently delete that type's rows. Review caught it before it
+  was pushed. Naming the retired types leaves an unknown one to fail loudly on read instead.
+
+**Verification.** V153 is proven against Postgres 17 by a Flyway-driven migration test (stop at V152,
+change a surviving row the way an admin would, apply V153, check every remaining row loads); that needs
+Docker, so it runs in CI only. The startup delete's SQL has its own test against H2, including the
+rollback case. Behaviours pinned by new tests were mutated out during development to confirm each
+test fails without them.
+
+### Changed — the Plan card's BEST BET / ALSO GOOD legend takes the handoff's own greens
+
+The matrix card's border legend now reads `#B6D49F` for BEST BET and `#8CA87A` at 600 for ALSO GOOD
+— the values every bundle from plan-matrix through map-tab-v2 that draws the Plan card specifies
+(`.lg.wb` / `.lg.wa`). It had shipped as `--color-badge-go` (`#A8C795`) and `--color-verdict-go`
+(`#8AAE72`) with no reason recorded anywhere; the pixel audit marked it open and the owner chose the
+handoff. ⚠️ "Every bundle" needs its qualifier: `temperature-scale` falls inside that range and
+draws no card — the second time that bundle has falsified an unqualified claim in this series.
+
+**Measured on the grounds a pick can actually occupy** — the legend inherits the card's verdict
+tint, resting, hovered and open, and ALSO never sits on a Poor card because the runner-up is
+suppressed there:
+
+| | before | after |
+|---|---|---|
+| BEST | 6.84–8.79:1 | 7.84–10.07:1 — up on every ground |
+| ALSO | 5.09–5.93:1 | 4.86–5.66:1 — ⚠️ down on every ground |
+| BEST vs ALSO | 1.34:1 | 1.61:1 — further apart |
+
+ALSO still clears AA, but its margin over 4.5:1 shrinks from 0.59 to 0.36 at a hovered Worth-it
+card. The first draft of this change gave BEST a before-and-after and ALSO only its floor, which
+presented the trade favourably by omission; an adversarial review caught it.
+
+**What it costs, and why it may be worth revisiting.** BEST BET used to read `#A8C795`
+*identically* on four surfaces — this legend, the popup's pick badge, `WindowPickDialog`'s kind
+label and the Map medallion. This moves the legend alone, so BEST now differs from the other
+three. The handoff specifies exactly that (its popup badge is `#A8C795`, and map-landing gives the
+medallion the same), so it is the design rather than drift — but it breaks a match the code had.
+And the codebase has turned this shade down once before: `.wf-seg-rating .wf-seg-btn.on` declines
+the handoff's `#B5CFA3` as "a difference nobody can see", and `#B6D49F` is 6.5 RGB units from it.
+ALSO GOOD was never one colour — its popup badge and dialog are `--color-badge-also` (`#B3BEEA`,
+blue) — and that split is unchanged.
+
+Verified in real headless Chromium, with the legend built inside real card ancestry so
+`background: inherit` resolved against a genuine verdict tint: BEST computes to
+`rgb(182, 212, 159)` at 700, ALSO to `rgb(140, 168, 122)` at 600, and the tint gradient is
+confirmed inherited (not just the base colour). The Map medallion and landing pick were probed as
+controls and are unchanged at `#A8C795` / `#8AAE72`. No test pins any of these colours; the
+legend's tests assert tag, text and `data-pick` only.
+
+### Docs — `PAST_WINDOW_DAYS`'s javadoc states the reasons it actually has
+
+The javadoc on `ForecastController.PAST_WINDOW_DAYS` justified keeping the list endpoint's two-day
+past window with two claims that had both stopped being true. "The strip keeps two dimmed chips"
+described the DateStrip, which has been retired. And "not zero, for a timezone reason" rested on
+`computeAutoSelection` picking the browser's *local* date, so a reader west of the UK could ask for
+T-1 — but it has read the UK calendar (`ukDateStr`) for some time, so both sides of that comparison
+are `Europe/London`. That left the javadoc's only "not zero" argument false, and a reader following
+it could reasonably have set the value to 0.
+
+⚠️ **That would have broken two things the frontend now depends on, neither visible from the
+backend.** The aurora night in progress is *yesterday's* date before dawn, and #803's
+`resolveMapDate` honours a selection naming that night only if the date is in the set this endpoint
+returns — so at zero the Map tab would silently fall through to today and lose its aurora viewline on
+the night the alert is about. And during a forecast outage, the past rows are what keep the client's
+date set non-empty, which is what keeps the Map tab reachable at all rather than withheld.
+
+⚠️ **The two need different depths, and the first cut of this javadoc said they didn't.** The aurora
+night needs exactly one day — the night in progress began at most yesterday. The outage case scales:
+the Map tab stays reachable for exactly `PAST_WINDOW_DAYS` days after the last forecast date passes,
+so each past day buys a reader who has been away one more day of the empty state instead of a missing
+tab. The first revision claimed both needed one day and called a reduction to 1 "a payload decision
+rather than a correctness one"; Codex caught it on #816 before it merged, pointing out that
+`allDates.length` is itself a reader that depends on the second day in a multi-day gap. The javadoc
+now says reducing the value is **not** correctness-neutral. It also records that
+`BriefingEvaluationController` shares the constant, so changing it moves both endpoints, and that
+`/history` is the ADMIN-only backtesting endpoint.
+
+No value changed.
+
+### Docs — the matrix-axis plan says it shipped
+
+`docs/engineering/matrix-axis-plan.md` still opened with **"Status: planned, not started"** twelve
+days after both of its phases merged. It now records that the series completed on 2026-08-30, the
+same day the plan itself landed (#707): Phase 1, the sunrise/sunset card chips, as #708
+(`37cc964f`), and Phase 2, the row rails and sticky headings, as #710 (`e540680d`).
+
+The same stale status was also held in the project's working notes, which is how it surfaced: a
+"what's next" survey nearly listed Phase 2 as outstanding work. A plan header is read as a
+statement about the code, so a wrong one is worse than a missing one — it invites a session to
+rebuild something that already exists. Checked against `gh` rather than against the prose.
+
+No other plan in `docs/engineering/` opens with a "planned, not started" header.
+
+### Fixed — the map's live aurora state no longer answers for a night it doesn't describe
+
+Two aurora sources feed the map and they are not the same kind of thing. Stored results are fetched
+per night, so they always describe the night on screen. The live scores come from
+`getAuroraLocations()`, which takes **no date parameter at all** — it is the NOAA-triggered state for
+the night in progress, fetched only while an alert is running. Read unconditionally, that live cache
+answered for whichever night the reader was looking at.
+
+Browse to a future night with no stored run during an alert, and four places carried *tonight's* live
+stars and narrative as though they were that night's: the rating (which falls back to the live cache
+after stored results), the aurora medallions, the "🏆 best location" card — naming tonight's best,
+with its star count and a "Centre map" button — and the Plan-tab overlay's aurora popup. The same
+class of defect as #803's stale-window ratings: a rating answering for a window it does not belong
+to, through a source with no date to check. Recorded as a known open item in #803's own entry.
+
+One named predicate, `liveAuroraOnScreen` (`nightDate === auroraNight`), now gates every read of the
+live cache, and the aurora viewline — the same live NOAA state, which was already gated on exactly
+this comparison — reads it too, so the scores and the viewline cannot come to disagree about which
+night is live. On any other night the medallions and the overlay's popup show that night's own
+**stored** result, and the card is withheld.
+
+⚠️ **The first cut withheld the popup's score instead, and Codex caught it.** `MarkerPopupContent`
+reads a null aurora score as "Not suitable for aurora photography", so on a non-live night a
+medallion wearing that night's stored 4★ opened a popup denying the night outright — swapping wrong
+data for a false negative. The popup now takes exactly the answer the medallion does, so the two
+agree on every night. The stored record carries no `cloudPercent`, which the popup's PropTypes marked
+required despite never rendering it; that contract was relaxed — a documentation fix only, since
+React 19 does not run propTypes at runtime (measured: an omitted required prop warns nothing).
+
+⚠️ **And a second Codex pass found stored results could answer for the wrong night too.** The
+stored-results fetch had no cancellation and never cleared on a night change, so two things could
+put one night's stars on another: a **stale window** (switch A → B and, until B's request resolved,
+A's results were still on hand) and a **late response** (A's request finishing after B's wrote A's
+stars in as B's, where they stayed until the next selection). Both predate this change, but it newly
+surfaced them — the medallions and popup now read stored results on every non-live night. The effect
+now clears on every change and drops any response whose night is no longer on screen, the same
+fetch-cancel shape the file's multi-date preview effects already use. Each half is pinned by its own
+test and fails on its own when reverted. ⚠️ The stale-window test's first form asserted on
+`markerLabelAndColour` and passed with the fix deleted: `makeMarkerIcon`'s module-level cache is keyed
+on the rating, so night B showing A's stale 4 reused A's cached icon and the spy was never called. It
+asserts the marker **count** instead, which that cache cannot fool.
+
+⚠️ **The astro twin is NOT fixed here.** The single-night astro fetch is structurally identical and
+has the same race. It is outside this change's scope — nothing here touches the astro path — and is
+named so it reads as a known open item rather than something overlooked.
+
+⚠️ **Tonight is untouched at every reader.** Where the night on screen *is* the night in progress,
+each reader keeps the precedence it had — the rating stored-first, the medallions and popups
+live-only. That those differ on tonight is pre-existing and a separate question (which source is
+authoritative while both exist); this change only stops the live cache answering for a night it was
+never about.
+
+⚠️ **The overlay is gated too**, unlike #803's solar gate, and deliberately. That exemption rested on
+structure — the overlay builds no EV list for a solar-row predicate to consult. Nothing comparable
+applies here: `nightDate` and `auroraNight` are both fully defined on the overlay, and showing
+tonight's aurora for another night is wrong on any surface. It changes nothing on the night the
+overlay's aurora is normally reached, via the banner, which is the night in progress.
+
+⚠️ **The first test harness made the whole suite meaningless, and the controls are what caught it.**
+Aurora mode requires a live alert (`active: true`) or a stored run; without either, `MapView` enters
+aurora mode and immediately bounces back to SUNSET. The harness omitted `active`, so every aurora
+surface rendered nothing on *any* night — the three "withheld on another night" tests passed
+trivially while all four "shown tonight" controls failed. Mutation testing then found three more
+blind spots: a second guard on the medallions that could never fire (inlined rather than kept); a
+popup negative that was vacuous, because a popup renders only inside a visible marker and there was
+none; and a predicate keyed on `date` rather than `nightDate` that passed everything, because every
+case had the two equal. A test now reaches the one case that separates them — a night the window
+control keeps local — and pins the viewline there too, whose own comment records `date ===
+auroraNight` as a real shipped bug that no test had ever distinguished. Ten mutants, all killed.
+
+### Fixed — the map's astro scores answer for the night they were fetched for
+
+The single-night astro fetch had the race #814 fixed in the stored-aurora fetch beside it — the
+"astro twin" that #814's own entry named as a known open item. Its scores answer for one night, and
+every astro reader takes them as the night on screen's: the rating accessor (and through it the
+tab's pins, labels, callout and counts), the astro heat field, and both overlay popups. One night's
+stars could stand in for another's two ways: a **stale window** (switch night A → B and, until B's
+request resolved, A's scores were drawn as B's) and a **late response** (A's request finishing after
+B's wrote A's stars in as B's, where they stayed until the next selection).
+
+The effect now takes #814's shape exactly: it clears on every night or mode change, before the new
+request is made, and a `cancelled` flag drops any response — or failure — whose night is no longer
+the one on screen.
+
+⚠️ **While B loads, the tab says nothing is rated for it — and one surface says so too firmly.** It
+is what first entry into astro mode already showed, until B's answer lands: in Heat view the "This
+event is not scored yet" line and, with a location selected, the callout's "Not scored yet" — which
+can sit beside a strip cell already showing B's star from the window control's preview. The
+callout's own rule is "Loading…" while a fetch is in flight, but its flag follows the solar fetch
+alone, so an astro night step now reads "unscored" for one round trip where it used to show the
+previous night's star. #814 left the same gap on the aurora side. A night-aware loading state for
+both is a follow-up, not part of this change.
+
+Pinned by three tests in `MapViewAstroNightFetch.test.jsx`, each asserting a marker count rather
+than a `markerLabelAndColour` spy — `makeMarkerIcon`'s module-level cache is keyed on the location
+and its rating among other things, so a stale 4★ can reuse a cached icon and never reach the spy.
+⚠️ **The third goes past #814's pair on purpose.** A late *failure* for night A ran the unguarded
+`.catch`, which cleared night B's scores after B had answered, and neither of the other two tests
+reaches that branch. Mutation-checked: reverting the clear fails only the stale-window test;
+reverting the cancellation fails the late-response and late-failure tests; dropping the `.then`
+guard alone fails only the late-response test, the `.catch` guard alone only the late-failure test,
+and the cleanup both; and the pre-fix effect fails all three. ⚠️ **Each test settles its late
+request inside an *async* `act`, and that is load-bearing — measured:** with a synchronous `act`,
+both late tests pass with their guard deleted, because the late write lands after `act` has returned
+and is never committed before the assertion.
+
+### Fixed — the codebase's accessible-name comments now say what browsers actually do
+
+An audit of the frontend's `{' '}` separators found the comments explaining them mostly wrong, in
+three distinct ways — and found my own v2.20.4 correction wrong about its mechanism. Comments only:
+the production bundle is byte-identical to `main`'s.
+
+**The rule**, measured in Chromium, WebKit and Firefox at 1280px and 375px against the real
+stylesheet, by removing separators one at a time from DOMs captured from the components' own
+tests, with positive controls that had to glue and no disagreement between engines or widths: a
+separator matters only between plain `display: inline` content — inline elements or text runs.
+There it changes the accessible name, or the text a screen reader reads aloud where the element
+has no name. Next to a block, a flex or grid item, an atomic inline (`inline-block`/`-flex`/
+`-grid`) or an absolutely positioned element such as `sr-only`, the engine supplies the space
+itself. Text, an `aria-hidden` element, then text, inside a block parent, also glues.
+
+**Limits, stated because both bit.** A separator in a state no test renders was not measured, and
+nor was any separator followed directly by text — the capture could not isolate one, because the
+two merge when a DOM is re-parsed. Review found a site of the second kind: `MapBreadcrumb`'s
+window label ("Tonightsunset"), which the rule predicts and this change now marks load-bearing.
+
+**Three false beliefs, corrected where they were stated:**
+
+- *"Load-bearing"* on separators the engines space anyway — between flex, grid or `inline-flex`
+  items in `WindowControl` (twice, and its test), `MapBreadcrumb` and `WindowComingUpConditions`'
+  cells, and beside an absolutely positioned `sr-only` span in `MapCallout`.
+  `WindowControl`'s worry that breakpoint rules make these volatile was checked: three rules do
+  hide or reposition parts of the control, but none changes `.wf-win-pill`'s own `display: flex`.
+- *"Accname trims each element's contribution"* — true of jsdom's `dom-accessibility-api`, false of
+  every browser: `<span>Plan </span><span>Map</span>` reads "Plan Map". Corrected in
+  `WindowControl`, `MapCallout`, `MapBreadcrumb`, `MapLandingCard`, `LocationFourDaySheet`,
+  `WindowRowFieldMap` and the handoff row.
+- *"A pseudo-element is not in the accessibility tree"* (`MapCallout`, `MapBreadcrumb`) — generated
+  content is in the name; even `content: " "` separates words.
+
+`WindowFirstHeatStrip` held the inverse error — that name-from-contents over its flex and grid
+spans would glue in a browser. Its visible spans carry no separators and read "SUNSET 21:11 Worth
+it Spread Best nothing in reach" in all three engines. Its `sr-only` sentence is still right, and
+its comment now gives the real reason: a day word, pauses, and no stray chart label. A test in
+`jobRunSlotDatesAbroad` called jsdom's "🌅 Sunrise(past)" how the label "really reads"; a browser
+reads "🌅 Sunrise (past)".
+
+**Why the suite disagrees with browsers — corrected for the second time.** The polyfill applies the
+browsers' own `display` rule, but reads `display` from jsdom, which has no layout engine: it never
+blockifies a flex or grid item or an absolutely positioned element, so those read as `inline` even
+with a stylesheet loaded, and this suite loads none (`css: false`). v2.20.4 said the polyfill
+glues regardless of layout, which is wrong — and the difference is not simply the missing
+stylesheet either, since loading one would not blockify a single flex item. v2.20.4 also said the
+Coming up card blockifies everything that carries text — false whenever a tide chart renders.
+
+**The load-bearing separators were the uncommented ones.** `WindowComingUpConditions`' name and
+cadence ("Coastal tidesdeterministic"), the tide chart label ("5.2 m+1.9 vs avg"), `RegisterPage`'s
+terms checkbox ("…Conditions andPrivacy Policy") and `MapBreadcrumb`'s window label carried no note,
+while the warnings sat on inert separators — so the comments pointed the wrong way for anyone
+deciding which ones matter. Each now says so, and `WindowFirstComingUpHandoff`'s class doc carries
+the rule in full. No separator was removed.
+
 ### Fixed — a tide-gated window now says why it has no score, instead of wearing its region's prose
 
 Seaham Chemical Beach, Saturday 19 September sunrise: every neighbour rated 4★, Seaham "Not
