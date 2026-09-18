@@ -24,3 +24,7 @@ The kernel is unchanged from the Map tab v2 bundle. **Do not re-port or re-tune 
 axis is already **time-based** (`TideService.classifyTideState`, `TideFactDeriver`,
 `BriefingGatingPolicy`, `TideVisitor`) and pinned across surfaces by `TideSurfaceAgreementTest`, so the
 level-based fit is not ported at all — plan §1 #2 and §4 #2 say why.
+
+The plan's own §4 (disagreements with the spec, on purpose) closed at **18** numbered entries once
+all eight phases (T1–T8) had landed — each phase appended its own as it built, and T8's sweep
+re-verified all 18 against the shipped code rather than renumbering any of them.
