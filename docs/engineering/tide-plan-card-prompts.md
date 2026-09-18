@@ -85,7 +85,7 @@ defaulting to REFUTED without citable evidence, then a synthesis. Review agents 
 > ASC`, `bestKey` null unless `liveCount > 1`, away/unserved cards never live. **Nothing reads a level,
 > an offset or a threshold**; the only number compared is the served quality, for ranking.
 >
-> Tests per C1 #4, mutation-sensitive — the gate at each edge, `meanOffsetMinutes` over matched only,
+> Tests per C1 #4, mutation-sensitive — the gate at each edge, `meanQuality` over matched only,
 > the spec's own tie case (three live windows matching the same nine; the highest mean quality wins,
 > not the first — §7 #3), and §7 #9 (`coastal + inland == pool.length`, and `card.tide` untouched). Gate on exit codes: `npm run
 > lint && npm test && npm audit --audit-level=high && npm run build`. Adversarial review per CLAUDE.md
