@@ -23,6 +23,9 @@ import {
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { leaveBy } from '../utils/leaveBy.js';
+import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
+import { tideRun } from '../utils/windowFirstTideRun.js';
+import TideWave from './map/TideWave.jsx';
 
 /**
  * The thumbnail frame's aspect clamps.
@@ -159,7 +162,7 @@ function starsSpoken(rating) {
  *
  * @param {object} card the thumbnail descriptor
  * @returns {{rating: ?number, label: ?string, value: string, muted: boolean, title: ?string,
- *          spoken: string}} what to draw and what to say
+ *          tideAligned: boolean, spoken: string}} what to draw and what to say
  */
 export function bestReachLine(card) {
   const best = card?.bestReach ?? null;
@@ -169,19 +172,31 @@ export function bestReachLine(card) {
     // Only the parts that exist: a user with no postcode has no drive and no leave time, and a
     // title reading "Region · · leave " is worse than a title naming the region alone.
     const parts = [best.regionName, drive, leave ? `leave ${leave}` : null].filter(Boolean);
+    // The preference-axis glyph (tide-plan-card-plan.md §3 C2 task 1) — `bestReach.tideAligned`
+    // alone, `=== true` so a miss (`false`) and an inland spot (`null`) both read as no mark. Never
+    // `tideOnTheLight`'s timing question — the two-tide-axes rule (§1 #6, §4 #3). A miss is
+    // silent: no glyph, no tooltip clause, no spoken clause, anywhere below.
+    const tideAligned = best.tideAligned === true;
+    const tideStateWord = tideAligned ? STATE_WORD[best.tideState] : null;
+    const titleParts = [...parts];
+    if (tideAligned && tideStateWord) titleParts.push(`${tideStateWord} — the water it wants`);
     return {
       rating: best.rating,
       label: null,
       value: best.locationName,
       muted: false,
-      title: parts.join(' · ') || null,
+      title: titleParts.join(' · ') || null,
+      tideAligned,
       // ⚠️ THE SAME PARTS THE TITLE CARRIES, joined for speech rather than for a tooltip. A `title`
       // on a non-focusable span inside a button named by `aria-labelledby` reaches nobody: not the
       // accessible name, not touch, not the keyboard. Leaving the region, the drive and the
       // departure there alone would make the one figure on this card a photographer actually acts
       // on — when to leave — pointer-only, which is the "number with no route to the thing it
-      // counts" defect CLAUDE.md already records against Close-to-home.
-      spoken: [`best ${best.locationName}`, starsSpoken(best.rating), ...parts].join(', '),
+      // counts" defect CLAUDE.md already records against Close-to-home. The tide clause rides the
+      // same list for the same reason: `.wf-hc-pls` is `aria-hidden` (§1 #2), so this sentence is
+      // the ONLY route the glyph's claim has to a screen reader.
+      spoken: [`best ${best.locationName}`, starsSpoken(best.rating), ...parts,
+        ...(tideAligned ? ['the tide is right here'] : [])].join(', '),
     };
   }
   const empty = (card?.pool?.length ?? 0) === 0;
@@ -197,10 +212,40 @@ export function bestReachLine(card) {
     value: empty ? emptyWord : 'not scored yet',
     muted: true,
     title: null,
+    tideAligned: false,
     // Both forms keep the visible label's own word, so WCAG 2.5.3's label-in-name holds for a
     // speech-input user reading "Best" off the row.
     spoken: empty ? `best, ${emptyWord}` : 'best, not scored yet',
   };
+}
+
+/**
+ * The tide chip's tooltip — the reach-scoped count and how well served, the run size, and whether
+ * this is the one to take (tide-plan-card-plan.md §3 C2 task 2).
+ *
+ * <p>The state phrase reads the served WINDOW tide (`card.tide.state`/`.direction`, through the
+ * same {@link STATE_WORD}/{@link DIRECTION_WORD} tables `windowFirstRows.js` exports) — never a
+ * level or a threshold computed here (§4 #1/#2). "In reach" only when {@code card.reachMeasured}
+ * (§1 #11); the run clause only when more than one window is live; the "most of any of them"
+ * clause only on the ranked best.
+ *
+ * @param {object} card the thumbnail descriptor
+ * @param {{matched: number, coastal: number}} fit the card's tide-fit summary
+ * @param {number} liveCount how many windows in the run are live
+ * @param {boolean} isBest whether this window is the run's ranked best
+ * @returns {string} the tooltip text
+ */
+function tideChipTooltip(card, fit, liveCount, isBest) {
+  const state = STATE_WORD[card?.tide?.state];
+  const direction = DIRECTION_WORD[card?.tide?.direction];
+  const stateClause = [state, direction].filter(Boolean).join(', ');
+  const reachWord = card?.reachMeasured ? ' in reach' : '';
+  const head = `${fit.matched} of ${fit.coastal} coastal locations${reachWord} get the water they want`
+    + (stateClause ? ` — ${stateClause}` : '');
+  const clauses = [head];
+  if (liveCount > 1) clauses.push(`${liveCount} windows in this run are live`);
+  if (isBest) clauses.push('the most of any of them');
+  return clauses.join(' · ');
 }
 
 /**
@@ -526,6 +571,12 @@ export default function WindowFirstHeatStrip({
   const matrix = useMemo(() => buildWindowMatrix(cards, todayStr), [cards, todayStr]);
   // Indexed once for the whole matrix rather than scanned per card — `buildTopicIndex` records why.
   const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
+  // The tide run across the WHOLE strip — which cards are live, and which of them is the one to
+  // take (tide-plan-card-plan.md §3 C1 task 3). Computed once here, over the served, non-away
+  // cards, rather than per card: `tideRun` itself ranks across the strip, so a per-card call would
+  // either recompute the same answer six times or, worse, six different ones if a card's own list
+  // slipped out of strip order.
+  const run = useMemo(() => tideRun(cards), [cards]);
 
   /**
    * Everything each card derives from its own pool, computed once per render rather than inline.
@@ -544,6 +595,21 @@ export default function WindowFirstHeatStrip({
       // answers "could the tier have acted", and it is the same field `bestReachLine` reads for its
       // own empty word, so the tooltip and the visible line agree by construction.
       const withinReach = pool.length === 0 ? Boolean(card.reachMeasured) : poolWithinReach(pool);
+      // The card's tide-fit chip, or null below the gate — `card.tideFit.live` alone, never a
+      // second read of the gate's own thresholds (tide-plan-card-plan.md §3 C2 task 2). `isBest` is
+      // this card's key against the strip-wide `run.bestKey`, so the emphasis and `best of N` can
+      // only ever land on the one window `tideRun` ranked first.
+      const isBest = run.bestKey === card.key;
+      const tideChip = card.tideFit?.live ? {
+        matched: card.tideFit.matched,
+        isBest,
+        liveCount: run.liveCount,
+        tooltip: tideChipTooltip(card, card.tideFit, run.liveCount, isBest),
+        // The accessible-name clause (§1 #2): `.wf-hc-tps` is `aria-hidden`, so this string is the
+        // chip's only route to a screen reader — the same discipline `bestReachLine`'s `spoken`
+        // already keeps for the glyph.
+        accessible: `${card.tideFit.matched} on tide${isBest ? `, best of ${run.liveCount}` : ''}`,
+      } : null;
       byKey.set(card.key, {
         spread,
         bars: spreadBars(spread),
@@ -551,10 +617,11 @@ export default function WindowFirstHeatStrip({
         withinReach,
         best: bestReachLine(card),
         topics: windowTopics(card.key, card.badges, topicIndex, scopeNames),
+        tideChip,
       });
     }
     return byKey;
-  }, [cards, topicIndex, scopeNames]);
+  }, [cards, topicIndex, scopeNames, run]);
 
   /**
    * The windows the payload says carry no rating at all.
@@ -937,6 +1004,11 @@ export default function WindowFirstHeatStrip({
       // face still says "nothing in reach", and "nothing is scored" is a different claim from
       // "nothing is reachable".
       .concat(card.away || (notScored && poolTotal > 0) ? [] : [facts.best.spoken])
+      // The tide chip's clause (tide-plan-card-plan.md §3 C2 task 2) — DOM order: the best-reach
+      // row's own tide clause lands just above, and this one sits where the chip itself sits, first
+      // in the topics line. Absent whenever the chip is (below the gate, or away), never a separate
+      // predicate from the one that gates the visible chip.
+      .concat(card.away || !facts.tideChip ? [] : [facts.tideChip.accessible])
       .concat(card.away ? [] : facts.topics.map((t) => t.badge.label).filter(Boolean))
       .concat(card.pickKind === 'best' ? ['best bet'] : [])
       .concat(card.pickKind === 'also' ? ['also good'] : [])
@@ -1025,7 +1097,7 @@ export default function WindowFirstHeatStrip({
             </span>
           </span>
         )}
-        <span className="wf-hc-pls" aria-hidden="true">
+        <span data-testid="wf-heat-value-grid" className="wf-hc-pls" aria-hidden="true">
           <span data-testid="wf-heat-time" className="wf-hc-t">{card.time}</span>
           <span className="wf-hc-pv">
             <span
@@ -1094,12 +1166,39 @@ export default function WindowFirstHeatStrip({
                   className={`wf-hc-best${facts.best.muted ? ' none' : ''}`}
                   title={facts.best.title ?? undefined}
                 >
+                  {/* The preference-axis glyph (tide-plan-card-plan.md §3 C2 task 1) — the pick is
+                      chosen on score, so a miss draws nothing here: no glyph, no recolour of the
+                      name. `.wf-hc-pls` is `aria-hidden`, so the claim reaches a screen reader only
+                      through `facts.best.spoken`'s own clause, never an `sr-only` span in this
+                      subtree (§1 #2). */}
+                  {facts.best.tideAligned && (
+                    <TideWave className="wf-hc-best-tw" testId="wf-heat-best-tide" />
+                  )}
                   {facts.best.value}
                 </span>
               </span>
               {/* Reserved even when empty, so a topic-free card's rows land on the same baselines
                   as its neighbours' — the design's own reason. */}
               <span data-testid="wf-heat-topics" className="wf-hc-tps">
+                {/* The tide chip (tide-plan-card-plan.md §3 C2 task 2) — first in the line, as the
+                    spec places it, by DOM order (§1 #4). A client-derived mark rather than a served
+                    badge, so it is its own element rather than a member of `facts.topics`. Silent
+                    below the gate: no greyed chip, no zero (§2). */}
+                {facts.tideChip && (
+                  <span
+                    data-testid="wf-heat-tide-chip"
+                    data-channel="tide"
+                    className="wf-hc-tw wf-hc-tide"
+                    data-best={facts.tideChip.isBest || undefined}
+                    title={facts.tideChip.tooltip}
+                  >
+                    <TideWave />
+                    {`${facts.tideChip.matched} on tide`}
+                    {facts.tideChip.isBest && (
+                      <em className="wf-hc-tide-best">{`best of ${facts.tideChip.liveCount}`}</em>
+                    )}
+                  </span>
+                )}
                 {facts.topics.map(({ badge }) => (
                   <span
                     key={`${badge.type}:${badge.label}`}

@@ -2134,6 +2134,54 @@ button.wf-hc.on:hover {
 .wf-hc-tw[data-channel="nlc"] { color: var(--color-badge-nlc); }
 .wf-hc-tw[data-channel="aurora"] { color: var(--color-badge-go); }
 .wf-hc-tw[data-channel="snow"] { color: var(--color-badge-snow); }
+/* The tide chip (tide-plan-card-plan.md §3 C2 task 3) — a sibling of the served topic chips above,
+   sharing `.wf-hc-tw`'s type, clip and `[data-channel="tide"]` ink, with its own flex layout so the
+   glyph and the two text runs sit on one baseline. */
+.wf-hc-tide {
+  color: var(--color-badge-tide);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The one live window a run's `best of N` names — the spec's own rule (§4 #4, §5 rejected note):
+   the SAME element, louder, never a third tide hue and never a new badge. Weight and a hairline
+   pill on the existing `--color-badge-tide`, exactly as the arm's other emphasis treatments do. */
+.wf-hc-tide[data-best] {
+  font-weight: 700;
+  padding: 1px 8px;
+  margin: -1px -2px;
+  border-radius: 999px;
+  background: rgba(111, 168, 176, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(111, 168, 176, 0.42);
+}
+.wf-hc-tide-best {
+  font-style: normal;
+  font-weight: 600;
+  padding-left: 6px;
+  margin-left: 1px;
+  border-left: 1px solid rgba(111, 168, 176, 0.45);
+}
+/* The glyph before the best-reachable spot's name (tide-plan-card-plan.md §3 C2 task 1) — smaller
+   than its own viewBox, the same "13×7 from a 14×8 box" convention `.wf-maplab-chip-tw` and
+   `.wf-reg-tide` already draw. `--color-badge-tide`, not `--color-tide`: this is small text-weight
+   ink beside a name, the same reasoning that already governs every other small tide mark on this
+   card (the chip above).
+
+   ⚠️ `display: inline-block`, found missing by adversarial review. `.wf-hc-best` is a plain
+   `display: block` span (never a flex row, unlike `.wf-maplab-chip`, which is what lets
+   `.wf-maplab-chip-tw` skip this), and Tailwind's preflight sets `svg { display: block }`
+   (`TideWave.jsx`'s own doc comment). Left at the default, the glyph would be its own block box —
+   dropping onto a line above the name rather than sitting before it, and making `vertical-align` a
+   no-op. `.wf-reg-tide` (a near-identical "glyph before a name inside a block/nowrap span" case)
+   already carries this same rule for the same reason — copied here rather than rediscovered. */
+.wf-hc-best-tw {
+  display: inline-block;
+  width: 13px;
+  height: 7px;
+  margin-right: 5px;
+  vertical-align: 1px;
+  color: var(--color-badge-tide);
+}
 /* ── The pick, riding the border ──────────────────────────────────────────────────────────────
    One card is bordered green (best bet) and one lightly (also good), and the word sits IN the
    border line as a fieldset legend does. That is what stops it competing with the verdict word for
