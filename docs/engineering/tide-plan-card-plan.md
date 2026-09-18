@@ -34,7 +34,9 @@ depends only on the **served** fields T1 (#877) and T2 (#876) landed (§1 #1).
 ## §0 Status
 
 **Status: PLANNED — no phase started.** Plan written 2026-09-17 against `origin/main` at `0f9273ca`
-(#878). Owner decisions this plan needs are listed in §6; **none blocks any phase** — §5 takes the
+(#878); re-checked 2026-09-18 against `de396bd2` after the tide-window series' T4–T7 merged (#879–#882) —
+nothing this plan builds on moved: the served `BriefingSlot.TideInfo`/`BriefingWindowTide` fields are
+unchanged, and T4–T7 touched the Map tab only. Owner decisions this plan needs are listed in §6; **none blocks any phase** — §5 takes the
 spec's two OPENs that would, and the owner challenges §5 on the plan PR, not in code.
 
 Phase log (C1 creates the first row; every phase appends its own in the same commit as its code —
