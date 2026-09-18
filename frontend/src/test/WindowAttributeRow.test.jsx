@@ -118,3 +118,49 @@ describe('WindowAttributeRow', () => {
     expect(screen.getByTestId('window-attribute-row').textContent).not.toContain('→');
   });
 });
+
+describe('WindowAttributeRow — extraFacts', () => {
+  // tide-plan-card-plan.md §3 C3: the popup's one client fact (the reach-scoped coastal-pool
+  // count) reaches this row through its own `extraFacts` prop, never through `row.facts` — that
+  // list is a pure map of the SERVED payload (`buildWindowRows`), and mixing client-derived data
+  // into it would make a later reader of either file unable to tell served fact from client fact.
+
+  it('appends extraFacts after the served facts, in the same order given', () => {
+    render(<WindowAttributeRow row={tideRow()} extraFacts={[
+      { segments: [{ text: '9 of 14 coastal locations in reach on tide', tone: 'base' }] },
+    ]}
+    />);
+
+    const texts = screen.getAllByTestId('window-attribute-fact').map((f) => f.textContent);
+    expect(texts).toEqual([
+      'mid tide,falling',
+      'HW 19:28 ·1h43 before sunset',
+      'seas 0.3 m · smooth',
+      '4.9 m · 1.2 m above an average tide · at Whitby',
+      '9 of 14 coastal locations in reach on tide',
+    ]);
+  });
+
+  it('renders nothing extra for an empty extraFacts array', () => {
+    render(<WindowAttributeRow row={tideRow()} extraFacts={[]} />);
+
+    expect(screen.getAllByTestId('window-attribute-fact')).toHaveLength(4);
+  });
+
+  it('renders nothing extra when extraFacts is omitted entirely', () => {
+    render(<WindowAttributeRow row={tideRow()} />);
+
+    expect(screen.getAllByTestId('window-attribute-fact')).toHaveLength(4);
+  });
+
+  it('carries the base tone through to the fact\'s segment, with no emphasis of its own', () => {
+    render(<WindowAttributeRow row={tideRow()} extraFacts={[
+      { segments: [{ text: '9 of 14 coastal locations on tide', tone: 'base' }] },
+    ]}
+    />);
+
+    const facts = screen.getAllByTestId('window-attribute-fact');
+    const last = facts[facts.length - 1];
+    expect(within(last).getByText('9 of 14 coastal locations on tide').dataset.tone).toBe('base');
+  });
+});
