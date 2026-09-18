@@ -583,8 +583,15 @@ should challenge these **in review**, not silently "fix" them in code.
    (rank by top-region average, chronology tie-break, `AlsoGoodFloor` on the runner-up). **What this
    costs**, stated rather than hidden: the two picks are guaranteed to differ in *window* but not in
    *region*, so the Map tab can show Best bet and Also good naming the same region on two nights —
-   which the spec's both-differ rule exists to prevent. That is a **backend** change to
-   `selectPicks` if the owner wants it, and it would move the Plan tab too. §6 Q5.
+   which the spec's both-differ rule would forbid. ✅ **§6 Q5 decided (2026-09-11) to keep it that
+   way, on a production measurement.** The repeat turned out common (10 of 21 two-pick builds), but
+   forcing it apart would have *removed* ALSO GOOD in 8 of those 10 rather than naming a second
+   place. ⚠️ And the spec's own words argue less than this entry once implied: its stated rationale
+   is *"two picks on the same night are one pick, hence the both-differ rule"* — a case about the
+   WINDOW, which `selectPicks` rules out by construction. The spec asserts the region half without
+   arguing it; the rule was written for a candidate space of `(window, region)` pairs, where two
+   picks could share a night, and this app ranks windows. Pinned by
+   `picksMayNameTheSameRegion`.
 3. **Pill layout: the invariant is "constant per frame", and L2 changed the mechanism that delivers
    it.** ⚠️ **This entry was rewritten at L2 — its first form said "fixed width, not shrink-to-fit"
    and that is no longer what the code does.** #773 held the pill at a fixed 262px derived from the
@@ -1332,8 +1339,24 @@ Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open 
   (L7 step 2): `mapVerdict`'s tally, `mapLanding`'s `allPoor` and `nextWorthIt`, and
   `mapDrilldown.buildPanelRegionRows`' counts. `plan-panel-data-contracts.md` §10 records why the
   contract is warranted in principle and was deliberately not built.
-- **Q5 — Should the two picks be forced to differ in region?** A backend change to
-  `PlanWindowProjector.selectPicks` that would move the Plan tab too. §4 #2.
+- **Q5 — Should the two picks be forced to differ in region? ✅ DECIDED 2026-09-11: no — leave
+  `selectPicks` as it is.** Decided on a production measurement rather than on argument
+  (`scripts/measurements/pick-region-repeat/`, whose README carries the full result and its limits).
+  Over 39 builds, 21 carried two picks and **10 of those named the same region twice (47.6%)** — so
+  the repeat is common, not a curiosity. But forcing a different region would have replaced the
+  second pick in only **2** of those 10 and **removed it outright in 8**: the best *different* region
+  was below `AlsoGoodFloor`'s 3.0 floor (2.2–2.7★), a full star behind, or absent. The spec's rule
+  would therefore have deleted ALSO GOOD from ~40% of the builds that had one, to avoid repeating a
+  region's name — and the only two builds where it found an alternative sit exactly on the floor's
+  inclusive 0.5 gap, where the snapshot table's 1dp rounding can flip them too. Three reasons
+  settled it: the spec's own rationale (*"two picks on the same night are one pick"*) argues only
+  the **window** half, which ranking windows already guarantees; enforcing the region half discards
+  a genuine second window rather than choosing honest silence over a padded one, which is the trade
+  `AlsoGoodFloor` exists to make; and a reader who wants a different *place* already has the
+  drilldown — the same answer Q3 gave to "but which is nearest". ⚠️ **Pinned so it cannot be
+  "fixed" back to the spec**: `PlanWindowProjectorTest.picksMayNameTheSameRegion` holds a region a
+  both-differ rule would promote, and mutation-testing it showed it is the only test in the suite
+  that notices the rule being added. §4 #2.
 - **Q6 — Curated region short names** (`map-tab-v2-plan.md` **O-4**). **STILL OPEN, and the
   increment added two more surfaces to it.** The pill's 9px region line was the first place the full
   names visibly truncate; the drilldown's window-panel rows and the region panel's own header are
@@ -1376,7 +1399,7 @@ Report **numbers, not screenshots**. Each row names the phase that owns it.
 |---|---|---|---|
 | 1 | Filters do not move the verdict; scope does | L2 | Read the pill's word and region from the DOM; change min rating, reach, subject, dark-sky in turn; assert string equality each time. Then flip `heatArea` and assert inequality on a fixture where the area and the catalogue have different top regions. |
 | 2 | Three region-label cases render | L2 | Force one-region, several-region and all-region states; assert `the Lakes`-shaped, `<name> +2` and the §4 #7 three-way "everywhere" string. **The third regressed in the design.** |
-| 3 | Picks | L1/L2 | Solar rows only carry `pick`; the two picks differ in window; no pick below the served floor. ⚠️ The both-differ-in-**region** assertion is **not** made — §4 #2 says why. |
+| 3 | Picks | L1/L2 | Solar rows only carry `pick`; the two picks differ in window; no pick below the served floor. ⚠️ The both-differ-in-**region** assertion is made in the **opposite** direction since Q5 was decided: `picksMayNameTheSameRegion` pins that the two picks MAY share a region, with a fixture a both-differ rule would answer differently. §6 Q5. |
 | 4 | The control is one row at three widths | L2 | `getBoundingClientRect()`: next stepper's `right` < Regions chip's `left` at 1280/834/390; `.wf-win-label`'s `scrollWidth === clientWidth`; `getComputedStyle(glyph).fontSize !== '0px'` at 390. |
 | 5 | The card survives the map | L4 | With it open: pan, zoom, wheel, ground click — assert still in the DOM. Then close ✕, `Escape`, row-select — each removes it. Assert the reopen row exists and reopens with the identical header string. |
 | 6 | The card cannot contradict itself | L4 | All-Poor fixture: both rows' verdict text is `Poor`; the "next up" window's index is strictly greater than both rows' indices and its tier is `WORTH_IT`; no pick line names an index below row 1. ⚠️ **The third clause cannot be checked on this fixture** — the all-Poor branch withholds every pick line by design, so it is vacuous here and is pinned separately in `MapLandingCard.test.jsx` on a non-Poor fixture. ⚠️ And the second clause needs rows that are **not contiguous** to have teeth: `landingRows` skips unserved and away windows, so put one between the two rows or "strictly later than the last" and "strictly later than the first" give the same answer. |
