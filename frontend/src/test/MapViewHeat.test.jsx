@@ -856,7 +856,18 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
 });
 
 describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', () => {
-  /** A slot with a served tide state — `tideAligned` toggles which tier it reads as. */
+  /**
+   * A slot with a served tide state — `tideAligned` toggles which tier it reads as.
+   *
+   * ⚠️ The `evaluationGate` parameter is a GENERIC fixture, not a live tide-gate claim: production
+   * no longer produces one for tide (the tide gate lift, 2026-09-18,
+   * docs/engineering/tide-window-plan.md §6 Q1, emptied `BriefingGatingPolicy
+   * .HARD_CONSTRAINT_REASONS`, so a mismatched tide now reaches Claude and scores through
+   * `TideVisitor` instead of being withheld). Callers below that pass a non-null gate are still
+   * exercising a real client behaviour — a cache row built before the lift, still served until it
+   * ages out, or any future hard constraint the mechanism might gate again — kept as fixtures for
+   * that reason, not because today's pipeline still builds one for tide.
+   */
   function tideBriefing(locationId, locationName, tideAligned, evaluationGate = null, state = null) {
     return {
       days: [{

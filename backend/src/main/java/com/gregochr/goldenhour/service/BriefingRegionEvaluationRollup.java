@@ -286,7 +286,7 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
             return slot;
         }
         if (eval.rating() != null) {
-            return slot.withClaudeScores(eval.rating(), eval.fierySkyPotential(),
+            return slot.withClaudeScores(eval.rating(), eval.skyRating(), eval.fierySkyPotential(),
                     eval.goldenHourPotential(), eval.summary(), eval.headline());
         }
         if (eval.triageReason() != null && slot.claudeRating() != null) {

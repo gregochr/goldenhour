@@ -163,6 +163,11 @@ class DispositionWriteIntegrationTest extends IntegrationTestBase {
                 new CandidateDisposition(loc2.getId(), loc2.getName(),
                         today.plusDays(1), TargetType.SUNSET, 1,
                         DispositionCategory.SKIPPED_TRIAGED, "Heavy cloud"),
+                // A hand-built fixture, not a live pipeline claim: production no longer writes a
+                // SKIPPED_HARD_CONSTRAINT row for a tide mismatch since the tide gate lift
+                // (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) emptied
+                // BriefingGatingPolicy.HARD_CONSTRAINT_REASONS. The category and this write path
+                // stay tested generically — a future hard constraint could still use them.
                 new CandidateDisposition(null, "Coastal Tide Loc",
                         today.plusDays(1), TargetType.SUNRISE, 1,
                         DispositionCategory.SKIPPED_HARD_CONSTRAINT, "Tide mismatch"),

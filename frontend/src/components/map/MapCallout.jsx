@@ -764,6 +764,7 @@ export default function MapCallout({
           fact={tideOnLight}
           want={location.tideType}
           nextFitRow={nextFitRow}
+          combinedRating={ratingRounded}
           // ⚠️ Focuses this card's own survivor (`closeRef`, above) BEFORE handing off — the jump
           // button itself is about to unmount once the window switch lands, so without this the
           // press strands focus at `<body>` (adversarial review, accessibility lens). Mirrors the

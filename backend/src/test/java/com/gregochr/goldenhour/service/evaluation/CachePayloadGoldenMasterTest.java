@@ -72,6 +72,12 @@ import static org.mockito.Mockito.when;
  * non-deterministic across runs — pinning it would yield false positives on every run for
  * reasons unrelated to the decomposition, training the team to ignore red.
  *
+ * <p><b>{@code skyRating} joined the pinned set with the tide gate lift</b> (2026-09-18,
+ * {@code docs/engineering/tide-window-plan.md} §6 Q1) — the sky visitor's own component, present
+ * on every scored archetype below (coastal and inland alike) and asserted both inline (a direct
+ * substring check, so the worked "sky differs from combined" example reads at the call site
+ * rather than only inside a fixture file) and via the golden JSON itself.
+ *
  * <p><b>How tolerance is implemented.</b> Fixtures under {@code src/test/resources/cache-golden/}
  * store the serialised payload with the {@code summary}/{@code headline} <em>values</em> replaced
  * by {@code <<SUMMARY>>}/{@code <<HEADLINE>>} placeholders. The test serialises the live payload,
@@ -151,6 +157,10 @@ class CachePayloadGoldenMasterTest {
                 "Fiery tide-lit finish");
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
                 .thenReturn(Optional.of(tideContext(true, true, LunarTideType.SPRING_TIDE)));
+        // Tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1): skyRating is
+        // the sky component ALONE (3), diverging from the combined rating (4) — the map tab's
+        // worked example of a spring tide lifting the star above the light's own figure.
+        assertThat(serialisePayload(location, eval)).contains("\"skyRating\":3");
         assertGolden("coastal-aligned", location, eval);
     }
 
@@ -167,6 +177,9 @@ class CachePayloadGoldenMasterTest {
                 "Soft light, low water");
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
                 .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
+        // skyRating (3) beside the tide-dragged combined rating (2) — "wrong water, not wrong
+        // light": the light alone was worth more than the star this window shows.
+        assertThat(serialisePayload(location, eval)).contains("\"skyRating\":3");
         assertGolden("coastal-misaligned", location, eval);
     }
 
@@ -178,6 +191,8 @@ class CachePayloadGoldenMasterTest {
         LocationEntity location = landscape("Keswick", 3L, "Lake District");
         SunsetEvaluation eval = new SunsetEvaluation(
                 3, 58, 62, "Broken cloud over the fells with a chance of colour.");
+        // Inland: skyRating always equals the combined rating (sky is the only component).
+        assertThat(serialisePayload(location, eval)).contains("\"skyRating\":3");
         assertGolden("inland", location, eval);
     }
 

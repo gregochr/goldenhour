@@ -377,7 +377,20 @@ public class BriefingEvaluationService {
                 existing.summary(), existing.triageReason(), existing.triageMessage(),
                 // The composite is no fresher than its oldest load-bearing component, and every
                 // component except the rating comes from the prior sky entry. See the caller.
-                existing.headline(), existing.evaluatedAt());
+                existing.headline(), existing.evaluatedAt(),
+                // ⚠️ NOT existing.skyRating(). This blend's own `averaged` is
+                // avg(existing.rating(), bluebell.rating()) = avg(avg(SKY,TIDE), avg(TIDE,BLUEBELL))
+                // for a coastal OPEN_FELL site — TIDE is a peer of both terms it averages
+                // (buildBluebellResult's combine call still carries the tide context), so it enters
+                // the composite twice while SKY and BLUEBELL each enter once. `existing.skyRating()`
+                // is a true figure about `existing` alone, but forwarding it here would put a
+                // "sky N★" clause beside a star that is no longer a simple sky+tide average — a
+                // reader could read a bluebell-driven gap as tide's doing. Null until the
+                // double-tide-weighting itself is fixed (a `buildBluebellResult` change, out of
+                // scope for the tide gate lift): skyRating stays undefined for a composite whose
+                // own arithmetic it can no longer explain, which is the same "unknown, not wrong"
+                // convention the field already uses for a pre-field cache row.
+                null);
     }
 
     /**

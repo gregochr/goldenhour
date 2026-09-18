@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.InversionDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -17,6 +18,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.VisitorContext;
 import tools.jackson.databind.ObjectMapper;
@@ -542,10 +544,18 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
             dualWriteForecastScore(location, date, targetType, eval, combined, pipelineRunId);
 
+            // The sky visitor's own component, alongside the combined rating: what the map tab's
+            // tide-fit block needs to say "wrong water, not wrong light" beside a tide-dimmed star
+            // (tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1). Null when
+            // no SKY component was applied — unreachable here (buildResult only takes this branch
+            // when eval.rating() is non-null, and SkyVisitor abstains only on a null sky
+            // evaluation), kept as a defensive read rather than an assumption.
+            Integer skyRating = skyComponentScore(combined);
+
             result = new BriefingEvaluationResult(
                     location.getName(), safeRating,
                     eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
-                    null, null, eval.headline());
+                    null, null, eval.headline(), null, skyRating);
         }
         if (evalRowId != null) {
             scoreEvaluationRow(evalRowId, eval, result, resolvedModel);
@@ -682,6 +692,22 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     + "attempt, so a stale row can outlive its event: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
+    }
+
+    /**
+     * The sky visitor's own component score out of the combiner's applied set, or null when no
+     * {@link ForecastType#SKY} component was applied — {@code BriefingEvaluationResult#skyRating}'s
+     * source.
+     *
+     * @param combined the combiner's result for this slot
+     * @return the sky component's 1-5 score, or null
+     */
+    private static Integer skyComponentScore(RatingCombiner.CombinedRating combined) {
+        return combined.components().stream()
+                .filter(c -> c.type() == ForecastType.SKY)
+                .map(ComponentScore::score)
+                .findFirst()
+                .orElse(null);
     }
 
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,

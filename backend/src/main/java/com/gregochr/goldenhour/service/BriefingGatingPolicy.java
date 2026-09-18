@@ -30,10 +30,19 @@ import java.util.stream.Collectors;
  * being a filter. Claude evaluates these slots and surfaces nuance the threshold
  * pipeline cannot.
  *
- * <p>Only <b>hard-constraint</b> reasons continue to gate. Currently that is
- * {@link StanddownReason#TIDE_MISMATCH} — a deterministic geometric constraint
- * (a low-tide-only beach is unphotographable at high tide regardless of weather)
- * that Claude has no model of from prompt context alone.
+ * <p><b>No hard constraint remains today.</b> {@link StanddownReason#TIDE_MISMATCH} was the
+ * last one — a coastal slot whose tide missed the light was withheld from Claude entirely and
+ * served unrated. The owner lifted that gate (2026-09-18, {@code docs/engineering/tide-window-plan.md}
+ * §6 Q1): the tide is no longer a precondition for evaluation, it is a
+ * {@code service.evaluation.visitor.TideVisitor} component averaged into the star by
+ * {@code RatingCombiner} — "the star is the shot". {@link #HARD_CONSTRAINT_REASONS} is therefore
+ * empty, and {@link #isEligibleForEvaluation}/{@link #hardConstraintReason} always answer
+ * "eligible" / empty for every verdict. The mechanism itself — the set, the decode-by-label
+ * lookup, the {@code evaluationGate} wording it drives in {@code BriefingSlotBuilder} — is kept
+ * rather than deleted: it is the one seam a genuinely new hard physical constraint (one Claude
+ * truly has no model of from prompt context alone) would re-use, and ripping it out would mean
+ * re-inventing the same label round-trip and disposition-trail wiring the next time one is
+ * needed. Until then it is inert by construction, not by omission.
  *
  * <p>The slot's {@code standdownReason} is currently stored as a human-readable
  * label String, not the enum. This class decodes the label back to the enum via
@@ -56,12 +65,35 @@ public final class BriefingGatingPolicy {
                             StanddownReason::label, r -> r));
 
     /**
+     * Decodes a standdown reason label back to its enum value — the same lookup
+     * {@link #isEligibleForEvaluation} and {@link #hardConstraintReason} use internally, exposed
+     * so the label round-trip can be tested directly.
+     *
+     * <p>Needed because, with {@link #HARD_CONSTRAINT_REASONS} empty (the tide gate lift,
+     * 2026-09-18), neither of those methods can any longer distinguish "the label decoded, but
+     * is not a hard constraint" from "the label failed to decode" — both answer the same way.
+     * Testing the decode through either method would therefore silently stop catching label
+     * drift the moment the set went empty; this method keeps that guard live regardless of what
+     * the set currently holds.
+     *
+     * @param label a {@link StanddownReason#label()} value, or any other string
+     * @return the decoded reason, or empty when the label is unrecognised
+     */
+    static Optional<StanddownReason> decodeLabel(String label) {
+        return Optional.ofNullable(REASON_BY_LABEL.get(label));
+    }
+
+    /**
      * Standdown reasons that continue to gate Claude evaluation after the
      * Gate 2 redesign. Hard physical constraints only — these are not
      * probabilistic weather signals Claude could revise.
+     *
+     * <p><b>Empty since the tide gate lift (2026-09-18).</b> {@code TIDE_MISMATCH} was the only
+     * member; see the class javadoc for why it is gone and why the set stays rather than the
+     * mechanism being deleted.
      */
-    private static final Set<StanddownReason> HARD_CONSTRAINT_REASONS =
-            EnumSet.of(StanddownReason.TIDE_MISMATCH);
+    private static final Set<StanddownReason> HARD_CONSTRAINT_REASONS = EnumSet.noneOf(
+            StanddownReason.class);
 
     private BriefingGatingPolicy() {
     }
@@ -108,7 +140,9 @@ public final class BriefingGatingPolicy {
 
     /**
      * Returns {@code true} when the slot is being gated by a hard-constraint
-     * standdown reason — currently only {@link StanddownReason#TIDE_MISMATCH}.
+     * standdown reason. {@link #HARD_CONSTRAINT_REASONS} is empty today (the
+     * tide gate lift, 2026-09-18), so this answers {@code false} for every slot until a new
+     * hard-constraint member is added.
      *
      * <p>Callers that emit skip diagnostics should prefer this method over
      * inspecting the slot's reason label so the diagnostic stays in lockstep

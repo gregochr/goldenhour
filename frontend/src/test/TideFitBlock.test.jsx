@@ -123,3 +123,31 @@ describe('TideFitBlock — the miss tier: the denial', () => {
     expect(block).toHaveTextContent('Wrong water, not wrong light');
   });
 });
+
+describe('TideFitBlock — the sky component (tide gate lift, 2026-09-18)', () => {
+  it('a miss with a served skyRating states it — the light\'s own figure beside the dimmed star', () => {
+    render(<TideFitBlock fact={{ ...MISS, skyRating: 4 }} want={['LOW']} combinedRating={3} />);
+    expect(screen.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+  });
+
+  it('a miss with no served skyRating states nothing — never a fabricated figure', () => {
+    render(<TideFitBlock fact={MISS} want={['LOW']} combinedRating={3} />);
+    expect(screen.queryByTestId('tide-fit-sky')).toBeNull();
+  });
+
+  it('a match whose sky score AGREES with the combined star states nothing new', () => {
+    render(<TideFitBlock fact={{ ...MATCH, skyRating: 4 }} want={['HIGH']} combinedRating={4} />);
+    expect(screen.queryByTestId('tide-fit-sky')).toBeNull();
+  });
+
+  it('a match whose sky score DIFFERS from the combined star states it — a spring-aligned tide '
+      + 'lifting a 4★ sky to 5★ is worth saying', () => {
+    render(<TideFitBlock fact={{ ...MATCH, skyRating: 4 }} want={['HIGH']} combinedRating={5} />);
+    expect(screen.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+  });
+
+  it('a match with an unknown combined rating never asserts a "difference" it cannot prove', () => {
+    render(<TideFitBlock fact={{ ...MATCH, skyRating: 4 }} want={['HIGH']} />);
+    expect(screen.queryByTestId('tide-fit-sky')).toBeNull();
+  });
+});

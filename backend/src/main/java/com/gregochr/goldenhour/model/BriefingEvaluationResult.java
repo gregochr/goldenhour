@@ -31,6 +31,14 @@ import java.time.Instant;
  * @param headline            4-9 word Claude-authored card header (Gate 2 redesign), or null
  *                            for legacy results that pre-date the field
  * @param evaluatedAt         when this location's result was written, or null — see above
+ * @param skyRating           the sky visitor's own 1-5 component score, with no tide (or other
+ *                            foreground) contribution averaged in — see {@code
+ *                            BriefingSlot#skyRating} for why. Null for triage/failure, for a
+ *                            woodland or WOODLAND-exposure bluebell result (no sky component
+ *                            exists to carry — the combiner's rating peers were BLUEBELL alone),
+ *                            and for rows persisted before this field existed. Added with the
+ *                            tide gate lift (2026-09-18, {@code
+ *                            docs/engineering/tide-window-plan.md} §6 Q1)
  */
 public record BriefingEvaluationResult(
         String locationName,
@@ -41,7 +49,8 @@ public record BriefingEvaluationResult(
         @JsonInclude(JsonInclude.Include.NON_NULL) TriageReason triageReason,
         @JsonInclude(JsonInclude.Include.NON_NULL) String triageMessage,
         @JsonInclude(JsonInclude.Include.NON_NULL) String headline,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Instant evaluatedAt
+        @JsonInclude(JsonInclude.Include.NON_NULL) Instant evaluatedAt,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating
 ) {
 
     /**
@@ -65,7 +74,32 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, null);
+                triageReason, triageMessage, headline, null, null);
+    }
+
+    /**
+     * Convenience constructor for the pre-{@code skyRating} shape, evaluated-at included.
+     *
+     * <p>Retained so every construction site that predates the tide gate lift (2026-09-18) and
+     * that DOES supply a write time — production and test alike — keeps compiling unchanged. A
+     * result built this way carries a null {@code skyRating}, the same "unknown, not zero"
+     * convention the arity above uses for {@code evaluatedAt} on legacy rows.
+     *
+     * @param locationName        the location that was evaluated
+     * @param rating              1-5 star rating, or null
+     * @param fierySkyPotential   fiery sky score 0-100, or null
+     * @param goldenHourPotential golden hour score 0-100, or null
+     * @param summary             Claude's explanation, or null
+     * @param triageReason        categorised stand-down reason, or null
+     * @param triageMessage       formatted stand-down explanation, or null
+     * @param headline            Claude-authored card header, or null
+     * @param evaluatedAt         when this location's result was written, or null
+     */
+    public BriefingEvaluationResult(String locationName, Integer rating,
+            Integer fierySkyPotential, Integer goldenHourPotential, String summary,
+            TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt) {
+        this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
+                triageReason, triageMessage, headline, evaluatedAt, null);
     }
 
     /**
@@ -102,14 +136,18 @@ public record BriefingEvaluationResult(
     }
 
     /**
-     * Returns a copy of this result with the rating replaced. All other fields are preserved.
+     * Returns a copy of this result with the rating replaced. All other fields are preserved,
+     * except {@link #skyRating}: the sky component must never be present without the combined
+     * rating it is a component OF ({@code BriefingSlot#skyRating}'s documented invariant), so
+     * clearing {@code newRating} to null clears {@code skyRating} too.
      *
      * @param newRating the rating to apply (may be {@code null} to mark as unscored)
      * @return a new {@code BriefingEvaluationResult} with the updated rating
      */
     public BriefingEvaluationResult withRating(Integer newRating) {
         return new BriefingEvaluationResult(locationName, newRating, fierySkyPotential,
-                goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt);
+                goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
+                newRating == null ? null : skyRating);
     }
 
     /**
@@ -124,6 +162,7 @@ public record BriefingEvaluationResult(
      */
     public BriefingEvaluationResult withEvaluatedAt(Instant writtenAt) {
         return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
-                goldenHourPotential, summary, triageReason, triageMessage, headline, writtenAt);
+                goldenHourPotential, summary, triageReason, triageMessage, headline, writtenAt,
+                skyRating);
     }
 }

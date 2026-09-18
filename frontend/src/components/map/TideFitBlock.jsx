@@ -86,9 +86,15 @@ import { eventWord } from '../../utils/windowFirstCards.js';
  *        {@code utils/locationSheet.js#leadLine}'s {@code dayCount}). A caller whose horizon is
  *        not four days passes the real word instead of letting this default drift out of sync
  *        (plan §3 T5 task 1's own instruction)
+ * @param {?number} [props.combinedRating] the served, COMBINED star for this same window (the
+ *        figure rendered above this block — {@code MapCallout}'s {@code ratingRounded}, the
+ *        location sheet row's {@code row.rating}) — read only to decide whether {@code
+ *        fact.skyRating} says something the star does not (below). Never rendered itself; this
+ *        block owns no star of its own.
  */
 export default function TideFitBlock({
   fact, want = null, nextFitRow = null, onSelectEv = null, horizonWord = 'four days',
+  combinedRating = null,
 }) {
   if (!fact || !fact.fitPhrase) return null;
   const tier = tierOf(fact);
@@ -96,6 +102,19 @@ export default function TideFitBlock({
 
   const wants = wantPhrase(want);
   const hasNextFitRow = nextFitRow != null && nextFitRow !== -1;
+  // The sky visitor's own component score (tide gate lift, 2026-09-18,
+  // docs/engineering/tide-window-plan.md §6 Q1) — Claude's rating of the light alone, with no
+  // tide contribution averaged in. Stated beside the combined star wherever it says something the
+  // star does not: always on a MISS (a tide-dimmed 3★ under "wrong water, not wrong light" needs
+  // its own number to say the LIGHT was worth more than the star it sits beside), and on a MATCH
+  // only when it actually differs from the served combined rating (a spring-aligned tide lifts a
+  // 4★ sky to 5★, and that is worth stating; the ordinary case — the two already agree — says
+  // nothing new, and an unknown combined rating is never asserted to "differ"). Never on the star
+  // or swatch itself: the star and its colour are never re-coloured by this block (CLAUDE.md's
+  // role-gating and confidence rules both keep the star/quality signal untouched by companion
+  // channels, and this one follows the same discipline).
+  const showSky = fact.skyRating != null
+    && (tier === 'miss' || (combinedRating != null && fact.skyRating !== combinedRating));
 
   return (
     <div className="wf-tide-fit" data-testid="tide-fit-block" data-tier={tier}>
@@ -105,6 +124,9 @@ export default function TideFitBlock({
           {tier === 'match' ? 'Tide lands on the light' : 'Wrong water, not wrong light'}
         </b>
         {fact.fitPhrase}
+        {showSky && (
+          <span data-testid="tide-fit-sky">{` · sky ${fact.skyRating}★`}</span>
+        )}
         {tier === 'miss' && wants && (
           hasNextFitRow ? (
             <button
@@ -133,6 +155,7 @@ TideFitBlock.propTypes = {
     state: PropTypes.string,
     fitPhrase: PropTypes.string,
     shortfall: PropTypes.string,
+    skyRating: PropTypes.number,
   }),
   want: PropTypes.arrayOf(PropTypes.string),
   // A plain object (forwarded to onSelectEv untouched; its own shape belongs to whichever caller
@@ -141,4 +164,5 @@ TideFitBlock.propTypes = {
   nextFitRow: PropTypes.oneOfType([PropTypes.object, PropTypes.number]),
   onSelectEv: PropTypes.func,
   horizonWord: PropTypes.string,
+  combinedRating: PropTypes.number,
 };
