@@ -16,12 +16,14 @@ about this codebase:
 1. **There is no fit model to import.** The Map-tab model the spec calls a prerequisite was never
    built as a level formula; this app's tide axis is time-based and **served** — `tideAligned`,
    `tideState`, `nearestSolarOffsetMinutes` are flat on every coastal slot. `match ⇔ tideAligned`;
-   the ranking tiebreak is the served offset, not `meanFit` (plan §1 #1, §4 #1–#2).
+   the ranking tiebreak is a **served** `tideAlignmentQuality` that C0 adds (the nearest-extreme offset
+   points the wrong way for a MID want), not a client `meanFit` (plan §1 #1, §4 #1–#2).
 2. **One pool.** Tide facts ride the spot descriptor `buildWindowSpots` builds, so the spread
    histogram, the named spot and the new chip count the same `card.pool`. No second index on the
    Plan tab (§1 #3, §5 #2).
 3. **The counts are reach-scoped and therefore client-derived, and that is a named licence, not a
-   habit.** New members of CLAUDE.md's reach-scoped class: `card.tide` and `tideRun`, nothing else;
+   habit.** New members of CLAUDE.md's reach-scoped class: `card.tideFit` and `tideRun`, nothing else
+   — and the field is `tideFit`, never `tide`, which T6 already uses for the served window tide;
    and no string may say "in reach" unless `card.reachMeasured` is true (§5 #1, §5 #4).
 
 **Owner decisions: none block.** §5 takes the spec's OPEN 1 (fully reach-bound) and the coastal
@@ -34,6 +36,35 @@ defaulting to REFUTED without citable evidence, then a synthesis. Review agents 
 
 ---
 
+## C0 · Backend — a served alignment quality
+
+> You are implementing **Phase C0** of `docs/engineering/tide-plan-card-plan.md`. Read the plan **in
+> full** (§1 #1, §3 C0, §4 #2, §5 binding), then `gh pr list --state open` for overlap on `BriefingSlot`
+> or `TideFactDeriver`, then re-verify every symbol C0 names against the tree. Read
+> `docs/engineering/test-improvement-standards.md`. Never push, never tag. Create
+> `feature/tide-card-c0-quality` off up-to-date `main`.
+>
+> Scope is §3 C0's two tasks: `BriefingSlot.TideInfo` gains `Double tideAlignmentQuality`
+> (`@JsonInclude(NON_NULL)`, 0..1, **null unless `tideAligned`**) — how well-centred the water is in
+> the wanted state at the light on the **time** axis: for HIGH/LOW, `1 − |minutes to that extreme| /
+> tightWindowMinutes`; for MID, `1 − |minutes to the midpoint between the bracketing extremes| /
+> tightWindowMinutes` (the midpoint `TideService.isMidPointAligned` already tests); best of several
+> aligned wants; clamped. Compute it in `TideFactDeriver.derive` where `tightWindowMinutes` and the
+> extremes are already in hand, build it in `BriefingSlotBuilder` beside T1's five fields, keep
+> `TideInfo.NONE` and both legacy constructors, no migration (a pre-field payload reads null — prove
+> it). **No level arithmetic**: the figure is minutes over the window alignment was decided in.
+>
+> Tests per C0 #2 with exact values (at the extreme → 1.0; at the window edge → ≈ 0; a MID at the
+> exact midpoint beats one nearer an extreme — the case the offset ordering inverted; `{HIGH, LOW}`
+> takes the better; non-aligned → null; JSON round-trip). Gate on the exit code: `cd backend && ./mvnw
+> clean verify --batch-mode --no-transfer-progress -Dtest='!**/integration/**'
+> -DfailIfNoSpecifiedTests=false >/tmp/v.log 2>&1; echo "exit: $?"` (no Docker here; `checkstyle:check`
+> first). Adversarial review per CLAUDE.md (read-only; paste C0, §1 #1, §4 #2). Fix survivors, re-gate.
+> Nothing browser-visible; say so. Commit with `changelog.d/YYYYMMDD-tide-card-c0-quality.md`, C0's
+> Phase-log row (flip §0 to in-progress) and any §4 additions. Do not push; report the branch and commit.
+
+---
+
 ## C1 · The data — tide on the pool, the per-window summary, the run
 
 > You are implementing **Phase C1** of `docs/engineering/tide-plan-card-plan.md`. Read the plan **in
@@ -41,20 +72,22 @@ defaulting to REFUTED without citable evidence, then a synthesis. Review agents 
 > `gh pr list --state open` for overlap on `windowFirstSpots.js`, `windowFirstCards.js` or the card, then
 > re-verify every symbol C1 names against the tree. Read `docs/engineering/frontend-test-standards.md`
 > and CLAUDE.md's **Backend-heavy** bullet. Never push, never tag. Create `feature/tide-card-c1-data`
-> off up-to-date `main`.
+> off up-to-date `main` (C0 has merged — confirm `tideAlignmentQuality` is on `BriefingSlot.TideInfo`).
 >
 > Scope is §3 C1's four tasks and **no visible change**: `buildWindowSpots` copies `tideState`,
-> `tideAligned` (null when no state) and `tideOffsetMinutes` (`nearestSolarOffsetMinutes`) onto each
-> spot; `buildWindowCards`' descriptor gains `tide = {coastal, matched, live, meanOffsetMinutes}` over
-> `pool` with the spec's gate verbatim (`coastal >= 4 && matched >= max(3, ceil(coastal * 0.5))`) and
-> named constants; new pure `utils/windowFirstTideRun.js#tideRun(cards)` → `{liveKeys, bestKey,
-> liveCount}` ranked `matched DESC, meanOffsetMinutes ASC (nulls last), strip order ASC`, `bestKey`
-> null unless `liveCount > 1`, away/unserved cards never live. **Nothing reads a level or a threshold
-> on a level**; the only number compared is the served offset, for ranking.
+> `tideAligned` (null when no state) and `tideQuality` (`tideAlignmentQuality`) onto each spot;
+> `buildWindowCards`' descriptor gains **`tideFit`** — never `tide`, which T6 already uses for the
+> served `BriefingWindowTide` forwarded to the Map tab's strip (`windowFirstCards.js:588`,
+> `windowFirstStrip.js:173`) — `= {coastal, matched, live, meanQuality}` over `pool` with the spec's
+> gate verbatim (`coastal >= 4 && matched >= max(3, ceil(coastal * 0.5))`) and named constants, and
+> `windowFirstStrip.js` forwards it beside `tide`; new pure `utils/windowFirstTideRun.js#tideRun(cards)`
+> → `{liveKeys, bestKey, liveCount}` ranked `matched DESC, meanQuality DESC (nulls last), strip order
+> ASC`, `bestKey` null unless `liveCount > 1`, away/unserved cards never live. **Nothing reads a level,
+> an offset or a threshold**; the only number compared is the served quality, for ranking.
 >
 > Tests per C1 #4, mutation-sensitive — the gate at each edge, `meanOffsetMinutes` over matched only,
-> the spec's own tie case (three live windows matching the same nine; the smallest mean offset wins,
-> not the first — §7 #3), and §7 #9 (`coastal + inland == pool.length`). Gate on exit codes: `npm run
+> the spec's own tie case (three live windows matching the same nine; the highest mean quality wins,
+> not the first — §7 #3), and §7 #9 (`coastal + inland == pool.length`, and `card.tide` untouched). Gate on exit codes: `npm run
 > lint && npm test && npm audit --audit-level=high && npm run build`. Adversarial review per CLAUDE.md
 > (read-only; paste C1, §1 #1/#3/#8/#11, §4 #1/#2/#8, §5 and the spec's §2–§3). Fix survivors,
 > re-gate. Browser: the map and plan render as before (tested by unchanged tests, seen by one
@@ -67,7 +100,7 @@ defaulting to REFUTED without citable evidence, then a synthesis. Review agents 
 ## C2 · The two marks on the card
 
 > You are implementing **Phase C2** of `docs/engineering/tide-plan-card-plan.md`. Read the plan **in
-> full** and its Phase log (C1 has merged — confirm `card.tide`, `card.bestReach.tideAligned` and
+> full** and its Phase log (C1 has merged — confirm `card.tideFit`, `card.bestReach.tideAligned` and
 > `tideRun` on `main`), then the spec §1–§5 and the notes column (both `cut` notes), then `gh pr list
 > --state open` (C3 may be open in parallel — it touches `WindowSheetDialog`/`WindowAttributeRow`, not
 > the card), then re-verify every symbol C2 names against the tree. Read
@@ -76,17 +109,20 @@ defaulting to REFUTED without citable evidence, then a synthesis. Review agents 
 >
 > Scope is §3 C2's five tasks: the wave (`components/map/TideWave.jsx`, no props beyond `className`)
 > before the named spot when `bestReach.tideAligned === true`, with the preference-axis words
-> (`— the tide is right here`, `<state> — the water it wants`; **never** "on the light" — §4 #3), silent
-> on a miss and on an inland head, name ink untouched; the chip as the **first element** of
-> `.wf-hc-tps`, only when `card.tide.live`, `data-channel="tide"`, `<TideWave/> {matched} on tide`, with
+> (`the tide is right here` appended to `facts.best.spoken`, `<state> — the water it wants` on the
+> tooltip; **never** "on the light" — §4 #3), silent on a miss and on an inland head, name ink
+> untouched; the chip as the **first element** of `.wf-hc-tps`, only when `card.tideFit.live`, `data-channel="tide"`, `<TideWave/> {matched} on tide`, with
 > `data-best` and `best of {liveCount}` only on `tideRun.bestKey` and only when `liveCount > 1`; the
-> tooltip per C2 #2 with "in reach" only when `card.reachMeasured`; CSS per C2 #3 beside `.wf-hc-tw` in
+> tooltip per C2 #2 with "in reach" only when `card.reachMeasured`; **both marks fed into the card
+> button's `accessibleName` (`WindowFirstHeatStrip.jsx:930–943`) — `.wf-hc-pls` is `aria-hidden`, so an
+> `sr-only` span inside it is never announced (§1 #2); test through `getByRole('button', {name})`**; CSS
+> per C2 #3 beside `.wf-hc-tw` in
 > `index.css` — emphasis is `--color-badge-tide` at 700 on the rgba(111,168,176) pill, **no `#B4DDE2`,
 > no new token** (§4 #4); `.wf-hc-pls > .wf-hc-tps` stays selected through the parent. Do not touch the
 > verdict, the histogram, the star chip, the border legend or the thumbnail; do not build the cut
 > `Tide` border legend.
 >
-> Tests per C2 #4 including **§7 checks 1, 2, 4, 5, 8 and 10 as tests**, and the stylesheet-as-text
+> Tests per C2 #4 including **§7 checks 1, 2, 4, 5, 8, 10 and 11 as tests**, and the stylesheet-as-text
 > suite pinning the new rules (the `@theme static` trap does not apply — no token is added). Gate on
 > exit codes: `npm run lint && npm test && npm audit --audit-level=high && npm run build`. Adversarial
 > review per CLAUDE.md (read-only; paste C2, §1 #2/#4/#5/#6/#11, §4 #3/#4/#5/#7, §5 and the spec's
@@ -106,7 +142,8 @@ defaulting to REFUTED without citable evidence, then a synthesis. Review agents 
 > Read `docs/engineering/frontend-test-standards.md`. Never push, never tag. Create
 > `feature/tide-card-c3-popup` off up-to-date `main`.
 >
-> Scope is §3 C3's three tasks: the tide row gains one trailing fact from `card.tide` — `9 of 14
+> Scope is §3 C3's three tasks: the tide row gains one trailing fact from `card.tideFit` (never
+> `card.tide`, T6's served window tide) — `9 of 14
 > coastal locations in reach on tide`, "in reach" only when `card.reachMeasured`, omitted at zero
 > coastal — passed to `WindowAttributeRow` as an `extraFacts` prop in `tideFacts`' own segment shape
 > and **never** added inside `windowFirstRows.js` (§5 #6: that module maps served facts only);
@@ -129,7 +166,7 @@ defaulting to REFUTED without citable evidence, then a synthesis. Review agents 
 > Create `docs/tide-card-c4-sweep` off up-to-date `main`.
 >
 > Scope is §3 C4: reconcile §4 against what shipped; flip §0 to complete; the CLAUDE.md edits per C4
-> #2 — the Backend-heavy bullet's reach-scoped class gains `card.tide` and `tideRun` **and nothing
+> #2 — the Backend-heavy bullet's reach-scoped class gains `card.tideFit` and `tideRun` **and nothing
 > else**, the Plan tab bullet gains one sentence on the two marks and the silence rule, the "Two tide
 > axes" bullet notes the card glyph reads the preference axis; answer the spec's four OPENs in §6 with
 > what shipped; record the §7 measurements. Docs-only, but the review cadence still applies (read-only

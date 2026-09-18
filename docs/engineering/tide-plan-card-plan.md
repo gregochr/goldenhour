@@ -33,7 +33,8 @@ depends only on the **served** fields T1 (#877) and T2 (#876) landed (§1 #1).
 
 ## §0 Status
 
-**Status: PLANNED — no phase started.** Plan written 2026-09-17 against `origin/main` at `0f9273ca`
+**Status: PLANNED — no phase started.** Five phases (C0–C4; C0 was added on the plan PR after a Codex
+review found the offset tiebreak inverted for MID wants). Plan written 2026-09-17 against `origin/main` at `0f9273ca`
 (#878); re-checked 2026-09-18 against `de396bd2` after the tide-window series' T4–T7 merged (#879–#882) —
 nothing this plan builds on moved: the served `BriefingSlot.TideInfo`/`BriefingWindowTide` fields are
 unchanged, and T4–T7 touched the Map tab only. Owner decisions this plan needs are listed in §6; **none blocks any phase** — §5 takes the
@@ -68,11 +69,11 @@ in JSON (`@JsonUnwrapped`), the facts this increment needs already exist:
 | `tier === 'match'` | `tideAligned === true` |
 | `want` | the location's `tideType` set (roster, `LocationDto.tideType`) — and served as words in `tideFitPhrase` |
 | level / state words | `tideState`, `tideDirection`, `tideLevel`, `tideHeight`, `tideFitPhrase` (T1, #877) |
-| the tiebreak's `1 − |level − target|` | **`nearestSolarOffsetMinutes`** — signed minutes from the light to the nearest extreme (§4 #2) |
+| the tiebreak's `1 − |level − target|` | **`tideAlignmentQuality`** — a served 0..1 "how well-centred in the wanted water" figure this series adds in **C0**, on the same time axis alignment is decided on (§4 #2). ⚠️ Not `nearestSolarOffsetMinutes`: that is distance to the nearest *extreme*, which is the wrong direction for a MID want — a better-centred mid-tide match is *farther* from either extreme (a Codex finding on the plan PR) |
 
 Per window, `BriefingWindow.tide` (`BriefingWindowTide`) carries the representative's `state`,
 `direction`, `heightAtWindow`, `nearestTime`/`nearestOffset` and `locationName` (T2, #876). **This
-series adds no data and no backend change.**
+series adds one served per-slot number (C0's `tideAlignmentQuality`) and nothing else — no migration.**
 
 ### 2. The card is one component, and its facts are derived in one memo
 
@@ -82,6 +83,14 @@ best-reachable line (`:1074–1099`) and the topics line (`:1100–1114`); the B
 rides the border (`.wf-hc-lg`, `:1122–1131`). Everything the face reads is computed once per card in
 the `derived` memo (`:537–557`): `spread`, `bars`, `title`, `withinReach`, `best: bestReachLine(card)`,
 `topics: windowTopics(...)`. **A new per-card tide fact belongs in that memo**, beside `best`.
+
+⚠️ **The value grid is `aria-hidden`.** `.wf-hc-pls` (`:1028`) carries `aria-hidden="true"`, so nothing
+inside it — the spread, the named spot, the topics line — reaches assistive technology, and an `sr-only`
+span placed there is ignored too. The card button is named by the separate `accessibleName` string
+assembled at `:930–943` (label, time, verdict, "not scored", the pool sentence, `facts.best.spoken`,
+the topic labels, the pick). **Both new marks must be fed into that construction** — the glyph as a
+clause on `facts.best.spoken`, the chip as its own clause — and tested through the button's accessible
+name, not through hidden text (a Codex finding on the plan PR).
 
 ### 3. The pool is already the right population — and it carries no tide facts
 
@@ -96,6 +105,12 @@ the best-reachable line and the new chip then share **one pool**, which is the r
 insist on ("the map, the list and the line share one pool"). The alternative — building
 `buildTideAlignmentIndex` in the shell and looking the head up — creates a second population and is
 rejected (§5 #2).
+
+⚠️ **`card.tide` is taken.** The tide-window series' T6 (#881) put the raw served `BriefingWindowTide`
+on the card descriptor as `tide: win?.tide ?? null` (`windowFirstCards.js:588`) and forwards it through
+`windowFirstStrip.js:173` and the map pane's `heat.windows` fold to the Map tab's strip. The reach-scoped
+summary this series derives is a **different field, `card.tideFit`**; naming it `tide` would replace the
+curve, positions and extremes and blank the strip for every window (a Codex finding on the plan PR).
 
 ### 4. The topics line is a list of served badges, coloured by channel — and it has no `--tc`
 
@@ -178,8 +193,10 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
   `nearestSolarOffsetMinutes` onto each spot; `buildWindowCards` derives the per-window tide summary
   from `pool` beside `bestReach`; the strip derives the run (live windows, the best) from the cards.
   The histogram, the named spot and the chip cannot disagree because they never see different lists.
-- **No fit formula, no thresholds on levels.** `match ⇔ tideAligned`; the ranking's quality term is
-  the served nearest-extreme offset (§4 #2). Nothing reads a level to decide anything.
+- **No fit formula, no thresholds on levels — on the client.** `match ⇔ tideAligned`; the ranking's
+  quality term is a served number (`tideAlignmentQuality`, C0) that the server computes on the same time
+  axis alignment is decided on, and the client only averages (§4 #2). Nothing on the client reads a
+  level, an offset or a threshold to decide anything.
 - **Same element, louder.** The emphasis is the same chip with heavier weight and a hairline pill —
   the spec's own rule from the cut legend. No border badge, no new row, no third tide hue.
 - **Silence below the gate.** No greyed chip, no zero, no glyph on a miss.
@@ -190,32 +207,55 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
 
 ## §3 Phases
 
+### C0 — Backend: a served alignment quality — S
+
+**No visible change; no migration.** The run ranking (C1) needs to break a tie on `matched` by *how
+well* the matched spots are served, and the only served candidate — `nearestSolarOffsetMinutes` — points
+the wrong way for a MID want (§1 #1). So the server states the quality itself, on the axis it already
+decides alignment on.
+
+1. **`BriefingSlot.TideInfo` gains `Double tideAlignmentQuality`** (`@JsonInclude(NON_NULL)`, 0..1,
+   **null unless `tideAligned`**): how well-centred the water is in the wanted state at the light, on
+   the **time** axis — for a HIGH or LOW want, `1 − |minutes from the light to that extreme| /
+   tightWindowMinutes`; for a MID want, `1 − |minutes from the light to the midpoint between the
+   bracketing extremes| / tightWindowMinutes` (the same midpoint `TideService.isMidPointAligned` tests);
+   when more than one want is aligned, the best of them; clamped to [0, 1]. Computed where the extremes
+   and the tight window are already in hand (`TideFactDeriver.derive`, `:88–97`, which already holds
+   `tightWindowMinutes` and both classifications), built into `TideInfo` by `BriefingSlotBuilder`
+   beside T1's five fields. Keep `TideInfo.NONE` and both legacy constructors.
+2. **Tests.** `TideFactDeriverTest`/`BriefingSlotBuilderTest`: a HIGH-aligned slot with the light *at*
+   high water scores 1.0; one at the tight window's edge scores ≈ 0; a MID-aligned slot at the exact
+   midpoint scores 1.0 and beats one nearer an extreme (the case the offset ordering gets backwards);
+   a `{HIGH, LOW}` want takes the better of the two; a non-aligned slot is null; `DailyBriefingResponseJsonTest`
+   round-trips it and a pre-field payload reads null. Backend gate with the integration exclusion.
+
 ### C1 — The data: tide on the pool, the per-window summary, the run — M
 
-**No visible change.**
+**No visible change.** Depends on C0 (the served quality).
 
 1. **`utils/windowFirstSpots.js#buildWindowSpots`** (`:205–246`): each spot gains `tideState`
    (`slot.tideState ?? null`), `tideAligned` (`Boolean(slot.tideAligned)` when `tideState != null`,
-   else `null`) and `tideOffsetMinutes` (`slot.nearestSolarOffsetMinutes ?? null`). Coastal ⇔
+   else `null`) and `tideQuality` (`slot.tideAlignmentQuality ?? null`, C0's served figure). Coastal ⇔
    `tideState != null` — the server's own "coastal with a derivable answer" predicate, the same rule
    `buildTideAlignmentIndex` skips on (§5 #5).
-2. **`utils/windowFirstCards.js#buildWindowCards`**: the descriptor gains `tide` —
-   `{coastal, matched, live, meanOffsetMinutes}` over `pool`: `coastal` = spots with a `tideState`,
-   `matched` = those `tideAligned`, `live = coastal >= 4 && matched >= Math.max(3, Math.ceil(coastal *
-   0.5))` (the spec's gate, verbatim), `meanOffsetMinutes` = mean of `|tideOffsetMinutes|` over the
-   matched spots that carry one (null when none). Constants named (`TIDE_LIVE_MIN_COASTAL = 4`,
+2. **`utils/windowFirstCards.js#buildWindowCards`**: the descriptor gains **`tideFit`** — never
+   `tide`, which T6 already uses for the served `BriefingWindowTide` (§1 #3) — `{coastal, matched, live,
+   meanQuality}` over `pool`: `coastal` = spots with a `tideState`, `matched` = those `tideAligned`,
+   `live = coastal >= 4 && matched >= Math.max(3, Math.ceil(coastal * 0.5))` (the spec's gate,
+   verbatim), `meanQuality` = mean of `tideQuality` over the matched spots that carry one (null when
+   none). `windowFirstStrip.js` forwards `tideFit` beside `tide`. Constants named (`TIDE_LIVE_MIN_COASTAL = 4`,
    `TIDE_LIVE_FLOOR = 3`, `TIDE_LIVE_SHARE = 0.5`) with the spec's reason in the doc block: a flat floor
    of three put a chip on all six cards.
 3. **`utils/windowFirstTideRun.js`** (new, pure): `tideRun(cards)` → `{liveKeys: Set, bestKey,
-   liveCount}` over the served, non-away cards: live = `card.tide.live`; best = the live card ranked by
-   `matched DESC, meanOffsetMinutes ASC (nulls last), strip order ASC`; `bestKey` null unless
+   liveCount}` over the served, non-away cards: live = `card.tideFit.live`; best = the live card ranked by
+   `matched DESC, meanQuality DESC (nulls last), strip order ASC`; `bestKey` null unless
    `liveCount > 1` (the emphasis exists only where there is something to be best of). Ties on all three
    are genuine and the earlier window wins, as the spec says.
 4. **Tests.** `windowFirstSpots.test.js` — the three fields copied, null for inland; `windowFirstCards.test.js`
    — the gate at its edges (`coastal 3 → never live`; `coastal 4, matched 2 → not live`; `coastal 4,
-   matched 3 → live`; `coastal 8, matched 3 → not live`, `matched 4 → live`), `meanOffsetMinutes` over
-   matched only; `windowFirstTideRun.test.js` — count beats offset, offset breaks a count tie (**the
-   spec's own case**: three windows matching the same nine, the one with the smallest mean offset
+   matched 3 → live`; `coastal 8, matched 3 → not live`, `matched 4 → live`), `meanQuality` over
+   matched only; `windowFirstTideRun.test.js` — count beats quality, quality breaks a count tie (**the
+   spec's own case**: three windows matching the same nine, the one with the highest mean quality
    wins — not the first), strip order breaks a full tie, `bestKey` null with one live window, away and
    unserved cards never live.
 
@@ -225,18 +265,22 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
 
 1. **The glyph.** In `bestReachLine(card)` (`:164–204`) and the JSX at `:1074–1099`: when
    `card.bestReach?.tideAligned === true`, render `<TideWave className="wf-hc-best-tw" />` before the
-   name inside `.wf-hc-best`, plus an `sr-only` sentence ` — the tide is right here` and a tooltip
-   suffix ` · <state word> — the water it wants` (state from `STATE_WORD[bestReach.tideState]`). **A
+   name inside `.wf-hc-best`, a tooltip suffix ` · <state word> — the water it wants` (state from
+   `STATE_WORD[bestReach.tideState]`), and — because `.wf-hc-pls` is `aria-hidden` (§1 #2) — the clause
+   `the tide is right here` appended to `facts.best.spoken`, which is what `accessibleName` reads. No
+   `sr-only` span: text inside the grid is never announced. **A
    miss is silent**: no glyph, no text (the pick is chosen on score). Name ink stays `--color-plex-text`.
-2. **The chip.** First element inside `.wf-hc-tps`, rendered only when `card.tide.live`:
+2. **The chip.** First element inside `.wf-hc-tps`, rendered only when `card.tideFit.live`:
    `<span data-testid="wf-heat-tide-chip" data-channel="tide" className="wf-hc-tw wf-hc-tide"
    data-best={isBest || undefined}>` containing `<TideWave/>` + `{matched} on tide` and, when best,
    `<em className="wf-hc-tide-best">best of {liveCount}</em>`. Tooltip: `9 of 14 coastal locations in
    reach get the water they want — mid tide, falling · 3 windows in this run are live · the most of any of
    them`, where the state phrase is the served window tide's `STATE_WORD`/`DIRECTION_WORD` (reuse
    `windowFirstRows.js`'s tables — export them), "in reach" only when `card.reachMeasured` (§5 #4), the
-   run clause only when `liveCount > 1`, the last clause only on the best. The chip's `sr-only` text
-   is the tooltip.
+   run clause only when `liveCount > 1`, the last clause only on the best. **The chip's words reach
+   the reader through `accessibleName`** (`:930–943`): add one clause — `9 on tide` / `9 on tide, best of
+   3` — beside the topic labels the construction already concatenates; there is no `sr-only` text in the
+   grid (§1 #2).
 3. **CSS**, in the card block beside `.wf-hc-tw` (`index.css:2121–2136`): `.wf-hc-tide { color:
    var(--color-badge-tide); display: inline-flex; align-items: center; gap: 6px }`;
    `.wf-hc-tide[data-best] { font-weight: 700; padding: 1px 8px; margin: -1px -2px; border-radius:
@@ -250,7 +294,9 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
    stylesheet-as-text suite for the new rules): glyph present on an aligned coastal head, absent on a
    miss AND on an inland head, name ink unchanged; chip present only on live cards, exactly one
    `[data-best]` when `liveCount > 1` and none when 1; `best of N` text exact; tooltip with and without
-   "in reach" (`reachMeasured` true/false); **§7 checks 1, 2, 4, 5 as tests** (chip count = gate count on
+   "in reach" (`reachMeasured` true/false); **the card button's accessible name** (`getByRole('button',
+   {name: …})`) carries `the tide is right here` on an aligned head and `9 on tide, best of 3` on the
+   best live card, and neither on a miss or a silent card; **§7 checks 1, 2, 4, 5 as tests** (chip count = gate count on
    a six-card fixture with the spec's 3-of-6 shape; one emphasis; glyph silent on a miss; verdict word,
    histogram bars and star chip byte-identical across an all-aligned and an all-miss fixture).
 5. **Browser (§9)**: the sunset row with three live windows; the emphasised chip's contrast on its pill
@@ -260,9 +306,9 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
 
 1. **`WindowSheetDialog.jsx`**: the tide row gains one trailing fact, `9 of 14 coastal locations in
    reach on tide` (or `… coastal locations on tide` when `!card.reachMeasured`), rendered from
-   `card.tide` and passed to `WindowAttributeRow` as an `extraFacts` prop (an array in `tideFacts`' own
+   `card.tideFit` and passed to `WindowAttributeRow` as an `extraFacts` prop (an array in `tideFacts`' own
    `{segments, optional}` shape) — **never** added inside `windowFirstRows.js#tideFacts`, which maps
-   served facts only (§5 #6). Omitted when `card.tide.coastal === 0`. Optionally, and only if the row
+   served facts only (§5 #6). Omitted when `card.tideFit.coastal === 0`. Optionally, and only if the row
    has room at 390px, `heightAtWindow` as a fifth served fact — that one *does* belong in `tideFacts`
    (it is served) and is recorded if added.
 2. **Phone (`OPEN 4`)**: at 390×844 with a four-topic night fixture plus the emphasised chip, the
@@ -276,7 +322,7 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
 
 1. Reconcile §4 against what shipped; flip §0 to complete; fill the phase log.
 2. **CLAUDE.md**: the Backend-heavy bullet's reach-scoped class gains its new members — the per-window
-   `tide` summary (coastal/matched/live/meanOffsetMinutes over the reach pool) and the strip's
+   `tideFit` summary (coastal/matched/live/meanQuality over the reach pool) and the strip's
    `tideRun` — "and only those"; the Plan tab bullet gains one sentence naming the two marks and the
    silence rule; the "Two tide axes" bullet notes the card glyph reads the preference axis.
 3. Answer the spec's four OPENs in §6 with what shipped; record the §7 measurements.
@@ -288,10 +334,13 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
 1. **No level, band or fit tier is computed or imported.** `match ⇔ served tideAligned`; `coast ⇔
    served tideState != null` (§1 #1). The prototype's model block is scaffolding its own README says
    not to port, and in this codebase the model it points at was never built.
-2. **The ranking's quality term is the served nearest-extreme offset, not `meanFit`.** `matched DESC,
-   mean |nearestSolarOffsetMinutes| over matched ASC, window ASC`. It answers the spec's own example
-   directly — "Thursday sunset, where high water lands 17 minutes after the light rather than nearly
-   an hour off it" — from a number already on the wire, with no level arithmetic on the client.
+2. **The ranking's quality term is a served `tideAlignmentQuality`, not a client `meanFit`.** `matched
+   DESC, mean tideAlignmentQuality over matched DESC, window ASC`. The server computes the figure on
+   the same time axis it decides alignment on (C0) — at the extreme for a HIGH/LOW want, at the
+   midpoint for MID — so it answers the spec's own example ("17 minutes after the light rather than
+   nearly an hour off it") *and* orders a MID match the right way round, which the plan's first cut
+   (mean nearest-extreme offset, ascending) did not: a better-centred mid tide is farther from either
+   extreme (a Codex finding on the plan PR). The client only averages a served number.
 3. **The glyph's words are the preference axis.** `— the tide is right here` / `<state> — the water it
    wants`, never the spec's `high water on the light`, which is the timing phrase this app keeps for
    `tideOnTheLight` (§1 #6).
@@ -314,7 +363,7 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
 
 1. **The counts, the gate and the run are client-derived, and are new members of CLAUDE.md's
    reach-scoped class.** The pool is per-user (reach), so no servable answer exists on the shared
-   payload — the identical argument that licensed A10/A11. Members added: `card.tide` and `tideRun`,
+   payload — the identical argument that licensed A10/A11. Members added: `card.tideFit` and `tideRun`,
    nothing else. Exit: plan-matrix O-4.
 2. **One pool.** Tide facts ride the spot descriptor so `pool` itself is counted; no second index on
    the Plan tab (§1 #3).
@@ -353,7 +402,7 @@ say "coastal locations in reach" only when it is true, and "coastal locations" o
 |---|---|---|---|
 | 1 | Gate | C2 | Six-card fixture built from `buildWindowCards`: `[data-testid="wf-heat-tide-chip"]` count equals cards with `tide.live`; the spec's default shape (3 of 6) reproduced. |
 | 2 | Exactly one emphasis | C2 | `[data-best]` count is 1 when `liveCount > 1`, 0 when 1, 0 when 0. |
-| 3 | Ranking is not first-past-the-post | C1 | Three live cards with equal `matched`, mean offsets 55 / 17 / 40 → `bestKey` is the second, not the first; pinned so a `||`→`&&` or a sort-order flip fails it. |
+| 3 | Ranking is not first-past-the-post | C0/C1 | Three live cards with equal `matched`, mean qualities 0.3 / 0.9 / 0.6 → `bestKey` is the second, not the first; pinned so a `||`→`&&` or a sort-order flip fails it. And on the server: a MID-aligned slot at the exact midpoint scores higher than one nearer an extreme. |
 | 4 | Glyph is match-only and silent on a miss | C2 | Head coastal + aligned → glyph + sr-only text; head coastal + not aligned → neither; head inland → neither. |
 | 5 | No score moved | C2 | Verdict word, histogram bar heights, star chip text and colour byte-identical across an all-aligned and an all-miss fixture of the same ratings. |
 | 6 | No overflow | C2/C3 | `scrollWidth <= clientWidth` on every chip and on `.wf-hc-tps` at 1280/834/390 in the browser. |
@@ -364,8 +413,9 @@ Checks this plan adds:
 | # | check | phase | how |
 |---|---|---|---|
 | 8 | "In reach" only when measured | C2/C3 | Tooltip and popup fact contain `in reach` iff `card.reachMeasured`. |
-| 9 | One pool | C1 | `card.tide.coastal + inland == card.pool.length` on every card of the fixture. |
+| 9 | One pool | C1 | `card.tideFit.coastal + inland == card.pool.length` on every card of the fixture; and `card.tide` (T6's served window tide) is untouched by this series. |
 | 10 | Axis discipline | C2 | No rendered string on the card contains `on the light`. |
+| 11 | Announced, not only drawn | C2 | The card button's accessible name carries the glyph clause and the chip clause; no `sr-only` element exists inside `.wf-hc-pls`. |
 
 ---
 
@@ -373,10 +423,11 @@ Checks this plan adds:
 
 | session | phase | size | depends on |
 |---|---|---|---|
-| 1 | C1 — data on the pool, per-window summary, the run | M | `tide-window` T1/T2 merged (they are) |
-| 2 | C2 — the two marks on the card | M/L | C1 |
-| 3 | C3 — the popup fact and the phone | S | C1 (independent of C2; may run in parallel) |
-| 4 | C4 — sweep and docs | S | all |
+| 1 | C0 — served alignment quality (backend) | S | `tide-window` T1/T2 merged (they are) |
+| 2 | C1 — data on the pool, per-window summary, the run | M | C0 |
+| 3 | C2 — the two marks on the card | M/L | C1 |
+| 4 | C3 — the popup fact and the phone | S | C1 (independent of C2; may run in parallel) |
+| 5 | C4 — sweep and docs | S | all |
 
 ---
 
