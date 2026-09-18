@@ -44,6 +44,12 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tr"]',
   '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
+  // The tide strip (tide-window-plan.md T6/T7) — on desktop it is a plain child of
+  // `.wf-map-chrome-bl` above and needs no entry of its own; on the phone (T7) it is mounted as
+  // that element's SIBLING instead (it has to span `left: 8px; right: 8px` against the frame,
+  // which `.wf-map-chrome-bl`'s own left-anchored-only box cannot give it), so without its own
+  // selector here a label could place itself under an uncovered strip on that one viewport.
+  '[data-testid="wf-tide-strip"]',
   // The empty state's CHIP, centred in the map body — never its `inset: 0` wrapper, which would
   // seed the whole frame and drop every label. Present in the DOM only while the map has no
   // forecast for the window on screen, i.e. only while the rating gate has already removed every

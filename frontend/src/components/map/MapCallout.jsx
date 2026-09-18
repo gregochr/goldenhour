@@ -54,11 +54,24 @@ const COUNTS_FOOTER_SELECTOR = '[data-testid="wf-map-counts-footer"]';
  * (P10) and Leaflet's own zoom+home corner join this list as they ship — the zoom+home corner
  * already does, via {@link LEAFLET_CORNER_SELECTOR} below, queried separately because it lives
  * INSIDE the Leaflet container rather than beside it (mirroring `MapLabels.jsx`'s identical split).
+ *
+ * <p>⚠️ The tide strip (`[data-testid="wf-tide-strip"]`, tide-window-plan.md T6/T7) joined this
+ * list at T7 — needed because the phone query hides the counts footer outright while the strip is
+ * on (`wf-tide-strip-on`), rather than merely lifting it, so `getBoundingClientRect` on a
+ * `display: none` footer returns a zero-size rect {@link calloutBand} already skips, and with
+ * nothing else naming the strip's own floor the card was free to grow down over it. No
+ * {@code always} opt-out needed the way the footer got one: on the phone the strip spans
+ * `left: 8px; right: 8px` (T7), comfortably over the 50%-of-frame-width test on any phone width
+ * this app supports; on desktop/tablet, where it lives nested in `.wf-map-chrome-bl` at a fixed
+ * `474px`, it will very rarely clear that same test against a wider frame — which is fine, since
+ * nothing asked this band to treat the desktop strip as a floor and `.wf-map-chrome-bl` itself
+ * still is not in this list either (an existing, separate omission this phase does not touch).
  */
 const BAND_BAR_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
   '[data-testid="wf-map-chrome-tr"]',
   COUNTS_FOOTER_SELECTOR,
+  '[data-testid="wf-tide-strip"]',
 ].join(', ');
 
 /** Leaflet's own bottom-right corner (zoom control + `CentreOnHomeControl`) — see `MapLabels.jsx`'s
@@ -184,6 +197,15 @@ function kindShort(event) {
  * @param {Set<string>} [props.pendingNightRowIds] ids of the night EV rows whose served rows those
  *        two maps have not answered yet — in flight, or failed (`MapView.jsx`'s own set). A night
  *        cell for one reads "…" rather than "—"; see the strip's note
+ * @param {?number} [props.tideStripHeight] the tide strip's own real, measured height in px, or
+ *        `null` when it is not on screen — `MapView.jsx`'s state, written from `MapTideStrip`'s own
+ *        `onHeightChange` (the same `ResizeObserver` callback that already publishes `--tsh`). Read
+ *        for NOTHING but a repaint trigger below: `paint()` re-measures the strip's real rect fresh
+ *        off the DOM every time it runs (`BAND_BAR_SELECTOR` already includes it, T7), so this value
+ *        is never used as a number here — only its IDENTITY changing is what matters, the same shape
+ *        every other repaint-trigger prop in this list already takes (Codex P1 on the T7 PR: the
+ *        strip toggling open/collapsed changed its real rect with nothing in this component's
+ *        listeners to notice, so the callout's card kept the stale band until an unrelated pan/zoom)
  * @param {?Function} [props.onSelectEv] `(row) => void` — switches the active window (the P6
  *        selection path, `MapView.jsx`'s `selectEvRow`)
  * @param {?Function} [props.onOpenSheet] `() => void` — the clamped prose's `Four days here ›`
@@ -203,6 +225,7 @@ export default function MapCallout({
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
+  tideStripHeight = null,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
   const map = useMap();
@@ -337,9 +360,22 @@ export default function MapCallout({
   // into a jump (or add the whole block where there was none) while `event?.id` stays put. Without
   // this the card would carry the old height until an unrelated pan/zoom forced a re-measure — the
   // evaluation-gate P1 in a different field.
+  //
+  // ⚠️ And `tideStripHeight` (T7 follow-up, Codex P1 on the T7 PR) — a DIFFERENT class of gap
+  // from every entry above: those all name something that changes THIS CARD's own content or
+  // height; the tide strip is a SEPARATE, sibling element that `BAND_BAR_SELECTOR` reads as one
+  // of `paint()`'s floor/ceiling bars (T7). Nothing above notices the strip toggling open ⇄
+  // collapsed — `paint`'s identity is keyed on `[map, location]`, neither of which moves — so a
+  // reader who selects a location while the strip is collapsed and then opens it kept the
+  // COLLAPSED band boundary while the strip's real rect grew ~100px upward underneath the card,
+  // until an unrelated pan/zoom forced a re-measure. `tideStripHeight` carries no number this
+  // component ever reads — `paint()` re-measures the strip's own live rect off the DOM the same
+  // way it does every other bar — it exists purely so its IDENTITY changing (open→collapsed,
+  // collapsed→open, or the strip appearing/disappearing entirely) is a repaint trigger, the same
+  // shape every dependency above already takes.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, evaluationGateIndex,
-    tideAlignmentIndex, repaintNow,
+    tideAlignmentIndex, tideStripHeight, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -874,6 +910,7 @@ MapCallout.propTypes = {
   astroConditionsByDate: PropTypes.instanceOf(Map),
   auroraResultsByDate: PropTypes.instanceOf(Map),
   pendingNightRowIds: PropTypes.instanceOf(Set),
+  tideStripHeight: PropTypes.number,
   onSelectEv: PropTypes.func,
   onOpenSheet: PropTypes.func,
   onOpenInPlan: PropTypes.func,

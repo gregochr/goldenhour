@@ -1513,6 +1513,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [tideStripCollapsed, setTideStripCollapsed] = useState(false);
   /**
+   * The tide strip's own real, measured height (T7 follow-up, Codex P1) — written from
+   * `MapTideStrip`'s `onHeightChange`, the same `ResizeObserver` callback that already publishes
+   * `--tsh` onto `.wf-map-tab`. `null` while the strip is not on screen. Exists ONLY to retrigger
+   * `MapCallout`'s repaint when the strip's own rect changes (open ⇄ collapsed, or it appearing/
+   * disappearing) — `MapCallout` treats the strip as one of its placement-band bars
+   * (`BAND_BAR_SELECTOR`, T7) and re-measures it fresh off the DOM every time it repaints, but
+   * nothing in that component's own trigger list ever fired on the strip's OWN resize, so the
+   * card kept a stale band until an unrelated pan/zoom forced a re-measure. `MapView` is the one
+   * place both components already meet, so it is the one place this can be wired without either
+   * importing the other or a second `ResizeObserver` duplicating the one `MapTideStrip` already
+   * runs. Fed to whichever of the two `<MapTideStrip>` mounts is actually on screen (desktop/
+   * tablet nested in `.wf-map-chrome-bl`, phone as `.wf-map-chrome-bl`'s own sibling, T7 #16) —
+   * only one is ever mounted at a time, so one shared state serves both.
+   */
+  const [tideStripHeight, setTideStripHeight] = useState(null);
+  /**
    * The Regions jump list's own camera target (map-tab-v2-plan.md §3 P11) — an OVERRIDE of the
    * ordinary `heatArea`-derived bounds below, not a second `HeatBoundsController`.
    *
@@ -5174,6 +5190,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               astroConditionsByDate={astroConditionsByDate}
               auroraResultsByDate={auroraResultsByDate}
               pendingNightRowIds={pendingNightRowIds}
+              tideStripHeight={tideStripHeight}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
@@ -5603,8 +5620,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 entry in the obstacle list, since `.wf-map-chrome-bl` already carries that seed. The
                 frozen overlay never draws it — this whole bottom-left wrapper already sits inside the
                 `!overlayMode` branch above, so no second `!overlayMode` test here (CodeQL flagged the
-                first cut's as an always-true negation) — and `!isMobile` because T7 owns the phone
-                placement (full width, above the bar, not this column). */}
+                first cut's as an always-true negation) — and `!isMobile` because the phone gets its
+                OWN mount below (T7, full width, above the bar, never nested in this column). */}
             {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)
               || (!isMobile && tideStripModel.visible)) && (
               <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
@@ -5648,6 +5665,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
                     onSelectEv={selectEvRow}
                     mapPaneRef={mapPaneRef}
+                    onHeightChange={setTideStripHeight}
                   />
                 )}
               </div>
@@ -5720,6 +5738,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   <span data-testid="wf-map-counts-second" className="wf-map-counts-second">{countsSecondLine}</span>
                 )}
               </div>
+            )}
+
+            {/* T7 — the phone tide strip (tide-window-plan.md §3 T7, docs/design/tide-window/
+                README.md §6). ⚠️ Deliberately NOT nested inside `.wf-map-chrome-bl` the way the
+                desktop mount above is (T6, §4 #6): on the phone it needs to span
+                `left: 8px; right: 8px` against the FRAME itself — the same containing block
+                `.wf-map-counts-footer`/`.wf-map-scored-legend` already use — and `.wf-map-chrome-bl`
+                is only ever left-anchored (`left: 8px`, no `right`), so an element positioned
+                relative to IT could never stretch edge to edge. Mounted here as a plain sibling of
+                every other independently-positioned chrome chip instead, so `index.css`'s phone
+                query can give it its own `position: absolute; left: 8px; right: 8px; bottom: 112px`
+                — the count footer's own row of the lifted stack, which is why that footer is hidden
+                (not merely lifted) in the same query while `wf-tide-strip-on`. Unconditioned on
+                `tideStripModel.visible` for the same reason the desktop mount is: `MapTideStrip`
+                itself returns `null` when not visible. */}
+            {isMobile && (
+              <MapTideStrip
+                model={tideStripModel}
+                tide={activeMapEvent?.tide ?? null}
+                activeRow={activeMapEvent}
+                sunriseTime={tideStripSunriseTime}
+                sunsetTime={tideStripSunsetTime}
+                collapsed={tideStripCollapsed}
+                onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
+                onSelectEv={selectEvRow}
+                mapPaneRef={mapPaneRef}
+                onHeightChange={setTideStripHeight}
+              />
             )}
           </>
         )}

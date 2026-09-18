@@ -656,6 +656,9 @@ describe('PinsLayer — the home marker', () => {
     ['the Regions jump menu (P11)', 'wf-jump-menu'],
     ['the window panel', 'wf-win-panel'],
     ['the region panel', 'wf-reg-panel'],
+    // tide-window-plan.md T7 — on the phone the strip is a SIBLING of `.wf-map-chrome-bl`, not a
+    // child of it (unlike the desktop mount, already covered via that entry), so it needs its own.
+    ['the tide strip', 'wf-tide-strip'],
   ])('seeds %s as an obstacle too', async (_label, testid) => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });

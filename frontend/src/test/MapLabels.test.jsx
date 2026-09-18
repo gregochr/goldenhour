@@ -1054,6 +1054,9 @@ describe('MapLabels — obstacle seeding from the live chrome', () => {
     ['the landing card', 'wf-land'],
     ['the window panel', 'wf-win-panel'],
     ['the region panel', 'wf-reg-panel'],
+    // tide-window-plan.md T7 — on the phone the strip is a SIBLING of `.wf-map-chrome-bl`, not a
+    // child of it (unlike the desktop mount, already covered via that entry), so it needs its own.
+    ['the tide strip', 'wf-tide-strip'],
   ])('seeds %s as an obstacle', async (_label, testid) => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });

@@ -139,6 +139,7 @@ const BAND_LEVEL = { HIGH: 1, MID: 0.5, LOW: 0 };
 export default function MapTideStrip({
   model = null, tide = null, activeRow = null, sunriseTime = null, sunsetTime = null,
   collapsed = false, onToggleCollapse = undefined, onSelectEv = undefined, mapPaneRef = null,
+  onHeightChange = undefined,
 }) {
   const [node, setNode] = useState(null);
 
@@ -164,12 +165,26 @@ export default function MapTideStrip({
    * (`return null` below) unmounts this effect's own node — the cleanup path is the same one either
    * way, which is exactly what keeps "the chrome returns to `bottom: 8px`" (§7 check 3) true without
    * a second code path.
+   *
+   * <p>⚠️ Also reports the same number up to `onHeightChange` (T7 follow-up, Codex P1 on the T7
+   * PR) — `MapCallout`'s own placement band treats this strip as a floor/ceiling bar
+   * (`BAND_BAR_SELECTOR`, T7), but that component's `paint()` only ever RUNS on a fixed list of
+   * triggers, none of which fired when the strip toggled open ⇄ collapsed. `MapView` is the one
+   * place both components already meet, so it is the one place a single state value can retrigger
+   * a callout repaint without either `MapTideStrip` or `MapCallout` importing the other. This does
+   * NOT hand the number a second job: `MapCallout`'s own `paint()` still re-measures the strip's
+   * real rect fresh off the DOM every time it runs, exactly like every other bar — `onHeightChange`
+   * exists purely so ITS IDENTITY changing is what makes `paint()` run again in the first place.
+   * `null` on cleanup (unmount OR the strip going invisible) for the identical reason the CSS
+   * property is removed on the same path: a stale height is exactly as wrong as no height at all.
    */
   useEffect(() => {
     const pane = mapPaneRef?.current;
     if (!node || !pane || typeof ResizeObserver === 'undefined') return undefined;
     const write = () => {
-      pane.style.setProperty('--tsh', `${Math.round(node.offsetHeight)}px`);
+      const h = Math.round(node.offsetHeight);
+      pane.style.setProperty('--tsh', `${h}px`);
+      onHeightChange?.(h);
     };
     pane.classList.add('wf-tide-strip-on');
     write();
@@ -179,8 +194,9 @@ export default function MapTideStrip({
       observer.disconnect();
       pane.classList.remove('wf-tide-strip-on');
       pane.style.removeProperty('--tsh');
+      onHeightChange?.(null);
     };
-  }, [node, mapPaneRef]);
+  }, [node, mapPaneRef, onHeightChange]);
 
   if (!model?.visible || !tide) return null;
 
@@ -417,4 +433,5 @@ MapTideStrip.propTypes = {
   onToggleCollapse: PropTypes.func,
   onSelectEv: PropTypes.func,
   mapPaneRef: PropTypes.object,
+  onHeightChange: PropTypes.func,
 };
