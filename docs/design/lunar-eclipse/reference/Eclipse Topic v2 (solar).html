@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — ECLIPSE, in v2 language</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--ink-4:rgba(242,231,211,0.26);--go:#8AAE72;--marginal:#E0A542;--standdown:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--nlc:#9B8FD4;--blue:#7C8DD6;--snow:#B7CBD8;--ecl:#C4787F;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:26px 20px 80px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.wrap{max-width:1080px;margin:0 auto}
+.head h1{font-size:22px;font-weight:700;letter-spacing:-.015em;margin-bottom:10px}
+.head p{font-size:14px;color:var(--ink-2);line-height:1.64;max-width:820px;text-wrap:pretty}
+.head p+p{margin-top:9px}
+.head strong{color:var(--ink);font-weight:600}
+.head em{color:var(--ecl);font-style:normal}
+.bar{display:flex;align-items:baseline;gap:12px;margin:32px 0 12px}
+.bar .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.bar .sub{font-size:12px;color:var(--ink-4);font-style:italic}
+.bar .rule{flex:1;height:1px;background:var(--border)}
+.app{background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.mast{display:flex;align-items:center;gap:12px;padding:14px 18px 13px;border-bottom:1px solid var(--border)}
+.logo{width:28px;height:28px;border-radius:50%;background:conic-gradient(from 200deg,#E0A542,#C8452F,#C9A24B,#E0A542);flex:none}
+.brand{font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.mast .sub{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-left:auto}
+.tabs{display:flex;gap:6px;padding:12px 18px 0}
+.tab{font-size:12.5px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom-width:0;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 14px;font-family:var(--sans);cursor:pointer;white-space:nowrap}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab .ct{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-left:5px}
+.tabrule{height:1px;background:var(--border)}
+.body{padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px}
+/* promoted strip — v2 pattern, eclipse variant */
+.promo{border:1px solid rgba(196,120,127,.4);border-left:3px solid var(--ecl);border-radius:11px;background:linear-gradient(180deg,rgba(196,120,127,.07),transparent 70%),var(--surface);overflow:hidden}
+.ph{display:flex;align-items:center;gap:10px;padding:11px 14px 8px;flex-wrap:wrap}
+.ph .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:#D79AA0}
+.ph .t{font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.ph .rule{flex:1;height:1px;background:var(--border);min-width:12px}
+.ph .rare{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.pb{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;padding:0 14px 11px}
+.pb.drive{grid-template-columns:auto auto auto 1fr;gap:20px}
+.pb .fig{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.pb .fig b{display:block;font-size:15px;color:var(--ink);font-weight:600}
+.pb .why{font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--ink-2);text-align:right;max-width:250px;line-height:1.45}
+.pfoot{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.18);font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.pfoot .go{margin-left:auto;color:var(--tide)}
+.pfoot .warn{color:#D79AA0}
+.links{display:flex;gap:8px}
+.lk{flex:1;border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:10px 13px;cursor:pointer}
+.lk:hover{border-color:var(--border-light)}
+.lk .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+.lk .t .ar{margin-left:auto;color:var(--ink-3);font-family:var(--mono);font-size:10.5px;font-weight:400}
+.lk .d{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px}
+/* enriched hot-topic pill */
+.planner{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+.topic{border:1px solid var(--border);border-left:3px solid var(--ac);border-radius:8px;cursor:pointer;transition:background .14s;position:relative}
+.topic:hover{background:var(--surface-light)}
+.topic-row{display:flex;align-items:center;gap:10px;padding:10px 13px 5px}
+.topic-ico{font-size:15px;line-height:1;flex:none;width:19px;text-align:center}
+.topic-label{font-size:12.5px;font-weight:600;white-space:nowrap}
+.topic-when{font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap;color:var(--ac);display:inline-flex;align-items:center;gap:6px}
+.topic-when .arw{font-size:13px}
+.topic-detail{font-size:12.5px;color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topic-regions{font-family:var(--mono);font-size:11px;color:var(--ink-3);white-space:nowrap}
+.topic-exp{font-size:10px;color:var(--ink-4)}
+.info{width:15px;height:15px;border-radius:50%;border:1px solid var(--ink-4);color:var(--ac);font-family:var(--mono);font-size:9px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex:none;cursor:help;transition:border-color .14s;position:relative}
+.info:hover{border-color:var(--ac)}
+.info .tip{position:absolute;left:50%;bottom:calc(100% + 10px);transform:translateX(-16px);z-index:40;width:320px;background:var(--surface-light);border:1px solid var(--border-light);border-radius:9px;box-shadow:0 16px 40px rgba(0,0,0,.6);padding:11px 13px;display:none;white-space:normal;text-align:left;cursor:auto}
+.info .tip::after{content:'';position:absolute;left:16px;bottom:-6px;width:11px;height:11px;transform:rotate(45deg);background:var(--surface-light);border-right:1px solid var(--border-light);border-bottom:1px solid var(--border-light)}
+.info:hover .tip{display:block}
+.tip .th{display:block;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;color:var(--ac)}
+.tip .tb{display:block;font-family:var(--serif);font-size:12.5px;line-height:1.52;color:var(--ink-2);text-wrap:pretty}
+.facts{display:flex;flex-wrap:wrap;align-items:center;gap:6px 15px;padding:0 13px 10px 42px}
+.fact{font-family:var(--mono);font-size:11px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.fact .k{color:var(--ink-4)}
+.fact b{color:var(--ink);font-weight:600}
+.fact .dir{color:var(--ac);font-weight:600;letter-spacing:.02em}
+.fact-note{font-family:var(--mono);font-size:10px;color:var(--ink-4);font-style:italic}
+.cap{font-size:12px;color:var(--ink-3);line-height:1.6;margin:10px 2px 0;font-style:italic;text-wrap:pretty}
+.cap b{color:var(--ink-2);font-style:normal;font-weight:600}
+.spec{display:grid;grid-template-columns:152px 1fr;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:12px}
+.spec dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-top:1px solid var(--border)}
+.spec dd{color:var(--ink-2);padding:10px 14px;border-top:1px solid var(--border);line-height:1.6;text-wrap:pretty}
+.spec dt:first-of-type,.spec dd:first-of-type{border-top:none}
+.spec code{font-family:var(--mono);font-size:11px;color:var(--ink)}
+.spec strong{color:var(--ink);font-weight:600}
+.sw{display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--ecl);margin-right:6px}
+.foot{margin-top:30px;font-size:12px;color:var(--ink-3);line-height:1.65;max-width:820px;text-wrap:pretty}
+.foot b{color:var(--ink-2);font-weight:600}
+.foot ol{margin:8px 0 0 18px}
+.foot li{margin-bottom:5px}
+@media (max-width:760px){
+.pb,.pb.drive{grid-template-columns:1fr 1fr;gap:10px}
+.pb .why{grid-column:1/-1;text-align:left;max-width:none}
+.topic-row{flex-wrap:wrap;row-gap:3px}
+.topic-detail{order:6;flex-basis:100%;white-space:normal;overflow:visible;padding-left:29px}
+.topic-regions{margin-left:auto}
+.facts{padding-left:29px}
+.fact.opt{display:none}
+.links{flex-direction:column}
+.spec{grid-template-columns:1fr}
+.spec dd{border-top:none;padding-top:0}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>ECLIPSE — rebuilt in v2's language</h1>
+    <p>My first pass wasn't in keeping, and it's worth saying where it went wrong. It was built on the <strong>Coming up rail</strong> from the previous version — but v2 demoted that to a tab and gave the featured event a <strong>promoted strip</strong> at the top of Plan instead. It also introduced a loud red "rare" row, when v2 already has <code style="font-family:var(--mono);color:var(--ink)">.ph .rare</code> doing exactly that job quietly: <em>"first coincidence since 2 Mar"</em>. And the accent was a bright Tailwind red dropped into a palette with no saturation like it anywhere.</p>
+    <p>Here it is again, using what's already there. An eclipse is an almanac event with a once-in-decades return period and a coincidence worth driving for — precisely what the promoted strip was built to carry.</p>
+  </div>
+
+  <div class="bar"><span class="lbl">Top of Plan</span><span class="sub">promoted strip, eclipse variant · Wed 12 Aug</span><span class="rule"></span></div>
+  <div class="app">
+    <div class="mast"><span class="logo"></span><span class="brand">PhotoCast</span><span class="sub">forecast 52m ago by Sonnet</span></div>
+    <div class="tabs">
+      <button class="tab on">◉ Plan</button>
+      <button class="tab">Coming up<span class="ct">4</span></button>
+      <button class="tab">◍ Map</button>
+    </div>
+    <div class="tabrule"></div>
+    <div class="body">
+
+      <div class="promo">
+        <div class="ph"><span class="k">◐ Eclipse × clear west</span><span class="t">94% of the sun goes, 11° above a clear western horizon</span><span class="rule"></span><span class="rare">nothing comparable from the UK until <b style="color:#F2E7D3">2081</b> · 1h 49 of it</span></div>
+        <div class="pb drive">
+          <div class="fig">coverage<b>94%</b>88–96% by region</div>
+          <div class="fig">maximum<b>19:13</b>sun 11° up, WNW</div>
+          <div class="fig">clear to the west<b>31 of 57</b>sites evaluated</div>
+          <div class="why">low enough that a foreground finally fits in the frame</div>
+        </div>
+        <div class="pfoot"><span class="warn">⚠ Certified solar filter on the lens — not only over your eye</span><span>Bamburgh · Dunstanburgh · Whitley Bay</span><span class="go">Plan the drive →</span></div>
+      </div>
+
+      <div class="links">
+        <div class="lk"><div class="t">Regional planner<span class="ar">4 regions →</span></div><div class="d">heatmap · full briefing</div></div>
+        <div class="lk"><div class="t">Hot topics<span class="ar">4 live →</span></div><div class="d">enriched science reads</div></div>
+      </div>
+
+    </div>
+  </div>
+  <p class="cap">No new component. Kicker names the coincidence, the headline is a sentence, <b>.rare</b> carries the recurrence interval in the same quiet mono as the snow strip's "first coincidence since 2 Mar". The only addition is a warning-toned first item in <b>.pfoot</b> — this is the one topic where the subject is the sun itself, so the filter line can't be optional.</p>
+
+  <div class="bar"><span class="lbl">Hot topics</span><span class="sub">enriched pill, unchanged pattern</span><span class="rule"></span></div>
+  <div class="planner">
+    <div class="topic" style="--ac:var(--ecl)">
+      <div class="topic-row">
+        <span class="topic-ico">◐</span><span class="topic-label">Deep partial eclipse</span>
+        <span class="info">i<span class="tip"><span class="th">Why 94% still isn't dusk</span><span class="tb">Brightness falls with the uncovered area, not with how dark it feels. At maximum a sliver of photosphere is still throwing roughly a twentieth of full sunlight — thousands of times brighter than a full moon, and a meter still reads daylight. What changes is the quality: colour goes metallic, shadows sharpen to knife edges, and pinholes between leaves cast crescents on the ground. The drop only becomes obvious in the last few minutes either side of maximum.</span></span></span>
+        <span class="topic-when"><span class="arw">↓</span>Today · 19:13</span>
+        <span class="topic-detail">— 94% covered, lowest sun of any UK eclipse this century</span>
+        <span class="topic-regions">◍ all regions</span><span class="topic-exp">▸</span>
+      </div>
+      <div class="facts">
+        <span class="fact"><span class="k">max</span><b>94%</b> covered · sun <span class="dir">↖ WNW</span>, only <b>11°</b> up</span>
+        <span class="fact"><span class="k">contacts</span><b>18:17 → 19:13 → 20:06</b></span>
+        <span class="fact opt"><span class="k">☀</span>sets <b>20:56</b>, 50 min after last contact</span>
+        <span class="fact-note">a clear low western horizon matters more than the last 2%</span>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Same two-row pill as the other thirteen. Glyph is <b>◐</b> rather than an emoji, matching v2's text-glyph tabs and kickers. The filter warning lives on the promoted strip, not repeated here.</p>
+
+  <div class="bar"><span class="lbl">Catalog entry</span><span class="sub">reconciled to v2</span><span class="rule"></span></div>
+  <dl class="spec">
+    <dt>Type</dt><dd><code>ECLIPSE</code>, source <code>ALMANAC</code></dd>
+    <dt>Accent</dt><dd><span class="sw"></span><code>#C4787F</code> — added as <code>--ecl</code>. Sits with the topic hues (<code>--tide</code>, <code>--nlc</code>, <code>--snow</code>, <code>--blue</code>) at matching lightness and chroma, not with the semantic three (<code>--go</code>, <code>--marginal</code>, <code>--standdown</code>). Deliberately not <code>--standdown</code>, which means <em>don't go</em>.</dd>
+    <dt>Glyph</dt><dd><code>◐</code> — text, not emoji</dd>
+    <dt>Data</dt><dd>Per region: <code>magnitudePct</code>, <code>contacts{first,max,last}</code>, <code>sunAltitudeAtMax</code>, <code>sunAzimuthAtMax</code>. Precomputed once from an ephemeris table, never derived per forecast run.</dd>
+    <dt>Site scoring</dt><dd>The <strong>clear to the west</strong> figure is the new work. Existing site data has elevation and aspect; this needs a horizon-obstruction test on a fixed bearing (WNW, 11°). Reusable for every low-sun event.</dd>
+    <dt>Rarity</dt><dd>Reuses <code>.ph .rare</code> as-is. Add <code>returnYears</code> to almanac events so the string generates rather than being authored: eclipse 55, spring tide null.</dd>
+    <dt>Regions</dt><dd>First event covering <strong>every</strong> region at once. Magnitude is a gradient (88% NE Scotland → 96% Isles of Scilly), so the map shades rather than pins.</dd>
+    <dt>Safety</dt><dd>Non-dismissible <code>.pfoot .warn</code> on any ECLIPSE promoted strip.</dd>
+  </dl>
+
+  <div class="foot">
+    <b>Two calls for you.</b>
+    <ol>
+      <li><b>Promotion timing.</b> The promoted strip currently shows tonight's coincidence. An eclipse at 19:13 needs the trip decided the evening before, so it wants to promote at T−1 — which is a rule change, not a content change.</li>
+      <li><b>The west-horizon figure.</b> "31 of 57 clear to the west" is the most useful number on the strip and the only one you can't compute today. If that's too much work for one event, the strip drops to coverage and timing and reads thinner than the snow and tide versions.</li>
+    </ol>
+    <p style="margin-top:12px">Figures: UK-average magnitude ~90%, 88% in north-east Scotland to ~96% in Cornwall and the Isles of Scilly. Contact times shown are London; maximum falls between 19:05 and 19:13 BST across the country, sun 6–13° above the WNW horizon. Site counts are illustrative.</p>
+  </div>
+</div>
+</body>
+</html>
