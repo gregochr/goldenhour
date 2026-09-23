@@ -69,6 +69,14 @@ vi.mock('../components/MapView.jsx', () => ({
   default: () => <div data-testid="overlay-map-stub" />,
 }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
+// This whole file assumes Plan-first — nearly every test below opens on Plan and clicks its own
+// way to Map. jsdom's `matchMedia` stub answers "no match" for everything (`test/setup.js`), so
+// the real `resolveInitialTab()` would resolve 'map' here, same as it does on an un-mocked
+// desktop-shaped test run — moving every one of those tests' starting point out from under it.
+// Pinned to 'plan' here rather than widening the stub, which would hide the feature from its own
+// tests (default-tab-by-device-plan.md §5). `AppInitialTab.test.jsx` is the file that exercises
+// the real resolution.
+vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
 vi.mock('../api/auroraApi.js', () => ({ getAuroraStatus: vi.fn() }));
 vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
