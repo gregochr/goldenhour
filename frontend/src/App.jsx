@@ -20,13 +20,19 @@ import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
 import { createColourSaveQueue, keepColourSaveLineOpen } from './utils/colourSaveQueue.js';
+import { resolveInitialTab } from './utils/initialTab.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
 
-// Code-split the heavy, rarely-first-viewed subtrees so they stay out of the initial bundle:
-// the Leaflet map stack (Plan is the default tab; the map is a drill-down) and the admin-only
-// Manage view (which also pulls in recharts). They load on demand behind the Suspense boundaries.
+// Code-split the heavy subtrees so they stay out of the initial bundle: the Leaflet map stack and
+// the admin-only Manage view (which also pulls in recharts). They load on demand behind the
+// Suspense boundaries. The map is now the OPENING tab on tablet/desktop
+// (default-tab-by-device-plan.md — `utils/initialTab.js`), not merely a drill-down, but it stays
+// lazy regardless: a phone (where Plan opens) never needs this chunk at first paint at all, and on
+// tablet/desktop the fallback below covers the fetch — see `WindowFirstShell.jsx`'s own note on the
+// Map pane not existing until `allDates.length > 0` for why that fetch cannot simply be moved
+// earlier.
 const MapView = lazy(() => import('./components/MapView.jsx'));
 const WindowFirstMapPane = lazy(() => import('./components/WindowFirstMapPane.jsx'));
 const MapOverlay = lazy(() => import('./components/MapOverlay.jsx'));
@@ -103,12 +109,25 @@ function AppInner() {
   const { isAdmin, logout, token } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   /**
+   * The device's opening tab (default-tab-by-device-plan.md §4.2) — Plan on a phone, Map on
+   * anything larger, resolved ONCE per mount by a pure viewport read and handed to the shell as
+   * `initialTab`. A `useState` initialiser, so `resolveInitialTab()` runs exactly once regardless
+   * of how many times `AppInner` re-renders (plan §3.3 — rotating or resizing after load must not
+   * move the reader to another tab).
+   */
+  const [initialTab] = useState(() => resolveInitialTab());
+  /**
    * The Plan shell's own active tab (map-tab-v2-plan.md §3 P7's first full-frame owner). `App`
    * cannot otherwise learn this — `WindowFirstShell`'s `effectiveTab` is shell-internal — and it
    * needs to know in order to recast the page as a flex column on the Map tab (see the root
-   * `<div>` below). Defaults to `'plan'` so the very first render (before the shell's mount effect
-   * fires) matches what the shell itself defaults to, rather than briefly assuming the map tab is
-   * active.
+   * `<div>` below). Defaults to `'plan'` regardless of `initialTab`: on the very first render the
+   * shell itself is ALWAYS on Plan too, because the Map pane does not exist yet at that point
+   * (`allDates.length > 0` below is false before the first forecast fetch resolves) — a device
+   * whose preference is Map only reaches it once the shell's own mount effect (`onTabChange`, wired
+   * below) reports the move, which corrects this state one render later. See
+   * `WindowFirstShell.jsx`'s "Tab selection is deliberately not persisted" section for the full
+   * preference/commit mechanism that makes that move happen at most once, and never after the
+   * reader has touched the page.
    *
    * <p>⚠️ A `calc(100dvh - …)` height chain (measured masthead + tab bar + banner block, each via
    * its own `ResizeObserver`) was tried here first and shipped, then reverted: a live measurement
@@ -636,6 +655,7 @@ function AppInner() {
           >
             <WindowFirstShell
               mapColourScale={mapColourScale}
+              initialTab={initialTab}
               onTabChange={setActivePlanTab}
               onOpenSettings={() => setShowSettings(true)}
               settingsOpen={settingsOpen}

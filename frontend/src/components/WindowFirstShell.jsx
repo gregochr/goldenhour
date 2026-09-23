@@ -113,6 +113,15 @@ const EMPTY_POINTS = Object.freeze([]);
 const WRAP_MAX_WIDTH = '1080px';
 
 /**
+ * How long the opening tab PREFERENCE stands undisturbed before it commits on its own
+ * (default-tab-by-device-plan.md §4.3) — a reader who reads without touching anything is still
+ * reading, and a tab switching under them several seconds in is the same jolt as switching it
+ * under an active interaction. A one-shot timer from mount; cleared on unmount, and a no-op once
+ * the reader has made an explicit or interaction-driven choice.
+ */
+const PREFERRED_TAB_GRACE_MS = 1500;
+
+/**
  * The tab bar's contents, in order.
  *
  * <p><b>A tab with a {@code slot} appears only when the shell is handed that pane.</b> That is the
@@ -200,13 +209,25 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * <p>This is the first roving-tabindex implementation in the codebase; there was nothing to copy —
  * {@code ManageView}'s tabs carry no roles at all.
  *
- * <h2>Tab selection is deliberately not persisted</h2>
+ * <h2>Tab selection is deliberately not persisted — but the OPENING tab is now device-aware</h2>
  *
  * <p>The arm persists two things — the reach lens and the rating floor — and both are settled
  * preferences. Which tab you last had open is not: the reader's question on opening the app is
  * almost always "what about tonight", and restoring a ninety-day almanac because they browsed it
- * yesterday answers a question they are not asking. It also spends the first paint on a fetch.
- * Plan resets on every visit, and the cost of being wrong is one click.
+ * yesterday answers a question they are not asking. It also spends the first paint on a fetch. No
+ * {@code localStorage}, and the default is recomputed on every visit — nothing here is
+ * per-session memory.
+ *
+ * <p>What changed (default-tab-by-device-plan.md) is which tab that reset lands ON, not whether it
+ * resets: the app opens on Plan on a phone and on Map on anything larger, decided once per visit by
+ * {@code App} ({@code utils/initialTab.js}, a pure viewport read) and handed down as
+ * {@code initialTab}. This component stays device-agnostic — it never reads a media query itself —
+ * and models the opening tab as a PREFERENCE that stands until the reader makes an actual choice,
+ * because the Map pane does not exist at first render (`App.jsx`'s `allDates.length > 0` gate) and
+ * so cannot simply be selected up front. {@code activeTab} is {@code null} until then; see its own
+ * Javadoc, {@code commitTabInForce} and {@code PREFERRED_TAB_GRACE_MS} for how the preference is
+ * allowed to resolve to Map once, and never moves the tab under a reader who has done anything at
+ * all with the page. The cost of an opening tab being wrong is still one click.
  *
  * <h2>The day rail is GONE, and its replacement is a Plan-pane element</h2>
  *
@@ -299,7 +320,7 @@ export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
-  locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false,
+  locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false, initialTab = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -369,7 +390,14 @@ export default function WindowFirstShell({
     // for the measured reason. Fire-and-forget and idempotent; it is not on any render path.
     if (key != null) warmStackedChunks();
   }, []);
-  const [activeTab, setActiveTab] = useState(TABS[0].id);
+  /**
+   * {@code null} means the reader has not chosen a tab yet THIS VISIT — the opening preference
+   * (default-tab-by-device-plan.md §4.3) still applies, and a later pane arriving (the Map
+   * pane, handed over only once `GET /api/forecast` has returned rows) can still move the tab. Any
+   * tab selection, or any interaction with the shell at all, pins this non-null and the preference is
+   * dead from then on — see `commitTabInForce` below.
+   */
+  const [activeTab, setActiveTab] = useState(null);
   /**
    * The tabs this shell actually has, which is a function of the panes it was handed.
    *
@@ -393,7 +421,28 @@ export default function WindowFirstShell({
    * {@code tabIndex={0}}, which is the whole keyboard entry point, and every panel would be hidden.
    * Falling back to the first tab is the only state that is always coherent.
    */
-  const effectiveTab = tabs.some((t) => t.id === activeTab) ? activeTab : tabs[0].id;
+  /**
+   * The tab the reader would see if nothing overrode it — the opening preference while
+   * {@code activeTab} is still {@code null}, {@code activeTab} itself once a choice has been made.
+   * Falls back to Plan for a caller that hands no {@code initialTab} at all (every existing shell
+   * test), pinning the long-standing default.
+   */
+  const preferred = initialTab ?? TABS[0].id;
+  const requestedTab = activeTab ?? preferred;
+  /**
+   * The tab actually rendered, which is not always the one requested.
+   *
+   * <p>Without this a selection — or a preference — can outlive its tab: a session that loses
+   * admin, a stored id from a build that had one more pane, or (new here) a preference for Map
+   * while the map pane has not arrived yet. The bar would then have no tab holding
+   * {@code tabIndex={0}}, which is the whole keyboard entry point, and every panel would be hidden.
+   * Falling back to the first tab is the only state that is always coherent — and on a desktop this
+   * is exactly what gives the intended first-render Plan / later-render Map sequence (§4.3): the Map
+   * pane is absent at first paint (`App.jsx`'s `allDates.length > 0` gate), so this fallback lands
+   * on Plan until it arrives, then resolves to Map the moment it does — but only while
+   * {@code activeTab} is still {@code null}.
+   */
+  const effectiveTab = tabs.some((t) => t.id === requestedTab) ? requestedTab : tabs[0].id;
   /**
    * The shell→App channel the full-frame Map tab needs (map-tab-v2-plan.md §3 P7's first owner).
    * `App` recasts its whole page as a flex column on the map tab (dropping `<main>`'s own padding
@@ -403,8 +452,86 @@ export default function WindowFirstShell({
    * starting from a guess and correcting one render late.
    */
   useEffect(() => { onTabChange?.(effectiveTab); }, [effectiveTab, onTabChange]);
-  /** Panes mount on first selection and stay mounted; the panel ELEMENT is always present. */
+  /**
+   * While the reader has not chosen a tab, ANY interaction with the shell is a choice of the tab in
+   * force: pin it, so a map pane arriving later cannot move the tab under someone mid-task
+   * (default-tab-by-device-plan.md §4.3). Deliberately not a list of triggers — an earlier draft of
+   * that plan enumerated the dialog states that should commit, and review (PR #904) found the lens
+   * bar (`WindowFirstLensBar.jsx` calls `reachLens.selectTier`/`ratingLens.selectFloor` directly,
+   * never `selectTab`) slipping straight past it; any enumeration rots the same way as controls are
+   * added. So this commits on the EVENT, at the shell root, in the capture phase — wired onto
+   * `onPointerDownCapture`/`onKeyDownCapture`/`onWheelCapture` below.
+   *
+   * <p>`setActiveTab`, never `selectTab` — the point is to pin the tab CURRENTLY in force without
+   * touching anything else `selectTab` does (closing the popup, the sheet, search…), which would
+   * itself be the jolt this exists to prevent. A plain event handler, not an effect, so there is no
+   * set-state-in-effect suppression to write; capture phase so a child that stops propagation cannot
+   * hide the interaction, and React's synthetic events travel through portals, so a dialog rendered
+   * into `<body>` still reaches this root.
+   */
+  /**
+   * The tab in force, mirrored into a ref that stays current across renders — read by
+   * {@code commitTabInForce} at FIRE TIME rather than closed over at whatever render created the
+   * caller. This is load-bearing for the grace timer below: the timer is armed once, at mount,
+   * when {@code effectiveTab} is still Plan (the Map pane has not arrived yet — §4.3), and it must
+   * NOT commit that stale value if the preference has since resolved to Map. Updated in an effect
+   * with no dependency array, so it runs after every commit — mutating a ref directly in the render
+   * body is the pattern that trips this file's own "no side effects during render" convention
+   * elsewhere (the {@code settingsWasOpen}/{@code openedTabs} bailouts are `setState`, not a mutable
+   * write), and the timer fires so much later (1500 ms) that the one-render lag an effect adds here
+   * is immaterial.
+   */
+  const effectiveTabRef = useRef(effectiveTab);
+  useEffect(() => { effectiveTabRef.current = effectiveTab; });
+  const commitTabInForce = useCallback(() => {
+    setActiveTab((prev) => (prev == null ? effectiveTabRef.current : prev));
+  }, []);
+  /**
+   * The time bound on the opening preference (plan §4.3): a reader who reads without touching
+   * anything is still reading, and a switch several seconds into that is the same jolt as one mid
+   * interaction. A one-shot timer from mount, cleared on unmount, a no-op once `activeTab` is
+   * already set — so the late switch to Map happens only when forecasts arrive quickly AND the
+   * reader has not touched the page, i.e. when it reads as part of loading.
+   *
+   * <p>⚠️ Reads `effectiveTabRef`, not a closed-over `effectiveTab` — found in review. The timer is
+   * armed once at MOUNT, when `effectiveTab` is necessarily still Plan (the Map pane has not
+   * arrived — App.jsx's `allDates.length > 0` gate). A version that called a `commitTabInForce`
+   * closed over that mount-render value would commit PLAN at 1500 ms even after the Map pane
+   * arrived at, say, 300 ms and the preference had already resolved to Map — silently yanking the
+   * reader back to Plan a second and a half into reading it. Reading the ref at fire time is what
+   * makes the timer commit whatever is actually in force *then*, not whatever was in force when it
+   * was armed.
+   */
+  useEffect(() => {
+    const timer = setTimeout(() => { commitTabInForce(); }, PREFERRED_TAB_GRACE_MS);
+    return () => clearTimeout(timer);
+    // `commitTabInForce` deliberately absent: it is now referentially STABLE (`[]` deps, since it
+    // reads the ref rather than closing over `effectiveTab`), so listing it changes nothing — but
+    // the comment stays because the reason this effect itself still needs `[]` does not follow from
+    // that alone. Re-running this effect on every render (had it depended on anything that changes)
+    // would re-arm the timer every time, and a reader whose page keeps re-rendering (the ten-minute
+    // poll, a lens change) would never reach the deadline. The timer is meant to fire
+    // `PREFERRED_TAB_GRACE_MS` after MOUNT, once, full stop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /**
+   * Panes mount on first selection and stay mounted; the panel ELEMENT is always present.
+   *
+   * <p>Seeded with Plan alone, same as before — a preference for Map is not a selection, and the
+   * mount check below (`openedTabs.has(tab.id) || tab.id === effectiveTab`) covers a Map pane shown
+   * by preference without needing it seeded here. The effect beneath keeps the set STICKY once a
+   * preference does resolve to Map: without it, a pane shown only via that mount-check's second arm
+   * would vanish the instant `effectiveTab` moved on (a later `selectTab`, or the reader leaving and
+   * returning), which is exactly the sticky-pane rule `WindowFirstShellSticky.test.jsx` pins.
+   */
   const [openedTabs, setOpenedTabs] = useState(() => new Set([TABS[0].id]));
+  // Adjusted DURING RENDER, not in an effect — the same bailout shape `settingsWasOpen` below
+  // uses: the condition is false again the very next render (the set now has `effectiveTab`), so
+  // this cannot cascade. An effect here would be one more commit before a Map pane shown only by
+  // preference (never through `selectTab`, which already does this) picked up its sticky entry.
+  if (!openedTabs.has(effectiveTab)) {
+    setOpenedTabs((prev) => new Set(prev).add(effectiveTab));
+  }
   /**
    * The tab buttons, so an arrow key can move focus as well as selection.
    *
@@ -1324,6 +1451,14 @@ export default function WindowFirstShell({
     <div
       ref={shellRef}
       data-testid="window-first-shell"
+      // Capture phase, per `commitTabInForce`'s own note above: ANY interaction anywhere in this
+      // subtree — a popup control, the lens bar, a card, a key, a scroll — pins the opening
+      // preference before it can be moved out from under the reader. Pointer, keyboard and wheel
+      // are the three input classes that can reach a control here; a plain `click` needs no
+      // listener of its own because it is always preceded by a `pointerdown`.
+      onPointerDownCapture={commitTabInForce}
+      onKeyDownCapture={commitTabInForce}
+      onWheelCapture={commitTabInForce}
       // `wf-shell` hosts `--wf-gutter`/`--wf-lens-reserve`/`--wf-lens-h` — the arm's shared
       // horizontal inset and the sticky-chrome measurements `useLensReserve` publishes. It carries
       // NO width constraint of its own (map-tab-v2-plan.md §3 P7's second full-frame owner): the
@@ -1853,7 +1988,12 @@ export default function WindowFirstShell({
             ? (tab.id === 'map' ? 'wf-body wf-body--map' : 'wf-body')
             : 'wf-body hidden'}
         >
-          {openedTabs.has(tab.id) ? { mapPane, operationsPane }[tab.slot] : null}
+          {/* `|| tab.id === effectiveTab` — belt over the render-time `openedTabs` adjustment
+              above: a Map pane shown only by the opening PREFERENCE (never through `selectTab`,
+              which already seeds `openedTabs` itself) must mount on the very render it becomes
+              effective, not one render late — a blank panel is the failure this guards. */}
+          {(openedTabs.has(tab.id) || tab.id === effectiveTab)
+            ? { mapPane, operationsPane }[tab.slot] : null}
         </div>
       ))}
       </div>
@@ -2258,4 +2398,11 @@ WindowFirstShell.propTypes = {
     lat: PropTypes.number,
     lon: PropTypes.number,
   }),
+  /**
+   * The tab this device opens on — {@code 'plan'} or {@code 'map'}, resolved once by
+   * {@code App} via {@code utils/initialTab.js} (default-tab-by-device-plan.md §4.2). Absent means
+   * Plan, the long-standing default every existing shell test still gets with no prop at all. A
+   * STANDING PREFERENCE, not a one-time selection — see {@code activeTab}'s own Javadoc.
+   */
+  initialTab: PropTypes.oneOf(['plan', 'map']),
 };
