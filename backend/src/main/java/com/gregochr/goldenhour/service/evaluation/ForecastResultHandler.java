@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.InversionDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -18,6 +19,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.VisitorContext;
 import tools.jackson.databind.ObjectMapper;
@@ -549,10 +551,29 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
             dualWriteForecastScore(location, date, targetType, eval, combined, pipelineRunId);
 
+            // The sky visitor's own component, alongside the combined rating: what the map tab's
+            // tide-fit block needs to say "wrong water, not wrong light" beside a tide-dimmed star
+            // (tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1).
+            //
+            // ⚠️ Validated independently of `safeRating`, not merely alongside it (Codex P1, #896).
+            // `combined.rating()` is an AVERAGE, so a component out of Claude's declared 1-5 range
+            // can still average back into range: sky 7 + a misaligned tide's 1 rounds to a valid
+            // combined 4, which would otherwise cache `skyRating = 7` — a figure `TideFitBlock`
+            // would render as an impossible "sky 7★" beside a perfectly normal 4★. Reusing
+            // `RatingValidator.validateRating` here is the same 1-5 rule `safeRating` was already
+            // built from, just applied to the raw component instead of the average. And when the
+            // COMBINED rating is itself rejected (`safeRating == null`), the sky component is
+            // cleared unconditionally rather than independently re-validated — a rejected star
+            // means the whole evaluation is untrusted, and a stray "· sky N★" surviving beside no
+            // star at all would be its own, subtler version of the same impossible-figure defect.
+            Integer skyRating = safeRating == null ? null
+                    : RatingValidator.validateRating(skyComponentScore(combined),
+                            regionName, date, targetType, location.getName(), modelName);
+
             result = new BriefingEvaluationResult(
                     location.getName(), safeRating,
                     eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
-                    null, null, eval.headline());
+                    null, null, eval.headline(), null, skyRating);
         }
         if (evalRowId != null) {
             scoreEvaluationRow(evalRowId, eval, result, resolvedModel);
@@ -737,6 +758,28 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     + "attempt, so a stale row can outlive its event: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
+    }
+
+    /**
+     * The sky visitor's own component score out of the combiner's applied set, or null when no
+     * {@link ForecastType#SKY} component was applied — {@code BriefingEvaluationResult#skyRating}'s
+     * source, RAW.
+     *
+     * <p>⚠️ Unvalidated — {@code SkyVisitor} passes Claude's parsed rating straight through with no
+     * range check of its own (the same reason {@code combined.rating()} itself needs {@link
+     * RatingValidator} downstream). Every caller must validate this value before persisting or
+     * serving it (Codex P1, #896): an average can mask an out-of-range component (sky 7 + tide 1
+     * rounds to a valid combined 4), so this raw figure is never safe to cache as-is.
+     *
+     * @param combined the combiner's result for this slot
+     * @return the sky component's raw, UNVALIDATED score, or null
+     */
+    private static Integer skyComponentScore(RatingCombiner.CombinedRating combined) {
+        return combined.components().stream()
+                .filter(c -> c.type() == ForecastType.SKY)
+                .map(ComponentScore::score)
+                .findFirst()
+                .orElse(null);
     }
 
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,

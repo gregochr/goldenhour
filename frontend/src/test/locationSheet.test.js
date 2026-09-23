@@ -220,7 +220,13 @@ describe('buildTideAlignmentIndex', () => {
       shortfall: null,
       fitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
       gated: false,
+      skyRating: null,
     });
+  });
+
+  it('reads skyRating off the slot — the sky component the tide gate lift added (2026-09-18)', () => {
+    const idx = buildTideAlignmentIndex(daysWithTide({ ...MATCH_SLOT, skyRating: 4 }));
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').skyRating).toBe(4);
   });
 
   it('indexes a definite "not aligned" slot too — false is an answer, not an absence', () => {
@@ -295,6 +301,7 @@ describe('buildTideAlignmentIndex', () => {
       shortfall: null,
       fitPhrase: null,
       gated: false,
+      skyRating: null,
     });
   });
 

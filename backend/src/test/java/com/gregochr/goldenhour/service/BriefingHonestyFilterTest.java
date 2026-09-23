@@ -198,7 +198,18 @@ class BriefingHonestyFilterTest {
         assertThat(out.verdictLabel()).isNotEqualTo(BriefingHonestyFilter.VERDICT_LABEL);
     }
 
-    /** A coastal slot the tide gate withheld from Claude — it never expected a rating either. */
+    /**
+     * A slot withheld from Claude by a hard constraint — it never expected a rating either.
+     *
+     * <p>⚠️ Fabricated via {@code withEvaluationGate} directly, not through {@code
+     * BriefingSlotBuilder}: production no longer produces this field for a tide mismatch (the
+     * tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1, emptied {@code
+     * BriefingGatingPolicy.HARD_CONSTRAINT_REASONS} — a mismatched tide now reaches Claude and
+     * scores through {@code TideVisitor} instead). This fixture stays a valid test of how {@code
+     * BriefingHonestyFilter} and {@code couldCarryRating} treat ANY served {@code evaluationGate}
+     * — a pre-lift cache row still served until it ages out, or any future hard constraint the
+     * mechanism might gate again — not a claim that today's pipeline still builds one for tide.
+     */
     private static BriefingSlot gatedSlot(String name) {
         return slot(name, Verdict.STANDDOWN)
                 .withEvaluationGate("Tide not right at sunrise · needs low water, mid tide instead");

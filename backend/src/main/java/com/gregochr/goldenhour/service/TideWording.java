@@ -120,49 +120,6 @@ final class TideWording {
     }
 
     /**
-     * States, in words, why a coastal slot was withheld from Claude on the tide.
-     *
-     * <p>Three clauses, the first two always, the third when there is a nearest extreme to name:
-     * <pre>
-     *   Tide not right at sunrise · needs low water, mid tide instead · HW 09:19 · 2h35 after sunrise
-     * </pre>
-     * "Needs" names the location's own {@code TideType} preference — the question the gate actually
-     * asked — and "instead" names the state the deriver found. Both are said because the gate is a
-     * <em>mismatch</em>, and a mismatch is unintelligible with only one side stated: "mid tide"
-     * alone does not tell a reader whether that is a problem here.
-     *
-     * <p>Lives in this vocabulary because the third clause is
-     * {@code BriefingSlot.TideInfo.nearestSolarOffsetPhrase} verbatim, and the same reader sees that
-     * phrase on the tide chip one line up. No contractions and no anthropomorphism, deliberately:
-     * every other served tide string is a terse declarative ("Tide mismatch", "low water bares the
-     * foreground", "the tide matters here"), and a first cut's "Tide's not right … wants low water,
-     * it's mid tide" was the only contracted copy on any served surface (adversarial review).
-     *
-     * @param wanted     the location's acceptable tide states; empty when it was never configured,
-     *                   which drops the "wants" clause rather than inventing a preference
-     * @param tideState  {@code "HIGH"}, {@code "MID"} or {@code "LOW"} — the state at the event
-     * @param nearest    the already-formatted nearest-extreme phrase, or null to omit that clause
-     * @param solarWord  {@code "sunrise"} or {@code "sunset"}
-     * @return the gate sentence, never null
-     */
-    static String tideGatePhrase(Set<TideType> wanted, String tideState, String nearest,
-            String solarWord) {
-        StringBuilder sb = new StringBuilder("Tide not right at ").append(solarWord).append(" · ");
-        List<String> wants = orderedWantWords(wanted);
-        if (!wants.isEmpty()) {
-            sb.append("needs ").append(joinOr(wants)).append(", ");
-        }
-        sb.append(stateWord(tideState));
-        if (!wants.isEmpty()) {
-            sb.append(" instead");
-        }
-        if (nearest != null && !nearest.isBlank()) {
-            sb.append(" · ").append(nearest);
-        }
-        return sb.toString();
-    }
-
-    /**
      * States, in words, how the tide at a solar event compares with what a coastal location
      * wants — the map tab's tide-fit chip, callout and location-sheet block, both tiers.
      *
@@ -172,9 +129,10 @@ final class TideWording {
      * <pre>
      *   high water, falling · HW 19:52 · 36m before sunset · 3.9 m
      * </pre>
-     * A miss does <b>not</b> repeat that offset: a gated card already carries it in {@link
-     * #tideGatePhrase}'s own third clause, and printing the same offset twice on one card is the
-     * fact CLAUDE.md's tide-window rule bans. It states the light's own clock time instead, and
+     * A miss does <b>not</b> repeat that offset: the map tab's gate row this once shared a card
+     * with (before the tide gate lift, 2026-09-18, retired the gate itself) stated it once already,
+     * and printing the same offset twice on one card is the fact CLAUDE.md's tide-window rule bans.
+     * A miss states the light's own clock time instead, and
      * "of X m" is the day's high water — the sampled series' own maximum, never the historical
      * average, so it answers "how far short" rather than "how unusual":
      * <pre>

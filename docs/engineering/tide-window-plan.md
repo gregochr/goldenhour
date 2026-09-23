@@ -50,8 +50,12 @@ parallel-phase shape §8 describes for T1/T2. Post-merge, `WindowTideRollupBuild
 `heightAt`), with no second copy of any of them left behind — T2's own instruction 2 anticipated
 exactly this, and the merge resolution carries it out. Owner decisions this plan needed are listed
 in §6; **none blocked T3 or T4**, and §5 #1 (keep the gate) let T4–T8 proceed without one — the
-owner challenges §5 on the plan PR, not in code, and Q1 (lifting the gate) remains the owner's to
-take up as a follow-on series. Plan written 2026-09-17 against `origin/main` at `75ff1f90` (#871).
+owner challenges §5 on the plan PR, not in code. Plan written 2026-09-17 against `origin/main` at
+`75ff1f90` (#871). ⚠️ **Q1 was taken up the very next day** — 2026-09-18, the tide gate lift (§4
+#20, §6 Q1) — reversing §5 #1's "gate and score untouched" stance for this document's own series.
+The map-tab rendering above (T1–T8) needed no change on the STAR side: it already read the served
+rating wherever it touched one, so a coastal misaligned slot's star simply stopped being absent.
+`TideFitBlock` did gain a small addition for the new `skyRating` field (§6 Q1) — see §4 #20.
 
 Phase log (T1 creates the first row; every phase appends its own in the same commit as its code —
 the commit column names the PR once it lands, since a phase cannot name its own hash):
@@ -765,6 +769,32 @@ Numbered so a phase log can cite them. Each phase appends; T8 reconciles.
     `utils/mapCallout.js` and the stale `MapCallout.jsx` comment it also corrected (it had
     described the footer's zero-size rect as a fact of `display: none` specifically, which stopped
     being true the moment this fix landed).
+20. **⚠️ The tide gate lift (2026-09-18) deviates from BOTH the vendored design's `OPEN 5` and this
+    plan's own §5 #1 — an owner override, recorded here because it reverses a documented decision
+    rather than merely extending one.** The design bundle's `OPEN 5` (§9) says scoring should be
+    left alone and warns that folding tide into the score AND dimming the chip represents the
+    tide-mismatch penalty twice — "tide should be represented in the chip's emphasis or in its
+    score, not both." This plan's own §5 #1 read that warning, declined to touch the gate or the
+    score *this series*, and shipped T1–T8 drawing what the pipeline already knew: a gated slot's
+    dimming with no star to double-penalise, a weather-stood-down-then-rated miss dimming its own
+    real star. §6 Q1 costed the alternative and left it for the owner. On 2026-09-18 the owner took
+    it: **lift the gate, not add a second representation.** The double-representation `OPEN 5`
+    warned against was never built (the plan's own §5 #2 — "tier and rating are orthogonal" — kept
+    it that way throughout T1–T8), so there was nothing to "un-double" — what changed is which
+    slots reach Claude at all. A tide-mismatched coastal slot now reaches Claude exactly like a
+    weather stand-down does (Gate 2's own precedent), and `TideVisitor`'s R1 penalty — written for
+    this case, dead behind the gate since the moment it shipped — is finally live: the combined
+    star already includes the tide, so the chip's dimming and the star's own value are two views of
+    the SAME fact rather than two facts. §6 Q1 below (this document's own decision log) records the
+    measurement the owner decided on and the resulting change to `BriefingGatingPolicy`,
+    `BriefingSlotBuilder` and `BriefingSlot`. The map tab's own rendering (T1–T8) needed no change
+    for the star side of this: `TideFitBlock` and
+    `mapTideFit.js` already read `claudeRating`/the served star wherever they touch it, never
+    re-deriving one, so a coastal misaligned slot that used to render star-less (gated) now renders
+    its real, tide-inclusive star with the miss glyph beside it — the "no star to double-penalise"
+    case in §4 #5/§5 #2 above is now rare rather than the routine gated-miss shape, and the newly
+    added `skyRating` (§6 Q1, below) is the map tab's answer to the natural follow-on question a
+    dimmed star now raises: *was the light itself any good?*
 
 ---
 
@@ -842,10 +872,49 @@ shipped** (T8 sweep):
   is the owner's call on whether to lift the gate and let the doubled representation go away instead
   of being managed.
 
-- **Q1 — Lift the tide gate (and the `TideVisitor` penalty), so a mismatched coastal spot carries its
-  light score and tide lives in emphasis alone?** This is the spec as written; §5 #1 declines it
-  *this series*. Measure before deciding — the extra Claude calls per cycle are exactly the
-  hard-constraint skips:
+- **Q1 — DECIDED (option 3), 2026-09-18: lift the tide gate and let the existing `TideVisitor` score
+  the shot.** Three shapes were on the table: (1) leave the gate and score as they were — §5 #1's
+  choice for T1–T8; (2) the literal spec reading floated in this Q's original text below — lift the
+  gate **and** make `TideVisitor` abstain, so tide lives in the chip's dimming alone and never
+  touches the star; (3) **lift the gate and keep `TideVisitor` exactly as it already was** — its R1
+  penalty (5 king/spring-aligned · 4 tight-aligned · 3 widened-aligned · 1 misaligned) was written
+  for precisely this case and has been dead behind the gate since the day it shipped (§1 #3's own
+  table: "in the score? Yes… in eligibility? Yes" — the gate fired first, every time, so the
+  visitor never ran on a mismatched slot in production). The owner took (3): **"the star is the
+  whole shot"** — a 4★ sky at wrong water should reach Claude, come back 4★ for the sky alone, and
+  combine to `round((4+1)/2) = 3★` (`RatingCombiner`'s existing half-up average); an aligned coast
+  is unchanged (4★ sky + aligned 4 → 4★; + spring/king 5 → 5★). Option (2) was rejected because it
+  would have made the star a worse answer than it already is — a coastal 4★ would mean "the light
+  was good" while an identically-lit inland 4★ means "the shot is good", two different claims
+  behind one number — where option (3) keeps one meaning for the star everywhere and adds a SECOND,
+  new figure (`skyRating`, below) for the light-alone question the map tab actually needed.
+  **Measured before deciding** (the query below, against production, the fortnight to 18 Sep
+  2026, as handed to this series): **1,066** gated skips (`SKIPPED_HARD_CONSTRAINT`) against
+  **7,051** evaluated over 14 days — lifting the gate raises evaluation volume by the ratio of the
+  two, roughly **+15% at the fortnight's upper bound**. The daily shape mattered more than the average: gated skips peaked at **111, 155 and 205** on 15–17 September — a spring-tide run, exactly the mornings the increment exists for — against a fortnight median near 50; 9–10 September's rows (50 and 84 gated against 44 and 59 evaluated) were quiet, mostly-cached cycles where the gate still fired every time, which is why the 15% is an upper bound. ⚠️ These two totals are the measurement
+  the decision was made on; no finer breakdown (a daily series, a per-region split) was run or is
+  claimed here — the query below returns one row per day, so that breakdown is available to
+  whoever next has production access, but is not reproduced in this document because it was not
+  independently re-verified for this entry. Accepted: the cost buys a served rating for every
+  formerly-gated slot rather than none. **What changed in code**: `BriefingGatingPolicy
+  .HARD_CONSTRAINT_REASONS` is now `EnumSet.noneOf(StanddownReason.class)` (empty) — the mechanism
+  (the set, the label round-trip, `BriefingSlotBuilder`'s `evaluationGate` wording switch) stays
+  wired for a genuinely new hard constraint, not deleted; `TideWording.tideGatePhrase` (its one
+  producer) is deleted with its tests, since no gate fires to word any more.
+  `BriefingSlotBuilder`'s STANDDOWN verdict override for a tide mismatch is **kept** — it is a
+  triage LABEL now, not a Claude-eligibility gate, and behaves exactly like every other
+  Gate-2-redesigned weather stand-down: the slot still reaches Claude and still contributes its
+  triage verdict to the region roll-up (`BriefingVerdictEvaluator.rollUpVerdict`), which is
+  consistent with "the star is the shot" — a 3★ combined rating should not itself carry a region to
+  GO the way a 4★ sky-only slot would. `TideVisitor` and `RatingCombiner` are **untouched** — no
+  code in either changed; lifting the gate was the whole fix, because the visitor was already
+  correct and simply unreachable. **New this same decision**: `BriefingSlot.skyRating` /
+  `BriefingEvaluationResult.skyRating` (the sky component alone, added to the same `cached_
+  evaluation` results entry `claudeRating` already rides — no migration), so the map tab's
+  `TideFitBlock` can state *"wrong water, not wrong light · … · sky 4★"* beside a tide-dimmed
+  combined star, rather than leaving a reader to infer the light was good from a 3★ that also
+  reflects the water. See §4 #20 for the full reasoning against the vendored design's `OPEN 5` and
+  this document's own §5 #1, and the frontend section below for the sky-component rendering rule.
 
   ```sql
   SELECT date(created_at AT TIME ZONE 'UTC') AS day,
@@ -855,10 +924,29 @@ shipped** (T8 sweep):
   WHERE created_at > now() - interval '14 days'
   GROUP BY 1 ORDER BY 1;
   ```
-  (`scripts/diagnose-stale-forecast.sh` Q8 is the template; run over SSH against production.) If
-  taken, the series after this one needs: the gate lifted, `TideVisitor` made to abstain, a Plan-tab
-  dimming counterpart, and a re-read of the best-bet advisor's tide language
-  (`BestBetPromptText.java:63–89`).
+  (`scripts/diagnose-stale-forecast.sh` Q8 is the template; run over SSH against production.)
+  ⚠️ The original text below is kept as history — option (2), the literal spec-as-written reading —
+  since it is what the rest of this Q used to say the series after this one would need; it is NOT
+  what was built. The gate is lifted, but `TideVisitor` was never made to abstain, and there is no
+  separate "Plan-tab dimming counterpart" beyond the tide-fit block T1–T8 already shipped, whose
+  STAR side needed no change and whose `skyRating` clause is this decision's own small addition to
+  it (§4 #20). The best-bet advisor's tide language WAS re-read (below) and found to
+  instruct Claude to re-weight for tide alignment on top of the star — flagged for the owner rather
+  than edited, since CLAUDE.md reserves prompt changes to the owner and this file does not touch
+  regression-test assertions either way.
+  (`BestBetPromptText.java:63–89`). **Advisor weighting — DECIDED (leave it), 2026-09-23.** The
+  owner chose to keep the best-bet advisor's own tide instruction ("Tide alignment is a strong
+  differentiator… Always mention when tide is aligned") as it stands, over softening it. The
+  reasoning: the advisor is choosing *between* slots for a reader, and a tide-aligned coast really
+  is the better bet at equal light — so a second look at tide when ranking picks is a preference
+  the advisor is entitled to, not a double count of the star. The star already carries tide once
+  through `TideVisitor`; the advisor's clause is a ranking tiebreak on top of it, not a re-scoring.
+  It reaches only the advisor's three admin consumers today (`BriefingModelTestView`,
+  `PipelineRunsView`'s picks, `AdvisorReplayController`) — the `/api/briefing` `bestBets` fields
+  have no frontend renderer — so its blast radius is nil on the Plan and Map tabs. Softening it
+  remains open as a separate owner-driven prompt change, since the wording is pinned by the
+  owner's regression tests and CLAUDE.md reserves those to the owner. The Codex thread that raised
+  it on #896 is resolved on this entry.
 - **Q2 — Should the app's alignment rule become level-based (the spec's model)?** Today: within the
   half-golden-blue window of an extreme, else MID. The spec's argument — "the level at the moment of
   the light is what you stand in" — is a real one, and the two rules disagree in the shoulder (a

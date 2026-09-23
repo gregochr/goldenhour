@@ -189,6 +189,15 @@ public class BriefingSlotBuilder {
         // Coastal tide demotion: if coastal, tide data is present, but tide is not aligned
         // → override to STANDDOWN regardless of weather. If tide data is absent (tideState == null),
         // leave the weather-only verdict intact so missing data does not penalise the location.
+        //
+        // This is a VERDICT label only — since the tide gate lift (2026-09-18,
+        // docs/engineering/tide-window-plan.md §6 Q1) it no longer withholds the slot from
+        // Claude. A weather stand-down already reached Claude and was rated down with
+        // verdict = STANDDOWN (the Gate 2 redesign); a tide-mismatched slot now follows the
+        // identical shape — it reaches Claude, TideVisitor's R1 penalty (score 1) is averaged
+        // into the star by RatingCombiner, and the region roll-up (BriefingVerdictEvaluator
+        // .rollUpVerdict) still counts it as non-viable, which is honest: a 3★ combined rating on
+        // a wrong-water beach should not carry a region to GO the way a 4★ sky-only slot would.
         boolean tidesNotAligned = false;
         if (locationService.isCoastal(loc) && tideResult.tideState() != null
                 && !tideResult.tideAligned() && verdict != Verdict.STANDDOWN) {
@@ -232,20 +241,16 @@ public class BriefingSlotBuilder {
         // Asked of the FINISHED slot through the policy, not inferred from `tidesNotAligned`
         // above: BriefingCandidateCollector drops a slot with exactly this call, so this is the
         // same decision the disposition trail records, not a second one that could drift from it.
-        // Worded per DECODED reason, never "any hard constraint → the tide sentence": the policy's
-        // set is documented as one that evolves, and a second member would otherwise be served in
-        // the tide's words. An unworded reason serves its own label — terse, but never wrong.
+        // Worded per DECODED reason: the policy's set is documented as one that evolves, and this
+        // stays wired even though BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is empty today (the
+        // tide gate lift retired its one member) — `gate` is therefore always empty and this block
+        // never fires in production, but it is the seam a genuinely new hard physical constraint
+        // would reuse rather than re-invent. An unworded reason serves its own label — terse, but
+        // never wrong.
         Optional<BriefingVerdictEvaluator.StanddownReason> gate =
                 BriefingGatingPolicy.hardConstraintReason(slot);
         if (gate.isPresent()) {
-            String solarWord = eventType == TargetType.SUNRISE ? "sunrise" : "sunset";
-            String words = switch (gate.get()) {
-                case TIDE_MISMATCH -> TideWording.tideGatePhrase(
-                        loc.getTideType(), tideResult.tideState(),
-                        tideResult.nearestSolarOffsetPhrase(), solarWord);
-                default -> gate.get().label();
-            };
-            slot = slot.withEvaluationGate(words);
+            slot = slot.withEvaluationGate(gate.get().label());
         }
         return slot;
     }

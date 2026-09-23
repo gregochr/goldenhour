@@ -333,11 +333,22 @@ export function buildEvaluationGateIndex(days) {
  * this event) is still SKIPPED rather than indexed as a miss: a missing entry and a served
  * {@code miss} are different claims, and only the deriver knows which is true.
  *
+ * <p>⚠️ <b>{@code skyRating} rides this index too, added with the tide gate lift (2026-09-18,
+ * tide-window-plan.md §6 Q1)</b> — the sky visitor's own component score, with no tide
+ * contribution averaged into it (unlike the served, combined {@code claudeRating} every other
+ * rating surface reads). It lives here rather than in {@link buildScoreIndex} because it is a
+ * TIDE-FIT fact in the sense that matters to a reader: it exists to answer "was the light itself
+ * good, whatever the water did", which is precisely the question {@code TideFitBlock} — this
+ * index's one consumer — was built to answer. Folding it into the rating index would put a
+ * tide-adjacent figure beside a scoreRows shape ({@code buildScoreIndex}) that search results also
+ * populate from a different backend source with no {@code skyRating} of its own.
+ *
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
  *          {@code {aligned, state, onTheLight, phrase, level, direction, height, shortfall,
- *          fitPhrase, gated}} — {@code state} is the served {@code tideState} (HIGH/MID/LOW), so a
- *          reader can ask WHICH want an alignment satisfied, not only that one did
+ *          fitPhrase, gated, skyRating}} — {@code state} is the served {@code tideState}
+ *          (HIGH/MID/LOW), so a reader can ask WHICH want an alignment satisfied, not only that
+ *          one did
  */
 export function buildTideAlignmentIndex(days) {
   const byId = new Map();
@@ -371,6 +382,8 @@ export function buildTideAlignmentIndex(days) {
           // only to a real, non-blank sentence — never `""` — so a plain null check is sufficient
           // here, unlike `buildEvaluationGateIndex`'s own defensive trim.
           gated: slot.evaluationGate != null,
+          // The sky visitor's own component score — see the class doc's tide-gate-lift note above.
+          skyRating: slot.skyRating ?? null,
         });
       }
     }

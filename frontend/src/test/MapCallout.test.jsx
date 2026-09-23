@@ -462,6 +462,26 @@ describe('MapCallout — the tide-fit block (T5)', () => {
     expect(screen.queryByTestId('tide-fit-block')).toBeNull();
   });
 
+  // The sky component (tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1):
+  // TideFitBlock.test.jsx covers the rendering rule exhaustively; this proves the HOST wires the
+  // right combined figure — MapCallout's own `ratingRounded` (from the `rating` prop) — through as
+  // `combinedRating`, not a re-derivation of its own.
+  it('a miss states the served skyRating beside the header\'s own combined star', async () => {
+    await mount({ tideOnLight: { ...MISS, skyRating: 4 }, rating: 3 });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('3★');
+    expect(screen.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+  });
+
+  it('a match whose sky score agrees with the header\'s combined star states nothing new', async () => {
+    await mount({ tideOnLight: { ...MATCH, skyRating: 4 }, rating: 4 });
+    expect(screen.queryByTestId('tide-fit-sky')).toBeNull();
+  });
+
+  it('a match whose sky score differs from the header\'s combined star states it', async () => {
+    await mount({ tideOnLight: { ...MATCH, skyRating: 4 }, rating: 5 });
+    expect(screen.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+  });
+
   it('omits the block when a fact exists but carries no fitPhrase — never a heading with nothing under it', async () => {
     await mount({ tideOnLight: { aligned: true, onTheLight: true, phrase: 'x', fitPhrase: null } });
     expect(screen.queryByTestId('tide-fit-block')).toBeNull();
@@ -503,6 +523,14 @@ describe('MapCallout — the tide-fit block (T5)', () => {
  * twice on one card. The gate sentence owns the offset clause; the block's miss phrase owns the
  * level, height and "wants" clause, and T1 built it to omit the offset clause for exactly this
  * reason. This is the composition test, not a re-test of either component's own content.
+ *
+ * ⚠️ Production no longer produces an `evaluationGate` for tide — the tide gate lift (2026-09-18,
+ * docs/engineering/tide-window-plan.md §6 Q1) emptied `BriefingGatingPolicy.HARD_CONSTRAINT_REASONS`,
+ * so `BriefingSlotBuilder` never words this sentence for a `TIDE_MISMATCH` standdown any more (a
+ * mismatched tide reaches Claude and scores through `TideVisitor` instead). The fixture below is
+ * kept as a valid GENERIC test of the composition rule — a served `evaluationGate` string still
+ * renders this way for any future hard constraint the mechanism might gate again — not as a claim
+ * that today's pipeline still builds one for tide.
  */
 describe('MapCallout — the gate row and the tide-fit block together (T5, §5 #6)', () => {
   let restore;

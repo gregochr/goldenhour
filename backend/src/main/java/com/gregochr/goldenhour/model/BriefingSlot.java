@@ -32,7 +32,24 @@ import java.util.List;
  * @param tide                tide data for coastal locations (all nulls/false for inland)
  * @param flags               human-readable flag strings (e.g. "Sun blocked", "King tide")
  * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
- * @param claudeRating        cached Claude 1-5 star rating, or null if not evaluated
+ * @param claudeRating        cached Claude 1-5 star rating (the served, combined figure — sky
+ *                            averaged with tide and any other applicable component), or null if
+ *                            not evaluated
+ * @param skyRating           the sky visitor's own component score alone — Claude's rating of the
+ *                            light with no tide (or other foreground) contribution averaged in —
+ *                            or null when not evaluated or not yet carried by the cache entry
+ *                            this slot was enriched from. Added with the tide gate lift
+ *                            (2026-09-18, {@code docs/engineering/tide-window-plan.md} §6 Q1): once
+ *                            a mismatched tide could pull {@link #claudeRating} down from a strong
+ *                            sky, the map tab's tide-fit block needed a way to say so — "wrong
+ *                            water, not wrong light" — without a reader mistaking the dimmed
+ *                            combined star for the sky's own verdict. Equal to {@link
+ *                            #claudeRating} for an inland slot (the sky is the only component), so
+ *                            a reader of this field alone cannot tell "inland, agreeing" from
+ *                            "coastal, agreeing" — a distinction no surface needs, since the two
+ *                            render identically. Never present without {@link #claudeRating}: the
+ *                            sky component cannot score without the sky evaluation the combined
+ *                            rating is itself built from
  * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
  * @param goldenHourPotential cached Claude golden hour score 0-100, or null
  * @param claudeSummary       cached Claude prose summary, or null
@@ -53,10 +70,16 @@ import java.util.List;
  *                            when no Claude evaluation has been performed or the result
  *                            pre-dates the headline field
  * @param evaluationGate      plain-English reason this slot was withheld from Claude by a hard
- *                            constraint ({@code BriefingGatingPolicy.isHardConstraintSkip}),
- *                            built by {@code TideWording.tideGatePhrase} — the sentence names the
- *                            event, the wanted and actual tide state, and the nearest extreme.
- *                            Null when the slot was eligible.
+ *                            constraint ({@code BriefingGatingPolicy.isHardConstraintSkip}), worded
+ *                            by the reason's own {@code StanddownReason.label()} unless a future
+ *                            reason earns its own phrase producer the way tide once did. Null when
+ *                            the slot was eligible — which is every slot today, since the tide gate
+ *                            lift (2026-09-18, {@code docs/engineering/tide-window-plan.md} §6 Q1)
+ *                            emptied {@code BriefingGatingPolicy.HARD_CONSTRAINT_REASONS}: a
+ *                            mismatched tide no longer withholds a slot from Claude, it scores
+ *                            through {@code service.evaluation.visitor.TideVisitor} instead. The
+ *                            field and the mechanism that produces it stay wired for the next hard
+ *                            physical constraint, not deleted.
  *
  *                            <p>Exists because a gated slot carries no score row, and the
  *                            drill-down fills an unscored window with its REGION's sky gloss —
@@ -88,6 +111,7 @@ public record BriefingSlot(
         List<String> flags,
         String standdownReason,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer claudeRating,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer fierySkyPotential,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer goldenHourPotential,
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeSummary,
@@ -132,8 +156,8 @@ public record BriefingSlot(
 
     public BriefingSlot withEvaluationGate(String gate) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
-                flags, standdownReason, claudeRating, fierySkyPotential, goldenHourPotential,
-                claudeSummary, displayVerdict, claudeHeadline, canopy, gate);
+                flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy, gate);
     }
 
     /**
@@ -176,7 +200,7 @@ public record BriefingSlot(
             Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
             String standdownReason) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
-                standdownReason, null, null, null, null,
+                standdownReason, null, null, null, null, null,
                 DisplayVerdict.resolve(null, verdict), null, false, null);
     }
 
@@ -254,40 +278,60 @@ public record BriefingSlot(
             LocalDateTime solarEventTime, Verdict verdict, WeatherConditions weather,
             List<String> flags, String standdownReason) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather,
-                TideInfo.NONE, flags, standdownReason, null, null, null, null,
+                TideInfo.NONE, flags, standdownReason, null, null, null, null, null,
                 DisplayVerdict.resolve(null, verdict), null, true, null);
     }
 
     /**
-     * Returns a copy of this slot with Claude evaluation scores populated (no headline).
-     * The {@code displayVerdict} is recomputed from the new rating.
+     * Returns a copy of this slot with Claude evaluation scores populated (no headline, sky
+     * component unknown). The {@code displayVerdict} is recomputed from the new rating.
      *
      * @param rating      Claude 1-5 star rating
      * @param fierySky    fiery sky potential 0-100
      * @param goldenHour  golden hour potential 0-100
      * @param summary     Claude prose summary
-     * @return new slot with Claude fields set, headline left null
+     * @return new slot with Claude fields set, headline and {@link #skyRating} left null
      */
     public BriefingSlot withClaudeScores(Integer rating, Integer fierySky,
             Integer goldenHour, String summary) {
-        return withClaudeScores(rating, fierySky, goldenHour, summary, null);
+        return withClaudeScores(rating, null, fierySky, goldenHour, summary, null);
     }
 
     /**
      * Returns a copy of this slot with Claude evaluation scores and the synthesised headline
-     * populated. The {@code displayVerdict} is recomputed from the new rating.
+     * populated, sky component unknown. The {@code displayVerdict} is recomputed from the new
+     * rating.
      *
      * @param rating      Claude 1-5 star rating
      * @param fierySky    fiery sky potential 0-100
      * @param goldenHour  golden hour potential 0-100
      * @param summary     Claude prose summary
      * @param headline    4-9 word Claude-authored card header, or null when omitted
-     * @return new slot with Claude fields and headline set
+     * @return new slot with Claude fields and headline set, {@link #skyRating} left null
      */
     public BriefingSlot withClaudeScores(Integer rating, Integer fierySky,
             Integer goldenHour, String summary, String headline) {
+        return withClaudeScores(rating, null, fierySky, goldenHour, summary, headline);
+    }
+
+    /**
+     * Returns a copy of this slot with Claude evaluation scores, the sky-only component score,
+     * and the synthesised headline populated. The {@code displayVerdict} is recomputed from the
+     * new (combined) rating — never from {@code skyRating}, which is a display-only figure that
+     * plays no part in the verdict or the region roll-up.
+     *
+     * @param rating      Claude 1-5 star rating — the served, combined figure
+     * @param skyRating   the sky visitor's own component score, or null when unknown
+     * @param fierySky    fiery sky potential 0-100
+     * @param goldenHour  golden hour potential 0-100
+     * @param summary     Claude prose summary
+     * @param headline    4-9 word Claude-authored card header, or null when omitted
+     * @return new slot with Claude fields, sky component and headline set
+     */
+    public BriefingSlot withClaudeScores(Integer rating, Integer skyRating, Integer fierySky,
+            Integer goldenHour, String summary, String headline) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
-                flags, standdownReason, rating, fierySky, goldenHour, summary,
+                flags, standdownReason, rating, skyRating, fierySky, goldenHour, summary,
                 DisplayVerdict.resolve(rating, verdict), headline, canopy, evaluationGate);
     }
 

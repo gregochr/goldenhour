@@ -553,6 +553,23 @@ class BriefingEvaluationServiceTest {
         }
 
         @Test
+        @DisplayName("recombineBluebell never forwards the prior sky entry's skyRating — the "
+                + "blend's own arithmetic can no longer be explained by it")
+        void recombineBluebell_neverForwardsSkyRating() {
+            // A coastal OPEN_FELL site: `existing` is itself avg(SKY, TIDE) from the sky+tide
+            // combine, and `buildBluebellResult`'s own combine also carries the tide context, so
+            // this blend's `averaged` is avg(avg(SKY,TIDE), avg(TIDE,BLUEBELL)) — TIDE enters
+            // twice. Forwarding `existing.skyRating()` (SKY alone) here would put a "sky N★" clause
+            // beside a star this figure no longer accounts for, so it must be null, not carried.
+            BriefingEvaluationResult skyWithSkyRating = new BriefingEvaluationResult(
+                    "X", 3, 70, 65, "sky", null, null, null, null, 4);
+            BriefingEvaluationResult bluebell =
+                    new BriefingEvaluationResult("X", 5, null, null, "bb", null, null, null);
+            assertThat(service.recombineBluebell(skyWithSkyRating, bluebell, BluebellExposure.OPEN_FELL)
+                    .skyRating()).isNull();
+        }
+
+        @Test
         @DisplayName("OPEN_FELL keeps the SKY entry's write time — it is mostly the sky entry")
         void openFell_keepsThePriorSkyWriteTime() {
             // The composite returns the prior sky entry's prose, potentials and headline with only
@@ -663,6 +680,46 @@ class BriefingEvaluationServiceTest {
         assertThat(captor.getValue().getEvaluationDate())
                 .isEqualTo(LocalDate.of(2026, 4, 7));
         assertThat(captor.getValue().getTargetType()).isEqualTo("SUNRISE");
+    }
+
+    // ── skyRating (tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) ────
+
+    @Test
+    @DisplayName("writeFromBatch: skyRating round-trips through the JSON alongside the combined rating")
+    void writeFromBatch_skyRating_roundTrips() throws Exception {
+        BriefingEvaluationResult withSky = new BriefingEvaluationResult(
+                "Bamburgh", 3, 62, 58, "Tide sits well off the light", null, null, null, null, 4);
+        String cacheKey = REGION + "|" + DATE + "|SUNRISE";
+
+        service.writeFromBatch(cacheKey, List.of(withSky));
+
+        ArgumentCaptor<CachedEvaluationEntity> captor =
+                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+        verify(cachedEvaluationRepository).save(captor.capture());
+        List<BriefingEvaluationResult> roundTripped = objectMapper.readValue(
+                captor.getValue().getResultsJson(),
+                new TypeReference<List<BriefingEvaluationResult>>() { });
+
+        assertThat(roundTripped).hasSize(1);
+        assertThat(roundTripped.getFirst().rating()).isEqualTo(3);
+        assertThat(roundTripped.getFirst().skyRating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("A pre-skyRating cache row (no such key in the JSON at all) deserialises to "
+            + "skyRating = null — fail-soft, never a fabricated figure")
+    void legacyJsonWithNoSkyRatingKey_deserialisesToNull() throws Exception {
+        // The literal shape a row written before the tide gate lift takes: every field the
+        // record already had, none of the fields added since.
+        String legacyJson = "[{\"locationName\":\"Bamburgh\",\"rating\":4,"
+                + "\"fierySkyPotential\":70,\"goldenHourPotential\":65,\"summary\":\"Clear skies\"}]";
+
+        List<BriefingEvaluationResult> parsed = objectMapper.readValue(
+                legacyJson, new TypeReference<List<BriefingEvaluationResult>>() { });
+
+        assertThat(parsed).hasSize(1);
+        assertThat(parsed.getFirst().rating()).isEqualTo(4);
+        assertThat(parsed.getFirst().skyRating()).isNull();
     }
 
     @Test

@@ -863,6 +863,14 @@ describe('LocationFourDaySheet — the map’s one added row (increment §2)', (
  *
  * <p>Before this the row read "Not scored yet" above its region's sky gloss, unlabelled: a Claude
  * narrative apparently about this place, and no score for it. Seaham Chemical Beach, 19 Sept 2026.
+ *
+ * ⚠️ Production no longer produces an `evaluationGate` for tide — the tide gate lift (2026-09-18,
+ * docs/engineering/tide-window-plan.md §6 Q1) emptied `BriefingGatingPolicy
+ * .HARD_CONSTRAINT_REASONS`, so a mismatched tide now reaches Claude and is scored through
+ * `TideVisitor` rather than withheld. This fixture stays valid as a test of how the sheet renders
+ * ANY served `evaluationGate` (a pre-lift cache row still served until it ages out, or any future
+ * hard constraint the mechanism might gate again) — not as a claim that today's pipeline still
+ * gates tide.
  */
 describe('LocationFourDaySheet — a gated window', () => {
   const GATE = "Tide not right at sunset · needs low water, mid tide instead · HW 18:10 · 1h37 before sunset";
@@ -1145,5 +1153,60 @@ describe('LocationFourDaySheet — the tide-fit block (T5)', () => {
     expect(missRow.getByTestId('tide-fit-denial'))
       .toHaveTextContent('Nothing in these 3 days puts high water on the light here.');
     expect(missRow.queryByTestId('tide-fit-jump')).toBeNull();
+  });
+
+  // The sky component (tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1).
+  // `TideFitBlock.test.jsx` covers the rendering rule exhaustively; these prove the SHEET wires
+  // the right combined figure through — `row.rating`, from the same `scoreIndex`
+  // (`SCORES`: Fri sunset rating 3, Sat sunrise rating 5) every other row on this sheet reads —
+  // never a re-derivation of its own.
+  describe('the sky component', () => {
+    it('a miss states the served skyRating beside the row\'s own combined star', () => {
+      const WITH_SKY = buildTideAlignmentIndex([
+        {
+          ...TIDE_DAYS[1],
+          eventSummaries: [{
+            ...TIDE_DAYS[1].eventSummaries[0],
+            regions: [{
+              ...TIDE_DAYS[1].eventSummaries[0].regions[0],
+              slots: [{
+                ...TIDE_DAYS[1].eventSummaries[0].regions[0].slots[0], skyRating: 4,
+              }],
+            }],
+          }],
+        },
+      ]);
+      setup({ location: COASTAL, tideAlignmentIndex: WITH_SKY });
+      const satSunrise = within(row('2026-08-15:SUNRISE'));
+      expect(satSunrise.getByTestId('location-sheet-rating')).toHaveTextContent('5★');
+      expect(satSunrise.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+    });
+
+    it('a match whose sky score agrees with the row\'s combined star (3★) states nothing new', () => {
+      setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+      // TIDE_DAYS carries no `skyRating` at all, so this is the "unknown" case — nothing renders.
+      expect(within(row('2026-08-14:SUNSET')).queryByTestId('tide-fit-sky')).toBeNull();
+    });
+
+    it('a match whose sky score differs from the row\'s combined star (3★) states it', () => {
+      const WITH_SKY = buildTideAlignmentIndex([
+        {
+          ...TIDE_DAYS[0],
+          eventSummaries: [{
+            ...TIDE_DAYS[0].eventSummaries[0],
+            regions: [{
+              ...TIDE_DAYS[0].eventSummaries[0].regions[0],
+              slots: [{
+                ...TIDE_DAYS[0].eventSummaries[0].regions[0].slots[0], skyRating: 4,
+              }],
+            }],
+          }],
+        },
+      ]);
+      setup({ location: COASTAL, tideAlignmentIndex: WITH_SKY });
+      const friSunset = within(row('2026-08-14:SUNSET'));
+      expect(friSunset.getByTestId('location-sheet-rating')).toHaveTextContent('3★');
+      expect(friSunset.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+    });
   });
 });
