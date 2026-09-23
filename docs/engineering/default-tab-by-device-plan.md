@@ -119,29 +119,41 @@ reader has done nothing**. Two rules make it safe:
 1. **Any tab selection commits.** `selectTab` already calls `setActiveTab(id)`, so once the reader
    clicks, arrows or is handed off anywhere, `activeTab` is non-null and the preference is dead.
    Nothing to add.
-2. **Opening any Plan dialog commits Plan.** If the reader opens a window popup, the search dialog,
-   a pick, or a location sheet during the fallback, and *then* the map pane arrives, the shell must
-   not jump to Map underneath an open Plan dialog (every dialog in this shell is about the Plan
-   tab — see `selectTab`'s own comment). Add one effect:
+2. **Any interaction with the shell commits the tab in force — not a list of triggers.** If the
+   reader does *anything* on Plan during the fallback — opens a window popup, search, a pick or a
+   location sheet, but equally changes the Drive or Rating lens (`WindowFirstLensBar.jsx` calls
+   `reachLens.selectTier` / `ratingLens.selectFloor` directly, never `selectTab`), taps a card,
+   presses a key or scrolls with a wheel — a map pane arriving a second later must not move the tab
+   under them. An earlier draft of this plan enumerated the dialog states that should commit; review
+   (PR #904) showed the lens bar slipping past it, and any enumeration will rot the same way as
+   controls are added. So commit on the *event*, at the shell root, in the capture phase:
 
    ```js
-   // While the reader has not chosen a tab, opening a dialog on the tab in force IS a choice:
-   // pin it, so a map pane arriving a second later cannot move the tab under an open dialog.
-   const anyDialogOpen = openWindowKey != null || sheetSpot != null || searchSeed != null
-     || openPick != null || sheetKey != null;
-   useEffect(() => {
-     if (activeTab == null && anyDialogOpen) setActiveTab(effectiveTab);
-   }, [activeTab, anyDialogOpen, effectiveTab]);
+   // While the reader has not chosen a tab, ANY interaction with the shell is a choice of the tab
+   // in force: pin it, so a map pane arriving later cannot move the tab under someone mid-task.
+   // Capture phase, so a child that stops propagation cannot hide the interaction; React's synthetic
+   // events also travel through portals, so a dialog rendered into <body> still reaches this root.
+   const commitTabInForce = () => { if (activeTab == null) setActiveTab(effectiveTab); };
+   // on the `.wf-shell` root element:
+   //   onPointerDownCapture={commitTabInForce}
+   //   onKeyDownCapture={commitTabInForce}
+   //   onWheelCapture={commitTabInForce}
    ```
 
-   Place it **below** the declarations of every state it reads (the file already records a
-   use-before-declaration lint trap for `selectTab`'s neighbour at `:722`). The lint rule
-   `react-hooks/set-state-in-effect` will fire; suppress it with a one-line justification in the
-   file's existing style (the tab-request effect at `:740` is the precedent).
+   These are event handlers, not an effect, so there is no `set-state-in-effect` suppression to
+   write. A tab-bar click also lands here first; that is harmless, because `selectTab` then sets the
+   id the reader actually pressed.
 
-   Verify the list of dialog state variables against the file at implementation time — if a newer
-   dialog exists that `selectTab` clears, it belongs in `anyDialogOpen` too. **The rule is: the set
-   `selectTab` clears and the set that commits must be the same set.** Say so in a comment on both.
+   **A time bound as well.** A reader who reads without touching anything is still reading, and a
+   switch several seconds into that is the same jolt. If the map pane has not arrived within
+   `PREFERRED_TAB_GRACE_MS` (1500 ms — a named constant, never a bare number) of mount, commit the
+   tab in force: a one-shot `setTimeout` started at mount, cleared on unmount, doing nothing if
+   `activeTab` is already set. So the late switch to Map happens only when forecasts arrive quickly
+   *and* the reader has not touched the page — i.e. when it reads as part of loading.
+
+   Put `commitTabInForce` and the timer's effect **below** the declarations of every state they read
+   (the file already records a use-before-declaration lint trap near `:722`). The timer's
+   `setActiveTab` is in a timeout callback, not the effect body, so it needs no suppression either.
 
 3. **`openedTabs` must follow the effective tab.** It is seeded with `TABS[0].id` today, so a Map
    pane selected by preference (not by `selectTab`) would never mount — a blank panel. Change the
@@ -192,13 +204,19 @@ Read `docs/engineering/frontend-test-standards.md` first.
   late-arrival path; it is the one most likely to be broken.
 - `initialTab="map"`, no map pane, reader **opens a window popup**, then rerender with the map pane
   → still Plan, popup still open. (The commit rule.)
+- Same, but the reader **changes the Drive or Rating lens** instead (no dialog at all) → still Plan
+  when the map pane arrives. This is the case PR #904's review found; it must fail if the commit is
+  keyed on dialog state rather than on the interaction.
+- Same, with a **keydown** and with a **wheel** event on the Plan pane → still Plan.
+- With fake timers: no interaction, advance past `PREFERRED_TAB_GRACE_MS`, then the map pane arrives
+  → still Plan. Advance to just under it, then the map pane arrives → Map.
 - `initialTab="map"`, no map pane, reader clicks Coming up, then the map pane arrives → still
   Coming up.
 - After the preference moved to Map, pressing Plan then Map again keeps the Map pane mounted (the
   sticky rule).
 - Focus is **not** moved by the preference-driven switch (`document.activeElement` unchanged).
 - `onTabChange` is called with `'plan'` then `'map'` on the late-arrival path.
-- Mutation-check each new test mentally: would it fail if the commit effect were deleted? If
+- Mutation-check each new test mentally: would it fail if the capture handlers were removed? If the grace timer were removed? If
   `openedTabs` were left as-is? If it would not, it is not testing the rule.
 
 **App-level suites.** Because jsdom's `matchMedia` stub answers "no match" (§2), `App` will now
@@ -248,6 +266,8 @@ with `resize_window`, and screenshot each:
 | 768×1024 (iPad portrait, `tablet` preset) | Map, landing card visible, no page scrollbar |
 | 1280×800 (desktop) | Map, landing card visible |
 | 1280×800, open a Plan card popup before forecasts load (throttle the network) | stays on Plan with the popup open |
+| 1280×800, change the Rating lens before forecasts load (throttle the network) | stays on Plan |
+| 1280×800, slow network (forecasts > 1.5 s), touch nothing | stays on Plan |
 | any size, rotate/resize after load | tab does not change |
 
 Reset with `resize_window` preset `desktop` when done. In the PR, state which rows were seen in the
