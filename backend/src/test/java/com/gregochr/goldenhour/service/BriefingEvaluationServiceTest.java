@@ -565,7 +565,8 @@ class BriefingEvaluationServiceTest {
                     "X", 3, 70, 65, "sky", null, null, null, null, 4);
             BriefingEvaluationResult bluebell =
                     new BriefingEvaluationResult("X", 5, null, null, "bb", null, null, null);
-            assertThat(service.recombineBluebell(skyWithSkyRating, bluebell).skyRating()).isNull();
+            assertThat(service.recombineBluebell(skyWithSkyRating, bluebell, BluebellExposure.OPEN_FELL)
+                    .skyRating()).isNull();
         }
 
         @Test
