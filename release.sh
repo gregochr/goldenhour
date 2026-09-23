@@ -24,6 +24,8 @@
 #     via an auto-merged docs-only PR, and refuses to tag if they are still
 #     unpromoted or if nothing is documented for the version
 #   - stops to ask only if main gained an unexpected commit during the promotion
+#   - after pushing the tag, watches the Deploy workflow and reports (with a bell
+#     and a macOS notification) when production is deployed or the deploy fails
 
 set -euo pipefail
 
@@ -527,4 +529,76 @@ git push origin "v$VERSION"
 
 echo ""
 echo "Tag v$VERSION pushed — pipeline deploying to production."
-echo "Watch progress at: https://github.com/gregochr/goldenhour/actions"
+
+# 9. Watch the Deploy workflow until it finishes. The tag is already pushed, so
+# nothing here can change the release — Ctrl-C only stops the watching.
+if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    echo "Watch progress at: https://github.com/gregochr/goldenhour/actions"
+    exit 0
+fi
+
+notify() {
+    printf '\a'
+    if command -v osascript >/dev/null 2>&1; then
+        osascript -e "display notification \"$1\" with title \"release.sh\"" 2>/dev/null || true
+    fi
+}
+
+echo "Waiting for the Deploy run to start (Ctrl-C stops watching; the deploy carries on)..."
+RUN_ID=""
+for _ in $(seq 1 24); do
+    RUN_ID=$(gh run list --workflow deploy.yml --limit 20 \
+        --json databaseId,headBranch \
+        --jq ".[] | select(.headBranch == \"v$VERSION\") | .databaseId" 2>/dev/null | head -n 1 || true)
+    [[ -n "$RUN_ID" ]] && break
+    sleep 5
+done
+if [[ -z "$RUN_ID" ]]; then
+    echo "No Deploy run for v$VERSION appeared within 2 minutes."
+    echo "Check: https://github.com/gregochr/goldenhour/actions/workflows/deploy.yml"
+    exit 1
+fi
+RUN_URL="https://github.com/gregochr/goldenhour/actions/runs/$RUN_ID"
+echo "Deploy run: $RUN_URL"
+
+START=$(date +%s)
+LAST_JOB=""
+while true; do
+    RUN_JSON=$(gh run view "$RUN_ID" --json status,conclusion,jobs 2>/dev/null || echo '{}')
+    STATUS=$(jq -r '.status // "unknown"' <<< "$RUN_JSON")
+    if [[ "$STATUS" == "completed" ]]; then
+        break
+    fi
+    JOB=$(jq -r '[.jobs[]? | select(.status == "in_progress") | .name] | join(", ")' <<< "$RUN_JSON")
+    ELAPSED=$(( $(date +%s) - START ))
+    if [[ -n "$JOB" && "$JOB" != "$LAST_JOB" ]]; then
+        printf '\n  %dm%02ds  %s' $((ELAPSED / 60)) $((ELAPSED % 60)) "$JOB"
+        LAST_JOB="$JOB"
+    else
+        printf '.'
+    fi
+    if [[ "$ELAPSED" -ge 3600 ]]; then
+        echo ""
+        echo "Still running after an hour — stopped watching. $RUN_URL"
+        exit 1
+    fi
+    sleep 20
+done
+echo ""
+
+CONCLUSION=$(jq -r '.conclusion // "unknown"' <<< "$RUN_JSON")
+ELAPSED=$(( $(date +%s) - START ))
+if [[ "$CONCLUSION" == "success" ]]; then
+    echo ""
+    echo "✅ v$VERSION is deployed to production ($((ELAPSED / 60))m$(printf '%02d' $((ELAPSED % 60)))s)."
+    echo "   https://app.photocast.online"
+    notify "v$VERSION deployed to production"
+else
+    echo ""
+    echo "❌ Deploy of v$VERSION finished: $CONCLUSION"
+    echo "   $RUN_URL"
+    gh run view "$RUN_ID" --json jobs \
+        --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "   - \(.name): \(.conclusion)"' 2>/dev/null || true
+    notify "v$VERSION deploy $CONCLUSION"
+    exit 1
+fi
