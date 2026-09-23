@@ -51,6 +51,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -422,6 +423,132 @@ class ForecastResultHandlerTest {
                     assertThat(c.score()).isEqualTo(4);
                 });
         verify(forecastScoreWriter, never()).write(any(), any(), any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: coastal OPEN_FELL with the sky side already cached "
+            + "does NOT re-derive tide — recombineBluebell folds tide in via that sky rating; "
+            + "re-deriving it here would double-count it")
+    void parseBluebellBatchResponse_coastalOpenFell_skyAlreadyCached_doesNotDeriveTide() {
+        LocationEntity location = coastalOpenFellBluebellLocation(55L, "Rannerdale", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(55L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-55-2026-04-16-SUNRISE",
+                "{\"rating\":5,\"summary\":\"Golden light rakes the slope.\","
+                        + "\"headline\":\"Raking fell light\"}",
+                new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(
+                        5, "Golden light rakes the slope.", "Raking fell light"));
+        // The paired sky task's own batch already completed and flushed — the same signal
+        // recombineBluebell itself keys on (a non-null fierySkyPotential).
+        when(briefingEvaluationService.getCachedScores("Lake District", DATE, SUNRISE))
+                .thenReturn(Map.of("Rannerdale",
+                        new BriefingEvaluationResult("Rannerdale", 3, 60, 55, "Broken cloud")));
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        // Bluebell alone (5), NOT averaged with a re-derived tide score here — that averaging
+        // happens once, at merge time, against the paired sky task's own sky+tide rating.
+        assertThat(result.get().result().rating()).isEqualTo(5);
+        // ⚠️ The rating assertion above is NOT load-bearing on its own: Mockito's default
+        // Optional-returning answer makes an unstubbed deriveTideContext(...) also yield
+        // Optional.empty(), so the rating would still read 5 even if the bug reappeared and this
+        // method re-derived tide again. The never() verification below is the actual regression
+        // guard — do not drop it.
+        verify(forecastDataAugmentor, never()).deriveTideContext(any(), any(), any());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ComponentScore>> captor = ArgumentCaptor.forClass(List.class);
+        verify(forecastScoreWriter).writeComponents(
+                eq(location), eq(DATE), eq(SUNRISE), captor.capture(), eq(null));
+        // Only the BLUEBELL component is recorded here — no TIDAL row, since it is already
+        // recorded (at the same forecast_score component key) by the paired sky combine.
+        assertThat(captor.getValue())
+                .singleElement()
+                .satisfies(c -> assertThat(c.type()).isEqualTo(ForecastType.BLUEBELL));
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: coastal OPEN_FELL with NO sky entry cached yet "
+            + "(race, or the paired sky task failed) DOES derive tide — the only signal available "
+            + "this cycle; dropping it would silently overrate a misaligned-tide coastal slot")
+    void parseBluebellBatchResponse_coastalOpenFell_noSkyEntryYet_derivesTideAsFallback() {
+        LocationEntity location = coastalOpenFellBluebellLocation(57L, "St Bees", "Cumbria Coast");
+        ForecastIdentity identity = new ForecastIdentity(57L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-57-2026-04-16-SUNRISE",
+                "{\"rating\":5,\"summary\":\"Golden light rakes the slope.\","
+                        + "\"headline\":\"Raking fell light\"}",
+                new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(
+                        5, "Golden light rakes the slope.", "Raking fell light"));
+        // No stub for getCachedScores — Mockito's default answer for a Map-returning method is
+        // an empty map, exactly matching "the sky task has not been cached yet" (whether it is
+        // still in flight, or has already failed permanently this cycle).
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
+                .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        // avg(tide 1 [misaligned], bluebell 5) = 3 — tide contributes exactly once, as the sole
+        // fallback signal for a cycle where no sky rating is available to blend with instead.
+        assertThat(result.get().result().rating()).isEqualTo(3);
+        verify(forecastDataAugmentor).deriveTideContext(location, DATE, SUNRISE);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ComponentScore>> captor = ArgumentCaptor.forClass(List.class);
+        verify(forecastScoreWriter).writeComponents(
+                eq(location), eq(DATE), eq(SUNRISE), captor.capture(), eq(null));
+        assertThat(captor.getValue())
+                .extracting(ComponentScore::type)
+                .containsExactlyInAnyOrder(ForecastType.BLUEBELL, ForecastType.TIDAL);
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: coastal WOODLAND still derives tide — harmless to "
+            + "the rating (bluebell alone) and needed for the TIDAL forecast_score audit row, "
+            + "since an in-season WOODLAND site has no sky call to write it otherwise")
+    void parseBluebellBatchResponse_coastalWoodland_stillDerivesTide() {
+        LocationEntity location = coastalWoodlandBluebellLocation(56L, "Coastal Wood", "Northumberland");
+        ForecastIdentity identity = new ForecastIdentity(56L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-56-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"summary\":\"Bright still light.\",\"headline\":\"Soft light\"}",
+                new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(4, "Bright still light.", "Soft light"));
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
+                .thenReturn(Optional.of(tideContext(true, false, LunarTideType.REGULAR_TIDE)));
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        // WOODLAND: bluebell IS the rating regardless of tide (selectRatingPeers excludes TIDAL).
+        assertThat(result.get().result().rating()).isEqualTo(4);
+        verify(forecastDataAugmentor).deriveTideContext(location, DATE, SUNRISE);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ComponentScore>> captor = ArgumentCaptor.forClass(List.class);
+        verify(forecastScoreWriter).writeComponents(
+                eq(location), eq(DATE), eq(SUNRISE), captor.capture(), eq(null));
+        // Both components are still RECORDED (Pass 2: every applied component is dual-written) —
+        // only the RATING excludes TIDAL for WOODLAND.
+        assertThat(captor.getValue())
+                .extracting(ComponentScore::type)
+                .containsExactlyInAnyOrder(ForecastType.BLUEBELL, ForecastType.TIDAL);
     }
 
     @Test
@@ -1095,6 +1222,28 @@ class ForecastResultHandlerTest {
     private LocationEntity woodlandBluebellLocation(long id, String name, String regionName) {
         LocationEntity loc = locationWithRegion(id, name, regionName);
         loc.setLocationType(java.util.Set.of(LocationType.BLUEBELL));
+        loc.setBluebellExposure(BluebellExposure.WOODLAND);
+        return loc;
+    }
+
+    /** A coastal, OPEN_FELL-exposure bluebell site (e.g. Rannerdale Knotts, were it coastal). */
+    private LocationEntity coastalOpenFellBluebellLocation(long id, String name, String regionName) {
+        LocationEntity loc = locationWithRegion(id, name, regionName);
+        loc.setTideType(java.util.Set.of(TideType.HIGH));
+        loc.setLocationType(java.util.Set.of(LocationType.BLUEBELL));
+        loc.setBluebellExposure(BluebellExposure.OPEN_FELL);
+        return loc;
+    }
+
+    /**
+     * A coastal, WOODLAND-exposure bluebell site — no production example today, but legal data.
+     * Carries both {@link LocationType#WOODLAND} and {@link LocationType#BLUEBELL}, matching the
+     * shape every real canopy site has (see {@link #canopyLocation}).
+     */
+    private LocationEntity coastalWoodlandBluebellLocation(long id, String name, String regionName) {
+        LocationEntity loc = locationWithRegion(id, name, regionName);
+        loc.setTideType(java.util.Set.of(TideType.HIGH));
+        loc.setLocationType(java.util.Set.of(LocationType.WOODLAND, LocationType.BLUEBELL));
         loc.setBluebellExposure(BluebellExposure.WOODLAND);
         return loc;
     }

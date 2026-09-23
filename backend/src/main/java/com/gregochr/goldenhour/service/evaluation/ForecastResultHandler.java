@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.entity.BatchState;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -326,15 +328,20 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
     /**
      * Merges a group of bluebell mini-batch results into the region cache entry, recombining the
-     * rating with a prior sky result for OPEN_FELL sites (C3b). Delegates to
+     * rating with a prior sky result for non-WOODLAND sites (C3b). Delegates to
      * {@link BriefingEvaluationService#mergeBluebellFromBatch}; the processor selects this path
      * for {@code bb-} responses.
      *
-     * @param cacheKey region cache key
-     * @param results  the bluebell results for that cache key
+     * @param cacheKey            region cache key
+     * @param results             the bluebell results for that cache key
+     * @param exposureByLocation  each result's location name mapped to that location's actual
+     *                            {@code BluebellExposure}, resolved by the caller from the same
+     *                            {@code LocationEntity} the batch response was parsed against —
+     *                            see {@link BriefingEvaluationService#mergeBluebellFromBatch}
      */
-    public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
-        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results);
+    public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results,
+            Map<String, BluebellExposure> exposureByLocation) {
+        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results, exposureByLocation);
     }
 
     /**
@@ -642,15 +649,47 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * GOLDEN_HOUR rows, since there is no sky evaluation behind a bluebell-only slot.
      *
      * <p>The serving payload carries no 0–100 potentials (both null); the bluebell summary and
-     * headline are the user-facing prose. C3b refines the OPEN_FELL case to recombine the rating
-     * with the sky score at the cache-merge step; until then an open-fell bluebell result lands
-     * its own bluebell-derived rating (never reached in production out of season).
+     * headline are the user-facing prose. C3b recombines the OPEN_FELL case with the sky score
+     * at the cache-merge step ({@code BriefingEvaluationService.recombineBluebell}) — see the
+     * tide handling note below for why this method must not pre-average tide into that case.
+     *
+     * <p><b>Tide is re-derived for an OPEN_FELL site only when there is no sky+tide entry yet
+     * to draw it from.</b> {@code ForecastTaskCollector} always pairs an in-season OPEN_FELL
+     * bluebell task with a sky task for the same slot, and {@code RatingCombiner.selectRatingPeers}
+     * treats OPEN_FELL bluebell as a rating peer (unlike WOODLAND, where bluebell alone is the
+     * rating). Sky and bluebell are submitted as two <em>separate</em> Anthropic batches that
+     * complete and flush into the cache independently — so by the time this method runs, the
+     * paired sky task may already be scored and cached (the common case: {@link #buildResult}
+     * already derived this exact tide context and averaged it into the sky rating, and
+     * {@code recombineBluebell} blends that sky+tide rating with this method's bluebell rating at
+     * merge time), or it may not — because it genuinely has not completed yet (the documented
+     * race in {@code mergeBluebellFromBatch}), or because it failed outright and never will this
+     * cycle. Deriving tide here UNCONDITIONALLY would double-count it in the first case —
+     * {@code round(avg(round(avg(sky, tide)), round(avg(tide, bluebell))))} averages tide in
+     * twice against sky and bluebell's one entry each — but NEVER deriving it would drop tide
+     * entirely from the served rating in the second case, silently overrating a misaligned-tide
+     * coastal slot whenever the sky side is missing. So this method checks
+     * {@link BriefingEvaluationService#getCachedScores} for the same sky-scored-entry signal
+     * {@code recombineBluebell} itself keys on: present → suppress tide here (it will arrive via
+     * the sky side); absent → derive tide as the sole fallback signal for this cycle, exactly as
+     * before this rule existed. The check reads the in-memory cache only (not its DB fallback),
+     * so a bluebell batch landing in the brief window between process start and
+     * {@code rehydrateCacheOnStartup} completing could still double-count in this narrow,
+     * self-correcting edge case — not worth a DB read on every bluebell response to close.
+     * WOODLAND is unaffected either way — {@code selectRatingPeers} excludes TIDAL from a
+     * WOODLAND rating regardless of what this method passes — so WOODLAND always derives tide,
+     * both because it is harmless to the rating and because an in-season WOODLAND site has no
+     * sky call to record a TIDAL {@code forecast_score} component otherwise.
      */
     private BriefingEvaluationResult buildBluebellResult(LocationEntity location,
             BluebellEvaluation bluebell, LocalDate date, TargetType targetType, String regionName,
             String modelName, Long pipelineRunId) {
         Set<TideType> tideTypes = location.getTideType();
-        TideContext tide = (tideTypes != null && !tideTypes.isEmpty())
+        boolean coastal = tideTypes != null && !tideTypes.isEmpty();
+        boolean openFell = location.getBluebellExposure() == BluebellExposure.OPEN_FELL;
+        boolean deriveTide = coastal
+                && (!openFell || !hasSkyScoredEntry(location, regionName, date, targetType));
+        TideContext tide = deriveTide
                 ? forecastDataAugmentor.deriveTideContext(location, date, targetType).orElse(null)
                 : null;
         RatingCombiner.CombinedRating combined =
@@ -674,6 +713,22 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         return new BriefingEvaluationResult(
                 location.getName(), safeRating, null, null, bluebell.summary(),
                 null, null, bluebell.headline());
+    }
+
+    /**
+     * Whether the cache already holds a sky-scored entry for this exact location/date/event —
+     * the same signal {@code BriefingEvaluationService.recombineBluebell} keys its OPEN_FELL
+     * recombination on ({@code fierySkyPotential() != null}), checked here in advance so
+     * {@link #buildBluebellResult} knows whether tide will arrive via that recombination or must
+     * be derived here as the sole fallback. In-memory only — see the caller's javadoc for the
+     * narrow post-restart window this leaves unclosed.
+     */
+    private boolean hasSkyScoredEntry(LocationEntity location, String regionName, LocalDate date,
+            TargetType targetType) {
+        BriefingEvaluationResult existing = briefingEvaluationService
+                .getCachedScores(regionName, date, targetType)
+                .get(location.getName());
+        return existing != null && existing.fierySkyPotential() != null;
     }
 
     /**

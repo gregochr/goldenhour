@@ -5,6 +5,96 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.21.1] - 2026-09-18
+
+### Added — the window popup's tide row states the water's height at the light
+
+Owner-requested follow-up to the tide-plan-card series (Q7, `docs/engineering/tide-plan-card-plan.md`
+§6, decided): the Plan/Map tab's window popup tide row gains a fifth fact, `"<height> at the light"`
+(e.g. `"2.6 m at the light"`), reading the already-served `BriefingWindowTide.heightAtWindow` — no
+backend change, since the field has been served since T2 (#876). It sits directly after the existing
+state/direction fact, ahead of the nearest-extreme fact, and is dropped (never approximated) on a
+payload from before that field existed.
+
+Measured at 390×844 (a real-browser fixture built from this branch's own compiled CSS and fonts,
+reproducing `WindowSheetDialog.jsx`'s exact DOM chain — jsdom cannot render text wrap): the row's
+three visible facts wrap to 2 lines without the new fact, four to 3 lines with it. Sea state stays
+the row's one phone-droppable fact, as before; the new fact is never dropped.
+
+See `docs/engineering/tide-plan-card-plan.md` §4 #9/#11 and §6 Q7.
+
+### Fixed — Map tab phone: the counts footer stays in the accessibility tree while the tide strip is up
+
+T7 (#882) hid the Map tab's bottom-centre count line (`.wf-map-counts-footer`) with
+`display: none` on the phone whenever the tide strip is showing, per the design's own reasoning
+that stacking both lines pushes the map to nothing. `display: none` also pulls an element out of
+the accessibility tree, which the design's screen-space reasoning never considered — a
+screen-reader user on the phone lost the count/rated/filtered figures for as long as the strip was
+on, with no equivalent anywhere else on the tab (flagged as an owner item, §6 Q8, in T7's own
+adversarial review).
+
+Resolves Q8 with option 2: the footer is now visually hidden with an `sr-only`-shaped clip
+(`position: absolute; width/height: 1px; overflow: hidden; clip-path: inset(50%)`) instead of
+`display: none`, written out because the rule lives inside a media query rather than on a class.
+A sighted reader sees exactly the same layout as before; a screen-reader user can still reach the
+count. No visual or layout change — confirmed against `mapPhoneChromeCascade.test.jsx`'s
+arithmetic that the rest of the phone's lifted chrome stack is untouched, and the footer already
+carries `pointer-events: none` so the clipped box can never intercept a tap.
+
+Adversarial review (CSS-cascade lens) caught a real second-order effect: `MapCallout.jsx`'s
+placement-band logic (`utils/mapCallout.js#calloutBand`) skips a bar with a zero-size rect, which
+is what had excluded the counts footer while it was a genuine `display: none` `0×0`. The new `1×1`
+clipped box clears that bare `> 0` test, so — combined with the footer's pre-existing `always: true`
+width-test opt-out — it would have started counting as a real, invisible floor/ceiling bar for the
+callout's placement band on the phone. Currently harmless by coincidence of the two bars' `bottom`
+values, not by any enforced invariant, so fixed alongside: `calloutBand`'s zero-size skip now reads
+`> 1` rather than `> 0` (any real chrome bar is always many pixels in both dimensions; only a
+clipped, invisible element is ever `1×1`), with a new test (`mapCallout.test.js`) and a corrected
+`MapCallout.jsx` doc comment that had attributed the footer's zero-size rect to `display: none`
+specifically.
+
+See `docs/engineering/tide-window-plan.md` §6 Q8 and §4 #19.
+
+### Fixed — coastal OPEN_FELL bluebell locations no longer double-count tide in their rating
+
+A coastal, OPEN_FELL-exposure bluebell site's served rating averaged in its tide score twice: once
+via the sky task's own sky+tide combine, and a second time via the bluebell task's own tide+bluebell
+combine, before the two were blended together at cache-merge time. The net effect was
+`avg(avg(sky, tide), avg(tide, bluebell))` — tide entered the composite twice while sky and bluebell
+each entered once, over-weighting a tide mismatch and under-weighting sky and bluebell for exactly
+the locations that combine both features.
+
+`ForecastResultHandler.buildBluebellResult` now re-derives a tide context for an OPEN_FELL bluebell
+combine only when the paired sky task has not already been cached this cycle. Sky and bluebell are
+separate Anthropic batches that complete independently, so the common case — sky already scored and
+cached — suppresses tide here and lets the merge-time recombination
+(`BriefingEvaluationService.recombineBluebell`) fold it in from the sky side instead, so tide
+contributes exactly once. When no sky entry is cached yet (the sky task is still in flight, or
+failed outright this cycle), tide is still derived here as the sole available signal, so a
+misaligned tide is never silently dropped from the rating. WOODLAND bluebell sites are unaffected
+(their rating was never a tide peer) and still always derive tide for the `forecast_score` audit
+trail, since an in-season WOODLAND site has no sky call to record it otherwise.
+
+### Fixed — bluebell rating recombination now keys on the location's actual exposure, not the shape of the cache
+
+`BriefingEvaluationService.recombineBluebell` decided whether an incoming bluebell rating should
+average onto a prior sky rating (OPEN_FELL) or stand alone (WOODLAND) by checking whether the
+prior cache entry for that location *looked* sky-scored (non-null `fierySkyPotential`), rather
+than by reading the location's own `BluebellExposure`. Currently unreachable in production — all
+15 real canopy sites are WOODLAND+BLUEBELL only, with no sky `LocationType`, so no prior sky entry
+can exist for them — but latent: a WOODLAND-exposure bluebell site that also carries a sky-eligible
+`LocationType` (so it is not `isWoodlandOnly()` and is still sky-scored off-season) would have a
+stale, months-old sky entry averaged into its rating the moment bluebell season starts, the same
+"averaged across the wrong axis" defect class as the OPEN_FELL tide double-count fixed earlier.
+
+`recombineBluebell` and `mergeBluebellFromBatch` now take the location's real `BluebellExposure`
+and only withhold the sky peer when it is explicitly `WOODLAND` — mirroring
+`RatingCombiner.selectRatingPeers`'s own rule. The exposure is captured in `BatchResultProcessor`
+at the one point in the pipeline where the real `LocationEntity` is still in hand, threaded through
+`ForecastResultHandler.mergeBluebellCacheKey` alongside the existing per-cache-key result grouping.
+A location missing from the map (or carrying a `null` exposure) defaults to not-WOODLAND, matching
+`RatingCombiner`'s own default.
+
 ## [v2.21.0] - 2026-09-18
 
 ### Docs — Map tab "tide on the window": close out the series (T8)
