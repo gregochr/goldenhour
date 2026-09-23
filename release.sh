@@ -2,27 +2,44 @@
 # Tag a commit on main as a release version and push it,
 # triggering the GitHub Actions deploy pipeline.
 #
-# Prompts for the target commit (default: current main HEAD), so you can
-# release HEAD or a specific earlier commit on main without command-line
-# arguments. Useful when later commits are sitting on top of main but
-# you want to release just the validated subset.
+# Asks ONE question: the version. The commits since the last tag are printed
+# first, so choosing the version is the go-ahead — the CHANGELOG promotion, tag
+# and push then run without further prompts. It offers three versions — the
+# next major, patch and minor — as 1/2/3 (Enter takes the patch).
+#
+# Usage: ./release.sh [VERSION] [--target REF] [-m MESSAGE]
+#   VERSION       skip the question (e.g. ./release.sh 2.21.3)
+#   --target REF  tag an earlier commit on main instead of HEAD
+#   -m MESSAGE    tag message (default: "Release vVERSION")
 #
 # Safety checks:
 #   - must be on main, working tree clean
 #   - syncs with origin/main before tagging, and refuses to run when local main is
 #     ahead (unpushed commits get swept into the CHANGELOG promotion PR)
-#   - prompts for target commit (default HEAD)
+#   - target commit defaults to HEAD (--target to override)
 #   - verifies target is reachable from main
 #   - shows commits between last tag and target for review
 #   - confirms tag doesn't already exist
-#   - offers to promote CHANGELOG's [Unreleased] entries to the version being
-#     tagged, via an auto-merged docs-only PR, and refuses to tag if they are
-#     still unpromoted or if nothing is documented for the version
-#   - prompts for confirmation before pushing
-#
-# Usage: ./release.sh
+#   - promotes CHANGELOG's [Unreleased] entries to the version being tagged,
+#     via an auto-merged docs-only PR, and refuses to tag if they are still
+#     unpromoted or if nothing is documented for the version
+#   - stops to ask only if main gained an unexpected commit during the promotion
 
 set -euo pipefail
+
+# 0. Arguments
+VERSION=""
+TARGET="HEAD"
+MESSAGE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --target) TARGET="${2:?--target needs a commit ref}"; shift 2 ;;
+        -m)       MESSAGE="${2:?-m needs a message}"; shift 2 ;;
+        -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+        -*)       echo "Error: unknown option $1 (see ./release.sh --help)"; exit 1 ;;
+        *)        VERSION="$1"; shift ;;
+    esac
+done
 
 # 1. Branch check
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -78,11 +95,7 @@ if [[ "$BEHIND" -gt 0 ]]; then
     git pull --ff-only origin main
 fi
 
-# 4. Prompt for target commit (default: HEAD)
-echo ""
-read -p "Commit to tag (blank or 'HEAD' for current main HEAD, or a SHA/ref): " TARGET_INPUT
-TARGET="${TARGET_INPUT:-HEAD}"
-
+# 4. Target commit (default HEAD; --target to override)
 TARGET_SHA=$(git rev-parse --verify "$TARGET" 2>/dev/null || true)
 if [[ -z "$TARGET_SHA" ]]; then
     echo "Error: '$TARGET' is not a valid commit reference"
@@ -120,8 +133,26 @@ else
 fi
 echo ""
 
-# 6. Prompt for version with validation
-read -p "New tag version (without v, e.g. 2.11.11): " VERSION
+# 6. Version — the one question. Offers major / patch / minor bumps of the latest
+# tag; answer 1-3, Enter for the patch, or type any x.y.z.
+if [[ -z "$VERSION" ]]; then
+    MAJOR_V="" PATCH_V="" MINOR_V=""
+    if [[ "$CURRENT" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        MAJOR_V="$((BASH_REMATCH[1] + 1)).0.0"
+        PATCH_V="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+        MINOR_V="${BASH_REMATCH[1]}.$((BASH_REMATCH[2] + 1)).0"
+        echo "Next version:"
+        printf "  1) %-9s major\n" "$MAJOR_V"
+        printf "  2) %-9s patch (default)\n" "$PATCH_V"
+        printf "  3) %-9s minor\n" "$MINOR_V"
+    fi
+    read -p "Choose 1-3, Enter for ${PATCH_V:-?}, or type a version (Ctrl-C to stop): " VERSION
+    case "$VERSION" in
+        1) VERSION="$MAJOR_V" ;;
+        2|"") VERSION="$PATCH_V" ;;
+        3) VERSION="$MINOR_V" ;;
+    esac
+fi
 
 if [[ "$VERSION" =~ ^v ]]; then
     echo "Error: don't include the 'v' prefix — just the version number e.g. 2.8.2"
@@ -334,11 +365,6 @@ if [[ -n "$UNRELEASED_BODY" || -n "$PENDING_AT_TARGET" ]]; then
     echo "(deleting the folded files), changes no entry text, and opens a"
     echo "docs-only PR with auto-merge enabled."
     echo ""
-    read -p "Promote ${ENTRY_COUNT:-0} entr(y/ies) to v$VERSION now? (y/N): " DO_PROMOTE
-    if [[ "$DO_PROMOTE" != "y" && "$DO_PROMOTE" != "Y" ]]; then
-        echo "Cancelled — nothing tagged, nothing pushed."
-        exit 1
-    fi
 
     # From here the script owns a branch and a checkout. Any exit before the final
     # cleanup must put the user back on main rather than stranding them mid-promotion.
@@ -428,6 +454,21 @@ if [[ -n "$UNRELEASED_BODY" || -n "$PENDING_AT_TARGET" ]]; then
     # Re-target onto the promotion commit. The tag must point at a commit that actually
     # contains the notes, which the originally-chosen target no longer is.
     TARGET_SHA=$(git rev-parse main)
+
+    # The go-ahead given at the version prompt covered the commits listed then plus
+    # the promotion commit. Anything else that merged during the wait was never shown,
+    # so that case — and only that case — stops to ask.
+    EXTRA=$(git rev-list --count "$MAIN_HEAD".."$TARGET_SHA")
+    if [[ "$EXTRA" -ne 1 ]]; then
+        echo ""
+        echo "Warning: main gained $((EXTRA - 1)) commit(s) besides the promotion while waiting:"
+        git log --oneline --reverse "$MAIN_HEAD".."$TARGET_SHA"
+        read -p "Tag v$VERSION including these? (y/N): " CONFIRM_EXTRA
+        if [[ "$CONFIRM_EXTRA" != "y" && "$CONFIRM_EXTRA" != "Y" ]]; then
+            echo "Cancelled — the notes are promoted on main; re-run ./release.sh $VERSION to tag."
+            exit 1
+        fi
+    fi
     CHANGELOG_AT_TARGET=$(git show "$TARGET_SHA:CHANGELOG.md" 2>/dev/null || true)
 
     if [[ -n "$(unreleased_body_at "$TARGET_SHA" || true)" ]]; then
@@ -477,22 +518,10 @@ fi
 
 echo "CHANGELOG: [Unreleased] is empty and v$VERSION is documented."
 
-# 8. Optional tag message
-read -p "Tag message (one-liner, optional, blank for default): " MESSAGE
+# 8. Tag and push (tag message from -m, else the default)
 TAG_MESSAGE="${MESSAGE:-Release v$VERSION}"
-
-# 9. Final confirmation
 echo ""
-echo "About to create annotated tag v$VERSION at:"
-echo "  $(git log -1 --oneline "$TARGET_SHA")"
-echo "  message: $TAG_MESSAGE"
-read -p "Proceed? (y/N): " CONFIRM
-if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-    echo "Cancelled."
-    exit 0
-fi
-
-# 10. Tag and push
+echo "Tagging v$VERSION at $(git log -1 --oneline "$TARGET_SHA")"
 git tag -a "v$VERSION" "$TARGET_SHA" -m "$TAG_MESSAGE"
 git push origin "v$VERSION"
 
