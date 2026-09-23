@@ -934,7 +934,19 @@ shipped** (T8 sweep):
   instruct Claude to re-weight for tide alignment on top of the star — flagged for the owner rather
   than edited, since CLAUDE.md reserves prompt changes to the owner and this file does not touch
   regression-test assertions either way.
-  (`BestBetPromptText.java:63–89`).
+  (`BestBetPromptText.java:63–89`). **Advisor weighting — DECIDED (leave it), 2026-09-23.** The
+  owner chose to keep the best-bet advisor's own tide instruction ("Tide alignment is a strong
+  differentiator… Always mention when tide is aligned") as it stands, over softening it. The
+  reasoning: the advisor is choosing *between* slots for a reader, and a tide-aligned coast really
+  is the better bet at equal light — so a second look at tide when ranking picks is a preference
+  the advisor is entitled to, not a double count of the star. The star already carries tide once
+  through `TideVisitor`; the advisor's clause is a ranking tiebreak on top of it, not a re-scoring.
+  It reaches only the advisor's three admin consumers today (`BriefingModelTestView`,
+  `PipelineRunsView`'s picks, `AdvisorReplayController`) — the `/api/briefing` `bestBets` fields
+  have no frontend renderer — so its blast radius is nil on the Plan and Map tabs. Softening it
+  remains open as a separate owner-driven prompt change, since the wording is pinned by the
+  owner's regression tests and CLAUDE.md reserves those to the owner. The Codex thread that raised
+  it on #896 is resolved on this entry.
 - **Q2 — Should the app's alignment rule become level-based (the spec's model)?** Today: within the
   half-golden-blue window of an extreme, else MID. The spec's argument — "the level at the moment of
   the light is what you stand in" — is a real one, and the two rules disagree in the shoulder (a
