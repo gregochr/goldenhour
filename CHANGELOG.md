@@ -5,6 +5,79 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.21.2] - 2026-09-23
+
+### Changed — open on Map on iPad and desktop, Plan on phone
+
+The app opened on the Plan tab everywhere. It now opens on **Map** on a tablet or desktop and on
+**Plan** on a phone — the owner's read of the two surfaces: the map needs room for the heat field,
+callout and chrome, and the matrix of six cards is what reads well at 375px.
+
+`frontend/src/utils/initialTab.js` is a pure viewport read: `PHONE_OPENING_QUERY` mirrors
+`useIsMobile`'s own `(max-width: 639px)` boundary plus a landscape-phone arm
+(`(pointer: coarse) and (max-height: 499px)`, so an iPhone held sideways still opens on Plan). `App`
+resolves it once at mount via a `useState` initialiser and hands it to `WindowFirstShell` as
+`initialTab`; the shell stays device-agnostic and never reads a media query itself.
+
+Decided once, never persisted (no `localStorage`, recomputed on every visit), and never re-decided
+after mount — rotating or resizing the window does not move the reader to another tab. The
+trickiest part: the Map pane does not exist at the very first render (`App` withholds it until
+`GET /api/forecast` has returned rows), so a desktop/iPad preference for Map has to survive from
+first paint to the moment the pane actually arrives. `WindowFirstShell` models the opening tab as a
+*preference* (`activeTab` starts `null`, meaning "not yet chosen") rather than a one-shot selection,
+and commits it — pinning whichever tab is in force — the instant the reader does anything at all
+with the page: a click, a keypress, a wheel scroll, or any lens-bar interaction, caught at the
+shell root in the capture phase rather than as an enumerated list of dialog states (an earlier draft
+enumerated them and a review found the Drive/Rating lens bar slipping past it, since it never calls
+the tab-selection function at all). A 1500 ms grace timer commits the preference on its own if the
+reader has touched nothing by then, so a switch never lands mid-interaction. Focus is not moved by
+the preference-driven switch — only an explicit tab request does that, unchanged.
+
+No new endpoint, no migration, no persisted setting — see
+`docs/engineering/default-tab-by-device-plan.md` for the full design and the test brief.
+
+### Changed — lift the tide gate: a mismatched coast now scores, it does not disappear
+
+A coastal slot whose tide missed the light used to be withheld from Claude entirely
+(`BriefingGatingPolicy.HARD_CONSTRAINT_REASONS = {TIDE_MISMATCH}`) and served with no rating at
+all — the one hard constraint left standing after the Gate 2 redesign. `TideVisitor`'s R1 penalty
+(5 king/spring-aligned · 4 tight-aligned · 3 widened-aligned · 1 misaligned), written for exactly
+this case, has been dead behind that gate since the day it shipped. The owner decided (Q1 of
+`docs/engineering/tide-window-plan.md` §6, option 3): **lift the gate and let the existing visitor
+score the shot** — "the star is the whole shot". A coastal slot's sky rating now reaches Claude
+regardless of tide alignment and combines with `TideVisitor`'s score exactly as `RatingCombiner`
+already did (half-up average): a 4★ sky at wrong water now returns 4★ for the light and combines
+to `round((4+1)/2) = 3★`; an aligned coast is unchanged (4★ sky + aligned 4 → 4★; + spring/king 5 →
+5★).
+
+Measured before deciding, over the fortnight to 18 Sep 2026: **1,066** gated skips against
+**7,051** evaluated — lifting the gate costs roughly **+15%** more evaluations at the fortnight's
+upper bound. Accepted: the cost buys a served rating for every formerly-gated slot.
+
+**Backend**: `BriefingGatingPolicy.HARD_CONSTRAINT_REASONS` is now empty — the mechanism (the set,
+the label round-trip, `BriefingSlotBuilder`'s `evaluationGate` wording) stays wired for a future
+hard constraint rather than being deleted. `TideWording.tideGatePhrase` (its one producer) is
+removed with its tests, since no gate fires to word any more. The STANDDOWN verdict override for a
+tide mismatch in `BriefingSlotBuilder` stays — it is now a triage *label* only (feeding the region
+roll-up, like any weather stand-down), never a Claude-eligibility gate. `TideVisitor` and
+`RatingCombiner` are untouched; the fix was entirely upstream, in what reaches them.
+
+**New**: `BriefingSlot.skyRating` / `BriefingEvaluationResult.skyRating` — the sky visitor's own
+component score alone, with no tide contribution averaged in, riding the same `cached_evaluation`
+results entry the combined `claudeRating` already does (no migration). The map tab's `TideFitBlock`
+states it beside a tide-dimmed star (`· sky 4★`) on every miss, and on a match only when it differs
+from the combined figure (a spring-aligned tide lifting a 4★ sky to 5★) — so a reader can tell "the
+water cost me a star" from "the light itself was mediocre" without a second visit to the sky score.
+
+**Prompt**: `BestBetPromptText`'s tide language was re-read and found to instruct Claude to
+re-weight tide alignment on top of the combined rating (`claudeAverageRating` now already includes
+tide) — flagged for the owner rather than edited; prompt changes and regression-test assertions
+stay the owner's call per CLAUDE.md.
+
+See `docs/engineering/tide-window-plan.md` §4 #20 and §6 Q1 for the full reasoning, including why
+this deviates from the vendored design's own `OPEN 5` warning against representing a tide mismatch
+twice (the gate lift removes the double-representation rather than adding to it).
+
 ## [v2.21.1] - 2026-09-18
 
 ### Added — the window popup's tide row states the water's height at the light
