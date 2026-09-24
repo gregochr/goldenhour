@@ -277,10 +277,7 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
                 sight.moonAzCardinal(),
                 true));
 
-        String shadowEnd = sight.setsInShadow()
-                ? "sets " + localTime(sight.moonset())
-                : londonTime(eclipse.u4());
-        facts.add(HotTopicFact.metric("in shadow", londonTime(eclipse.u1()) + " → " + shadowEnd));
+        facts.add(HotTopicFact.metric("in shadow", LunarEclipseWording.shadowSpan(sight)));
 
         facts.add(HotTopicFact.metric("seen from", visibleCount + " of " + rosterSize + " sites"));
         return facts;

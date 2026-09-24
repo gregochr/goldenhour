@@ -130,7 +130,7 @@ public class LunarEclipseAlmanacSource implements AlmanacSource {
                         "magnitude", magnitudeMeta,
                         "maximum", londonTime(eclipse.max()) + " · moon " + sight.moonAzCardinal()
                                 + " " + sight.moonAzAtMax() + "°, " + sight.moonAltAtMax() + "° up",
-                        "shadow", "in shadow " + shadowLine(eclipse, sight),
+                        "shadow", "in shadow " + LunarEclipseWording.shadowSpan(sight),
                         "seen", "seen from " + visibleCount + " of " + enabled.size() + " sites",
                         "next", nextLine(eclipse),
                         "since", sinceLine(eclipse),
@@ -186,11 +186,6 @@ public class LunarEclipseAlmanacSource implements AlmanacSource {
                     + "m before it sets.";
         }
         return ".";
-    }
-
-    private static String shadowLine(LunarEclipse eclipse, LunarEclipseSight sight) {
-        String end = sight.setsInShadow() ? "sets " + localTime(sight.moonset()) : londonTime(eclipse.u4());
-        return londonTime(eclipse.u1()) + " → " + end;
     }
 
     /**

@@ -25,13 +25,14 @@ import org.junit.jupiter.api.Test;
 /**
  * Drives {@link LunarEclipseHotTopicStrategy} and {@link LunarEclipseAlmanacSource} from the SAME
  * real {@link LunarEclipseCalculator} reduction, for every catalogued eclipse, and cross-checks
- * their magnitude wording — the regression test for the class of bug Codex review found against PR
- * #913 (an impossible "125% in shadow" on a total eclipse; deep-partial copy applied to a
- * barely-visible one). Both classes route every magnitude-derived word through
- * {@link LunarEclipseWording}, so if this test passes it is because that routing held, not because
- * the two happened to agree by coincidence — a regression that reintroduced independent magnitude
- * arithmetic in either class would break the second test below without either class needing to be
- * touched.
+ * their magnitude and in-shadow-span wording — the regression test for the class of bug Codex
+ * review found against PR #913 across three passes (an impossible "125% in shadow" on a total
+ * eclipse; deep-partial copy applied to a barely-visible one; a rises-in-shadow eclipse's span
+ * starting at {@code u1} instead of when the Moon can actually be seen). Both classes route every
+ * magnitude- and span-derived word through {@link LunarEclipseWording}, so if these tests pass it
+ * is because that routing held, not because the two happened to agree by coincidence — a regression
+ * that reintroduced independent arithmetic in either class would break one of the tests below
+ * without either production class needing to be touched.
  *
  * <p>Uses the real {@code solar-utils} calculators at the catalogue's own UK-centre reference point
  * (54.5°N, 2.5°W — {@code LunarEclipseCatalog}'s class javadoc), the same point its own
@@ -144,6 +145,37 @@ class LunarEclipseMagnitudeAgreementTest {
                 assertThat(magnitudeMeta).as("eclipse %s: meta", eclipse.date())
                         .isEqualTo(pct + "% in shadow");
             }
+        }
+    }
+
+    @Test
+    @DisplayName("the strategy's 'in shadow' fact and the almanac source's 'shadow' meta agree on "
+            + "the visible span, for every catalogued eclipse the UK-centre reference point can see")
+    void strategyAndAlmanacSourceAgreeOnTheInShadowSpan() {
+        LunarEclipseHotTopicStrategy strategy = strategy();
+        LunarEclipseAlmanacSource almanacSource = almanacSource();
+
+        for (LunarEclipse eclipse : LunarEclipseCatalog.all()) {
+            List<HotTopic> topics = strategy.detect(eclipse.date(), eclipse.date());
+            List<AlmanacEvent> events = almanacSource.events(eclipse.date(), eclipse.date());
+            if (topics.isEmpty() || events.isEmpty()) {
+                // Already proven identical (both empty, for the same reason) by the coverage test
+                // above; nothing further to check here.
+                continue;
+            }
+
+            String inShadowFact = topics.get(0).facts().stream()
+                    .filter(fact -> "in shadow".equals(fact.key()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("no 'in shadow' fact for " + eclipse.date()))
+                    .value();
+            String shadowMeta = events.get(0).meta().get("shadow");
+
+            assertThat(shadowMeta).as("eclipse %s", eclipse.date()).isEqualTo("in shadow " + inShadowFact);
+            // Neither surface may print u1's raw contact time as the span's start unless it happens
+            // to equal the visible start (i.e. the Moon does not rise already in shadow) — the
+            // per-eclipse "rises "/plain distinction is exactly what this loop exercises across the
+            // whole catalogue rather than by hand for one date.
         }
     }
 }

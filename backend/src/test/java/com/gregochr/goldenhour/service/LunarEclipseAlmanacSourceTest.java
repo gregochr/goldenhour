@@ -221,6 +221,38 @@ class LunarEclipseAlmanacSourceTest {
     }
 
     @Nested
+    @DisplayName("The in-shadow span is clipped to visibility, never to the eclipse's own u1/u4")
+    class InShadowSpanClipping {
+
+        @Test
+        @DisplayName("a rises-in-shadow eclipse's 'shadow' meta starts at when the Moon actually "
+                + "rises, never at u1 — 2028-12-31 from the UK centre rises ~15:36, u1 is 15:07")
+        void shadowMetaStartsAtMoonriseNotU1() {
+            LocalDate day = LocalDate.of(2028, 12, 31);
+            LunarEclipse eclipse = eclipseOn(day);
+            stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON));
+            // 15:36:14 UTC/GMT is LunarEclipseCalculatorTest's own verified real-ephemeris figure
+            // for the UK-centre reference point on this date (no BST on 31 Dec, so local == UTC).
+            LunarEclipseSight risesAndSetsInShadow = new LunarEclipseSight(
+                    8, 90, "E",
+                    LocalDateTime.of(2028, 12, 31, 20, 0),
+                    LocalDateTime.of(2028, 12, 31, 15, 36),
+                    true, true,
+                    LocalDateTime.of(2028, 12, 31, 15, 36),
+                    LocalDateTime.of(2028, 12, 31, 20, 0),
+                    true);
+            when(calculator.sight(eq(eclipse), eq(BAMBURGH_LAT), eq(BAMBURGH_LON)))
+                    .thenReturn(risesAndSetsInShadow);
+
+            String shadow = entryOn(day).meta().get("shadow");
+
+            assertThat(shadow).isEqualTo("in shadow rises 15:36 → sets 20:00");
+            // u1 for this eclipse is 15:07 (LunarEclipse's own contact) — must never appear.
+            assertThat(shadow).doesNotContain("15:07");
+        }
+    }
+
+    @Nested
     @DisplayName("Answering for the whole range")
     class Range {
 
