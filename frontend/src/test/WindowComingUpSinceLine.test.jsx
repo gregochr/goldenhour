@@ -38,17 +38,17 @@ describe('WindowComingUpSinceLine', () => {
       />,
     );
     const line = screen.getByTestId('coming-up-since');
-    expect(line).toHaveTextContent('1 new');
-    expect(line).toHaveTextContent('the Supermoon joined the list, 8 Aug.');
+    expect(line).toHaveTextContent('1 announced');
+    expect(line).toHaveTextContent('the Supermoon entered the window, 8 Aug.');
     expect(line).toHaveTextContent('Rarity alone carries it over the top contour.');
     // The raw surprisal figure is never drawn: `bits` is log2 on an unbounded scale, so a bare
-    // `8.2` has no denominator a reader can reason about. `bitsWord` carries the whole claim.
+    // `8.2` has no denominator a reader can reason about.
     expect(line).not.toHaveTextContent('bits');
     expect(line).not.toHaveTextContent('8.2');
     expect(line.className).not.toContain('wf-cu-since-rare');
   });
 
-  it('states the diamond and the rarity word, no count, for an interrupt badge', () => {
+  it('states the diamond and the fixed "Rare" headline, no count, for an interrupt badge', () => {
     render(
       <WindowComingUpSinceLine
         badge={{ band: 'interrupt', count: null }}
@@ -57,13 +57,15 @@ describe('WindowComingUpSinceLine', () => {
       />,
     );
     const line = screen.getByTestId('coming-up-since');
-    // Sentence-cased: the word opens the line. 11.6 bits is `very rare` on `bitsWord`'s scale.
-    expect(line).toHaveTextContent('◆ Very rare');
-    expect(line).toHaveTextContent('the Solar eclipse joined the list, 8 Aug.');
+    // The interrupt band is binary (README §6: "above 9.5 bits there is only ever one thing in
+    // play, so the badge stops counting") — the headline is the fixed word "Rare", never a
+    // figure bucketed from `entry.bits`.
+    expect(line).toHaveTextContent('◆ Rare');
+    expect(line).toHaveTextContent('the Solar eclipse entered the window, 8 Aug.');
     expect(line).not.toHaveTextContent('11.6');
     expect(line.className).toContain('wf-cu-since-rare');
     // The count never appears anywhere on an interrupt line, unlike the announce state above.
-    expect(line).not.toHaveTextContent(/^\d+ new/);
+    expect(line).not.toHaveTextContent(/^\d+ announced/);
   });
 
   it('falls back to joinNote when scoreNote is absent — a merged (coincidence) winner', () => {
@@ -72,13 +74,13 @@ describe('WindowComingUpSinceLine', () => {
         badge={{ band: 'announce', count: 1 }}
         entry={sinceEntry({
           scoreNote: null,
-          joinNote: 'One perigee causes both, so the pair scores as the maximum of the two.',
+          joinNote: 'One perigee causes both. Counted as one event, not two — the Supermoon carries it.',
         })}
         onMarkSeen={vi.fn()}
       />,
     );
     expect(screen.getByTestId('coming-up-since')).toHaveTextContent(
-      'One perigee causes both, so the pair scores as the maximum of the two.',
+      'One perigee causes both. Counted as one event, not two — the Supermoon carries it.',
     );
   });
 

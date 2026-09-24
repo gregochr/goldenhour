@@ -34,7 +34,7 @@ directly). Paste the relevant section of THIS plan and the spec into every revie
 
 ## §0 Status
 
-**Status: L0 built, in review; L1–L7 not started.** Plan written 2026-09-23 against `main` at
+**Status: L0 built, in review; L6 merged; L1–L5, L7 not started.** Plan written 2026-09-23 against `main` at
 `16f7c29f` (#908). Today's date matters more than usual for this plan: the worked example (Friday
 28 August 2026) is **already past**, so no phase can be verified against a live event — §7 says how
 it is verified instead.
@@ -47,7 +47,7 @@ it is verified instead.
 | L3 | Frontend: type registries, channel CSS, the clocked chip on the Plan card | not started | `feature/lunar-l3-chip` |
 | L4 | Frontend: popup topic row (aside, info tip), `DawnRace` component + pure geometry | not started | `feature/lunar-l4-race` |
 | L5 | Frontend: Coming up lunar row (glyph, `next` line, `aside` slot) | not started | `feature/lunar-l5-coming-up` |
-| L6 | **Independent**: Coming up plain-language copy sweep (README §6), backend + frontend | not started | `feature/lunar-l6-plain-copy` |
+| L6 | **Independent**: Coming up plain-language copy sweep (README §6), backend + frontend | merged | `feature/lunar-l6-plain-copy` |
 | L7 | Location sheet + map callout per-location line; docs sweep (CLAUDE.md, this plan's §4 close-out) | not started | `feature/lunar-l7-sweep` |
 
 Dependency order: L0 → L1 → L2 → L3 → L4 → L5 → L7. **L6 depends on nothing and may run first or
@@ -436,6 +436,15 @@ reads COMPLETE with every row `built, in review` or `merged`.
 15. **Times ride as London `LocalDateTime` and are formatted on the client** with the existing
     formatter — the Plan payload's convention — rather than the Coming-up feed's "no number
     re-formatted in the browser" rule, which governs a different payload.
+16. **(L6) §2.9's dust "heaviest of N" line is not built.** The design's plain-language copy
+    section names a dust-row fact, `heaviest of 12 since June`, as an example of "no more bits" —
+    but nothing in this codebase promotes dust to a chronology `ComingUpEntry` at all (`grep -n
+    "DUST\|dust" ComingUpAssembler.java` has no hits): dust exists only as a standing
+    `ComingUpCondition`, and its "heaviest of N" claim would require a new comparison (is the
+    forward peak genuinely bigger than every recent burst?) that L6's copy-sweep scope — replace
+    strings, do not change what is derived — does not license. `ComingUpConditionPeak.valueLabel`
+    keeps its plain "AOD 0.55" measurement instead. A future phase may add the fact properly, as a
+    served comparison rather than an assumed superlative.
 
 ---
 

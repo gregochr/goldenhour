@@ -291,7 +291,7 @@ public class ComingUpConditionsBuilder {
                 String otherTopic = matchedEntry.id().equals(ownId)
                         ? matchedEntry.coincidence().getFirst().name()
                         : matchedEntry.title();
-                reason = "max w/ " + otherTopic.toLowerCase(Locale.UK);
+                reason = otherTopic.toLowerCase(Locale.UK);
             }
         }
 
@@ -375,7 +375,7 @@ public class ComingUpConditionsBuilder {
     }
 
     private static String coastalTideQuantLabel(double rarityBits, int runCount, List<Double> rangeValues) {
-        StringBuilder label = new StringBuilder(rarityWord(rarityBits));
+        StringBuilder label = new StringBuilder(frequencyPhrase(rarityBits, "daily"));
         label.append(" · ").append(runCount).append(runCount == 1 ? " run in 90 days" : " runs in 90 days");
         if (!rangeValues.isEmpty()) {
             List<Double> sorted = rangeValues.stream().sorted().toList();
@@ -386,34 +386,35 @@ public class ComingUpConditionsBuilder {
     }
 
     /**
-     * A plain-English word for a surprisal score in bits — an interim readability pass (not yet
-     * user-tested), so a reader without an information-theory background gets a sense of scale
-     * without the raw log2 unit. The boundaries are chosen so the shipped rows land where they read
-     * naturally (14.8-day tide gap → "occasional"; 4-day inversion fallback → "occasional"), not
-     * derived from any external distribution.
+     * The quant line's leading frequency phrase (lunar-eclipse plan §2.9: "{@code gapWord}
+     * frequency phrase (`about one a week`, `most mornings` …) so {@code quantLabel} reads as the
+     * design's condition lines") — a different sentence shape from {@link SurpriseScore#gapWord},
+     * which completes "once ___" for {@code markScoreNotes}'s rarity-carried sentence. This one
+     * reads as a stand-alone clause opening the quant line, so it needs its own framing: "about
+     * one a week" for a countable gap, or a topic-supplied idiom for a near-daily one ("most
+     * mornings" for a SUNRISE-only condition, "most days" otherwise) — the design's own two named
+     * examples, reachable exactly where they are honest rather than hard-coded regardless of the
+     * actual configured gap.
      *
-     * <p>⚠️ <b>The word ships alone — never {@code word (3.9)}.</b> All three quant labels used to
-     * append the raw figure in brackets, which put back exactly the log2 unit this method exists to
-     * replace: {@code bits} is unbounded surprisal ({@link SurpriseScore}: {@code log2(meanGapDays)}
-     * plus {@code -log2(P(X >= x))}), so a bracketed {@code 3.9} offers a reader no denominator to
-     * reason about — there is no "out of". The number stays on the wire where a consumer can use it
-     * ({@code ComingUpConditionPeak.bits}, {@code ComingUpConditionOccurrence.bits}); it simply does
-     * not belong in a sentence a photographer reads.
+     * @param bits      the rarity component, in bits
+     * @param mostLabel what to say for a near-daily gap (≤1.5 days) instead of the generic
+     *                  "about daily", which would read like a diagnostic rather than a caption
      */
-    private static String rarityWord(double bits) {
-        if (bits < 2.0) {
-            return "common";
+    static String frequencyPhrase(double bits, String mostLabel) {
+        double meanGapDays = Math.pow(2, bits);
+        if (meanGapDays <= 1.5) {
+            return mostLabel;
         }
-        if (bits < 4.0) {
-            return "occasional";
+        if (meanGapDays <= 9.0) {
+            return "about one a week";
         }
-        if (bits < 6.0) {
-            return "uncommon";
+        if (meanGapDays <= 20.0) {
+            return "about one a fortnight";
         }
-        if (bits < 8.0) {
-            return "rare";
+        if (meanGapDays <= 45.0) {
+            return "about one a month";
         }
-        return "very rare";
+        return "about one every " + Math.round(meanGapDays) + " days";
     }
 
     /** Nearest-rank percentile over an already-sorted list. */
@@ -513,7 +514,7 @@ public class ComingUpConditionsBuilder {
                     "AOD " + fmt2(aod), null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = rarityWord(rarityBits)
+        String quantLabel = frequencyPhrase(rarityBits, "most days")
                 + " · counts as a plume above a haze reading of "
                 + fmt2(BigDecimal.valueOf(dustConfig.getMagnitudeThresholdAod())) + " (early threshold)";
         return new ComingUpCondition("DUST", "Saharan dust", scoringProperties.getCadence().getDust(), true,
@@ -589,7 +590,7 @@ public class ComingUpConditionsBuilder {
                     score + "/10", null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = rarityWord(rarityBits) + " · counts as strong above "
+        String quantLabel = frequencyPhrase(rarityBits, "most mornings") + " · counts as strong above "
                 + fmt0(inversionConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
         return new ComingUpCondition("VALLEY_INVERSIONS", "Valley inversions",
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);

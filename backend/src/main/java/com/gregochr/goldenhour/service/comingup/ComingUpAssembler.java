@@ -158,6 +158,11 @@ public class ComingUpAssembler {
         String joinNote;
         /** {@link Double#NaN} unless this is a tide-run entry with a derivable peak range. */
         double tideRangeMetres = Double.NaN;
+        /** The magnitude component's own "usual" figure (e.g. {@code "2.5 m"}), set only when the
+         * magnitude was computed from a mature (non-cold-start) history — never a bucketed
+         * reference, which names no real distribution to compare against. Read by {@link
+         * #markScoreNotes} to name what "unusually big" is being measured against. */
+        String magnitudeMedianLabel;
         /** True only where magnitude was bucketed (cold start) or entirely unmeasurable — never a
          * blanket default. A non-tide type's magnitude default (1.0, the median) is "by definition
          * typical" (plan D4), not a provisional estimate, so it is NOT interim; only the tide
@@ -258,6 +263,18 @@ public class ComingUpAssembler {
                 // treat this score as confident, since bits alone can't say so without distorting
                 // the printed "rarity + magnitude = bits" sum.
                 s.interim = result.coldStart();
+                // The "usual" figure a magnitude-carried scoreNote names the entry's own metric
+                // against — only meaningful once the magnitude was computed from a real
+                // distribution (never a bucketed cold-start reference, which names no history at
+                // all) and only once there is history to take a median of.
+                if (!result.coldStart()) {
+                    List<Double> sortedHistory = history.stream()
+                            .filter(java.util.Objects::nonNull).sorted().toList();
+                    if (!sortedHistory.isEmpty()) {
+                        s.magnitudeMedianLabel =
+                                String.format(Locale.UK, "%.1f m", medianOf(sortedHistory));
+                    }
+                }
 
                 java.math.BigDecimal avgRange = stats.get().avgRangeMetres();
                 if (avgRange != null) {
@@ -580,9 +597,8 @@ public class ComingUpAssembler {
         winner.coincidence.add(new ComingUpCoincidenceLine(
                 loser.family, loser.event.title(), loserFactsLabel(loser)));
         winner.bits = Math.max(tide.bits, supermoon.bits);
-        winner.joinNote = "One perigee causes both, so the pair scores as the maximum of the two, "
-                + "not the sum: " + round1(winner.bits) + " bits — the " + winner.event.title()
-                + " carries it.";
+        winner.joinNote = "One perigee causes both. Counted as one event, not two — the "
+                + winner.event.title() + " carries it.";
         return winner;
     }
 
@@ -652,9 +668,16 @@ public class ComingUpAssembler {
     }
 
     /**
-     * One server-authored sentence for entries at or above the announce band (plan D4), naming
-     * whichever component — rarity or magnitude — carried the score. Skipped for a merged entry,
-     * whose {@code joinNote} already explains it.
+     * One server-authored, plain-language sentence for entries at or above the announce band
+     * (plan D4), naming whichever component — rarity or magnitude — carried the score. Skipped
+     * for a merged entry, whose {@code joinNote} already explains it.
+     *
+     * <p>No user-facing string here shows a surprisal score (lunar-eclipse plan §2.9): the
+     * rarity-carried branch reads back the mean gap in plain calendar words
+     * ({@link SurpriseScore#gapWord}) rather than the bits number that produced it, and the
+     * magnitude-carried branch names the entry's own figure against the "usual" one from its
+     * history — falling back to a figure-free sentence only when no such history exists (a
+     * bucketed cold-start magnitude names no real distribution to compare against).
      */
     private void markScoreNotes(List<Staged> staged) {
         double announce = scoringProperties.getBands().getAnnounce();
@@ -662,11 +685,15 @@ public class ComingUpAssembler {
             if (s.bits < announce || s.joinNote != null) {
                 continue;
             }
-            s.scoreNote = s.rarityBits >= s.magnitudeBits
-                    ? "Rarity alone carries it over the top contour — this occurrence itself is"
-                            + " unremarkable."
-                    : "An unusually large occurrence carries it over the top contour, even though"
-                            + " it is not a rare one.";
+            if (s.rarityBits >= s.magnitudeBits) {
+                s.scoreNote = "It comes round about once " + SurpriseScore.gapWord(s.rarityBits)
+                        + ", which is rare enough to flag on its own.";
+            } else if (s.metric != null && s.magnitudeMedianLabel != null) {
+                s.scoreNote = "An unusually big one — " + s.metric + " against the usual "
+                        + s.magnitudeMedianLabel + ".";
+            } else {
+                s.scoreNote = "An unusually big one carries it, not rarity.";
+            }
         }
     }
 
@@ -723,6 +750,19 @@ public class ComingUpAssembler {
 
     private static double round1(double value) {
         return Math.round(value * 10.0) / 10.0;
+    }
+
+    /**
+     * Nearest-rank median — mirrors {@code ComingUpConditionsBuilder.percentile(sorted, 0.50)}'s
+     * own definition (a separate copy rather than a shared call, since the two classes have no
+     * other coupling), so a scoreNote's "usual" figure and the standing-conditions strip's own
+     * "typical run" figure never quietly disagree on what "median" means for the same data.
+     *
+     * @param sortedAscending a non-empty list, ascending order
+     */
+    private static double medianOf(List<Double> sortedAscending) {
+        int index = Math.max(0, (int) Math.ceil(0.5 * sortedAscending.size()) - 1);
+        return sortedAscending.get(Math.min(index, sortedAscending.size() - 1));
     }
 
     /**

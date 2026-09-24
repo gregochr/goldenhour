@@ -33,9 +33,9 @@ class ComingUpConditionOccurrenceTest {
     @DisplayName("a held-back occurrence carries no entry id and may carry a max-rule reason")
     void heldBackOccurrenceCarriesReasonNoEntryId() {
         ComingUpConditionOccurrence occurrence = new ComingUpConditionOccurrence(
-                DAY, "30 Aug", "4.1 m", "King tide", 4.2, "max w/ supermoon", "heldBack", null);
+                DAY, "30 Aug", "4.1 m", "King tide", 4.2, "supermoon", "heldBack", null);
 
-        assertThat(occurrence.reason()).isEqualTo("max w/ supermoon");
+        assertThat(occurrence.reason()).isEqualTo("supermoon");
         assertThat(occurrence.status()).isEqualTo("heldBack");
         assertThat(occurrence.entryId()).isNull();
     }
