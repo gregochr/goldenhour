@@ -4,6 +4,8 @@ import com.gregochr.goldenhour.model.LunarEclipseSight;
 import com.gregochr.goldenhour.service.LunarEclipseCatalog.LunarEclipse;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -61,9 +63,45 @@ final class LunarEclipseWording {
     /** Magnitude at or above which a partial eclipse reads PARTIAL rather than SLIGHT. */
     private static final double PARTIAL_MAGNITUDE = 0.40;
 
+    /** The hour of day, London local, below which an eclipse's window reads as SUNRISE. */
+    private static final int SUNSET_HOUR_THRESHOLD = 12;
+
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     private LunarEclipseWording() {
+    }
+
+    /**
+     * The photographic window a lunar eclipse belongs to, from the London hour of its own
+     * maximum — mirroring {@code EclipseHotTopicStrategy#eventType}'s rule for the solar eclipse,
+     * so a rare high-altitude eclipse at local noon (never seeded — see
+     * {@link LunarEclipseCatalog}) would still bucket sensibly.
+     *
+     * <p>The one place this rule is decided — both {@link LunarEclipseHotTopicStrategy} (which
+     * window the topic pill claims) and {@code EclipseSightAssembler} (which of a location's two
+     * daily slots {@code BriefingSlot.eclipse} attaches to) call this rather than each re-deriving
+     * it, so the topic and the per-location sight can never disagree about which window an eclipse
+     * belongs to.
+     *
+     * @param eclipse the catalogued eclipse
+     * @return {@code "SUNRISE"} or {@code "SUNSET"}
+     */
+    static String eventType(LunarEclipse eclipse) {
+        int hour = eclipse.max().atZone(ZoneOffset.UTC).withZoneSameInstant(LONDON).getHour();
+        return hour < SUNSET_HOUR_THRESHOLD ? "SUNRISE" : "SUNSET";
+    }
+
+    /**
+     * Converts a UTC contact instant (as stored in {@link LunarEclipseCatalog}) to Europe/London
+     * local time — the same clock every {@link LunarEclipseSight} field and every
+     * {@code BriefingSlot} time already uses.
+     *
+     * @param utcInstant the instant, expressed as a UTC {@link LocalDateTime}
+     * @return the same instant, London local
+     */
+    static LocalDateTime toLondonLocal(LocalDateTime utcInstant) {
+        return utcInstant.atZone(ZoneOffset.UTC).withZoneSameInstant(LONDON).toLocalDateTime();
     }
 
     /**

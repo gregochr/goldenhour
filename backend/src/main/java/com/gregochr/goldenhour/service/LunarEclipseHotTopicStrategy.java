@@ -62,6 +62,14 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
      */
     private static final int PRIORITY = 4;
 
+    /**
+     * The hot-topic type string, shared with {@code EclipseSightAssembler} (which reads it as the
+     * key {@code HotTopicSimulationService}'s active-simulation set is tested against) so the two
+     * do not each carry their own independent {@code "LUNAR_ECLIPSE"} literal — a rename here now
+     * fails EclipseSightAssembler's own compile rather than silently breaking simulation parity.
+     */
+    static final String TYPE = "LUNAR_ECLIPSE";
+
     /** The Plan-tab label, constant regardless of kind or depth — see the class javadoc. */
     private static final String LABEL = "Lunar eclipse";
 
@@ -78,9 +86,6 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter NEXT_DATE_FORMAT =
             DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.UK);
-
-    private static final String SUNRISE_EVENT = "SUNRISE";
-    private static final String SUNSET_EVENT = "SUNSET";
 
     private final LocationRepository locationRepository;
     private final SolarService solarService;
@@ -177,7 +182,7 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
         List<String> visibleNames = seen.stream().map(s -> s.location().getName()).toList();
 
         HotTopic topic = new HotTopic(
-                "LUNAR_ECLIPSE",
+                TYPE,
                 LABEL,
                 detail(eclipse, best.sight()),
                 eclipse.date(),
@@ -188,20 +193,10 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
                 null);
 
         return Optional.of(topic
-                .withEvent(eventType(eclipse), londonTime(eclipse.max()))
+                .withEvent(LunarEclipseWording.eventType(eclipse), londonTime(eclipse.max()))
                 .withScience(facts(eclipse, best.sight(), seen.size(), enabled.size()), EXPOSURE_NOTE)
                 .withRarity(rarityNote(eclipse))
                 .withLocations(visibleNames));
-    }
-
-    /**
-     * The photographic window this eclipse belongs to, from the London hour of its own maximum —
-     * exactly {@link EclipseHotTopicStrategy#eventType}'s rule, so a rare high-altitude eclipse at
-     * local noon (never seeded — see {@link LunarEclipseCatalog}) would still bucket sensibly.
-     */
-    private String eventType(LunarEclipse eclipse) {
-        int hour = eclipse.max().atZone(ZoneOffset.UTC).withZoneSameInstant(LONDON).getHour();
-        return hour < 12 ? SUNRISE_EVENT : SUNSET_EVENT;
     }
 
     /**

@@ -267,6 +267,84 @@ class BriefingSlotTest {
     }
 
     @Nested
+    @DisplayName("eclipse — the per-location dawn/dusk race sight")
+    class EclipseTests {
+
+        private final BriefingSlot.EclipseSight sight = new BriefingSlot.EclipseSight(
+                "LUNAR_ECLIPSE", 8, 241, "WSW",
+                LocalDateTime.of(2026, 8, 28, 5, 12), LocalDateTime.of(2026, 8, 28, 3, 33),
+                LocalDateTime.of(2026, 8, 28, 6, 52), LocalDateTime.of(2026, 8, 28, 6, 18),
+                LocalDateTime.of(2026, 8, 27, 20, 30), true, false, "DAWN",
+                List.of(new BriefingSlot.LightStop("NAUTICAL_DAWN",
+                        LocalDateTime.of(2026, 8, 28, 3, 10))));
+
+        @Test
+        @DisplayName("every constructor starts it null — no lunar eclipse until withEclipse attaches one")
+        void constructors_startNull() {
+            assertThat(new BriefingSlot("Durham", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null).eclipse()).isNull();
+            assertThat(BriefingSlot.canopySlot("Wood", EVENT_TIME, Verdict.GO, WEATHER,
+                    List.of(), null).eclipse()).isNull();
+        }
+
+        @Test
+        @DisplayName("withEclipse attaches it, changing nothing else, and null clears it")
+        void withEclipse_isolated() {
+            BriefingSlot base = new BriefingSlot("Dunstanburgh", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+
+            BriefingSlot carrying = base.withEclipse(sight);
+
+            assertThat(carrying.eclipse()).isEqualTo(sight);
+            assertThat(carrying.locationName()).isEqualTo("Dunstanburgh");
+            assertThat(carrying.flags()).containsExactly("Clear");
+            assertThat(carrying.withEclipse(null).eclipse()).isNull();
+        }
+
+        @Test
+        @DisplayName("⚠️ withEvaluationGate carries it — a wither is where a field quietly goes missing")
+        void withEvaluationGate_preservesEclipse() {
+            BriefingSlot carrying = new BriefingSlot("Dunstanburgh", EVENT_TIME, Verdict.STANDDOWN,
+                    WEATHER, BriefingSlot.TideInfo.NONE, List.of(), "Tide mismatch")
+                    .withEclipse(sight);
+
+            BriefingSlot gated = carrying.withEvaluationGate("Tide not right at sunrise");
+
+            assertThat(gated.eclipse())
+                    .as("the legacy 17-arg constructor must never be the one withEvaluationGate calls")
+                    .isEqualTo(sight);
+            assertThat(gated.evaluationGate()).isEqualTo("Tide not right at sunrise");
+        }
+
+        @Test
+        @DisplayName("⚠️ withClaudeScores carries it — the same wither-drops-a-field risk")
+        void withClaudeScores_preservesEclipse() {
+            BriefingSlot carrying = new BriefingSlot("Dunstanburgh", EVENT_TIME, Verdict.GO,
+                    WEATHER, BriefingSlot.TideInfo.NONE, List.of(), null)
+                    .withEclipse(sight);
+
+            BriefingSlot scored = carrying.withClaudeScores(4, 3, 70, 60, "Fire.", "Headline");
+
+            assertThat(scored.eclipse())
+                    .as("the legacy 17-arg constructor must never be the one withClaudeScores calls")
+                    .isEqualTo(sight);
+            assertThat(scored.claudeRating()).isEqualTo(4);
+            assertThat(carrying.withClaudeScores(4, 70, 60, "Fire.").eclipse()).isEqualTo(sight);
+        }
+
+        @Test
+        @DisplayName("EclipseSight normalises a null stops list to empty, never null")
+        void eclipseSight_normalisesNullStops() {
+            BriefingSlot.EclipseSight noStops = new BriefingSlot.EclipseSight(
+                    "LUNAR_ECLIPSE", 8, 241, "WSW", LocalDateTime.of(2026, 8, 28, 5, 12),
+                    LocalDateTime.of(2026, 8, 28, 3, 33), LocalDateTime.of(2026, 8, 28, 6, 52),
+                    null, null, false, false, null, null);
+
+            assertThat(noStops.stops()).isNotNull().isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("couldCarryRating — the one coverage-denominator predicate")
     class CouldCarryRating {
 

@@ -780,6 +780,8 @@ class DailyBriefingResponseJsonTest {
                 .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead");
     }
 
+    // ── evaluationGate ────────────────────────────────────────────────────────
+
     @Test
     @DisplayName("a daily_briefing_cache payload written before the field existed reads as null, not eligible")
     void evaluationGate_legacyPayloadReadsNull() throws Exception {
@@ -797,5 +799,82 @@ class DailyBriefingResponseJsonTest {
 
         assertThat(restored.evaluationGate()).isNull();
         assertThat(restored.standdownReason()).isEqualTo("Tide mismatch");
+    }
+
+    // ── eclipse (L2) ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("a populated eclipse sight lands NESTED under \"eclipse\" — unlike TideInfo, "
+            + "deliberately not @JsonUnwrapped")
+    void serialize_populatedEclipse_nestedNotFlat() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot.EclipseSight eclipse = new BriefingSlot.EclipseSight(
+                "LUNAR_ECLIPSE", 8, 241, "WSW",
+                LocalDateTime.of(2026, 8, 28, 5, 12), LocalDateTime.of(2026, 8, 28, 3, 33),
+                LocalDateTime.of(2026, 8, 28, 6, 52), LocalDateTime.of(2026, 8, 28, 6, 18), null,
+                true, false, "DAWN",
+                List.of(new BriefingSlot.LightStop("NAUTICAL_DAWN",
+                        LocalDateTime.of(2026, 8, 28, 3, 10))));
+        BriefingSlot slot = new BriefingSlot("Dunstanburgh",
+                LocalDateTime.of(2026, 8, 28, 5, 50), Verdict.GO,
+                null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                .withEclipse(eclipse);
+
+        String json = mapper.writeValueAsString(slot);
+        JsonNode node = mapper.readTree(json);
+
+        // Date fields are deliberately NOT asserted as raw ISO text here: this hand-built Jackson 2
+        // ObjectMapper (JavaTimeModule with WRITE_DATES_AS_TIMESTAMPS left at its default) proves
+        // only internal round-tripping, never the wire format a real request gets — that assertion
+        // belongs to JsonDateFormatContractTest.getBriefing_pinsEclipseSightDateFormat, which runs
+        // through the real Spring MVC / Jackson 3 chain (CLAUDE.md's two-Jackson-graphs warning).
+        assertThat(node.has("eclipse")).as("eclipse must be a nested object, never flattened").isTrue();
+        JsonNode eclipseNode = node.get("eclipse");
+        assertThat(eclipseNode.get("type").asText()).isEqualTo("LUNAR_ECLIPSE");
+        assertThat(eclipseNode.get("moonAltAtMax").asInt()).isEqualTo(8);
+        assertThat(eclipseNode.get("race").asText()).isEqualTo("DAWN");
+        assertThat(eclipseNode.get("stops")).hasSize(1);
+        assertThat(eclipseNode.get("stops").get(0).get("key").asText()).isEqualTo("NAUTICAL_DAWN");
+
+        BriefingSlot restored = mapper.readValue(json, BriefingSlot.class);
+        assertThat(restored.eclipse()).isEqualTo(eclipse);
+    }
+
+    @Test
+    @DisplayName("a null eclipse is OMITTED via NON_NULL, not written null")
+    void serialize_nullEclipse_omitted() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot slot = new BriefingSlot("Derwent Valley",
+                LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
+                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+
+        JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
+
+        assertThat(node.has("eclipse")).isFalse();
+    }
+
+    @Test
+    @DisplayName("a legacy cache row (no \"eclipse\" key at all) deserialises to a null eclipse, "
+            + "not a fabricated one")
+    void deserialize_legacyPayloadWithoutEclipse_yieldsNull() throws Exception {
+        // daily_briefing_cache holds payloads written before this phase shipped: every field this
+        // phase did not add present, "eclipse" absent entirely (not null-valued — ABSENT).
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        String legacy = """
+                {
+                  "locationName": "Dunstanburgh",
+                  "solarEventTime": "2026-08-28T05:50:00",
+                  "verdict": "GO",
+                  "flags": [],
+                  "standdownReason": null,
+                  "displayVerdict": "WORTH_IT",
+                  "canopy": false
+                }
+                """;
+
+        BriefingSlot slot = mapper.readValue(legacy, BriefingSlot.class);
+
+        assertThat(slot.eclipse()).isNull();
+        assertThat(slot.locationName()).isEqualTo("Dunstanburgh");
     }
 }

@@ -32,6 +32,17 @@ class LunarEclipseWordingTest {
                 u1.minusMinutes(30), u1, u2, max, u3, u4, u4.plusMinutes(30), null, null);
     }
 
+    /** Builds a synthetic eclipse whose greatest-eclipse instant (UTC) is the given value — only
+     * {@code max} matters to {@link LunarEclipseWording#eventType} and
+     * {@link LunarEclipseWording#toLondonLocal}, so every other field is an arbitrary but
+     * internally consistent span around it. */
+    private static LunarEclipse withMaxUtc(LocalDateTime maxUtc) {
+        LocalDateTime u1 = maxUtc.minusMinutes(30);
+        LocalDateTime u4 = maxUtc.plusMinutes(30);
+        return new LunarEclipse(LunarEclipseCatalog.londonCivilDateOfMax(maxUtc), Kind.PARTIAL, 0.5,
+                u1.minusMinutes(30), u1, null, maxUtc, null, u4, u4.plusMinutes(30), null, null);
+    }
+
     @Nested
     @DisplayName("depthOf — the four bands, pinned at their exact boundaries")
     class DepthBoundaries {
@@ -190,6 +201,77 @@ class LunarEclipseWordingTest {
             LunarEclipse eclipse = LunarEclipseCatalog.on(LocalDate.of(2028, 12, 31)).orElseThrow();
             assertThat(LunarEclipseWording.depthOf(eclipse)).isEqualTo(Depth.TOTAL);
             assertThat(LunarEclipseWording.coverageWord(eclipse)).isEqualTo("total");
+        }
+    }
+
+    @Nested
+    @DisplayName("eventType — the single rule both the topic and the slot sight route through")
+    class EventType {
+
+        @Test
+        @DisplayName("just before the London-noon boundary reads SUNRISE")
+        void justBeforeNoonIsSunrise() {
+            // 2026-01-15 is GMT (no BST), so the London hour equals the UTC hour — the boundary
+            // is exercised with no clock-conversion arithmetic in the way.
+            LunarEclipse eclipse = withMaxUtc(LocalDateTime.of(2026, 1, 15, 11, 59));
+            assertThat(LunarEclipseWording.eventType(eclipse)).isEqualTo("SUNRISE");
+        }
+
+        @Test
+        @DisplayName("exactly the London-noon boundary reads SUNSET — the rule is hour < 12, not <=")
+        void exactlyNoonIsSunset() {
+            LunarEclipse eclipse = withMaxUtc(LocalDateTime.of(2026, 1, 15, 12, 0));
+            assertThat(LunarEclipseWording.eventType(eclipse)).isEqualTo("SUNSET");
+        }
+
+        @Test
+        @DisplayName("2026-08-28's real pre-dawn maximum (04:12:52 UTC, BST in force) reads SUNRISE "
+                + "against its LONDON hour (05), not its UTC one")
+        void bstPreDawnEclipseIsSunrise() {
+            LunarEclipse eclipse = LunarEclipseCatalog.on(LocalDate.of(2026, 8, 28)).orElseThrow();
+            assertThat(eclipse.max().getHour()).as("sanity: UTC hour alone would also read < 12")
+                    .isEqualTo(4);
+            assertThat(LunarEclipseWording.eventType(eclipse)).isEqualTo("SUNRISE");
+        }
+
+        @Test
+        @DisplayName("2028-12-31's real afternoon maximum (16:52:01 UTC, GMT — no BST in December) "
+                + "reads SUNSET")
+        void gmtAfternoonEclipseIsSunset() {
+            LunarEclipse eclipse = LunarEclipseCatalog.on(LocalDate.of(2028, 12, 31)).orElseThrow();
+            assertThat(LunarEclipseWording.eventType(eclipse)).isEqualTo("SUNSET");
+        }
+
+        @Test
+        @DisplayName("a late BST evening maximum reads SUNRISE on the LONDON clock, though its own "
+                + "UTC hour (23) would read SUNSET on a UTC-only rule")
+        void bstLateEveningReadsOnLondonClockNotUtc() {
+            // 23:05 UTC in August (BST +1) is 00:05 the NEXT London day — hour 0, which is < 12 and
+            // so reads SUNRISE. A rule that tested the UTC hour (23) directly, without converting,
+            // would call this SUNSET instead — exactly the divergence eventType exists to avoid.
+            LunarEclipse eclipse = withMaxUtc(LocalDateTime.of(2026, 8, 15, 23, 5));
+            assertThat(LunarEclipseWording.eventType(eclipse)).isEqualTo("SUNRISE");
+        }
+    }
+
+    @Nested
+    @DisplayName("toLondonLocal — the one UTC-to-London conversion every eclipse time routes through")
+    class ToLondonLocal {
+
+        @Test
+        @DisplayName("GMT: London local equals the UTC value exactly")
+        void gmtIsUnchanged() {
+            LocalDateTime utc = LocalDateTime.of(2028, 12, 31, 16, 52, 1);
+            assertThat(LunarEclipseWording.toLondonLocal(utc))
+                    .isEqualTo(LocalDateTime.of(2028, 12, 31, 16, 52, 1));
+        }
+
+        @Test
+        @DisplayName("BST: London local is one hour ahead of the UTC value")
+        void bstAddsOneHour() {
+            LocalDateTime utc = LocalDateTime.of(2026, 8, 28, 4, 12, 52);
+            assertThat(LunarEclipseWording.toLondonLocal(utc))
+                    .isEqualTo(LocalDateTime.of(2026, 8, 28, 5, 12, 52));
         }
     }
 }

@@ -122,6 +122,16 @@ class HotTopicSimulationServiceTest {
     }
 
     @Test
+    @DisplayName("⚠️ the simulated LUNAR_ECLIPSE template's own type string agrees with "
+            + "LunarEclipseHotTopicStrategy.TYPE — EclipseSightAssembler's simulation-parity gate "
+            + "keys on that constant, not on this class's own literal, so the two must never drift")
+    void lunarEclipseTemplateType_agreesWithTheRealStrategysConstant() {
+        assertThat(service.getAllTypes())
+                .extracting(HotTopicSimulationService.SimulatableType::type)
+                .contains(LunarEclipseHotTopicStrategy.TYPE);
+    }
+
+    @Test
     @DisplayName("getAllTypes reflects active flags correctly")
     void getAllTypes_reflectsActiveFlags() {
         service.setTypeActive("AURORA", true);

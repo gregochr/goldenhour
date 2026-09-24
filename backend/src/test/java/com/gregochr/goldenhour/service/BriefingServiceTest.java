@@ -144,6 +144,13 @@ class BriefingServiceTest {
     @Mock
     private com.gregochr.goldenhour.repository.TideExtremeRepository tideExtremeRepository;
 
+    /**
+     * Left unstubbed throughout: Mockito answers null, so every slot built in this suite carries
+     * no eclipse sight — none of these tests are about the lunar-eclipse increment.
+     */
+    @Mock
+    private EclipseSightAssembler eclipseSightAssembler;
+
     private BriefingService briefingService;
 
     @BeforeEach
@@ -175,7 +182,7 @@ class BriefingServiceTest {
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                        new WoodlandVerdictEvaluator(), tideExtremeRepository);
+                        new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
         briefingService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
@@ -522,7 +529,7 @@ class BriefingServiceTest {
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                     solarService, locationService,
                     new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                            new WoodlandVerdictEvaluator(), tideExtremeRepository);
+                            new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
             BriefingService freshService = new BriefingService(
                     locationService, weatherLoader(),
                     jobRunService, briefingCacheRepository, mapper,
@@ -900,7 +907,7 @@ class BriefingServiceTest {
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                        new WoodlandVerdictEvaluator(), tideExtremeRepository);
+                        new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
         BriefingService freshService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository, mapper,
@@ -933,7 +940,7 @@ class BriefingServiceTest {
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                        new WoodlandVerdictEvaluator(), tideExtremeRepository);
+                        new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
         BriefingService freshService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
@@ -960,7 +967,7 @@ class BriefingServiceTest {
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                        new WoodlandVerdictEvaluator(), tideExtremeRepository);
+                        new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
         BriefingService freshService = new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository,
@@ -1502,7 +1509,7 @@ class BriefingServiceTest {
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                     solarService, locationService,
                     new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
-                            new WoodlandVerdictEvaluator(), tideExtremeRepository);
+                            new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
             BriefingService freshService = new BriefingService(
                     locationService, weatherLoader(),
                     jobRunService, briefingCacheRepository, mapper,
