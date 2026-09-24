@@ -9,6 +9,7 @@ import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { drawGeo } from '../utils/heatField.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { buildEclipseIndex } from '../utils/locationSheet.js';
 
 /**
  * The window popup — one window's whole drill-down, as a dialog over the plan.
@@ -1121,5 +1122,153 @@ describe('WindowSheetDialog — the rows below', () => {
     });
     expect(screen.getByTestId('wf-topic-row-name')).toHaveTextContent('Aurora');
     expect(screen.getByTestId('window-sheet-topic-pill')).toHaveTextContent('Aurora');
+  });
+});
+
+describe('WindowSheetDialog — the dawn race (lunar-eclipse-plan.md §2.7, §3 L4)', () => {
+  const DAWN_SIGHT = {
+    type: 'LUNAR_ECLIPSE',
+    race: 'DAWN',
+    moonAltAtMax: 7,
+    moonAzAtMax: 244,
+    moonAzCardinal: 'WSW',
+    maximum: `${TODAY}T05:13:00`,
+    umbraStart: `${TODAY}T03:34:00`,
+    umbraEnd: `${TODAY}T06:52:00`,
+    moonset: `${TODAY}T06:16:00`,
+    moonrise: null,
+    setsInShadow: true,
+    risesInShadow: false,
+    stops: [
+      { key: 'NAUTICAL_DAWN', time: `${TODAY}T03:09:00` },
+      { key: 'CIVIL_DAWN', time: `${TODAY}T05:24:00` },
+      { key: 'SUNRISE', time: `${TODAY}T06:11:00` },
+      { key: 'GOLDEN_MORNING_END', time: `${TODAY}T06:41:00` },
+    ],
+  };
+
+  const LUNAR_ECLIPSE_BADGE = {
+    type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', detail: '93% at 05:13', rarityRank: 2,
+  };
+
+  /** A hand-built `{byId, byName}` index, keyed exactly as `buildEclipseIndex` keys it. */
+  function eclipseIndexFor(locationId, sight) {
+    const byId = new Map();
+    byId.set(`${locationId}|${TODAY}|SUNSET`, sight);
+    return { byId, byName: new Map() };
+  }
+
+  it('mounts with a LUNAR_ECLIPSE row present AND a served race', () => {
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    expect(screen.getByTestId('dawn-race')).toBeInTheDocument();
+  });
+
+  it('draws nothing with no LUNAR_ECLIPSE row, even with a served sight for the spot', () => {
+    renderDialog({
+      card: card(),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    expect(screen.queryByTestId('dawn-race')).toBeNull();
+  });
+
+  it('draws nothing when the sight carries no race — a high, leisurely eclipse, facts only', () => {
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, { ...DAWN_SIGHT, race: null }),
+    });
+    expect(screen.queryByTestId('dawn-race')).toBeNull();
+  });
+
+  it('draws nothing with no eclipseIndex at all (the popup-closed default)', () => {
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+    });
+    expect(screen.queryByTestId('dawn-race')).toBeNull();
+  });
+
+  it('captions the window’s best-reachable spot', () => {
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    expect(within(screen.getByTestId('dawn-race')).getByText(new RegExp(NEAR.locationName))).toBeInTheDocument();
+  });
+
+  it('falls back to the first ranked spot when the window has no rated best-reachable pick', () => {
+    const spots = [{ ...NEAR, rating: null }, DALES];
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE], spots, bestReach: null }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    expect(within(screen.getByTestId('dawn-race')).getByText(new RegExp(NEAR.locationName))).toBeInTheDocument();
+  });
+
+  it('mounts between the topic rows and the tide row', () => {
+    renderDialog({
+      card: card({
+        allBadges: [LUNAR_ECLIPSE_BADGE],
+        rows: [{
+          key: 'tide', channel: 'tide', kicker: '≈ Tide',
+          facts: [{ segments: [{ text: 'HW 21:02', tone: 'strong' }] }], chart: null,
+        }],
+      }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    const body = screen.getByTestId('window-sheet-card');
+    const order = Array.from(body.querySelectorAll('[data-testid]'))
+      .map((el) => el.getAttribute('data-testid'))
+      .filter((id) => id === 'wf-topic-rows' || id === 'dawn-race' || id === 'window-attribute-row');
+    expect(order).toEqual(['wf-topic-rows', 'dawn-race', 'window-attribute-row']);
+  });
+
+  it('joins the sight through the real per-window index, from raw briefing days', () => {
+    // The end-to-end case, mirroring "joins topics through the shared util" above: the whole
+    // popup fed off `buildEclipseIndex(days)` rather than a hand-built index, so the real join is
+    // exercised, not only the dialog's own gating.
+    const days = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'Coast',
+          slots: [{
+            locationId: NEAR.locationId, locationName: NEAR.locationName, eclipse: DAWN_SIGHT,
+          }],
+        }],
+        unregioned: [],
+      }],
+    }];
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      eclipseIndex: buildEclipseIndex(days),
+    });
+    expect(screen.getByTestId('dawn-race')).toBeInTheDocument();
+  });
+
+  it('⚠️ the topic row’s (i) click does not close the dialog (plan §3 L4 exit criterion)', () => {
+    // The (i) tip's own `stopPropagation` predates this phase (`InfoTip.jsx`), but the plan names
+    // this explicitly as something L4 must leave true inside THIS dialog — asserted here, in this
+    // dialog's own context, rather than assumed from InfoTip's unit behaviour alone.
+    const { onClose } = renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      topicIndex: buildTopicIndex([{
+        type: 'LUNAR_ECLIPSE',
+        label: 'Lunar eclipse',
+        date: TODAY,
+        eventType: 'SUNSET',
+        detail: '93% at 05:13',
+        description: 'Earth’s atmosphere bends a little sunlight into its own shadow.',
+        regions: [],
+        rarityRank: 2,
+      }]),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /more info/i }));
+    expect(screen.getByTestId('infotip-popover')).toBeInTheDocument();
+    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
