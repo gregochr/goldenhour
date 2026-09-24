@@ -41,7 +41,7 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * and the handoff row — the design of record's own DOM order ({@code Coming Up.html}: header →
  * since-line → chips → conditions → handoff → chronology). It degrades to nothing for an empty or
  * absent list rather than an omission. Its own header sub-line — not this pane's — grows the quiet
- * "scores are provisional" suffix while any visible condition is {@code interim} (plan §7: the
+ * "figures are provisional" suffix while any visible condition is {@code interim} (plan §7: the
  * strip's header, "too frequent to list · open one to see every date"; README's
  * "say so in the UI" clause): the marker is about the STRIP's scoring, not the chronology dates
  * this pane's own sub-line describes.

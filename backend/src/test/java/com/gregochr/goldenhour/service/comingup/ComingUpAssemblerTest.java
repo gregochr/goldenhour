@@ -230,17 +230,21 @@ class ComingUpAssemblerTest {
     }
 
     @Test
-    @DisplayName("a high-band entry gets a server-authored scoreNote naming whichever component "
-            + "carried the score")
+    @DisplayName("a high-band entry gets a server-authored, plain-language scoreNote naming the "
+            + "rarity-carried case — no bits figure, the mean gap read back as a calendar phrase")
     void highBandEntryGetsAScoreNote() {
-        // Eclipse rarity alone (~10.6 bits) clears the announce band (7.5) on rarity, not magnitude.
+        // Eclipse rarity alone (~10.6 bits, from the 1500-day config gap) clears the announce band
+        // (7.5) on rarity, not magnitude — 1500 days ≈ 4.1 years, so gapWord reads "every 4 years"
+        // rather than overclaiming the "two to three years" band a lunar eclipse's 900-day gap gets.
         AlmanacEvent eclipse = event(DAY, DAY, "eclipse", "Partial solar eclipse", Map.of());
 
         ComingUpResponse response = assembler.assemble(DAY, List.of(eclipse));
 
         ComingUpEntry entry = response.entries().getFirst();
         assertThat(entry.bits()).isGreaterThanOrEqualTo(7.5);
-        assertThat(entry.scoreNote()).isNotNull().contains("Rarity");
+        assertThat(entry.scoreNote()).isEqualTo(
+                "It comes round about once every 4 years, which is rare enough to flag on its own.");
+        assertThat(entry.scoreNote()).doesNotContain("bits").doesNotContain("Rarity");
     }
 
     @Test
@@ -252,6 +256,57 @@ class ComingUpAssemblerTest {
 
         assertThat(response.entries().getFirst().bits()).isLessThan(7.5);
         assertThat(response.entries().getFirst().scoreNote()).isNull();
+    }
+
+    @Test
+    @DisplayName("a magnitude-carried scoreNote names the entry's own figure against the usual one "
+            + "from its history, once the magnitude was computed from a mature distribution")
+    void magnitudeCarriedScoreNoteNamesFigureAgainstUsual() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 6.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("3.3")));
+        // 100 observations, 0.05..5.0 — a range of 6.0 clears every one of them, so magnitude
+        // (~6.66 bits) beats the spring/king rarity (~3.9 bits) and carries the score.
+        List<Double> history = new java.util.ArrayList<>();
+        for (int i = 1; i <= 100; i++) {
+            history.add((double) i / 20.0);
+        }
+        when(tideRunPeakHistory.peakRanges(eq(SEAHAM), eq(COASTAL_ROSTER), eq(DAY), eq(DAY)))
+                .thenReturn(history);
+        AlmanacEvent run = event(DAY, DAY, "king-tide", "King tide run",
+                AlmanacEvent.metaOf("range", "6.0 m"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(run));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        assertThat(entry.bits()).isGreaterThanOrEqualTo(7.5);
+        assertThat(entry.interim()).isFalse();
+        // Median of 0.05..5.0 in steps of 0.05 (nearest-rank, 50th percentile of 100 values) is
+        // the 50th value: 2.5.
+        assertThat(entry.scoreNote()).isEqualTo("An unusually big one — 6.0 m against the usual 2.5 m.");
+    }
+
+    @Test
+    @DisplayName("a cold-start magnitude-carried scoreNote falls back to the no-figure wording — a "
+            + "bucketed reference names no real distribution to call \"usual\"")
+    void coldStartMagnitudeCarriedScoreNoteFallsBackWithNoFigure() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 11.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("3.3")));
+        // 10 observations (well under the 60-observation cold-start floor) — 11.0 clears all of
+        // them, bucketing to p97Bits (5.1), still enough to beat the spring/king rarity (~3.9).
+        List<Double> history = List.of(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0);
+        when(tideRunPeakHistory.peakRanges(eq(SEAHAM), eq(COASTAL_ROSTER), eq(DAY), eq(DAY)))
+                .thenReturn(history);
+        AlmanacEvent run = event(DAY, DAY, "king-tide", "King tide run",
+                AlmanacEvent.metaOf("range", "11.0 m"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(run));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        assertThat(entry.bits()).isGreaterThanOrEqualTo(7.5);
+        assertThat(entry.interim()).isTrue();
+        assertThat(entry.scoreNote()).isEqualTo("An unusually big one carries it, not rarity.");
     }
 
     // ── id, kindTag, region-scope fact ──────────────────────────────────────
@@ -599,7 +654,8 @@ class ComingUpAssemblerTest {
         assertThat(merged.coincidence()).hasSize(1);
         assertThat(merged.coincidence().getFirst().family()).isEqualTo("coastal");
         assertThat(merged.coincidence().getFirst().name()).isEqualTo("King tide run");
-        assertThat(merged.joinNote()).contains("maximum").contains("Supermoon");
+        assertThat(merged.joinNote()).contains("Counted as one event, not two").contains("Supermoon");
+        assertThat(merged.joinNote()).doesNotContain("bits");
     }
 
     @Test

@@ -219,7 +219,7 @@ class ComingUpConditionsBuilderTest {
         ComingUpConditionOccurrence occurrence = tides.occurrences().getFirst();
         assertThat(occurrence.status()).isEqualTo("promoted");
         assertThat(occurrence.entryId()).isEqualTo(supermoonEntry.id());
-        assertThat(occurrence.reason()).isEqualTo("max w/ supermoon");
+        assertThat(occurrence.reason()).isEqualTo("supermoon");
         assertThat(occurrence.bits()).isEqualTo(9.0);
     }
 
@@ -250,7 +250,7 @@ class ComingUpConditionsBuilderTest {
 
         ComingUpCondition tides = builder.build(TODAY, List.of(run), List.of(mergedAndTideWon)).getFirst();
 
-        assertThat(tides.occurrences().getFirst().reason()).isEqualTo("max w/ supermoon");
+        assertThat(tides.occurrences().getFirst().reason()).isEqualTo("supermoon");
     }
 
     // ── Coastal tides quant line: real distribution allowed to name percentiles ──
@@ -320,11 +320,13 @@ class ComingUpConditionsBuilderTest {
 
         double expectedFallback = SurpriseScore.rarity(new ComingUpScoringProperties().getRecurrent()
                 .getDust().getFallbackMeanGapDays());
-        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedFallback));
+        assertThat(dust.quantLabel())
+                .startsWith(ComingUpConditionsBuilder.frequencyPhrase(expectedFallback, "most days"));
         // ⚠️ The RARITY VALUE is asserted on the occurrence's own `bits`, not on a figure inside the
-        // label — the label carries the word alone now, and the word cannot separate the fallback
-        // from the observed rate (log2(7) and log2(12) are both "occasional"). The occurrence
-        // carries `rarity + magnitude`, so this pins the number the word only summarises.
+        // label — the label carries the phrase alone now, computed independently here via the same
+        // `frequencyPhrase` the production code calls, rather than a hard-coded literal that
+        // would rot the moment a bucket boundary moved. The occurrence carries `rarity +
+        // magnitude`, so this pins the number the phrase only summarises.
         assertThat(dust.occurrences().getFirst().bits())
                 .isEqualTo(round1(expectedFallback + SurpriseScore.DEFAULT_MAGNITUDE_BITS));
         assertThat(dust.rateLabel()).doesNotContain("about");
@@ -344,8 +346,9 @@ class ComingUpConditionsBuilderTest {
         ComingUpCondition dust = builder.build(TODAY, List.of(), List.of()).get(1);
 
         double expectedObserved = SurpriseScore.rarity(60.0 / 5);
-        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedObserved));
-        // The observed rate, pinned as a number — see the fallback test for why the word alone
+        assertThat(dust.quantLabel())
+                .startsWith(ComingUpConditionsBuilder.frequencyPhrase(expectedObserved, "most days"));
+        // The observed rate, pinned as a number — see the fallback test for why the phrase alone
         // cannot carry this assertion.
         assertThat(dust.occurrences().getFirst().bits())
                 .isEqualTo(round1(expectedObserved + SurpriseScore.DEFAULT_MAGNITUDE_BITS));
@@ -383,10 +386,12 @@ class ComingUpConditionsBuilderTest {
         // All 5 arrivals counted (clears the evidentiary bar) — the null-AOD row is neither lost
         // nor does it abort processing of the rows around it.
         double expectedObserved = SurpriseScore.rarity(60.0 / 5);
-        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedObserved));
+        assertThat(dust.quantLabel())
+                .startsWith(ComingUpConditionsBuilder.frequencyPhrase(expectedObserved, "most days"));
         // The count is what this test is about, and `bits` is where it shows: five arrivals give
-        // log2(60/5), four would give log2(60/4) — 4.6 against 4.9 once magnitude is added. The
-        // rarity WORD is "occasional" either way, so only the number can fail this test.
+        // log2(60/5), four would give log2(60/4) — 4.6 against 4.9 once magnitude is added. Both
+        // 60/5=12 and 60/4=15 days land in frequencyPhrase's same "about one a fortnight" bucket,
+        // so only the number can fail this test.
         assertThat(dust.occurrences().getFirst().bits())
                 .isEqualTo(round1(expectedObserved + SurpriseScore.DEFAULT_MAGNITUDE_BITS));
     }
@@ -493,18 +498,65 @@ class ComingUpConditionsBuilderTest {
 
         double expectedFallback = SurpriseScore.rarity(new ComingUpScoringProperties().getRecurrent()
                 .getInversion().getFallbackMeanGapDays());
-        assertThat(inversion.quantLabel()).startsWith(rarityWord(expectedFallback));
+        assertThat(inversion.quantLabel())
+                .startsWith(ComingUpConditionsBuilder.frequencyPhrase(expectedFallback, "most mornings"));
         // ⚠️ The RARITY TERM is what this test is about, and `bits` is the only place it survives
-        // now that the label carries the word alone — a word that cannot fail here, since the
-        // fallback and any upgraded rate would both read "occasional". Every row scores 9, which
-        // clears the magnitude threshold, so the expected total is the fallback rarity plus
-        // `magnitudeAboveBits`; an upgraded rarity term would move it.
+        // now that the label carries the phrase alone — computed here from the same
+        // `frequencyPhrase` call the production code makes, rather than a literal that would
+        // rot the moment a bucket boundary moved. Every row scores 9, which clears the magnitude
+        // threshold, so the expected total is the fallback rarity plus `magnitudeAboveBits`; an
+        // upgraded rarity term (this condition never upgrades one, which is the point of this
+        // test) would move it.
         double aboveBits = new ComingUpScoringProperties().getRecurrent().getInversion()
                 .getMagnitudeAboveBits();
         assertThat(inversion.occurrences().getFirst().bits())
                 .isEqualTo(round1(expectedFallback + aboveBits));
         assertThat(inversion.occurrences()).hasSize(6);
         assertThat(inversion.interim()).isTrue();
+    }
+
+    // ── frequencyPhrase (lunar-eclipse plan §2.9) ────────────────────────
+
+    @Test
+    @DisplayName("frequencyPhrase reproduces the design's own two named examples exactly — "
+            + "'about one a week' for dust's real config gap, 'most mornings' only for a near-daily "
+            + "gap (never for inversion's actual 4-day fallback, which is honestly 'about one a week' "
+            + "rather than overclaiming a daily cadence it does not have)")
+    void frequencyPhraseMatchesDesignExamples() {
+        // Dust's real fallback-mean-gap-days is 7.0 — falls in the ≤9.0 "about one a week" bucket,
+        // an exact match to the design's dust quant line.
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(7.0), "most days"))
+                .isEqualTo("about one a week");
+        // Inversion's real fallback-mean-gap-days is 4.0 — also ≤9.0, so it reads the same honest
+        // phrase rather than "most mornings", which is reserved for a genuinely near-daily gap.
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(4.0), "most mornings"))
+                .isEqualTo("about one a week");
+        // A near-daily gap DOES reach "most mornings" — the design's own second example, reachable
+        // exactly where it is honest.
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(1.2), "most mornings"))
+                .isEqualTo("most mornings");
+    }
+
+    @Test
+    @DisplayName("frequencyPhrase's bucket boundaries — a value just inside a bucket reads that "
+            + "bucket's phrase, a value just past it reads the next one")
+    void frequencyPhraseBucketBoundaries() {
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(1.4), "most days"))
+                .isEqualTo("most days");
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(1.6), "most days"))
+                .isEqualTo("about one a week");
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(8.9), "most days"))
+                .isEqualTo("about one a week");
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(9.1), "most days"))
+                .isEqualTo("about one a fortnight");
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(19.9), "most days"))
+                .isEqualTo("about one a fortnight");
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(20.1), "most days"))
+                .isEqualTo("about one a month");
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(44.9), "most days"))
+                .isEqualTo("about one a month");
+        assertThat(ComingUpConditionsBuilder.frequencyPhrase(SurpriseScore.rarity(45.1), "most days"))
+                .isEqualTo("about one every 45 days");
     }
 
     /** Mirrors {@code ComingUpConditionsBuilder}'s own 1dp rounding of a surprise score. */
@@ -514,22 +566,5 @@ class ComingUpConditionsBuilderTest {
 
     private static String fmt1(double value) {
         return String.format(java.util.Locale.UK, "%.1f", value);
-    }
-
-    /** Mirrors {@code ComingUpConditionsBuilder}'s private word bucketing for assertion purposes. */
-    private static String rarityWord(double bits) {
-        if (bits < 2.0) {
-            return "common";
-        }
-        if (bits < 4.0) {
-            return "occasional";
-        }
-        if (bits < 6.0) {
-            return "uncommon";
-        }
-        if (bits < 8.0) {
-            return "rare";
-        }
-        return "very rare";
     }
 }

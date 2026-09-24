@@ -375,10 +375,10 @@ describe('WindowComingUpEntry — the coincidence card (D10, plan §6b)', () => 
   it('renders the joining sentence below the coincidence lines', () => {
     renderEntry({
       coincidence: COINCIDENCE,
-      joinNote: 'One perigee causes both, so the pair scores as the maximum of the two: 9.0 bits.',
+      joinNote: 'One perigee causes both. Counted as one event, not two — the Spring tide run carries it.',
     });
     expect(screen.getByTestId('coming-up-join-note')).toHaveTextContent(
-      'One perigee causes both, so the pair scores as the maximum of the two: 9.0 bits.',
+      'One perigee causes both. Counted as one event, not two — the Spring tide run carries it.',
     );
   });
 
