@@ -41,6 +41,11 @@ import java.util.Objects;
  * @param prose         nullable — feature cards only ("say the definition once": the first
  *                      occurrence of a type in the window)
  * @param facts         ordered fact rows; no HTML crosses the wire
+ * @param aside         nullable — a full-width, dashed-top supplementary line rendered after the
+ *                      facts and before the threshold (the design's {@code why2} slot). Generic
+ *                      rather than lunar-specific: the lunar eclipse topic is its first user,
+ *                      carrying the exposure note ("no filter needed"), but any later type may use
+ *                      it rather than growing its own field (lunar-eclipse-plan.md §4 #7)
  * @param threshold     nullable — the bar this occurrence cleared, required on any entry that will
  *                      carry a standing condition (coastal tides at first ship)
  * @param scoreNote     nullable server-authored sentence explaining a high-band score, read by both
@@ -80,6 +85,7 @@ public record ComingUpEntry(
         String prose,
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
         List<ComingUpFact> facts,
+        String aside,
         String threshold,
         String scoreNote,
         ComingUpAction action,
@@ -122,7 +128,7 @@ public record ComingUpEntry(
         String id = event.type() + ":" + event.startDate() + ":" + event.endDate();
         return new ComingUpEntry(event.startDate(), event.endDate(), event.kind(), event.type(),
                 event.title(), event.detail(), event.meta(), event.regions(), enteredWindow,
-                id, "night-sky", "Almanac", null, null, null, List.of(), null, null,
+                id, "night-sky", "Almanac", null, null, null, List.of(), null, null, null,
                 new ComingUpAction("See the plan for " + event.startDate() + " →", "plan",
                         event.startDate()),
                 null, true, null, List.of(), null);

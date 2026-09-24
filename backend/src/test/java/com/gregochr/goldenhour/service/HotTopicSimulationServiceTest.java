@@ -113,12 +113,12 @@ class HotTopicSimulationServiceTest {
     void getAllTypes_returnsEverySimulatableType() {
         List<HotTopicSimulationService.SimulatableType> types = service.getAllTypes();
 
-        assertThat(types).hasSize(16);
+        assertThat(types).hasSize(17);
         assertThat(types).extracting(HotTopicSimulationService.SimulatableType::type)
                 .containsExactlyInAnyOrder(
-                        "ECLIPSE", "BLUEBELL", "KING_TIDE", "SPRING_TIDE", "STORM_SURGE", "AURORA",
-                        "DUST", "INVERSION", "SUPERMOON", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS",
-                        "NLC", "METEOR", "EQUINOX", "CLEARANCE");
+                        "ECLIPSE", "LUNAR_ECLIPSE", "BLUEBELL", "KING_TIDE", "SPRING_TIDE",
+                        "STORM_SURGE", "AURORA", "DUST", "INVERSION", "SUPERMOON", "SNOW_FRESH",
+                        "SNOW_MIST", "SNOW_TOPS", "NLC", "METEOR", "EQUINOX", "CLEARANCE");
     }
 
     @Test
@@ -284,14 +284,14 @@ class HotTopicSimulationServiceTest {
     }
 
     @Test
-    @DisplayName("all 15 simulated topic types have non-blank descriptions")
+    @DisplayName("all 17 simulated topic types have non-blank descriptions")
     void getSimulatedTopics_allTypes_allHaveNonBlankDescriptions() {
         service.setEnabled(true);
         service.getAllTypes().forEach(t -> service.setTypeActive(t.type(), true));
 
         List<HotTopic> topics = service.getSimulatedTopics(TODAY, TODAY.plusDays(3));
 
-        assertThat(topics).hasSize(16);
+        assertThat(topics).hasSize(17);
         assertThat(topics).extracting(HotTopic::description)
                 .as("every simulated topic must have a non-blank description")
                 .allSatisfy(desc -> assertThat(desc).isNotNull().isNotBlank());
@@ -314,6 +314,27 @@ class HotTopicSimulationServiceTest {
         assertThat(topic.eventTime()).isEqualTo("19:06");
         assertThat(topic.facts()).extracting(HotTopicFact::key)
                 .containsExactly("max", "contacts", "sun");
+    }
+
+    @Test
+    @DisplayName("the simulated lunar eclipse carries its own clock time, its fact chips, its note "
+            + "and its recurrence line — and no warning")
+    void simulatedLunarEclipseIsFullyEnriched() {
+        service.setEnabled(true);
+        service.setTypeActive("LUNAR_ECLIPSE", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        // Unlike the solar eclipse, nothing about this topic is hazardous.
+        assertThat(topic.safetyNote()).isNull();
+        assertThat(topic.eventType()).isEqualTo("SUNRISE");
+        assertThat(topic.eventTime()).isEqualTo("05:12");
+        assertThat(topic.facts()).extracting(HotTopicFact::key)
+                .containsExactly("max", "in shadow", "seen from");
+        assertThat(topic.note())
+                .isEqualTo("No filter needed — bracket, the shadow is ~10 stops under the lit edge");
+        assertThat(topic.rarityNote())
+                .isEqualTo("next from the UK: a partial eclipse, Wed 12 Jan 2028");
     }
 
     @Test

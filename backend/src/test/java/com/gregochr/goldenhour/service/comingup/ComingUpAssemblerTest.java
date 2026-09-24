@@ -121,6 +121,63 @@ class ComingUpAssemblerTest {
     }
 
     @Test
+    @DisplayName("a lunar eclipse entry clears the interrupt band and shares family 'eclipse' with the solar one")
+    void lunarEclipseEntryClearsInterruptAndSharesFamily() {
+        // log2(900) + 1.0 ≈ 10.81 — the plan's own worked figure (§1 row 12).
+        AlmanacEvent lunar = event(DAY, DAY, "lunar-eclipse", "Deep partial lunar eclipse",
+                Map.of("magnitude", "93% in shadow", "maximum", "05:12 · moon WSW 241°, 8° up",
+                        "shadow", "in shadow 03:33 → sets 06:16", "seen", "seen from 41 of 57 sites",
+                        "next", "Next from the UK: a partial eclipse, Wed 12 Jan 2028",
+                        "since", "September 2025", "location", "Bamburgh"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(lunar));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        assertThat(entry.family()).isEqualTo("eclipse");
+        assertThat(entry.metric()).isEqualTo("93%");
+        assertThat(entry.bits()).isCloseTo(10.8, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(entry.interim()).isFalse();
+        // "sets " appears in the shadow meta, so the representative sets while still eclipsed.
+        assertThat(entry.superlative()).isEqualTo("sets in shadow");
+        assertThat(entry.aside())
+                .isEqualTo("No filter needed — bracket, the shadow is ~10 stops under the lit edge");
+        // "since" wins over markScoreNotes' generic rarity-carried phrasing.
+        assertThat(entry.scoreNote()).isEqualTo("The first visible from here since September 2025.");
+        assertThat(entry.meta()).doesNotContainKeys(
+                "magnitude", "maximum", "shadow", "next", "since", "location");
+        // "seen" is not consumed by any fact row and survives as a passthrough figure.
+        assertThat(entry.meta()).containsEntry("seen", "seen from 41 of 57 sites");
+    }
+
+    @Test
+    @DisplayName("a lunar eclipse whose representative does not set in shadow carries no superlative")
+    void lunarEclipseNotSettingInShadowHasNoSuperlative() {
+        AlmanacEvent lunar = event(DAY, DAY, "lunar-eclipse", "Partial lunar eclipse",
+                Map.of("shadow", "in shadow 03:33 → 06:52"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(lunar));
+
+        assertThat(response.entries().getFirst().superlative()).isNull();
+    }
+
+    @Test
+    @DisplayName("a lunar eclipse with no 'since' fact falls through to markScoreNotes' generic rarity phrasing")
+    void lunarEclipseWithNoSinceFallsThroughToGenericScoreNote() {
+        // No "since" key at all — the catalogue's earliest entry, which has nothing earlier.
+        AlmanacEvent lunar = event(DAY, DAY, "lunar-eclipse", "Total lunar eclipse", Map.of());
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(lunar));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        // gapWord(rarity(900)) → gapWordFromDays(900), which falls in the ≤1200 band: "every two
+        // to three years" (the plan's own worked figure — lunar-eclipse-plan.md §1 row 12).
+        assertThat(entry.scoreNote()).isEqualTo(
+                "It comes round about once every two to three years, which is rare enough to flag on its own.");
+        assertThat(entry.aside())
+                .isEqualTo("No filter needed — bracket, the shadow is ~10 stops under the lit edge");
+    }
+
+    @Test
     @DisplayName("an unrecognised type degrades to a specific, plausible score rather than throwing")
     void unrecognisedTypeDoesNotThrow() {
         AlmanacEvent mystery = event(DAY, DAY, "mystery-topic", "Something new", Map.of());

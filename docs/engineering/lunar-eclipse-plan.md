@@ -34,15 +34,15 @@ directly). Paste the relevant section of THIS plan and the spec into every revie
 
 ## §0 Status
 
-**Status: L0 built, in review; L6 merged; L1–L5, L7 not started.** Plan written 2026-09-23 against `main` at
+**Status: L0, L6 merged; L1 built, in review; L2–L5, L7 not started.** Plan written 2026-09-23 against `main` at
 `16f7c29f` (#908). Today's date matters more than usual for this plan: the worked example (Friday
 28 August 2026) is **already past**, so no phase can be verified against a live event — §7 says how
 it is verified instead.
 
 | phase | scope (one session each) | state | branch |
 |---|---|---|---|
-| L0 | Backend: `LunarEclipseCatalog` + `LunarEclipseCalculator` (seeded contacts, per-location moon geometry, eligibility) | built, in review | `feature/lunar-l0-catalogue` |
-| L1 | Backend: `LunarEclipseHotTopicStrategy`, `LunarEclipseAlmanacSource`, Coming-up scoring, rarity rank, simulation template | not started | `feature/lunar-l1-topic` |
+| L0 | Backend: `LunarEclipseCatalog` + `LunarEclipseCalculator` (seeded contacts, per-location moon geometry, eligibility) | merged | `feature/lunar-l0-catalogue` |
+| L1 | Backend: `LunarEclipseHotTopicStrategy`, `LunarEclipseAlmanacSource`, Coming-up scoring, rarity rank, simulation template | built, in review | `feature/lunar-l1-topic` |
 | L2 | Backend: per-location `BriefingSlot.eclipse` sight (the dawn-race data) + simulation parity | not started | `feature/lunar-l2-sight` |
 | L3 | Frontend: type registries, channel CSS, the clocked chip on the Plan card | not started | `feature/lunar-l3-chip` |
 | L4 | Frontend: popup topic row (aside, info tip), `DawnRace` component + pure geometry | not started | `feature/lunar-l4-race` |

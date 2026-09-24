@@ -166,6 +166,11 @@ coming-up:
                                                # a little under every other lunar month
       eclipse-mean-gap-days: 1500.0           # placeholder pending a catalogue-derived figure —
                                                # only five UK-visible eclipses are catalogued at all
+      lunar-eclipse-mean-gap-days: 900.0      # documented long-run estimate, NOT the seeded window's
+                                               # own mean (six gaps, Mar 2025-2030, average ~290 d —
+                                               # that window is unusually dense); log2(900)+1 clears
+                                               # the interrupt band, log2(290)+1 would not — lowering
+                                               # this is a re-census decision, see the class javadoc
     recurrent:                                # standing-conditions strip topics (plan §7 P4) —
                             # dust and inversion, whose magnitude stays config-interim forever
                             # (never a real distribution — D4)
