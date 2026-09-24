@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -96,13 +95,23 @@ class EclipseSightAssemblerTest {
                 LocalDateTime.of(2000, 1, 1, 0, 0), LocalDateTime.of(2000, 1, 1, 1, 0), true);
     }
 
-    /** Stubs every {@code SolarService} boundary method the assembler reads for a SUNRISE slot. */
+    /** Stubs every {@code SolarService} boundary method the assembler reads for a SUNRISE slot,
+     * at {@link #LAT}/{@link #LON}. */
     private void stubDawnBoundaries(LocalDate date, LocalDateTime nauticalDawnUtc,
             LocalDateTime civilDawnUtc, LocalDateTime sunriseUtc, LocalDateTime goldenMorningEndUtc) {
-        when(solarService.nauticalDawnUtc(eq(LAT), eq(LON), eq(date))).thenReturn(nauticalDawnUtc);
-        when(solarService.civilDawnUtc(eq(LAT), eq(LON), eq(date))).thenReturn(civilDawnUtc);
-        when(solarService.sunriseUtc(eq(LAT), eq(LON), eq(date))).thenReturn(sunriseUtc);
-        when(solarService.goldenBlueWindow(eq(LAT), eq(LON), eq(date), eq(true)))
+        stubDawnBoundaries(LAT, LON, date, nauticalDawnUtc, civilDawnUtc, sunriseUtc, goldenMorningEndUtc);
+    }
+
+    /** Stubs every {@code SolarService} boundary method the assembler reads for a SUNRISE slot,
+     * at the given coordinates — for the simulated path, which always queries Dunstanburgh's own
+     * regardless of which location the sight ends up attached to. */
+    private void stubDawnBoundaries(double lat, double lon, LocalDate date,
+            LocalDateTime nauticalDawnUtc, LocalDateTime civilDawnUtc, LocalDateTime sunriseUtc,
+            LocalDateTime goldenMorningEndUtc) {
+        when(solarService.nauticalDawnUtc(eq(lat), eq(lon), eq(date))).thenReturn(nauticalDawnUtc);
+        when(solarService.civilDawnUtc(eq(lat), eq(lon), eq(date))).thenReturn(civilDawnUtc);
+        when(solarService.sunriseUtc(eq(lat), eq(lon), eq(date))).thenReturn(sunriseUtc);
+        when(solarService.goldenBlueWindow(eq(lat), eq(lon), eq(date), eq(true)))
                 .thenReturn(new SolarService.SolarWindow(
                         civilDawnUtc, sunriseUtc, sunriseUtc, goldenMorningEndUtc));
     }
@@ -166,13 +175,13 @@ class EclipseSightAssemblerTest {
         }
 
         @Test
-        @DisplayName("a date with no catalogued lunar eclipse, and simulation inactive, attaches nothing")
+        @DisplayName("a date with no catalogued lunar eclipse attaches nothing — forSlot never "
+                + "consults simulation at all")
         void noEclipse_attachesNothing() {
-            when(simulationService.isEnabled()).thenReturn(false);
-
             assertThat(assembler.forSlot(location(LAT, LON), NO_ECLIPSE_DAY, TargetType.SUNRISE))
                     .isNull();
             verifyNoInteractions(calculator);
+            verifyNoInteractions(simulationService);
         }
     }
 
@@ -446,8 +455,27 @@ class EclipseSightAssemblerTest {
     }
 
     @Nested
-    @DisplayName("simulation parity — a verification affordance, gated on HotTopicSimulationService")
-    class SimulationParity {
+    @DisplayName("forSlot NEVER simulates — the build-time seam attaches real sights only (#914)")
+    class ForSlotNeverSimulates {
+
+        private static final LocalDate TODAY = LocalDate.of(2026, 9, 24);
+
+        @Test
+        @DisplayName("forSlot returns null on a no-eclipse date, and never even asks "
+                + "HotTopicSimulationService a question — whether or not simulation is active is "
+                + "irrelevant, because forSlot no longer reads that collaborator at all")
+        void forSlot_ignoresSimulationEntirely() {
+            assertThat(assembler.forSlot(location(LAT, LON), TODAY, TargetType.SUNRISE)).isNull();
+            verifyNoInteractions(simulationService);
+            verifyNoInteractions(calculator);
+        }
+    }
+
+    @Nested
+    @DisplayName("simulatedSightFor — the SERVE-time overlay, gated on HotTopicSimulationService "
+            + "(BriefingService.getCachedBriefing overlays this on every request; it is never "
+            + "persisted into daily_briefing_cache — Codex review of #914)")
+    class SimulatedSightForTests {
 
         private static final LocalDate TODAY = LocalDate.of(2026, 9, 24);
         private static final double DUNSTANBURGH_LAT = 55.49;
@@ -459,7 +487,9 @@ class EclipseSightAssemblerTest {
         }
 
         @Test
-        @DisplayName("re-dates the real 2026-08-28 Dunstanburgh reduction onto today's SUNRISE slot")
+        @DisplayName("re-dates the real 2026-08-28 Dunstanburgh reduction onto today's SUNRISE "
+                + "window — geometry AND light stops both Dunstanburgh's own, re-dated, since a "
+                + "serve-time overlay has no per-location coordinates to hand")
         void reDatesTheTemplateOntoToday() {
             stubActive();
             LunarEclipse template = eclipseOn(SUNRISE_ECLIPSE_DAY);
@@ -468,12 +498,13 @@ class EclipseSightAssemblerTest {
                     LocalDateTime.of(2026, 8, 28, 3, 33), LocalDateTime.of(2026, 8, 28, 6, 52), true);
             when(calculator.sight(eq(template), eq(DUNSTANBURGH_LAT), eq(DUNSTANBURGH_LON)))
                     .thenReturn(templateSight);
-            stubDawnBoundaries(TODAY,
+            // The simulated path queries Dunstanburgh's own light boundaries, never a per-slot
+            // location's — see EclipseSightAssembler.buildSimulated's own javadoc.
+            stubDawnBoundaries(DUNSTANBURGH_LAT, DUNSTANBURGH_LON, TODAY,
                     LocalDateTime.of(2026, 9, 24, 4, 0), LocalDateTime.of(2026, 9, 24, 4, 35),
                     LocalDateTime.of(2026, 9, 24, 6, 6), LocalDateTime.of(2026, 9, 24, 6, 41));
 
-            BriefingSlot.EclipseSight sight = assembler.forSlot(
-                    location(LAT, LON), TODAY, TargetType.SUNRISE);
+            BriefingSlot.EclipseSight sight = assembler.simulatedSightFor(TODAY, TargetType.SUNRISE);
 
             assertThat(sight).isNotNull();
             assertThat(sight.type()).isEqualTo("LUNAR_ECLIPSE");
@@ -483,6 +514,8 @@ class EclipseSightAssemblerTest {
             assertThat(sight.maximum()).isEqualTo(TODAY.atTime(5, 12, 52));
             assertThat(sight.moonset()).isEqualTo(TODAY.atTime(6, 18));
             assertThat(sight.moonrise()).isNull();
+            // The light stops queried Dunstanburgh's own coordinates, never a per-slot location's.
+            verify(solarService).nauticalDawnUtc(eq(DUNSTANBURGH_LAT), eq(DUNSTANBURGH_LON), eq(TODAY));
         }
 
         @Test
@@ -490,7 +523,7 @@ class EclipseSightAssemblerTest {
         void doesNothingWhenDisabled() {
             when(simulationService.isEnabled()).thenReturn(false);
 
-            assertThat(assembler.forSlot(location(LAT, LON), TODAY, TargetType.SUNRISE)).isNull();
+            assertThat(assembler.simulatedSightFor(TODAY, TargetType.SUNRISE)).isNull();
         }
 
         @Test
@@ -499,7 +532,7 @@ class EclipseSightAssemblerTest {
             when(simulationService.isEnabled()).thenReturn(true);
             when(simulationService.getActiveTypes()).thenReturn(Set.of("ECLIPSE"));
 
-            assertThat(assembler.forSlot(location(LAT, LON), TODAY, TargetType.SUNRISE)).isNull();
+            assertThat(assembler.simulatedSightFor(TODAY, TargetType.SUNRISE)).isNull();
         }
 
         @Test
@@ -507,7 +540,7 @@ class EclipseSightAssemblerTest {
         void doesNothingOnSunset() {
             stubActive();
 
-            assertThat(assembler.forSlot(location(LAT, LON), TODAY, TargetType.SUNSET)).isNull();
+            assertThat(assembler.simulatedSightFor(TODAY, TargetType.SUNSET)).isNull();
         }
 
         @Test
@@ -515,8 +548,7 @@ class EclipseSightAssemblerTest {
         void doesNothingOnAnyOtherDate() {
             stubActive();
 
-            assertThat(assembler.forSlot(location(LAT, LON), TODAY.plusDays(1), TargetType.SUNRISE))
-                    .isNull();
+            assertThat(assembler.simulatedSightFor(TODAY.plusDays(1), TargetType.SUNRISE)).isNull();
         }
 
         @Test
@@ -524,60 +556,25 @@ class EclipseSightAssemblerTest {
                 + "the SUNRISE window that eclipse's own SUNSET label leaves free — simulation must "
                 + "never manufacture a second answer for a date the catalogue already answers")
         void doesNothingOnADateARealEclipseAlreadyOwns() {
-            // "Today" is a real SUNSET eclipse's date. Without the real.isEmpty() guard, the
-            // SUNRISE slot on this same date would wrongly take the fabricated simulated sight,
-            // because the real branch only checks THIS window, not the whole date. Deliberately
-            // NOT stubbing simulationService active: the isEmpty() guard is checked BEFORE
-            // isSimulatedFor ever runs, so simulationService is never consulted at all here — the
-            // verifyNoInteractions below is the real proof, the same shape as
-            // realEclipseWinsOverSimulation's own short-circuit proof just below.
-            Clock todayIsARealSunsetEclipse = Clock.fixed(
-                    LocalDateTime.of(2028, 12, 31, 12, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
-            EclipseSightAssembler onThatDate = new EclipseSightAssembler(
-                    calculator, solarService, simulationService, todayIsARealSunsetEclipse);
+            stubActive();
 
-            assertThat(onThatDate.forSlot(location(LAT, LON), SUNSET_ECLIPSE_DAY, TargetType.SUNRISE))
-                    .isNull();
-            verifyNoInteractions(simulationService);
+            assertThat(assembler.simulatedSightFor(SUNSET_ECLIPSE_DAY, TargetType.SUNRISE)).isNull();
         }
 
         @Test
-        @DisplayName("a REAL catalogued eclipse on today's own date wins over simulation — the real "
-                + "branch short-circuits before ever consulting HotTopicSimulationService")
-        void realEclipseWinsOverSimulation() {
-            // "Today" is deliberately a DIFFERENT real SUNRISE eclipse from the one the simulated
-            // template re-dates (2026-08-28) — if the real branch did not win, this date would
-            // read the wrong eclipse's figures entirely, not merely a differently-dated copy of
-            // the same one, so the two branches cannot be confused by coincidence here.
-            //
-            // Deliberately NOT stubbing simulationService as active: forSlot's real branch returns
-            // before isSimulatedFor is ever evaluated, so stubbing it active here would be an
-            // unreachable, misleading stub (Mockito's strict stubs flag exactly this) — the
-            // verifyNoInteractions below is the real proof that simulation is never even asked.
-            LocalDate realOtherDate = LocalDate.of(2028, 1, 12);
-            Clock todayIsThatEclipse = Clock.fixed(
-                    LocalDateTime.of(2028, 1, 12, 12, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
-            EclipseSightAssembler onThatDate = new EclipseSightAssembler(
-                    calculator, solarService, simulationService, todayIsThatEclipse);
-            LunarEclipse eclipse = eclipseOn(realOtherDate);
-            when(calculator.sight(eq(eclipse), eq(LAT), eq(LON)))
-                    .thenReturn(visibleSight(30, 150, "SSE"));
-            stubDawnBoundaries(realOtherDate,
-                    LocalDateTime.of(2028, 1, 12, 2, 0), LocalDateTime.of(2028, 1, 12, 2, 35),
-                    LocalDateTime.of(2028, 1, 12, 7, 40), LocalDateTime.of(2028, 1, 12, 8, 15));
+        @DisplayName("isSimulationActiveForLunarEclipse is the cheap top-level gate BriefingService "
+                + "checks before walking the whole response tree")
+        void isSimulationActiveForLunarEclipse_reflectsBothFlags() {
+            assertThat(assembler.isSimulationActiveForLunarEclipse())
+                    .as("unstubbed: Mockito answers false/empty").isFalse();
 
-            BriefingSlot.EclipseSight sight =
-                    onThatDate.forSlot(location(LAT, LON), realOtherDate, TargetType.SUNRISE);
+            when(simulationService.isEnabled()).thenReturn(true);
+            when(simulationService.getActiveTypes()).thenReturn(Set.of("ECLIPSE"));
+            assertThat(assembler.isSimulationActiveForLunarEclipse())
+                    .as("enabled, but LUNAR_ECLIPSE itself not active").isFalse();
 
-            assertThat(sight.maximum())
-                    .as("the real eclipse's own maximum, not the simulated template re-dated onto it")
-                    .isEqualTo(LunarEclipseWording.toLondonLocal(eclipse.max()));
-            assertThat(sight.moonAltAtMax())
-                    .as("the real eclipse's own geometry, not the fixed Dunstanburgh template's")
-                    .isEqualTo(30);
-            verify(calculator, never())
-                    .sight(eq(eclipseOn(SUNRISE_ECLIPSE_DAY)), eq(DUNSTANBURGH_LAT), eq(DUNSTANBURGH_LON));
-            verifyNoInteractions(simulationService);
+            when(simulationService.getActiveTypes()).thenReturn(Set.of("LUNAR_ECLIPSE"));
+            assertThat(assembler.isSimulationActiveForLunarEclipse()).isTrue();
         }
     }
 }

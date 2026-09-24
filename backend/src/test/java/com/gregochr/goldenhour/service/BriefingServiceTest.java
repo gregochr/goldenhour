@@ -55,6 +55,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -193,7 +194,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK));
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
     }
 
     /**
@@ -539,7 +540,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), BST_CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(BST_CLOCK), rollup(BST_CLOCK));
+                    snapshots(), assembler(BST_CLOCK), rollup(BST_CLOCK), eclipseSightAssembler);
             freshService.loadPersistedBriefing();
 
             DailyBriefingResponse api = freshService.getCachedBriefingForApi();
@@ -917,7 +918,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK));
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -951,7 +952,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK));
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -978,7 +979,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK), rollup(CLOCK));
+                snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1519,7 +1520,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(CLOCK), rollup(CLOCK));
+                    snapshots(), assembler(CLOCK), rollup(CLOCK), eclipseSightAssembler);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -1759,6 +1760,126 @@ class BriefingServiceTest {
 
             verify(hotTopicAggregator, times(2))
                     .getHotTopics(eq(FIXED_TODAY), eq(FIXED_TODAY.plusDays(3)));
+        }
+    }
+
+    @Nested
+    @DisplayName("getCachedBriefing simulated-eclipse overlay (Codex review of #914)")
+    class GetCachedBriefingSimulatedEclipseTests {
+
+        private void refreshWithOneLocation() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
+            briefingService.refreshBriefing();
+        }
+
+        /** The first slot on the given event type's window, wherever the hierarchy put it —
+         * regioned or unregioned; {@code refreshWithOneLocation}'s single location carries no
+         * region, so it lands in {@code unregioned}, but this stays correct either way. */
+        private static BriefingSlot firstSlot(DailyBriefingResponse response, TargetType eventType) {
+            return response.days().stream()
+                    .flatMap(day -> day.eventSummaries().stream())
+                    .filter(summary -> summary.targetType() == eventType)
+                    .flatMap(summary -> Stream.concat(
+                            summary.regions().stream().flatMap(r -> r.slots().stream()),
+                            summary.unregioned().stream()))
+                    .findFirst()
+                    .orElseThrow();
+        }
+
+        @Test
+        @DisplayName("⚠️ a persisted-cache round trip carries no simulated sight — refreshBriefing "
+                + "(the build path) never calls simulatedSightFor, only forSlot, so nothing "
+                + "simulation produces can ever reach daily_briefing_cache")
+        void refresh_neverCallsSimulatedSightFor_andCachedSlotCarriesNoEclipse() {
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+            refreshWithOneLocation();
+
+            verify(eclipseSightAssembler, never()).simulatedSightFor(any(), any());
+
+            when(eclipseSightAssembler.isSimulationActiveForLunarEclipse()).thenReturn(false);
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(firstSlot(cached, TargetType.SUNRISE).eclipse()).isNull();
+        }
+
+        @Test
+        @DisplayName("simulation ON — getCachedBriefing overlays the simulated sight onto today's "
+                + "SUNRISE slot on the very next request, no refresh required")
+        void simulationOn_overlaysSightOnNextRequest() {
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+            refreshWithOneLocation();
+            assertThat(firstSlot(briefingService.getCachedBriefing(), TargetType.SUNRISE).eclipse())
+                    .as("built with simulation off — nothing to overlay yet").isNull();
+
+            BriefingSlot.EclipseSight simulated = new BriefingSlot.EclipseSight(
+                    "LUNAR_ECLIPSE", 8, 241, "WSW", FIXED_TODAY.atTime(5, 12),
+                    FIXED_TODAY.atTime(3, 33), FIXED_TODAY.atTime(6, 52), FIXED_TODAY.atTime(6, 18),
+                    null, true, false, "DAWN", List.of());
+            when(eclipseSightAssembler.isSimulationActiveForLunarEclipse()).thenReturn(true);
+            when(eclipseSightAssembler.simulatedSightFor(eq(FIXED_TODAY), eq(TargetType.SUNRISE)))
+                    .thenReturn(simulated);
+
+            DailyBriefingResponse withSimulation = briefingService.getCachedBriefing();
+
+            assertThat(firstSlot(withSimulation, TargetType.SUNRISE).eclipse()).isEqualTo(simulated);
+        }
+
+        @Test
+        @DisplayName("simulation turned back OFF after being on — the next request carries no "
+                + "eclipse sight again")
+        void simulationToggledOff_afterOn_revertsToNoEclipse() {
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+            refreshWithOneLocation();
+
+            BriefingSlot.EclipseSight simulated = new BriefingSlot.EclipseSight(
+                    "LUNAR_ECLIPSE", 8, 241, "WSW", FIXED_TODAY.atTime(5, 12),
+                    FIXED_TODAY.atTime(3, 33), FIXED_TODAY.atTime(6, 52), FIXED_TODAY.atTime(6, 18),
+                    null, true, false, "DAWN", List.of());
+            when(eclipseSightAssembler.isSimulationActiveForLunarEclipse()).thenReturn(true);
+            when(eclipseSightAssembler.simulatedSightFor(eq(FIXED_TODAY), eq(TargetType.SUNRISE)))
+                    .thenReturn(simulated);
+            assertThat(firstSlot(briefingService.getCachedBriefing(), TargetType.SUNRISE).eclipse())
+                    .as("simulation on").isEqualTo(simulated);
+
+            when(eclipseSightAssembler.isSimulationActiveForLunarEclipse()).thenReturn(false);
+
+            DailyBriefingResponse afterOff = briefingService.getCachedBriefing();
+            assertThat(firstSlot(afterOff, TargetType.SUNRISE).eclipse())
+                    .as("simulation off again — no eclipse, and the persisted cache underneath "
+                            + "was never touched by the earlier overlay").isNull();
+        }
+
+        @Test
+        @DisplayName("the eclipse overlay runs even when aurora/hot topics are unchanged — it is "
+                + "not gated behind that short-circuit")
+        void overlayRunsIndependentlyOfTheHotTopicShortCircuit() {
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+            refreshWithOneLocation();
+            // First call: aurora/hot-topics equal cached, so getCachedBriefing's own
+            // short-circuit would return `cached` unchanged were the overlay not applied after it.
+            briefingService.getCachedBriefing();
+
+            BriefingSlot.EclipseSight simulated = new BriefingSlot.EclipseSight(
+                    "LUNAR_ECLIPSE", 8, 241, "WSW", FIXED_TODAY.atTime(5, 12),
+                    FIXED_TODAY.atTime(3, 33), FIXED_TODAY.atTime(6, 52), FIXED_TODAY.atTime(6, 18),
+                    null, true, false, "DAWN", List.of());
+            when(eclipseSightAssembler.isSimulationActiveForLunarEclipse()).thenReturn(true);
+            when(eclipseSightAssembler.simulatedSightFor(eq(FIXED_TODAY), eq(TargetType.SUNRISE)))
+                    .thenReturn(simulated);
+
+            DailyBriefingResponse result = briefingService.getCachedBriefing();
+
+            assertThat(firstSlot(result, TargetType.SUNRISE).eclipse()).isEqualTo(simulated);
         }
     }
 

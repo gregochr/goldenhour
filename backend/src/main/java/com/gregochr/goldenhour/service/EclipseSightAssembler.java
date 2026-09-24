@@ -33,19 +33,43 @@ import java.util.Optional;
  * gets a sight (a negative altitude is itself the honest answer), the same way an inland location
  * still carries a {@code false}-valued {@link BriefingSlot.TideInfo} rather than none at all.
  *
- * <h2>Simulation parity</h2>
+ * <h2>Simulation parity is a SERVE-time overlay, never a build-time write</h2>
+ *
+ * <p>{@link #forSlot} — the only method {@link BriefingSlotBuilder} calls — attaches REAL sights
+ * only. It used to also attach a fabricated simulated sight on the build path, and that was a
+ * genuine defect (Codex review of #914): {@code BriefingService.getCachedBriefing()} serves a
+ * persisted/cached {@code DailyBriefingResponse} on every request and only overlays a few fields
+ * live (hot topics, aurora) — it does not re-run {@code BriefingSlotBuilder}. So a simulated sight
+ * written at build time would sit inert in {@code daily_briefing_cache} until the next scheduled
+ * refresh: toggling the admin simulation ON would show nothing until a refresh minutes or hours
+ * later, and toggling it back OFF — or restarting the app — would leave the fabricated sight
+ * visible and reloadable from the persisted cache indefinitely, the same "volatile state baked
+ * into a durable cache" mistake CLAUDE.md's "Hot topics are recomputed LIVE on every serve" bullet
+ * already names for a different field.
+ *
+ * <p>{@link #simulatedSightFor} is the correct seam instead: called from
+ * {@code BriefingService.getCachedBriefing()}'s live-overlay step, on every serve, exactly
+ * alongside the existing hot-topics/aurora overlays it already does there. Nothing this method
+ * returns is ever persisted — it exists only in the response built for that one request — so
+ * enabling the simulation shows the race on the very next request, disabling it removes it on the
+ * next request after that, and a restart with the simulation off shows nothing, because the
+ * persisted cache never contained a simulated sight to reload.
  *
  * <p>When {@link HotTopicSimulationService} has {@code LUNAR_ECLIPSE} active, no future catalogued
  * eclipse falls inside a live forecast's 5-day window — the nearest is 2028-01-12 — so the dawn
- * race could never otherwise be seen in a browser before then. On the SUNRISE slot for "today"
- * (the simulated topic's own placement, {@code HotTopicSimulationService}'s
- * {@code LUNAR_ECLIPSE_SIM_ENRICHMENT}), this instead re-dates the real 2026-08-28 Dunstanburgh
- * eclipse's own reduction onto the slot's date: every clock field keeps its time-of-day, only the
- * calendar date changes, so a future change to that catalogue entry cannot drift out of step with
- * what the topic pill and the admin's simulation panel both already describe. This is a
- * verification affordance for {@code docs/engineering/lunar-eclipse-plan.md} §7's browser check,
- * gated on {@link HotTopicSimulationService#isEnabled()} exactly as the aurora admin simulation is
- * gated on {@code AuroraStateCache.isSimulated()} — never a product path a real reader reaches.
+ * race could never otherwise be seen in a browser before then. On "today" (the simulated topic's
+ * own placement, {@code HotTopicSimulationService}'s {@code LUNAR_ECLIPSE_SIM_ENRICHMENT}), this
+ * re-dates the real 2026-08-28 Dunstanburgh eclipse's own reduction onto that date: every clock
+ * field keeps its time-of-day, only the calendar date changes, so a future change to that
+ * catalogue entry cannot drift out of step with what the topic pill and the admin's simulation
+ * panel both already describe. The whole sight — moon geometry AND light stops — is Dunstanburgh's
+ * own, re-dated, rather than location-specific: {@link #simulatedSightFor} is called once per
+ * (date, event type) at serve time and its single result reused across every slot on that window,
+ * because a serve-time overlay has no per-location {@code LocationEntity} to hand — only the
+ * already-built {@link BriefingSlot}s, keyed by name/id, not coordinates. This is a verification
+ * affordance for {@code docs/engineering/lunar-eclipse-plan.md} §7's browser check, gated on
+ * {@link HotTopicSimulationService#isEnabled()} exactly as the aurora admin simulation is gated on
+ * {@code AuroraStateCache.isSimulated()} — never a product path a real reader reaches.
  */
 @Component
 public class EclipseSightAssembler {
@@ -99,13 +123,17 @@ public class EclipseSightAssembler {
     }
 
     /**
-     * The eclipse sight for one location's slot, or null when no lunar eclipse — real or
-     * simulated — belongs on this window.
+     * The REAL eclipse sight for one location's slot, or null when no catalogued lunar eclipse's
+     * own window matches this one — the {@link BriefingSlotBuilder} build-time seam.
+     *
+     * <p><b>Never attaches a simulated sight.</b> See this class's own javadoc for why: a
+     * simulated sight belongs only in the serve-time overlay ({@link #simulatedSightFor}), never
+     * in anything {@code BriefingSlotBuilder} writes into {@code daily_briefing_cache}.
      *
      * @param location  the location the slot is for
      * @param date      the slot's date
      * @param eventType the slot's own window (SUNRISE or SUNSET)
-     * @return the sight, or null
+     * @return the real sight, or null
      */
     public BriefingSlot.EclipseSight forSlot(LocationEntity location, LocalDate date, TargetType eventType) {
         String eventTypeStr = eventType.name();
@@ -113,23 +141,51 @@ public class EclipseSightAssembler {
         if (real.isPresent() && LunarEclipseWording.eventType(real.get()).equals(eventTypeStr)) {
             return buildReal(real.get(), location, date, eventTypeStr);
         }
-        // real.isEmpty() is part of the gate, not merely a consequence of the branch above: without
-        // it, an admin simulating LUNAR_ECLIPSE on a date that happens to carry a REAL eclipse whose
-        // own window is the OTHER event type (e.g. a real SUNSET eclipse's date) would still take
-        // the fabricated SUNRISE sight on that date's SUNRISE slot, rather than staying null the way
-        // every other non-matching window does. Simulation must never manufacture a sight on a date
-        // this catalogue already has a real answer for, in either of that date's windows.
-        if (real.isEmpty() && isSimulatedFor(date, eventTypeStr)) {
-            return buildSimulated(location, date);
-        }
         return null;
     }
 
+    /**
+     * The cheap top-level gate {@code BriefingService} checks before walking the served response
+     * tree at all — near-zero cost on every request while simulation is off, the overwhelming
+     * common case, the same "IDLE costs nothing" shape the aurora FSM already uses.
+     *
+     * @return true when {@code LUNAR_ECLIPSE} simulation is currently active
+     */
+    public boolean isSimulationActiveForLunarEclipse() {
+        return simulationService.isEnabled() && simulationService.getActiveTypes().contains(TYPE);
+    }
+
+    /**
+     * The simulated sight for this date and event type, or null when simulation does not apply
+     * here — the serve-time overlay seam. See this class's own javadoc for the full reasoning.
+     *
+     * <p>Callers should check {@link #isSimulationActiveForLunarEclipse} once before walking a
+     * whole response tree; this method re-checks it anyway (cheap) so it is safe to call in
+     * isolation too.
+     *
+     * @param date      the window's date
+     * @param eventType the window's own event type
+     * @return the re-dated Dunstanburgh sight, or null
+     */
+    public BriefingSlot.EclipseSight simulatedSightFor(LocalDate date, TargetType eventType) {
+        if (!isSimulatedFor(date, eventType.name())) {
+            return null;
+        }
+        return buildSimulated(date);
+    }
+
     private boolean isSimulatedFor(LocalDate date, String eventTypeStr) {
-        return simulationService.isEnabled()
-                && simulationService.getActiveTypes().contains(TYPE)
+        // LunarEclipseCatalog.on(date).isEmpty() is part of the gate, not an incidental extra:
+        // without it, an admin simulating LUNAR_ECLIPSE on a date that happens to carry a REAL
+        // eclipse whose own window is the OTHER event type (e.g. a real SUNSET eclipse's date)
+        // would still overlay the fabricated SUNRISE sight on that date's SUNRISE slots, rather
+        // than staying absent the way every other non-matching window does. Simulation must never
+        // manufacture a sight on a date this catalogue already has a real answer for, in either of
+        // that date's windows.
+        return isSimulationActiveForLunarEclipse()
                 && SUNRISE.equals(eventTypeStr)
-                && date.equals(ForecastHorizon.today(clock));
+                && date.equals(ForecastHorizon.today(clock))
+                && LunarEclipseCatalog.on(date).isEmpty();
     }
 
     private BriefingSlot.EclipseSight buildReal(LunarEclipse eclipse, LocationEntity location,
@@ -169,8 +225,13 @@ public class EclipseSightAssembler {
      * changes {@link #SIMULATED_ECLIPSE_DATE} to a template whose span crosses midnight, this
      * method would silently misorder the re-dated result</b> — re-verify that invariant before
      * changing the constant, the same discipline the catalogue's own entries are held to.
+     *
+     * <p>Takes no {@code LocationEntity}: this is a serve-time overlay over already-built
+     * {@link BriefingSlot}s, which carry a name/id, not coordinates — see this class's own
+     * javadoc. The light stops below are therefore Dunstanburgh's own too, re-dated exactly like
+     * the moon geometry, rather than computed per the location the sight ends up attached to.
      */
-    private BriefingSlot.EclipseSight buildSimulated(LocationEntity location, LocalDate date) {
+    private BriefingSlot.EclipseSight buildSimulated(LocalDate date) {
         LunarEclipse template = LunarEclipseCatalog.on(SIMULATED_ECLIPSE_DATE)
                 .orElseThrow(() -> new IllegalStateException(
                         "the simulated lunar eclipse date is not catalogued: " + SIMULATED_ECLIPSE_DATE));
@@ -192,7 +253,7 @@ public class EclipseSightAssembler {
                     + umbraStart + " maximum=" + maximum + " umbraEnd=" + umbraEnd);
         }
 
-        List<BriefingSlot.LightStop> stops = dawnStops(location.getLat(), location.getLon(), date);
+        List<BriefingSlot.LightStop> stops = dawnStops(SIMULATED_LAT, SIMULATED_LON, date);
         String race = race(DAWN, umbraEnd.isAfter(stops.get(0).time().minusMinutes(RACE_WINDOW_MINUTES)));
 
         return new BriefingSlot.EclipseSight(TYPE, sight.moonAltAtMax(), sight.moonAzAtMax(),
