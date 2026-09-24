@@ -774,6 +774,61 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
       expect(chip).toHaveTextContent('Lunar eclipse05:13');
     });
 
+    /**
+     * ⚠️ Found by Codex review of #915 (P1): `.wf-hc-tw`'s base rule clips its content as ONE
+     * `nowrap`/`ellipsis` run, so at the supported ~137px card width a long label ("Deep partial
+     * eclipse") already fills the chip and the trailing clock is clipped away with it — invisible
+     * here, since jsdom does no layout and never measures an actual card width. These tests pin
+     * the DOM SHAPE the fix depends on (a separate, non-shrinking clock node and a separately
+     * ellipsized label) rather than the pixel outcome, which is a browser-only claim — see the
+     * real-browser `getBoundingClientRect` check in the L3 changelog entry / PR description.
+     */
+    it('renders the clock as a SEPARATE node from the label, never a second text run inside it', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          badges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', eventTime: '05:13', rarityRank: 2 }],
+        })],
+        hotTopics: [LUNAR_ECLIPSE_TOPIC],
+      });
+      const label = screen.getByTestId('wf-heat-topic-label');
+      const clock = screen.getByTestId('wf-heat-topic-clock');
+      // Two distinct elements, not one span with two text nodes — the clock has to be its own
+      // flex item to be reservable with `flex: none`.
+      expect(label).not.toBe(clock);
+      expect(label.tagName).toBe('SPAN');
+      expect(clock.tagName).toBe('EM');
+      expect(label).toHaveTextContent('Lunar eclipse');
+      expect(label).not.toHaveTextContent('05:13');
+      expect(clock).toHaveTextContent('05:13');
+      expect(clock).not.toHaveTextContent('Lunar eclipse');
+    });
+
+    it('gives the label its own ellipsis class, distinct from the chip\'s own base clipping', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          badges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', eventTime: '05:13', rarityRank: 2 }],
+        })],
+        hotTopics: [LUNAR_ECLIPSE_TOPIC],
+      });
+      expect(screen.getByTestId('wf-heat-topic-label')).toHaveClass('wf-hc-clocked-label');
+      // The chip's OWN class list carries no `nowrap`/ellipsis styling class of its own beyond
+      // the shared `wf-hc-tw` base — the point of the fix is that clipping moved from the whole
+      // chip (which would have taken the clock with it) onto the label alone.
+      expect(screen.getByTestId('wf-heat-topic')).not.toHaveClass('wf-hc-clocked-label');
+    });
+
+    it('an UNCLOCKED chip keeps its plain single-node shape — no label wrapper, no clock node', async () => {
+      await renderStrip({
+        cards: [ratedCard({ badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 }] })],
+        hotTopics: [TIDE_TOPIC],
+      });
+      const chip = screen.getByTestId('wf-heat-topic');
+      expect(chip).not.toHaveClass('wf-hc-clocked');
+      expect(screen.queryByTestId('wf-heat-topic-label')).toBeNull();
+      expect(screen.queryByTestId('wf-heat-topic-clock')).toBeNull();
+      expect(chip).toHaveTextContent('King tide');
+    });
+
     it('prints the solar ECLIPSE badge\'s own eventTime too (§6 Q8 — identical reasoning)', async () => {
       await renderStrip({
         cards: [ratedCard({

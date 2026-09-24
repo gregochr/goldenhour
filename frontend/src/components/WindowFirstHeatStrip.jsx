@@ -1209,6 +1209,15 @@ export default function WindowFirstHeatStrip({
                   // The clocked chip (lunar-eclipse-plan.md §2.6) — a badge whose own clock is a
                   // DIFFERENT instant from the window's (both eclipse types) prints it after a
                   // divider in the tide chip's emphasised shape. Every other badge is unchanged.
+                  //
+                  // ⚠️ The clock is a SEPARATE, non-shrinking flex item from the label, never a
+                  // second text node inside the same ellipsis-clipped span. `.wf-hc-tw`'s base
+                  // rule clips the WHOLE element's content as one run — at the supported ~137px
+                  // card width a label such as "Deep partial eclipse" already fills the chip, so
+                  // the trailing time was clipped along with it (found by review of #915 — the
+                  // clock rendered in tests, which stub layout, but never at the actual card
+                  // width). `.wf-hc-clocked-label` ellipsizes on its own, shrinkable; the clock
+                  // is reserved (`flex: none`) so it is never the thing that gives way.
                   const clock = chipClock(badge);
                   return (
                     <span
@@ -1218,7 +1227,11 @@ export default function WindowFirstHeatStrip({
                       className={`wf-hc-tw${clock ? ' wf-hc-clocked' : ''}`}
                       title={badge.detail ? `${badge.label} — ${badge.detail}` : badge.label}
                     >
-                      {badge.label}
+                      {clock ? (
+                        <span data-testid="wf-heat-topic-label" className="wf-hc-clocked-label">
+                          {badge.label}
+                        </span>
+                      ) : badge.label}
                       {clock && (
                         <em data-testid="wf-heat-topic-clock" className="wf-hc-clocked-time">
                           {clock}

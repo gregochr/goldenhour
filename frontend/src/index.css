@@ -2140,6 +2140,23 @@ button.wf-hc.on:hover {
    channel: `.wf-hc-clocked` alone would recolour a future clocked type in a different channel with
    this eclipse hue, which is not the claim it would be making. */
 .wf-hc-tw.wf-hc-clocked[data-channel="eclipse"] {
+  /* ⚠️ display/overflow OVERRIDE the base `.wf-hc-tw` rule (found missing by review of #915,
+     P1): that rule clips `nowrap`/`ellipsis` across the WHOLE element as one run of content, so
+     at the supported ~137px card width a label like "Deep partial eclipse" already fills the
+     chip and the trailing clock was clipped away with it — invisible to a jsdom test, which
+     stubs layout and never measures an actual card width. The chip is a flex row instead: the
+     label (`.wf-hc-clocked-label`) is the one item allowed to shrink and ellipsize, the clock
+     (`.wf-hc-clocked-time`) is `flex: none` so it is never the one that gives way. */
+  display: inline-flex;
+  align-items: baseline;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  /* The chip is itself a shrinkable flex ITEM of `.wf-hc-tps` (a wrapping flex row) — without
+     this, its own default `min-width: auto` would be set by its content's intrinsic size before
+     the inner label ever gets a chance to ellipsize, and the label's `min-width: 0` alone would
+     do nothing. */
+  min-width: 0;
   padding: 1px 8px;
   margin: -1px -2px;
   border-radius: 999px;
@@ -2147,7 +2164,15 @@ button.wf-hc.on:hover {
   box-shadow: inset 0 0 0 1px rgba(196, 120, 127, 0.42);
   color: #E3AEB3;
 }
+.wf-hc-clocked-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
 .wf-hc-clocked-time {
+  flex: none;
   font-style: normal;
   font-weight: 600;
   padding-left: 6px;
