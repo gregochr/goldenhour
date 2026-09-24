@@ -90,6 +90,12 @@ class LunarEclipseAlmanacSourceTest {
         return events.get(0);
     }
 
+    private AlmanacEvent entryOn(LocalDate date) {
+        List<AlmanacEvent> events = source.events(date, date);
+        assertThat(events).hasSize(1);
+        return events.get(0);
+    }
+
     @Nested
     @DisplayName("The entry it emits")
     class Entry {
@@ -151,6 +157,66 @@ class LunarEclipseAlmanacSourceTest {
                             + " turns copper. Maximum is at 05:12 with the moon 8° above the WSW"
                             + " horizon, and it sets at 06:16 still in shadow. A low, clear horizon"
                             + " is worth more than a dark site.");
+        }
+    }
+
+    @Nested
+    @DisplayName("Magnitude bands — never an impossible percentage, never the wrong depth's copy")
+    class MagnitudeBands {
+
+        @Test
+        @DisplayName("a TOTAL eclipse (2028-12-31, magnitude 1.24785) reads 'total', never a percentage")
+        void totalEclipseReadsTotal() {
+            LocalDate day = LocalDate.of(2028, 12, 31);
+            LunarEclipse eclipse = eclipseOn(day);
+            stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON));
+            when(calculator.sight(eq(eclipse), eq(BAMBURGH_LAT), eq(BAMBURGH_LON))).thenReturn(
+                    visibleSight(20, 90, "E", LocalDateTime.of(2028, 12, 31, 20, 0), true,
+                            LocalDateTime.of(2028, 12, 31, 15, 7), LocalDateTime.of(2028, 12, 31, 20, 0)));
+
+            AlmanacEvent event = entryOn(day);
+
+            assertThat(event.title()).isEqualTo("Total lunar eclipse");
+            assertThat(event.meta()).containsEntry("magnitude", "total");
+            assertThat(event.meta().get("magnitude")).doesNotContain("%");
+            assertThat(event.detail())
+                    .startsWith("Earth's shadow covers the whole moon, and the shadowed disc turns"
+                            + " copper.")
+                    .doesNotContain("%")
+                    .doesNotContain("sliver");
+        }
+
+        @Test
+        @DisplayName("a SLIGHT eclipse (2028-01-12, magnitude 0.0679) reads '7% in shadow', never "
+                + "the deep-partial 'all but a sliver' copy")
+        void slightEclipseReadsSevenPercent() {
+            LocalDate day = LocalDate.of(2028, 1, 12);
+            LunarEclipse eclipse = eclipseOn(day);
+            stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON));
+            when(calculator.sight(eq(eclipse), eq(BAMBURGH_LAT), eq(BAMBURGH_LON))).thenReturn(
+                    visibleSight(35, 90, "E", null, false,
+                            LocalDateTime.of(2028, 1, 12, 3, 44), LocalDateTime.of(2028, 1, 12, 4, 41)));
+
+            AlmanacEvent event = entryOn(day);
+
+            assertThat(event.title()).isEqualTo("Slight partial lunar eclipse");
+            assertThat(event.meta()).containsEntry("magnitude", "7% in shadow");
+            assertThat(event.detail())
+                    .startsWith("Earth's shadow clips 7% of the moon's edge — a darkened bite rather"
+                            + " than a copper disc.")
+                    .doesNotContain("sliver");
+        }
+
+        @Test
+        @DisplayName("the DEEP band (2026-08-28, magnitude 0.93187) still reads '93%', unaffected "
+                + "by the TOTAL/SLIGHT fix")
+        void deepEclipseIsUnaffected() {
+            stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON));
+            when(calculator.sight(eq(eclipseOn(ECLIPSE_DAY)), eq(BAMBURGH_LAT), eq(BAMBURGH_LON))).thenReturn(
+                    visibleSight(8, 241, "WSW", LocalDateTime.of(2026, 8, 28, 6, 16), true,
+                            LocalDateTime.of(2026, 8, 28, 3, 33), LocalDateTime.of(2026, 8, 28, 6, 16)));
+
+            assertThat(entryOn(ECLIPSE_DAY).meta()).containsEntry("magnitude", "93% in shadow");
         }
     }
 

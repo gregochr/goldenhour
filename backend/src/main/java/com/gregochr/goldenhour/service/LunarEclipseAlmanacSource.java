@@ -44,9 +44,6 @@ public class LunarEclipseAlmanacSource implements AlmanacSource {
     /** Machine-readable discriminator. */
     static final String TYPE = "lunar-eclipse";
 
-    /** Magnitude at or above which the title reads "deep partial" rather than "partial". */
-    private static final double DEEP_PARTIAL_MAGNITUDE = 0.80;
-
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter NEXT_DATE_FORMAT =
@@ -120,11 +117,17 @@ public class LunarEclipseAlmanacSource implements AlmanacSource {
                 .orElseThrow();
         int visibleCount = seen.size();
         LunarEclipseSight sight = b.sight();
+        // TOTAL reads "total", never a percentage — a total eclipse's own magnitude runs past 1.0
+        // (LunarEclipseWording's own javadoc), so an un-capped percentage here is exactly the
+        // impossible "125% in shadow" Codex review of PR #913 found.
+        String magnitudeMeta = LunarEclipseWording.depthOf(eclipse) == LunarEclipseWording.Depth.TOTAL
+                ? "total"
+                : LunarEclipseWording.coveragePct(eclipse) + "% in shadow";
         return Optional.of(new AlmanacEvent(
                 eclipse.date(), eclipse.date(), AlmanacKind.ALMANAC, TYPE,
                 title(eclipse), detail(eclipse, sight),
                 AlmanacEvent.metaOf(
-                        "magnitude", percentInShadow(eclipse) + "% in shadow",
+                        "magnitude", magnitudeMeta,
                         "maximum", londonTime(eclipse.max()) + " · moon " + sight.moonAzCardinal()
                                 + " " + sight.moonAzAtMax() + "°, " + sight.moonAltAtMax() + "° up",
                         "shadow", "in shadow " + shadowLine(eclipse, sight),
@@ -136,11 +139,12 @@ public class LunarEclipseAlmanacSource implements AlmanacSource {
     }
 
     private static String title(LunarEclipse eclipse) {
-        if (eclipse.kind() == LunarEclipseCatalog.Kind.TOTAL) {
-            return "Total lunar eclipse";
-        }
-        return eclipse.umbralMagnitude() >= DEEP_PARTIAL_MAGNITUDE
-                ? "Deep partial lunar eclipse" : "Partial lunar eclipse";
+        return switch (LunarEclipseWording.depthOf(eclipse)) {
+            case TOTAL -> "Total lunar eclipse";
+            case DEEP -> "Deep partial lunar eclipse";
+            case PARTIAL -> "Partial lunar eclipse";
+            case SLIGHT -> "Slight partial lunar eclipse";
+        };
     }
 
     private static String datesOnlyDetail() {
@@ -152,18 +156,20 @@ public class LunarEclipseAlmanacSource implements AlmanacSource {
     }
 
     /**
-     * The "why" paragraph — the design's own §1 text (verbatim in shape, with every figure
-     * substituted from this eclipse's own catalogue and geometry rather than the worked example's).
-     * {@code ComingUpAssembler.markFirstOfType} copies this into the Coming-up card's {@code prose}
-     * for the first occurrence of {@code lunar-eclipse} in the window — the same generic mechanism
-     * every other almanac type's prose already goes through, so nothing lunar-specific is needed on
-     * the assembler side for this field.
+     * The "why" paragraph — the design's own §1 shape (with every figure substituted from this
+     * eclipse's own catalogue and geometry rather than the worked example's), opening with
+     * {@link LunarEclipseWording#shadowClause} rather than a hard-coded deep-partial sentence: the
+     * design's "all but a sliver" copy is only true for a DEEP eclipse, and printing it for the
+     * 2028-01-12 eclipse (magnitude 0.0679, ~7% of the Moon's diameter) was Codex review's second
+     * finding against PR #913. {@code ComingUpAssembler.markFirstOfType} copies this into the
+     * Coming-up card's {@code prose} for the first occurrence of {@code lunar-eclipse} in the
+     * window — the same generic mechanism every other almanac type's prose already goes through,
+     * so nothing lunar-specific is needed on the assembler side for this field.
      */
     private static String detail(LunarEclipse eclipse, LunarEclipseSight sight) {
-        return "Earth's shadow covers all but a sliver of the full moon, and the shadowed part turns"
-                + " copper. Maximum is at " + londonTime(eclipse.max()) + " with the moon "
-                + sight.moonAltAtMax() + "° above the " + sight.moonAzCardinal() + " horizon"
-                + closingClause(sight) + " A low, clear horizon is worth more than a dark site.";
+        return LunarEclipseWording.shadowClause(eclipse) + " Maximum is at " + londonTime(eclipse.max())
+                + " with the moon " + sight.moonAltAtMax() + "° above the " + sight.moonAzCardinal()
+                + " horizon" + closingClause(sight) + " A low, clear horizon is worth more than a dark site.";
     }
 
     private static String closingClause(LunarEclipseSight sight) {
@@ -215,10 +221,6 @@ public class LunarEclipseAlmanacSource implements AlmanacSource {
             }
         }
         return previous == null ? null : SINCE_MONTH_FORMAT.format(previous);
-    }
-
-    private static int percentInShadow(LunarEclipse eclipse) {
-        return (int) Math.round(eclipse.umbralMagnitude() * 100);
     }
 
     private static String londonTime(LocalDateTime utc) {

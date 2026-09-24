@@ -40,9 +40,11 @@ import java.util.Optional;
  * "Partial" (the depth genuinely differs by location, so the label is a claim about the roster's
  * best view), a lunar eclipse's magnitude is a single catalogue fact true everywhere it is visible
  * at all. The Plan-tab label is therefore the constant {@code "Lunar eclipse"} on every surface
- * (plan {@code lunar-eclipse-plan.md} §4 #2); the kind still reaches the reader, in the Coming-up
- * feed's title ({@link LunarEclipseAlmanacSource}) — this pill's own {@link #detail} states
- * percentage in shadow and geometry, never the kind.
+ * (plan {@code lunar-eclipse-plan.md} §4 #2), never a depth word — the depth-labelled title
+ * ("Total"/"Deep partial"/"Partial"/"Slight partial") reaches the reader only in the Coming-up
+ * feed's title ({@link LunarEclipseAlmanacSource}). This pill's own {@link #detail} states the
+ * coverage figure ({@link LunarEclipseWording#coveragePct}, or "totally eclipsed" for a TOTAL
+ * eclipse — see {@link LunarEclipseWording}) rather than a depth label.
  *
  * <h2>Why the topic disappears the moment it is over</h2>
  *
@@ -71,17 +73,6 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
      */
     private static final String EXPOSURE_NOTE =
             "No filter needed — bracket, the shadow is ~10 stops under the lit edge";
-
-    /**
-     * The popup's (i) tip body — the design's own "WHY IT TURNS COPPER, NOT BLACK" paragraph,
-     * verbatim, with the magnitude figure substituted per eclipse.
-     */
-    private static final String COPPER_EXPLANATION =
-            "Earth's atmosphere bends a little sunlight into its own shadow and filters out the blue"
-                    + " on the way, so the shadowed moon glows the colour of every sunrise and sunset"
-                    + " on Earth at once. %d%% is a fraction of the moon's diameter in shadow, not its"
-                    + " area. The lit sliver on the lower-left edge will still be much the brightest"
-                    + " thing in the frame.";
 
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
@@ -214,12 +205,16 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * The pill's one-line detail: percentage in shadow, the clock time of maximum, the Moon's
-     * altitude and bearing, and — where it says something the fact chips do not — whether and when
-     * the Moon sets while still eclipsed.
+     * The pill's one-line detail: how much of the Moon is in shadow (or, for a TOTAL eclipse,
+     * simply that it is total — see {@link LunarEclipseWording}), the clock time of maximum, the
+     * Moon's altitude and bearing, and — where it says something the fact chips do not — whether
+     * and when the Moon sets while still eclipsed.
      */
     private String detail(LunarEclipse eclipse, LunarEclipseSight sight) {
-        String base = percentInShadow(eclipse) + "% in shadow at " + londonTime(eclipse.max())
+        String coverage = LunarEclipseWording.depthOf(eclipse) == LunarEclipseWording.Depth.TOTAL
+                ? "totally eclipsed"
+                : LunarEclipseWording.coveragePct(eclipse) + "% in shadow";
+        String base = coverage + " at " + londonTime(eclipse.max())
                 + ", moon " + sight.moonAltAtMax() + "° above " + sight.moonAzCardinal();
         if (sight.setsInShadow()) {
             return base + ", sets " + localTime(sight.moonset()) + " still in shadow";
@@ -239,19 +234,46 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * The (i) tooltip body — the design's own science paragraph, with the magnitude substituted so
-     * a partial and a total eclipse each state their own figure.
+     * The (i) tooltip body — the design's "WHY IT TURNS COPPER, NOT BLACK" science paragraph,
+     * band-branched via {@link LunarEclipseWording} so a total eclipse never claims a "lit sliver"
+     * that does not exist, and a barely-visible one never claims "all but a sliver" (Codex review
+     * of PR #913). The opening sentence is {@link LunarEclipseWording#shadowClause}, shared with
+     * {@link LunarEclipseAlmanacSource}'s Coming-up prose; the rest is this tooltip's own — the two
+     * surfaces serve different questions ("why does it turn copper" here, "should I go" there) and
+     * are not required to read identically beyond the shared opening and the shared figures.
      */
     private String description(LunarEclipse eclipse) {
-        return String.format(Locale.UK, COPPER_EXPLANATION, percentInShadow(eclipse));
+        String lead = LunarEclipseWording.shadowClause(eclipse);
+        int pct = LunarEclipseWording.coveragePct(eclipse);
+        return switch (LunarEclipseWording.depthOf(eclipse)) {
+            case TOTAL -> lead + " Earth's atmosphere bends a little sunlight into its own shadow and"
+                    + " filters out the blue on the way, so a totally eclipsed moon glows the colour"
+                    + " of every sunrise and sunset on Earth at once.";
+            case DEEP -> lead + " Earth's atmosphere bends a little sunlight into its own shadow and"
+                    + " filters out the blue on the way, so the shadowed moon glows the colour of"
+                    + " every sunrise and sunset on Earth at once. " + pct + "% is a fraction of the"
+                    + " moon's diameter in shadow, not its area. The lit sliver on the lower-left"
+                    + " edge will still be much the brightest thing in the frame.";
+            case PARTIAL -> lead + " Earth's atmosphere bends a little sunlight into its own shadow"
+                    + " and filters out the blue on the way, so the shadowed part glows the colour of"
+                    + " every sunrise and sunset on Earth at once. " + pct + "% is a fraction of the"
+                    + " moon's diameter in shadow, not its area.";
+            case SLIGHT -> lead + " Earth's atmosphere still bends a little sunlight into its own"
+                    + " shadow, but at this depth the tint is a subtle warming along the bite's edge"
+                    + " rather than a full copper glow. " + pct + "% is a fraction of the moon's"
+                    + " diameter in shadow, not its area.";
+        };
     }
 
     private List<HotTopicFact> facts(LunarEclipse eclipse, LunarEclipseSight sight, int visibleCount,
             int rosterSize) {
         List<HotTopicFact> facts = new ArrayList<>();
 
+        String coverageLabel = LunarEclipseWording.depthOf(eclipse) == LunarEclipseWording.Depth.TOTAL
+                ? "total"
+                : LunarEclipseWording.coveragePct(eclipse) + "% in shadow";
         facts.add(HotTopicFact.directional("max",
-                percentInShadow(eclipse) + "% in shadow · moon " + sight.moonAltAtMax() + "° up",
+                coverageLabel + " · moon " + sight.moonAltAtMax() + "° up",
                 sight.moonAzCardinal(),
                 true));
 
@@ -279,11 +301,6 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
         }
         String kindWord = "total".equals(eclipse.nextComparableKind()) ? "a total eclipse" : "a partial eclipse";
         return "next from the UK: " + kindWord + ", " + NEXT_DATE_FORMAT.format(eclipse.nextComparable());
-    }
-
-    /** The umbral magnitude as a whole-number percentage, rounded to the nearest point. */
-    private static int percentInShadow(LunarEclipse eclipse) {
-        return (int) Math.round(eclipse.umbralMagnitude() * 100);
     }
 
     private String londonTime(LocalDateTime utc) {

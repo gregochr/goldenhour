@@ -55,6 +55,9 @@ class LunarEclipseHotTopicStrategyTest {
     /** 2029-12-20 total — the catalogue's last entry, so {@code nextComparable} is null. */
     private static final LocalDate LAST_ECLIPSE_DAY = LocalDate.of(2029, 12, 20);
 
+    /** 2028-01-12 partial, magnitude 0.0679 — the SLIGHT band, ~7% of the Moon's diameter. */
+    private static final LocalDate SLIGHT_ECLIPSE_DAY = LocalDate.of(2028, 1, 12);
+
     private static final double BAMBURGH_LAT = 55.6089;
     private static final double BAMBURGH_LON = -1.7188;
     private static final double SCILLY_LAT = 49.9160;
@@ -326,6 +329,79 @@ class LunarEclipseHotTopicStrategyTest {
 
             assertThat(factWithKey(detectOne(ECLIPSE_DAY), "seen from").value())
                     .isEqualTo("1 of 2 sites");
+        }
+    }
+
+    @Nested
+    @DisplayName("Magnitude bands — never an impossible percentage, never the wrong depth's copy")
+    class MagnitudeBands {
+
+        @BeforeEach
+        void setUp() {
+            stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON, "Northumberland"));
+            stubStillAhead();
+        }
+
+        @Test
+        @DisplayName("a TOTAL eclipse (2028-12-31, magnitude 1.24785) never prints a percentage — "
+                + "'totally eclipsed', 'total', and no bare number in the tooltip")
+        void totalEclipseNeverPrintsAPercentage() {
+            LunarEclipse eclipse = eclipseOn(SUNSET_ECLIPSE_DAY);
+            when(calculator.sight(eq(eclipse), eq(BAMBURGH_LAT), eq(BAMBURGH_LON))).thenReturn(
+                    setsInShadowSight(20, 90, "E", LocalDateTime.of(2028, 12, 31, 20, 0),
+                            LocalDateTime.of(2028, 12, 31, 15, 7), LocalDateTime.of(2028, 12, 31, 20, 0)));
+
+            HotTopic topic = detectOne(SUNSET_ECLIPSE_DAY);
+
+            assertThat(topic.detail()).contains("totally eclipsed").doesNotContain("%");
+            assertThat(factWithKey(topic, "max").value()).startsWith("total ·").doesNotContain("%");
+            assertThat(topic.description())
+                    .isEqualTo("Earth's shadow covers the whole moon, and the shadowed disc turns"
+                            + " copper. Earth's atmosphere bends a little sunlight into its own"
+                            + " shadow and filters out the blue on the way, so a totally eclipsed"
+                            + " moon glows the colour of every sunrise and sunset on Earth at once.")
+                    .doesNotContain("%")
+                    .doesNotContain("sliver");
+        }
+
+        @Test
+        @DisplayName("a SLIGHT eclipse (2028-01-12, magnitude 0.0679) reads '7% in shadow', never "
+                + "the deep-partial 'all but a sliver' copy")
+        void slightEclipseReadsSevenPercent() {
+            LunarEclipse eclipse = eclipseOn(SLIGHT_ECLIPSE_DAY);
+            when(calculator.sight(eq(eclipse), eq(BAMBURGH_LAT), eq(BAMBURGH_LON))).thenReturn(
+                    neverSetsSight(35, 90, "E",
+                            LocalDateTime.of(2028, 1, 12, 3, 44), LocalDateTime.of(2028, 1, 12, 4, 41)));
+
+            HotTopic topic = detectOne(SLIGHT_ECLIPSE_DAY);
+
+            assertThat(topic.detail()).startsWith("7% in shadow at");
+            assertThat(factWithKey(topic, "max").value()).isEqualTo("7% in shadow · moon 35° up");
+            assertThat(topic.description())
+                    .startsWith("Earth's shadow clips 7% of the moon's edge — a darkened bite rather"
+                            + " than a copper disc.")
+                    .doesNotContain("sliver")
+                    .contains("7% is a fraction of the moon's diameter in shadow, not its area.");
+        }
+
+        @Test
+        @DisplayName("a DEEP eclipse (2026-08-28, magnitude 0.93187) reads '93%' and the "
+                + "'all but a sliver' tooltip paragraph")
+        void deepEclipseReadsNinetyThreePercent() {
+            LunarEclipse eclipse = eclipseOn(ECLIPSE_DAY);
+            when(calculator.sight(eq(eclipse), eq(BAMBURGH_LAT), eq(BAMBURGH_LON))).thenReturn(
+                    setsInShadowSight(8, 241, "WSW", LocalDateTime.of(2026, 8, 28, 6, 16),
+                            LocalDateTime.of(2026, 8, 28, 3, 33), LocalDateTime.of(2026, 8, 28, 6, 16)));
+
+            HotTopic topic = detectOne(ECLIPSE_DAY);
+
+            assertThat(topic.detail()).startsWith("93% in shadow at");
+            assertThat(topic.description())
+                    .startsWith("Earth's shadow covers all but a sliver of the full moon, and the"
+                            + " shadowed part turns copper.")
+                    .contains("93% is a fraction of the moon's diameter in shadow, not its area.")
+                    .contains("The lit sliver on the lower-left edge will still be much the"
+                            + " brightest thing in the frame.");
         }
     }
 
