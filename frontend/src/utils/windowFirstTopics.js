@@ -76,9 +76,13 @@ import { windowKey } from './heatSpots.js';
  * supermoon, an equinox alignment or an eclipse, or none of it does — so none of them may be
  * scoped away by a region intersection. See the class comment for what their {@code regions}
  * actually carries.
+ *
+ * <p>{@code LUNAR_ECLIPSE} is a member for the same reason as {@code ECLIPSE}: the shadow's depth
+ * is the same everywhere, so its {@code regions} names visibility coverage, not an eligibility
+ * roster (lunar-eclipse-plan.md §2.1).
  */
 export const WHOLE_SKY_TOPIC_TYPES = new Set([
-  'AURORA', 'NLC', 'METEOR', 'SUPERMOON', 'EQUINOX', 'ECLIPSE',
+  'AURORA', 'NLC', 'METEOR', 'SUPERMOON', 'EQUINOX', 'ECLIPSE', 'LUNAR_ECLIPSE',
 ]);
 
 /**
@@ -91,7 +95,7 @@ export const WHOLE_SKY_TOPIC_TYPES = new Set([
  * instead of to a colour.
  *
  * <p>⚠️ <b>Fail-open makes an INCOMPLETE list silent, so the two sets must together cover the
- * backend's whole roster</b> ({@code TopicRarity.RANK_BY_TYPE}, sixteen types). An earlier cut
+ * backend's whole roster</b> ({@code TopicRarity.RANK_BY_TYPE}, seventeen types). An earlier cut
  * listed eight and omitted {@code SNOW_TOPS} — a live strategy whose {@code regions} is a genuine
  * eligibility roster ({@code PerDateHotTopicBuilder} dates each day's topic "carrying only its
  * regions") — so "Snow on the tops" was exempt from the intersection while its sibling
@@ -99,7 +103,7 @@ export const WHOLE_SKY_TOPIC_TYPES = new Set([
  * phenomenon treated oppositely, from a set that had lost a name.
  *
  * <p>The mirror is checked by {@code windowFirstTopics.test.js}, which holds its own literal copy of
- * the sixteen and asserts the union — so adding a name to one of these sets cannot satisfy the test
+ * the seventeen and asserts the union — so adding a name to one of these sets cannot satisfy the test
  * on its own, and neither can adding it to the test's list.
  */
 export const REGION_SCOPED_TOPIC_TYPES = new Set([
@@ -127,6 +131,31 @@ const EVENT_NIGHT = 'NIGHT';
  * which is exactly why one set could not answer both questions.
  */
 export const DAY_SCOPED_TOPIC_TYPES = new Set(['KING_TIDE', 'SPRING_TIDE']);
+
+/**
+ * The topic types whose badge carries a clock time for a DIFFERENT event from the window's own
+ * (lunar-eclipse-plan.md §2.6). A window's header already states its own solar event time; these
+ * two types anchor their badge's {@code eventTime} to the eclipse's own maximum instead, which can
+ * differ from the window's time by hours, so the chip states it rather than leaving it to the
+ * `Badge` javadoc's "never both side by side" rule — that rule is scoped to a badge whose clock IS
+ * the window's own event, which neither eclipse type's is.
+ */
+export const CLOCKED_TOPIC_TYPES = new Set(['ECLIPSE', 'LUNAR_ECLIPSE']);
+
+/**
+ * The clock to print on a topic chip, or null.
+ *
+ * <p>Only a {@link CLOCKED_TOPIC_TYPES} member with a served {@code eventTime} prints one — every
+ * other badge's chip carries its label alone, exactly as before this pair existed.
+ *
+ * @param {?{type?: string, eventTime?: ?string}} badge a served {@code Badge}
+ * @returns {?string} the badge's own `HH:mm`, or null
+ */
+export function chipClock(badge) {
+  const type = String(badge?.type || '').toUpperCase();
+  if (!CLOCKED_TOPIC_TYPES.has(type)) return null;
+  return badge?.eventTime ?? null;
+}
 
 /** Whether a topic type is exempt from the scope intersection — see the class comment. */
 export function isWholeSkyTopic(type) {

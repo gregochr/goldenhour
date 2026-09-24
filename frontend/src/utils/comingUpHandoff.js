@@ -62,6 +62,7 @@ const SWATCH_COLOR = {
   SUPERMOON: '#fbbf24',
   EQUINOX: '#fcd34d',
   ECLIPSE: '#C4787F',
+  LUNAR_ECLIPSE: '#C4787F',
   BLUEBELL: '#8b5cf6',
   CLEARANCE: '#fb923c',
   SNOW_FRESH: '#e0f2fe',

@@ -704,17 +704,22 @@ export function buildWindowCards(
  * being forced into the nearest one, because a badge's colour names its channel and a wrong colour
  * is a wrong claim. New topic types are therefore additive and fail quietly.
  *
- * <p>ECLIPSE is matched FIRST and exactly, ahead of the substring tests below it. Order matters
- * here in a way it does not for the others: the tests are substring matches on the whole type
- * string, so a future kind named for an eclipse of a different body — a lunar eclipse at a
- * coastal spot, say — must not be captured by whichever loose test happens to hit first.
+ * <p>ECLIPSE and LUNAR_ECLIPSE are matched FIRST and exactly, ahead of the substring tests below
+ * them. Order matters here in a way it does not for the others: the tests are substring matches on
+ * the whole type string, so a future kind named for an eclipse of a different body — a lunar
+ * eclipse at a coastal spot, say — must not be captured by whichever loose test happens to hit
+ * first. `LUNAR_ECLIPSE` shares the solar eclipse's channel by design (one channel, two types —
+ * lunar-eclipse-plan.md §2.1, §4 #1): every registry in this codebase is keyed on the type string
+ * already, so a shared `body` field would be more plumbing for the same touch count, and a fake
+ * type such as `LUNAR_ECLIPSE_TIDE` still falls through to the substring arms below because it is
+ * not an exact match — it stays on the `tide` channel, never `eclipse`.
  *
  * @param {string} type the topic type from the payload
  * @returns {'eclipse'|'tide'|'nlc'|'aurora'|'snow'|'plain'} the badge channel
  */
 export function badgeChannel(type) {
   const t = String(type || '').toUpperCase();
-  if (t === 'ECLIPSE') return 'eclipse';
+  if (t === 'ECLIPSE' || t === 'LUNAR_ECLIPSE') return 'eclipse';
   if (t.includes('TIDE') || t.includes('SURGE')) return 'tide';
   if (t.includes('NLC') || t.includes('NOCTILUCENT')) return 'nlc';
   if (t.includes('AURORA')) return 'aurora';

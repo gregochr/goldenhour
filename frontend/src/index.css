@@ -2134,6 +2134,51 @@ button.wf-hc.on:hover {
 .wf-hc-tw[data-channel="nlc"] { color: var(--color-badge-nlc); }
 .wf-hc-tw[data-channel="aurora"] { color: var(--color-badge-go); }
 .wf-hc-tw[data-channel="snow"] { color: var(--color-badge-snow); }
+/* The clocked chip (lunar-eclipse-plan.md §2.6) — a badge whose own clock is a DIFFERENT instant
+   from the window's (ECLIPSE, LUNAR_ECLIPSE — `CLOCKED_TOPIC_TYPES`) gets the tide chip's
+   emphasised pill, scoped to `[data-channel="eclipse"]` since every current member shares that
+   channel: `.wf-hc-clocked` alone would recolour a future clocked type in a different channel with
+   this eclipse hue, which is not the claim it would be making. */
+.wf-hc-tw.wf-hc-clocked[data-channel="eclipse"] {
+  /* ⚠️ display/overflow OVERRIDE the base `.wf-hc-tw` rule (found missing by review of #915,
+     P1): that rule clips `nowrap`/`ellipsis` across the WHOLE element as one run of content, so
+     at the supported ~137px card width a label like "Deep partial eclipse" already fills the
+     chip and the trailing clock was clipped away with it — invisible to a jsdom test, which
+     stubs layout and never measures an actual card width. The chip is a flex row instead: the
+     label (`.wf-hc-clocked-label`) is the one item allowed to shrink and ellipsize, the clock
+     (`.wf-hc-clocked-time`) is `flex: none` so it is never the one that gives way. */
+  display: inline-flex;
+  align-items: baseline;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  /* The chip is itself a shrinkable flex ITEM of `.wf-hc-tps` (a wrapping flex row) — without
+     this, its own default `min-width: auto` would be set by its content's intrinsic size before
+     the inner label ever gets a chance to ellipsize, and the label's `min-width: 0` alone would
+     do nothing. */
+  min-width: 0;
+  padding: 1px 8px;
+  margin: -1px -2px;
+  border-radius: 999px;
+  background: rgba(196, 120, 127, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(196, 120, 127, 0.42);
+  color: #E3AEB3;
+}
+.wf-hc-clocked-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.wf-hc-clocked-time {
+  flex: none;
+  font-style: normal;
+  font-weight: 600;
+  padding-left: 6px;
+  margin-left: 1px;
+  border-left: 1px solid rgba(196, 120, 127, 0.45);
+}
 /* The tide chip (tide-plan-card-plan.md §3 C2 task 3) — a sibling of the served topic chips above,
    sharing `.wf-hc-tw`'s type, clip and `[data-channel="tide"]` ink, with its own flex layout so the
    glyph and the two text runs sit on one baseline. */
