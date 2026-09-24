@@ -170,7 +170,13 @@ public record BriefingWindow(
      * <p>A badge's own clock time is a <em>different anchor</em> from its window's: the topic's is
      * computed from the first enabled location in its regions, the window's is the earliest slot
      * across every region, so the two can differ by minutes. Render one or the other, never both
-     * side by side.
+     * side by side. ⚠️ <b>That rule is scoped to a badge whose clock names the SAME solar event
+     * as the window's own</b> — the ordinary case, where the two figures could be mistaken for a
+     * disagreement about one instant. A badge of a type in the client's {@code CLOCKED_TOPIC_TYPES}
+     * (currently {@code ECLIPSE} and {@code LUNAR_ECLIPSE}) carries the clock of a wholly different
+     * event — an eclipse's own maximum, which a sunrise or sunset window's {@code eventTime} never
+     * claims to be — so stating both side by side is not the duplication the rule above forbids; it
+     * is the only way the reader learns the eclipse's own time at all (lunar-eclipse-plan.md §2.6).
      *
      * <p><b>{@code facts} is what lets a topic become an attribute row rather than a chip.</b> The
      * Plan card draws two kinds of surface for a topic: a header badge, which has room for the

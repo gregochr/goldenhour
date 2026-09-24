@@ -405,6 +405,30 @@ describe('WindowControl — the dropdown', () => {
   });
 });
 
+describe('WindowControl — the row\'s topic icons (lunar-eclipse-plan.md §2.1)', () => {
+  // `CHANNEL_ICON` is keyed by CHANNEL, not by topic type, so LUNAR_ECLIPSE needs no entry of its
+  // own here: `badgeChannel` already routes it onto the same 'eclipse' channel as the solar
+  // ECLIPSE type, and this pins that the row's icon reflects the shared channel rather than
+  // silently falling through to the neutral '•'.
+  it('gives a LUNAR_ECLIPSE badge the same row icon as ECLIPSE — one shared channel', () => {
+    const lunarEvents = [row({ badges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse' }] })];
+    const { unmount } = render(
+      <WindowControl events={lunarEvents} activeIndex={0} onSelect={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const lunarIcons = screen.getByTestId('wf-win-row').querySelector('.wf-win-row-topics').textContent;
+    unmount();
+
+    const solarEvents = [row({ badges: [{ type: 'ECLIPSE', label: 'Eclipse' }] })];
+    render(<WindowControl events={solarEvents} activeIndex={0} onSelect={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const solarIcons = screen.getByTestId('wf-win-row').querySelector('.wf-win-row-topics').textContent;
+
+    expect(lunarIcons).toBe(solarIcons);
+    expect(lunarIcons).toBe('●');
+  });
+});
+
 describe('WindowControl — keyboard, scoped to this control (never document-global)', () => {
   it('ArrowRight on the control steps forward', () => {
     const { onSelect } = renderControl({ activeIndex: 1 });

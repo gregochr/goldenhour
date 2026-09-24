@@ -20,7 +20,7 @@ import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
 import {
   buildSpread, poolPhrase, poolWithinReach, spreadBars, spreadTitle, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
-import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
+import { buildTopicIndex, chipClock, windowTopics } from '../utils/windowFirstTopics.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { leaveBy } from '../utils/leaveBy.js';
 import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
@@ -1009,7 +1009,13 @@ export default function WindowFirstHeatStrip({
       // in the topics line. Absent whenever the chip is (below the gate, or away), never a separate
       // predicate from the one that gates the visible chip.
       .concat(card.away || !facts.tideChip ? [] : [facts.tideChip.accessible])
-      .concat(card.away ? [] : facts.topics.map((t) => t.badge.label).filter(Boolean))
+      // A clocked topic (lunar-eclipse-plan.md §2.6) states its own instant here too — the chip's
+      // divider is `aria-hidden`, so "Lunar eclipse at 05:13" is this sentence's only route to a
+      // screen reader, built from the SAME `chipClock` read the visible chip renders from.
+      .concat(card.away ? [] : facts.topics.map(({ badge }) => {
+        const clock = chipClock(badge);
+        return clock ? `${badge.label} at ${clock}` : badge.label;
+      }).filter(Boolean))
       .concat(card.pickKind === 'best' ? ['best bet'] : [])
       .concat(card.pickKind === 'also' ? ['also good'] : [])
       .join(', ');
@@ -1199,17 +1205,28 @@ export default function WindowFirstHeatStrip({
                     )}
                   </span>
                 )}
-                {facts.topics.map(({ badge }) => (
-                  <span
-                    key={`${badge.type}:${badge.label}`}
-                    data-testid="wf-heat-topic"
-                    data-channel={badgeChannel(badge.type)}
-                    className="wf-hc-tw"
-                    title={badge.detail ? `${badge.label} — ${badge.detail}` : badge.label}
-                  >
-                    {badge.label}
-                  </span>
-                ))}
+                {facts.topics.map(({ badge }) => {
+                  // The clocked chip (lunar-eclipse-plan.md §2.6) — a badge whose own clock is a
+                  // DIFFERENT instant from the window's (both eclipse types) prints it after a
+                  // divider in the tide chip's emphasised shape. Every other badge is unchanged.
+                  const clock = chipClock(badge);
+                  return (
+                    <span
+                      key={`${badge.type}:${badge.label}`}
+                      data-testid="wf-heat-topic"
+                      data-channel={badgeChannel(badge.type)}
+                      className={`wf-hc-tw${clock ? ' wf-hc-clocked' : ''}`}
+                      title={badge.detail ? `${badge.label} — ${badge.detail}` : badge.label}
+                    >
+                      {badge.label}
+                      {clock && (
+                        <em data-testid="wf-heat-topic-clock" className="wf-hc-clocked-time">
+                          {clock}
+                        </em>
+                      )}
+                    </span>
+                  );
+                })}
               </span>
             </>
           )}

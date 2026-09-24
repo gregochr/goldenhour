@@ -750,6 +750,86 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
     expect(screen.getByTestId('wf-heat-topic')).toHaveAttribute('data-channel', 'tide');
   });
 
+  /**
+   * The clocked chip (lunar-eclipse-plan.md §2.6) — a badge whose own clock is a different
+   * instant from the window's (both eclipse types) prints it after a divider, in the tide chip's
+   * emphasised shape. Every other badge's chip is unchanged.
+   */
+  describe('the clocked chip', () => {
+    const LUNAR_ECLIPSE_TOPIC = {
+      type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', date: TODAY, eventType: 'SUNSET',
+      regions: [], rarityRank: 2,
+    };
+
+    it('prints a LUNAR_ECLIPSE badge\'s own eventTime after a divider', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          badges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', eventTime: '05:13', rarityRank: 2 }],
+        })],
+        hotTopics: [LUNAR_ECLIPSE_TOPIC],
+      });
+      const chip = screen.getByTestId('wf-heat-topic');
+      expect(chip).toHaveClass('wf-hc-clocked');
+      expect(screen.getByTestId('wf-heat-topic-clock')).toHaveTextContent('05:13');
+      expect(chip).toHaveTextContent('Lunar eclipse05:13');
+    });
+
+    it('prints the solar ECLIPSE badge\'s own eventTime too (§6 Q8 — identical reasoning)', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          badges: [{ type: 'ECLIPSE', label: 'Eclipse', eventTime: '18:45', rarityRank: 1 }],
+        })],
+        hotTopics: [{
+          type: 'ECLIPSE', label: 'Eclipse', date: TODAY, eventType: 'SUNSET', regions: [], rarityRank: 1,
+        }],
+      });
+      expect(screen.getByTestId('wf-heat-topic')).toHaveClass('wf-hc-clocked');
+      expect(screen.getByTestId('wf-heat-topic-clock')).toHaveTextContent('18:45');
+    });
+
+    it('renders NO clock for a SUPERMOON badge carrying an eventTime', async () => {
+      // A badge outside CLOCKED_TOPIC_TYPES never prints its eventTime as a chip clause, whatever
+      // the payload carries — only ECLIPSE and LUNAR_ECLIPSE are listed.
+      await renderStrip({
+        cards: [ratedCard({
+          badges: [{ type: 'SUPERMOON', label: 'Supermoon', eventTime: '21:30', rarityRank: 3 }],
+        })],
+        hotTopics: [{
+          type: 'SUPERMOON', label: 'Supermoon', date: TODAY, eventType: 'NIGHT', regions: [], rarityRank: 3,
+        }],
+      });
+      const chip = screen.getByTestId('wf-heat-topic');
+      expect(chip).not.toHaveClass('wf-hc-clocked');
+      expect(screen.queryByTestId('wf-heat-topic-clock')).toBeNull();
+      expect(chip).toHaveTextContent('Supermoon');
+      expect(chip).not.toHaveTextContent('21:30');
+    });
+
+    it('renders no clock when a CLOCKED_TOPIC_TYPES badge carries no eventTime', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          badges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', rarityRank: 2 }],
+        })],
+        hotTopics: [LUNAR_ECLIPSE_TOPIC],
+      });
+      const chip = screen.getByTestId('wf-heat-topic');
+      expect(chip).not.toHaveClass('wf-hc-clocked');
+      expect(screen.queryByTestId('wf-heat-topic-clock')).toBeNull();
+    });
+
+    it('names the clocked topic\'s own instant in the accessible name', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          badges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', eventTime: '05:13', rarityRank: 2 }],
+        })],
+        hotTopics: [LUNAR_ECLIPSE_TOPIC],
+      });
+      expect(screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
+      })).toBeInTheDocument();
+    });
+  });
+
   it('drops a region-scoped topic when the origin scopes its regions away', async () => {
     // Planning from a region the king tide does not name drops it by itself — A8's whole point.
     await renderStrip({

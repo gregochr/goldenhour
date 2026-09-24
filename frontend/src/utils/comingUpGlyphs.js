@@ -6,7 +6,7 @@ export const FAMILY_GLYPHS = {
   dust: '🏜️', air: '☁️', eclipse: '◐',
 };
 /* wire-type overrides within a family — the moon events read as moon, not sun */
-const TYPE_GLYPHS = { supermoon: '🌙' };
+const TYPE_GLYPHS = { supermoon: '🌙', 'lunar-eclipse': '🌘' };
 export const entryGlyph = (entry) =>
   TYPE_GLYPHS[entry?.type] ?? FAMILY_GLYPHS[entry?.family] ?? null;
 /* filter chips (utils/comingUpFeed.js chip ids); 'all' deliberately carries none */

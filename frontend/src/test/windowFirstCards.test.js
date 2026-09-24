@@ -924,6 +924,7 @@ describe('buildWindowCards', () => {
 describe('badgeChannel', () => {
   it.each([
     ['ECLIPSE', 'eclipse'],
+    ['LUNAR_ECLIPSE', 'eclipse'],
     ['SPRING_TIDE', 'tide'],
     ['KING_TIDE', 'tide'],
     ['STORM_SURGE', 'tide'],
@@ -956,6 +957,15 @@ describe('badgeChannel', () => {
     // happens to hit, which is the failure mode `badgeChannel`'s own comment warns about.
     expect(badgeChannel('LUNAR_ECLIPSE_TIDE')).toBe('tide');
     expect(badgeChannel('eclipse')).toBe('eclipse');
+  });
+
+  it('matches LUNAR_ECLIPSE exactly too — a fictional LUNAR_ECLIPSE_TIDE stays on the tide channel', () => {
+    // The genuinely-shipped LUNAR_ECLIPSE type shares the eclipse channel by exact match
+    // (lunar-eclipse-plan.md §2.1) — but that must not widen into a substring test, or a
+    // never-shipped compound type would be silently claimed by it instead of falling through to
+    // the TIDE arm the way LUNAR_ECLIPSE_TIDE already does above.
+    expect(badgeChannel('LUNAR_ECLIPSE')).toBe('eclipse');
+    expect(badgeChannel('lunar_eclipse')).toBe('eclipse');
   });
 });
 

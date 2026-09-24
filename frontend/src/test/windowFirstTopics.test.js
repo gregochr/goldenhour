@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  DAY_SCOPED_TOPIC_TYPES, REGION_SCOPED_TOPIC_TYPES, WHOLE_SKY_TOPIC_TYPES,
-  buildTopicIndex, isWholeSkyTopic, topicWindowKeys, windowTopics,
+  CLOCKED_TOPIC_TYPES, DAY_SCOPED_TOPIC_TYPES, REGION_SCOPED_TOPIC_TYPES, WHOLE_SKY_TOPIC_TYPES,
+  buildTopicIndex, chipClock, isWholeSkyTopic, topicWindowKeys, windowTopics,
 } from '../utils/windowFirstTopics.js';
 
 /**
@@ -136,9 +136,9 @@ describe('isWholeSkyTopic — the exemption is by TYPE', () => {
    * here: both have to move, which is the point.
    */
   const SHIPPED_TOPIC_TYPES = [
-    'ECLIPSE', 'SUPERMOON', 'EQUINOX', 'KING_TIDE', 'AURORA', 'METEOR', 'STORM_SURGE',
-    'INVERSION', 'SNOW_TOPS', 'SNOW_MIST', 'SNOW_FRESH', 'DUST', 'CLEARANCE', 'BLUEBELL',
-    'NLC', 'SPRING_TIDE',
+    'ECLIPSE', 'LUNAR_ECLIPSE', 'SUPERMOON', 'EQUINOX', 'KING_TIDE', 'AURORA', 'METEOR',
+    'STORM_SURGE', 'INVERSION', 'SNOW_TOPS', 'SNOW_MIST', 'SNOW_FRESH', 'DUST', 'CLEARANCE',
+    'BLUEBELL', 'NLC', 'SPRING_TIDE',
   ];
 
   it.each([...WHOLE_SKY_TOPIC_TYPES])('exempts %s', (type) => {
@@ -414,7 +414,7 @@ describe('DAY_SCOPED_TOPIC_TYPES — the backend mirror', () => {
   it('names only types the backend actually ships', () => {
     // Transitive, and deliberately so. `REGION_SCOPED_TOPIC_TYPES` is already pinned to the shipped
     // roster by the union test above, so asserting membership there pins these names to it too —
-    // without a second hand-maintained copy of the sixteen, which would rot independently.
+    // without a second hand-maintained copy of the seventeen, which would rot independently.
     //
     // The invariant is real, not a convenience: a day-scoped topic is one whose CONDITIONS are
     // geographic (a tide happens at a coastline) but whose TIMING is not (it happens all day). A
@@ -424,5 +424,35 @@ describe('DAY_SCOPED_TOPIC_TYPES — the backend mirror', () => {
     for (const type of DAY_SCOPED_TOPIC_TYPES) {
       expect(REGION_SCOPED_TOPIC_TYPES).toContain(type);
     }
+  });
+});
+
+describe('chipClock (lunar-eclipse-plan.md §2.6)', () => {
+  it('reads eventTime for a CLOCKED_TOPIC_TYPES member', () => {
+    expect(chipClock({ type: 'ECLIPSE', eventTime: '18:45' })).toBe('18:45');
+    expect(chipClock({ type: 'LUNAR_ECLIPSE', eventTime: '05:13' })).toBe('05:13');
+  });
+
+  it('is case-insensitive on the type, matching badgeChannel\'s own convention', () => {
+    expect(chipClock({ type: 'lunar_eclipse', eventTime: '05:13' })).toBe('05:13');
+  });
+
+  it('returns null for a type not in CLOCKED_TOPIC_TYPES, whatever eventTime it carries', () => {
+    expect(chipClock({ type: 'AURORA', eventTime: '22:00' })).toBeNull();
+    expect(chipClock({ type: 'SUPERMOON', eventTime: '21:30' })).toBeNull();
+  });
+
+  it('returns null for a listed type with no served eventTime', () => {
+    expect(chipClock({ type: 'ECLIPSE', eventTime: null })).toBeNull();
+    expect(chipClock({ type: 'ECLIPSE' })).toBeNull();
+  });
+
+  it('tolerates a missing badge', () => {
+    expect(chipClock(null)).toBeNull();
+    expect(chipClock(undefined)).toBeNull();
+  });
+
+  it('CLOCKED_TOPIC_TYPES carries exactly the two eclipse types', () => {
+    expect([...CLOCKED_TOPIC_TYPES].sort()).toEqual(['ECLIPSE', 'LUNAR_ECLIPSE']);
   });
 });

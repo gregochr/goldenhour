@@ -104,6 +104,13 @@ describe('buildHandoff — topic filtering, de-duping and naming', () => {
     expect(result.topics[0].name).toBe('MYSTERY_TOPIC');
   });
 
+  it('gives LUNAR_ECLIPSE the same swatch colour as ECLIPSE — one channel, two types', () => {
+    const result = buildHandoff(TODAY, [
+      { type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', date: TODAY },
+    ]);
+    expect(result.topics[0].color).toBe('#C4787F');
+  });
+
   it('gives an unrecognised type the default swatch colour rather than throwing', () => {
     const result = buildHandoff(TODAY, [
       { type: 'MYSTERY_TOPIC', label: 'A new kind of topic', date: TODAY },
