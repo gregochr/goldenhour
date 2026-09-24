@@ -141,7 +141,7 @@ describe('WindowFirstComingUp — the four states', () => {
           cadence: 'deterministic',
           interim: false,
           rateLabel: 'a run every 14.8 days',
-          quantLabel: 'occasional · 6 runs in 90 days',
+          quantLabel: 'about one a fortnight · 6 runs in 90 days',
           peak: null,
           occurrences: [],
         }],
@@ -503,7 +503,7 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     cadence: 'deterministic',
     interim: false,
     rateLabel: 'a run every 14.8 days · fixed by the ephemeris',
-    quantLabel: 'occasional · 7 runs in 90 days',
+    quantLabel: 'about one a fortnight · 7 runs in 90 days',
     peak: null,
     occurrences: [],
   };
@@ -535,13 +535,13 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
   });
 
-  it('the STRIP\'s own header sub-line gains a quiet "scores are provisional" suffix while any visible '
+  it('the STRIP\'s own header sub-line gains a quiet "figures are provisional" suffix while any visible '
       + 'condition is interim — never the chronology pane\'s own sub-line (plan §7)', () => {
     renderPane({
       events: { entries: ENTRIES, counts: COUNTS, conditions: [{ ...CONDITION, interim: true }] },
     });
     const marker = screen.getByTestId('coming-up-provisional');
-    expect(marker).toHaveTextContent('scores are provisional');
+    expect(marker).toHaveTextContent('figures are provisional');
     expect(screen.getByTestId('coming-up-conditions')).toContainElement(marker);
     expect(screen.getByTestId('coming-up-subtitle')).not.toContainElement(marker);
   });

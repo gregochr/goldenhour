@@ -1,7 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { formatArrivalDate } from '../utils/comingUpFeed.js';
-import { bitsWord } from '../utils/comingUpConditions.js';
 
 /**
  * "The badge must land somewhere" (design §6): the line above the filter chips that gives a count
@@ -17,17 +16,21 @@ import { bitsWord } from '../utils/comingUpConditions.js';
  * {@code {bits, title, dates, scoreNote}} — plan §13's own annotation for this field — never
  * composing a sentence out of them.
  *
- * <h2>The score is spoken as a word, never as bits</h2>
+ * <h2>The score is never spoken as a number — and the interrupt band speaks for itself</h2>
  *
  * <p>{@code bits} is log2 surprisal on an unbounded scale ({@code SurpriseScore}: rarity
  * {@code log2(meanGapDays)} plus magnitude {@code -log2(P(X >= x))}), so a bare {@code 8.2} has no
- * denominator a reader could reason about — there is no "out of". {@code bitsWord} buckets it into
- * the vocabulary the occurrence rows already print, and that word is the whole of what this line
- * says about rarity.
+ * denominator a reader could reason about — there is no "out of" (lunar-eclipse plan §2.9: "no
+ * more bits"). The interrupt band's own headline is the fixed word {@code "Rare"} rather than a
+ * figure bucketed from {@code entry.bits} (README §6's own "Rare banner"): the band is binary —
+ * above its edge there is only ever one thing in play (README's own "the badge stops counting"),
+ * so deriving a WORD from the figure would imply a granularity the delivery model does not have.
+ * Everything else this line says about why the entry scored what it did is server text —
+ * {@code scoreNote}/{@code joinNote}, below.
  *
  * <h2>The arrival date is {@code enteredWindow}, not the entry's own date</h2>
  *
- * <p>The design bundle's demo copy prints a shower's OWN peak date next to "joined the list",
+ * <p>The design bundle's demo copy prints a shower's OWN peak date next to "entered the window",
  * which cannot be literal: a peak 90 days out enters the window roughly 90 days before it peaks,
  * not on the peak itself. The demo is illustrative static text, not derived from the model's own
  * arithmetic (the same kind of bundle inconsistency plan §11 already catalogues elsewhere). This
@@ -41,11 +44,6 @@ import { bitsWord } from '../utils/comingUpConditions.js';
  *                                    or null — must be non-null whenever {@code badge} is non-null
  * @param {function} props.onMarkSeen clears the badge and every NEW flag
  */
-/** `very rare` → `Very rare`. The interrupt line opens a sentence; the word is authored lower. */
-function sentenceCase(word) {
-  return word.charAt(0).toUpperCase() + word.slice(1);
-}
-
 export default function WindowComingUpSinceLine({ badge = null, entry = null, onMarkSeen }) {
   if (!badge || !entry) return null;
 
@@ -60,14 +58,14 @@ export default function WindowComingUpSinceLine({ badge = null, entry = null, on
     >
       {isInterrupt ? (
         <span>
-          <b data-testid="coming-up-since-headline">{'◆ '}{sentenceCase(bitsWord(entry.bits))}</b>
-          {` — the ${entry.title} joined the list, ${dateLabel}.`}
+          <b data-testid="coming-up-since-headline">{'◆ Rare'}</b>
+          {` — the ${entry.title} entered the window, ${dateLabel}.`}
           {note && ` ${note}`}
         </span>
       ) : (
         <span>
-          <b data-testid="coming-up-since-headline">{badge.count}{' new'}</b>
-          {` — the ${entry.title} joined the list, ${dateLabel}.`}
+          <b data-testid="coming-up-since-headline">{badge.count}{' announced'}</b>
+          {` — the ${entry.title} entered the window, ${dateLabel}.`}
           {note && ` ${note}`}
         </span>
       )}

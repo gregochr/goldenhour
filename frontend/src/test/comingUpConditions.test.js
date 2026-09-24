@@ -41,16 +41,13 @@ describe('occurrenceCountsLine', () => {
 });
 
 describe('bitsWord', () => {
-  it('buckets a surprisal score into a plain-English word, matching the backend boundaries', () => {
-    expect(bitsWord(1.9)).toBe('common');
-    expect(bitsWord(2.0)).toBe('occasional');
-    expect(bitsWord(3.9)).toBe('occasional');
-    expect(bitsWord(4.0)).toBe('uncommon');
-    expect(bitsWord(5.4)).toBe('uncommon');
-    expect(bitsWord(6.0)).toBe('rare');
-    expect(bitsWord(7.0)).toBe('rare');
-    expect(bitsWord(8.0)).toBe('very rare');
-    expect(bitsWord(9.0)).toBe('very rare');
+  it('buckets a surprisal score into the design\'s three-word scale (README §6)', () => {
+    expect(bitsWord(0)).toBe('typical');
+    expect(bitsWord(4.4)).toBe('typical');
+    expect(bitsWord(4.5)).toBe('above usual');
+    expect(bitsWord(6.9)).toBe('above usual');
+    expect(bitsWord(7.0)).toBe('exceptional');
+    expect(bitsWord(9.0)).toBe('exceptional');
   });
 });
 
