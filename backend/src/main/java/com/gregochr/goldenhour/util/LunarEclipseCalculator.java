@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Turns one catalogued {@link LunarEclipse}'s UTC contacts into what a given observer sees.
@@ -79,6 +80,23 @@ import java.util.TreeSet;
  * relying on a real eclipse that happens to sit at 30 minutes. Belonging beside
  * {@link EclipseCalculator} conceptually (see above) does not require matching its
  * dependency-injection shape.
+ *
+ * <h2>Memoisation</h2>
+ *
+ * <p>{@link #sight} is memoised per {@code (eclipse date, latitude, longitude)} in an in-memory
+ * {@link ConcurrentHashMap} — a carrier local to this bean, never the briefing payload (CLAUDE.md's
+ * carrier rule). The reduction is a pure function of the catalogue and the coordinates (no clock,
+ * no request state), so the cache needs no TTL and never goes stale; a restart simply empties it,
+ * which is the same cost every other in-process cache in this app already pays. Without this,
+ * {@code LunarEclipseHotTopicStrategy} and {@code LunarEclipseAlmanacSource} each re-run the full
+ * reduction — several moonrise/moonset lookups, and up to a once-a-minute altitude scan across the
+ * whole umbral span when altitude at maximum alone does not already clear the eligibility bar — for
+ * every enabled location, on every live hot-topic rebuild ({@code BriefingService.getCachedBriefing}
+ * recomputes topics on every serve), so cost scaled with roster size and eclipse duration on every
+ * request rather than once. {@link #cache} is bounded defensively — cleared outright once it holds
+ * {@value #MAX_CACHE_ENTRIES} entries — rather than evicted precisely, because the working set here
+ * is tiny (roster size × catalogue size, a few hundred entries at most) and an LRU would be
+ * machinery this cache will never need.
  */
 @Component
 public class LunarEclipseCalculator {
@@ -89,11 +107,15 @@ public class LunarEclipseCalculator {
     /** Minimum contiguous minutes at or above {@link #VISIBLE_ALTITUDE_DEG} to count as watchable. */
     static final int VISIBLE_CONTIGUOUS_MINUTES = 30;
 
+    /** Defensive bound on {@link #cache}'s size — see the class javadoc's Memoisation section. */
+    static final int MAX_CACHE_ENTRIES = 5000;
+
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
     private static final double DEGREES_PER_CIRCLE = 360.0;
 
     private final LunarCalculator lunarCalculator;
     private final MoonriseMoonsetCalculator moonriseMoonsetCalculator;
+    private final ConcurrentHashMap<SightKey, LunarEclipseSight> cache = new ConcurrentHashMap<>();
 
     /**
      * Constructs a {@code LunarEclipseCalculator}.
@@ -107,8 +129,12 @@ public class LunarEclipseCalculator {
         this.moonriseMoonsetCalculator = moonriseMoonsetCalculator;
     }
 
+    /** The memoisation key: a catalogued eclipse (by its unique date) and an observer's coordinates. */
+    private record SightKey(LocalDate eclipseDate, double latitude, double longitude) { }
+
     /**
-     * What one observer sees of the given lunar eclipse.
+     * What one observer sees of the given lunar eclipse — memoised per {@code (eclipse date,
+     * latitude, longitude)}; see the class javadoc's Memoisation section.
      *
      * @param eclipse   the catalogued eclipse
      * @param latitude  observer latitude in decimal degrees, north positive
@@ -118,6 +144,14 @@ public class LunarEclipseCalculator {
      *     anything of the umbral phase can actually be seen from here
      */
     public LunarEclipseSight sight(LunarEclipse eclipse, double latitude, double longitude) {
+        if (cache.size() >= MAX_CACHE_ENTRIES) {
+            cache.clear();
+        }
+        return cache.computeIfAbsent(
+                new SightKey(eclipse.date(), latitude, longitude), key -> reduce(eclipse, latitude, longitude));
+    }
+
+    private LunarEclipseSight reduce(LunarEclipse eclipse, double latitude, double longitude) {
         ZonedDateTime maxUtc = eclipse.max().atZone(ZoneOffset.UTC);
         LunarPosition atMax = lunarCalculator.calculate(maxUtc, latitude, longitude);
         int altAtMax = (int) Math.round(atMax.altitude());

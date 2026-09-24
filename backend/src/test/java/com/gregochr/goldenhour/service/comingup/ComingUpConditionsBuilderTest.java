@@ -96,7 +96,7 @@ class ComingUpConditionsBuilderTest {
         String id = event.type() + ":" + event.startDate() + ":" + event.endDate();
         return new ComingUpEntry(event.startDate(), event.endDate(), event.kind(), event.type(),
                 event.title(), event.detail(), Map.of(), List.of(), event.startDate().minusDays(89),
-                id, "coastal", "Almanac", null, null, null, List.of(), null, null,
+                id, "coastal", "Almanac", null, null, null, List.of(), null, null, null,
                 new ComingUpAction("See the plan for " + event.startDate() + " →", "plan", event.startDate()),
                 bits, false, null, coincidence, coincidence.isEmpty() ? null : "joined");
     }

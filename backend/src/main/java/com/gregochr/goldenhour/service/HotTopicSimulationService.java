@@ -294,6 +294,42 @@ public class HotTopicSimulationService {
                     "nothing comparable from the UK until 2081 · 1h 51m of it",
                     "Certified solar filter on the lens — not only over your eye");
 
+    /**
+     * The simulated lunar eclipse's enriched second row, and its recurrence line.
+     *
+     * <p>Figures are Dunstanburgh's own reduction of the 2026-08-28 eclipse — the worked example
+     * {@code lunar-eclipse-plan.md} uses throughout — copied from {@code LunarEclipseCatalog}'s own
+     * class javadoc, which independently verified this location's altitude (7.65° → 8°), bearing
+     * (241° → WSW) and moonset (06:18:46 BST) against {@code LunarCalculator}/
+     * {@code MoonriseMoonsetCalculator} directly. Times are truncated to the minute exactly as
+     * {@code LunarEclipseHotTopicStrategy#londonTime}/{@code #localTime} truncate at runtime (never
+     * rounded), which is why this reads 05:12/03:33/06:18 rather than the design mockup's rounded
+     * 05:13/03:34/06:16 — the same one-minute divergence between this app's own precise reduction
+     * and a rounded published/design figure that {@code EclipseHotTopicStrategy}'s own class
+     * javadoc documents for the solar eclipse. {@code nextComparable}/{@code nextComparableKind} are
+     * {@code LunarEclipseCatalog}'s real successor entry for this date (2028 Jan 12, partial) rather
+     * than invented, for the same reason {@link #ECLIPSE_SIM_ENRICHMENT} copies the real reduction:
+     * what the admin panel demonstrates should be what the pill really renders. The "seen from"
+     * count is the one figure this template cannot derive without a live roster and is kept as the
+     * plan's own illustrative number.
+     *
+     * <p><b>No safety note</b> — unlike the solar eclipse, nothing about photographing an eclipsed
+     * Moon is hazardous, so this template carries no fifth argument to {@link
+     * SimulationTemplate.Enrichment}'s constructor other than {@code null}. {@code
+     * HotTopicSimulationServiceTest.onlyTheEclipseCarriesAWarning} pins that {@code ECLIPSE} stays
+     * the only warning-carrying type once this one is active too.
+     */
+    private static final SimulationTemplate.Enrichment LUNAR_ECLIPSE_SIM_ENRICHMENT =
+            new SimulationTemplate.Enrichment(
+                    "SUNRISE", "05:12",
+                    List.of(
+                            HotTopicFact.directional("max", "93% in shadow · moon 8° up", "WSW", true),
+                            HotTopicFact.metric("in shadow", "03:33 → sets 06:18"),
+                            HotTopicFact.metric("seen from", "41 of 57 sites")),
+                    "No filter needed — bracket, the shadow is ~10 stops under the lit edge",
+                    "next from the UK: a partial eclipse, Wed 12 Jan 2028",
+                    null);
+
     private static final List<SimulationTemplate> ALL_SIMULATIONS = List.of(
             new SimulationTemplate(
                     "ECLIPSE", "Deep partial eclipse",
@@ -307,6 +343,17 @@ public class HotTopicSimulationService {
                     4, null,
                     List.of("Northumberland", "The North Yorkshire Coast"), 0,
                     null, ECLIPSE_SIM_ENRICHMENT),
+            new SimulationTemplate(
+                    "LUNAR_ECLIPSE", "Lunar eclipse",
+                    "93% of the moon in shadow, low above the west-south-west horizon",
+                    "Earth's atmosphere bends a little sunlight into its own shadow and filters out"
+                            + " the blue on the way, so the shadowed moon glows the colour of every"
+                            + " sunrise and sunset on Earth at once. 93% is a fraction of the moon's"
+                            + " diameter in shadow, not its area. The lit sliver on the lower-left"
+                            + " edge will still be much the brightest thing in the frame.",
+                    4, null,
+                    List.of("Northumberland", "The North Yorkshire Coast"), 0,
+                    null, LUNAR_ECLIPSE_SIM_ENRICHMENT),
             new SimulationTemplate(
                     "BLUEBELL", "Bluebell conditions",
                     "Misty and still — perfect morning conditions",

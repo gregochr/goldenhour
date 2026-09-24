@@ -41,8 +41,8 @@ import java.util.Set;
  * superlatives, thresholds, and the served {@code counts}/{@code bands}. Called once per cache
  * rebuild, never per request.
  *
- * <p><b>Six known types, one documented fallback.</b> The type-string constants below duplicate
- * literals owned by the six {@code AlmanacSource} implementations (their own constants are
+ * <p><b>Seven known types, one documented fallback.</b> The type-string constants below duplicate
+ * literals owned by the seven {@code AlmanacSource} implementations (their own constants are
  * package-private to a sibling package, and the plan's sources stay untouched) — an unrecognised
  * type degrades to a generic score rather than throwing, which only a hand-built test fixture can
  * ever exercise.
@@ -60,6 +60,16 @@ public class ComingUpAssembler {
     static final String TYPE_SOLSTICE = "solstice";
     static final String TYPE_NLC_SEASON = "nlc-season";
     static final String TYPE_ECLIPSE = "eclipse";
+    static final String TYPE_LUNAR_ECLIPSE = "lunar-eclipse";
+
+    /**
+     * The lunar eclipse's exposure cue, carried as {@code aside} rather than {@code note} on the
+     * Coming-up entry (that field belongs to {@code HotTopic}, a different record) — see
+     * {@code LunarEclipseHotTopicStrategy}'s own copy of this string for why it is not a safety
+     * warning (lunar-eclipse-plan.md §4 #5).
+     */
+    private static final String LUNAR_ECLIPSE_EXPOSURE_NOTE =
+            "No filter needed — bracket, the shadow is ~10 stops under the lit edge";
 
     private static final DateTimeFormatter DATE_LABEL = DateTimeFormatter.ofPattern("d MMM", Locale.UK);
 
@@ -147,6 +157,7 @@ public class ComingUpAssembler {
         String metric;
         String prose;
         List<ComingUpFact> facts = new ArrayList<>();
+        String aside;
         String threshold;
         String scoreNote;
         ComingUpAction action;
@@ -174,7 +185,7 @@ public class ComingUpAssembler {
         ComingUpEntry toEntry() {
             return new ComingUpEntry(event.startDate(), event.endDate(), event.kind(), event.type(),
                     event.title(), event.detail(), meta, event.regions(), enteredWindow,
-                    id, family, kindTag, superlative, metric, prose, facts, threshold, scoreNote,
+                    id, family, kindTag, superlative, metric, prose, facts, aside, threshold, scoreNote,
                     action, round1(bits), interim, tide, coincidence, joinNote);
         }
     }
@@ -195,6 +206,7 @@ public class ComingUpAssembler {
             case TYPE_EQUINOX, TYPE_SOLSTICE -> enrichSolar(event, s);
             case TYPE_NLC_SEASON -> enrichNlcSeason(event, s);
             case TYPE_ECLIPSE -> enrichEclipse(event, s);
+            case TYPE_LUNAR_ECLIPSE -> enrichLunarEclipse(event, s);
             default -> enrichUnknown(event, s);
         }
         return s;
@@ -402,8 +414,39 @@ public class ComingUpAssembler {
         s.meta = withoutKeys(meta, "coverage", "maximum", "rarity", "location");
     }
 
+    private void enrichLunarEclipse(AlmanacEvent event, Staged s) {
+        s.family = "eclipse";
+        s.rarityBits = SurpriseScore.rarity(scoringProperties.getRarity().getLunarEclipseMeanGapDays());
+        s.magnitudeBits = SurpriseScore.DEFAULT_MAGNITUDE_BITS;
+        s.bits = s.rarityBits + s.magnitudeBits;
+
+        Map<String, String> meta = event.meta();
+        String magnitude = meta.get("magnitude");
+        s.metric = magnitude == null ? null : magnitude.replace(" in shadow", "");
+        // "shadow" reads "… → sets HH:mm" only when the representative sets while still eclipsed
+        // (LunarEclipseAlmanacSource#shadowLine) — a lookup on the already-composed string rather
+        // than a second reduction of the eclipse's geometry, which this class has no access to.
+        String shadow = meta.get("shadow");
+        s.superlative = shadow != null && shadow.contains("sets ") ? "sets in shadow" : null;
+        s.facts = lunarEclipseFacts(meta);
+        s.aside = LUNAR_ECLIPSE_EXPOSURE_NOTE;
+        // Server-authored ahead of markScoreNotes' generic pass, and takes precedence over it (see
+        // that method's own guard) — "since" is a catalogue fact with no bits-derived phrasing to
+        // improve on, and null only for the catalogue's very first entry, which has nothing earlier
+        // to point to (LunarEclipseAlmanacSource#sinceLine).
+        String since = meta.get("since");
+        s.scoreNote = since == null ? null : "The first visible from here since " + since + ".";
+        s.action = new ComingUpAction(
+                "See the plan for " + DATE_LABEL.format(event.startDate()) + " →",
+                "plan", event.startDate());
+        // magnitude → metric + facts; maximum/shadow/next/location → facts (verbatim); since →
+        // scoreNote. seen is deliberately NOT dropped: no fact row consumes it (plan §2.4 names
+        // only three fact rows), so it stays as a passthrough figure on the served meta map.
+        s.meta = withoutKeys(meta, "magnitude", "maximum", "shadow", "next", "since", "location");
+    }
+
     /**
-     * Unreachable in production — the six real {@code AlmanacSource} types are matched explicitly
+     * Unreachable in production — the seven real {@code AlmanacSource} types are matched explicitly
      * above. Exists only so a type this class does not recognise degrades to a plausible score
      * rather than throwing.
      */
@@ -501,9 +544,38 @@ public class ComingUpAssembler {
         return facts;
     }
 
+    private static List<ComingUpFact> lunarEclipseFacts(Map<String, String> meta) {
+        List<ComingUpFact> facts = new ArrayList<>();
+        List<ComingUpFact.Segment> segs = new ArrayList<>();
+        if (meta.get("magnitude") != null) {
+            segs.add(new ComingUpFact.Segment(meta.get("magnitude"), "strong"));
+        }
+        if (meta.get("maximum") != null) {
+            if (!segs.isEmpty()) {
+                segs.add(new ComingUpFact.Segment(" · ", "base"));
+            }
+            segs.add(new ComingUpFact.Segment("maximum " + meta.get("maximum"), "base"));
+        }
+        if (!segs.isEmpty()) {
+            facts.add(new ComingUpFact(segs));
+        }
+        if (meta.get("shadow") != null) {
+            facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(meta.get("shadow"), "base"))));
+        }
+        if (meta.get("next") != null) {
+            facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(meta.get("next"), "accent"))));
+        }
+        if (meta.get("location") != null) {
+            facts.add(new ComingUpFact(List.of(
+                    new ComingUpFact.Segment("figures for ", "base"),
+                    new ComingUpFact.Segment(meta.get("location"), "strong"))));
+        }
+        return facts;
+    }
+
     /**
      * A fact row naming the entry's regional scope — only where the read is genuinely regional
-     * (plan §5's scope rule). None of the six {@code AlmanacSource}s populate {@code regions} yet,
+     * (plan §5's scope rule). None of the seven {@code AlmanacSource}s populate {@code regions} yet,
      * so this is dead in production today and exercised only by a direct fixture; it exists so a
      * future regional read has somewhere to plug in without a schema change.
      */
@@ -670,7 +742,12 @@ public class ComingUpAssembler {
     /**
      * One server-authored, plain-language sentence for entries at or above the announce band
      * (plan D4), naming whichever component — rarity or magnitude — carried the score. Skipped
-     * for a merged entry, whose {@code joinNote} already explains it.
+     * for a merged entry, whose {@code joinNote} already explains it, and for any entry whose own
+     * {@code enrich*} method already wrote a more specific {@code scoreNote} — the lunar eclipse's
+     * "first visible from here since …" sentence, derived from the catalogue rather than from
+     * bits, must win over this method's generic rarity/magnitude phrasing (lunar-eclipse-plan.md
+     * §2.4); a null {@code scoreNote} still falls through to the generic pass below, which is how
+     * an eclipse with nothing to compare against (the catalogue's earliest entry) still gets one.
      *
      * <p>No user-facing string here shows a surprisal score (lunar-eclipse plan §2.9): the
      * rarity-carried branch reads back the mean gap in plain calendar words
@@ -682,7 +759,7 @@ public class ComingUpAssembler {
     private void markScoreNotes(List<Staged> staged) {
         double announce = scoringProperties.getBands().getAnnounce();
         for (Staged s : staged) {
-            if (s.bits < announce || s.joinNote != null) {
+            if (s.bits < announce || s.joinNote != null || s.scoreNote != null) {
                 continue;
             }
             if (s.rarityBits >= s.magnitudeBits) {

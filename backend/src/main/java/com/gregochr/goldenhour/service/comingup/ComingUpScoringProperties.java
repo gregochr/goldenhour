@@ -175,6 +175,24 @@ public class ComingUpScoringProperties {
          * with a long-run visibility catalogue, not a 4-gap sample (P5 census, plan §11.13).
          */
         private double eclipseMeanGapDays = 1500.0;
+
+        /**
+         * A documented long-run estimate for UK-visible umbral lunar eclipses, deliberately NOT the
+         * mean of the six gaps between {@code LunarEclipseCatalog}'s seven seeded entries (March
+         * 2025 – 2030): those gaps are 177, 355, 502, 354, 177 and 177 days, averaging ~290 days —
+         * but that window is an unusually dense run (the same shape {@link #eclipseMeanGapDays}'s
+         * own javadoc records for the solar catalogue's five-eclipse sample), and adopting the raw
+         * mean (log2(290) + 1 ≈ 9.2 bits) would land a lunar eclipse on the announce band rather
+         * than the interrupt one — the plan's own worked figure (plan {@code lunar-eclipse-plan.md}
+         * §1 row 12) depends on {@code log2(900) + 1 ≈ 10.8} bits clearing interrupt. Lowering this
+         * to match the seeded window's own mean is a re-censusing decision, not a constant edit —
+         * the same treatment {@link #eclipseMeanGapDays} and {@link #supermoonMeanGapDays} already
+         * get. The census year (1 Sep 2026 – 31 Aug 2027) holds three penumbral eclipses (2027 Feb
+         * 20, 2027 Jul 18, 2027 Aug 17), none seeded (a penumbral shading raises no umbral topic at
+         * all), which is why adding this constant does not move
+         * {@code ComingUpAnnualBadgeCensusTest}'s pinned result.
+         */
+        private double lunarEclipseMeanGapDays = 900.0;
     }
 
     /**
