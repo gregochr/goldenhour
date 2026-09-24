@@ -149,6 +149,14 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
     private record Seen(LocationEntity location, LunarEclipseSight sight) { }
 
     private Optional<HotTopic> buildTopic(LunarEclipse eclipse, List<LocationEntity> enabled) {
+        // Checked BEFORE reducing the roster, not after: u4 is the same instant for every observer
+        // (unlike the solar strategy, whose freshness check depends on the representative it has
+        // already chosen), so a finished eclipse costs nothing here — no roster reduction, no
+        // per-location calculator work — rather than paying for the whole roster and discarding it.
+        if (!freshness.isAhead(eclipse.u4())) {
+            return Optional.empty();
+        }
+
         List<Seen> seen = new ArrayList<>();
         for (LocationEntity location : enabled) {
             LunarEclipseSight sight = calculator.sight(eclipse, location.getLat(), location.getLon());
@@ -157,12 +165,6 @@ public class LunarEclipseHotTopicStrategy implements HotTopicStrategy {
             }
         }
         if (seen.isEmpty()) {
-            return Optional.empty();
-        }
-
-        // Nothing left to get up for. u4 is the same instant for every observer, so unlike the
-        // solar strategy this does not depend on which location is representative.
-        if (!freshness.isAhead(eclipse.u4())) {
             return Optional.empty();
         }
 

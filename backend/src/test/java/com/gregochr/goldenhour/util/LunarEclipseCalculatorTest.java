@@ -3,7 +3,11 @@ package com.gregochr.goldenhour.util;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.gregochr.goldenhour.model.LunarEclipseSight;
@@ -24,6 +28,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -518,6 +523,83 @@ class LunarEclipseCalculatorTest {
             assertThat(sight.moonrise()).isNull();
             assertThat(sight.moonset()).isEqualTo(LocalDateTime.of(2030, 3, 1, 19, 30));
             assertThat(sight.setsInShadow()).isFalse();
+        }
+    }
+
+    /**
+     * {@code sight()} is memoised per {@code (eclipse date, latitude, longitude)} — the class
+     * javadoc's Memoisation section — so a live hot-topic rebuild does not re-run the whole
+     * reduction (moonrise/moonset lookups, and potentially a once-a-minute altitude scan across the
+     * umbral span) for the same eclipse and location on every request. These tests prove the cache
+     * by counting calculator calls rather than by asserting on the returned sight, which every other
+     * nested class in this file already covers.
+     */
+    @Nested
+    @DisplayName("Memoisation — sight() caches per (eclipse date, latitude, longitude)")
+    @ExtendWith(MockitoExtension.class)
+    class Memoisation {
+
+        private static final double LAT = 55.49;
+        private static final double LON = -1.59;
+
+        @Mock
+        private LunarCalculator lunarCalculator;
+
+        @Mock
+        private MoonriseMoonsetCalculator moonriseMoonsetCalculator;
+
+        private LunarEclipseCalculator calculator;
+        private LunarEclipse eclipse;
+
+        @BeforeEach
+        void setUp() {
+            calculator = new LunarEclipseCalculator(lunarCalculator, moonriseMoonsetCalculator);
+            eclipse = LunarEclipseCatalog.on(LocalDate.of(2026, 8, 28)).orElseThrow();
+            // Altitude at maximum alone (8 deg) already clears VISIBLE_ALTITUDE_DEG, so the
+            // once-a-minute streak scan short-circuits and lunarCalculator is called exactly once
+            // per reduction — irrelevant to what these tests prove (call counts on repeat, not the
+            // exact count), but it keeps each reduction cheap to run.
+            when(lunarCalculator.calculate(any(), anyDouble(), anyDouble()))
+                    .thenReturn(new LunarPosition(8.0, 241.0, 0.99, LunarPhase.FULL_MOON, 384000.0));
+            when(moonriseMoonsetCalculator.calculate(any(), anyDouble(), anyDouble(), eq(LONDON)))
+                    .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.empty()));
+        }
+
+        @Test
+        @DisplayName("a second call for the same eclipse date and coordinates is a cache hit — "
+                + "neither calculator is touched again")
+        void sameKeyIsACacheHit() {
+            LunarEclipseSight first = calculator.sight(eclipse, LAT, LON);
+            clearInvocations(lunarCalculator, moonriseMoonsetCalculator);
+
+            LunarEclipseSight second = calculator.sight(eclipse, LAT, LON);
+
+            assertThat(second).isSameAs(first);
+            verifyNoInteractions(lunarCalculator);
+            verifyNoInteractions(moonriseMoonsetCalculator);
+        }
+
+        @Test
+        @DisplayName("a different location for the same eclipse is a cache miss — recomputes")
+        void differentLocationIsACacheMiss() {
+            calculator.sight(eclipse, LAT, LON);
+            clearInvocations(lunarCalculator, moonriseMoonsetCalculator);
+
+            calculator.sight(eclipse, LAT + 1.0, LON);
+
+            verify(lunarCalculator).calculate(any(), eq(LAT + 1.0), eq(LON));
+        }
+
+        @Test
+        @DisplayName("a different eclipse date at the same coordinates is a cache miss — recomputes")
+        void differentDateIsACacheMiss() {
+            calculator.sight(eclipse, LAT, LON);
+            clearInvocations(lunarCalculator, moonriseMoonsetCalculator);
+            LunarEclipse otherEclipse = LunarEclipseCatalog.on(LocalDate.of(2028, 1, 12)).orElseThrow();
+
+            calculator.sight(otherEclipse, LAT, LON);
+
+            verify(lunarCalculator).calculate(eq(otherEclipse.max().atZone(ZoneOffset.UTC)), eq(LAT), eq(LON));
         }
     }
 }

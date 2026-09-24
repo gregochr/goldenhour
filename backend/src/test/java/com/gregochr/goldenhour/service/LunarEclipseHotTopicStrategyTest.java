@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -481,11 +482,10 @@ class LunarEclipseHotTopicStrategyTest {
             LunarEclipse eclipse = eclipseOn(ECLIPSE_DAY);
             stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON, "Northumberland"));
             // Pinned to u4 specifically — not p4, not max — so a regression asking freshness about
-            // the wrong contact instant fails this test rather than passing it by accident.
+            // the wrong contact instant fails this test rather than passing it by accident. No
+            // calculator stub: freshness is now checked BEFORE the roster is reduced (see
+            // WithdrawBeforeWork below), so the calculator is never reached on this path at all.
             when(freshness.isAhead(eq(eclipse.u4()))).thenReturn(false);
-            when(calculator.sight(eq(eclipse), eq(BAMBURGH_LAT), eq(BAMBURGH_LON))).thenReturn(
-                    setsInShadowSight(8, 241, "WSW", LocalDateTime.of(2026, 8, 28, 6, 16),
-                            LocalDateTime.of(2026, 8, 28, 3, 33), LocalDateTime.of(2026, 8, 28, 6, 16)));
 
             assertThat(strategy.detect(ECLIPSE_DAY, ECLIPSE_DAY.plusDays(3))).isEmpty();
             verify(freshness).isAhead(eq(eclipse.u4()));
@@ -502,11 +502,32 @@ class LunarEclipseHotTopicStrategyTest {
         @Test
         @DisplayName("a roster where nothing clears the eligibility altitude yields nothing")
         void silentWhereNothingIsVisible() {
+            // Freshness is checked before the roster is reduced (the withdraw-before-work ordering
+            // below), so it must be stubbed ahead here or the roster loop — and this test's own
+            // stub on calculator.sight() — would never run at all.
+            stubStillAhead();
             stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON, "Northumberland"));
             when(calculator.sight(eq(eclipseOn(ECLIPSE_DAY)), eq(BAMBURGH_LAT), eq(BAMBURGH_LON)))
                     .thenReturn(invisibleSight());
 
             assertThat(strategy.detect(ECLIPSE_DAY, ECLIPSE_DAY.plusDays(3))).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("Withdraw before work: a finished eclipse costs nothing")
+    class WithdrawBeforeWork {
+
+        @Test
+        @DisplayName("once the umbral phase has ended, the roster is never reduced at all")
+        void finishedEclipseNeverTouchesTheCalculator() {
+            LunarEclipse eclipse = eclipseOn(ECLIPSE_DAY);
+            stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON, "Northumberland"));
+            when(freshness.isAhead(eq(eclipse.u4()))).thenReturn(false);
+
+            assertThat(strategy.detect(ECLIPSE_DAY, ECLIPSE_DAY.plusDays(3))).isEmpty();
+
+            verifyNoInteractions(calculator);
         }
     }
 }
