@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
@@ -82,6 +83,7 @@ public class BriefingService {
     private final BriefingRegionSnapshotService regionSnapshotService;
     private final ServedBriefingAssembler assembler;
     private final BriefingRegionEvaluationRollup rollup;
+    private final EclipseSightAssembler eclipseSightAssembler;
 
     /**
      * Number of consecutive dates the briefing covers, starting on the day it is built.
@@ -169,6 +171,11 @@ public class BriefingService {
      * @param rollup                     turns the weather/triage hierarchy into a scored one;
      *                                   shared with the serve path through the
      *                                   {@link BriefingScoreEnricher} socket
+     * @param eclipseSightAssembler      the serve-time simulated-eclipse overlay ({@link
+     *                                   EclipseSightAssembler#simulatedSightFor}) —
+     *                                   deliberately NOT how a real sight reaches a slot;
+     *                                   that happens once, at build time, inside
+     *                                   {@code slotBuilder} itself
      */
     public BriefingService(LocationService locationService,
             BriefingWeatherLoader weatherLoader,
@@ -191,7 +198,8 @@ public class BriefingService {
             MarineWaveRefreshService marineWaveRefreshService,
             BriefingRegionSnapshotService regionSnapshotService,
             ServedBriefingAssembler assembler,
-            BriefingRegionEvaluationRollup rollup) {
+            BriefingRegionEvaluationRollup rollup,
+            EclipseSightAssembler eclipseSightAssembler) {
         this.locationService = locationService;
         this.weatherLoader = weatherLoader;
         this.jobRunService = jobRunService;
@@ -216,6 +224,7 @@ public class BriefingService {
         this.regionSnapshotService = regionSnapshotService;
         this.assembler = assembler;
         this.rollup = rollup;
+        this.eclipseSightAssembler = eclipseSightAssembler;
     }
 
     /**
@@ -240,19 +249,30 @@ public class BriefingService {
     }
 
     /**
-     * Returns the cached daily briefing with live aurora state overlaid.
+     * Returns the cached daily briefing with live aurora state, live hot topics and — when
+     * {@code LUNAR_ECLIPSE} admin simulation is active — a simulated eclipse sight overlaid.
      *
      * <p>When the aurora FSM is idle, {@code buildAuroraTonight()} returns null instantly
      * with zero overhead. When active, the 5-minute cache in the builder keeps API calls
      * minimal.
      *
-     * @return the most recent briefing response with live aurora, or null
+     * <p>The eclipse overlay runs on <b>every</b> call, independent of whether aurora/hot-topics
+     * changed — it must, because enabling or disabling the simulation changes nothing this
+     * method's own equality check compares. {@link EclipseSightAssembler#simulatedSightFor} is
+     * the only place a simulated sight is ever produced; nothing the build path
+     * ({@link BriefingSlotBuilder}) writes into {@code daily_briefing_cache} can ever contain one
+     * (see that class's own javadoc for why persisting one there was a real defect, Codex review
+     * of #914) — so toggling the admin simulation takes effect on the very next request in either
+     * direction, and a restart with it off serves the persisted, real-sights-only cache untouched.
+     *
+     * @return the most recent briefing response with every live overlay applied, or null
      */
     public DailyBriefingResponse getCachedBriefing() {
         DailyBriefingResponse cached = cache.get();
         if (cached == null) {
             return null;
         }
+        DailyBriefingResponse withLiveOverlays;
         try {
             AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonightCached();
             AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrowCached();
@@ -267,26 +287,78 @@ public class BriefingService {
             if (Objects.equals(cached.auroraTonight(), liveTonight)
                     && Objects.equals(cached.auroraTomorrow(), liveTomorrow)
                     && Objects.equals(cached.hotTopics(), liveTopics)) {
-                return cached;
+                withLiveOverlays = cached;
+            } else {
+                // bestBetStatus MUST be carried through. This rebuild overlays live aurora and hot
+                // topics; it is not a new verdict on the best-bet advisor, so dropping the status
+                // silently disables two things that switch on it — the serve-time fallback in
+                // applyBestBetFallback (which returns early unless the status is FAILED) and the
+                // frontend's "from an earlier forecast" chip. Both would go dark on exactly the
+                // requests that reach this branch, i.e. whenever aurora is live or a hot-topic
+                // simulation is toggled. The 12-arg convenience constructor defaults it to null,
+                // which is why this passes all 13 explicitly.
+                withLiveOverlays = new DailyBriefingResponse(
+                        cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
+                        liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
+                        cached.failedLocationCount(), cached.bestBetModel(),
+                        liveTopics, cached.seasonalFeatures(), cached.bestBetStatus());
             }
-            // bestBetStatus MUST be carried through. This rebuild overlays live aurora and hot
-            // topics; it is not a new verdict on the best-bet advisor, so dropping the status
-            // silently disables two things that switch on it — the serve-time fallback in
-            // applyBestBetFallback (which returns early unless the status is FAILED) and the
-            // frontend's "from an earlier forecast" chip. Both would go dark on exactly the
-            // requests that reach this branch, i.e. whenever aurora is live or a hot-topic
-            // simulation is toggled. The 12-arg convenience constructor defaults it to null,
-            // which is why this passes all 13 explicitly.
-            return new DailyBriefingResponse(
-                    cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
-                    liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
-                    cached.failedLocationCount(), cached.bestBetModel(),
-                    liveTopics, cached.seasonalFeatures(), cached.bestBetStatus());
         } catch (Exception e) {
             LOG.warn("Aurora overlay failed — returning briefing without live aurora: {}",
                     e.getMessage());
-            return cached;
+            withLiveOverlays = cached;
         }
+        return overlaySimulatedEclipse(withLiveOverlays);
+    }
+
+    /**
+     * Overlays {@link EclipseSightAssembler#simulatedSightFor} onto today's SUNRISE slots that
+     * carry no real sight, when {@code LUNAR_ECLIPSE} admin simulation is active — the serve-time
+     * seam {@link EclipseSightAssembler}'s own javadoc names. Never touches anything when
+     * simulation is inactive: {@link EclipseSightAssembler#isSimulationActiveForLunarEclipse} is
+     * the same near-zero-cost early exit the aurora overlay above relies on for its own idle case.
+     *
+     * @param response the response to overlay (already carrying live aurora/hot-topics)
+     * @return the same response when simulation is inactive, or a copy with the simulated sight
+     *     attached to the matching window's slots
+     */
+    private DailyBriefingResponse overlaySimulatedEclipse(DailyBriefingResponse response) {
+        if (!eclipseSightAssembler.isSimulationActiveForLunarEclipse()) {
+            return response;
+        }
+        List<BriefingDay> newDays = response.days().stream()
+                .map(this::overlaySimulatedEclipseOnDay)
+                .toList();
+        return response.withDays(newDays);
+    }
+
+    private BriefingDay overlaySimulatedEclipseOnDay(BriefingDay day) {
+        List<BriefingEventSummary> newSummaries = day.eventSummaries().stream()
+                .map(summary -> overlaySimulatedEclipseOnEventSummary(day.date(), summary))
+                .toList();
+        return day.withEventSummaries(newSummaries);
+    }
+
+    private BriefingEventSummary overlaySimulatedEclipseOnEventSummary(
+            LocalDate date, BriefingEventSummary summary) {
+        BriefingSlot.EclipseSight simulated =
+                eclipseSightAssembler.simulatedSightFor(date, summary.targetType());
+        if (simulated == null) {
+            return summary;
+        }
+        List<BriefingRegion> newRegions = summary.regions().stream()
+                .map(region -> region.withSlots(overlaySimulatedEclipseOnSlots(region.slots(), simulated)))
+                .toList();
+        List<BriefingSlot> newUnregioned =
+                overlaySimulatedEclipseOnSlots(summary.unregioned(), simulated);
+        return summary.withRegions(newRegions).withUnregioned(newUnregioned);
+    }
+
+    private static List<BriefingSlot> overlaySimulatedEclipseOnSlots(
+            List<BriefingSlot> slots, BriefingSlot.EclipseSight simulated) {
+        return slots.stream()
+                .map(slot -> slot.eclipse() == null ? slot.withEclipse(simulated) : slot)
+                .toList();
     }
 
     /**

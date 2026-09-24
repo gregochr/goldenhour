@@ -88,6 +88,21 @@ public record BriefingEventSummary(
     }
 
     /**
+     * Returns a copy carrying the given unregioned slots, leaving every other component untouched.
+     *
+     * <p>Exists for the same reason as {@link #withRegions}: {@code BriefingService}'s serve-time
+     * simulated-eclipse overlay rewrites only the slot list, and a positional rebuild here would
+     * silently drop {@code solarEventTime}/{@code window} exactly as an earlier positional rebuild
+     * once dropped {@code solarEventTime} from the regioned side.
+     *
+     * @param newUnregioned the replacement unregioned slots
+     * @return a copy carrying them
+     */
+    public BriefingEventSummary withUnregioned(List<BriefingSlot> newUnregioned) {
+        return new BriefingEventSummary(targetType, regions, newUnregioned, solarEventTime, window);
+    }
+
+    /**
      * Returns a copy carrying the given window, leaving everything else untouched.
      *
      * <p>A wither rather than a positional rebuild at the projection site, deliberately: rebuilding

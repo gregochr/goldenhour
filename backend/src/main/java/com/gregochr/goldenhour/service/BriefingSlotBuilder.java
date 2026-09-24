@@ -55,6 +55,7 @@ public class BriefingSlotBuilder {
     private final BriefingVerdictEvaluator verdictEvaluator;
     private final WoodlandVerdictEvaluator woodlandVerdictEvaluator;
     private final TideExtremeRepository tideExtremeRepository;
+    private final EclipseSightAssembler eclipseSightAssembler;
 
     /**
      * Constructs a {@code BriefingSlotBuilder}.
@@ -69,18 +70,25 @@ public class BriefingSlotBuilder {
      *                              WindowTideRollupBuilder}'s own, because the per-slot curve and
      *                              the per-window curve are two different questions about the same
      *                              water and neither owns the other's fetch
+     * @param eclipseSightAssembler builds {@link BriefingSlot#eclipse()} at this class's own
+     *                              build-time seam — a direct dependency for the same reason
+     *                              {@code tideExtremeRepository} is: the per-slot eclipse sight is
+     *                              a different question from everything else this class already
+     *                              derives, and nothing else owns it
      */
     public BriefingSlotBuilder(SolarService solarService, LocationService locationService,
             TideFactDeriver tideFactDeriver,
             BriefingVerdictEvaluator verdictEvaluator,
             WoodlandVerdictEvaluator woodlandVerdictEvaluator,
-            TideExtremeRepository tideExtremeRepository) {
+            TideExtremeRepository tideExtremeRepository,
+            EclipseSightAssembler eclipseSightAssembler) {
         this.solarService = solarService;
         this.locationService = locationService;
         this.tideFactDeriver = tideFactDeriver;
         this.verdictEvaluator = verdictEvaluator;
         this.woodlandVerdictEvaluator = woodlandVerdictEvaluator;
         this.tideExtremeRepository = tideExtremeRepository;
+        this.eclipseSightAssembler = eclipseSightAssembler;
     }
 
     /**
@@ -149,6 +157,11 @@ public class BriefingSlotBuilder {
         // stand-down for a sunset and the ideal under a canopy. Routing here rather than branching
         // inside BriefingVerdictEvaluator keeps one polarity per class — see
         // WoodlandVerdictEvaluator's class javadoc for the four rules that flip.
+        //
+        // This return is also, deliberately, why a canopy slot never carries an eclipse sight: it
+        // exits before the EclipseSightAssembler seam below, the same way BriefingSlot.canopySlot
+        // deliberately builds with TideInfo.NONE rather than deriving tide facts for a wood — a
+        // dawn race is a sky-photography concern, not a woodland one.
         if (loc.isWoodlandOnly()) {
             return buildWoodlandSlot(loc, solarTime, lowCloud, midCloud, highCloud, precip,
                     visibility, humidity, temp, apparentTemp, weatherCode, windSpeed);
@@ -238,6 +251,15 @@ public class BriefingSlotBuilder {
 
         BriefingSlot slot = new BriefingSlot(loc.getId(), loc.getName(), solarTime, verdict,
                 weather, tideInfo, flags, standdownReason);
+
+        // The same seam TideInfo rides above: a per-location, per-window fact attached to the
+        // finished slot. Null on every night but a catalogued (or simulated) eclipse's own window
+        // — see EclipseSightAssembler's class javadoc.
+        BriefingSlot.EclipseSight eclipseSight = eclipseSightAssembler.forSlot(loc, date, eventType);
+        if (eclipseSight != null) {
+            slot = slot.withEclipse(eclipseSight);
+        }
+
         // Asked of the FINISHED slot through the policy, not inferred from `tidesNotAligned`
         // above: BriefingCandidateCollector drops a slot with exactly this call, so this is the
         // same decision the disposition trail records, not a second one that could drift from it.

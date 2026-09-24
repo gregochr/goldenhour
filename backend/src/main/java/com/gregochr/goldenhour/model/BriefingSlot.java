@@ -100,6 +100,18 @@ import java.util.List;
  *                            rides {@code daily_briefing_cache}, so every payload written before
  *                            the field existed deserialises with a null here and reads as
  *                            eligibility unknown, never as eligible.
+ * @param eclipse             the moon's geometry and the dawn/dusk race data for a lunar eclipse
+ *                            whose own window (date + {@code targetType}) this slot falls on, or
+ *                            null every other night — see {@link EclipseSight}. Deliberately
+ *                            <b>not</b> {@code @JsonUnwrapped}: unlike {@link TideInfo}, whose flat
+ *                            fields are the map tab's own long-established wire shape, an eclipse
+ *                            sight is a self-contained fact the popup mounts as one nested object
+ *                            (the plan's own reasoning against flattening eleven more keys onto an
+ *                            already-large slot — {@code docs/engineering/lunar-eclipse-plan.md}
+ *                            §2.5). Nullable and {@code NON_NULL}-serialised for the same
+ *                            {@code daily_briefing_cache} reason as {@link #evaluationGate}: a
+ *                            payload written before this field existed deserialises with a null
+ *                            here, never a fabricated one
  */
 public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
@@ -118,10 +130,54 @@ public record BriefingSlot(
         DisplayVerdict displayVerdict,
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeHeadline,
         boolean canopy,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String evaluationGate) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String evaluationGate,
+        @JsonInclude(JsonInclude.Include.NON_NULL) EclipseSight eclipse) {
 
     public BriefingSlot {
         flags = List.copyOf(flags);
+    }
+
+    /**
+     * Legacy 17-argument constructor, retained so every existing production and test call site
+     * that predates {@link #eclipse} — the many convenience constructors and withers in this
+     * class, and every direct canonical-constructor call in the test tree — keeps compiling
+     * unchanged. Defaults {@link #eclipse} to null, the same "absent, not fabricated" convention
+     * {@link #evaluationGate} already established for a field added after this record's first
+     * release.
+     *
+     * <p><b>Not used by {@link #withEvaluationGate} or the sky-component {@link #withClaudeScores}
+     * overload</b> — both must thread {@link #eclipse} through from {@code this}, or a slot that
+     * already carries an eclipse sight would silently lose it the next time either wither runs
+     * (the same "positional rebuild drops a field" defect {@link BriefingEventSummary#withWindow}'s
+     * own javadoc warns about). Those two call the 18-argument canonical form directly instead.
+     *
+     * @param locationId          database id of the location, or null
+     * @param locationName        human-readable location name
+     * @param solarEventTime      UTC time of the sunrise or sunset
+     * @param verdict             GO, MARGINAL, or STANDDOWN
+     * @param weather             weather conditions at the observer point
+     * @param tide                tide data for coastal locations
+     * @param flags               human-readable flag strings
+     * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
+     * @param claudeRating        cached Claude 1-5 star rating, or null
+     * @param skyRating           the sky visitor's own component score, or null
+     * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+     * @param goldenHourPotential cached Claude golden hour score 0-100, or null
+     * @param claudeSummary       cached Claude prose summary, or null
+     * @param displayVerdict      unified colour/label signal
+     * @param claudeHeadline      4-9 word Claude-authored card header, or null
+     * @param canopy              true when this slot came from the woodland evaluator
+     * @param evaluationGate      plain-English reason this slot was withheld from Claude, or null
+     */
+    public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
+            Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
+            String standdownReason, Integer claudeRating, Integer skyRating,
+            Integer fierySkyPotential, Integer goldenHourPotential, String claudeSummary,
+            DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy,
+            String evaluationGate) {
+        this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
+                standdownReason, claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
+                claudeSummary, displayVerdict, claudeHeadline, canopy, evaluationGate, null);
     }
 
     /**
@@ -157,7 +213,27 @@ public record BriefingSlot(
     public BriefingSlot withEvaluationGate(String gate) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
-                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy, gate);
+                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy, gate,
+                eclipse);
+    }
+
+    /**
+     * Returns a copy of this slot carrying the given lunar eclipse sight, every other field
+     * unchanged.
+     *
+     * <p>A wither rather than a constructor argument at every call site, for the same reason
+     * {@link #withEvaluationGate} is one: {@code EclipseSightAssembler} decides this AFTER the slot
+     * already exists, at {@code BriefingSlotBuilder}'s own build-time seam.
+     *
+     * @param eclipse the sight, or null to clear it (every night that is not this eclipse's own
+     *                window)
+     * @return a new slot, every other field unchanged
+     */
+    public BriefingSlot withEclipse(EclipseSight eclipse) {
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
+                flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
+                evaluationGate, eclipse);
     }
 
     /**
@@ -332,7 +408,8 @@ public record BriefingSlot(
             Integer goldenHour, String summary, String headline) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, rating, skyRating, fierySky, goldenHour, summary,
-                DisplayVerdict.resolve(rating, verdict), headline, canopy, evaluationGate);
+                DisplayVerdict.resolve(rating, verdict), headline, canopy, evaluationGate,
+                eclipse);
     }
 
     /**
@@ -521,5 +598,85 @@ public record BriefingSlot(
             }
             return null;
         }
+    }
+
+    /**
+     * One location's view of a lunar eclipse falling on this slot's own window — the dawn/dusk
+     * race data (plan {@code lunar-eclipse-plan.md} §2.5).
+     *
+     * <p>{@link #umbraStart}/{@link #umbraEnd} are the eclipse's own {@code u1}/{@code u4} —
+     * <b>unclipped</b> by this location's moonset or moonrise — so the popup's race geometry can
+     * derive its own umbra band ({@code umbraStart → min(umbraEnd, moonset)}) and, on a night the
+     * Moon sets mid-eclipse, its own hatch band ({@code moonset → umbraEnd}) without this record
+     * doing that clipping first and destroying the information the hatch needs. Every other moon
+     * field ({@link #moonAltAtMax}, {@link #moonAzAtMax}, {@link #moonAzCardinal},
+     * {@link #moonset}, {@link #moonrise}, {@link #setsInShadow}, {@link #risesInShadow}) is this
+     * location's own geometry, straight from {@code LunarEclipseCalculator.sight}.
+     *
+     * @param type            {@code "LUNAR_ECLIPSE"} — a constant today, carried so a client
+     *                        keying on {@code badge.type} the way it already does for the topic
+     *                        chip can key on this field identically, and so a future second
+     *                        eclipse-sight producer would not need a new discriminator
+     * @param moonAltAtMax    the Moon's altitude above the astronomical horizon at greatest
+     *                        eclipse, degrees, rounded to the nearest whole degree; negative when
+     *                        below the horizon
+     * @param moonAzAtMax     the Moon's azimuth at greatest eclipse, degrees clockwise from true
+     *                        north, rounded to the nearest whole degree
+     * @param moonAzCardinal  {@link #moonAzAtMax} as a 16-point compass cardinal (e.g. "WSW")
+     * @param maximum         greatest eclipse, London local time
+     * @param umbraStart      the eclipse's own {@code u1} (umbral phase begins), London local time
+     *                        — see the class javadoc above on why this is not clipped to moonrise
+     * @param umbraEnd        the eclipse's own {@code u4} (umbral phase ends), London local time —
+     *                        not clipped to moonset, for the same reason
+     * @param moonset         the moonset paired with {@link #moonrise}, London local time, or null
+     *                        on the practical non-occurrence {@link LunarEclipseSight} documents
+     * @param moonrise        the moonrise that began the Moon's current visible arc, London local
+     *                        time, or null on the same practical basis
+     * @param setsInShadow    true when {@link #moonset} falls inside {@code [umbraStart, umbraEnd]}
+     * @param risesInShadow   true when {@link #moonrise} falls inside {@code [umbraStart, umbraEnd]}
+     * @param race            {@code "DAWN"} when this is a SUNRISE eclipse and the sky is still
+     *                        brightening while the Moon remains in shadow ({@link #umbraEnd} falls
+     *                        after nautical dawn minus an hour); {@code "DUSK"} for the SUNSET
+     *                        mirror ({@link #umbraStart} falls before nautical dusk plus an hour);
+     *                        null when neither applies (a high, leisurely eclipse with no race
+     *                        against the light) — the popup shows facts only in that case
+     * @param stops           the four {@link LightStop}s the race's gradient is built from — see
+     *                        {@link LightStop}; always four entries when this record exists, keyed
+     *                        for a SUNRISE window ({@code NAUTICAL_DAWN}, {@code CIVIL_DAWN},
+     *                        {@code SUNRISE}, {@code GOLDEN_MORNING_END}) or a SUNSET one
+     *                        ({@code GOLDEN_EVENING_START}, {@code SUNSET}, {@code CIVIL_DUSK},
+     *                        {@code NAUTICAL_DUSK}), never both — {@link #race} may still be null
+     *                        even when stops are present, on the leisurely-eclipse case above
+     */
+    public record EclipseSight(
+            String type,
+            int moonAltAtMax,
+            int moonAzAtMax,
+            String moonAzCardinal,
+            LocalDateTime maximum,
+            LocalDateTime umbraStart,
+            LocalDateTime umbraEnd,
+            LocalDateTime moonset,
+            LocalDateTime moonrise,
+            boolean setsInShadow,
+            boolean risesInShadow,
+            String race,
+            List<LightStop> stops) {
+
+        public EclipseSight {
+            stops = stops == null ? List.of() : List.copyOf(stops);
+        }
+    }
+
+    /**
+     * One point on the dawn/dusk race's light gradient.
+     *
+     * @param key  a key from the frontend's {@code MastheadLight.RULE_COLOURS} map (e.g.
+     *             {@code "NAUTICAL_DAWN"}, {@code "SUNSET"}) — never invented here, so the popup's
+     *             race can feed this list straight into the same gradient builder the masthead's
+     *             own light rule already uses, with no client-side re-mapping
+     * @param time the instant this light stage begins here, on this date, London local time
+     */
+    public record LightStop(String key, LocalDateTime time) {
     }
 }

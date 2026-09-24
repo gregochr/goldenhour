@@ -428,6 +428,26 @@ public record BriefingRegion(
     }
 
     /**
+     * Returns a copy of this region carrying the given slots, every other field unchanged.
+     *
+     * <p>A wither for the same reason {@link #withGloss} is one: {@code BriefingService}'s
+     * serve-time simulated-eclipse overlay rewrites only the slots (attaching
+     * {@code BriefingSlot.eclipse} to whichever ones carry none), and a positional rebuild at that
+     * call site would silently drop whatever later field this record grows next — the exact trap
+     * this file's other witherss already exist to close.
+     *
+     * @param newSlots the replacement per-location assessments
+     * @return a copy carrying them
+     */
+    public BriefingRegion withSlots(List<BriefingSlot> newSlots) {
+        return new BriefingRegion(regionName, verdict, summary, tideHighlights, newSlots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
+                regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
+                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                bestRating, meanRatingDelta);
+    }
+
+    /**
      * Backwards-compatible convenience constructor matching the pre-confidence
      * canonical signature. Defaults {@code confidence} to {@code null} (unknown)
      * so the many existing 15-arg call sites — including {@code withLightlyEvaluated}

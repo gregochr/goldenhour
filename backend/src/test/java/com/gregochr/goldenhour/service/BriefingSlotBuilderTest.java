@@ -36,6 +36,8 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -61,6 +63,15 @@ class BriefingSlotBuilderTest {
     @Mock
     private TideExtremeRepository tideExtremeRepository;
 
+    /**
+     * Left unstubbed in every test that is not about the lunar-eclipse seam itself: Mockito
+     * answers null, so {@code buildSlot} attaches no {@link BriefingSlot#eclipse()} — the same
+     * "unwired dependency defaults to the no-op answer" shape {@code tideExtremeRepository} above
+     * already relies on.
+     */
+    @Mock
+    private EclipseSightAssembler eclipseSightAssembler;
+
     private BriefingSlotBuilder slotBuilder;
 
     @BeforeEach
@@ -68,7 +79,7 @@ class BriefingSlotBuilderTest {
         slotBuilder = new BriefingSlotBuilder(solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService),
                 new BriefingVerdictEvaluator(),
-                new WoodlandVerdictEvaluator(), tideExtremeRepository);
+                new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
     }
 
     /** Wraps one tide curve as a dual-window result; the briefing path ignores the widened one. */
@@ -186,6 +197,27 @@ class BriefingSlotBuilderTest {
             assertThat(slot.tide()).isEqualTo(BriefingSlot.TideInfo.NONE);
             assertThat(slot.tide().tideState()).isNull();
             assertThat(slot.tide().tideAligned()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a woodland slot carries no eclipse sight either — the woodland branch returns "
+                + "before EclipseSightAssembler's seam, so it is never even asked")
+        void woodlandSlot_neverReachesTheEclipseSeam() {
+            LocationEntity loc = woodLoc(LocationType.WOODLAND);
+            // A real eclipse's own SUNRISE window (2026-08-28), so the only reason this slot
+            // carries no eclipse can be the woodland early return, not a genuine "no eclipse
+            // today" answer the assembler itself would have given for an open-sky location.
+            LocalDateTime eclipseSolarTime = LocalDateTime.of(2026, 8, 28, 5, 0);
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(eclipseSolarTime);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, mistyOvercast()),
+                    eclipseSolarTime.toLocalDate(), TargetType.SUNRISE);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.eclipse()).isNull();
+            verifyNoInteractions(eclipseSightAssembler);
         }
     }
 
@@ -1054,6 +1086,81 @@ class BriefingSlotBuilderTest {
 
             assertThat(slot).isNotNull();
             assertThat(slot.weather().highCloudPercent()).isEqualTo(0);
+        }
+    }
+
+    @Nested
+    @DisplayName("Eclipse sight attachment at the TideInfo seam")
+    class EclipseSightAttachmentTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 8, 28, 5, 0);
+
+        private LocationEntity inlandLoc() {
+            return LocationEntity.builder()
+                    .id(31L).name("Dunstanburgh").lat(55.49).lon(-1.59)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        private BriefingSlot.EclipseSight sampleSight() {
+            LocalDateTime max = LocalDateTime.of(2026, 8, 28, 5, 12);
+            return new BriefingSlot.EclipseSight("LUNAR_ECLIPSE", 8, 241, "WSW", max,
+                    max.minusHours(2), max.plusHours(2), max.plusHours(1), max.minusHours(4),
+                    true, false, "DAWN",
+                    List.of(new BriefingSlot.LightStop("NAUTICAL_DAWN", max.minusHours(2))));
+        }
+
+        @Test
+        @DisplayName("buildSlot attaches whatever EclipseSightAssembler returns for this window")
+        void attachesTheAssemblersSight() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+            BriefingSlot.EclipseSight sight = sampleSight();
+            when(eclipseSightAssembler.forSlot(loc, SOLAR_TIME.toLocalDate(), TargetType.SUNRISE))
+                    .thenReturn(sight);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(), TargetType.SUNRISE);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.eclipse()).isEqualTo(sight);
+        }
+
+        @Test
+        @DisplayName("buildSlot carries no eclipse when the assembler answers null — every other night")
+        void carriesNoEclipseWhenAssemblerAnswersNull() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+            // eclipseSightAssembler left unstubbed: Mockito answers null.
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(), TargetType.SUNRISE);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.eclipse()).isNull();
+        }
+
+        @Test
+        @DisplayName("the assembler is asked with this slot's own location, date and event type")
+        void assemblerIsAskedWithTheSlotsOwnCoordinates() {
+            LocationEntity loc = inlandLoc();
+            LocalDateTime sunsetTime = LocalDateTime.of(2026, 8, 28, 19, 45);
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(sunsetTime);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            slotBuilder.buildSlot(lw, sunsetTime.toLocalDate(), TargetType.SUNSET);
+
+            verify(eclipseSightAssembler).forSlot(loc, sunsetTime.toLocalDate(), TargetType.SUNSET);
         }
     }
 

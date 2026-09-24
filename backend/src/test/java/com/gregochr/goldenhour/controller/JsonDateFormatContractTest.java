@@ -1,8 +1,15 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
+import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,5 +95,48 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.driveTimesCalculatedAt").value("2026-04-16T10:15:30Z"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing renders a BriefingSlot.EclipseSight's LocalDateTime fields in "
+            + "the pinned wire format — the seam DailyBriefingResponseJsonTest's hand-built Jackson "
+            + "2 mapper cannot prove (CLAUDE.md's two-Jackson-graphs warning)")
+    void getBriefing_pinsEclipseSightDateFormat() throws Exception {
+        BriefingSlot.EclipseSight eclipse = new BriefingSlot.EclipseSight(
+                "LUNAR_ECLIPSE", 8, 241, "WSW",
+                LocalDateTime.of(2026, 8, 28, 5, 12), LocalDateTime.of(2026, 8, 28, 3, 33),
+                LocalDateTime.of(2026, 8, 28, 6, 52), LocalDateTime.of(2026, 8, 28, 6, 18), null,
+                true, false, "DAWN",
+                List.of(new BriefingSlot.LightStop("NAUTICAL_DAWN",
+                        LocalDateTime.of(2026, 8, 28, 3, 10))));
+        BriefingSlot slot = new BriefingSlot("Dunstanburgh",
+                LocalDateTime.of(2026, 8, 28, 5, 50), Verdict.GO,
+                new BriefingSlot.WeatherConditions(10, java.math.BigDecimal.ZERO, 20000, 60,
+                        12.0, 10.0, 1, java.math.BigDecimal.ONE, 0, 0),
+                BriefingSlot.TideInfo.NONE, List.of(), null)
+                .withEclipse(eclipse);
+        BriefingRegion region = new BriefingRegion("Northumberland",
+                Verdict.GO, "Clear at 1 of 1 location",
+                List.of(), List.of(slot), 12.0, 10.0, 1.0, 1, null, null,
+                DisplayVerdict.WORTH_IT, 1);
+        BriefingEventSummary eventSummary = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        BriefingDay day = new BriefingDay(LocalDate.of(2026, 8, 28), List.of(eventSummary));
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                LocalDateTime.of(2026, 8, 28, 0, 0), "Lunar eclipse before dawn",
+                List.of(day), List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
+
+        String slotPath = "$.days[0].eventSummaries[0].regions[0].slots[0]";
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.generatedAt").value("2026-08-28T00:00:00"))
+                .andExpect(jsonPath(slotPath + ".solarEventTime").value("2026-08-28T05:50:00"))
+                .andExpect(jsonPath(slotPath + ".eclipse.maximum").value("2026-08-28T05:12:00"))
+                .andExpect(jsonPath(slotPath + ".eclipse.umbraStart").value("2026-08-28T03:33:00"))
+                .andExpect(jsonPath(slotPath + ".eclipse.umbraEnd").value("2026-08-28T06:52:00"))
+                .andExpect(jsonPath(slotPath + ".eclipse.moonset").value("2026-08-28T06:18:00"))
+                .andExpect(jsonPath(slotPath + ".eclipse.stops[0].time").value("2026-08-28T03:10:00"));
     }
 }

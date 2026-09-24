@@ -47,6 +47,7 @@ import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -485,7 +486,7 @@ class TideSurfaceAgreementTest {
                     .thenReturn(extremes);
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(solarService, locationService,
                     tideFactDeriver, new BriefingVerdictEvaluator(), new WoodlandVerdictEvaluator(),
-                    tideExtremeRepository);
+                    tideExtremeRepository, mock(EclipseSightAssembler.class));
             BriefingSlot slot = slotBuilder.buildSlot(
                     new BriefingSlotBuilder.LocationWeather(location, weatherResponse()),
                     DAY, TargetType.SUNSET);
