@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -124,10 +125,16 @@ class LunarEclipseCalculatorTest {
         }
 
         @Test
-        @DisplayName("2028-12-31 rises in shadow at the UK reference point")
+        @DisplayName("2028-12-31 rises in shadow at the UK reference point, and pairs the CORRECT "
+                + "moonset (2029-01-01, not a leftover from earlier that morning)")
         void risesInShadowWorkedExample() {
             // U1 15:07:17 UTC, U4 18:36:53 UTC (both GMT locally, no BST on 31 Dec); moonrise at the
             // UK-centre reference point falls at 15:36:14 UTC/GMT, inside that window.
+            //
+            // This is the exact case Codex review (#911) found broken: the SAME civil date's only
+            // moonset candidate is ~08:34 GMT, hours BEFORE this 15:36 rise -- a leftover set from
+            // the arc that ended that morning, not the set this rise's own arc ends with. The
+            // correctly-paired moonset is the following morning, 2029-01-01 ~09:08 GMT.
             LunarEclipseSight sight = calculator.sight(on(LocalDate.of(2028, 12, 31)), 54.5, -2.5);
 
             assertThat(sight.risesInShadow()).isTrue();
@@ -135,6 +142,17 @@ class LunarEclipseCalculatorTest {
                     .isLessThanOrEqualTo(1);
             assertThat(sight.visibleUmbraStart()).isEqualTo(sight.moonrise());
             assertThat(sight.visible()).isTrue();
+
+            assertThat(sight.moonset()).isNotNull();
+            assertThat(sight.moonset()).as("moonset must be on the day AFTER the rise, not before it")
+                    .isAfter(sight.moonrise());
+            assertThat(sight.moonset().toLocalDate()).isEqualTo(LocalDate.of(2029, 1, 1));
+            assertThat(minutesBetween(sight.moonset(), LocalDateTime.of(2029, 1, 1, 9, 8, 38)))
+                    .isLessThanOrEqualTo(1);
+            // Well outside [u1, u4], so the eclipse's own umbra ends at u4 -- the moon does not set
+            // during this window, it stays up all the way through it.
+            assertThat(sight.setsInShadow()).isFalse();
+            assertThat(sight.visibleUmbraEnd()).isEqualTo(on(LocalDate.of(2028, 12, 31)).u4());
         }
 
         @Test
@@ -203,13 +221,17 @@ class LunarEclipseCalculatorTest {
         }
 
         /**
-         * Every fixture in this nested class shares the same {@code u1} date (2030-01-01), so the
-         * London civil date {@link LunarEclipseCalculator} will query is knowable — stub it exactly
+         * Every fixture in this nested class shares the same {@code u1} date (2030-01-01) with a
+         * span under an hour, so the three London civil dates {@link LunarEclipseCalculator} will
+         * query (a day of margin either side, per its own javadoc) are knowable — stub them exactly
          * rather than with {@code any()}.
          */
         private void noMoonEvents() {
-            when(moonriseMoonsetCalculator.calculate(eq(LocalDate.of(2030, 1, 1)), eq(LAT), eq(LON), eq(LONDON)))
-                    .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.empty()));
+            for (LocalDate date : List.of(
+                    LocalDate.of(2029, 12, 31), LocalDate.of(2030, 1, 1), LocalDate.of(2030, 1, 2))) {
+                when(moonriseMoonsetCalculator.calculate(eq(date), eq(LAT), eq(LON), eq(LONDON)))
+                        .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.empty()));
+            }
         }
 
         private LunarPosition positionAt(double altitude) {
@@ -334,6 +356,17 @@ class LunarEclipseCalculatorTest {
         @Mock
         private MoonriseMoonsetCalculator moonriseMoonsetCalculator;
 
+        /**
+         * {@link LunarEclipseCalculator} queries a day of margin either side of the umbral span's
+         * own civil dates, so both tests below must also stub the two outermost dates even though
+         * neither has any events -- otherwise an unstubbed call returns null and the calculator's
+         * {@code Optional} unwrap throws.
+         */
+        private void noRisesOrSetsOn(LocalDate date) {
+            when(moonriseMoonsetCalculator.calculate(date, LAT, LON, LONDON))
+                    .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.empty()));
+        }
+
         @Test
         @DisplayName("a moonset on the SECOND civil date, inside the span, is found and reported")
         void moonsetOnTheLaterDateIsFound() {
@@ -353,10 +386,12 @@ class LunarEclipseCalculatorTest {
                     LocalDateTime.of(2030, 6, 30, 10, 0), LONDON); // outside the span, irrelevant
             ZonedDateTime moonsetOnTheSecondDate = ZonedDateTime.of(
                     LocalDateTime.of(2030, 7, 1, 1, 20), LONDON); // inside the span
+            noRisesOrSetsOn(LocalDate.of(2030, 6, 29));
             when(moonriseMoonsetCalculator.calculate(LocalDate.of(2030, 6, 30), LAT, LON, LONDON))
                     .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.of(moonsetOnTheFirstDate)));
             when(moonriseMoonsetCalculator.calculate(LocalDate.of(2030, 7, 1), LAT, LON, LONDON))
                     .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.of(moonsetOnTheSecondDate)));
+            noRisesOrSetsOn(LocalDate.of(2030, 7, 2));
 
             LunarEclipseSight sight =
                     new LunarEclipseCalculator(lunarCalculator, moonriseMoonsetCalculator).sight(eclipse, LAT, LON);
@@ -380,18 +415,109 @@ class LunarEclipseCalculatorTest {
             when(lunarCalculator.calculate(any(), eq(LAT), eq(LON)))
                     .thenReturn(new LunarPosition(1.0, 200.0, 0.99, LunarPhase.FULL_MOON, 384000.0));
 
+            noRisesOrSetsOn(LocalDate.of(2030, 6, 29));
             when(moonriseMoonsetCalculator.calculate(LocalDate.of(2030, 6, 30), LAT, LON, LONDON))
                     .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.empty()));
             ZonedDateTime moonsetOnTheSecondDate =
                     ZonedDateTime.of(LocalDateTime.of(2030, 7, 1, 0, 55), LONDON);
             when(moonriseMoonsetCalculator.calculate(LocalDate.of(2030, 7, 1), LAT, LON, LONDON))
                     .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.of(moonsetOnTheSecondDate)));
+            noRisesOrSetsOn(LocalDate.of(2030, 7, 2));
 
             LunarEclipseSight sight =
                     new LunarEclipseCalculator(lunarCalculator, moonriseMoonsetCalculator).sight(eclipse, LAT, LON);
 
             assertThat(sight.setsInShadow()).isTrue();
             assertThat(sight.moonset()).isEqualTo(LocalDateTime.of(2030, 7, 1, 0, 55));
+        }
+    }
+
+    @Nested
+    @DisplayName("Moonset is paired with moonrise, never picked independently (Codex review #911)")
+    @ExtendWith(MockitoExtension.class)
+    class MoonsetMoonrisePairing {
+
+        private static final double LAT = 52.0;
+        private static final double LON = -1.0;
+
+        @Mock
+        private LunarCalculator lunarCalculator;
+
+        @Mock
+        private MoonriseMoonsetCalculator moonriseMoonsetCalculator;
+
+        private void noRisesOrSetsOn(LocalDate date) {
+            when(moonriseMoonsetCalculator.calculate(date, LAT, LON, LONDON))
+                    .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.empty()));
+        }
+
+        @Test
+        @DisplayName("a same-day leftover moonset BEFORE the rise is rejected for the next day's "
+                + "moonset AFTER it — the synthetic shape of the 2028-12-31 bug")
+        void rejectsALeftoverSameDaySetInFavourOfTheCorrectlyPairedOne() {
+            // Window: 2030-03-01, 17:00-18:00 London local (evening). That civil date's only
+            // moonset candidate is a stale 06:00 leftover from the arc that ended that MORNING --
+            // hours before the 17:30 rise this window actually observes. The rise's own arc does not
+            // end until the following morning, 2030-03-02 07:00.
+            LocalDateTime u1Utc = LocalDateTime.of(2030, 3, 1, 17, 0);
+            LocalDateTime maxUtc = LocalDateTime.of(2030, 3, 1, 17, 30);
+            LocalDateTime u4Utc = LocalDateTime.of(2030, 3, 1, 18, 0);
+            LunarEclipse eclipse = new LunarEclipse(u1Utc.toLocalDate(), Kind.PARTIAL, 0.5,
+                    u1Utc.minusMinutes(30), u1Utc, null, maxUtc, null, u4Utc, u4Utc.plusMinutes(30), null, null);
+
+            when(lunarCalculator.calculate(any(), eq(LAT), eq(LON)))
+                    .thenReturn(new LunarPosition(1.0, 200.0, 0.99, LunarPhase.FULL_MOON, 384000.0));
+
+            noRisesOrSetsOn(LocalDate.of(2030, 2, 28));
+            ZonedDateTime riseInWindow = ZonedDateTime.of(LocalDateTime.of(2030, 3, 1, 17, 30), LONDON);
+            ZonedDateTime staleLeftoverSet = ZonedDateTime.of(LocalDateTime.of(2030, 3, 1, 6, 0), LONDON);
+            when(moonriseMoonsetCalculator.calculate(LocalDate.of(2030, 3, 1), LAT, LON, LONDON))
+                    .thenReturn(new MoonriseMoonset(Optional.of(riseInWindow), Optional.of(staleLeftoverSet)));
+            ZonedDateTime correctlyPairedSet = ZonedDateTime.of(LocalDateTime.of(2030, 3, 2, 7, 0), LONDON);
+            when(moonriseMoonsetCalculator.calculate(LocalDate.of(2030, 3, 2), LAT, LON, LONDON))
+                    .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.of(correctlyPairedSet)));
+
+            LunarEclipseSight sight =
+                    new LunarEclipseCalculator(lunarCalculator, moonriseMoonsetCalculator).sight(eclipse, LAT, LON);
+
+            assertThat(sight.risesInShadow()).isTrue();
+            assertThat(sight.moonrise()).isEqualTo(LocalDateTime.of(2030, 3, 1, 17, 30));
+            assertThat(sight.moonset())
+                    .as("must be the NEXT day's set, not the same-day 06:00 leftover from before the rise")
+                    .isEqualTo(LocalDateTime.of(2030, 3, 2, 7, 0));
+            assertThat(sight.moonset()).isAfter(sight.moonrise());
+            assertThat(sight.setsInShadow()).isFalse();
+        }
+
+        @Test
+        @DisplayName("no moonrise found at all: moonset falls back to nearest-to-window, "
+                + "not necessarily inside it")
+        void noMoonriseFoundFallsBackToNearestToWindow() {
+            // Degenerate case with no arc to pair against (should not occur for a real eclipse, but
+            // is reachable if a location's roster of candidates is ever genuinely rise-free) --
+            // exercises the SECOND fallback tier: a set that misses the window itself but is still
+            // at or after windowStart.
+            LocalDateTime u1Utc = LocalDateTime.of(2030, 3, 1, 17, 0);
+            LocalDateTime maxUtc = LocalDateTime.of(2030, 3, 1, 17, 30);
+            LocalDateTime u4Utc = LocalDateTime.of(2030, 3, 1, 18, 0);
+            LunarEclipse eclipse = new LunarEclipse(u1Utc.toLocalDate(), Kind.PARTIAL, 0.5,
+                    u1Utc.minusMinutes(30), u1Utc, null, maxUtc, null, u4Utc, u4Utc.plusMinutes(30), null, null);
+
+            when(lunarCalculator.calculate(any(), eq(LAT), eq(LON)))
+                    .thenReturn(new LunarPosition(1.0, 200.0, 0.99, LunarPhase.FULL_MOON, 384000.0));
+
+            noRisesOrSetsOn(LocalDate.of(2030, 2, 28));
+            ZonedDateTime setAfterWindow = ZonedDateTime.of(LocalDateTime.of(2030, 3, 1, 19, 30), LONDON);
+            when(moonriseMoonsetCalculator.calculate(LocalDate.of(2030, 3, 1), LAT, LON, LONDON))
+                    .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.of(setAfterWindow)));
+            noRisesOrSetsOn(LocalDate.of(2030, 3, 2));
+
+            LunarEclipseSight sight =
+                    new LunarEclipseCalculator(lunarCalculator, moonriseMoonsetCalculator).sight(eclipse, LAT, LON);
+
+            assertThat(sight.moonrise()).isNull();
+            assertThat(sight.moonset()).isEqualTo(LocalDateTime.of(2030, 3, 1, 19, 30));
+            assertThat(sight.setsInShadow()).isFalse();
         }
     }
 }

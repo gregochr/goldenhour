@@ -196,6 +196,17 @@ class LunarEclipseCatalogTest {
         }
 
         @Test
+        @DisplayName("PARTIAL with a non-null u3 (and null u2) is rejected")
+        void partialRejectsU3() {
+            // u2 is null here, so this is the one case that isolates the SECOND clause
+            // (u3 != null) as the one that trips the throw, rather than the first.
+            assertThatThrownBy(() -> new LunarEclipse(P1.toLocalDate(), Kind.PARTIAL, 0.5, P1, U1,
+                    null, MAX, LocalDateTime.of(2030, 1, 1, 2, 30), U4, P4, null, null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("u2/u3 non-null");
+        }
+
+        @Test
         @DisplayName("a nextComparable date with no matching kind is rejected")
         void nextComparablePairingIsRequired() {
             assertThatThrownBy(() -> new LunarEclipse(P1.toLocalDate(), Kind.PARTIAL, 0.5, P1, U1, null,

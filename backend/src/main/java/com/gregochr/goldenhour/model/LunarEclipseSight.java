@@ -23,12 +23,19 @@ import java.time.LocalDateTime;
  * @param moonAzAtMax      the Moon's azimuth at greatest eclipse, degrees clockwise from true north,
  *                         rounded to the nearest whole degree
  * @param moonAzCardinal   {@link #moonAzAtMax} as a 16-point compass cardinal (e.g. "WSW")
- * @param moonset          the Moon's setting time nearest the umbral span, London local time —
- *                         null only in the practical non-occurrence that neither of the two civil
- *                         dates spanning the umbral phase has a moonset (the Moon is a once-daily
- *                         riser/setter at these latitudes, so this is exceedingly rare)
- * @param moonrise         the Moon's rising time nearest the umbral span, London local time —
- *                         nullable on the same basis as {@link #moonset}
+ * @param moonset          the first moonset strictly after {@link #moonrise}, London local time —
+ *                         <b>always derived from {@link #moonrise}, never picked independently</b>,
+ *                         which is what the compact constructor below enforces and what keeps this
+ *                         field from ever naming an earlier, unrelated arc's leftover set (a real
+ *                         defect fixed after Codex review, #911: querying only the umbral span's
+ *                         own civil date can return a moonset from hours <em>before</em> an
+ *                         evening moonrise). Null only in the practical non-occurrence that no
+ *                         paired set falls within a day of {@link #moonrise} at all (the Moon is a
+ *                         once-daily setter at these latitudes, so this is exceedingly rare)
+ * @param moonrise         the moonrise that began the Moon's current visible arc, London local
+ *                         time — the rise inside the umbral span {@code [u1, u4]} when there is
+ *                         one, else the most recent rise before it (possibly the evening before).
+ *                         Nullable on the same practical basis as {@link #moonset}
  * @param setsInShadow     true when {@link #moonset} falls inside the umbral span {@code [u1, u4]}
  *                         — the Moon sets while still eclipsed
  * @param risesInShadow    true when {@link #moonrise} falls inside the umbral span — the eclipse is
@@ -55,4 +62,18 @@ public record LunarEclipseSight(
         LocalDateTime visibleUmbraStart,
         LocalDateTime visibleUmbraEnd,
         boolean visible) {
+
+    /**
+     * Defence in depth for the invariant {@code LunarEclipseCalculator} already guarantees by
+     * construction (it derives {@code moonset} as the first set strictly after {@code moonrise},
+     * never picks the two independently — see its own javadoc and Codex review #911): a
+     * chronologically impossible sight — a moonset at or before its own moonrise — fails here
+     * rather than reaching a caller.
+     */
+    public LunarEclipseSight {
+        if (moonset != null && moonrise != null && !moonset.isAfter(moonrise)) {
+            throw new IllegalStateException(
+                    "moonset must be after moonrise, got moonset=" + moonset + " moonrise=" + moonrise);
+        }
+    }
 }

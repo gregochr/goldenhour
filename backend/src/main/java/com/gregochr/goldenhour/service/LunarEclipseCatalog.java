@@ -186,10 +186,6 @@ public final class LunarEclipseCatalog {
                 throw new IllegalArgumentException(
                         "kind " + kind + " disagrees with umbralMagnitude " + umbralMagnitude);
             }
-            if (isTotal != (u2 != null) || isTotal != (u3 != null)) {
-                throw new IllegalArgumentException(
-                        "kind " + kind + " requires u2/u3 non-null iff TOTAL, got u2=" + u2 + " u3=" + u3);
-            }
             if ((nextComparable == null) != (nextComparableKind == null)) {
                 throw new IllegalArgumentException(
                         "nextComparable and nextComparableKind must be both null or both set");
@@ -200,15 +196,31 @@ public final class LunarEclipseCatalog {
             }
             // u1 < u4 follows transitively from either branch below (u1 < max < u4, with u2/u3
             // sandwiched in between for a total eclipse), so it is not checked again separately.
+            //
+            // The u2/u3-presence check and the ordering check that dereferences them are
+            // deliberately ONE block per kind, not two — a static analyser (CodeQL flagged this in
+            // review, #911) cannot see that `isTotal != (u2 != null)` earlier in the method implies
+            // u2 is non-null here, so the null guard has to sit immediately before the dereference
+            // it protects, in the same branch.
             if (isTotal) {
+                if (u2 == null || u3 == null) {
+                    throw new IllegalArgumentException(
+                            "kind " + kind + " requires u2/u3 non-null iff TOTAL, got u2=" + u2 + " u3=" + u3);
+                }
                 if (!u1.isBefore(u2) || !u2.isBefore(max) || !max.isBefore(u3) || !u3.isBefore(u4)) {
                     throw new IllegalArgumentException(
                             "contacts out of order: u1=" + u1 + " u2=" + u2 + " max=" + max
                                     + " u3=" + u3 + " u4=" + u4);
                 }
-            } else if (!u1.isBefore(max) || !max.isBefore(u4)) {
-                throw new IllegalArgumentException(
-                        "contacts out of order: u1=" + u1 + " max=" + max + " u4=" + u4);
+            } else {
+                if (u2 != null || u3 != null) {
+                    throw new IllegalArgumentException(
+                            "kind " + kind + " requires u2/u3 non-null iff TOTAL, got u2=" + u2 + " u3=" + u3);
+                }
+                if (!u1.isBefore(max) || !max.isBefore(u4)) {
+                    throw new IllegalArgumentException(
+                            "contacts out of order: u1=" + u1 + " max=" + max + " u4=" + u4);
+                }
             }
             if (!u4.isBefore(p4)) {
                 throw new IllegalArgumentException("u4 must be before p4: " + u4 + " / " + p4);

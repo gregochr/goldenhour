@@ -18,6 +18,8 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
 
 /**
  * Turns one catalogued {@link LunarEclipse}'s UTC contacts into what a given observer sees.
@@ -43,14 +45,29 @@ import java.util.List;
  * catalogue entry per location, at build time — not per request) is cheap and exact enough that no
  * shortcut is worth the risk of missing a short, low, genuinely visible window.
  *
- * <h2>Moonrise and moonset across a civil-date boundary</h2>
+ * <h2>Moonrise and moonset are one paired arc, not two independent nearest-neighbour lookups</h2>
  *
- * <p>{@link MoonriseMoonsetCalculator} answers for one London civil date at a time, but an umbral
- * span can straddle local midnight (a late-evening U1 with an after-midnight U4, or vice versa), so
- * this class always checks both the London civil date of U1 and — when it differs — the London
- * civil date of U4, and takes whichever candidate moonrise/moonset actually falls inside or nearest
- * the span. Checking only one date is exactly the bug this would otherwise reproduce: it would
- * silently return the wrong day's moonset for a span that crosses the boundary.
+ * <p>{@link MoonriseMoonsetCalculator} answers for one London civil date at a time, and the Moon
+ * rises and sets roughly once every 24h50m — so a rise near one end of a civil date's day is
+ * typically paired with a set on the <em>next</em> civil date, not a leftover set from earlier the
+ * same morning. Querying only the umbral span's own civil date(s) and picking whichever candidate
+ * is merely nearest the window (as an earlier version of this class did) can pick that leftover: for
+ * a 2028-12-31 evening eclipse rising in shadow at 15:36 GMT, the same civil date's only moonset
+ * candidate is 08:34 GMT <em>that same morning</em> — hours <b>before</b> the rise, not after it —
+ * producing a {@link LunarEclipseSight} whose moonset precedes its own moonrise (Codex review, #911).
+ * The real paired moonset is the following morning, 2029-01-01.
+ *
+ * <p>So this class queries a full day of margin either side of the umbral span (the London civil
+ * dates of {@code U1 − 1}, {@code U1}, {@code U4} and {@code U4 + 1}, deduplicated — up to four
+ * distinct dates) and picks the two events as one unit rather than two independent lookups:
+ * {@link #pickMoonrise} is the most recent rise at or before U4 — an in-window rise when one exists,
+ * else the rise that began the Moon's current visible arc even if that was the evening before; then
+ * {@link #pickMoonset} is the <em>earliest</em> set strictly after that specific moonrise, wherever
+ * its civil date falls. Deriving moonset from the already-chosen moonrise this way makes
+ * {@code moonset > moonrise} true by construction whenever both are present — never a separate
+ * invariant to remember to check — which is also why {@link LunarEclipseSight} itself validates it
+ * defensively in its own compact constructor: a future change to this ordering breaking that
+ * invariant fails at construction rather than shipping a chronologically impossible sight.
  *
  * <h2>Why this is a {@code @Component}, unlike everything else in {@code util}</h2>
  *
@@ -113,8 +130,8 @@ public class LunarEclipseCalculator {
         ZonedDateTime u4London = u4Utc.withZoneSameInstant(LONDON);
 
         MoonEvents events = moonEventsNear(u1London, u4London, latitude, longitude);
-        ZonedDateTime moonset = events.pick(events.sets, u1London, u4London);
-        ZonedDateTime moonrise = events.pick(events.rises, u1London, u4London);
+        ZonedDateTime moonrise = pickMoonrise(events.rises(), u4London);
+        ZonedDateTime moonset = pickMoonset(events.sets(), moonrise, u1London, u4London);
 
         boolean setsInShadow = withinSpan(moonset, u1London, u4London);
         boolean risesInShadow = withinSpan(moonrise, u1London, u4London);
@@ -171,46 +188,74 @@ public class LunarEclipseCalculator {
     }
 
     /**
-     * Every moonrise/moonset candidate on the London civil date(s) spanning {@code [u1, u4]}.
+     * Every moonrise/moonset candidate on the London civil dates a day either side of
+     * {@code [u1, u4]} — see the class javadoc for why a full day of margin is needed on both ends.
      */
     private MoonEvents moonEventsNear(ZonedDateTime u1London, ZonedDateTime u4London, double lat, double lon) {
-        LocalDate startDate = u1London.toLocalDate();
-        LocalDate endDate = u4London.toLocalDate();
+        LocalDate u1Date = u1London.toLocalDate();
+        LocalDate u4Date = u4London.toLocalDate();
+        // A TreeSet dedupes and sorts: 3 distinct dates when u1/u4 share a civil date (the common
+        // case), 4 when the umbral span itself already crosses London midnight.
+        SortedSet<LocalDate> dates = new TreeSet<>(
+                List.of(u1Date.minusDays(1), u1Date, u4Date, u4Date.plusDays(1)));
 
         List<ZonedDateTime> rises = new ArrayList<>();
         List<ZonedDateTime> sets = new ArrayList<>();
-        addEvents(rises, sets, startDate, lat, lon);
-        if (!endDate.equals(startDate)) {
-            addEvents(rises, sets, endDate, lat, lon);
+        for (LocalDate date : dates) {
+            MoonriseMoonset events = moonriseMoonsetCalculator.calculate(date, lat, lon, LONDON);
+            events.moonrise().ifPresent(rises::add);
+            events.moonset().ifPresent(sets::add);
         }
         return new MoonEvents(rises, sets);
     }
 
-    private void addEvents(List<ZonedDateTime> rises, List<ZonedDateTime> sets, LocalDate date,
-            double lat, double lon) {
-        MoonriseMoonset events = moonriseMoonsetCalculator.calculate(date, lat, lon, LONDON);
-        events.moonrise().ifPresent(rises::add);
-        events.moonset().ifPresent(sets::add);
+    /**
+     * The rise operative for this window: the most recent moonrise at or before U4. An in-window
+     * rise is, definitionally, at or before U4 and closer to it than the previous cycle's rise
+     * (candidates are spaced ~24h50m apart), so it wins the {@code max} naturally; when there is no
+     * in-window rise this instead returns the rise that began the Moon's current visible arc, even
+     * from the evening before, which is what lets {@link #pickMoonset} find the correct paired set.
+     */
+    private static ZonedDateTime pickMoonrise(List<ZonedDateTime> rises, ZonedDateTime u4) {
+        return rises.stream()
+                .filter(r -> !r.isAfter(u4))
+                .max(Comparator.naturalOrder())
+                // Defensive: physically there is always a rise within a day of u4, so this arm
+                // should be unreachable in practice, but never surface a null over an empty list.
+                .or(() -> rises.stream().min(Comparator.naturalOrder()))
+                .orElse(null);
     }
 
-    /** Candidate moonrise/moonset instants gathered from the one or two relevant civil dates. */
-    private record MoonEvents(List<ZonedDateTime> rises, List<ZonedDateTime> sets) {
-
-        /**
-         * The candidate that falls inside {@code [windowStart, windowEnd]} if one exists; failing
-         * that, the earliest candidate at or after {@code windowStart}; failing that, the latest
-         * candidate of all. Null when there are no candidates at all.
-         */
-        private ZonedDateTime pick(List<ZonedDateTime> candidates, ZonedDateTime windowStart, ZonedDateTime windowEnd) {
-            return candidates.stream()
-                    .filter(c -> !c.isBefore(windowStart) && !c.isAfter(windowEnd))
+    /**
+     * The set that ends the arc {@code moonrise} began: the earliest moonset strictly after it,
+     * wherever its own civil date falls. Deriving moonset from moonrise this way — rather than
+     * picking each independently against the window — is what guarantees {@code moonset >
+     * moonrise} whenever both are present; see the class javadoc.
+     *
+     * <p>{@code moonrise == null} is the one case with no arc to pair against — physically this
+     * should not happen (the Moon rises roughly daily), so this falls back to the old
+     * nearest-to-window heuristic: a set inside {@code [windowStart, windowEnd]} if one exists,
+     * else the earliest at or after {@code windowStart}, else the latest of all.
+     */
+    private static ZonedDateTime pickMoonset(
+            List<ZonedDateTime> sets, ZonedDateTime moonrise, ZonedDateTime windowStart, ZonedDateTime windowEnd) {
+        if (moonrise != null) {
+            return sets.stream()
+                    .filter(s -> s.isAfter(moonrise))
                     .min(Comparator.naturalOrder())
-                    .or(() -> candidates.stream()
-                            .filter(c -> !c.isBefore(windowStart))
-                            .min(Comparator.naturalOrder()))
-                    .or(() -> candidates.stream().max(Comparator.naturalOrder()))
+                    .or(() -> sets.stream().max(Comparator.naturalOrder()))
                     .orElse(null);
         }
+        return sets.stream()
+                .filter(s -> !s.isBefore(windowStart) && !s.isAfter(windowEnd))
+                .min(Comparator.naturalOrder())
+                .or(() -> sets.stream().filter(s -> !s.isBefore(windowStart)).min(Comparator.naturalOrder()))
+                .or(() -> sets.stream().max(Comparator.naturalOrder()))
+                .orElse(null);
+    }
+
+    /** Candidate moonrise/moonset instants gathered from the (up to four) relevant civil dates. */
+    private record MoonEvents(List<ZonedDateTime> rises, List<ZonedDateTime> sets) {
     }
 
     private static boolean withinSpan(ZonedDateTime instant, ZonedDateTime start, ZonedDateTime end) {
