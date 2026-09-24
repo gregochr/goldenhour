@@ -257,6 +257,71 @@ describe('WindowTopicRows — the safety note', () => {
   });
 });
 
+describe('WindowTopicRows — the aside (badge.note)', () => {
+  // lunar-eclipse-plan.md §2.7 / §4 #8: ANY badge carrying a note gets a full-width aside in the
+  // safety note's own shape — this is also the fix that reveals the solar note, which has been
+  // served and unread since M5.
+  it('renders the note for a lunar eclipse badge, glyph-prefixed', () => {
+    const note = 'No filter needed — bracket, the shadow is ~10 stops under the lit edge.';
+    renderJoined({
+      key: windowKey(D, 'SUNSET'),
+      badges: [badge({ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', note })],
+      topics: [],
+      scope: ['Northumberland & Tyneside'],
+    });
+    const aside = screen.getByTestId('wf-topic-row-aside');
+    expect(aside).toHaveTextContent(note);
+    expect(aside).toHaveTextContent('◑');
+  });
+
+  it('⚠️ renders the SOLAR eclipse note too — this is the honest fix, not a lunar-only rule', () => {
+    const note = 'A clear low western horizon is worth more than a dark site.';
+    renderJoined({
+      key: windowKey(D, 'SUNSET'),
+      badges: [badge({ type: 'ECLIPSE', label: 'Partial eclipse', note })],
+      topics: [],
+      scope: ['Northumberland & Tyneside'],
+    });
+    expect(screen.getByTestId('wf-topic-row-aside')).toHaveTextContent(note);
+  });
+
+  it('gives a non-eclipse badge’s note no glyph', () => {
+    const note = 'Range vs the location’s own mean.';
+    renderJoined({
+      key: windowKey(D, 'SUNSET'),
+      badges: [badge({ note })],
+      topics: [],
+      scope: ['Northumberland & Tyneside'],
+    });
+    const aside = screen.getByTestId('wf-topic-row-aside');
+    expect(aside).toHaveTextContent(note);
+    expect(aside).not.toHaveTextContent('◑');
+  });
+
+  it('draws no aside where no badge carries a note', () => {
+    renderJoined({
+      key: windowKey(D, 'SUNSET'),
+      badges: [badge()],
+      topics: [topic()],
+      scope: ['Northumberland & Tyneside'],
+    });
+    expect(screen.queryByTestId('wf-topic-row-aside')).toBeNull();
+  });
+
+  it('renders both the safety note and the aside on the same row when a badge carries both', () => {
+    const warning = 'Never look at the sun without a certified solar filter.';
+    const note = 'A clear low western horizon is worth more than a dark site.';
+    renderJoined({
+      key: windowKey(D, 'SUNSET'),
+      badges: [badge({ type: 'ECLIPSE', label: 'Partial eclipse', safetyNote: warning, note })],
+      topics: [],
+      scope: ['Northumberland & Tyneside'],
+    });
+    expect(screen.getByTestId('wf-topic-row-safety')).toHaveTextContent(warning);
+    expect(screen.getByTestId('wf-topic-row-aside')).toHaveTextContent(note);
+  });
+});
+
 describe('WindowTopicRows — ordering', () => {
   it('draws the rarest first, on the payload’s own rank', () => {
     const rows = renderJoined({

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildEvaluationGateIndex, buildLocationSheet, buildScoreIndex, buildSlotIndex,
+  buildEclipseIndex, buildEvaluationGateIndex, buildLocationSheet, buildScoreIndex, buildSlotIndex,
   buildTideAlignmentIndex, lookupForWindow,
   sheetSpotOf,
 } from '../utils/locationSheet.js';
@@ -328,6 +328,79 @@ describe('buildTideAlignmentIndex', () => {
     const noType = buildTideAlignmentIndex([{
       date: '2026-08-14',
       eventSummaries: [{ regions: [{ slots: [{ locationId: 7, tideState: 'HIGH', tideAligned: true }] }] }],
+    }]);
+    expect(noType.byId.size).toBe(0);
+  });
+});
+
+describe('buildEclipseIndex', () => {
+  const SIGHT = {
+    type: 'LUNAR_ECLIPSE',
+    race: 'DAWN',
+    moonAltAtMax: 7,
+    moonAzAtMax: 244,
+    moonAzCardinal: 'WSW',
+    maximum: '2026-08-28T05:13:00',
+    umbraStart: '2026-08-28T03:34:00',
+    umbraEnd: '2026-08-28T06:52:00',
+    moonset: '2026-08-28T06:16:00',
+    moonrise: null,
+    setsInShadow: true,
+    risesInShadow: false,
+    stops: [
+      { key: 'NAUTICAL_DAWN', time: '2026-08-28T03:09:00' },
+      { key: 'CIVIL_DAWN', time: '2026-08-28T05:24:00' },
+      { key: 'SUNRISE', time: '2026-08-28T06:11:00' },
+      { key: 'GOLDEN_MORNING_END', time: '2026-08-28T06:41:00' },
+    ],
+  };
+
+  const daysWithEclipse = (slotOverrides) => [{
+    date: '2026-08-28',
+    eventSummaries: [{
+      targetType: 'SUNRISE',
+      regions: [{
+        regionName: 'Northumberland',
+        slots: [{ locationId: 7, locationName: 'Dunstanburgh Castle', ...slotOverrides }],
+      }],
+      unregioned: [],
+    }],
+  }];
+
+  it('reads the served EclipseSight verbatim, id-first', () => {
+    const idx = buildEclipseIndex(daysWithEclipse({ eclipse: SIGHT }));
+    expect(lookupForWindow(idx, 7, 'Dunstanburgh Castle', '2026-08-28', 'SUNRISE')).toBe(SIGHT);
+  });
+
+  it('name-keyed fallback works the same way buildSlotIndex\'s does', () => {
+    const idx = buildEclipseIndex([{
+      date: '2026-08-28',
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [],
+        unregioned: [{ locationName: 'Dunstanburgh Castle', eclipse: SIGHT }],
+      }],
+    }]);
+    expect(lookupForWindow(idx, null, 'Dunstanburgh Castle', '2026-08-28', 'SUNRISE')).toBe(SIGHT);
+  });
+
+  it('SKIPS a slot with no eclipse at all — most nights, most locations', () => {
+    const idx = buildEclipseIndex(daysWithEclipse({}));
+    expect(lookupForWindow(idx, 7, 'Dunstanburgh Castle', '2026-08-28', 'SUNRISE')).toBeNull();
+    expect(idx.byId.size).toBe(0);
+  });
+
+  it('finds nothing on the OTHER window of the same day — an eclipse lands on one window only', () => {
+    const idx = buildEclipseIndex(daysWithEclipse({ eclipse: SIGHT }));
+    expect(lookupForWindow(idx, 7, 'Dunstanburgh Castle', '2026-08-28', 'SUNSET')).toBeNull();
+  });
+
+  it('skips a day with no date and a summary with no event type, rather than keying on undefined', () => {
+    expect(buildEclipseIndex(null).byId.size).toBe(0);
+    expect(buildEclipseIndex([{ eventSummaries: [{ targetType: 'SUNRISE' }] }]).byName.size).toBe(0);
+    const noType = buildEclipseIndex([{
+      date: '2026-08-28',
+      eventSummaries: [{ regions: [{ slots: [{ locationId: 7, eclipse: SIGHT }] }] }],
     }]);
     expect(noType.byId.size).toBe(0);
   });

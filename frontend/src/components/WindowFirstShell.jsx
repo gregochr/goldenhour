@@ -17,7 +17,7 @@ import { originAction, scopeRegions } from '../utils/planOrigin.js';
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
 import { buildPlanConflict } from '../utils/planConflicts.js';
 import {
-  buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex, sheetSpotOf,
+  buildEclipseIndex, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex, sheetSpotOf,
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
@@ -1010,6 +1010,16 @@ export default function WindowFirstShell({
     : windowCards.find((card) => card.key === openWindowKey) || null;
   /** Where the open window sits among the openable ones, for the popup's `‹ n/6 ›` nav. */
   const openIndex = openCard ? windowCards.indexOf(openCard) : -1;
+  /**
+   * The popup's dawn-race source — each location's lunar eclipse sight per window (L4,
+   * `docs/engineering/lunar-eclipse-plan.md` §2.7). Gated on the popup being open for the same
+   * reason `slotIndex`/`sheetTideAlignmentIndex` below are: it walks every slot of every event
+   * summary of every day, and nothing reads it while the popup is closed.
+   */
+  const eclipseIndex = useMemo(
+    () => (openCard ? buildEclipseIndex(briefing?.days) : null),
+    [openCard, briefing?.days],
+  );
   /**
    * Each rendered window's event summary, keyed the way the pane addresses a window.
    *
@@ -2014,6 +2024,7 @@ export default function WindowFirstShell({
             total={windowCards.length}
             field={openField}
             topicIndex={topicIndex}
+            eclipseIndex={eclipseIndex}
             scopeNames={planScopeNames}
             todayStr={todayStr}
             // ⚠️ The Escape ORDER, and the whole of it: this layer declines the key while anything
