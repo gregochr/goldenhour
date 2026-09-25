@@ -184,6 +184,15 @@ describe('buildEntryView', () => {
     expect(view.joinNote).toBe('Same cause.');
   });
 
+  it('passes aside through unchanged, defaulting to null when absent (L5, plan §2.8)', () => {
+    expect(buildEntryView(entry(), TODAY).aside).toBeNull();
+    const view = buildEntryView(
+      entry({ aside: 'No filter needed — bracket, the shadow is ~10 stops under the lit edge' }),
+      TODAY,
+    );
+    expect(view.aside).toBe('No filter needed — bracket, the shadow is ~10 stops under the lit edge');
+  });
+
   it('marks a card feature when it has a first-of-type explanation', () => {
     expect(buildEntryView(entry({ prose: 'The moon…' }), TODAY).isFeature).toBe(true);
   });
