@@ -5,6 +5,683 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.0] - 2026-09-25
+
+### Added — Plan/Map: the per-location eclipse spot line, and the lunar eclipse docs sweep (L7)
+
+Phase L7 (final) of `docs/engineering/lunar-eclipse-plan.md`: a new shared component,
+`components/map/EclipseSpotLine.jsx`, mounted as a sibling block right after `TideFitBlock` in both
+`LocationFourDaySheet` (the location sheet, one row per solar window) and `MapCallout` (the Map
+tab's selection callout) — the same "one look, two hosts" pattern `TideFitBlock` already
+established. It prints one location's own moon geometry at maximum and whether it sets or rises
+still in shadow: `◑ moon 7° up WSW at max · sets 06:16 in shadow`, or `· rises 15:36 in shadow`, or
+`· above the horizon throughout` — no horizon-clearance claim (the dropped `clearToDeg`, §4 #3).
+
+Fed by a new pure formatter, `utils/dawnRace.js#eclipseSpotLine` — a third filter/map/select over
+the already-served `EclipseSight` alongside `raceModel`/`raceSentence`, not a fourth derivation
+class — through the SAME `buildEclipseIndex`/`lookupForWindow` join L4 built for the popup's
+`DawnRace`. `LocationFourDaySheet` takes a new `eclipseIndex` prop (built in `WindowFirstShell.jsx`
+as `sheetEclipseIndex`, gated on `sheetSpot` exactly like `sheetTideAlignmentIndex`, and suppressed
+on an away row exactly like the tide-fit block); `MapCallout` takes a new `eclipseSight` prop (one
+resolved sight, computed in `MapView.jsx`'s `getEclipseForLocation`, gated on a solar window on
+screen exactly like `getTideOnLightForLocation`, fed by a new `eclipseIndex` built in
+`WindowFirstMapPane.jsx`).
+
+Tests: `dawnRace.test.js` gains the formatter's own boundary cases (null sight, missing
+altitude/bearing, all three tail shapes, the fallback when a flag has no instant behind it, the
+unworded negative-altitude print, and a sight with no served `race` at all — a high-moon eclipse
+still has an altitude and a set/rise answer); a new `EclipseSpotLine.test.jsx` covers the
+component's own render/omit contract; a new describe block in each of
+`LocationFourDaySheet.test.jsx` and `MapCallout.test.jsx` proves the HOST wires the resolved sight
+through, including the away-row suppression pinned against a fixture that deliberately DOES index
+the away date (the tautology guard this codebase's own test standards doc names). Frontend gate
+green: 6651/6651 tests, 0 vulnerabilities, build succeeds.
+
+Three read-only adversarial review lenses (runtime behaviour, CSS/tokens + accessibility, test
+quality + docs accuracy) ran against the working-tree diff.
+
+Browser verification: with the admin `LUNAR_ECLIPSE` hot-topic simulation active on this branch's
+own local backend (port 8083, H2, a seeded 21-location roster, one `cached_evaluation` row for
+Bamburgh Beach/Dunstanburgh Castle), `POST /api/briefing/run` served a real `BriefingSlot.eclipse`
+sight on 2026-09-25's SUNRISE window — **seen** on the wire (`GET /api/briefing`) for six locations,
+matching the plan's own worked-example figures (8° up WSW, sets 06:18 in shadow) to the minute.
+**Not seen rendered as pixels**: today's own sunrise had already elapsed in real wall-clock time
+when this phase ran, so the Plan tab correctly showed "this morning has gone" (a `div`, never a
+button, per plan-matrix's own rule) and the Map tab's window control offered only Tonight/Tomorrow —
+neither surface opens an elapsed window's sheet or callout, so `EclipseSpotLine` could not be
+screenshotted live this session. A `Clock.fixed` override on the backend (the L5 phase's own
+precedent) did not help, because the elapsed check the Plan matrix renders against reads real
+wall-clock time on the client, not the injected server clock; the override was reverted before
+committing (confirmed by `git diff` on `AppConfig.java` being empty). Verified instead by a
+second, independent proof: the EXACT `BriefingSlot.eclipse` JSON captured from the live local
+backend above was fed straight into the shipped `eclipseSpotLine()`, in a scratch, never-committed
+test file, and it printed the correct line verbatim — closing the gap between "the backend serves
+the right shape" and "the shipped formatter reads it correctly" without needing a live pixel.
+
+Docs: `docs/engineering/lunar-eclipse-plan.md` — §0 status table (L5 → merged, L7 → built, in
+review; Status line → COMPLETE), a new §4a ("Found only during the phases") with items 17–23
+closing out every disagreement surfaced but not recorded during L0–L6, and §6's nine owner
+decisions each marked taken or still open against what actually shipped. `CLAUDE.md` — the Almanac
+section's "six implementations" → seven, naming `LunarEclipseAlmanacSource`; a new **Lunar
+eclipse** bullet under What's Built; the Backend-heavy bullet gains a note that `dawnRace.js` is
+the same already-licensed filter/map/select class `comingUpSparkline.js`/`comingUpFeed.js` are, not
+an eighth licensed class of its own.
+
+### Added — Coming up: the dashed-top aside slot (lunar eclipse L5)
+
+Phase L5 of `docs/engineering/lunar-eclipse-plan.md` §2.8: the Coming up entry renders the served
+`aside` — the design's `why2` slot — as a dashed-top serif line after the facts and before the
+threshold. It is a generic passthrough (`buildEntryView` in `utils/comingUpFeed.js` copies
+`entry.aside`, defaulting to null), not a lunar branch: the lunar eclipse topic is its first
+server-side writer, carrying the exposure note ("No filter needed — bracket, the shadow is ~10
+stops under the lit edge"), but any later type may use it. `WindowComingUpEntry.jsx` renders it as
+a new `<span className="wf-cu-aside">` (`.wf-cu-aside` in `index.css`: `font-family:
+var(--font-serif)`, 13.5px/1.55, `color: var(--color-plex-text-secondary)`, its own `border-top: 1px
+dashed var(--color-plex-border)`) — an entry with no `aside` renders no slot. The `Next from the UK`
+line and the `SETS IN SHADOW` pick tag needed no client change — they arrive as the accent facts row
+and the `superlative` L1 already serves, and `TYPE_GLYPHS`'s 🌘 was L3's.
+
+A bare `{' '}` text-node sibling follows the new section, so the button's computed accessible name
+does not glue the aside onto its neighbours (the P3a lesson, `CHANGELOG.md`'s "Coming up P3a" entry).
+
+Tests: `comingUpFeed.test.js` (the `aside` passthrough, defaulting to null when absent);
+`WindowComingUpEntry.test.jsx` (no slot when the server sends none; the slot renders between the
+facts block and the threshold block, proven by DOM order, not just presence; the accessible-name
+separator holds with `aside` in the mix; and an integration-shaped fixture built from the real
+served shape `LunarEclipseAlmanacSourceTest` proves for the worked example — Bamburgh, 28 Aug 2026 —
+covering the glyph, NEW flag, kind tag, pick tag, headline metric, all four fact rows including the
+accent `next` row, the aside and the action together). Frontend gate green twice (after the review
+fixes below): 6557/6557 tests, 0 vulnerabilities, build succeeds.
+
+Five read-only adversarial review lenses (runtime, CSS/tokens, test quality, accessibility,
+conventions/scope) ran against the diff. Four found nothing; test quality found one real defect — a
+test titled "renders the three fact rows…" whose fixture and assertion both used four — fixed by
+renaming it to "renders the four fact rows…" rather than trimming the fixture, since the fourth row
+(the `figures for Bamburgh` attribution line) is real, server-sent coverage worth keeping.
+
+Browser verification — **seen**: with a temporary, never-committed local `Clock.fixed(2026-06-01T12:00:00Z)`
+override on `AppConfig.clock()` (reverted before commit; production stays `Clock.systemUTC()`) on
+this branch's own backend (port 8083, H2, zero seeded locations) and frontend, `GET /api/almanac`
+served the real `lunar-eclipse` entry with `aside` populated even with an empty location roster
+(the topic's aside is unconditional in `ComingUpAssembler.enrichLunarEclipse`); the Coming up tab
+rendered the "Deep partial lunar eclipse" card with the aside line directly under the `Next from the
+UK` fact and above `See the plan for 28 Aug →`, confirmed both at desktop width and at 390px.
+`getComputedStyle` on the live `[data-testid="coming-up-aside"]` node confirmed the exact rendered
+values (`Newsreader, Georgia, ui-serif, serif` / 13.5px / `rgba(242,231,211,.66)` / `1px dashed
+rgb(58,44,35)`) and DOM order (`coming-up-facts` → `coming-up-fact` → `coming-up-aside` →
+`coming-up-action`, with no `coming-up-threshold` sibling on this served entry) — matching the spec
+and ruling out token pruning. **Not tested in the browser**: an entry that carries both `aside` and
+a served `threshold` together (no such wire fixture exists locally); covered instead by the
+component-level DOM-order test using a hand-built fixture with both fields set.
+
+### Changed — Coming up drops the last "bits" leaks for plain-language copy
+
+Phase L6 of `docs/engineering/lunar-eclipse-plan.md` (independent of the lunar eclipse work
+itself): every user-facing surprisal-score string on the Coming up tab is now plain language,
+backend and frontend.
+
+`ComingUpAssembler.markScoreNotes`'s server-authored sentence now reads back the rarity component
+as a calendar phrase (`SurpriseScore.gapWord`, e.g. "a fortnight", "a year", "every two to three
+years") — `"It comes round about once a year, which is rare enough to flag on its own."` — or, when
+magnitude carried the score, names the entry's own figure against the usual one from its history
+(`"An unusually big one — 6.0 m against the usual 2.5 m."`, falling back to a figure-free sentence
+under cold start). `mergeEntries`'s coincidence `joinNote` reads `"One perigee causes both. Counted
+as one event, not two — the <title> carries it."` `ComingUpConditionsBuilder`'s standing-conditions
+quant line leads with an idiomatic frequency phrase (`frequencyPhrase`, "about one a week", "most
+mornings" for a genuinely near-daily gap) rather than an adjective bucketed straight from bits, and
+a promoted tide-run occurrence's `reason` tag drops its "max w/ " prefix.
+
+On the frontend, `WindowComingUpSinceLine`'s two banner shapes read `"◆ Rare — the <title> entered
+the window, <date>. <scoreNote>"` and `"<N> announced — the <title> entered the window, <date>.
+<scoreNote>"` — the interrupt headline is now the fixed word "Rare" rather than a figure bucketed
+from `entry.bits`, since that band is binary (README §6: "above 9.5 bits there is only ever one
+thing in play"). `bitsWord` (peak/occurrence rows) moves to the design's three-word scale —
+`exceptional` (≥7) / `above usual` (≥4.5) / `typical` — and "scores are provisional" becomes
+"figures are provisional" throughout.
+
+Scoring logic is unchanged: every `bits` **value** assertion in `ComingUpAssemblerTest` and
+`ComingUpAnnualBadgeCensusTest` stays green untouched (the census re-run confirms 11 badge
+arrivals/year, 1 interrupt, unmoved) — only strings and their tests moved. `grep -rn "bits"` over
+`frontend/src/components` and the two backend classes now finds only field names, PropTypes and
+engineering comments, never a rendered sentence. The design's dust-row "heaviest of N since
+&lt;month&gt;" fact is deliberately not built — it is a new comparison, not a copy change, and
+dust has no chronology-entry shape to attach it to (plan §4 #16).
+
+### Added — The dawn race, and the popup's topic-note aside (frontend, L4)
+
+Phase L4 of `docs/engineering/lunar-eclipse-plan.md` §2.7, §3: the window popup's dawn/dusk race
+timeline, the generic `badge.note` aside renderer, and the `LUNAR_ECLIPSE` plumbing that mounts
+the race for the chosen spot's served sight.
+
+**`utils/dawnRace.js`** (new): `raceModel(sight)` — pure filter/map/select over the served
+`BriefingSlot.EclipseSight` (floor a track start, clip a track end, decide the umbra/hatch bands
+from the already-served `setsInShadow`/`risesInShadow` booleans, turn instants into `[0,1]`
+positions and a CSS gradient via `MastheadLight.buildRuleGradient`); `raceSentence(sight)` builds
+the one accessible sentence from the same model; `formatRaceTime(ms)` is the display formatter.
+DAWN and DUSK are handled as genuine mirrors (DUSK ceils the track's far edge and clips the near
+one toward moonrise, rather than re-deriving DAWN's rule blind).
+
+**`components/DawnRace.jsx`** (new): the track (`aria-hidden`), the umbra/hatch bands, three
+line-and-dot marks (maximum, the race event, the horizon transition), the phase ticks, the label
+row, the legend, and the one visible accessible sentence. Renders nothing when there is no race to
+draw. Phone (< 560px) hides the track-start and race-event labels and every phase tick.
+
+**`components/WindowTopicRows.jsx`**: a new full-width aside renders `badge.note` for *any* badge
+that carries one, in the safety-note's own shape (`.wf-trow-warn`), prefixed `◑` for the eclipse
+channel only. `badge.note` has been served and unread since the promoted strip was deleted at M5 —
+this is the honest fix, and it reveals the **solar** eclipse's own note too, not only the lunar
+one, since the renderer is channel-agnostic by design (plan §4 #8).
+
+**`components/WindowSheetDialog.jsx`**: mounts `DawnRace` between the topic rows and the tide row,
+gated on both a `LUNAR_ECLIPSE` topic row being present on the window *and* the chosen spot's slot
+carrying a served `eclipse.race`. The spot is the window's `bestReach`, else the first ranked spot
+(`card.spots[0]`) — `WindowSpotStrip` exposes no per-card selection callback, so the race is drawn
+for one fixed spot and captioned with its name (plan §4 #11).
+
+**`utils/locationSheet.js`**: new `buildEclipseIndex(days)`, structurally identical to
+`buildTideAlignmentIndex` — `{byId, byName}`, id-first lookup through the shared `lookupForWindow`,
+a slot with no `eclipse` simply skipped (never indexed as an absence).
+
+**`components/WindowFirstShell.jsx`**: builds `eclipseIndex` via `buildEclipseIndex(briefing?.days)`,
+gated on `openCard` (the popup being open) — the same "nothing reads it while closed" gate
+`slotIndex`/`sheetTideAlignmentIndex` use for their own dialog.
+
+**`index.css`**: a new `.wf-race*` block for the track, bands, marks, labels, legend and sentence.
+
+#### ⚠️ A real timezone bug, found by adversarial review and fixed before commit
+
+Two independent review lenses (and a live check against a running backend) found that the first
+cut ran every `EclipseSight` instant through `formatTime` — the formatter `BriefingSlot.solarEventTime`
+genuinely needs, because that field is a bare-serialised UTC instant. `EclipseSight`'s own instants
+are a **different** convention: `EclipseSightAssembler` passes every one of them through
+`LunarEclipseWording.toLondonLocal` before serialising, so the served digits are already
+Europe/London wall-clock time. Running them through `formatTime` applied that conversion a second
+time, printing every eclipse label and the accessible sentence an hour late for the seven months of
+BST — invisible in GMT, where the two conventions coincide, and invisible to the first draft's own
+tests, which compared `raceSentence`'s output against `formatTime(sight.X)` — the same wrong
+conversion on both sides of the assertion. Confirmed against a live local backend (2026-09-24, BST):
+a served `eclipse.stops[SUNRISE].time` of `06:54:56` sits exactly one hour ahead of that window's
+`solarEventTime` of `05:55:25` for the identical real sunrise — the gap *is* the already-applied
+offset. Fixed: `formatRaceTime` now reads the served digits back on the **UTC** calendar (the exact
+instant `toMs` parsed them onto), which is a lossless round trip to what the backend sent, never a
+second Europe/London conversion. `raceSentence`'s tests now assert **literal** `HH:mm` strings
+copied off each fixture's own digits, not the formatter under test, so the regression cannot hide
+behind a self-fulfilling assertion again — and a component-level test renders `DawnRace` and asserts
+the same literal label text in the DOM.
+
+#### A second real defect, found by algebraic proof against the formulas
+
+The hatch band's outer edge used the **track's own boundary** (`trackEnd`/`trackStart`) rather than
+the eclipse's true umbra boundary (`umbraEnd`/`umbraStart`). The track boundary's own `+15 min`/
+`-15 min` pad can, in a narrow but physically plausible timing window (moonset, the race stop and
+`umbraEnd` landing close together), overshoot the true end by several minutes — the hatch would then
+claim the moon is still below the horizon, in shadow, after the eclipse had actually finished (and
+the DUSK mirror, understating the start symmetrically). Fixed by clamping each hatch band to
+`Math.min(trackEnd, umbraEnd)` / `Math.max(trackStart, umbraStart)` — a change that can only ever
+shorten the band, never lengthen it past what the track already allows. Pinned by two new regression
+tests reproducing the exact counterexample in both directions.
+
+#### Review findings addressed without a functional change
+
+- The class doc's "the sentence is the entire accessible answer" claim was scoped too broadly — the
+  sentence covers the plan's own five-item label row (minus the bare track-start time, which names
+  no event); the three phase ticks are the design's own secondary annotation layer and were never
+  meant to be spoken. Corrected the doc rather than stuffing three extra clock times into an already
+  dense sentence.
+- `.wf-race-cap`'s extra `opacity: 0.75` stacked multiplicatively on `--color-plex-text-secondary`'s
+  own 0.66 alpha, landing at ≈4.43:1 against the panel — just under the 4.5:1 AA floor for this 9px
+  text. Removed; the inherited token's own alpha already reads as quiet against the title beside it.
+
+#### Accepted, not fixed
+
+- `raceSpot = card.bestReach || card.spots[0]` can caption a location the rating floor has since
+  excluded from the visible spot strip below it. This mirrors an existing precedent elsewhere on the
+  same card (the matrix's own best-reachable line reads `bestReach` independent of the floor, per
+  CLAUDE.md's Backend-heavy bullet) and the plan's own §2.7 text does not license a different rule
+  for this one popup-local case — left as-is rather than inventing a narrower selection the plan
+  never asked for.
+- A negative `moonAltAtMax` (the moon below the horizon at maximum, which `EclipseSight` does not
+  gate against) prints as `"the moon -3° up"` — a plausible but unhandled phrasing for an edge case
+  the seeded catalogue's eligibility rule (3° for 30 min, or 3° at maximum) makes rare.
+- The phone media query hides a whole `.wf-race-tick` (dashed line plus its label) rather than only
+  its label text, a literal deviation from the plan's exact phrasing — kept as the defensible reading
+  (an orphaned dashed line with no label serves no purpose).
+
+Tests: `dawnRace.test.js` (geometry to the boundary — track-start floor, track-end clip, the hatch
+clamp regression in both directions, DUSK mirror, positions monotone in `[0,1]`, literal-string
+`raceSentence` assertions), `DawnRace.test.jsx` (mount conditions, the track's `aria-hidden`,
+literal clock labels regression, phone-hidden roles, a full DUSK render pass — labels, hatch
+direction, the "leaves shadow" wording, the sentence's "Rises" opening), `WindowTopicRows.test.jsx`
+(the aside for lunar and solar badges, the channel-gated glyph, both notes coexisting with the
+pre-existing safety note), `WindowSheetDialog.test.jsx` (the race's two-part mount gate, the
+best-reach/first-ranked spot fallback, DOM ordering between the topic rows and the tide row, the
+real join from raw `days` through `buildEclipseIndex`, and the `(i)` click leaving the dialog open —
+the plan's own named exit criterion), `locationSheet.test.js` (`buildEclipseIndex`'s id-first
+lookup, the name-keyed fallback, the "no eclipse on this slot" skip, and that an eclipse lands on
+its own window only). Frontend gate: `npm run lint` clean, all Vitest tests pass, `npm audit`
+reports 0 vulnerabilities, `npm run build` succeeds.
+
+Adversarial review: three read-only agents (general runtime/CSS/test/accessibility/conventions
+sweep; an independent DUSK-geometry-and-backend-contract pass; a focused accessibility pass) found
+the timezone double-conversion (two lenses, independently), the hatch-overshoot defect (algebraic
+proof plus a constructed counterexample), the accessible-sentence scope overclaim, and the
+`.wf-race-cap` contrast shortfall. All four fixed and re-tested; the two accepted findings above are
+recorded rather than silently dropped.
+
+Browser verification: **seen** — a real local backend (2026-09-24, BST) with the `LUNAR_ECLIPSE`
+admin simulation active, seeded locations and cached ratings for Northumberland & Tyneside's
+SUNRISE window, served a genuine `BriefingSlot.eclipse` payload for Dunstanburgh Castle. Today's
+own Plan-tab cell reads "this morning has gone" (the sunrise window has already elapsed) and cannot
+be opened — the known limitation the plan's §7 names. Per that section's own fallback, the captured
+served payload was mounted directly (`DawnRace` and `WindowTopicRows`, a temporary, never-committed
+dev entry) at desktop and 390px: the track renders with the correct twilight gradient, `aria-hidden`
+confirmed via `getComputedStyle` in a real browser (not jsdom), the umbra/hatch bands and all three
+line-and-dot marks draw correctly, the accessible sentence reads
+"In shadow from 03:33, maximum 05:12 with the moon 8° up, sunrise 06:54, sets 06:18 still in
+shadow." — the **served digits verbatim**, confirming the timezone fix in a real browser rather
+than only in jsdom; the phone width correctly hides the track-start/sunrise labels and every phase
+tick; both the lunar and solar eclipse asides render with the `◑` glyph and coexist with the solar
+badge's pre-existing safety warning; the `(i)` tip opens on click without navigating or closing
+anything. `.wf-race-cap`'s computed opacity confirmed `1` (the contrast fix took effect) via
+`getComputedStyle`. **Not seen**: the race mounted inside the live `WindowSheetDialog` popup itself
+(today's own window is unopenable, per the limitation above) — substituted by the direct-render
+check above plus full Vitest component coverage of the dialog's mount gate.
+
+### Added — Plan-tab type registries and the clocked topic chip (frontend, L3)
+
+Phase L3 of `docs/engineering/lunar-eclipse-plan.md` §2.1 and §2.6: `LUNAR_ECLIPSE` joins every
+client-side registry the solar `ECLIPSE` type already sits in, one channel shared by two types.
+
+`utils/windowFirstCards.js`'s `badgeChannel` gains an exact-match arm for `LUNAR_ECLIPSE` beside the
+existing `ECLIPSE` one, ahead of the substring arms, so a served `LUNAR_ECLIPSE` badge takes the
+same `eclipse` channel colour, ring and swatch every existing channel-keyed rule already applies —
+and a never-shipped compound type such as `LUNAR_ECLIPSE_TIDE` still falls through to the `tide`
+substring arm exactly as before, unaffected by the new exact match. `utils/windowFirstTopics.js`'s
+`WHOLE_SKY_TOPIC_TYPES` gains `LUNAR_ECLIPSE` (its `regions` names visibility coverage, not an
+eligibility roster, for the same reason `ECLIPSE`'s does). `utils/comingUpHandoff.js`'s
+`SWATCH_COLOR` and `utils/comingUpGlyphs.js`'s `TYPE_GLYPHS` (`'lunar-eclipse': '🌘'`, a waning-
+crescent override distinct from the shared `◐` eclipse-family glyph, mirroring the existing
+`supermoon` override) each gain their own entry, since both are keyed by type rather than by
+channel. `components/map/WindowControl.jsx`'s `CHANNEL_ICON` needed no change — it is keyed by
+channel, and `LUNAR_ECLIPSE` already resolves to the existing `eclipse` entry through the shared
+`badgeChannel` — pinned by a new test proving a `LUNAR_ECLIPSE` badge draws the identical row icon
+as `ECLIPSE`.
+
+New `CLOCKED_TOPIC_TYPES` (`ECLIPSE`, `LUNAR_ECLIPSE`) and `chipClock(badge)` in
+`windowFirstTopics.js`: a listed badge's own `eventTime` — a genuinely different instant from the
+window's own solar event, since an eclipse's maximum can fall hours from sunrise or sunset —
+prints after a divider in `WindowFirstHeatStrip`'s topics line, in the tide chip's existing
+emphasised pill shape (`.wf-hc-tw.wf-hc-clocked[data-channel="eclipse"]`: `padding: 1px 8px;
+border-radius: 999px; background: rgba(196,120,127,.14); box-shadow: inset 0 0 0 1px
+rgba(196,120,127,.42); color: #E3AEB3`, with `.wf-hc-clocked-time` carrying the
+`border-left: 1px solid rgba(196,120,127,.45); padding-left: 6px` divider) — literal colour values,
+not Tailwind theme tokens, so there is no `@theme static` pruning risk. Every other badge is
+unaffected: the chip renders its plain `wf-hc-tw` shape exactly as before whenever `chipClock`
+returns null (an unlisted type, or a listed type with no served `eventTime`). The card's hidden
+`sr-only` accessible-name sentence appends the same clause ("Lunar eclipse at 05:13") from the same
+`chipClock` read that builds the visible chip, so the two can never drift; a `SUPERMOON` badge
+carrying an `eventTime` prints no clock anywhere, visible or accessible.
+
+Backend: amended the `Badge` javadoc on `BriefingWindow.java` — the existing "render one or the
+other, never both side by side" rule for a badge's own clock vs. its window's is scoped to a badge
+whose clock names the *same* solar event as the window's; a `CLOCKED_TOPIC_TYPES` member's clock is
+a wholly different event (the eclipse's own maximum), so stating both is not the duplication the
+original rule forbids.
+
+Tests: `windowFirstCards.test.js` (`badgeChannel('LUNAR_ECLIPSE')` routing, the exact-vs-substring
+distinction), `windowFirstTopics.test.js` (`WHOLE_SKY_TOPIC_TYPES` membership, the 17-type shipped
+roster now matching `TopicRarity.RANK_BY_TYPE`, and a new `chipClock` describe block covering both
+listed types, case-insensitivity, an unlisted type, a listed type with no `eventTime`, and a missing
+badge), `WindowFirstHeatStrip.test.jsx` (a `LUNAR_ECLIPSE` chip's divider and text, the solar
+`ECLIPSE` chip gaining the identical treatment, a `SUPERMOON` badge with an `eventTime` rendering no
+clock anywhere, a listed type with no `eventTime` rendering no clock, and the accessible name's "at
+HH:mm" clause), `comingUpGlyphs.test.js` and `comingUpHandoff.test.js` (the new glyph and swatch
+entries), `WindowControl.test.jsx` (the shared channel icon). 6547/6547 frontend tests pass; `npm
+audit` reports 0 vulnerabilities; `npm run build` succeeds.
+
+Adversarial review (five lenses — runtime behaviour, CSS/tokens, test quality, accessibility,
+conventions/scope — all read-only against the working tree) found no defects requiring a fix; one
+non-blocking test-quality note (a redundant assertion re-covering an already-pinned case) was left
+as harmless, additional coverage.
+
+Browser verification: seen — the Plan tab, Coming up tab and general layout render without error at
+desktop and 390px with this branch's own frontend and backend running locally; the served
+`GET /api/briefing` payload carries the simulated `LUNAR_ECLIPSE` badge with the expected shape
+(`eventTime: "05:12"`, `rarityRank: 2`, facts, note, rarityNote). Tested via a real browser
+`getComputedStyle` probe (not jsdom) on an injected `.wf-hc-tw.wf-hc-clocked[data-channel="eclipse"]`
+node against this branch's own compiled stylesheet: every literal value (padding, border-radius,
+background, box-shadow, `#E3AEB3`, the divider) resolved exactly as specified, confirming no CSS
+pruning. **Not seen**: the chip actually painted on a live card with real data. The
+`HotTopicSimulationService` template anchors the badge to *today's* sunrise only, and this
+verification ran in the afternoon after that morning's sunrise had already elapsed — the Plan
+matrix's pre-existing, unrelated "this morning has gone" empty-cell behaviour (confirmed against the
+served payload and the window-sheet popup's own 6-window carousel, which also excludes it) hid the
+only window this simulation ever populates. Component-level Vitest coverage renders the real chip
+with real fixture data and is the substitute evidence for that one gap.
+
+### Fixed — the clocked chip's time no longer clips with a long label (frontend, L3)
+
+Codex review of #915 (P1) on `WindowFirstHeatStrip.jsx`: `.wf-hc-tw`'s base rule clips its
+content as one `nowrap`/`ellipsis` run, so at the supported ~137px card width a label such as
+"Deep partial eclipse" or "Slight partial eclipse" already filled the chip and the newly added
+clock time was clipped away with it — invisible to every Vitest test, since jsdom does no layout
+and never measures an actual card width.
+
+The clocked chip is now a flex row: the label is its own `.wf-hc-clocked-label` span (`flex: 1 1
+auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap`) and the clock
+is a separate, non-shrinking `.wf-hc-clocked-time` (`flex: none`) — the label gives way, the clock
+never does. The chip element itself gets `min-width: 0` too, since it is a flex item of the
+wrapping `.wf-hc-tps` row and would otherwise carry its own default content-based minimum ahead of
+the label's. An unclocked chip's rendering and CSS are completely unchanged.
+
+Tests: `WindowFirstHeatStrip.test.jsx` gains three new cases pinning the DOM shape the fix
+depends on (the clock is a separate node from the label, distinguishable by testid and tag; the
+label alone carries `wf-hc-clocked-label`, the chip itself does not; an unclocked chip keeps its
+old single-node shape with neither testid present). Real-browser verification (not jsdom):
+injected the actual `.wf-hc-tps` / `.wf-hc-tw.wf-hc-clocked` / `.wf-hc-clocked-label` /
+`.wf-hc-clocked-time` markup into a 137px-wide container against this branch's own compiled
+stylesheet, with the label text "Deep partial eclipse" — confirmed `label.scrollWidth (131) >
+label.clientWidth (80)` (the label is genuinely truncating) while the clock's
+`getBoundingClientRect()` (`right: 127`) stays fully inside both the chip (`right: 135`) and the
+137px wrapper, with `flex-shrink: 0` confirmed computed.
+
+Frontend gate: `npm run lint && npm test -- --reporter=dot && npm audit --audit-level=high && npm
+run build` — exit 0, 6550/6550 tests, 0 vulnerabilities, build succeeds.
+
+### Added — per-location lunar eclipse dawn/dusk race sight (backend, L2)
+
+Phase L2 of `docs/engineering/lunar-eclipse-plan.md`: `BriefingSlot.eclipse` — a nullable,
+`@JsonInclude(NON_NULL)` `EclipseSight` record (deliberately **not** `@JsonUnwrapped`, unlike
+`TideInfo`, so it nests as its own JSON object rather than flattening eleven more keys onto an
+already-large slot) carrying the moon's altitude and bearing at maximum, the eclipse's own
+unclipped umbral span (`umbraStart`/`umbraEnd` — the eclipse's `u1`/`u4`, never the per-location
+`LunarEclipseSight.visibleUmbraStart/End`, so the popup's race geometry can still derive its own
+umbra and hatch bands from the full span in a later phase), moonset/moonrise,
+`setsInShadow`/`risesInShadow`, a `race` field (`"DAWN"`/`"DUSK"`/null) and four `LightStop`s keyed
+with the frontend's `MastheadLight.RULE_COLOURS` strings. All times are London-local
+`LocalDateTime`, the slot's `solarEventTime` convention.
+
+A new `EclipseSightAssembler` (@Component, mirroring `TideExtremeRepository`'s own direct-dependency
+shape in `BriefingSlotBuilder`) attaches the sight at the same build-time seam `TideInfo` rides,
+only when the built date carries a catalogued `LunarEclipseCatalog` entry **and** that eclipse's own
+window matches the slot's `TargetType` — the identical rule `LunarEclipseHotTopicStrategy` uses for
+the topic pill, now extracted to a shared `LunarEclipseWording.eventType` so the topic and the
+per-location sight can never disagree about which of a day's two windows an eclipse belongs to.
+`race` is `DAWN` when the eclipse is a SUNRISE one and its umbral end falls after nautical dawn
+minus an hour (the sky brightening while the Moon is still in shadow), `DUSK` for the SUNSET
+mirror, else null — a high, leisurely eclipse races nothing.
+
+**Simulation parity**: when `HotTopicSimulationService` has `LUNAR_ECLIPSE` active, every location's
+SUNRISE slot on "today" (`ForecastHorizon.today`, gated like the aurora admin simulation) carries
+the real 2026-08-28 Dunstanburgh reduction re-dated onto that day — the only way the dawn race can
+be seen in a browser before the next live eclipse enters a forecast window, documented in
+`EclipseSightAssembler`'s own javadoc as a verification affordance, never a product path. A real
+catalogued eclipse always wins over simulation (the real branch short-circuits before the
+simulation service is ever consulted).
+
+`BriefingSlot` gains a legacy 17-argument constructor so every existing call site (production and
+~100 test call sites) keeps compiling with `eclipse` defaulted to null; `withEvaluationGate` and the
+6-argument `withClaudeScores` were updated to thread the field through explicitly rather than
+through that legacy form, so a slot that already carries an eclipse sight cannot silently lose it
+the next time Claude's rating or the evaluation gate is attached later in the pipeline — the same
+"a wither is where a field quietly goes missing" defect class this file's own comments already
+document for `evaluationGate`.
+
+Tests: `EclipseSightAssemblerTest` (attachment gating on the eclipse's own window vs the day's other
+event type; the unclipped umbra span; the four light-stop keys for both SUNRISE and SUNSET; the
+DAWN/DUSK/null race boundary pinned at the exact 60-minute edge on **both** sides; simulation parity
+including that a real eclipse wins without ever touching `HotTopicSimulationService`), new
+`BriefingSlotTest.EclipseTests` (withers preserve/clear the field in isolation), a new
+`BriefingSlotBuilderTest` nested class proving the seam wiring end to end (plus a woodland-routing
+test proving a canopy slot never even reaches the seam), new `LunarEclipseWordingTest` coverage for
+the extracted `eventType`/`toLondonLocal` helpers (including a BST-vs-UTC-hour boundary case), and a
+legacy-cache-row deserialisation test plus a real Jackson-3 `JsonDateFormatContractTest` wire-format
+check (`GET /api/briefing`, reaching into the nested `eclipse.stops[]` array) — the hand-built
+Jackson 2 mapper in `DailyBriefingResponseJsonTest` deliberately asserts no raw date strings,
+consistent with CLAUDE.md's two-Jackson-graphs warning.
+
+Adversarial review of this diff found four real issues, all fixed before landing: (1) simulation
+could have fired a fabricated sight on a date that already carries a real catalogued eclipse, on
+whichever of that day's two windows the real eclipse itself does *not* claim — `forSlot` now
+requires no real entry on the date at all, not merely a window mismatch, before considering
+simulation; (2) the simulated path's `retime()` re-dates a fixed template by time-of-day alone, with
+no next-day carry — safe only because 2026-08-28's whole contact chain is same-day, so a defensive
+ordering check now fails loudly rather than silently misordering a sight if a future phase ever
+repoints the template at a date that crosses midnight; (3) the hot-topic type string
+`"LUNAR_ECLIPSE"` was three independent literals across `EclipseSightAssembler`,
+`LunarEclipseHotTopicStrategy` and `HotTopicSimulationService` with no compile-time link — the
+first now reads `LunarEclipseHotTopicStrategy.TYPE` (newly extracted) instead of its own copy, and a
+new `HotTopicSimulationServiceTest` case bridges the third; (4) the DUSK side of the race boundary
+had no boundary test at all (only DAWN's two edges were pinned) — three more tests now cover DUSK's
+exact edge, one minute inside it, and its own null case.
+
+Frontend: none this phase (L4 mounts the popup's dawn race component against this data).
+
+### Fixed — lunar eclipse simulation moved from build time to serve time (backend, L2)
+
+Codex review of #914 (P1): the admin `LUNAR_ECLIPSE` simulation was sampled only while
+`BriefingSlotBuilder` rebuilds slots, but `BriefingService.getCachedBriefing()` serves a
+persisted/cached `DailyBriefingResponse` on every request and only overlays a few fields live
+(aurora, hot topics) — it does not re-run the slot builder. So toggling the simulation on produced
+no visible race until the next scheduled refresh, and toggling it off — or restarting the app —
+left a fabricated eclipse sight visible and reloadable from `daily_briefing_cache` indefinitely.
+
+`EclipseSightAssembler.forSlot` (the only method `BriefingSlotBuilder` calls) now attaches REAL
+sights only; nothing simulated can reach the persisted cache from any path. Simulation moved to a
+new `simulatedSightFor(date, eventType)`, called from `BriefingService.getCachedBriefing()`'s
+live-overlay step — the same serve-time seam the aurora and hot-topic overlays already use, and
+which now runs unconditionally on every call rather than only when those two happened to change.
+Because a serve-time overlay has no per-location `LocationEntity` to hand (only the already-built
+`BriefingSlot`s, keyed by name/id), the simulated sight's light stops are now Dunstanburgh's own
+too, re-dated exactly like its moon geometry, computed once per (date, event type) and reused
+across every slot on that window rather than per-location.
+
+New withers `BriefingRegion.withSlots` and `BriefingEventSummary.withUnregioned` support the
+overlay's tree rewrite, following the same "never rebuild positionally — a later field goes missing
+silently" discipline this file's other withers already document. The "never on a date a real
+eclipse already owns" rule moved inside `isSimulatedFor` itself (a `LunarEclipseCatalog.on(date)
+.isEmpty()` check), so `simulatedSightFor` is self-contained rather than depending on its caller to
+compute that separately.
+
+Enabling the simulation now shows the race on the very next request; disabling it removes it on the
+next request after that; a restart with it off serves the persisted, real-sights-only cache
+untouched. Tests: `EclipseSightAssemblerTest` splits into `ForSlotNeverSimulates` (the build path
+never even asks `HotTopicSimulationService` a question) and `SimulatedSightForTests` (the full
+simulation-gating matrix, now against the serve-time method); a new
+`BriefingServiceTest.GetCachedBriefingSimulatedEclipseTests` pins the persisted-cache round trip
+(refreshing never calls `simulatedSightFor`), the on/off toggle taking effect on the very next
+request each way, and the overlay running independently of the aurora/hot-topic short-circuit.
+
+### Added — lunar eclipse hot topic, almanac entry and Coming-up scoring (backend, L1)
+
+Phase L1 of `docs/engineering/lunar-eclipse-plan.md`: `LunarEclipseHotTopicStrategy` and
+`LunarEclipseAlmanacSource` mirror the solar `EclipseHotTopicStrategy`/`EclipseAlmanacSource`
+structurally, built on L0's `LunarEclipseCatalog`/`LunarEclipseCalculator`. A lunar eclipse's depth
+is the same everywhere it is visible at all — unlike the solar eclipse, the Plan-tab label is the
+constant "Lunar eclipse" on every surface (the kind still reaches the Coming-up card's title) — so
+the roster's representative location is chosen by the longest *visible* umbral span rather than by
+magnitude. The pill's exposure cue ("No filter needed — bracket, the shadow is ~10 stops under the
+lit edge") rides `note`, never `safetyNote`: nothing about photographing an eclipsed Moon is
+hazardous. The topic withdraws once the umbral phase (`u4`) has passed.
+
+`TopicRarity` gains `LUNAR_ECLIPSE` at rank 2 (SUPERMOON and everything below shift by one — a
+lunar eclipse recurs far more often than a deep solar one but still well ahead of a supermoon).
+`ComingUpScoringProperties.Rarity.lunarEclipseMeanGapDays = 900.0` is a documented long-run
+estimate — deliberately **not** the six real gaps between the catalogue's seven seeded entries
+(177/355/502/354/177/177 days, averaging ~290, an unusually dense run that would land under the
+announce band rather than interrupt) — giving `log2(900) + 1 ≈ 10.8` bits, which clears the
+interrupt band; the census year holds three penumbral eclipses (never seeded), so
+`ComingUpAnnualBadgeCensusTest`'s pinned result is unchanged — confirmed by running it, not
+assumed.
+
+`ComingUpAssembler.enrichLunarEclipse` shares the `eclipse` family with the solar entry, derives
+`superlative` ("sets in shadow") from the almanac source's own composed `shadow` fact rather than
+re-deriving geometry, and writes a server-authored `scoreNote` ("The first visible from here since
+<Month YYYY>.") from the almanac's catalogue-derived `since` fact — which now takes precedence over
+`markScoreNotes`' generic rarity/magnitude phrasing (that method's skip guard was extended from
+"has a `joinNote`" to "has a `joinNote` **or** a `scoreNote`"), falling through to the generic
+phrasing only for the catalogue's very first entry, which has nothing earlier to name. The new
+nullable `ComingUpEntry.aside` carries the exposure note as a generic dashed-top slot any later
+type may reuse.
+
+`HotTopicSimulationService` gains a `LUNAR_ECLIPSE` template using Dunstanburgh's own reduction of
+the 2026-08-28 eclipse (verified against `LunarEclipseCatalog`'s class javadoc), carrying no
+safety note — `HotTopicSimulationServiceTest` keeps pinning that only `ECLIPSE` warns. Both eclipse
+strategies are now covered by `HotTopicStrategyRegistrationTest` (the solar one had never been
+added, a pre-existing gap).
+
+Frontend: none this phase (L3 wires the client registries and the clocked chip).
+
+### Fixed — lunar eclipse "in shadow" span starts when the Moon is actually visible
+
+Codex's third pass on PR #913 found a real defect: for a rises-in-shadow eclipse, the "in shadow"
+span on both the Plan fact chip and the Coming-up "shadow" meta line always printed the eclipse's
+own `u1` contact as the start time, even though the representative location cannot see the Moon
+until it actually rises. The real 2028-12-31 UK-centre sight rises around 15:36 while `u1` is
+15:07, so both surfaces claimed nearly half an hour of unavailable viewing.
+
+`LunarEclipseWording.shadowSpan(sight)` is the new shared span builder — both
+`LunarEclipseHotTopicStrategy`'s fact chip and `LunarEclipseAlmanacSource`'s `shadow` meta now
+clip the start to `LunarEclipseSight.visibleUmbraStart()` (already correct: moonrise when the Moon
+rises in shadow, `u1` otherwise) exactly as the end was already clipped to `visibleUmbraEnd()`. A
+rises-in-shadow eclipse now reads "rises HH:mm → …", mirroring the existing "… → sets HH:mm"
+wording for a sets-in-shadow one.
+
+Tests: both strategy and almanac-source test files pin the real 2028-12-31 UK-centre case (start
+≈ 15:36, never 15:07). `LunarEclipseMagnitudeAgreementTest` gains a third test driving both
+classes from the real calculator across the whole catalogue and asserting the fact chip's span and
+the meta's span agree for every eclipse.
+
+### Fixed — memoise the lunar eclipse per-location reduction
+
+Codex review of #913 (PR for the lunar eclipse hot topic, L1) flagged a P1: on every live Plan-tab
+serve, `LunarEclipseHotTopicStrategy` and `LunarEclipseAlmanacSource` each re-ran the full
+`LunarEclipseCalculator.sight()` reduction — several moonrise/moonset lookups plus, when altitude at
+maximum did not already clear the eligibility bar, a once-a-minute altitude scan across the whole
+umbral span — for every enabled location, because `BriefingService.getCachedBriefing()` recomputes
+hot topics on every request. Cost scaled with roster size and eclipse duration on every serve, and
+kept paying after the eclipse had finished because freshness was checked only after the roster loop.
+
+`LunarEclipseCalculator.sight()` is now memoised per `(eclipse date, latitude, longitude)` in an
+in-memory `ConcurrentHashMap` carrier on the shared `@Component` bean (never the briefing payload) —
+the reduction is a pure function of the catalogue and coordinates, so no TTL is needed and a restart
+simply empties it, defensively bounded to 5,000 entries. `LunarEclipseHotTopicStrategy` now checks
+`freshness.isAhead(u4)` before reducing the roster at all, so a finished eclipse costs nothing.
+
+### Fixed — cap lunar eclipse magnitude at 100%, band the shadow prose correctly
+
+Codex review of PR #913 (L1 of the lunar eclipse topic) found two real defects. A total eclipse's
+umbral magnitude is the fraction of the Moon's *diameter* inside the umbra, which runs past `1.0`
+once the Moon is fully swallowed (1.24785 on 2028-12-31, 1.8452 on 2029-06-26); both
+`LunarEclipseHotTopicStrategy` and `LunarEclipseAlmanacSource` independently rounded that raw
+figure into a percentage, printing impossible copy like "125% in shadow" and "185% in shadow"
+across the Plan detail line, the fact chip and the Coming-up card. Separately, the almanac source's
+Coming-up "why" paragraph hard-coded the design's deep-partial copy ("Earth's shadow covers all but
+a sliver…") for every entry, which is false for the 2028-01-12 eclipse (magnitude 0.0679, ~7% of
+the Moon's diameter) — the opposite of what actually happens.
+
+Both were the same root cause: two classes independently deriving copy from one number. New
+`LunarEclipseWording` is the one place magnitude becomes words — `depthOf()` (TOTAL/DEEP/PARTIAL/
+SLIGHT, at 1.0/0.80/0.40), `coveragePct()` (capped at 100, defensively, though every current caller
+reads `"total"` instead of a percentage for TOTAL), `coverageWord()` and `shadowClause()` (the
+band-specific opening sentence shared by the topic's tooltip and the Coming-up prose) — and both
+`LunarEclipseHotTopicStrategy` and `LunarEclipseAlmanacSource` now route every magnitude-derived
+word through it: a TOTAL eclipse reads "totally eclipsed"/"total", never a percentage; SLIGHT reads
+"Earth's shadow clips N% of the moon's edge — a darkened bite rather than a copper disc.", never
+the deep-partial sentence. `LunarEclipseAlmanacSource.title()` also now uses the shared band, adding
+a "Slight partial lunar eclipse" title the old 3-tier logic never produced.
+
+Tests: `LunarEclipseWordingTest` pins every band boundary and the capping rule directly.
+`LunarEclipseHotTopicStrategyTest`/`LunarEclipseAlmanacSourceTest` each pin the three affected real
+catalogue entries (2028-12-31 total, 2028-01-12 "7% in shadow", 2026-08-28 "93%" unaffected). New
+`LunarEclipseMagnitudeAgreementTest` drives both classes from the same real `LunarEclipseCalculator`
+reduction (no mocks) for every catalogued eclipse and asserts no percentage figure ever exceeds 100
+on either surface, and that the strategy's fact-chip figure and the almanac source's meta figure
+agree for every eclipse the UK-centre reference point can see.
+
+### Fixed — lunar eclipse L0: moonset/moonrise pairing and a CodeQL null-guard
+
+Two review findings against the L0 catalogue/calculator (PR #911), fixed in place.
+
+**`LunarEclipseCalculator`** picked moonrise and moonset as two independent "nearest to the umbral
+window" lookups, each querying only the window's own London civil date(s). For a same-day evening
+eclipse (2028-12-31: rises in shadow at 15:36 GMT) that civil date's only moonset candidate was a
+leftover ~08:34 GMT set from the *previous* arc — hours *before* the rise, not after it — producing
+a chronologically impossible sight. Moonrise and moonset are now derived as one paired arc: the
+calculator queries a full day of margin either side of the umbral span (up to four civil dates),
+picks the operative moonrise as the most recent rise at or before U4, then derives moonset as the
+earliest set strictly after that specific moonrise — which makes `moonset > moonrise` true by
+construction rather than a fact to remember to check. `LunarEclipseSight` also validates the
+invariant defensively in its own compact constructor, so a future regression fails at construction
+rather than shipping.
+
+**`LunarEclipseCatalog.LunarEclipse`**'s compact constructor had a CodeQL-flagged possible-null
+dereference of `u2`/`u3` in the TOTAL contact-ordering check: the presence guard
+(`kind == TOTAL implies u2/u3 non-null`) lived in one `if` block and the dereference in another,
+which a static analyser cannot connect. The presence guard and the ordering check that depends on
+it now live in a single per-kind block, so the null check immediately precedes the dereference it
+protects.
+
+### Added — lunar eclipse catalogue and per-location sight (backend, L0)
+
+Phase L0 of `docs/engineering/lunar-eclipse-plan.md`: a static `LunarEclipseCatalog`
+(`service/LunarEclipseCatalog.java`, the same static-table pattern as the solar `EclipseCatalog`)
+seeding every umbral lunar eclipse from March 2025 through 2030 whose umbral phase is above the
+horizon somewhere in the British Isles — seven entries, verified row by row against NASA's decade
+lunar eclipse tables and eclipsewise.com's per-eclipse detail pages (the class javadoc records the
+sources and the verification method). Three umbral eclipses in range (2026-03-03, 2028-07-06,
+2030-06-15) were checked and excluded because the Moon never clears the astronomical horizon
+anywhere in Britain during their umbral phase, and every penumbral eclipse is excluded outright.
+The record's compact constructor enforces contact ordering and kind/magnitude agreement structurally,
+so a transcription error fails at class-load time rather than shipping.
+
+`util/LunarEclipseCalculator.java` (a `@Component`, following `SupermoonHotTopicStrategy`'s call
+pattern for solar-utils' `LunarCalculator`/`MoonriseMoonsetCalculator`) computes the per-location
+`LunarEclipseSight` — altitude/bearing at greatest eclipse, moonrise/moonset interaction with the
+umbral span, and the 3°/30-minute visibility eligibility rule, sampling the Moon's altitude once a
+minute across the span. A midnight-crossing umbral span is resolved by checking both the London
+civil date of U1 and (when it differs) of U4.
+
+No wiring into any live path this phase — the catalogue and calculator are unused outside their own
+tests, per the plan's L0 scope.
+
+### Changed — `release.sh` asks one question: the version
+
+The release script used to ask five questions: the commit to tag, the version, whether to promote
+the changelog, the tag message, and a final "Proceed?". It now asks only for the version. It
+offers the next major, patch and minor versions as `1`/`2`/`3` (Enter takes the patch) or takes
+any `x.y.z` typed in, and that answer is the go-ahead. The commits since the last tag are printed
+before the question, then the changelog promotion, tag and push run unattended. The old questions
+are now flags: `./release.sh 2.21.3` skips the version question, `--target <ref>` tags an earlier
+commit on main, and `-m "<message>"` sets the tag message. Every refusal guard is unchanged. It
+stops to ask again only if main gained a commit other than the promotion while that PR was
+merging, because the reader never saw that commit in the list they approved.
+
+After pushing the tag it now watches the Deploy workflow. It prints each job as it starts, then
+reports `✅ vX.Y.Z is deployed to production` or `❌` with the failed jobs, and rings the terminal
+bell and posts a macOS notification either way. The watching stops on its own after an hour.
+Ctrl-C stops the watching only, not the deploy.
+
+### Docs — the lunar eclipse port plan and its design bundle
+
+`docs/engineering/lunar-eclipse-plan.md` plans the extension of the `ECLIPSE` almanac topic to
+lunar eclipses, against the design handoff now vendored at `docs/design/lunar-eclipse/` (design of
+record `Lunar Eclipse.html`; `VENDORING.md` records what was copied). Eight single-session Sonnet
+phases with paste-ready prompts in `docs/engineering/lunar-eclipse-prompts.md`: a seeded
+`LunarEclipseCatalog` of UTC contacts, a per-location sight from solar-utils' moon geometry, the
+topic and almanac source under a distinct `LUNAR_ECLIPSE` type sharing the solar channel, the
+sight on `BriefingSlot`, a clocked Plan-card chip, the popup's one new component (the dawn race),
+the Coming up row, and an independent plain-language copy sweep that retires every user-facing
+"bits" string.
+
+The plan's §1 records where the spec is stale against this repo, and the defaults it takes in
+consequence: the promoted strip the spec builds on was retired at plan-matrix M5 and is not
+rebuilt (the evening-before need is met by the card and the popup); the `clearToDeg` horizon score
+it reuses has never existed, so every clear-to-the-west surface is dropped as the solar handoff
+dropped it, not faked; and the worked example (28 Aug 2026) is already past, so verification runs
+on the simulation template. Nine owner decisions are listed in §6 with their costs. Documentation
+only; no behaviour change.
+
 ## [v2.21.2] - 2026-09-23
 
 ### Changed — open on Map on iPad and desktop, Plan on phone
