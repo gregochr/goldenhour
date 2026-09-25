@@ -329,8 +329,18 @@ export function raceSentence(sight) {
  * {@code risesInShadow} branches below — the same choice {@link raceSentence} makes for the
  * identical field (an L4 accepted item, plan §4): a location can genuinely set (or rise) in shadow
  * before reaching its recorded maximum altitude, so "-3° up … sets 04:10 in shadow" is a real,
- * non-contradictory reading there, and only the flag-less, negative-altitude branch above needed the
- * new wording.
+ * non-contradictory reading there, and only the flag-less branch above needed the new wording.
+ *
+ * <p>⚠️ <b>The served altitude is a ROUNDED integer, so testing its sign alone is not enough at the
+ * zero boundary</b> (Codex, PR #918, second pass: `LunarEclipseCalculator` rounds before
+ * serialising, so an actual −0.4° reading is served as {@code 0}). With neither flag set, {@code 0}
+ * cannot tell "genuinely on the horizon" apart from "just below it, rounded up" — a case the first
+ * fix's {@code alt < 0} test missed, since a rounded zero has no sign left to read. Rather than a
+ * backend change to serve an explicit visibility state (the real exit if this ever needs finer
+ * resolution — see plan §4a), the client makes NO visibility claim at exactly zero: {@code
+ * "moon on the horizon at max"}, with no bearing, no "up", no "throughout" and no "not visible" —
+ * only {@code alt > 0} keeps "above the horizon throughout" and only {@code alt < 0} keeps "below
+ * the horizon … not visible from here".
  *
  * @param {?object} sight the served {@code BriefingSlot.EclipseSight} for one location, from
  *        {@code buildEclipseIndex}/{@code lookupForWindow} (`utils/locationSheet.js`)
@@ -349,8 +359,11 @@ export function eclipseSpotLine(sight) {
     const t = formatRaceTime(toMs(sight.moonrise));
     if (t) return `${head} · rises ${t} in shadow`;
   }
+  if (alt > 0) {
+    return `${head} · above the horizon throughout`;
+  }
   if (alt < 0) {
     return `moon ${Math.abs(alt)}° below the horizon at max · not visible from here`;
   }
-  return `${head} · above the horizon throughout`;
+  return 'moon on the horizon at max';
 }

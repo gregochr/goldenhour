@@ -405,8 +405,25 @@ describe('eclipseSpotLine — below-horizon-at-max is NOT "above the horizon thr
     expect(line).not.toContain('NNE');
   });
 
-  it('still reads "above the horizon throughout" for a non-negative altitude with neither flag set', () => {
+  it('states no visibility claim at exactly zero — the served altitude is a rounded integer (Codex, PR #918, second pass)', () => {
+    // LunarEclipseCalculator rounds before serialising, so an actual -0.4° is served as 0: a
+    // rounded zero cannot tell "genuinely on the horizon" apart from "just below it, rounded up".
+    // Neither "above the horizon throughout" nor "not visible from here" is a claim the client can
+    // back at this exact boundary.
     const sight = dawnSight({ moonAltAtMax: 0, setsInShadow: false, risesInShadow: false });
-    expect(eclipseSpotLine(sight)).toBe('moon 0° up WSW at max · above the horizon throughout');
+    const line = eclipseSpotLine(sight);
+    expect(line).toBe('moon on the horizon at max');
+    expect(line).not.toContain('up');
+    expect(line).not.toContain('throughout');
+    expect(line).not.toContain('not visible');
+  });
+
+  it('the zero boundary, exactly: 1 -> throughout, -1 -> not visible, 0 -> on the horizon', () => {
+    const at = (moonAltAtMax) => eclipseSpotLine(
+      dawnSight({ moonAltAtMax, setsInShadow: false, risesInShadow: false }),
+    );
+    expect(at(1)).toBe('moon 1° up WSW at max · above the horizon throughout');
+    expect(at(-1)).toBe('moon 1° below the horizon at max · not visible from here');
+    expect(at(0)).toBe('moon on the horizon at max');
   });
 });

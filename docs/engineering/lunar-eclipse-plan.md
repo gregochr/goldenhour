@@ -539,6 +539,19 @@ found by reading the code back against §1–§3 during the L7 sweep, not new wo
     and no PR between L1 and L7 touched `ComingUpConditionPeak`. Listed here only so the L7 sweep's
     "read the code back against every §4 entry" instruction has an explicit answer for this one
     too, rather than a silent assumption that nothing changed.
+24. **`moonAltAtMax` is served as a ROUNDED integer, and `eclipseSpotLine` makes no visibility claim
+    at exactly zero for that reason** (Codex, PR #918, found across two review passes: first that a
+    flag-less negative altitude wrongly claimed "above the horizon throughout", then that a
+    flag-less ZERO does too, since `LunarEclipseCalculator` rounds before serialising and an actual
+    −0.4° is served indistinguishably from a genuine 0.0°). `alt > 0` keeps "above the horizon
+    throughout"; `alt < 0` keeps "below the horizon at max · not visible from here"; `alt === 0`
+    prints only "moon on the horizon at max" — no bearing, no "up", no "throughout", no "not
+    visible". The exit, if this boundary ever needs to say more, is a served explicit visibility
+    state on `BriefingSlot.EclipseSight` — L0's `LunarEclipseSight` record already computes exactly
+    this boolean internally for the eligibility test (§2.3's `visible`), but it is NOT currently
+    threaded through `EclipseSightAssembler` onto the served, slot-level `EclipseSight`, so adding it
+    there is real (small) work, not a field merely waiting to be read — rather than a client guess at
+    a rounded integer's sign.
 
 ---
 

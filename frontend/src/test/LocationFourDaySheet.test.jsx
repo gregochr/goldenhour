@@ -1308,4 +1308,34 @@ describe('LocationFourDaySheet — the eclipse spot line (L7)', () => {
     expect(line).toHaveTextContent('moon 2° below the horizon at max · not visible from here');
     expect(line.textContent).not.toContain('up');
   });
+
+  it('a row whose sight sits AT exactly zero altitude, with neither flag set, makes no visibility claim (Codex, PR #918, second pass)', () => {
+    // The served altitude is a rounded integer, so a genuine -0.4deg reading also serves as 0 — the
+    // client cannot tell the two apart at this boundary and must not guess either way.
+    const ON_HORIZON_SIGHT = {
+      moonAltAtMax: 0, moonAzCardinal: 'WSW', moonset: null, moonrise: null,
+      setsInShadow: false, risesInShadow: false,
+    };
+    const days = [
+      {
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00',
+              eclipse: ON_HORIZON_SIGHT,
+            }],
+          }],
+        }],
+      },
+    ];
+    setup({ eclipseIndex: buildEclipseIndex(days) });
+    const line = within(row('2026-08-14:SUNSET')).getByTestId('eclipse-spot-line');
+    expect(line).toHaveTextContent('moon on the horizon at max');
+    expect(line.textContent).not.toContain('up');
+    expect(line.textContent).not.toContain('throughout');
+    expect(line.textContent).not.toContain('not visible');
+  });
 });
