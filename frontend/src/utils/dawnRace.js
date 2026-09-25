@@ -309,11 +309,28 @@ export function raceSentence(sight) {
  * the umbral span (neither {@code setsInShadow} nor {@code risesInShadow}), never that the sky was
  * clear or that any terrain was checked.
  *
- * <p>A negative {@code moonAltAtMax} prints as-is, unworded — the same choice {@link raceSentence}
- * makes for the identical field (an L4 accepted item, plan §4). The eligibility rule (§2.3) allows
- * a location to qualify on a 30-minute window elsewhere in the umbral span while sitting below the
- * horizon at the instant of maximum itself, and a special "below the horizon at max" phrase would
- * be a second rule for a reading the number already states honestly.
+ * <p>⚠️ <b>"Above the horizon throughout" is the visible-the-whole-time claim, and it must not
+ * fire for a location that was never above the horizon at all.</b> {@code EclipseSightAssembler}
+ * attaches a sight to every eligible location, including one that qualifies purely on the 30-minute
+ * elsewhere-in-the-span clause (§2.3) while sitting below the horizon at the instant of maximum —
+ * and {@code LunarEclipseCalculator} derives {@code setsInShadow}/{@code risesInShadow} only from a
+ * genuine rise or set crossing *inside* the umbral span, so a location that stays below the horizon
+ * for the WHOLE span (no crossing to report) also has BOTH flags false, exactly like a location that
+ * stays above it the whole span. A found and fixed defect (Codex, PR #918): with neither flag set,
+ * the two cases used to collapse onto one string, and a negative altitude then made it print a
+ * self-contradicting "moon -2° up WSW at max · above the horizon throughout". The two are told apart
+ * on the sign of {@code moonAltAtMax} alone — the same signal the elsewhere-in-the-span eligibility
+ * rule already treats as "below the horizon right now" — printing "moon 2° below the horizon at max
+ * · not visible from here" (no bearing; a below-horizon reading names no useful direction) for the
+ * negative case, and reserving "above the horizon throughout" for a non-negative one, which is the
+ * only reading consistent with the phrase's own claim.
+ *
+ * <p>A negative {@code moonAltAtMax} still prints as-is, unworded, inside the {@code setsInShadow}/
+ * {@code risesInShadow} branches below — the same choice {@link raceSentence} makes for the
+ * identical field (an L4 accepted item, plan §4): a location can genuinely set (or rise) in shadow
+ * before reaching its recorded maximum altitude, so "-3° up … sets 04:10 in shadow" is a real,
+ * non-contradictory reading there, and only the flag-less, negative-altitude branch above needed the
+ * new wording.
  *
  * @param {?object} sight the served {@code BriefingSlot.EclipseSight} for one location, from
  *        {@code buildEclipseIndex}/{@code lookupForWindow} (`utils/locationSheet.js`)
@@ -322,14 +339,18 @@ export function raceSentence(sight) {
  */
 export function eclipseSpotLine(sight) {
   if (!sight || sight.moonAltAtMax == null || !sight.moonAzCardinal) return null;
-  const head = `moon ${sight.moonAltAtMax}° up ${sight.moonAzCardinal} at max`;
-  let tail = 'above the horizon throughout';
+  const alt = sight.moonAltAtMax;
+  const head = `moon ${alt}° up ${sight.moonAzCardinal} at max`;
   if (sight.setsInShadow && sight.moonset != null) {
     const t = formatRaceTime(toMs(sight.moonset));
-    if (t) tail = `sets ${t} in shadow`;
-  } else if (sight.risesInShadow && sight.moonrise != null) {
-    const t = formatRaceTime(toMs(sight.moonrise));
-    if (t) tail = `rises ${t} in shadow`;
+    if (t) return `${head} · sets ${t} in shadow`;
   }
-  return `${head} · ${tail}`;
+  if (sight.risesInShadow && sight.moonrise != null) {
+    const t = formatRaceTime(toMs(sight.moonrise));
+    if (t) return `${head} · rises ${t} in shadow`;
+  }
+  if (alt < 0) {
+    return `moon ${Math.abs(alt)}° below the horizon at max · not visible from here`;
+  }
+  return `${head} · above the horizon throughout`;
 }

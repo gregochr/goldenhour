@@ -367,9 +367,12 @@ describe('eclipseSpotLine — the per-location sheet/callout line (L7)', () => {
     expect(eclipseSpotLine(sight)).toBe('moon 7° up WSW at max · above the horizon throughout');
   });
 
-  it('prints a negative moonAltAtMax as-is, unworded — the same choice raceSentence makes', () => {
-    const sight = dawnSight({ moonAltAtMax: -2, setsInShadow: false, risesInShadow: false });
-    expect(eclipseSpotLine(sight)).toBe('moon -2° up WSW at max · above the horizon throughout');
+  it('prints a negative moonAltAtMax as-is, unworded, INSIDE the setsInShadow branch — a real, non-contradictory reading', () => {
+    // The moon can genuinely set in shadow before reaching its recorded maximum altitude, so a
+    // negative reading here is not the bug this file's own next block pins — only the FLAG-LESS
+    // branch needed new wording.
+    const sight = dawnSight({ moonAltAtMax: -2, setsInShadow: true });
+    expect(eclipseSpotLine(sight)).toBe('moon -2° up WSW at max · sets 06:16 in shadow');
   });
 
   it('reads a sight with no served race at all — a high-moon eclipse still has an altitude and a set/rise answer', () => {
@@ -377,5 +380,33 @@ describe('eclipseSpotLine — the per-location sheet/callout line (L7)', () => {
       race: null, stops: [], setsInShadow: false, risesInShadow: false, moonAltAtMax: 41,
     });
     expect(eclipseSpotLine(sight)).toBe('moon 41° up WSW at max · above the horizon throughout');
+  });
+});
+
+describe('eclipseSpotLine — below-horizon-at-max is NOT "above the horizon throughout" (Codex, PR #918)', () => {
+  // EclipseSightAssembler attaches a sight to a location that qualifies purely on the 30-minute
+  // elsewhere-in-the-span eligibility clause while sitting below the horizon AT MAX, and
+  // LunarEclipseCalculator derives setsInShadow/risesInShadow only from a genuine crossing inside
+  // the umbral span — so a location that never clears the horizon for the WHOLE span has both
+  // flags false, exactly like one that is up for the whole span. The two must not collapse onto
+  // the same string.
+  it('states "not visible from here" with no bearing, never "above the horizon throughout", for a negative altitude with neither flag set', () => {
+    const sight = dawnSight({ moonAltAtMax: -2, setsInShadow: false, risesInShadow: false });
+    expect(eclipseSpotLine(sight)).toBe('moon 2° below the horizon at max · not visible from here');
+  });
+
+  it('takes the absolute value of the altitude, and never prints "up" or the cardinal bearing', () => {
+    const sight = dawnSight({
+      moonAltAtMax: -11, moonAzCardinal: 'NNE', setsInShadow: false, risesInShadow: false,
+    });
+    const line = eclipseSpotLine(sight);
+    expect(line).toBe('moon 11° below the horizon at max · not visible from here');
+    expect(line).not.toContain('up');
+    expect(line).not.toContain('NNE');
+  });
+
+  it('still reads "above the horizon throughout" for a non-negative altitude with neither flag set', () => {
+    const sight = dawnSight({ moonAltAtMax: 0, setsInShadow: false, risesInShadow: false });
+    expect(eclipseSpotLine(sight)).toBe('moon 0° up WSW at max · above the horizon throughout');
   });
 });

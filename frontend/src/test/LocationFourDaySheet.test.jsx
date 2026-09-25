@@ -1282,4 +1282,30 @@ describe('LocationFourDaySheet — the eclipse spot line (L7)', () => {
       expect(within(el).queryByTestId('eclipse-spot-line')).toBeNull();
     }
   });
+
+  it('a row whose sight sits below the horizon at max, with neither flag set, reads "not visible from here" and never "up" (Codex, PR #918)', () => {
+    const BELOW_HORIZON_SIGHT = {
+      moonAltAtMax: -2, moonAzCardinal: 'WSW', moonset: null, moonrise: null,
+      setsInShadow: false, risesInShadow: false,
+    };
+    const days = [
+      {
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00',
+              eclipse: BELOW_HORIZON_SIGHT,
+            }],
+          }],
+        }],
+      },
+    ];
+    setup({ eclipseIndex: buildEclipseIndex(days) });
+    const line = within(row('2026-08-14:SUNSET')).getByTestId('eclipse-spot-line');
+    expect(line).toHaveTextContent('moon 2° below the horizon at max · not visible from here');
+    expect(line.textContent).not.toContain('up');
+  });
 });

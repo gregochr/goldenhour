@@ -41,6 +41,17 @@ const ABOVE_THROUGHOUT = {
   risesInShadow: false,
 };
 
+// Neither flag set AND below the horizon at max (Codex, PR #918) — must NOT collapse onto
+// ABOVE_THROUGHOUT's claim of continuous visibility.
+const BELOW_HORIZON = {
+  moonAltAtMax: -2,
+  moonAzCardinal: 'WSW',
+  moonset: null,
+  moonrise: null,
+  setsInShadow: false,
+  risesInShadow: false,
+};
+
 describe('EclipseSpotLine — the unmeasured-facts discipline', () => {
   it('renders nothing when sight is null — never a "no eclipse" line', () => {
     const { container } = render(<EclipseSpotLine sight={null} />);
@@ -77,5 +88,13 @@ describe('EclipseSpotLine — the three tail shapes', () => {
     render(<EclipseSpotLine sight={ABOVE_THROUGHOUT} />);
     expect(screen.getByTestId('eclipse-spot-line'))
       .toHaveTextContent('◑ moon 22° up S at max · above the horizon throughout');
+  });
+
+  it('states "not visible from here", never "above the horizon throughout", when below the horizon at max with neither flag set (Codex, PR #918)', () => {
+    render(<EclipseSpotLine sight={BELOW_HORIZON} />);
+    const line = screen.getByTestId('eclipse-spot-line');
+    expect(line).toHaveTextContent('◑ moon 2° below the horizon at max · not visible from here');
+    expect(line.textContent).not.toContain('up');
+    expect(line.textContent).not.toContain('WSW');
   });
 });
