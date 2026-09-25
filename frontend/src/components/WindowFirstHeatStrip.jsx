@@ -162,7 +162,7 @@ function starsSpoken(rating) {
  *
  * @param {object} card the thumbnail descriptor
  * @returns {{rating: ?number, label: ?string, value: string, muted: boolean, title: ?string,
- *          tideAligned: boolean, spoken: string}} what to draw and what to say
+ *          tideAligned: boolean, tideState: ?string, spoken: string}} what to draw and what to say
  */
 export function bestReachLine(card) {
   const best = card?.bestReach ?? null;
@@ -187,6 +187,9 @@ export function bestReachLine(card) {
       muted: false,
       title: titleParts.join(' · ') || null,
       tideAligned,
+      // The matched state (tide-window-plan.md §4 #21) — the glyph's own letter reads this, never
+      // a level or threshold computed here. Null on a miss or an inland pick, matching `tideAligned`.
+      tideState: tideAligned ? (best.tideState ?? null) : null,
       // ⚠️ THE SAME PARTS THE TITLE CARRIES, joined for speech rather than for a tooltip. A `title`
       // on a non-focusable span inside a button named by `aria-labelledby` reaches nobody: not the
       // accessible name, not touch, not the keyboard. Leaving the region, the drive and the
@@ -194,9 +197,12 @@ export function bestReachLine(card) {
       // on — when to leave — pointer-only, which is the "number with no route to the thing it
       // counts" defect CLAUDE.md already records against Close-to-home. The tide clause rides the
       // same list for the same reason: `.wf-hc-pls` is `aria-hidden` (§1 #2), so this sentence is
-      // the ONLY route the glyph's claim has to a screen reader.
+      // the ONLY route the glyph's claim has to a screen reader. It now names the matched water
+      // (tide-window-plan.md §4 #21), mirroring `mapTideFit.tideAccessibleClause`'s own match
+      // wording, rather than the state-blind "the tide is right here" it used to read.
       spoken: [`best ${best.locationName}`, starsSpoken(best.rating), ...parts,
-        ...(tideAligned ? ['the tide is right here'] : [])].join(', '),
+        ...(tideAligned ? [tideStateWord ? `${tideStateWord}, right here` : 'the tide is right here'] : [])]
+        .join(', '),
     };
   }
   const empty = (card?.pool?.length ?? 0) === 0;
@@ -213,6 +219,7 @@ export function bestReachLine(card) {
     muted: true,
     title: null,
     tideAligned: false,
+    tideState: null,
     // Both forms keep the visible label's own word, so WCAG 2.5.3's label-in-name holds for a
     // speech-input user reading "Best" off the row.
     spoken: empty ? `best, ${emptyWord}` : 'best, not scored yet',
@@ -1178,7 +1185,11 @@ export default function WindowFirstHeatStrip({
                       through `facts.best.spoken`'s own clause, never an `sr-only` span in this
                       subtree (§1 #2). */}
                   {facts.best.tideAligned && (
-                    <TideWave className="wf-hc-best-tw" testId="wf-heat-best-tide" />
+                    <TideWave
+                      className="wf-hc-best-tw"
+                      testId="wf-heat-best-tide"
+                      state={facts.best.tideState}
+                    />
                   )}
                   {facts.best.value}
                 </span>
@@ -1652,6 +1663,11 @@ WindowFirstHeatStrip.propTypes = {
       rating: PropTypes.number,
       driveMinutes: PropTypes.number,
       solarEventTime: PropTypes.string,
+      /** The preference-axis match, read by {@link bestReachLine} — `=== true` for a match. */
+      tideAligned: PropTypes.bool,
+      /** The served state at the light this window — the glyph's own letter reads this on a
+       * match (tide-window-plan.md §4 #21). */
+      tideState: PropTypes.oneOf(['HIGH', 'MID', 'LOW']),
     }),
     /** The window's badges BEFORE row promotion — the matrix names every topic on the night. */
     badges: PropTypes.array,

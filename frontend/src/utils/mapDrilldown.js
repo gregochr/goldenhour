@@ -349,6 +349,9 @@ export function buildRegionLocationRows({
       // with a served tide state" and never a drawn claim either way.
       tideTier: tierOf(tideFact),
       tideShortfall: tideFact?.shortfall ?? null,
+      // The served state at the light this window (tide-window-plan.md §4 #21) — the row's glyph
+      // letters a match with this, read only alongside `tideTier: 'match'`.
+      tideState: tideFact?.state ?? null,
     });
   }
   rows.sort((a, b) => (b.rating - a.rating)

@@ -204,9 +204,10 @@ export default function MapRegionPanel({
                     className="wf-reg-tide"
                     testId="wf-reg-panel-tide"
                     shortfall={spot.tideTier === 'miss' ? spot.tideShortfall : null}
+                    state={spot.tideTier === 'match' ? spot.tideState : null}
                   />
                   <span className="sr-only">
-                    {` — ${tideAccessibleClause(spot.tideTier, spot.tideShortfall)}`}
+                    {` — ${tideAccessibleClause(spot.tideTier, spot.tideShortfall, spot.tideState)}`}
                   </span>
                 </>
               )}
@@ -335,6 +336,9 @@ MapRegionPanel.propTypes = {
     tideTier: PropTypes.oneOf(['match', 'miss']),
     /** Only meaningful (and only read) alongside `tideTier: 'miss'`. */
     tideShortfall: PropTypes.oneOf(['HIGHER', 'LOWER']),
+    /** The served state at the light this window (tide-window-plan.md §4 #21) — read only
+     * alongside `tideTier: 'match'`, to letter the glyph with the water it matched. */
+    tideState: PropTypes.oneOf(['HIGH', 'MID', 'LOW']),
   })).isRequired,
   /** This region's served narrative for this window — `regionGloss.buildRegionGlossIndex`. */
   gloss: PropTypes.shape({ headline: PropTypes.string, detail: PropTypes.string }),

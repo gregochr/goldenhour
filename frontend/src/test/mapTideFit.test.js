@@ -10,12 +10,14 @@
  * earliest-next-fit scan across every currently dimmed spot wanting that want; `wantPhrase`'s own
  * join, including the three-item Oxford-comma branch (`"a, b or c"`) no fixture elsewhere in the T5
  * diff happens to exercise, since every `TideFitBlock`/`MapCallout`/`LocationFourDaySheet` test
- * fixture wants 0, 1 or 2 tide types; and `siblingEventTime`'s lookup over the served EV list for
- * the strip's sunrise/sunset chart labels.
+ * fixture wants 0, 1 or 2 tide types; `siblingEventTime`'s lookup over the served EV list for the
+ * strip's sunrise/sunset chart labels; and `tideAccessibleClause`'s fixed per-tier strings,
+ * including the match-side state clause added by the glyph's own state letter
+ * (tide-window-plan.md §4 #21).
  */
 import { describe, it, expect } from 'vitest';
 import {
-  tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime,
+  tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime, tideAccessibleClause,
 } from '../utils/mapTideFit.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
@@ -471,5 +473,28 @@ describe('wantPhrase', () => {
 
   it('ignores an unrecognised entry rather than throwing', () => {
     expect(wantPhrase(['HIGH', 'SPRING_TIDE'])).toBe('high water');
+  });
+});
+
+describe('tideAccessibleClause — the match state clause (tide-window-plan.md §4 #21)', () => {
+  it('names the matched water for each served state, mirroring the glyph\'s own letter', () => {
+    expect(tideAccessibleClause('match', null, 'HIGH')).toBe('high water, right here');
+    expect(tideAccessibleClause('match', null, 'MID')).toBe('mid tide, right here');
+    expect(tideAccessibleClause('match', null, 'LOW')).toBe('low water, right here');
+  });
+
+  it('falls back to the old state-free clause on a match with no state — should not happen for a served match, but this stays defensive', () => {
+    expect(tideAccessibleClause('match', null, null)).toBe('tide right here');
+    expect(tideAccessibleClause('match')).toBe('tide right here');
+  });
+
+  it('ignores a state passed alongside a miss — the miss clauses are unchanged', () => {
+    expect(tideAccessibleClause('miss', 'HIGHER', 'HIGH')).toBe('wants the water higher');
+    expect(tideAccessibleClause('miss', 'LOWER', 'LOW')).toBe('wants the water lower');
+    expect(tideAccessibleClause('miss', null, 'HIGH')).toBe('wrong water');
+  });
+
+  it('returns null when there is no served tide fact at all, regardless of state', () => {
+    expect(tideAccessibleClause(null, null, 'HIGH')).toBeNull();
   });
 });

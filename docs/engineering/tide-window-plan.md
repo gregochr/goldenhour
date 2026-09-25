@@ -56,6 +56,11 @@ owner challenges §5 on the plan PR, not in code. Plan written 2026-09-17 agains
 The map-tab rendering above (T1–T8) needed no change on the STAR side: it already read the served
 rating wherever it touched one, so a coastal misaligned slot's star simply stopped being absent.
 `TideFitBlock` did gain a small addition for the new `skyRating` field (§6 Q1) — see §4 #20.
+⚠️ **A second post-series follow-up landed 2026-09-25** — the match glyph's state letter (§4 #21):
+`TideWave` gained a `state` prop, read only on a match, drawing the matched water's own H/M/L letter
+in the arrow's slot so two neighbouring coastal spots serving the same tide state no longer look
+contradictory when their wanted sets differ. No new served field and no backend change — see §4 #21
+for the full reasoning and the four mounts it threads through.
 
 Phase log (T1 creates the first row; every phase appends its own in the same commit as its code —
 the commit column names the PR once it lands, since a phase cannot name its own hash):
@@ -795,6 +800,30 @@ Numbered so a phase log can cite them. Each phase appends; T8 reconciles.
     case in §4 #5/§5 #2 above is now rare rather than the routine gated-miss shape, and the newly
     added `skyRating` (§6 Q1, below) is the map tab's answer to the natural follow-on question a
     dimmed star now raises: *was the light itself any good?*
+21. **⚠️ The match glyph now carries the matched state as a letter (H/M/L), a deliberate departure
+    from the design bundle's verbatim `TIDEGLYPH` (2026-09-25).** The vendored design draws one
+    plain wave for every match, regardless of which water it matched — the bundle never needed to
+    say more, because it never showed two neighbouring spots whose *wanted sets* differ against the
+    *same* served tide state. This codebase does: two coastal spots 2 km apart can serve one
+    identical `tideState` (say MID) and disagree in tier purely because one wants
+    `{HIGH, LOW, MID}` and the other wants `{HIGH}` only — the first draws a plain wave (match), the
+    second an arrow (miss), and a reader comparing the two sees what looks like a contradiction
+    ("the tide is the same, why do these disagree?") rather than two different questions answered
+    correctly. The miss glyph already spends the wide box's extra 7px on a fact the plain wave
+    cannot state — which direction the water needs to move — and the fix gives the match side the
+    same currency: it spends the identical 7px on the water it matched, in the identical slot the
+    arrow occupies (`TideWave`'s `state` prop, read only when `shortfall` is null so an arrow always
+    wins on a miss). No new served field: the match glyph already had `fact.state`/`spot.tideState`
+    in hand at all four mounts (`MapLabels`' chip, `MapRegionPanel`'s row, `TideFitBlock`, and the
+    heat strip's best-reachable line), since it is the very state a match implies — the letter is a
+    RENDER of an existing fact, not a new derivation (CLAUDE.md's Backend-heavy rule stays
+    satisfied). The accessible clause changes to match: `tideAccessibleClause('match', null, state)`
+    now reads `"<state word>, right here"` (e.g. `"mid tide, right here"`) rather than the old
+    state-blind `"tide right here"`, reusing `STATE_WORD` — the same lexical table `wantPhrase` and
+    `windowFirstRows.js`'s strip header already read — rather than a third copy of the three words.
+    `tideTierHeading` is untouched (still the fixed "Tide lands on the light" / "Wrong water, not
+    wrong light" per-tier strings): the heading names the AXIS, the glyph and its spoken clause name
+    the WATER, and those stay two different jobs.
 
 ---
 

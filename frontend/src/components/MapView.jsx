@@ -3207,6 +3207,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         coastal: isCoastalTidalLocation(loc),
         tideTier: tierOf(tide),
         tideShortfall: tide?.shortfall ?? null,
+        // The served state at the light this window (tide-window-plan.md §4 #21) — the match
+        // glyph's own letter reads this, never a level or threshold computed here.
+        tideState: tide?.state ?? null,
         tideGated: Boolean(tide?.gated),
         // The block body T4's tooltip reads for BOTH tiers (tide-window-plan.md §3 T4 item 4) —
         // carried here rather than left for that phase to add, since it is the same `tide` object
