@@ -233,6 +233,9 @@ export function buildEntryView(entry, todayStr, lastSeenDate) {
     prose: entry.prose ?? null,
     isFeature: Boolean(entry.prose) || Boolean(entry.superlative),
     facts: entry.facts ?? [],
+    // The dashed-top supplementary slot (design's `why2`) — a generic passthrough, not a lunar
+    // branch; the lunar eclipse topic is its first server-side writer (plan §2.8, §4 #7).
+    aside: entry.aside ?? null,
     threshold: entry.threshold ?? null,
     action,
     interactive: INTERACTIVE_ACTION_KINDS.includes(action.kind),

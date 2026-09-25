@@ -8241,6 +8241,24 @@ button.wf-hc.also.on:hover {
   color: var(--wf-cu-accent, var(--color-plex-text));
   font-weight: 600;
 }
+/* The dashed-top aside (design's `why2` slot, lunar-eclipse-plan.md §2.8) — a `<span>` for the same
+   button-content-model reason `.wf-cu-prose` gives, `display: block` restoring its own line. Serif,
+   matching `.wf-cu-prose`/`.wf-cu-join`'s "explain it in words" treatment (this is an editorial
+   aside, not a figure), but with its OWN dashed top rule rather than sharing `.wf-cu-threshold`'s —
+   the two are independent optional slots and either may render without the other. Renders after the
+   facts and before the threshold (generic: the lunar eclipse topic is its first server-side writer,
+   carrying the exposure note, but any later type may use `aside` without a lunar branch here). */
+.wf-cu-aside {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--color-plex-border);
+  max-width: 76ch;
+}
 /* A `<span>`, for the same button-content-model reason `.wf-cu-prose` gives. */
 .wf-cu-threshold {
   display: block;

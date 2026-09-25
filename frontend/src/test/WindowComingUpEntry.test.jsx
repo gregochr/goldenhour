@@ -128,6 +128,28 @@ describe('WindowComingUpEntry — the card', () => {
     expect(tonesOf(chip2)).toEqual(['base', 'accent']);
   });
 
+  it('renders no aside slot when the server sent none (L5, plan §2.8)', () => {
+    renderEntry({ aside: null });
+    expect(screen.queryByTestId('coming-up-aside')).toBeNull();
+  });
+
+  it('renders the aside slot, after the facts and before the threshold, when the server sent one', () => {
+    renderEntry({
+      facts: FACTS,
+      aside: 'No filter needed — bracket, the shadow is ~10 stops under the lit edge',
+      threshold: 'The other 2 runs in this window ranged 4.1–4.9 m.',
+    });
+    expect(screen.getByTestId('coming-up-aside'))
+      .toHaveTextContent('No filter needed — bracket, the shadow is ~10 stops under the lit edge');
+    const card = screen.getByTestId('coming-up-card');
+    const facts = screen.getByTestId('coming-up-facts');
+    const aside = screen.getByTestId('coming-up-aside');
+    const threshold = screen.getByTestId('coming-up-threshold');
+    const positions = Array.from(card.querySelectorAll('*'));
+    expect(positions.indexOf(facts)).toBeLessThan(positions.indexOf(aside));
+    expect(positions.indexOf(aside)).toBeLessThan(positions.indexOf(threshold));
+  });
+
   it('renders no threshold line when the server sent none — a lone tide run, per §11.21', () => {
     renderEntry({ threshold: null });
     expect(screen.queryByTestId('coming-up-threshold')).toBeNull();
@@ -253,6 +275,22 @@ describe('WindowComingUpEntry — the click seam (plan §11.5, D8)', () => {
     });
     expect(screen.getByRole('button'))
       .toHaveAccessibleName('Autumn equinox Almanac See the plan for 22 Sept →');
+  });
+
+  it('keeps the aside slot as its own word in the computed accessible name — never glued to its '
+    + 'neighbours (the P3a lesson, L5 plan §2.8)', () => {
+    renderEntry({
+      title: 'Deep partial lunar eclipse',
+      metric: '93%',
+      aside: 'No filter needed — bracket, the shadow is ~10 stops under the lit edge',
+      threshold: null,
+      action: { label: 'See the plan for 28 Aug →', kind: 'plan', date: '2026-08-28' },
+      interactive: true,
+    });
+    expect(screen.getByRole('button')).toHaveAccessibleName(
+      'Deep partial lunar eclipse Almanac 93% No filter needed — bracket, the shadow is ~10 '
+      + 'stops under the lit edge See the plan for 28 Aug →',
+    );
   });
 });
 
@@ -492,5 +530,65 @@ describe('WindowComingUpEntry — the NEW flag and fresh box-shadow (plan D3/D12
     renderEntry({ isNew: true, interactive: false });
     expect(screen.getByTestId('coming-up-new-flag')).toBeInTheDocument();
     expect(screen.getByTestId('coming-up-card').className).toContain('wf-cu-card-fresh');
+  });
+});
+
+describe('WindowComingUpEntry — a served lunar eclipse entry (L5, plan §2.8)', () => {
+  // The exact figures LunarEclipseAlmanacSourceTest asserts for the worked example (Bamburgh,
+  // 28 Aug 2026), run green on this branch (`./mvnw test -Dtest=LunarEclipseAlmanacSourceTest`),
+  // shaped by `ComingUpAssembler.enrichLunarEclipse`/`lunarEclipseFacts` as `buildEntryView` would
+  // hand it to this component — this is the fixture §7's browser recipe cannot reach today (no
+  // seeded eclipse falls in the live 90-day window), so it is this phase's substitute evidence.
+  const lunarEclipseView = () => ({
+    id: 'lunar-eclipse:2026-08-28:2026-08-28',
+    type: 'lunar-eclipse',
+    family: 'eclipse',
+    rail: { dow: 'Fri', day: '28', month: 'Aug', isRange: false, countdown: 'in 30 days' },
+    title: 'Deep partial lunar eclipse',
+    kindTag: 'Almanac',
+    superlative: 'sets in shadow',
+    metric: '93%',
+    prose: null,
+    isFeature: true,
+    facts: [
+      { segments: [
+        { text: '93% in shadow', tone: 'strong' },
+        { text: ' · ', tone: 'base' },
+        { text: 'maximum 05:12 · moon WSW 241°, 8° up', tone: 'base' },
+      ] },
+      { segments: [{ text: 'in shadow 03:33 → sets 06:16', tone: 'base' }] },
+      { segments: [{ text: 'Next from the UK: a partial eclipse, Wed 12 Jan 2028', tone: 'accent' }] },
+      { segments: [{ text: 'figures for ', tone: 'base' }, { text: 'Bamburgh', tone: 'strong' }] },
+    ],
+    aside: 'No filter needed — bracket, the shadow is ~10 stops under the lit edge',
+    threshold: null,
+    action: { label: 'See the plan for 28 Aug →', kind: 'plan', date: '2026-08-28' },
+    isNew: true,
+  });
+
+  it('renders the glyph, NEW flag, kind tag, pick tag and headline metric', () => {
+    renderEntry(lunarEclipseView());
+    expect(screen.getByTestId('coming-up-glyph')).toHaveTextContent('🌘');
+    expect(screen.getByTestId('coming-up-new-flag')).toHaveTextContent('New');
+    expect(screen.getByTestId('coming-up-kindtag')).toHaveTextContent('Almanac');
+    expect(screen.getByTestId('coming-up-superlative')).toHaveTextContent('sets in shadow');
+    expect(screen.getByTestId('coming-up-metric')).toHaveTextContent('93%');
+  });
+
+  it('renders the four fact rows, the accent next row among them, the dashed aside and the action', () => {
+    renderEntry(lunarEclipseView());
+    const facts = within(screen.getByTestId('coming-up-facts')).getAllByTestId('coming-up-fact');
+    expect(facts).toHaveLength(4);
+    expect(facts[2]).toHaveTextContent('Next from the UK: a partial eclipse, Wed 12 Jan 2028');
+    const nextTones = within(facts[2]).getAllByText(/./).map((el) => el.getAttribute('data-tone'));
+    expect(nextTones).toEqual(['accent']);
+    expect(screen.getByTestId('coming-up-aside'))
+      .toHaveTextContent('No filter needed — bracket, the shadow is ~10 stops under the lit edge');
+    expect(screen.getByTestId('coming-up-action')).toHaveTextContent('See the plan for 28 Aug →');
+  });
+
+  it('renders no aside slot for an entry the server sent none for — the generic-slot contract', () => {
+    renderEntry({ ...lunarEclipseView(), aside: null });
+    expect(screen.queryByTestId('coming-up-aside')).toBeNull();
   });
 });

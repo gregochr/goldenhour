@@ -261,6 +261,19 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
         </>
       )}
 
+      {/* The dashed-top aside (design's `why2` slot, plan §2.8) — generic, not a lunar branch: the
+          lunar eclipse topic is its first server-side writer (`aside` on `ComingUpEntry`), carrying
+          the exposure note ("no filter needed"), but any later type may use it. Placed after the
+          facts and before the threshold, exactly as the design orders `why2` before `.foot`. */}
+      {entry.aside && (
+        <>
+          <span className="wf-cu-aside" data-testid="coming-up-aside">
+            {entry.aside}
+          </span>
+          {' '}
+        </>
+      )}
+
       {entry.threshold && (
         <>
           <span className="wf-cu-threshold" data-testid="coming-up-threshold">
@@ -340,6 +353,7 @@ WindowComingUpEntry.propTypes = {
         tone: PropTypes.oneOf(['base', 'strong', 'accent']).isRequired,
       })).isRequired,
     })).isRequired,
+    aside: PropTypes.string,
     threshold: PropTypes.string,
     action: PropTypes.shape({
       label: PropTypes.string.isRequired,

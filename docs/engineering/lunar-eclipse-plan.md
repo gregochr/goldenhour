@@ -46,7 +46,7 @@ it is verified instead.
 | L2 | Backend: per-location `BriefingSlot.eclipse` sight (the dawn-race data) + simulation parity | merged | `feature/lunar-l2-sight` |
 | L3 | Frontend: type registries, channel CSS, the clocked chip on the Plan card | built, in review | `feature/lunar-l3-chip` |
 | L4 | Frontend: popup topic row (aside, info tip), `DawnRace` component + pure geometry | not started | `feature/lunar-l4-race` |
-| L5 | Frontend: Coming up lunar row (glyph, `next` line, `aside` slot) | not started | `feature/lunar-l5-coming-up` |
+| L5 | Frontend: Coming up lunar row (glyph, `next` line, `aside` slot) | built, in review | `feature/lunar-l5-coming-up` |
 | L6 | **Independent**: Coming up plain-language copy sweep (README §6), backend + frontend | merged | `feature/lunar-l6-plain-copy` |
 | L7 | Location sheet + map callout per-location line; docs sweep (CLAUDE.md, this plan's §4 close-out) | not started | `feature/lunar-l7-sweep` |
 
