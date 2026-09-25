@@ -34,7 +34,7 @@ directly). Paste the relevant section of THIS plan and the spec into every revie
 
 ## §0 Status
 
-**Status: COMPLETE — L0–L7 shipped; L7 in review.** Plan written 2026-09-23 against `main` at
+**Status: COMPLETE — L0–L7 merged (#911–#918), 2026-09-25.** Plan written 2026-09-23 against `main` at
 `16f7c29f` (#908). Today's date matters more than usual for this plan: the worked example (Friday
 28 August 2026) is **already past**, so no phase can be verified against a live event — §7 says how
 it is verified instead.
@@ -48,7 +48,7 @@ it is verified instead.
 | L4 | Frontend: popup topic row (aside, info tip), `DawnRace` component + pure geometry | merged | `feature/lunar-l4-race` |
 | L5 | Frontend: Coming up lunar row (glyph, `next` line, `aside` slot) | merged | `feature/lunar-l5-coming-up` |
 | L6 | **Independent**: Coming up plain-language copy sweep (README §6), backend + frontend | merged | `feature/lunar-l6-plain-copy` |
-| L7 | Location sheet + map callout per-location line; docs sweep (CLAUDE.md, this plan's §4 close-out) | built, in review | `feature/lunar-l7-sweep` |
+| L7 | Location sheet + map callout per-location line; docs sweep (CLAUDE.md, this plan's §4 close-out) | merged | `feature/lunar-l7-sweep` |
 
 Dependency order: L0 → L1 → L2 → L3 → L4 → L5 → L7. **L6 depends on nothing and may run first or
 in parallel with L0–L2**; it shares `ComingUpAssembler.java` with L1 (different methods), so
