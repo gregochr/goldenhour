@@ -9,10 +9,12 @@ import WindowProseSlot from './WindowProseSlot.jsx';
 import WindowTopicRows from './WindowTopicRows.jsx';
 import WindowAttributeRow from './WindowAttributeRow.jsx';
 import WindowSpotStrip from './WindowSpotStrip.jsx';
+import DawnRace from './DawnRace.jsx';
 import {
   activeFilterClauses, buildRegionRows, gateSpotsByRegion,
 } from '../utils/windowFirstRegions.js';
 import { windowTopics } from '../utils/windowFirstTopics.js';
+import { lookupForWindow } from '../utils/locationSheet.js';
 import { badgeChannel, CONFIDENCE_VERDICTS, eventWord } from '../utils/windowFirstCards.js';
 import {
   confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha,
@@ -119,6 +121,11 @@ function chipTitle(spot) {
  * @param {number}   props.total      how many windows the nav can step through
  * @param {object}   props.field      the shell's region-layer inputs for this card
  * @param {Map}      props.topicIndex the served topics, indexed by window key
+ * @param {?object}  props.eclipseIndex the dawn race's source, from {@code buildEclipseIndex} —
+ *                   each location's served {@code EclipseSight} per window ({@code {byId, byName}}
+ *                   — lunar-eclipse-plan.md §2.7). Null-until-open like {@code topicIndex}'s
+ *                   siblings in the shell; the dialog reads it through the same
+ *                   {@code lookupForWindow} every other per-location fact here goes through.
  * @param {string[]} props.scopeNames the region names the page is scoped to
  * @param {string}   props.todayStr   today's ISO date in Europe/London
  * @param {boolean}  [props.escapeEnabled] whether Escape closes THIS layer — false while something
@@ -131,7 +138,7 @@ function chipTitle(spot) {
  *                   Absent renders no button, the same withholding rule {@code onOpenLocation} has.
  */
 export default function WindowSheetDialog({
-  card, index, total, field, topicIndex, scopeNames, todayStr,
+  card, index, total, field, topicIndex, eclipseIndex = null, scopeNames, todayStr,
   escapeEnabled = true, peeksSuppressed = false,
   onClose, onStep, onOpenSpot, onOpenLocation, onOpenInMap, onSeeAllSpots, onOpenPick, scoreIndex,
   colourMode = null,
@@ -217,6 +224,26 @@ export default function WindowSheetDialog({
    * nothing draws. The `find` remains because `rows` is a list by contract.
    */
   const tideRow = (card.rows || []).find((row) => row.channel === 'tide') || null;
+
+  /**
+   * The dawn race's chosen spot and sight — the window's best-reachable spot, else the first
+   * ranked one, per `lunar-eclipse-plan.md` §2.7. `WindowSpotStrip` exposes no per-card selection
+   * callback today, so the race is drawn for one fixed spot and captioned with its name rather than
+   * redrawing on a tap — §4 #11 records the deferral; adding one here would be a new interaction on
+   * a strip that has none.
+   *
+   * <p>Gated on BOTH a `LUNAR_ECLIPSE` topic row being present on this window AND that spot's own
+   * slot carrying a served `race` (a high, leisurely eclipse has a sight with no race at all, and
+   * the popup then shows facts only, per the backend's own contract).
+   */
+  const hasLunarEclipseRow = topicRows.some((row) => row.badge?.type === 'LUNAR_ECLIPSE');
+  const raceSpot = hasLunarEclipseRow
+    ? (card.bestReach || (card.spots && card.spots[0]) || null)
+    : null;
+  const raceSight = raceSpot && eclipseIndex
+    ? lookupForWindow(eclipseIndex, raceSpot.locationId, raceSpot.locationName, card.date, card.targetType)
+    : null;
+  const showRace = Boolean(raceSight?.race);
 
   /**
    * The tide row's one client fact — how many of the reachable coastal pool get the water they
@@ -607,6 +634,8 @@ export default function WindowSheetDialog({
 
           <WindowTopicRows rows={topicRows} />
 
+          {showRace && <DawnRace sight={raceSight} spotName={raceSpot?.locationName ?? null} />}
+
           {tideRow && (
             <div className="wf-rows">
               <WindowAttributeRow row={tideRow} extraFacts={tideFitFacts} />
@@ -731,6 +760,11 @@ WindowSheetDialog.propTypes = {
   total: PropTypes.number.isRequired,
   field: PropTypes.object.isRequired,
   topicIndex: PropTypes.instanceOf(Map),
+  /** The dawn race's source — `{byId, byName}` from `buildEclipseIndex`, or null until built. */
+  eclipseIndex: PropTypes.shape({
+    byId: PropTypes.instanceOf(Map),
+    byName: PropTypes.instanceOf(Map),
+  }),
   scopeNames: PropTypes.arrayOf(PropTypes.string),
   todayStr: PropTypes.string.isRequired,
   escapeEnabled: PropTypes.bool,

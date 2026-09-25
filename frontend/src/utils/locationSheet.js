@@ -392,6 +392,39 @@ export function buildTideAlignmentIndex(days) {
 }
 
 /**
+ * Each location's lunar eclipse sight per window — the popup's dawn-race source (L4,
+ * `docs/engineering/lunar-eclipse-plan.md` §2.7), keyed exactly like {@link buildSlotIndex} so
+ * {@code WindowSheetDialog} reads it through the same {@link lookupForWindow} every other
+ * per-location, per-window fact in this file goes through.
+ *
+ * <p>Reads {@code BriefingSlot.eclipse} (the served {@code EclipseSight}, {@code NON_NULL} on the
+ * wire) straight off each slot. A slot outside the eclipse's own window — or any night with no
+ * catalogued or simulated eclipse at all — carries no field and is simply skipped, the same "a
+ * missing entry means eligible-or-unknown, never a fabricated miss" rule {@link
+ * buildEvaluationGateIndex} states for its own field.
+ *
+ * @param {Array} days {@code briefing.days}
+ * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
+ *          the served {@code EclipseSight} object verbatim
+ */
+export function buildEclipseIndex(days) {
+  const byId = new Map();
+  const byName = new Map();
+  for (const day of Array.isArray(days) ? days : []) {
+    if (!day?.date) continue;
+    for (const summary of day.eventSummaries ?? []) {
+      if (!summary?.targetType) continue;
+      const tail = tailOf(day.date, summary.targetType);
+      for (const { slot } of slotsOf(summary)) {
+        if (!slot?.eclipse) continue;
+        index(byId, byName, slot.locationId, slot.locationName, tail, slot.eclipse);
+      }
+    }
+  }
+  return { byId, byName };
+}
+
+/**
  * Each location's rating and "why" per window, from the RAW score rows.
  *
  * <p>Not the provider's {@code scoreIndex} — see the module comment for the defect that cost.

@@ -9862,6 +9862,167 @@ button.wf-mchip:hover {
   color: var(--color-plex-text);
 }
 
+/* ── The dawn/dusk race (lunar-eclipse-plan.md §2.7) ──────────────────────────────────────────
+   The one genuinely new component the lunar eclipse work adds — a horizontal timeline of the
+   moon racing the light to the horizon, for one location. Mounted by `WindowSheetDialog` between
+   the topic rows and the tide row, only with a LUNAR_ECLIPSE row present and a served `race`.
+
+   The track (`.wf-race-track` and everything inside it) is `aria-hidden` — see `DawnRace.jsx`'s
+   own note on why the track is decoration and `.wf-race-sentence` is the whole accessible answer,
+   rendered VISIBLY rather than screen-reader-only, because it is short and the track beside it
+   says nothing a reader could otherwise use (the tide-run chart's own rule, CLAUDE.md).
+
+   Colours are the design bundle's own literals for this one feature (`--eclp`/`#D79AA0` is
+   already `--color-badge-eclipse`; the golden-hour amber and the rose umbra/hatch tints have no
+   existing token and are not given one here — a single-consumer literal, same practice
+   `MastheadLight.jsx`'s own `GOLDEN` constant documents for the identical amber). */
+.wf-race {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wf-race-h {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-race-cap {
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+  /* ⚠️ No extra `opacity` here — accessibility review found it stacking multiplicatively on top
+     of `--color-plex-text-secondary`'s own 0.66 alpha (inherited from `.wf-race-h`), landing at
+     ≈4.43:1 against the panel: just under the 4.5:1 AA floor for this 9px text. The inherited
+     token's own alpha already reads as secondary/quiet against the primary title beside it,
+     which is the only distinction this line needs. */
+}
+.wf-race-track {
+  position: relative;
+  height: 46px;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid var(--color-plex-border);
+}
+.wf-race-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed rgba(242, 231, 211, 0.25);
+}
+.wf-race-tick-label {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(242, 231, 211, 0.55);
+  white-space: nowrap;
+}
+.wf-race-umbra {
+  position: absolute;
+  bottom: 6px;
+  height: 9px;
+  border-radius: 5px 0 0 5px;
+  background: repeating-linear-gradient(90deg, rgba(196, 120, 127, 0.85) 0 6px, rgba(196, 120, 127, 0.65) 6px 7px);
+}
+.wf-race-hatch {
+  position: absolute;
+  bottom: 6px;
+  height: 9px;
+  background: repeating-linear-gradient(135deg, rgba(242, 231, 211, 0.1) 0 3px, transparent 3px 6px);
+}
+.wf-race-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1.5px solid var(--color-badge-eclipse);
+}
+/* The golden-hour amber, a literal for the reason `MastheadLight.jsx`'s own `GOLDEN` constant
+   states — no token names it for a purpose other than a verdict or a rule stop, and this is
+   neither. */
+.wf-race-mark[data-role="raceEvent"] { border-left-color: #E0A542; }
+.wf-race-mark[data-role="horizon"] { border-left-color: var(--color-plex-text); }
+.wf-race-mark::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: -4.5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-badge-eclipse);
+  box-shadow: 0 0 0 2px rgba(14, 11, 9, 0.7);
+}
+.wf-race-mark[data-role="raceEvent"]::after { background: #E0A542; }
+/* The horizon transition (moonset/moonrise) draws a SQUARE dot, not a circle — the design's own
+   distinction between "an instant" and "the moment it leaves/enters view". */
+.wf-race-mark[data-role="horizon"]::after { background: var(--color-plex-text); border-radius: 2px; }
+.wf-race-labels {
+  position: relative;
+  height: 28px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-race-label {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.3;
+}
+.wf-race-label b {
+  display: block;
+  color: var(--color-plex-text);
+  font-weight: 600;
+  font-size: 10.5px;
+}
+.wf-race-label[data-role="maximum"] b { color: var(--color-badge-eclipse); }
+.wf-race-legend {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.wf-race-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.wf-race-legend-umbra,
+.wf-race-legend-hatch {
+  display: inline-block;
+  width: 14px;
+  height: 7px;
+  border-radius: 2px;
+}
+.wf-race-legend-umbra { background: rgba(196, 120, 127, 0.8); }
+.wf-race-legend-hatch {
+  background: repeating-linear-gradient(135deg, rgba(242, 231, 211, 0.25) 0 2px, transparent 2px 4px);
+}
+.wf-race-sentence {
+  font-family: var(--font-serif);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+  max-width: 74ch;
+}
+
+/* Phone (< 560px, the design's own breakpoint): hide the track-start and race-event labels and
+   every phase-tick — plan §2.7's exact list. */
+@media (max-width: 559px) {
+  .wf-race-tick { display: none; }
+  .wf-race-label[data-hide-phone="true"] { display: none; }
+}
+
 @media (max-width: 639px) {
   /* ⚠️ ONE column below 639px, and 639 rather than the design's 767 for a reason that is not
      taste: the map's phone aspect band (0.5–0.95) is chosen by `useIsMobile`, whose boundary is
