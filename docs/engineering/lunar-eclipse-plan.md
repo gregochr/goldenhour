@@ -34,7 +34,7 @@ directly). Paste the relevant section of THIS plan and the spec into every revie
 
 ## §0 Status
 
-**Status: L0–L4, L6 merged; L5 built, in review; L7 not started.** Plan written 2026-09-23 against `main` at
+**Status: COMPLETE — L0–L7 shipped; L7 in review.** Plan written 2026-09-23 against `main` at
 `16f7c29f` (#908). Today's date matters more than usual for this plan: the worked example (Friday
 28 August 2026) is **already past**, so no phase can be verified against a live event — §7 says how
 it is verified instead.
@@ -46,9 +46,9 @@ it is verified instead.
 | L2 | Backend: per-location `BriefingSlot.eclipse` sight (the dawn-race data) + simulation parity | merged | `feature/lunar-l2-sight` |
 | L3 | Frontend: type registries, channel CSS, the clocked chip on the Plan card | merged | `feature/lunar-l3-chip` |
 | L4 | Frontend: popup topic row (aside, info tip), `DawnRace` component + pure geometry | merged | `feature/lunar-l4-race` |
-| L5 | Frontend: Coming up lunar row (glyph, `next` line, `aside` slot) | built, in review | `feature/lunar-l5-coming-up` |
+| L5 | Frontend: Coming up lunar row (glyph, `next` line, `aside` slot) | merged | `feature/lunar-l5-coming-up` |
 | L6 | **Independent**: Coming up plain-language copy sweep (README §6), backend + frontend | merged | `feature/lunar-l6-plain-copy` |
-| L7 | Location sheet + map callout per-location line; docs sweep (CLAUDE.md, this plan's §4 close-out) | not started | `feature/lunar-l7-sweep` |
+| L7 | Location sheet + map callout per-location line; docs sweep (CLAUDE.md, this plan's §4 close-out) | built, in review | `feature/lunar-l7-sweep` |
 
 Dependency order: L0 → L1 → L2 → L3 → L4 → L5 → L7. **L6 depends on nothing and may run first or
 in parallel with L0–L2**; it shares `ComingUpAssembler.java` with L1 (different methods), so
@@ -392,6 +392,22 @@ served instants — the sparkline precedent — not a derivation); this plan's �
 what shipped (the tide-plan C4 precedent). Exit: `docs/engineering/lunar-eclipse-plan.md` Status
 reads COMPLETE with every row `built, in review` or `merged`.
 
+**Shipped as**: one new shared component, `components/map/EclipseSpotLine.jsx` (the "one look, two
+hosts" pattern `TideFitBlock` already established), fed by a new pure formatter,
+`utils/dawnRace.js#eclipseSpotLine` — a third filter/map/select over the served `EclipseSight`
+alongside `raceModel`/`raceSentence`, not a fourth derivation class. Wired through the SAME
+`buildEclipseIndex`/`lookupForWindow` join L4 built: `LocationFourDaySheet` takes a new
+`eclipseIndex` prop (built in `WindowFirstShell.jsx` as `sheetEclipseIndex`, gated on `sheetSpot`
+exactly like `sheetTideAlignmentIndex`); `MapCallout` takes a new `eclipseSight` prop (a single
+resolved sight, computed in `MapView.jsx`'s `getEclipseForLocation`, gated on a solar window on
+screen exactly like `getTideOnLightForLocation`, fed by a new `eclipseIndex` built in
+`WindowFirstMapPane.jsx`). Tests: `dawnRace.test.js` (the formatter's own boundary cases — null
+sight, missing altitude/bearing, all three tail shapes, the fallback when a flag has no instant
+behind it, the unworded negative altitude, and a sight with no served `race` at all), a new
+`EclipseSpotLine.test.jsx` (the component's own render/omit contract), and a new describe block in
+each of `LocationFourDaySheet.test.jsx` and `MapCallout.test.jsx` proving the HOST wires the
+resolved sight through — both hosts, per the kickoff prompt's own instruction.
+
 ---
 
 ## §4 Disagreements with the spec, on purpose
@@ -444,7 +460,85 @@ reads COMPLETE with every row `built, in review` or `merged`.
     forward peak genuinely bigger than every recent burst?) that L6's copy-sweep scope — replace
     strings, do not change what is derived — does not license. `ComingUpConditionPeak.valueLabel`
     keeps its plain "AOD 0.55" measurement instead. A future phase may add the fact properly, as a
-    served comparison rather than an assumed superlative.
+    served comparison rather than an assumed superlative. **Confirmed still true at L7**: `grep -n
+    "DUST\|dust" ComingUpAssembler.java` still has no hits and `ComingUpConditionPeak.valueLabel`
+    is unchanged.
+
+### §4a Found only during the phases (recorded at L7, the tide-plan-card-plan.md C4 precedent)
+
+Every row below is a real deviation an earlier phase made and did not write down here at the time —
+found by reading the code back against §1–§3 during the L7 sweep, not new work this phase did.
+
+17. **`EclipseSight` instants ride the LONDON wall clock; `BriefingSlot.solarEventTime` rides UTC —
+    and the two conventions sit on the same slot.** `EclipseSightAssembler` runs every instant it
+    serves through `LunarEclipseWording.toLondonLocal` before serialising, so a served
+    `eclipse.stops[SUNRISE].time` of `"06:54:56"` is already an hour ahead of that SAME window's
+    `solarEventTime` of `"05:55:25"` under BST — the gap IS the offset, already applied twice over
+    if a client ran it through the card's own `formatTime` a second time. `utils/dawnRace.js`'s own
+    class doc (L4) states this and the fixed reference measurement it was checked against
+    (2026-09-24, a running backend); this sweep re-read the backend assembler and confirms the
+    claim rather than merely trusting the frontend comment. `formatRaceTime` (and this phase's own
+    `eclipseSpotLine`) format on the UTC calendar for exactly this reason — the lossless round trip
+    back to the served digits, never `formatTime`.
+18. **The simulated sight is a serve-time overlay, never persisted** (§2.5, confirmed at L2 —
+    `HotTopicSimulationService`'s lunar template re-dates its fixed Dunstanburgh figures onto the
+    slot's own date only while `AuroraStateCache`-style `isSimulated()` gating is active for THIS
+    request; nothing writes a simulated `EclipseSight` into `daily_briefing_cache`). Recorded here
+    because it is the one mechanism this whole feature's browser verification depends on (§7) and a
+    future reader could otherwise assume a simulated run leaves a trace in the DB the way a real
+    build does.
+19. **The clocked chip is a flex row, not the base `.wf-hc-tw` clip rule, and this was a review
+    finding rather than the first cut** (`index.css`'s own comment: "found missing by review of
+    #915, P1"). The base rule clips `nowrap`/`ellipsis` across the whole element as one run, so at
+    the supported ~137px card width a label like "Deep partial eclipse" already filled the chip and
+    the trailing `05:13` was clipped away with it — invisible to a jsdom test, which stubs layout
+    and never measures a real card width. `.wf-hc-clocked[data-channel="eclipse"]` overrides to
+    `display: inline-flex`, with the label alone allowed to shrink/ellipsize and the clock
+    (`.wf-hc-clocked-time`) `flex: none`. Worth stating here because it is the kind of defect
+    CLAUDE.md's "UI Work — Review Cadence" section exists to catch, and it was caught on this
+    feature too.
+20. **The 900-day rarity gap is a documented long-run estimate, and the SEEDED window's own mean is
+    materially smaller — ~290 days over six gaps, March 2025–2030** (`application-example.yml`'s own
+    comment beside `lunar-eclipse-mean-gap-days`). This is deliberate, not an oversight: the seeded
+    window is unusually dense (Espenak's saros cycles cluster), `log2(900)+1 ≈ 10.8` clears the
+    ◆ interrupt band the census pins, and `log2(290)+1` would not — so lowering the figure to match
+    the seeded window is a re-census decision, not a bug fix, and the config comment says so
+    in-line. Recorded here because a reader who checks the constant against the catalogue and finds
+    them apparently disagreeing needs the one-line reason, not a hunt through the class javadoc.
+21. **Three L4 shapes were accepted rather than fixed, and are restated here as closed rather than
+    left implicit in code comments alone:**
+    - The dawn race's chosen spot is `card.bestReach`, falling back to `card.spots[0]` — and
+      `WindowSheetDialog.jsx`'s own comment on `raceSpot` says plainly that the strip exposes no
+      per-card selection callback, so the race is drawn for one fixed spot rather than redrawing on
+      a tap (§4 #11 above already records the deferral; this line exists so a reader does not
+      mistake the fixed spot for an oversight rather than the stated scope cut).
+    - `raceSentence`/`eclipseSpotLine` print a negative `moonAltAtMax` as-is, unworded — deliberate
+      (both functions' own doc comments), because the eligibility rule (§2.3) allows a location to
+      qualify on a 30-minute window elsewhere in the umbral span while sitting below the horizon at
+      the instant of maximum itself, and a bespoke "below the horizon at max" phrase would be a
+      second rule for a reading the number already states honestly.
+    - The phone media query (`@media (max-width: 559px)`) hides the whole `.wf-race-tick` element,
+      not merely its label — a phase-tick's dashed line and its text disappear together below
+      560px, per §2.7's own "hide the two labels" list read literally against the shipped CSS.
+22. **L5's browser check could not use the standard admin-simulation recipe §7 uses for L1–L4, and
+    that is a fact about the ALMANAC path, not a gap in L5's own verification.** `POST
+    /api/aurora/admin/simulate`'s aurora precedent has no lunar-eclipse analogue, and even the hot-
+    topic simulation service that DOES have one gates the Plan tab's live topics, never the almanac
+    (`GET /api/almanac`), which is `AlmanacSource`'s own separate interface. §7 says so in advance:
+    "L5 is verified with a Vitest fixture … and seen only by temporarily stubbing the clock
+    locally". Checked against what the L5 changelog entry
+    (`changelog.d/20260925-lunar-eclipse-l5-coming-up-aside.md`) actually records: the phase DID
+    complete a real browser check by that alternate route (a local, never-committed
+    `Clock.fixed(2026-06-01T12:00:00Z)` override on `AppConfig.clock()`), confirming the rendered
+    aside's exact computed styles and DOM order against the served `lunar-eclipse` almanac entry —
+    so "not completed via the standard recipe" is accurate and "not completed at all" would not be.
+    Recorded here so a reader scanning only §7's forward-looking description does not conclude the
+    check never happened.
+23. **The dust "heaviest of N" gap (existing #16) has no live successor at L7 either** — restated
+    rather than a new finding: `grep -n "DUST\|dust" ComingUpAssembler.java` still returns nothing
+    and no PR between L1 and L7 touched `ComingUpConditionPeak`. Listed here only so the L7 sweep's
+    "read the code back against every §4 entry" instruction has an explicit answer for this one
+    too, rather than a silent assumption that nothing changed.
 
 ---
 
@@ -465,33 +559,59 @@ Nothing per-user rides either payload; both stay ETag-revalidated.
 
 ## §6 Owner decisions
 
-Taken by this plan as defaults; each reversible, each with its cost stated.
+Taken by this plan as defaults; each reversible, each with its cost stated. **Marked at L7** against
+what actually shipped across L0–L7 — a status of *taken* means the shipped code matches the default
+stated here, verified by reading the relevant class rather than assumed; *still open* means the
+default held and nothing in any phase built the alternative.
 
-- **Q1 — Promoted strip.** *Default: not rebuilt.* The strip was retired at M5 by owner call; the
+- **Q1 — Promoted strip.** *Default: not rebuilt.* **Taken — still not rebuilt.** No phase touched
+  `WindowFirstShell.jsx`'s page-level furniture for this; the evening-before need is carried by the
+  chip (L3) and the popup (L4) alone, as scoped. The strip was retired at M5 by owner call; the
   evening-before need is met by the card (chip first, clocked) and the popup. Reinstating it is a
   Plan-tab furniture decision (page-level element above the matrix, the hazard line's slot) worth
   one session plus a promotion rule for night-time almanac events — and it would carry the solar
   strip back too. The spec's own Q2 offers popup-only as the alternative; this plan takes it.
-- **Q2 — Dawn race placement.** *Follows Q1: popup only.*
-- **Q3 — Totals.** *Default: one umbra band; totality (`u2 → u3`) as a fact row.* The second band
-  is undesigned. 31 Dec 2028 enters the 90-day window in early October 2028; design it then.
-- **Q4 — Best bet lift.** *Default: no.* The pick ranks on light, server-side, and this plan
+- **Q2 — Dawn race placement.** *Follows Q1: popup only.* **Taken** — `DawnRace` mounts only inside
+  `WindowSheetDialog` (L4); no other surface draws the track.
+- **Q3 — Totals.** *Default: one umbra band; totality (`u2 → u3`) as a fact row.* **Taken, with one
+  refinement found at L7**: no second timeline band was built (confirmed — `DawnRace.jsx`/
+  `utils/dawnRace.js` have no `u2`/`u3` handling at all), but a TOTAL eclipse's coverage is not a
+  discrete "totality lasted N minutes" fact row either — `LunarEclipseWording`/
+  `LunarEclipseHotTopicStrategy` word it qualitatively instead ("Earth's shadow covers the whole
+  moon…", `Depth.TOTAL`'s own coverage clause). The default's spirit — no second band — holds; its
+  letter ("as a fact row") is looser than what shipped. 31 Dec 2028 enters the 90-day window in
+  early October 2028; design either shape then if a discrete duration fact is wanted.
+- **Q4 — Best bet lift.** *Default: no.* **Taken** — `grep -rn "[Ee]clipse"` over
+  `BriefingBestBetAdvisor.java` and `BriefingRollupBuilder.java` returns nothing; the advisor's
+  ranking is unmodified by this feature. The pick ranks on light, server-side, and this plan
   re-scores nothing. A clear-west eclipse lifting a poor-light window is a Best-pick maths change,
   which the Backend-heavy bullet bans on the client and which the advisor would need to learn.
-- **Q5 — West-horizon scoring.** *Default: not built.* If wanted, it is its own increment (the
-  solar handoff's option 2, a DEM raycast per location on a bearing) serving both eclipse types,
-  low-sun alignments and the supermoon rise; it would restore every surface #3 dropped.
-- **Q6 — Sector cloud verdict.** *Default: not built.* The forecast pipeline samples the solar
-  azimuth cone; a WSW-sector low-cloud verdict is a pipeline change the solar eclipse did not make
-  either.
+- **Q5 — West-horizon scoring.** *Default: not built.* **Still open** — no DEM, no horizon profile,
+  no `clearToDeg` FIELD OR CALCULATION anywhere (§4 #3, reconfirmed at L7 by reading every
+  production file, not by a bare grep — `grep -rn clearToDeg` over the whole tree is NOT empty, but
+  every hit is a doc comment or changelog line *naming the dropped thing*, this plan's own §4 #3 and
+  this line included; the substantive claim — no code computes, stores or serves a horizon-clearance
+  figure — holds). If wanted, it is its own increment (the solar handoff's option 2, a DEM raycast per
+  location on a bearing) serving both eclipse types, low-sun alignments and the supermoon rise; it
+  would restore every surface #3 dropped.
+- **Q6 — Sector cloud verdict.** *Default: not built.* **Still open** — the forecast pipeline's
+  directional cloud sampling is unchanged by this feature; no WSW-sector verdict exists for either
+  eclipse type. The forecast pipeline samples the solar azimuth cone; a WSW-sector low-cloud
+  verdict is a pipeline change the solar eclipse did not make either.
 - **Q7 — Lite gating.** *Default: the topic's science facts follow the solar precedent (gated);
-  the per-slot sight is ungated like `TideInfo`.* The race is not premium detail; the figures on it
-  are on the chip's tooltip anyway.
-- **Q8 — The solar chip gains its clock.** *Default: yes.* `CLOCKED_TOPIC_TYPES` lists both; the
-  reasoning (a different event's instant) is identical and a lunar-only rule would be a special
-  case pretending to be a principle.
+  the per-slot sight is ungated like `TideInfo`.* **Taken** — `BriefingSlot.eclipse` carries no
+  role check anywhere in `BriefingSlotBuilder`/`EclipseSightAssembler`, the same `@JsonInclude`
+  precedent `TideInfo` already sets; the topic's `description` (the copper science paragraph) rides
+  the same general topic-gating surface every other strategy's does. The race is not premium
+  detail; the figures on it are on the chip's tooltip anyway.
+- **Q8 — The solar chip gains its clock.** *Default: yes.* **Taken** —
+  `CLOCKED_TOPIC_TYPES = new Set(['ECLIPSE', 'LUNAR_ECLIPSE'])` (`utils/windowFirstTopics.js`)
+  lists both; the reasoning (a different event's instant) is identical and a lunar-only rule would
+  be a special case pretending to be a principle.
 - **Q9 — The "since" sentence.** *Default: derived from the catalogue*, so it will say "since
   September 2025" if 7 Sep 2025 is seeded — the design's "March 2025" copy is not authored in.
+  **Taken** — `LunarEclipseAlmanacSource`'s `metaOf(..., "since", sinceLine(eclipse), ...)` derives
+  the sentence from the catalogue's own `nextComparable`/date chain; no literal month is hard-coded.
 
 ---
 

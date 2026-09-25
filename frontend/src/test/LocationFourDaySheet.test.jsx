@@ -4,7 +4,9 @@ import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import LocationFourDaySheet from '../components/LocationFourDaySheet.jsx';
-import { buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import {
+  buildEclipseIndex, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex,
+} from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 
@@ -1208,5 +1210,76 @@ describe('LocationFourDaySheet — the tide-fit block (T5)', () => {
       expect(friSunset.getByTestId('location-sheet-rating')).toHaveTextContent('3★');
       expect(friSunset.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
     });
+  });
+});
+
+/**
+ * The eclipse spot line, per solar row (L7, `docs/engineering/lunar-eclipse-plan.md` §3 L7).
+ *
+ * <p><b>What breaks if these fail:</b> a location's sheet stops carrying the same per-location moon
+ * geometry the map callout that opened it (or the popup's `DawnRace`) already showed, or a travel
+ * day starts reading like a forecast the pipeline never made.
+ */
+describe('LocationFourDaySheet — the eclipse spot line (L7)', () => {
+  const SIGHT = {
+    moonAltAtMax: 7, moonAzCardinal: 'WSW', moonset: '2026-08-14T06:16:00', moonrise: null,
+    setsInShadow: true, risesInShadow: false,
+  };
+
+  const ECLIPSE_DAYS = [
+    {
+      date: '2026-08-14',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00',
+            eclipse: SIGHT,
+          }],
+        }],
+      }],
+    },
+    {
+      // ⚠️ Sunday sunrise is the AWAY day (`WINDOWS[3]`), and it DOES carry a served sight — the
+      // same tautology guard `TIDE_DAYS` states above: without an indexed entry here, the away
+      // row's suppression could be deleted (always looking up) and this file would not notice.
+      date: '2026-08-16',
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-16T04:41:00',
+            eclipse: SIGHT,
+          }],
+        }],
+      }],
+    },
+  ];
+  const ECLIPSE_INDEX = buildEclipseIndex(ECLIPSE_DAYS);
+
+  it('renders the line on the row carrying a served sight', () => {
+    setup({ eclipseIndex: ECLIPSE_INDEX });
+    expect(within(row('2026-08-14:SUNSET')).getByTestId('eclipse-spot-line'))
+      .toHaveTextContent('moon 7° up WSW at max · sets 06:16 in shadow');
+  });
+
+  it('renders nothing on a row with no served sight for its own window', () => {
+    setup({ eclipseIndex: ECLIPSE_INDEX });
+    // Saturday sunrise is indexed by nothing in ECLIPSE_DAYS.
+    expect(within(row('2026-08-15:SUNRISE')).queryByTestId('eclipse-spot-line')).toBeNull();
+  });
+
+  it('renders nothing on the away row, even though ECLIPSE_DAYS carries a sight for it', () => {
+    setup({ eclipseIndex: ECLIPSE_INDEX });
+    expect(within(row('2026-08-16:SUNRISE')).queryByTestId('eclipse-spot-line')).toBeNull();
+  });
+
+  it('renders no line at all with no eclipseIndex — the honest degrade, never a guess', () => {
+    setup();
+    for (const el of screen.getAllByTestId('location-sheet-row')) {
+      expect(within(el).queryByTestId('eclipse-spot-line')).toBeNull();
+    }
   });
 });

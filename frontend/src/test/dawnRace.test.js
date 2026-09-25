@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { raceModel, raceSentence, formatRaceTime } from '../utils/dawnRace.js';
+import {
+  raceModel, raceSentence, formatRaceTime, eclipseSpotLine,
+} from '../utils/dawnRace.js';
 
 /**
  * The dawn/dusk race's pure geometry (`lunar-eclipse-plan.md` §2.7, §3 L4).
@@ -326,5 +328,54 @@ describe('raceSentence — the one accessible answer', () => {
     // never pick up a UK-zone shift on the way to the screen.
     const ms = new Date('2026-08-28T05:13:00Z').getTime();
     expect(formatRaceTime(ms)).toBe('05:13');
+  });
+});
+
+describe('eclipseSpotLine — the per-location sheet/callout line (L7)', () => {
+  it('is null with no sight at all', () => {
+    expect(eclipseSpotLine(null)).toBeNull();
+  });
+
+  it('is null when the sight carries no altitude', () => {
+    expect(eclipseSpotLine(dawnSight({ moonAltAtMax: null }))).toBeNull();
+  });
+
+  it('is null when the sight carries no bearing', () => {
+    expect(eclipseSpotLine(dawnSight({ moonAzCardinal: null }))).toBeNull();
+  });
+
+  it('states "sets … in shadow" for a DAWN sight that sets before the eclipse ends', () => {
+    // dawnSight(): 7° up WSW, moonset 06:16, setsInShadow true — the plan's own worked example.
+    expect(eclipseSpotLine(dawnSight())).toBe('moon 7° up WSW at max · sets 06:16 in shadow');
+  });
+
+  it('states "rises … in shadow" for a DUSK sight that rises already eclipsed', () => {
+    // duskSight(): 5° up ENE, moonrise 15:53, risesInShadow true.
+    expect(eclipseSpotLine(duskSight())).toBe('moon 5° up ENE at max · rises 15:53 in shadow');
+  });
+
+  it('states "above the horizon throughout" when neither sets nor rises in shadow — no horizon-clearance claim', () => {
+    // Neither flag set: the moon was up for the whole umbral span (plan §4 #3 — this states only
+    // that the served altitude never crossed zero, never that the sky was clear).
+    const sight = dawnSight({ setsInShadow: false, risesInShadow: false, moonAltAtMax: 22, moonAzCardinal: 'S' });
+    expect(eclipseSpotLine(sight)).toBe('moon 22° up S at max · above the horizon throughout');
+  });
+
+  it('falls back to "above the horizon throughout" when setsInShadow is true but no moonset was served', () => {
+    // Defensive: a served flag with no instant behind it must not crash or print "sets undefined".
+    const sight = dawnSight({ setsInShadow: true, moonset: null });
+    expect(eclipseSpotLine(sight)).toBe('moon 7° up WSW at max · above the horizon throughout');
+  });
+
+  it('prints a negative moonAltAtMax as-is, unworded — the same choice raceSentence makes', () => {
+    const sight = dawnSight({ moonAltAtMax: -2, setsInShadow: false, risesInShadow: false });
+    expect(eclipseSpotLine(sight)).toBe('moon -2° up WSW at max · above the horizon throughout');
+  });
+
+  it('reads a sight with no served race at all — a high-moon eclipse still has an altitude and a set/rise answer', () => {
+    const sight = dawnSight({
+      race: null, stops: [], setsInShadow: false, risesInShadow: false, moonAltAtMax: 41,
+    });
+    expect(eclipseSpotLine(sight)).toBe('moon 41° up WSW at max · above the horizon throughout');
   });
 });

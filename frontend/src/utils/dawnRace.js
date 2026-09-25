@@ -289,3 +289,47 @@ export function raceSentence(sight) {
 
   return `${parts.filter(Boolean).join(', ')}.`;
 }
+
+/**
+ * The per-location eclipse line (L7, `docs/engineering/lunar-eclipse-plan.md` §3 L7) — one
+ * location's own moon geometry at maximum, and whether it sets or rises still in shadow. Mounted
+ * as a sibling block after `TideFitBlock` in both `LocationFourDaySheet` and `MapCallout`
+ * (`components/map/EclipseSpotLine.jsx`), fed from the same served `BriefingSlot.eclipse` this
+ * file's {@link raceModel}/{@link raceSentence} already read.
+ *
+ * <p>A THIRD pure filter/map/select over served instants, not a fourth derivation class (the class
+ * doc above, CLAUDE.md's Backend-heavy bullet): every fact printed ({@code moonAltAtMax},
+ * {@code moonAzCardinal}, {@code moonset}, {@code moonrise}, {@code setsInShadow},
+ * {@code risesInShadow}) is already on the wire, and unlike {@link raceModel} this reads a sight
+ * with NO served {@code race} at all — a high-moon eclipse (§2.5's 22:42 example) still has an
+ * altitude, a bearing and a set/rise-in-shadow answer, even though it draws no track.
+ *
+ * <p>⚠️ <b>No horizon-clearance claim</b> (plan §4 #3, the dropped {@code clearToDeg}) —
+ * "above the horizon throughout" states only that the served altitude never crossed zero during
+ * the umbral span (neither {@code setsInShadow} nor {@code risesInShadow}), never that the sky was
+ * clear or that any terrain was checked.
+ *
+ * <p>A negative {@code moonAltAtMax} prints as-is, unworded — the same choice {@link raceSentence}
+ * makes for the identical field (an L4 accepted item, plan §4). The eligibility rule (§2.3) allows
+ * a location to qualify on a 30-minute window elsewhere in the umbral span while sitting below the
+ * horizon at the instant of maximum itself, and a special "below the horizon at max" phrase would
+ * be a second rule for a reading the number already states honestly.
+ *
+ * @param {?object} sight the served {@code BriefingSlot.EclipseSight} for one location, from
+ *        {@code buildEclipseIndex}/{@code lookupForWindow} (`utils/locationSheet.js`)
+ * @returns {?string} the line (no leading glyph — the component adds that), or null when the sight
+ *          carries no altitude or bearing to print
+ */
+export function eclipseSpotLine(sight) {
+  if (!sight || sight.moonAltAtMax == null || !sight.moonAzCardinal) return null;
+  const head = `moon ${sight.moonAltAtMax}° up ${sight.moonAzCardinal} at max`;
+  let tail = 'above the horizon throughout';
+  if (sight.setsInShadow && sight.moonset != null) {
+    const t = formatRaceTime(toMs(sight.moonset));
+    if (t) tail = `sets ${t} in shadow`;
+  } else if (sight.risesInShadow && sight.moonrise != null) {
+    const t = formatRaceTime(toMs(sight.moonrise));
+    if (t) tail = `rises ${t} in shadow`;
+  }
+  return `${head} · ${tail}`;
+}

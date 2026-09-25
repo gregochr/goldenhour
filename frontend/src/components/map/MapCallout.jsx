@@ -14,6 +14,7 @@ import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
 import { subjectWordsOf } from '../../utils/locationTypes.js';
 import { nextAlignedRow } from '../../utils/mapTideFit.js';
 import TideFitBlock from './TideFitBlock.jsx';
+import EclipseSpotLine from './EclipseSpotLine.jsx';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
@@ -169,6 +170,11 @@ function kindShort(event) {
  *        single-window read) — needed only to scan FORWARD for this location's next fit
  *        (`utils/mapTideFit.js#nextAlignedRow`), since a single window's own fact cannot answer
  *        "when does it next align". Null renders the miss block's denial line rather than crashing
+ * @param {?object} [props.eclipseSight] this window's served `BriefingSlot.EclipseSight` for THIS
+ *        location, from `utils/locationSheet.buildEclipseIndex` via `lookupForWindow` (L4, L7,
+ *        `docs/engineering/lunar-eclipse-plan.md`) — mounted as `EclipseSpotLine`, a sibling block
+ *        right after `TideFitBlock`. Null renders no block at all, the same honest degrade
+ *        `tideOnLight` gets
  * @param {?object} [props.scoreIndex] from `utils/locationSheet.buildScoreIndex` — the per-location
  *        per-window rating/summary join, reused rather than re-derived (plan §3 P9)
  * @param {boolean} [props.scoresKnown] whether the `scoreIndex` response has actually landed — a
@@ -225,7 +231,7 @@ function kindShort(event) {
  */
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
-  tideOnLight = null, tideAlignmentIndex = null,
+  tideOnLight = null, tideAlignmentIndex = null, eclipseSight = null,
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
@@ -778,6 +784,11 @@ export default function MapCallout({
           onSelectEv={(row) => { closeRef.current?.focus(); onSelectEv?.(row); }}
         />
 
+        {/* The eclipse spot line (L7) — a sibling block right after the tide-fit block, the same
+            "one look, two hosts" component the location sheet mounts. Renders nothing without a
+            served sight for this location's own window. */}
+        <EclipseSpotLine sight={eclipseSight} />
+
         {topics.length > 0 && (
           <div className="wf-callout-topics" data-testid="map-callout-topics">
             {topics.map((topic) => (
@@ -904,6 +915,15 @@ MapCallout.propTypes = {
   }),
   /** The full index `tideOnLight` is one entry of — see the JSDoc above. */
   tideAlignmentIndex: PropTypes.object,
+  /** This window's served `EclipseSight` for this location — see the JSDoc above. */
+  eclipseSight: PropTypes.shape({
+    moonAltAtMax: PropTypes.number,
+    moonAzCardinal: PropTypes.string,
+    moonset: PropTypes.string,
+    moonrise: PropTypes.string,
+    setsInShadow: PropTypes.bool,
+    risesInShadow: PropTypes.bool,
+  }),
   scoreIndex: PropTypes.object,
   scoresKnown: PropTypes.bool,
   ratingKnown: PropTypes.bool,
