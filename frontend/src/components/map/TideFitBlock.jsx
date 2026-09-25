@@ -118,7 +118,10 @@ export default function TideFitBlock({
 
   return (
     <div className="wf-tide-fit" data-testid="tide-fit-block" data-tier={tier}>
-      <TideWave shortfall={fact.shortfall ?? null} />
+      <TideWave
+        shortfall={fact.shortfall ?? null}
+        state={tier === 'match' ? (fact.state ?? null) : null}
+      />
       <span className="wf-tide-fit-text">
         <b>
           {tier === 'match' ? 'Tide lands on the light' : 'Wrong water, not wrong light'}

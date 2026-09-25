@@ -71,16 +71,27 @@ export function tideTierHeading(tier) {
 /**
  * The accessible-name clause for a served preference-axis tier — shared by the chip's aria-label
  * (`MapLabels.jsx`, T4 item 2) and the region panel row's `sr-only` span (`MapRegionPanel.jsx`, T4
- * item 6), so the one glyph means the same thing in words wherever it is read aloud. Four FIXED
- * strings, keyed on tier and (for a miss) the served shortfall direction — never a phrase built
- * from the location's own wanted set, for the same reason {@link tideTierHeading} gives.
+ * item 6), so the one glyph means the same thing in words wherever it is read aloud. Keyed on tier
+ * and (for a miss) the served shortfall direction, and now (for a match) the served state — never a
+ * phrase built from the location's own wanted set, for the same reason {@link tideTierHeading}
+ * gives.
+ *
+ * <p>{@code state}, added alongside the match glyph's own letter (tide-window-plan.md §4 #21),
+ * reuses {@code STATE_WORD} — the SAME lexical table {@code windowFirstRows.js}'s strip header and
+ * this file's own {@link wantPhrase} already read — rather than a third copy of "high water"/"mid
+ * tide"/"low water". A match with no state (should not happen for a served match, but this stays
+ * defensive) reads the old, state-free clause.
  *
  * @param {?('match'|'miss')} tier
  * @param {?('HIGHER'|'LOWER')} [shortfall] only read when `tier === 'miss'`
+ * @param {?('HIGH'|'MID'|'LOW')} [state] only read when `tier === 'match'`
  * @returns {?string} null when there is no served tide fact at all (inland, or no stored extremes)
  */
-export function tideAccessibleClause(tier, shortfall = null) {
-  if (tier === 'match') return 'tide right here';
+export function tideAccessibleClause(tier, shortfall = null, state = null) {
+  if (tier === 'match') {
+    const word = state ? STATE_WORD[state] : null;
+    return word ? `${word}, right here` : 'tide right here';
+  }
   if (tier === 'miss') {
     if (shortfall === 'HIGHER') return 'wants the water higher';
     if (shortfall === 'LOWER') return 'wants the water lower';

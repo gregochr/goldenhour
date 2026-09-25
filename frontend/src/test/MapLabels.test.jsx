@@ -461,6 +461,24 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
       expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, tide right here');
     });
 
+    it('a MATCH with a served state letters the glyph and names the water in the aria-label (tide-window-plan.md §4 #21)', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5,
+          tideTier: 'match', tideState: 'MID',
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      const glyph = chip.querySelector('[data-testid="map-label-chip-tide"]');
+      // The letter widens the box exactly as the arrow does — one wide-box hook for both marks.
+      expect(glyph).toHaveAttribute('data-wide', 'true');
+      expect(glyph.querySelector('text')).toHaveTextContent('M');
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, mid tide, right here');
+    });
+
     it('a MISS wanting HIGHER water draws the up-arrow variant and the matching aria clause', async () => {
       restoreMeasure = withMeasuredLabels(50, 14);
       currentMap = makeFullMap({ zoom: 13 });

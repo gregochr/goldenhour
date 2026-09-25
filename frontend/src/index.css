@@ -2227,6 +2227,19 @@ button.wf-hc.on:hover {
   vertical-align: 1px;
   color: var(--color-badge-tide);
 }
+/* The wide variant's own box (tide-window-plan.md §4 #21) — this mount never rendered the wide
+   21×8 box before the match glyph's state letter existed (the arrow was never wired here, only
+   `tideAligned`'s plain-wave case), so there was nothing this rule needed to widen for until now.
+   Left at the base 13×7, `preserveAspectRatio`'s default letterboxing would squeeze the 21×8
+   viewBox down to `min(13/21, 7/8) ≈ 0.62`, rendering the letter at ~4.5px — found by adversarial
+   review (CSS lens) to be a real, new legibility defect rather than the pre-existing arrow-only
+   squeeze `.wf-tide-fit svg` below still carries. 19×8, the same figure `.wf-maplab-chip-tw` and
+   `.wf-reg-tide` already use for their own wide box, keeps the letter at the same size on every
+   mount that can size it. */
+.wf-hc-best-tw[data-wide='true'] {
+  width: 19px;
+  height: 8px;
+}
 /* ── The pick, riding the border ──────────────────────────────────────────────────────────────
    One card is bordered green (best bet) and one lightly (also good), and the word sits IN the
    border line as a fieldset legend does. That is what stops it competing with the verdict word for
@@ -6491,6 +6504,15 @@ button.wf-hc.also.on:hover {
   height: 8px;
   margin-top: 2px;
   color: var(--color-tide);
+}
+/* The wide variant's own box (tide-window-plan.md §4 #21) — before the match glyph's state letter
+   existed, only the miss tier's arrow ever hit the 21×8 viewBox here, and the fixed 15×8 box above
+   squeezed it to `min(15/21, 8/8) ≈ 0.71` (a known, accepted squeeze — this mount's own history,
+   `TideFitBlock.jsx`, records that the arrow shipped before this rule was revisited). The state
+   letter now reaches the SAME fixed box on the far more common match tier, so the squeeze is no
+   longer a miss-only cosmetic footnote. 19×8, matching every other mount's own wide box. */
+.wf-tide-fit svg[data-wide='true'] {
+  width: 19px;
 }
 /* The miss tier's glyph takes the row's own secondary ink instead of the aligned wave's
    `--color-tide` accent. ⚠️ T5 passes `shortfall` through to `TideWave` (`TideFitBlock.jsx`) so

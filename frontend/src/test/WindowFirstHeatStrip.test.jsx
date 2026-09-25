@@ -665,7 +665,24 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       );
       expect(screen.getByRole('button', {
         name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
-          + 'Northumberland & Tyneside, 40 min, leave 20:11, the tide is right here',
+          + 'Northumberland & Tyneside, 40 min, leave 20:11, high water, right here',
+      })).toBeInTheDocument();
+    });
+
+    /** tide-window-plan.md §4 #21: the match glyph now spends the wide box's slot on the matched
+     * water's own letter, mirroring the miss glyph's direction arrow. */
+    it('letters the glyph with the matched state — H for HIGH, M for MID, L for LOW', async () => {
+      await renderStrip({
+        cards: [ratedCard({
+          pool: [poolSpot({ tideState: 'MID', tideAligned: true, tideQuality: 0.9 })],
+        })],
+      });
+      const glyph = screen.getByTestId('wf-heat-best-tide');
+      expect(glyph).toHaveAttribute('data-wide', 'true');
+      expect(glyph.querySelector('text')).toHaveTextContent('M');
+      expect(screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
+          + 'Northumberland & Tyneside, 40 min, leave 20:11, mid tide, right here',
       })).toBeInTheDocument();
     });
 

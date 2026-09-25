@@ -599,7 +599,7 @@ export default function MapLabels({
         // screen-reader user never hears it at all.
         const ariaLabel = [
           hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
-          tideAccessibleClause(tideTier, spot.tideShortfall),
+          tideAccessibleClause(tideTier, spot.tideShortfall, spot.tideState),
         ].filter(Boolean).join(', ');
         return (
           <button
@@ -635,6 +635,7 @@ export default function MapLabels({
                 className="wf-maplab-chip-tw"
                 testId="map-label-chip-tide"
                 shortfall={tideTier === 'miss' ? spot.tideShortfall : null}
+                state={tideTier === 'match' ? spot.tideState : null}
               />
             )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
@@ -732,6 +733,9 @@ MapLabels.propTypes = {
     /** Only meaningful (and only read) alongside `tideTier: 'miss'` — null when a wanted set
      * straddles the served state, drawing the plain wave rather than guessing a direction. */
     tideShortfall: PropTypes.oneOf(['HIGHER', 'LOWER']),
+    /** The served state at the light this window (tide-window-plan.md §4 #21) — read only
+     * alongside `tideTier: 'match'`, to letter the glyph with the water it matched. */
+    tideState: PropTypes.oneOf(['HIGH', 'MID', 'LOW']),
     /** The formatted fit phrase for EITHER tier — the tooltip's third line reads this alongside
      * `tideTier`, never `nearestSolarOffsetPhrase`. */
     tideFitPhrase: PropTypes.string,

@@ -157,6 +157,21 @@ describe('MapRegionPanel — the location rows', () => {
     expect(row).toHaveTextContent('tide right here');
   });
 
+  it('letters the glyph with the matched state and speaks it, for a match (tide-window-plan.md §4 #21)', () => {
+    renderPanel({
+      locations: [{
+        id: 6, name: 'Coniston Water', rating: 5, driveLabel: '55 min', leaveTime: '19:50',
+        leaveDayWord: null, tideTier: 'match', tideShortfall: null, tideState: 'MID',
+      }],
+    });
+
+    const row = screen.getByTestId('wf-reg-panel-row');
+    const glyph = within(row).getByTestId('wf-reg-panel-tide');
+    expect(glyph).toHaveAttribute('data-wide', 'true');
+    expect(glyph.querySelector('text')).toHaveTextContent('M');
+    expect(row).toHaveTextContent('mid tide, right here');
+  });
+
   it('draws the arrow variant and the matching words for a MISS, per its served shortfall', () => {
     renderPanel({
       locations: [{

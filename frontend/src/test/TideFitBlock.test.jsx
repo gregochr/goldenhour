@@ -61,6 +61,13 @@ describe('TideFitBlock — the match tier', () => {
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByTestId('tide-fit-denial')).toBeNull();
   });
+
+  it('letters the glyph with the matched state (tide-window-plan.md §4 #21) — MATCH.state is HIGH', () => {
+    render(<TideFitBlock fact={MATCH} want={['HIGH']} />);
+    const glyph = screen.getByTestId('tide-fit-block').querySelector('svg');
+    expect(glyph).toHaveAttribute('data-wide', 'true');
+    expect(glyph.querySelector('text')).toHaveTextContent('H');
+  });
 });
 
 describe('TideFitBlock — the miss tier: the jump', () => {
@@ -75,6 +82,13 @@ describe('TideFitBlock — the miss tier: the jump', () => {
     expect(screen.getByRole('button', { name: /Next low water on the light · Tomorrow sunset 20:25/ }))
       .toBeInTheDocument();
     expect(screen.queryByTestId('tide-fit-denial')).toBeNull();
+  });
+
+  it('draws no state letter on a miss even though MISS.state is served (tide-window-plan.md §4 #21 — the arrow wins)', () => {
+    render(<TideFitBlock fact={MISS} want={['LOW']} nextFitRow={NEXT_FIT_ROW} />);
+    const glyph = screen.getByTestId('tide-fit-block').querySelector('svg');
+    expect(glyph).toHaveAttribute('data-wide', 'true');
+    expect(glyph.querySelector('text')).toBeNull();
   });
 
   it('calls onSelectEv with the EXACT row object it was given — never an index, never a copy', () => {
