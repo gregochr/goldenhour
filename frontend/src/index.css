@@ -10016,6 +10016,26 @@ button.wf-mchip:hover {
   max-width: 74ch;
 }
 
+/* The per-location eclipse line (lunar-eclipse-plan.md §3 L7) — ONE shared component
+   (`components/map/EclipseSpotLine.jsx`) mounted as a sibling block right after `.wf-tide-fit` in
+   both the map callout and every solar row of the location sheet, the same "one look, two hosts"
+   rule `.wf-tide-fit`'s own comment states. Mono, matching `.wf-tide-fit-text`'s register (a
+   measured fact, not generated prose), with the eclipse channel's lifted ink for the glyph only —
+   the line itself stays secondary so it reads as a fact beside the tide block, not a second
+   headline competing with it. */
+.wf-eclipse-spot {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  padding: 0 2px;
+}
+.wf-eclipse-spot > span {
+  color: var(--color-badge-eclipse);
+}
+.wf-loc-body .wf-eclipse-spot {
+  margin-bottom: 5px;
+}
+
 /* Phone (< 560px, the design's own breakpoint): hide the track-start and race-event labels and
    every phase-tick — plan §2.7's exact list. */
 @media (max-width: 559px) {

@@ -4,6 +4,7 @@ import Modal from './shared/Modal.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import ScoreBar from './ScoreBar.jsx';
 import TideFitBlock from './map/TideFitBlock.jsx';
+import EclipseSpotLine from './map/EclipseSpotLine.jsx';
 import { confidenceTreatment } from '../utils/confidenceUtils.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { buildLocationSheet, lookupForWindow } from '../utils/locationSheet.js';
@@ -116,12 +117,16 @@ const DIM_AT_OR_BELOW = 2;
  *        reads THIS location's own entry per window for the block itself, and scans the whole index
  *        forward for the miss rows' "next fit" jump. Null renders no block at all — the same
  *        honest degrade a payload that predates the field gets
+ * @param {?object}  [props.eclipseIndex] `utils/locationSheet.buildEclipseIndex`'s result (L4) —
+ *        the per-location eclipse line (L7) on every solar row reads THIS location's own entry per
+ *        window, exactly like {@code tideAlignmentIndex} above. Null renders no line at all, on a
+ *        payload that predates the field or on any night with no catalogued eclipse
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
   scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
   planFrom = null, onPlanFrom = null, escapeEnabled = true, location = null,
-  focusWindowKey = null, regionGlossIndex = null, tideAlignmentIndex = null,
+  focusWindowKey = null, regionGlossIndex = null, tideAlignmentIndex = null, eclipseIndex = null,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
@@ -379,6 +384,14 @@ export default function LocationFourDaySheet({
             const nextFitRow = tideFact && !tideFact.aligned
               ? nextAlignedRow(scanRows, tideAlignmentIndex, { id: spot?.id, name: spot?.name }, rowIndex)
               : -1;
+            // The eclipse spot line's own fact for THIS row (L7) — the same
+            // `buildEclipseIndex`/`lookupForWindow` join `DawnRace`'s host reads in the popup (L4).
+            // Null on an away day, like `tideFact` above, and on any window carrying no served
+            // eclipse sight at all (no catalogued or simulated eclipse on this night, or the row's
+            // own window is not the eclipse's).
+            const eclipseSight = row.away
+              ? null
+              : lookupForWindow(eclipseIndex, spot?.id, spot?.name, row.date, row.targetType);
             return (
               <div key={row.key} className="wf-loc-row" data-testid="location-sheet-row"
                 data-window={row.key} data-best={row.key === sheet.bestKey ? 'true' : undefined}
@@ -573,6 +586,10 @@ export default function LocationFourDaySheet({
                     horizonWord={horizonWord}
                     combinedRating={row.rating}
                   />
+                  {/* The eclipse spot line (L7) — a sibling block right after the tide-fit block,
+                      the same "one look, two hosts" component the map callout mounts. Renders
+                      nothing without a served sight for this row's own window. */}
+                  <EclipseSpotLine sight={eclipseSight} />
                   {/* The evaluation gate — the pipeline's own reason this window has no score, in
                       the backend's words (`BriefingSlot.evaluationGate`). Above the prose because
                       it is the answer to "why no score", and the prose that follows is the REGION's
@@ -745,4 +762,9 @@ LocationFourDaySheet.propTypes = {
    * (T5, `docs/engineering/tide-window-plan.md`).
    */
   tideAlignmentIndex: PropTypes.object,
+  /**
+   * From {@code locationSheet.buildEclipseIndex} (L4) — the eclipse spot line on every solar row
+   * (L7, `docs/engineering/lunar-eclipse-plan.md`).
+   */
+  eclipseIndex: PropTypes.object,
 };

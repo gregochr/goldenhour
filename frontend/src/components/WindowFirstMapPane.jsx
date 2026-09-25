@@ -13,7 +13,7 @@ import { scopeSpots } from '../utils/planOrigin.js';
 import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import {
-  buildEvaluationGateIndex, buildScoreIndex, buildTideAlignmentIndex,
+  buildEclipseIndex, buildEvaluationGateIndex, buildScoreIndex, buildTideAlignmentIndex,
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
@@ -347,6 +347,15 @@ export default function WindowFirstMapPane({
     () => buildTideAlignmentIndex(briefing?.days), [briefing?.days],
   );
   /**
+   * The map callout's per-location eclipse sight (L7, `docs/engineering/lunar-eclipse-plan.md`
+   * §3 L7) — the SAME `buildEclipseIndex` join the Plan-tab popup's `DawnRace` already reads
+   * (`WindowFirstShell.jsx`'s own `eclipseIndex`), over the SAME {@code briefing.days}, so the map
+   * and the Plan tab can never disagree about one location's own moon geometry for one window.
+   */
+  const eclipseIndex = useMemo(
+    () => buildEclipseIndex(briefing?.days), [briefing?.days],
+  );
+  /**
    * The gated windows' served reasons ({@code BriefingSlot.evaluationGate}) — the same walk the
    * location sheet's {@code buildSlotIndex} makes, over the same {@code briefing.days}, so the
    * callout and the sheet it opens print one sentence about one window.
@@ -588,6 +597,7 @@ export default function WindowFirstMapPane({
         // that granularity is the intended one and not a bug to sharpen.
         runId={briefing?.generatedAt ?? null}
         tideAlignmentIndex={tideAlignmentIndex}
+        eclipseIndex={eclipseIndex}
         evaluationGateIndex={evaluationGateIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}

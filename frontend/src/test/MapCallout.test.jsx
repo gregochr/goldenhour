@@ -580,6 +580,34 @@ describe('MapCallout — the gate row and the tide-fit block together (T5, §5 #
   });
 });
 
+/**
+ * The eclipse spot line (L7, `docs/engineering/lunar-eclipse-plan.md` §3 L7) — a sibling block
+ * right after the tide-fit block, mounted from the SAME `buildEclipseIndex`/`lookupForWindow` join
+ * (L4) the popup's `DawnRace` reads. `EclipseSpotLine.test.jsx` covers the component's own
+ * rendering exhaustively; this file proves the HOST passes the resolved per-location sight through.
+ */
+describe('MapCallout — the eclipse spot line (L7)', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const SIGHT = {
+    moonAltAtMax: 7, moonAzCardinal: 'WSW', moonset: `${TODAY}T06:16:00`, moonrise: null,
+    setsInShadow: true, risesInShadow: false,
+  };
+
+  it('renders the line when a served sight is supplied', async () => {
+    await mount({ eclipseSight: SIGHT });
+    expect(screen.getByTestId('eclipse-spot-line'))
+      .toHaveTextContent('moon 7° up WSW at max · sets 06:16 in shadow');
+  });
+
+  it('omits the block entirely with no eclipseSight at all', async () => {
+    await mount({ eclipseSight: null });
+    expect(screen.queryByTestId('eclipse-spot-line')).toBeNull();
+  });
+});
+
 describe('MapCallout — topics filtered to the location', () => {
   let restore;
   beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });

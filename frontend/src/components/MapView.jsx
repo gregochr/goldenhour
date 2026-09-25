@@ -1315,13 +1315,16 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   tweak): whether THIS window's water lands on the light for a location, read through
  *   {@link lookupForWindow} exactly like `scoreIndex` — never {@code tideAligned}, a different
  *   question (see that function's own doc).
+ * - `eclipseIndex` — from `utils/locationSheet.buildEclipseIndex` (L4), over the SAME
+ *   `briefing.days` (L7, `docs/engineering/lunar-eclipse-plan.md` §3 L7): the callout's per-location
+ *   eclipse line, read through {@link lookupForWindow} exactly like `tideAlignmentIndex` above.
  *
  * `origin` (doors D1, plan-to-map-doors-plan.md §3) — `{id, name, baseName}` from
  * `WindowFirstBriefingContext`, or null at home; the pane passes the context's live value, the
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -2971,6 +2974,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (!solarWindowOnScreen()) return null;
     return lookupForWindow(tideAlignmentIndex, loc.id, loc.name, date, eventType);
   }, [eventType, date, tideAlignmentIndex, solarWindowOnScreen]);
+
+  /**
+   * This window's lunar eclipse sight for a location (L7, `docs/engineering/lunar-eclipse-plan.md`
+   * §3 L7) — the callout's per-location line, read through the SAME `buildEclipseIndex`/
+   * `lookupForWindow` join the popup's `DawnRace` reads for this location's window (L4). Gated
+   * exactly like {@code getTideOnLightForLocation} above and for the identical reason: a served
+   * `EclipseSight` is a fact about a SOLAR window, never a night, and it says nothing while the tab
+   * has no forecast on screen for the window it names.
+   */
+  const getEclipseForLocation = useCallback((loc) => {
+    if (eventType !== 'SUNRISE' && eventType !== 'SUNSET') return null;
+    if (!solarWindowOnScreen()) return null;
+    return lookupForWindow(eclipseIndex, loc.id, loc.name, date, eventType);
+  }, [eventType, date, eclipseIndex, solarWindowOnScreen]);
 
   // Filter logic: type filters and rating filters are both AND-ed.
   // Within each filter group, any match passes (OR).
@@ -5180,6 +5197,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               distanceMiles={distanceMilesFor(selectedLoc.id)}
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
               tideAlignmentIndex={tideAlignmentIndex}
+              eclipseSight={getEclipseForLocation(selectedLoc)}
               scoreIndex={scoreIndex}
               scoresKnown={scoresKnown}
               ratingKnown={ratingKnown}
@@ -6025,6 +6043,12 @@ MapView.propTypes = {
    * like `scoreIndex`.
    */
   tideAlignmentIndex: PropTypes.object,
+  /**
+   * From `utils/locationSheet.buildEclipseIndex` (L4) — a location's own lunar eclipse sight per
+   * window, read through `lookupForWindow` exactly like `tideAlignmentIndex` (L7,
+   * `docs/engineering/lunar-eclipse-plan.md` §3 L7).
+   */
+  eclipseIndex: PropTypes.object,
   /**
    * From `utils/locationSheet.buildEvaluationGateIndex` — per location per window, the pipeline's
    * own served reason a slot was withheld from Claude (today only the tide gate). Passed straight

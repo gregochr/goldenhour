@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { raceModel, raceSentence, formatRaceTime } from '../utils/dawnRace.js';
+import {
+  raceModel, raceSentence, formatRaceTime, eclipseSpotLine,
+} from '../utils/dawnRace.js';
 
 /**
  * The dawn/dusk race's pure geometry (`lunar-eclipse-plan.md` §2.7, §3 L4).
@@ -326,5 +328,102 @@ describe('raceSentence — the one accessible answer', () => {
     // never pick up a UK-zone shift on the way to the screen.
     const ms = new Date('2026-08-28T05:13:00Z').getTime();
     expect(formatRaceTime(ms)).toBe('05:13');
+  });
+});
+
+describe('eclipseSpotLine — the per-location sheet/callout line (L7)', () => {
+  it('is null with no sight at all', () => {
+    expect(eclipseSpotLine(null)).toBeNull();
+  });
+
+  it('is null when the sight carries no altitude', () => {
+    expect(eclipseSpotLine(dawnSight({ moonAltAtMax: null }))).toBeNull();
+  });
+
+  it('is null when the sight carries no bearing', () => {
+    expect(eclipseSpotLine(dawnSight({ moonAzCardinal: null }))).toBeNull();
+  });
+
+  it('states "sets … in shadow" for a DAWN sight that sets before the eclipse ends', () => {
+    // dawnSight(): 7° up WSW, moonset 06:16, setsInShadow true — the plan's own worked example.
+    expect(eclipseSpotLine(dawnSight())).toBe('moon 7° up WSW at max · sets 06:16 in shadow');
+  });
+
+  it('states "rises … in shadow" for a DUSK sight that rises already eclipsed', () => {
+    // duskSight(): 5° up ENE, moonrise 15:53, risesInShadow true.
+    expect(eclipseSpotLine(duskSight())).toBe('moon 5° up ENE at max · rises 15:53 in shadow');
+  });
+
+  it('states "above the horizon throughout" when neither sets nor rises in shadow — no horizon-clearance claim', () => {
+    // Neither flag set: the moon was up for the whole umbral span (plan §4 #3 — this states only
+    // that the served altitude never crossed zero, never that the sky was clear).
+    const sight = dawnSight({ setsInShadow: false, risesInShadow: false, moonAltAtMax: 22, moonAzCardinal: 'S' });
+    expect(eclipseSpotLine(sight)).toBe('moon 22° up S at max · above the horizon throughout');
+  });
+
+  it('falls back to "above the horizon throughout" when setsInShadow is true but no moonset was served', () => {
+    // Defensive: a served flag with no instant behind it must not crash or print "sets undefined".
+    const sight = dawnSight({ setsInShadow: true, moonset: null });
+    expect(eclipseSpotLine(sight)).toBe('moon 7° up WSW at max · above the horizon throughout');
+  });
+
+  it('prints a negative moonAltAtMax as-is, unworded, INSIDE the setsInShadow branch — a real, non-contradictory reading', () => {
+    // The moon can genuinely set in shadow before reaching its recorded maximum altitude, so a
+    // negative reading here is not the bug this file's own next block pins — only the FLAG-LESS
+    // branch needed new wording.
+    const sight = dawnSight({ moonAltAtMax: -2, setsInShadow: true });
+    expect(eclipseSpotLine(sight)).toBe('moon -2° up WSW at max · sets 06:16 in shadow');
+  });
+
+  it('reads a sight with no served race at all — a high-moon eclipse still has an altitude and a set/rise answer', () => {
+    const sight = dawnSight({
+      race: null, stops: [], setsInShadow: false, risesInShadow: false, moonAltAtMax: 41,
+    });
+    expect(eclipseSpotLine(sight)).toBe('moon 41° up WSW at max · above the horizon throughout');
+  });
+});
+
+describe('eclipseSpotLine — below-horizon-at-max is NOT "above the horizon throughout" (Codex, PR #918)', () => {
+  // EclipseSightAssembler attaches a sight to a location that qualifies purely on the 30-minute
+  // elsewhere-in-the-span eligibility clause while sitting below the horizon AT MAX, and
+  // LunarEclipseCalculator derives setsInShadow/risesInShadow only from a genuine crossing inside
+  // the umbral span — so a location that never clears the horizon for the WHOLE span has both
+  // flags false, exactly like one that is up for the whole span. The two must not collapse onto
+  // the same string.
+  it('states "not visible from here" with no bearing, never "above the horizon throughout", for a negative altitude with neither flag set', () => {
+    const sight = dawnSight({ moonAltAtMax: -2, setsInShadow: false, risesInShadow: false });
+    expect(eclipseSpotLine(sight)).toBe('moon 2° below the horizon at max · not visible from here');
+  });
+
+  it('takes the absolute value of the altitude, and never prints "up" or the cardinal bearing', () => {
+    const sight = dawnSight({
+      moonAltAtMax: -11, moonAzCardinal: 'NNE', setsInShadow: false, risesInShadow: false,
+    });
+    const line = eclipseSpotLine(sight);
+    expect(line).toBe('moon 11° below the horizon at max · not visible from here');
+    expect(line).not.toContain('up');
+    expect(line).not.toContain('NNE');
+  });
+
+  it('states no visibility claim at exactly zero — the served altitude is a rounded integer (Codex, PR #918, second pass)', () => {
+    // LunarEclipseCalculator rounds before serialising, so an actual -0.4° is served as 0: a
+    // rounded zero cannot tell "genuinely on the horizon" apart from "just below it, rounded up".
+    // Neither "above the horizon throughout" nor "not visible from here" is a claim the client can
+    // back at this exact boundary.
+    const sight = dawnSight({ moonAltAtMax: 0, setsInShadow: false, risesInShadow: false });
+    const line = eclipseSpotLine(sight);
+    expect(line).toBe('moon on the horizon at max');
+    expect(line).not.toContain('up');
+    expect(line).not.toContain('throughout');
+    expect(line).not.toContain('not visible');
+  });
+
+  it('the zero boundary, exactly: 1 -> throughout, -1 -> not visible, 0 -> on the horizon', () => {
+    const at = (moonAltAtMax) => eclipseSpotLine(
+      dawnSight({ moonAltAtMax, setsInShadow: false, risesInShadow: false }),
+    );
+    expect(at(1)).toBe('moon 1° up WSW at max · above the horizon throughout');
+    expect(at(-1)).toBe('moon 1° below the horizon at max · not visible from here');
+    expect(at(0)).toBe('moon on the horizon at max');
   });
 });

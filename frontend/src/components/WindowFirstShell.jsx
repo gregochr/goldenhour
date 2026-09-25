@@ -1212,6 +1212,17 @@ export default function WindowFirstShell({
     [sheetSpot, briefing?.days],
   );
   /**
+   * The eclipse spot line's source on this sheet (L7, `docs/engineering/lunar-eclipse-plan.md`) —
+   * the SAME join the popup's {@code eclipseIndex} above builds for `DawnRace`, over the SAME
+   * `briefing.days`, so a location's own moon geometry never disagrees between the popup that
+   * opened this sheet and the sheet itself. Null-until-open, like {@code sheetTideAlignmentIndex}
+   * beside it.
+   */
+  const sheetEclipseIndex = useMemo(
+    () => (sheetSpot ? buildEclipseIndex(briefing?.days) : null),
+    [sheetSpot, briefing?.days],
+  );
+  /**
    * The detail surfaces' ratings, built from the RAW rows rather than taken from {@code scoreIndex}.
    *
    * <p>The provider's index is keyed on {@code date|targetType|locationName} alone; this one joins
@@ -2234,6 +2245,8 @@ export default function WindowFirstShell({
             regionGlossIndex={sheetGlossIndex}
             // The tide-fit block, per solar row (T5).
             tideAlignmentIndex={sheetTideAlignmentIndex}
+            // The eclipse spot line, per solar row (L7).
+            eclipseIndex={sheetEclipseIndex}
             escapeEnabled={searchSeed == null}
             // The footer's origin action (M4.3, D-4). `planFrom` is null when the shell holds no
             // record for the place's region, which is the honest answer rather than a guessed
