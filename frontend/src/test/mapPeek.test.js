@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  otherWindow, isNightRow, tideSummary,
+  otherWindow, isNightRow, tideSummary, tideVisible,
 } from '../utils/mapPeek.js';
 
 /**
@@ -119,5 +119,102 @@ describe('tideSummary (map-mobile-sheet-plan.md §3 M3 task 4)', () => {
   it('null when there is no served tide state at all', () => {
     expect(tideSummary(null, 3)).toBeNull();
     expect(tideSummary({ state: null }, 3)).toBeNull();
+  });
+});
+
+describe('tideVisible (map-mobile-sheet-plan.md §3 M5 task 1)', () => {
+  const TIERS = ['WORTH_IT', 'MAYBE', 'STAND_DOWN', 'AWAITING', null];
+
+  describe('mode: off', () => {
+    it('is always false, whatever the other three inputs say', () => {
+      for (const tideAvailable of [true, false]) {
+        for (const hasCoastalInView of [true, false]) {
+          for (const tier of TIERS) {
+            expect(tideVisible({
+              mode: 'off', tideAvailable, hasCoastalInView, tier,
+            })).toBe(false);
+          }
+        }
+      }
+    });
+  });
+
+  describe('mode: always', () => {
+    it('ignores hasCoastalInView and tier — only tideAvailable decides', () => {
+      for (const hasCoastalInView of [true, false]) {
+        for (const tier of TIERS) {
+          expect(tideVisible({
+            mode: 'always', tideAvailable: true, hasCoastalInView, tier,
+          })).toBe(true);
+          expect(tideVisible({
+            mode: 'always', tideAvailable: false, hasCoastalInView, tier,
+          })).toBe(false);
+        }
+      }
+    });
+
+    it('still needs a tide — a night row (tideAvailable: false) never shows, whatever the tier', () => {
+      expect(tideVisible({
+        mode: 'always', tideAvailable: false, hasCoastalInView: true, tier: 'WORTH_IT',
+      })).toBe(false);
+    });
+  });
+
+  describe('mode: auto', () => {
+    it('requires all three: tide available, coast in view, and Maybe-or-better', () => {
+      expect(tideVisible({
+        mode: 'auto', tideAvailable: true, hasCoastalInView: true, tier: 'WORTH_IT',
+      })).toBe(true);
+      expect(tideVisible({
+        mode: 'auto', tideAvailable: true, hasCoastalInView: true, tier: 'MAYBE',
+      })).toBe(true);
+    });
+
+    it('hides on Poor (STAND_DOWN)', () => {
+      expect(tideVisible({
+        mode: 'auto', tideAvailable: true, hasCoastalInView: true, tier: 'STAND_DOWN',
+      })).toBe(false);
+    });
+
+    it('hides on a null or AWAITING verdict — unscored is not a positive test passing (D-6)', () => {
+      expect(tideVisible({
+        mode: 'auto', tideAvailable: true, hasCoastalInView: true, tier: null,
+      })).toBe(false);
+      expect(tideVisible({
+        mode: 'auto', tideAvailable: true, hasCoastalInView: true, tier: 'AWAITING',
+      })).toBe(false);
+    });
+
+    it('hides with no coastal spot in the padded viewport, even on a Worth-it window', () => {
+      expect(tideVisible({
+        mode: 'auto', tideAvailable: true, hasCoastalInView: false, tier: 'WORTH_IT',
+      })).toBe(false);
+    });
+
+    it('hides with no served tide at all (a night row, or a solar row with none)', () => {
+      expect(tideVisible({
+        mode: 'auto', tideAvailable: false, hasCoastalInView: true, tier: 'WORTH_IT',
+      })).toBe(false);
+    });
+  });
+
+  it('the full 3 × 2 × 2 × 5 table has no case outside the rules above', () => {
+    // Exhaustive sweep: every case is explained by one of the three modes' own rule.
+    for (const mode of ['auto', 'always', 'off']) {
+      for (const tideAvailable of [true, false]) {
+        for (const hasCoastalInView of [true, false]) {
+          for (const tier of TIERS) {
+            const result = tideVisible({
+              mode, tideAvailable, hasCoastalInView, tier,
+            });
+            let expected;
+            if (mode === 'off') expected = false;
+            else if (mode === 'always') expected = tideAvailable;
+            else expected = tideAvailable && hasCoastalInView && (tier === 'WORTH_IT' || tier === 'MAYBE');
+            expect(result).toBe(Boolean(expected));
+          }
+        }
+      }
+    }
   });
 });

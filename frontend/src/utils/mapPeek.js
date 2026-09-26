@@ -91,3 +91,39 @@ export function tideSummary(tide, dimmedCount = 0) {
   const dim = dimmedCount > 0 ? ` · ${dimmedCount} dim` : '';
   return `${label}${arrow}${dim}`;
 }
+
+/**
+ * The Auto/Always/Off tide-visibility rule (map-mobile-sheet-plan.md §3 M5 task 1) — the ONE gate
+ * every phone tide cue keys off (through the single `tideTier` null at the spot-build site,
+ * `MapView.jsx` §1 #6; never a flag threaded to `MapLabels`, `PinsLayer` or the tooltips).
+ *
+ * <p>The three prerequisites are separate BOOLEAN inputs, never folded into
+ * {@code mapTideFit.stripModel(...).visible}: that flag is false both for "no coast in view" and
+ * for "night row / no served tide", and Always must ignore the first while still respecting the
+ * second (a Codex finding on the plan's M0). `hasCoastalInView` must already be a boolean
+ * (`mapTideFit.coastalInView(spots, bounds).length > 0`) by the time it reaches here — the helper
+ * returns the filtered ARRAY, and an empty array is truthy, so passing it straight through would
+ * keep the tide on after a pan inland.
+ *
+ * <p>Pure and exhaustively tested: three modes × {@code tideAvailable} × {@code hasCoastalInView}
+ * × every {@code tier} value (`WORTH_IT`/`MAYBE`/`STAND_DOWN`/`AWAITING`/null).
+ *
+ * @param {object} args
+ * @param {'auto'|'always'|'off'} args.mode the reader's saved (or default) tide mode
+ *   (`useReaderSettings#mapTideMode`, `'auto'` when never chosen)
+ * @param {boolean} args.tideAvailable `row.kind === 'solar' && row.tide != null` — a night row or a
+ *   solar row with no served tide state at all
+ * @param {boolean} args.hasCoastalInView a named coastal spot sits inside the padded viewport RIGHT
+ *   NOW (`mapTideFit.coastalInView(...).length > 0`) — Always ignores this, Auto requires it
+ * @param {?string} args.tier the active window's own served verdict tier
+ *   (`verdicts.get(activeRow.id)?.tier`) — `null`/`AWAITING` reads as "not Maybe or better" (D-6):
+ *   unscored is not a positive test passing
+ * @returns {boolean}
+ */
+export function tideVisible({ mode, tideAvailable, hasCoastalInView, tier }) {
+  if (mode === 'off') return false;
+  if (mode === 'always') return Boolean(tideAvailable);
+  // 'auto' (and any other/unset value — the hook's own default is 'auto' for a never-chosen mode)
+  return Boolean(tideAvailable) && Boolean(hasCoastalInView)
+    && (tier === 'WORTH_IT' || tier === 'MAYBE');
+}
