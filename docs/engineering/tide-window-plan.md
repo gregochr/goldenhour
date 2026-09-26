@@ -61,6 +61,13 @@ rating wherever it touched one, so a coastal misaligned slot's star simply stopp
 in the arrow's slot so two neighbouring coastal spots serving the same tide state no longer look
 contradictory when their wanted sets differ. No new served field and no backend change — see §4 #21
 for the full reasoning and the four mounts it threads through.
+⚠️ **A third post-series follow-up retired T7's phone mount** (`docs/engineering/map-mobile-sheet-plan.md`
+M3, 2026-09-26): the phone `MapTideStrip` mount this document's T7 built as a sibling of the phone
+chrome bar (never nested under it, for the `left/right: 8px` reason T7 records) is gone outright, not
+repositioned — the phone reader's tide facts now live in the peek sheet's own Tide section
+(`MapPeekTideSection.jsx`), which reuses this document's desktop strip's exported chart/footer pieces
+in a taller vertical layout rather than duplicating them. `--tsh`/`wf-tide-strip-on` are
+desktop/tablet-only from here. The desktop/tablet strip T1–T8 built is untouched.
 
 Phase log (T1 creates the first row; every phase appends its own in the same commit as its code —
 the commit column names the PR once it lands, since a phase cannot name its own hash):

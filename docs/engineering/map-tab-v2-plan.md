@@ -1294,6 +1294,15 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   drilldown was open (`handleOpenLocationSheet` focuses the pill before the handoff).
   `AppSettingsRoutes.test.jsx`. Reachability is taken from arm A's record here, not re-measured in a
   browser.
+  ⚠️ **`map-mobile-sheet-plan.md`'s peek sheet (M1–M6) is NOT a fourth arm of this item.** It is a
+  new in-frame `section`, not a `BottomSheet` — no portal, no backdrop, `role="region"` rather than
+  `role="dialog"` — so it never registers as a foreign modal in the first place and paints inside
+  `map-container`'s own stacking context like the rest of the in-frame chrome this item already
+  distinguishes from a phone `BottomSheet`. Arm B's `z-index: 10000` phone-`BottomSheet`-over-the-
+  peek-sheet case is therefore **unchanged by this series, neither better nor worse**: `RegionsJump`
+  and `FiltersPopover` still open a real `BottomSheet` from the phone (the peek sheet's own Layers
+  section triggers it, swapping rather than stacking), so the same portal-over-`z-50` geometry this
+  item records still applies whenever one of those opens over the peek.
 - **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
   accessible name) or move to caption-as-button with a four-word one (§4 #26).
 - **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED

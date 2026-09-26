@@ -42,7 +42,8 @@ import { eventWord } from '../../utils/windowFirstCards.js';
  * Tide"), but the chart and the footer are the identical served facts read the identical way, so
  * duplicating either would be a second place a served string could drift from this one. This
  * component still composes all three unchanged — a pinned {@code outerHTML} test in
- * `MapTideStrip.test.jsx` proves the split changed nothing about what the desktop strip renders.
+ * `MapTideStrip.test.jsx` proved the split changed nothing about what the desktop strip renders; the
+ * one-off pin was deleted at M6 once that was proven (map-mobile-sheet-plan.md §3 M6 task 2).
  */
 
 /** `TY(l) = (26 − l·20) / 32 · 100` — the design's own vertical mapping (§2's chart table), shared
@@ -59,8 +60,9 @@ export function TY(level) {
 /**
  * The raw SVG y-coordinate for a level, scaled to a viewBox of height `vbHeight` (not a percent) —
  * `TY(level)/100 * vbHeight`, algebraically identical to the strip's original `26 - level*20` when
- * `vbHeight` is 32 (multiplying by `32/32 === 1` changes no bit of the float, which is what keeps
- * the desktop strip's own pinned `outerHTML` byte-identical after this split). The Tide section's
+ * `vbHeight` is 32 (multiplying by `32/32 === 1` changes no bit of the float, which is what kept
+ * the desktop strip's own outerHTML byte-identical after this split, proven by the now-deleted M3
+ * one-off pin). The Tide section's
  * `tall` chart (map-mobile-sheet-plan.md §3 M3 task 2) passes 92 instead — a different internal
  * scale for the SAME proportions, never a different formula.
  */
@@ -171,7 +173,7 @@ const BAND_LEVEL = { HIGH: 1, MID: 0.5, LOW: 0 };
  * only one caller today ({@link MapTideStrip} itself) — the phone Tide section builds its own
  * header layout with different copy (`docs/design/map-mobile-sheet/README.md` "Section: Tide"), so
  * this is split out for the same reason {@link TideDayChart}/{@link TideStripFooter} are: one
- * subtree, one owner, provable by the pinned `outerHTML` test.
+ * subtree, one owner, proven by the now-deleted M3 one-off `outerHTML` test.
  *
  * @param {object} props
  * @param {?object} props.tide `BriefingWindowTide`-shaped

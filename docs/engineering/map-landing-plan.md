@@ -49,6 +49,13 @@ against them in parallel; the overlap only surfaces at merge, where it is most e
 §6 leaves Q4–Q9 with the owner.** Phase log (every phase appends its own row
 in the same commit as its code):
 
+⚠️ **A later series retired the landing card's phone branch entirely** (`docs/engineering/
+map-mobile-sheet-plan.md`, M1, 2026-09-26): `landingOpen` now reads `!isMobile && …`, so on a phone
+the card never opens at all — not merely inset, as L4's own `MapLandingCard.jsx` header comment used
+to say. The phone never writes `mapLandingSeenRun`, so a reader who later opens the same forecast run
+on desktop still sees the card once, per this document's own once-per-run design. The desktop
+behaviour L1–L7 built (open on `runStamp`, dismiss, the `↺ Back to …` reopen row) is unchanged.
+
 ⚠️ **The `commit` column names the PR, not a SHA, and that is deliberate.** Every per-phase hash this
 table carried was orphaned the moment the stack was rebased onto main, and the repo squash-merges —
 so all seven phases land as ONE commit whose hash cannot exist until after the merge. A SHA here
