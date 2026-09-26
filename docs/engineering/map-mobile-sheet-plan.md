@@ -368,9 +368,14 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
    ⚠️ **That listener alone is not enough** (a Codex finding on M0): `MapLabels.jsx` (~263) and
    `PinsLayer.jsx` (~198) both call `L.DomEvent.disableClickPropagation` and their buttons call
    `selectMapLocation` directly, so a chip or pin press never reaches the map listener. The
-   collapse is therefore ALSO wired into the shared selection path — `selectMapLocation` on the
-   phone sets `openMapMenu` to `null` when it holds a `'peek:'` value — and the test covers a Heat
-   chip press and a Pins button press as well as a Leaflet `dragstart`.
+   collapse is therefore ALSO wired to the **selection itself, not to any one caller**: selection
+   is not centralised — the Leaflet marker handler (`MapView.jsx` ~5144), the location and
+   structured-handoff effects (~2031, ~2103, the Plan tab's `Show on map` door landing while a peek
+   section is open, since the pane stays mounted across tab switches) and the fallback-marker path
+   all call `setSelectedLocationName` directly (a second Codex finding on M0). So on the phone one
+   effect keyed on `selectedLocationName` collapses any `'peek:'` value whenever a selection is
+   **installed**, whatever installed it; the test covers a Heat chip press, a Pins button press, a
+   Leaflet `dragstart`, and a `mapTabHandoff` arriving with `'peek:win'` open.
 8. **Lifted stack**: with the bar gone, rewrite the phone block's literals — attribution
    `padding-bottom` clears 74 px, the counts footer is **hidden on phone** (§4 #10), the upsell chip
    in `.wf-map-chrome-bl` sits at `bottom: calc(74px + 8px)`, the tide strip's phone rule stays for
@@ -507,8 +512,11 @@ Branch `feature/map-mobile-sheet-m5-tide-rule`; slug `map-mobile-sheet-m5-tide-r
 view; Tide mode auto / always / off`. Depends on M2, M3, M4.
 
 **Tasks**
-1. `utils/mapPeek.js#tideVisible({ mode, tideAvailable, coastalInView, tier })` — the three
-   prerequisites are **separate inputs**, never folded into `stripModel.visible` (a Codex finding on
+1. `utils/mapPeek.js#tideVisible({ mode, tideAvailable, hasCoastalInView, tier })` — the three
+   prerequisites are **separate BOOLEAN inputs** (`hasCoastalInView = coastalInView(spots,
+   bounds).length > 0` — the helper returns the filtered array, and an empty array is truthy, so
+   passing it straight in would keep the tide on after a pan inland; a Codex finding on M0, and
+   the truth table includes the empty-array case), never folded into `stripModel.visible` (a Codex finding on
    M0: `visible` is false both for "no coast in view" and for "night row / no served tide", and
    Always must ignore the first while still respecting the second). `tideAvailable = row.kind ===
    'solar' && row.tide != null`; `coastalInView` comes from a **new exported helper**
@@ -517,13 +525,13 @@ view; Tide mode auto / always / off`. Depends on M2, M3, M4.
    `stripModel` calls it too (⚠️ `stripModel`'s return exposes `namedCoastal`, not
    `coastalInView` — a second Codex finding on M0; do not reach for a field that is not there).
    `mode === 'off' → false`; `'always' → tideAvailable` (ignores the coast and the verdict, §4
-   #12); `'auto' → tideAvailable && coastalInView && (tier === 'WORTH_IT' || tier === 'MAYBE')`.
+   #12); `'auto' → tideAvailable && hasCoastalInView && (tier === 'WORTH_IT' || tier === 'MAYBE')`.
    Pure, exhaustively tested.
    ⚠️ **Order of evaluation in `MapView`, because there is a cycle to avoid** (the same Codex
    finding): today `stripModel` is built from the *decorated* `labelSpots` — the list that
    carries `tideTier` — and this rule decides `tideTier`. So the gate is computed from the
    **undecorated** spot list (`coastal`, `lat`, `lng` are on the base heat spots before the tide
-   decoration; `coastalInView(baseSpots, tideViewBounds)`), `tideCuesOn` follows, the decoration
+   decoration; `coastalInView(baseSpots, tideViewBounds).length > 0`), `tideCuesOn` follows, the decoration
    reads it, and `stripModel` runs after, exactly as it does now. A test on the real `MapView`
    wiring (not only the pure function) pins that a coastal spot in view on a Poor window yields
    no `data-tide` — the case a circular or undefined read would silently pass.
@@ -665,7 +673,9 @@ Branch `feature/map-mobile-sheet-m6-sweep`; slug `map-mobile-sheet-m6-sweep`, he
   select a spot, then press a peek button — **clears the selection** (`selectedLocationName` is
   independent of `openMapMenu`, so without this the callout would sit placed for 74 px under a
   356 px sheet — a Codex finding on M0). A peek press on the phone therefore closes the callout
-  before the sheet grows, and the test pins both orders. Desktop keeps its live `--tsh` band.
+  before the sheet grows, and any INSTALLED selection collapses an open section (an effect on
+  `selectedLocationName`, because selection has several writers — M2 task 7); the test pins both
+  orders. Desktop keeps its live `--tsh` band.
 - **D-8** The pill's dropdown listbox is unreachable on the phone after M2 (the pill toggles the
   Windows section). Everything it held is in the section (rows, drilldown) or withheld on phone
   anyway (the landing reopen row).

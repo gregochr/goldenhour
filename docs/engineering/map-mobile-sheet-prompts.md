@@ -73,9 +73,10 @@ session never pushes.
 > (§4 #3); the last row is the drilldown door (§4 #4); Layers carries Show / Regions / Filters /
 > Legend, and Regions/Filters open their existing phone `BottomSheet`s with the peek collapsing by
 > exclusivity (§4 #5). Map-touch collapse is a `useMapEvents` child on Leaflet's `mousedown` /
-> `touchstart` / `dragstart` / `zoomstart` — **not** `useOutsideDismiss` (§1 #11) — AND the shared
-> `selectMapLocation` path, because chips and pins stop click propagation (M2 task 7; test a chip,
-> a pin and a drag). The pill override carries popup semantics (`aria-controls`/`aria-expanded` on
+> `touchstart` / `dragstart` / `zoomstart` — **not** `useOutsideDismiss` (§1 #11) — AND an effect on
+> `selectedLocationName` that collapses any open section whenever a selection is installed, because
+> selection has several writers — chips and pins stop click propagation, the marker handler and the
+> handoff effects set it directly (M2 task 7; test a chip, a pin, a drag and a Plan handoff). The pill override carries popup semantics (`aria-controls`/`aria-expanded` on
 > the peek body, no listbox popup type — task 4). The Regions/Filters hosts restore focus to the
 > Layers peek button on close (task 6). No safe-area term on the sheet (task 1). `.wf-map-chrome-tr`
 > is not rendered on the phone. Rewrite the phone lifted-stack literals and `mapPhoneChromeCascade
@@ -185,7 +186,8 @@ session never pushes.
 >
 > Scope is §3 M5's five tasks. The rule is pure (`utils/mapPeek.js#tideVisible`, with
 > `tideAvailable` and `coastalInView` as SEPARATE inputs — never `stripModel.visible`, §3 M5 task 1)
-> and exhaustively tabled; `coastalInView` is a new exported helper on `mapTideFit.js` computed from
+> and exhaustively tabled; `hasCoastalInView` is `coastalInView(spots, bounds).length > 0` — a new exported helper on
+> `mapTideFit.js` returning the filtered ARRAY (empty is truthy; pass the boolean), computed from
 > the UNDECORATED spot list before `tideTier` is set (`stripModel` returns `namedCoastal`, not
 > `coastalInView`, and is built from the decorated list — reading it there is a cycle; §3 M5 task 1's
 > order-of-evaluation note is binding, and a real-`MapView` wiring test pins it); "Poor" is `STAND_DOWN` on the pill's own scope verdict (§1 #7) and a null/`AWAITING`
