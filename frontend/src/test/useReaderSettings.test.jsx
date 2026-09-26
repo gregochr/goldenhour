@@ -309,10 +309,10 @@ describe('useReaderSettings — mapTideMode / saveTideMode (map-mobile-sheet-pla
     expect(result.current.mapTideMode).toBe('auto');
   });
 
-  it('a press BEFORE the mount read lands does not drop that read — the save is numbered when it lands', async () => {
-    // Found by M4's review: the first cut claimed the answer order at press time, so a slow
-    // getSettings() that landed after a press failed its own claim and the WHOLE read — home,
-    // colour, last-seen date — was silently dropped, not just the tide mode.
+  it('a press BEFORE the mount read lands does not drop that read, and the press stays on screen', async () => {
+    // Found by M4's review (and again by Codex on #925): a tide save that took part in the shared
+    // answers' order — at press time or at landing — dropped a slow getSettings() WHOLE, home,
+    // colour and last-seen date with it. The tide now has an order of its own.
     let landRead;
     getSettings.mockReturnValue(new Promise((resolve) => { landRead = resolve; }));
     const { result } = renderHook(() => useReaderSettings());
@@ -328,11 +328,11 @@ describe('useReaderSettings — mapTideMode / saveTideMode (map-mobile-sheet-pla
     expect(result.current.comingUpLastSeenDate, 'the read landed — it was not dropped')
         .toBe('2026-09-10');
     expect(result.current.mapColourScale).toBe('temp');
-    expect(result.current.mapTideMode, "the read's answer stands until the save lands").toBe('always');
+    expect(result.current.mapTideMode, 'the press is newer than the read, so it stays').toBe('off');
 
     calls[0].resolve({ mapTideMode: 'off' });
     await drain();
-    expect(result.current.mapTideMode, 'the landed save is the newest answer').toBe('off');
+    expect(result.current.mapTideMode).toBe('off');
 
     // And the landed save is the rollback baseline from here, not the read's older value.
     const later = heldSave();
@@ -340,6 +340,60 @@ describe('useReaderSettings — mapTideMode / saveTideMode (map-mobile-sheet-pla
     later[0].reject(new Error('502'));
     await drain();
     expect(result.current.mapTideMode).toBe('off');
+  });
+
+  it('a save that LANDS before the mount read does not drop that read either (Codex on #925)', async () => {
+    let landRead;
+    getSettings.mockReturnValue(new Promise((resolve) => { landRead = resolve; }));
+    const { result } = renderHook(() => useReaderSettings());
+    const calls = heldSave();
+
+    act(() => { result.current.saveTideMode('off'); });
+    calls[0].resolve({ mapTideMode: 'off' });
+    await drain();
+    expect(result.current.mapTideMode).toBe('off');
+
+    await act(async () => {
+      landRead({ mapColourScale: 'temp', mapTideMode: 'always', comingUpLastSeenDate: '2026-09-10' });
+      await drain();
+    });
+    expect(result.current.comingUpLastSeenDate, 'home/colour/date applied from the read').toBe('2026-09-10');
+    expect(result.current.mapColourScale).toBe('temp');
+    expect(result.current.mapTideMode, "the read's older tide mode does not overwrite the landed save")
+        .toBe('off');
+
+    // The baseline is the landed save, not the read's value: a later failure reverts to 'off'.
+    const later = heldSave();
+    act(() => { result.current.saveTideMode('auto'); });
+    later[0].reject(new Error('502'));
+    await drain();
+    expect(result.current.mapTideMode).toBe('off');
+  });
+
+  it('an older choice landing or failing after a NEWER press leaves the newer choice on screen (Codex on #925)', async () => {
+    const { result } = await mountSettled({ mapTideMode: 'auto' });
+    const calls = heldSave();
+
+    act(() => { result.current.saveTideMode('always'); }); // A, in flight
+    act(() => { result.current.saveTideMode('off'); });    // B, queued behind A
+    expect(result.current.mapTideMode, 'B is what the reader chose last').toBe('off');
+
+    calls[0].resolve({ mapTideMode: 'always' }); // A lands
+    await drain();
+    expect(result.current.mapTideMode, "A's landing must not put 'always' back while B is out").toBe('off');
+    expect(saveMapTideMode, 'B went out once A landed').toHaveBeenCalledTimes(2);
+
+    calls[1].resolve({ mapTideMode: 'off' }); // B lands
+    await drain();
+    expect(result.current.mapTideMode).toBe('off');
+
+    // The failure arm: an older choice FAILING after a newer press does not revert the newer one.
+    const later = heldSave();
+    act(() => { result.current.saveTideMode('auto'); });   // C, in flight
+    act(() => { result.current.saveTideMode('always'); }); // D, queued
+    later[0].reject(new Error('502'));                     // C fails
+    await drain();
+    expect(result.current.mapTideMode, "C's failure must not revert D's optimistic value").toBe('always');
   });
 
   it('holds the first save alone in flight, then sends only the newest queued choice', async () => {

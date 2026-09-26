@@ -184,6 +184,14 @@ export default function useReaderSettings() {
   // the save function as a parameter, so nothing about it is colour-specific.
   const [tideSaveQueue] = useState(createColourSaveQueue);
   useEffect(() => keepColourSaveLineOpen(tideSaveQueue), [tideSaveQueue]);
+  // The tide mode's OWN order, apart from the answers' order below (a Codex finding on #925, the
+  // second on this point): a tide save that took part in the shared order — at press time or at
+  // landing — could outrank the mount read whichever of the two landed first, and the read's
+  // OTHER answers (home, colour, last-seen date) were dropped with it. So a tide choice never
+  // touches `order`; it is ranked only against other tide choices. `chosen` counts presses (the
+  // newest press is the only one allowed to move what is shown), `landed` counts saves that
+  // reached the server (the mount read may set the baseline only while none has).
+  const tideOrder = useRef({ chosen: 0, landed: 0 });
   // The answers' order (see above): how many have been numbered, and the newest number applied.
   const order = useRef({ numbered: 0, applied: 0 });
 
@@ -220,9 +228,13 @@ export default function useReaderSettings() {
         dispatch({ type: 'read', settings });
         setComingUpLastSeenDate(settings?.comingUpLastSeenDate ?? null);
         applyColour(settings?.mapColourScale);
+        // The tide mode is applied only while no choice has been made — a press during this read
+        // is newer than anything the read can say about the tide, and the save that follows it
+        // owns the baseline once it lands. The read's other answers are applied regardless (above):
+        // the tide never gates them (see `tideOrder`).
         const tideMode = settings?.mapTideMode ?? 'auto';
-        tideModeBaseline.current = tideMode;
-        setMapTideMode(tideMode);
+        if (tideOrder.current.landed === 0) tideModeBaseline.current = tideMode;
+        if (tideOrder.current.chosen === 0) setMapTideMode(tideMode);
       })
       // Nothing is written: the home and the date stay unknown until the dialog answers, and the
       // ramp keeps the default it started with.
@@ -273,12 +285,14 @@ export default function useReaderSettings() {
    * older, not-yet-started one superseding it (`colourSaveQueue.js`'s rules, reused unchanged).
    *
    * <p>Sets the mode at once — the newest choice is always what the reader sees while its save is
-   * out — and is <b>numbered when it lands</b>, like every other save here (the class doc's rule),
-   * so a mount read that lands after the save cannot put an older mode back, while a save pressed
-   * BEFORE the mount read lands does not outrank it. ⚠️ The first cut claimed the order at press
-   * time, the one participant that did: a press during a slow {@code getSettings()} made that
-   * whole read fail its own {@code claim} — home, colour and last-seen date dropped with the tide
-   * mode — found by M4's review. Reverts to
+   * out — and takes <b>no part in the answers' order</b> {@code order}: the tide has an order of its
+   * own ({@code tideOrder}), so neither a press nor a landing can outrank the mount read, and the
+   * read applies everything it carries except a tide mode a press has already overtaken. ⚠️ Two
+   * earlier cuts had it in the shared order — claimed at press time (M4's review: a press during
+   * a slow read dropped the whole read), then at landing (Codex on #925: a save landing before
+   * the read did the same) — and both dropped home, colour and last-seen date with the tide mode.
+   * Only the <b>newest</b> press moves what is shown (Codex on #925 again): an older choice landing
+   * or failing after a newer press leaves the newer choice on screen. Reverts to
    * {@code tideModeBaseline.current} (the last mode the SERVER is known to hold) if this choice's
    * own turn ends in {@code 'failed'}; does nothing on {@code 'superseded'} or {@code 'ended'},
    * since a newer choice's own call already owns what is shown.
@@ -287,23 +301,26 @@ export default function useReaderSettings() {
    * @returns {Promise<'saved'|'failed'|'superseded'|'ended'>} settles when this choice's turn ends
    */
   const saveTideMode = useCallback(async (mode) => {
+    tideOrder.current.chosen += 1;
+    const mine = tideOrder.current.chosen;
+    const newest = () => tideOrder.current.chosen === mine;
     setMapTideMode(mode);
     const outcome = await saveColourInTurn(tideSaveQueue, mode, {
       save: saveMapTideMode,
       onSaved: (updated, savedMode) => {
         const landed = updated?.mapTideMode ?? savedMode;
+        tideOrder.current.landed += 1;
         tideModeBaseline.current = landed;
-        // Numbered as it lands (see the doc above): the newest answer now, so it outranks any read
-        // that landed between the press and this — and is shown again in case one did.
-        claim(number());
-        setMapTideMode(landed);
+        // Shown only while this is still the newest press: an older choice landing after a newer
+        // one was pressed must not put the older mode back for the newer save's whole flight.
+        if (newest()) setMapTideMode(landed);
       },
     });
-    if (outcome === 'failed') {
+    if (outcome === 'failed' && newest()) {
       setMapTideMode(tideModeBaseline.current);
     }
     return outcome;
-  }, [number, claim, tideSaveQueue]);
+  }, [tideSaveQueue]);
 
   const { settings } = record;
   const known = settings !== undefined;
