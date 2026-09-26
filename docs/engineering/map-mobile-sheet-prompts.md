@@ -114,7 +114,9 @@ session never pushes.
 > string; the test must pass after the split. `TideDayChart` gains a `tall` projection for the
 > section (§4 #6) reading the same served curve and extremes — no cosine, no re-derived level, no
 > new threshold. `MapPeekTideSection.jsx` lays the strip's content out vertically per the spec's
-> copy; the dimmed line and the next-fit link are `footerModel`/`nextFitCopy`'s own. The Tide
+> copy; the dimmed line and the next-fit link are `footerModel`/`nextFitCopy`'s own, and the
+> extracted footer takes a stable focus target (the Tide peek button) that it focuses BEFORE
+> `onSelectEv`, because the link can unmount itself on the jump (M3 task 3; keyboard test required). The Tide
 > button's value is `utils/mapPeek.js#tideSummary` (High/Mid/Low, arrow only on Mid, `· N dim` only
 > when N > 0) after the existing `TideWave` glyph, in `--color-badge-tide` (§4 #8). Remove the phone
 > `MapTideStrip` mount and the phone block's strip/`wf-tide-strip-on` rules; the desktop mount and

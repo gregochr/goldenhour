@@ -420,7 +420,15 @@ heading `### Map tab — the phone tide strip becomes the sheet's Tide section`.
    chart, the dimmed line (`**N coastal spots** are dimmed; they want {want}.` / `No coastal spots
    in view are held back by the tide.` — `footerModel`'s own copy), the next-fit link (mono 11 px
    `--color-tide`, ≥ 32 px, `Next {want} on the light · {window} ›` → `onSelectEv(nextFitRow)`; the
-   sheet stays open; if the new window hides the tide, M5's rule closes it).
+   sheet stays open; if the new window hides the tide, M5's rule closes it). ⚠️ **The link can
+   remove itself** (a Codex finding on M0): when the jumped-to window resolves every dimmed spot,
+   `nextFitCopy` becomes null and the focused link unmounts with the sheet still open, dropping
+   focus to `<body>` where the pane's Escape handler is unreachable. The strip already guards this
+   by focusing its stable root before the update (`MapTideStrip.jsx` ~396–401); the extracted
+   footer therefore takes a **stable focus target** prop — in the sheet, the Tide peek button —
+   and focuses it before calling `onSelectEv`, with a keyboard test for the disappearing-link path
+   (activate by Enter, link gone, `document.activeElement` is the Tide button, Escape still
+   collapses).
 4. **Tide button value**: `utils/mapPeek.js#tideSummary(tide, dimmedCount)` → `{High|Mid|Low}`
    + `↑`/`↓` **only when Mid** (from the served direction) + ` · N dim` when N > 0; rendered after
    the existing `TideWave` glyph in mono 11.5 px `--color-badge-tide`.
