@@ -56,6 +56,7 @@ export default function FiltersPopover({
   showAdminRow, showStandDown, onToggleStandDown, hasStandDown,
   showUnrated, onToggleUnrated, hasUnrated,
   activeCount, filteredCount, scopeCount, onClearAll,
+  chipHidden = false, restoreFallback = null,
 }) {
   const rootRef = useRef(null);
   const isMobile = useIsMobile();
@@ -273,21 +274,32 @@ export default function FiltersPopover({
   return (
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div ref={rootRef} data-testid="wf-filters" className="wf-filters" onKeyDown={onKeyDown}>
-      <button
-        type="button"
-        data-testid="wf-filters-chip"
-        className={`wf-filters-chip${activeCount > 0 ? ' active' : ''}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls="wf-filters-panel"
-        onClick={() => onOpenChange(!open)}
-      >
-        Filters{activeCount > 0 && ` (${activeCount})`}
-        <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
-      </button>
+      {/* ⚠️ Withheld, not merely hidden, on the phone Layers section's host mount
+          (map-mobile-sheet-plan.md §3 M2 task 6) — see `RegionsJump`'s identical note. */}
+      {!chipHidden && (
+        <button
+          type="button"
+          data-testid="wf-filters-chip"
+          className={`wf-filters-chip${activeCount > 0 ? ' active' : ''}`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls="wf-filters-panel"
+          onClick={() => onOpenChange(!open)}
+        >
+          Filters{activeCount > 0 && ` (${activeCount})`}
+          <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
+        </button>
+      )}
 
       {isMobile ? (
-        <BottomSheet open={open} onClose={() => onOpenChange(false)} label="Map filters" modal={false} reserveCloseStrip>
+        <BottomSheet
+          open={open}
+          onClose={() => onOpenChange(false)}
+          label="Map filters"
+          modal={false}
+          reserveCloseStrip
+          restoreFallback={restoreFallback}
+        >
           <div id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-sheet">
             {panelBody}
           </div>
@@ -352,4 +364,11 @@ FiltersPopover.propTypes = {
   /** The footer's "of M" — the scope-only pool, before every other filter. */
   scopeCount: PropTypes.number.isRequired,
   onClearAll: PropTypes.func.isRequired,
+  /**
+   * Withholds the standalone trigger chip while still mounting the sheet/popover — the phone
+   * Layers section provides its own trigger row instead (map-mobile-sheet-plan.md §3 M2 task 6).
+   */
+  chipHidden: PropTypes.bool,
+  /** Forwarded to `BottomSheet`'s own prop of the same name (phone only). */
+  restoreFallback: PropTypes.func,
 };

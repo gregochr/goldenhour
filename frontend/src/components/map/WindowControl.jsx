@@ -46,7 +46,7 @@ import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 export default function WindowControl({
   events, activeIndex, onSelect, open: openProp, onOpenChange = null,
   verdicts = null, scopeIsArea = true, landingLabel = '', onReopenLanding = null,
-  onOpenWindowPanel = null, pillRef: pillRefProp = null,
+  onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -212,16 +212,30 @@ export default function WindowControl({
            an unscored one both carry no tier and so no tint, which is the design's own rule. */
         data-tier={activeVerdict?.tier || undefined}
         className="wf-win-pill"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        // ⚠️ Names the LISTBOX, not the popup box around it. Since L4 the popup holds the landing
-        // card's reopen row beside the listbox, so `role="listbox"` moved to an inner element — and
-        // a trigger declaring `aria-haspopup="listbox"` while `aria-controls` pointed at a generic
-        // container left JAWS's "move to controlled element" landing on an unnamed div. The id and
-        // the role belong on one element.
-        aria-controls="wf-win-listbox"
         title={active?.rosterNote || undefined}
-        onClick={() => setOpen((v) => !v)}
+        /* ⚠️ **The phone override carries the pill's popup semantics with it**
+           (map-mobile-sheet-plan.md §3 M2 task 4) — on the phone the pill body opens the peek
+           sheet's Windows section instead of this dropdown, so `aria-haspopup="listbox"`,
+           `aria-controls="wf-win-listbox"` and an `aria-expanded` derived from THIS component's own
+           `open` would all be false claims: there is no listbox to open, nothing here controls
+           `wf-win-listbox`, and `open` never turns true on the phone (nothing sets `openMapMenu` to
+           `'window'` there). `pillOverride` is the small contract that replaces all three at once
+           rather than leaving two of them stale beside a correct third. */
+        {...(pillOverride ? {
+          'aria-expanded': pillOverride.expanded,
+          'aria-controls': pillOverride.controlsId,
+          onClick: pillOverride.onPress,
+        } : {
+          'aria-haspopup': 'listbox',
+          'aria-expanded': open,
+          // ⚠️ Names the LISTBOX, not the popup box around it. Since L4 the popup holds the landing
+          // card's reopen row beside the listbox, so `role="listbox"` moved to an inner element — and
+          // a trigger declaring `aria-haspopup="listbox"` while `aria-controls` pointed at a generic
+          // container left JAWS's "move to controlled element" landing on an unnamed div. The id and
+          // the role belong on one element.
+          'aria-controls': 'wf-win-listbox',
+          onClick: () => setOpen((v) => !v),
+        })}
       >
         {active ? (
           <>
@@ -455,6 +469,19 @@ WindowControl.propTypes = {
   onOpenWindowPanel: PropTypes.func,
   /** A ref the caller attaches to the pill, to return focus to it from a route it owns. */
   pillRef: PropTypes.object,
+  /**
+   * Phone-only: replaces the pill body's dropdown-opening behaviour and popup semantics with the
+   * peek sheet's Windows section (map-mobile-sheet-plan.md §3 M2 task 4). Null keeps the original
+   * listbox dropdown, unchanged — every desktop/tablet caller omits this.
+   */
+  pillOverride: PropTypes.shape({
+    /** Called on a pill press instead of toggling the local/controlled dropdown. */
+    onPress: PropTypes.func.isRequired,
+    /** Whether the peek sheet's Windows section is open — replaces the dropdown's own `open`. */
+    expanded: PropTypes.bool.isRequired,
+    /** The element the pill's `aria-controls` should name instead of `wf-win-listbox`. */
+    controlsId: PropTypes.string.isRequired,
+  }),
 };
 
 /**
@@ -572,7 +599,12 @@ function kindClass(row) {
 
 const KIND_TEXT = { SUNRISE: 'Sunrise', SUNSET: 'Sunset', ASTRO: 'Astro', AURORA: 'Aurora' };
 
-function KindChip({ row }) {
+/**
+ * Exported since the map-mobile-sheet increment (§3 M2 task 5): the peek sheet's Windows section
+ * draws the identical roster this dropdown does and must not mint a second kind-chip markup — the
+ * kind-chip dedup rule this file already states for `dayLabel` applies to the chip itself too.
+ */
+export function KindChip({ row }) {
   // Reuses `.wf-hc-sun` — the day rail's own kind-chip class (matrix-axis plan D14) — rather than
   // minting a second chip vocabulary. `.am`/`.pm` already exist there; `.night` is this phase's one
   // addition (index.css), sharing the same `color-mix` idiom against the new astro tokens.

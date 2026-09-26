@@ -30,6 +30,8 @@ import MapCallout from './map/MapCallout.jsx';
 import MapLegendPanel from './map/MapLegendPanel.jsx';
 import RegionsJump from './map/RegionsJump.jsx';
 import MapBreadcrumb from './map/MapBreadcrumb.jsx';
+import MapPeekSheet, { OtherWindowValue, MapPeekWindowsSection } from './map/MapPeekSheet.jsx';
+import { otherWindow } from '../utils/mapPeek.js';
 import { fadeAt } from '../utils/heatHandover.js';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, nightPreviewDates, solarHorizonDates, solarRowPredicate,
@@ -717,6 +719,40 @@ function BoundsTracker({ onBounds }) {
 
 BoundsTracker.propTypes = {
   onBounds: PropTypes.func.isRequired,
+};
+
+/**
+ * The peek sheet's map-touch collapse (map-mobile-sheet-plan.md §3 M2 task 7, README rule 4 — "Any
+ * map interaction closes the sheet"). A `useMapEvents` child, deliberately NOT
+ * `useOutsideDismiss` (§1 #11): that hook skips any press inside the map frame ON PURPOSE (the
+ * drilldown panels' own persistence rule), which is the exact opposite of what the peek sheet
+ * needs — it is chrome, not a panel, and the whole point of collapsing on a map touch is that the
+ * touch WAS inside the frame.
+ *
+ * <p>Listens to Leaflet's own {@code mousedown}/{@code touchstart}/{@code dragstart}/
+ * {@code zoomstart} rather than a DOM listener on the pane, so a press that starts on the MAP
+ * itself (panning, a pinch-zoom) collapses the sheet while a press inside the sheet's own DOM
+ * subtree — outside the Leaflet container entirely — never reaches these handlers at all.
+ *
+ * <p>⚠️ This listener alone is not sufficient (a Codex finding on the plan's M0): a chip or pin
+ * press calls {@code L.DomEvent.disableClickPropagation} and invokes {@code selectMapLocation}
+ * directly, so it never reaches Leaflet's own {@code mousedown}. The SECOND half of rule 4 is the
+ * {@code selectedLocationName} effect above this component, which collapses the sheet whenever a
+ * selection is installed, whatever installed it.
+ */
+function SheetDismissOnMapTouch({ open, onCollapse }) {
+  useMapEvents({
+    mousedown: () => { if (open) onCollapse(); },
+    touchstart: () => { if (open) onCollapse(); },
+    dragstart: () => { if (open) onCollapse(); },
+    zoomstart: () => { if (open) onCollapse(); },
+  });
+  return null;
+}
+
+SheetDismissOnMapTouch.propTypes = {
+  open: PropTypes.bool.isRequired,
+  onCollapse: PropTypes.func.isRequired,
 };
 
 /**
@@ -1645,6 +1681,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const winPillRef = useRef(null);
   /**
+   * The peek sheet's Layers button — the phone Regions/Filters `BottomSheet` hosts' own restore
+   * target (map-mobile-sheet-plan.md §3 M2 task 6). Both hosts stay mounted OUTSIDE the peek body
+   * (their chip hidden, `chipHidden`), so the row that actually opened either sheet is a Layers
+   * peek row that unmounts the instant `openMapMenu` leaves `'peek:lay'` — the very commit that
+   * opens the sheet. Without an explicit fallback, `useDialogFocus` finds `<body>` as the opener on
+   * close (a Codex finding on the plan's M0); this button stays mounted while the sheet is
+   * collapsed, so it is always there to focus back onto.
+   */
+  const layersPeekBtnRef = useRef(null);
+  /**
    * ⚠️ **The drilldown can close with nobody pressing anything, and that path has no handler to hang
    * a focus move on.** Every DELIBERATE exit — both ✕ buttons, the sheet handoff, `Zoom to region` —
    * moves focus to the pill itself, because each destroys its own trigger. The `served` gate on
@@ -2200,6 +2246,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => {
     void 0;
   }, [isMobile]);
+
+  /**
+   * **Any INSTALLED selection collapses an open peek section** (map-mobile-sheet-plan.md §3 M2
+   * task 7, §5 D-7's reverse-order clause) — the other half of the callout/sheet mutual-exclusion
+   * rule. A peek-button press clears the selection first (`handlePeekPress`, below), so the ordinary
+   * route never needs this effect at all; it exists for every OTHER writer of
+   * `selectedLocationName`, since selection is not centralised on this tab — the Leaflet marker
+   * handler, `selectMapLocation` (chips and pins, which stop click propagation before it ever
+   * reaches the map-touch listener below), and the location/plan-handoff effects above all call
+   * {@code setSelectedLocationName} directly (a Codex finding on the plan's M0). Keyed on the
+   * value itself, not on a ref-based "did it change" test, so a selection that arrives while a
+   * section is open (a Plan-tab handoff landing mid-browse) collapses it exactly like a chip press
+   * does — the callout this selection is about to draw must never sit placed for the collapsed 74px
+   * under an open 356px sheet.
+   *
+   * <p>Phone only: `openMapMenu` never holds a `'peek:'` value on desktop/tablet, so this is inert
+   * there regardless of the `isMobile` guard.
+   */
+  useEffect(() => {
+    if (!isMobile) return undefined;
+    if (selectedLocationName == null) return undefined;
+    // Inline async wrapper (this file's own idiom, above) satisfies
+    // react-hooks/set-state-in-effect while the setState still applies synchronously this tick.
+    (async () => {
+      setOpenMapMenu((cur) => (typeof cur === 'string' && cur.startsWith('peek:') ? null : cur));
+    })();
+    return undefined;
+  }, [isMobile, selectedLocationName]);
 
   // Fetch per-location aurora scores when an alert is active (MODERATE or STRONG).
   // Scores are keyed by location name for O(1) lookup in popup render.
@@ -3715,6 +3789,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
 
   /**
+   * The peek sheet's "Other windows" button value (map-mobile-sheet-plan.md §3 M2 task 3) — a scan
+   * over the SAME `mapEvents`/`evVerdicts` the pill and the Windows section both already read, never
+   * a second roster. Phone only; harmless to compute on desktop (it is simply never rendered there).
+   */
+  const peekOtherWindow = otherWindow(mapEvents, activeEvIndex, evVerdicts);
+  const peekOtherWindowVerdict = peekOtherWindow ? (evVerdicts.get(peekOtherWindow.id) ?? null) : null;
+
+  /**
    * The tide strip's own per-render model (tide-window-plan.md T6) — one call into the pure
    * {@code mapTideFit.stripModel}, built fresh every render like {@code mapEvents}/{@code
    * evVerdicts}/{@code landingModel} above and for the identical reason: {@code mapEvents} is a new
@@ -4324,6 +4406,96 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
+   * The peek sheet's own open section — a VALUE of `openMapMenu`, not a second piece of state
+   * (map-mobile-sheet-plan.md §5 D-1). `'peek:win' | 'peek:tide' | 'peek:lay'` strip down to
+   * `'win' | 'tide' | 'lay'` for `MapPeekSheet`'s own prop; every other `openMapMenu` value (the
+   * desktop dropdown, `'jump'`, `'filters'`, `'legend'`, `'window-panel'`) reads as collapsed here,
+   * which is exactly the exclusivity rule §1 #9 draws attention to. Phone only — desktop never sets
+   * a `'peek:'` value at all, so this is always null there regardless of the `isMobile` guard.
+   */
+  const sheetSection = isMobile && typeof openMapMenu === 'string' && openMapMenu.startsWith('peek:')
+    ? openMapMenu.slice(5)
+    : null;
+
+  /**
+   * A peek button (or the phone pill override) was pressed — the ONE toggle rule both routes share
+   * (map-mobile-sheet-plan.md §3 M2 task 4). Pressing the ACTIVE section's own button collapses it;
+   * pressing a different one switches without collapsing (README rule 2).
+   *
+   * <p>⚠️ **Clears the selection FIRST** (§5 D-7's reverse-order clause, task 8) — the callout and
+   * an open sheet must never coexist on the phone in EITHER order: every callout-opening route is a
+   * map tap, which the map-touch listener below already collapses the sheet for, and this is the
+   * reverse route — growing the sheet while a callout is up would otherwise place a card for the
+   * collapsed 74px underneath a 356px sheet a beat later. Harmless to call with nothing selected.
+   */
+  function handlePeekPress(section) {
+    setSelectedLocationName(null);
+    setOpenMapMenu((cur) => (cur === `peek:${section}` ? null : `peek:${section}`));
+  }
+
+  /**
+   * `RegionsJump`'s own props, in ONE object rather than typed out twice — the desktop mount
+   * (`.wf-map-chrome-tr`, chip visible) and the phone mount (mounted once outside the peek body,
+   * chip withheld, its `BottomSheet` opened from a Layers row instead — map-mobile-sheet-plan.md
+   * §3 M2 task 6) are the SAME control at the SAME `openMapMenu` value; only the trigger differs.
+   */
+  const regionsJumpProps = {
+    open: openMapMenu === 'jump',
+    onOpenChange: (next) => setOpenMapMenu(next ? 'jump' : null),
+    rows: jumpRows,
+    onSelectRegion: jumpToRegion,
+    activeRegion: jumpFitOverride?.regionName ?? null,
+    resetLabel: jumpResetLabel,
+    onReset: clearRegionJump,
+  };
+
+  /** `FiltersPopover`'s own props — the identical one-object-not-two-mounts shape as
+   * {@link regionsJumpProps}, above. */
+  const filtersPopoverProps = {
+    open: openMapMenu === 'filters',
+    onOpenChange: (next) => setOpenMapMenu(next ? 'filters' : null),
+    minStars,
+    onSelectMinStars: handleMinStarsClick,
+    activeTypeFilters,
+    onToggleType: toggleTypeFilter,
+    subjectChips: MAP_FILTER_CHIPS,
+    seasonalFeatures,
+    role,
+    driveTimeFilter,
+    onSelectDriveTime: setDriveTimeFilter,
+    darkSkyFilter,
+    onToggleDarkSky: () => setDarkSkyFilter((v) => !v),
+    darkSkyThreshold: DARK_SKY_THRESHOLD,
+    hasHome: Boolean(heat?.hasHome),
+    heatArea,
+    // `next === true` ("My area") is `resetToMyArea` itself — the SAME function `⌂` calls
+    // (map-tab-v2-plan.md §3 P11's reconciliation) — so the two controls can never disagree about
+    // what resetting scope means. `next === false` ("Everywhere") clears any standing jump
+    // override for the identical reason: a stale region fit must not survive the reader's own
+    // later choice to widen scope.
+    onSelectScope: (next) => {
+      if (next) { resetToMyArea(); return; }
+      setJumpFitOverride(null);
+      setHeatArea(false);
+      setHeatFitNonce((n) => n + 1);
+    },
+    areaLabel: heat?.areaLabel,
+    isAuroraMode,
+    isAstroMode,
+    showAdminRow: role === 'ADMIN' && !isAuroraMode && !isAstroMode,
+    showStandDown,
+    onToggleStandDown: toggleShowStandDown,
+    hasStandDown,
+    showUnrated,
+    onToggleUnrated: toggleShowUnrated,
+    hasUnrated,
+    activeCount: filterActiveCount,
+    filteredCount: scopedVisibleLocations.length,
+    scopeCount: scopeBasePool.length,
+    onClearAll: clearAllMapFilters,
+  };
+
+  /**
    * The window control, controlled for menu exclusivity (map-tab-v2-plan.md §3 P7). `openMapMenu`
    * is this pane's own "which popover is open" — shared with `FiltersPopover` below so a press on
    * either closes the other, and with the map-background click controller inside `MapContainer`.
@@ -4386,6 +4558,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // the entry is the honest form — there is no answer to drill into.
       onOpenWindowPanel={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
       pillRef={winPillRef}
+      // Phone only (map-mobile-sheet-plan.md §3 M2 task 4) — the pill body toggles the peek
+      // sheet's Windows section instead of this control's own dropdown, which stays permanently
+      // closed there (`open` is `openMapMenu === 'window'`, a value the phone never sets). See
+      // `WindowControl`'s own doc on the prop for why the popup semantics travel with it.
+      pillOverride={isMobile ? {
+        onPress: () => handlePeekPress('win'),
+        expanded: sheetSection === 'win',
+        controlsId: 'wf-map-peek-body',
+      } : null}
     />
   );
 
@@ -5058,6 +5239,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           {/* The tab's own viewport, for the tide strip's in-view coastal count (tide-window-plan.md
               T6) — the frozen overlay never mounts the strip, so it never needs this. */}
           {!overlayMode && <BoundsTracker onBounds={handleTideBounds} />}
+          {/* The peek sheet's map-touch collapse (map-mobile-sheet-plan.md §3 M2 task 7) — phone
+              only; the sheet itself is never mounted on desktop/tablet. */}
+          {!overlayMode && isMobile && (
+            <SheetDismissOnMapTouch
+              open={sheetSection != null}
+              onCollapse={() => setOpenMapMenu(null)}
+            />
+          )}
           {/* Tab only — the overlay has no ground-click behaviour of its own.
 
               ⚠️ **A ground press does exactly one thing now: it deselects** (map-landing-plan.md
@@ -5561,16 +5750,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               />
             )}
 
+            {/* ⚠️ Desktop/tablet only (map-mobile-sheet-plan.md §3 M2 task 1, §1 #1). On the
+                phone this whole bar is replaced by the peek sheet's Layers section, mounted
+                below — `RegionsJump`/`FiltersPopover` themselves stay mounted (chip withheld)
+                so their `BottomSheet`s remain reachable from a Layers row. */}
+            {!isMobile && (
             <div className="wf-map-chrome-tr" data-testid="wf-map-chrome-tr">
-              <RegionsJump
-                open={openMapMenu === 'jump'}
-                onOpenChange={(next) => setOpenMapMenu(next ? 'jump' : null)}
-                rows={jumpRows}
-                onSelectRegion={jumpToRegion}
-                activeRegion={jumpFitOverride?.regionName ?? null}
-                resetLabel={jumpResetLabel}
-                onReset={clearRegionJump}
-              />
+              <RegionsJump {...regionsJumpProps} />
               {heatOffered && (
                 <div data-testid="wf-map-toolbar" className="wf-map-toolbar-cluster">
                   <div className="wf-map-toolbar-row">
@@ -5625,50 +5811,117 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   )}
                 </div>
               )}
-              <FiltersPopover
-                open={openMapMenu === 'filters'}
-                onOpenChange={(next) => setOpenMapMenu(next ? 'filters' : null)}
-                minStars={minStars}
-                onSelectMinStars={handleMinStarsClick}
-                activeTypeFilters={activeTypeFilters}
-                onToggleType={toggleTypeFilter}
-                subjectChips={MAP_FILTER_CHIPS}
-                seasonalFeatures={seasonalFeatures}
-                role={role}
-                driveTimeFilter={driveTimeFilter}
-                onSelectDriveTime={setDriveTimeFilter}
-                darkSkyFilter={darkSkyFilter}
-                onToggleDarkSky={() => setDarkSkyFilter((v) => !v)}
-                darkSkyThreshold={DARK_SKY_THRESHOLD}
-                hasHome={Boolean(heat?.hasHome)}
-                heatArea={heatArea}
-                // `next === true` ("My area") is `resetToMyArea` itself — the SAME function `⌂`
-                // calls (map-tab-v2-plan.md §3 P11's reconciliation) — so the two controls can never
-                // disagree about what resetting scope means. `next === false` ("Everywhere")
-                // clears any standing jump override for the identical reason: a stale region fit
-                // must not survive the reader's own later choice to widen scope.
-                onSelectScope={(next) => {
-                  if (next) { resetToMyArea(); return; }
-                  setJumpFitOverride(null);
-                  setHeatArea(false);
-                  setHeatFitNonce((n) => n + 1);
-                }}
-                areaLabel={heat?.areaLabel}
-                isAuroraMode={isAuroraMode}
-                isAstroMode={isAstroMode}
-                showAdminRow={role === 'ADMIN' && !isAuroraMode && !isAstroMode}
-                showStandDown={showStandDown}
-                onToggleStandDown={toggleShowStandDown}
-                hasStandDown={hasStandDown}
-                showUnrated={showUnrated}
-                onToggleUnrated={toggleShowUnrated}
-                hasUnrated={hasUnrated}
-                activeCount={filterActiveCount}
-                filteredCount={scopedVisibleLocations.length}
-                scopeCount={scopeBasePool.length}
-                onClearAll={clearAllMapFilters}
-              />
+              <FiltersPopover {...filtersPopoverProps} />
             </div>
+            )}
+
+            {/* Phone only — the two hosts stay mounted OUTSIDE the peek body with their chip
+                withheld (a Codex finding on the plan's M0, gregochr/goldenhour#923): the peek body
+                unmounts the moment `openMapMenu` leaves `'peek:lay'`, so a host mounted INSIDE the
+                Layers section would be torn down by the very press that opens its sheet. The
+                restore target is the Layers peek button, which stays mounted while the sheet is
+                collapsed (map-mobile-sheet-plan.md §3 M2 task 6). */}
+            {isMobile && (
+              <>
+                <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current} />
+                <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current} />
+                {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2) — mounted always on
+                    phone, collapsed by default. The Tide button/section arrive at M3; the peek
+                    row is two buttons here. */}
+                <MapPeekSheet
+                  section={sheetSection}
+                  onPressWindows={() => handlePeekPress('win')}
+                  onPressLayers={() => handlePeekPress('lay')}
+                  layersButtonRef={layersPeekBtnRef}
+                  otherWindowContent={(
+                    <OtherWindowValue row={peekOtherWindow} verdict={peekOtherWindowVerdict} />
+                  )}
+                  windowsBody={(
+                    <MapPeekWindowsSection
+                      heading={landingModel.header}
+                      rows={mapEvents}
+                      verdicts={evVerdicts}
+                      activeId={activeMapEvent?.id ?? null}
+                      onSelect={selectEvRow}
+                      onOpenDrilldown={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
+                    />
+                  )}
+                  layersBody={(
+                    <div data-testid="wf-map-peek-layers" className="wf-map-peek-pane">
+                      <div className="wf-map-peek-lay-row">
+                        <span className="wf-map-peek-lay-label">Show</span>
+                        <div className="wf-seg" role="group" aria-label="Map view">
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-view-heat"
+                            aria-pressed={heatView === 'heat'}
+                            onClick={() => setHeatView('heat')}
+                            className={`wf-seg-btn${heatView === 'heat' ? ' on' : ''}`}
+                          >
+                            Heat
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-view-pins"
+                            aria-pressed={heatView === 'pins'}
+                            onClick={() => setHeatView('pins')}
+                            className={`wf-seg-btn${heatView === 'pins' ? ' on' : ''}`}
+                          >
+                            <span aria-hidden="true">&#9677; </span>
+                            Pins
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        data-testid="wf-map-peek-lay-regions"
+                        className="wf-map-peek-lay-row wf-map-peek-lay-trigger"
+                        onClick={() => setOpenMapMenu('jump')}
+                      >
+                        <span className="wf-map-peek-lay-label">Regions</span>
+                        <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="wf-map-peek-lay-filters"
+                        className="wf-map-peek-lay-row wf-map-peek-lay-trigger"
+                        onClick={() => setOpenMapMenu('filters')}
+                      >
+                        <span className="wf-map-peek-lay-label">
+                          Filters{filterActiveCount > 0 && ` (${filterActiveCount})`}
+                        </span>
+                        <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
+                      </button>
+                      {heatOffered && unscoredLineShown && (
+                        <div data-testid="wf-map-peek-heat-unscored" className="wf-map-peek-lay-row">
+                          <span className="wf-map-peek-lay-label">{unscoredLineText}</span>
+                        </div>
+                      )}
+                      {heatOffered && heatOn && !windowUnscored && (
+                        <div
+                          data-testid="wf-map-peek-legend"
+                          className="wf-map-peek-lay-row"
+                          role="img"
+                          aria-label="Colour key: the field runs from Poor to Worth it"
+                        >
+                          <span className="wf-map-peek-lay-label">Legend</span>
+                          <span className="wf-map-peek-legend-scale">
+                            <span aria-hidden="true">Poor</span>
+                            <span
+                              aria-hidden="true"
+                              data-testid="wf-map-peek-legend-ramp"
+                              className="wf-map-key-ramp"
+                              style={{ background: rampGradientCss() }}
+                            />
+                            <span aria-hidden="true">Worth it</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                />
+              </>
+            )}
 
             {showColourScaleNotice && (
               <div
