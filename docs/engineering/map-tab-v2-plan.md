@@ -1294,7 +1294,7 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   drilldown was open (`handleOpenLocationSheet` focuses the pill before the handoff).
   `AppSettingsRoutes.test.jsx`. Reachability is taken from arm A's record here, not re-measured in a
   browser.
-  ⚠️ **`map-mobile-sheet-plan.md`'s peek sheet (M1–M6) is NOT a fourth arm of this item.** It is a
+  ⚠️ **`map-mobile-sheet-plan.md`'s `MapPeekSheet` (M1–M6; "peek sheet" there, and not the O-18 four-day *peek* this item's arm B is about) is NOT a fourth arm of this item.** It is a
   new in-frame `section`, not a `BottomSheet` — no portal, no backdrop, `role="region"` rather than
   `role="dialog"` — so it never registers as a foreign modal in the first place and paints inside
   `map-container`'s own stacking context like the rest of the in-frame chrome this item already
