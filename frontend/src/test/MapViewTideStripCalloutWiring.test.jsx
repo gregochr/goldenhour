@@ -3,14 +3,21 @@
  * Modelled directly on `MapViewSelectionOrdering.test.jsx`'s own scaffold (the fixture that gets a
  * real selection through to a mocked `MapCallout` probe) — this file's own concern is narrower and
  * orthogonal to that one: does `MapView` actually carry `MapTideStrip`'s `onHeightChange` report
- * into `MapCallout`'s `tideStripHeight` prop, through the ONE shared state both call sites (desktop/
- * tablet and phone, T7 #16) write to?
+ * into `MapCallout`'s `tideStripHeight` prop?
+ *
+ * <p>⚠️ **Desktop/tablet-only since map-mobile-sheet-plan.md §3 M3 task 5.** Through T7 there were
+ * TWO call sites sharing this state (desktop/tablet nested in `.wf-map-chrome-bl`, phone as its
+ * sibling) — M3 retires the phone mount outright, so `tideStripHeight` now has exactly one writer.
+ * On the phone `MapCallout`'s own band reads the peek sheet's fixed `--psh` instead (§5 D-7,
+ * unchanged code, wired at M2) — never a live-measured strip height, which is what this file's own
+ * phone-viewport test below proves: no `MapTideStrip` mounts at all, so the state this describe
+ * block is about never moves on that viewport, full stop.
  *
  * `MapCallout.test.jsx` pins that a CHANGING `tideStripHeight` prop actually retriggers that
  * component's own repaint; `MapTideStrip.test.jsx` pins that `onHeightChange` itself is called with
  * the right numbers on the right occasions. This file is the missing middle link: that `MapView`
- * really does connect the two, on both viewports, rather than merely being plausible from reading
- * the three files in isolation.
+ * really does connect the two on the ONE viewport that still has a mount, rather than merely being
+ * plausible from reading the three files in isolation.
  */
 import React from 'react';
 import {
@@ -76,10 +83,10 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
  * `ResizeObserver`/`offsetHeight` or a served tide fact to make the real component visible at all
  * (`MapTideStrip.test.jsx`/`MapTideStrip`'s own `onHeightChange` contract is pinned there, not
  * here — this file only proves `MapView` WIRES the callback through, the same division of labour
- * `MapViewBriefingScoreWiring.test.jsx` draws for `briefingScore`). Both `MapView` call sites (T7
- * #16, desktop/tablet nested in `.wf-map-chrome-bl` and phone as its sibling) render this SAME
- * mock — `mockIsMobile` below picks which one is actually on screen at a time, exactly as the real
- * `!isMobile`/`isMobile` JS guards do. */
+ * `MapViewBriefingScoreWiring.test.jsx` draws for `briefingScore`). ⚠️ **Only ONE `MapView` call
+ * site renders this mock since map-mobile-sheet-plan.md §3 M3 task 5** — the desktop/tablet mount
+ * nested in `.wf-map-chrome-bl`. The phone's own former sibling mount (T7 #16) is retired; on the
+ * phone `mockIsMobile` below picks a viewport where this mock never renders at all. */
 const tideStripCalls = [];
 vi.mock('../components/map/MapTideStrip.jsx', () => ({
   default: (props) => {
@@ -215,17 +222,19 @@ describe('MapView — tideStripHeight reaches MapCallout (T7 follow-up, Codex P1
     expect(calloutTideStripHeights.at(-1)).toBe(166);
   });
 
-  it('the phone MapTideStrip mount wires the identical onHeightChange — not a second, disconnected callback', async () => {
+  it('⚠️ M3: no MapTideStrip mounts on the phone at all any more — the peek sheet\'s Tide section replaced it, and MapCallout\'s phone band reads `--psh`, never this state', async () => {
     mockIsMobile = true;
     await renderMap();
     await selectTheSpot();
 
-    fireEvent.click(await screenFindProbe('probe-tide-strip'));
-
-    expect(calloutTideStripHeights.at(-1)).toBe(166);
+    // No probe to click — the assertion IS its absence. `tideStripHeight` therefore never leaves
+    // the null it started at (the first test above), which is the whole point of retiring the
+    // phone mount rather than merely leaving it unreachable.
+    expect(document.querySelectorAll('[data-testid="probe-tide-strip"]')).toHaveLength(0);
+    expect(calloutTideStripHeights.at(-1)).toBeNull();
   });
 
-  it('only ONE MapTideStrip mount is ever on screen at a time, on either viewport', async () => {
+  it('exactly ONE MapTideStrip mount exists on the desktop/tablet viewport — the phone caller is gone, not merely inert', async () => {
     await renderMap();
     expect(document.querySelectorAll('[data-testid="probe-tide-strip"]')).toHaveLength(1);
   });

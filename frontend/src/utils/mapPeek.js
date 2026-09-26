@@ -1,13 +1,25 @@
 import { EVENT_KIND } from './mapEvents.js';
 
 /**
- * The Map tab's phone peek sheet — pure logic only (map-mobile-sheet-plan.md §3 M2 task 3,
- * `docs/design/map-mobile-sheet/README.md` "Peek sheet").
+ * The Map tab's phone peek sheet — pure logic only (map-mobile-sheet-plan.md §3 M2 task 3, §3 M3
+ * task 4, `docs/design/map-mobile-sheet/README.md` "Peek sheet").
  *
  * <p>Everything here is a filter/map/select over already-served facts (CLAUDE.md's Backend-heavy
  * bullet, §4 #11 of the plan) — never a derived verdict, level or fit. `otherWindow` scans the
- * pill's own roster and the pill's own verdicts; it computes nothing about either.
+ * pill's own roster and the pill's own verdicts; it computes nothing about either. `tideSummary`
+ * joins two already-served words (the tide `state`, and — only for `MID` — its `direction`) with a
+ * client-tallied dimmed count that is itself already the strip's own licensed tally
+ * (`mapTideFit.stripModel.dimmed.length`, CLAUDE.md's Backend-heavy Map-tab class, §1 #12) — never a
+ * height, a threshold or a level it decides for itself.
  */
+
+/** `{High|Mid|Low}` — the same three-way vocabulary `windowFirstRows.js#STATE_WORD` states in full
+ *  sentences ("high water"/"mid tide"/"low water"), shortened to the peek button's single word
+ *  (design README "Peek row" table: `{High|Mid|Low}`, not the sentence-form phrase the strip/section
+ *  print elsewhere on the same screen — the button's own space is one line, 12.5px). A second,
+ *  narrower vocabulary rather than a substring of `STATE_WORD`'s own values, because "high water"
+ *  has no clean single-word prefix that isn't itself a different word ("high"). */
+const TIDE_STATE_LABEL = { HIGH: 'High', MID: 'Mid', LOW: 'Low' };
 
 /**
  * The "Other windows" peek button's value — the first row after the ACTIVE one whose tier is not
@@ -52,4 +64,30 @@ export function otherWindow(events, activeIndex, verdicts) {
  * `utils/mapVerdict.js#buildEvVerdicts` states for itself). */
 export function isNightRow(row) {
   return row?.kind !== EVENT_KIND.SOLAR;
+}
+
+/**
+ * The Tide peek button's own value line (map-mobile-sheet-plan.md §3 M3 task 4): the served tide
+ * state as one word, an arrow ONLY when the state is `MID` (a rising or falling mid-tide is the one
+ * state where "which way" changes what a reader does — a HIGH or LOW tide is a peak, not a trend, so
+ * neither carries an arrow, mirroring `TideWave`'s own "arrow only when there is a shortfall
+ * direction to draw" rule one level up), and the strip's own dimmed-count clause, omitted entirely
+ * at zero rather than printed as "· 0 dim" (a count of nothing is not a fact worth stating on an
+ * 11.5px line).
+ *
+ * @param {?{state: ?('HIGH'|'MID'|'LOW'), direction: ?('RISING'|'FALLING')}} tide the window's own
+ *   served tide rollup — the SAME shape `MapTideStrip`/`MapPeekTideSection` already read
+ * @param {number} [dimmedCount=0] `mapTideFit.stripModel(...).dimmed.length` — the strip's own
+ *   licensed tally, never re-counted here
+ * @returns {?string} null when there is no served tide state at all (the caller should not have
+ *   mounted the button in that case — `stripModel.visible` already gates it)
+ */
+export function tideSummary(tide, dimmedCount = 0) {
+  const label = TIDE_STATE_LABEL[tide?.state];
+  if (!label) return null;
+  const arrow = tide.state === 'MID'
+    ? (tide.direction === 'RISING' ? ' ↑' : tide.direction === 'FALLING' ? ' ↓' : '')
+    : '';
+  const dim = dimmedCount > 0 ? ` · ${dimmedCount} dim` : '';
+  return `${label}${arrow}${dim}`;
 }

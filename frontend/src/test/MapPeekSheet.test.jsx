@@ -111,10 +111,10 @@ describe('MapPeekSheet — the peek row: presses, aria-expanded, the CLOSE key s
     expect(ref.current).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
   });
 
-  it('⚠️ M2 task 2: renders NO Tide button at all — a released control must never open an empty panel', () => {
+  it('⚠️ M2 task 2: renders NO Tide button at all when its gate is not passed — a released control must never open an empty panel', () => {
     render(<MapPeekSheet section={null} onPressWindows={() => {}} onPressLayers={() => {}} />);
-    // Exactly the peek row's two buttons, never a third — the Tide button and its section arrive
-    // at M3, gated on `stripModel.visible`; withheld outright here, not merely hidden or disabled.
+    // Exactly the peek row's two buttons, never a third, with neither `tideVisible` nor
+    // `onPressTide` supplied — the default, withheld shape every caller starts from.
     expect(screen.getAllByRole('button')).toHaveLength(2);
     expect(screen.queryByText(/tide/i)).not.toBeInTheDocument();
   });
@@ -132,6 +132,97 @@ describe('MapPeekSheet — the peek row: presses, aria-expanded, the CLOSE key s
 
     rerender(<MapPeekSheet section={null} onPressWindows={() => {}} onPressLayers={() => {}} />);
     expect(screen.getByTestId('wf-map-peek-btn-win')).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+describe('MapPeekSheet — the Tide button (map-mobile-sheet-plan.md §3 M3 task 4)', () => {
+  it('is absent when `onPressTide` is given but `tideVisible` is false — the gate, not merely the handler, controls presence', () => {
+    render(
+      <MapPeekSheet
+        section={null} onPressWindows={() => {}} onPressLayers={() => {}}
+        onPressTide={() => {}} tideVisible={false}
+      />,
+    );
+    expect(screen.queryByTestId('wf-map-peek-btn-tide')).not.toBeInTheDocument();
+  });
+
+  it('is absent when `tideVisible` is true but `onPressTide` is null — never a button with nothing to press', () => {
+    render(
+      <MapPeekSheet
+        section={null} onPressWindows={() => {}} onPressLayers={() => {}}
+        tideVisible
+      />,
+    );
+    expect(screen.queryByTestId('wf-map-peek-btn-tide')).not.toBeInTheDocument();
+  });
+
+  it('renders with a FIXED key ("TIDE AT THIS LIGHT") that never swaps to CLOSE, even while its own section is open', () => {
+    const onPressTide = vi.fn();
+    const { rerender } = render(
+      <MapPeekSheet
+        section={null} onPressWindows={() => {}} onPressLayers={() => {}}
+        onPressTide={onPressTide} tideVisible
+        tideButtonContent="High"
+      />,
+    );
+    const btn = screen.getByTestId('wf-map-peek-btn-tide');
+    expect(btn.textContent).toContain('TIDE AT THIS LIGHT');
+    expect(btn).toHaveAttribute('aria-expanded', 'false');
+    expect(btn).toHaveAttribute('aria-controls', 'wf-map-peek-body');
+    fireEvent.click(btn);
+    expect(onPressTide).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <MapPeekSheet
+        section="tide" onPressWindows={() => {}} onPressLayers={() => {}}
+        onPressTide={onPressTide} tideVisible
+        tideButtonContent="High"
+      />,
+    );
+    const openBtn = screen.getByTestId('wf-map-peek-btn-tide');
+    expect(openBtn.textContent).toContain('TIDE AT THIS LIGHT');
+    expect(openBtn).toHaveAttribute('aria-expanded', 'true');
+    expect(openBtn.className).toContain('wf-map-peek-btn-on');
+  });
+
+  it('renders the tideButtonContent value line', () => {
+    render(
+      <MapPeekSheet
+        section={null} onPressWindows={() => {}} onPressLayers={() => {}}
+        onPressTide={() => {}} tideVisible
+        tideButtonContent="Mid ↑ · 6 dim"
+      />,
+    );
+    expect(screen.getByTestId('wf-map-peek-btn-tide')).toHaveTextContent('Mid ↑ · 6 dim');
+  });
+
+  it('the Tide body renders only while section is "tide", never alongside the Windows/Layers bodies', () => {
+    render(
+      <MapPeekSheet
+        section="tide" onPressWindows={() => {}} onPressLayers={() => {}}
+        onPressTide={() => {}} tideVisible
+        tideBody={<div data-testid="tide-body" />}
+        windowsBody={<div data-testid="win-body" />}
+        layersBody={<div data-testid="lay-body" />}
+      />,
+    );
+    expect(screen.getByTestId('tide-body')).toBeInTheDocument();
+    expect(screen.queryByTestId('win-body')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lay-body')).not.toBeInTheDocument();
+  });
+
+  it('attaches `tideButtonRef` to the Tide button and `windowsButtonRef` to the Other windows button', () => {
+    const tideButtonRef = React.createRef();
+    const windowsButtonRef = React.createRef();
+    render(
+      <MapPeekSheet
+        section={null} onPressWindows={() => {}} onPressLayers={() => {}}
+        onPressTide={() => {}} tideVisible
+        tideButtonRef={tideButtonRef} windowsButtonRef={windowsButtonRef}
+      />,
+    );
+    expect(tideButtonRef.current).toBe(screen.getByTestId('wf-map-peek-btn-tide'));
+    expect(windowsButtonRef.current).toBe(screen.getByTestId('wf-map-peek-btn-win'));
   });
 });
 

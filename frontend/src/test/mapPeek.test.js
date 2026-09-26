@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { otherWindow, isNightRow } from '../utils/mapPeek.js';
+import {
+  otherWindow, isNightRow, tideSummary,
+} from '../utils/mapPeek.js';
 
 /**
- * `utils/mapPeek.js`'s pure logic (map-mobile-sheet-plan.md §3 M2 task 3). `otherWindow`'s four
- * named cases: forward non-Poor, wrap, all-Poor fallback, night row.
+ * `utils/mapPeek.js`'s pure logic (map-mobile-sheet-plan.md §3 M2 task 3, §3 M3 task 4).
+ * `otherWindow`'s four named cases: forward non-Poor, wrap, all-Poor fallback, night row.
+ * `tideSummary`'s own named cases: High (no arrow), Mid rising/falling (arrow), the dimmed-count
+ * clause at N > 0, and its absence at N = 0.
  */
 
 function row(id, kind = 'solar') {
@@ -82,5 +86,38 @@ describe('isNightRow', () => {
   it('is true for a null/undefined row-ish input rather than throwing', () => {
     expect(isNightRow(null)).toBe(true);
     expect(isNightRow(undefined)).toBe(true);
+  });
+});
+
+describe('tideSummary (map-mobile-sheet-plan.md §3 M3 task 4)', () => {
+  it('High — no arrow, whatever the direction', () => {
+    expect(tideSummary({ state: 'HIGH', direction: 'FALLING' }, 0)).toBe('High');
+  });
+
+  it('Low — no arrow, whatever the direction', () => {
+    expect(tideSummary({ state: 'LOW', direction: 'RISING' }, 0)).toBe('Low');
+  });
+
+  it('Mid, rising — an up arrow', () => {
+    expect(tideSummary({ state: 'MID', direction: 'RISING' }, 0)).toBe('Mid ↑');
+  });
+
+  it('Mid, falling — a down arrow', () => {
+    expect(tideSummary({ state: 'MID', direction: 'FALLING' }, 0)).toBe('Mid ↓');
+  });
+
+  it('the dimmed-count clause appears only when N > 0', () => {
+    expect(tideSummary({ state: 'HIGH', direction: 'FALLING' }, 6)).toBe('High · 6 dim');
+    expect(tideSummary({ state: 'MID', direction: 'RISING' }, 6)).toBe('Mid ↑ · 6 dim');
+  });
+
+  it('no chip at 0 — omitted entirely, never "· 0 dim"', () => {
+    expect(tideSummary({ state: 'HIGH', direction: 'FALLING' }, 0)).toBe('High');
+    expect(tideSummary({ state: 'HIGH', direction: 'FALLING' })).toBe('High');
+  });
+
+  it('null when there is no served tide state at all', () => {
+    expect(tideSummary(null, 3)).toBeNull();
+    expect(tideSummary({ state: null }, 3)).toBeNull();
   });
 });
