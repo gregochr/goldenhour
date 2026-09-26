@@ -73,7 +73,11 @@ session never pushes.
 > (§4 #3); the last row is the drilldown door (§4 #4); Layers carries Show / Regions / Filters /
 > Legend, and Regions/Filters open their existing phone `BottomSheet`s with the peek collapsing by
 > exclusivity (§4 #5). Map-touch collapse is a `useMapEvents` child on Leaflet's `mousedown` /
-> `touchstart` / `dragstart` / `zoomstart` — **not** `useOutsideDismiss` (§1 #11). `.wf-map-chrome-tr`
+> `touchstart` / `dragstart` / `zoomstart` — **not** `useOutsideDismiss` (§1 #11) — AND the shared
+> `selectMapLocation` path, because chips and pins stop click propagation (M2 task 7; test a chip,
+> a pin and a drag). The pill override carries popup semantics (`aria-controls`/`aria-expanded` on
+> the peek body, no listbox popup type — task 4). The Regions/Filters hosts restore focus to the
+> Layers peek button on close (task 6). No safe-area term on the sheet (task 1). `.wf-map-chrome-tr`
 > is not rendered on the phone. Rewrite the phone lifted-stack literals and `mapPhoneChromeCascade
 > .test.jsx` (§1 #1) — never delete it. Publish `--psh: 74px` and point the callout's phone band at
 > it, and make a peek press clear the selection on the phone so the callout and an open sheet never

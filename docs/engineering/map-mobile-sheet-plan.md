@@ -294,9 +294,11 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
    motion), the handle row (14 px, 36 × 4 bar, `--color-plex-border-light`), the peek row
    (`.wf-peek-row`, `gap: 6px; padding: 0 10px 10px`) and the body (`.wf-peek-body`, `border-top:
    1px solid --color-plex-border; padding: 4px 14px 14px; overflow: auto`, rendered only when open).
-   Bottom padding adds `env(safe-area-inset-bottom, 0px)` inside `index.css`'s existing *Safe
-   areas* block (~253–275), whose rule is that every entry is a no-op at zero inset — the bottom
-   inset is already live there, so this is the convention, not a new opt-in. Props:
+   **No safe-area term of its own**: the app root already carries `.app-safe`, and `index.css`
+   ~307–310 records that absolute chrome inside the map frame already sits above that root padding
+   — a second inset would double it on the devices that have one and squeeze 104 px of handle,
+   buttons and padding into the 74 px box (a Codex finding on M0 against this plan's first cut,
+   which had added one). Props:
    `{ section: null | 'win' | 'tide' | 'lay', onSectionChange, windows, tide, layers }` where the
    three are render-props/slots — the sheet owns no data.
 2. **Peek buttons** (`.wf-peek-btn`, 46 px tall, `border: 1px solid --color-plex-border`, radius
@@ -318,7 +320,13 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
    cuts) is a computed-style assertion, not a visual one.
 4. **State**: `openMapMenu` gains `'peek:win' | 'peek:tide' | 'peek:lay'` (§5 D-1). On phone,
    `WindowControl` receives an `onPillPress` override so the pill body toggles `'peek:win'` instead
-   of the listbox (rule 5) — the `‹ ›` steps are untouched. `handleMapPaneKeyDown`'s third rung
+   of the listbox (rule 5) — the `‹ ›` steps are untouched. ⚠️ The override carries the pill's
+   **popup semantics with it** (a Codex finding on M0): today the pill advertises
+   `aria-haspopup="listbox"`, `aria-controls="wf-win-listbox"` and derives `aria-expanded` from
+   its listbox `open` prop, all of which would be false claims on the phone. The override is a
+   small contract — `{ onPress, expanded, controlsId }` — under which the pill drops the listbox
+   popup type, points `aria-controls` at `wf-peek-body`, and reads `aria-expanded` from whether
+   `'peek:win'` is open; tested on the real pill on both viewports. `handleMapPaneKeyDown`'s third rung
    (close `openMapMenu`) already collapses the sheet; `foreignModalOver` already stands it down.
 5. **Windows section**: heading = `landingCardModel(...).header` (§4 #2) in 16 px / 700; rows =
    the pill's roster (`events`), each ≥ 48 px, 1 px divider, the pill's own `KindChip` (a
@@ -343,12 +351,25 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
    down by the very press that opens its sheet. On the phone both components are mounted **once,
    in the pane, outside the sheet**, with their chips hidden (`chipHidden` prop, or an equivalent
    split of trigger from sheet — the session decides, and the test is that the sheet is in the DOM
-   after the Layers row is pressed); the Layers rows are plain buttons. `.wf-map-chrome-tr` is
+   after the Layers row is pressed); the Layers rows are plain buttons. ⚠️ **Focus after the
+   swap** (a Codex finding on M0): the Layers row that opened Regions/Filters is unmounted in the
+   same commit the `BottomSheet` opens, so `useDialogFocus`'s passive capture of
+   `document.activeElement` finds `<body>` and a close would return the reader to the top of the
+   document. The two hosts are therefore given an explicit **restore target — the Layers peek
+   button**, which stays mounted while the sheet is collapsed (`BottomSheet`/`useDialogFocus` gain
+   a `restoreFocusTo` ref prop, or the host's `onClose` focuses it — the session picks the smaller
+   change and pins open-by-keyboard → close → focus on the Layers button). `.wf-map-chrome-tr` is
    **not rendered on phone**; its desktop mount is unchanged.
 7. **Map-touch collapse**: `SheetDismissOnMapTouch` — a `useMapEvents` child inside `MapContainer`
    (only when `isMobile`) on `mousedown`, `touchstart`, `dragstart`, `zoomstart` → if
    `openMapMenu` starts with `'peek:'`, set `null` (rule 4; §1 #11 says why not
    `useOutsideDismiss`). Presses inside the sheet never reach Leaflet, so they do not close it.
+   ⚠️ **That listener alone is not enough** (a Codex finding on M0): `MapLabels.jsx` (~263) and
+   `PinsLayer.jsx` (~198) both call `L.DomEvent.disableClickPropagation` and their buttons call
+   `selectMapLocation` directly, so a chip or pin press never reaches the map listener. The
+   collapse is therefore ALSO wired into the shared selection path — `selectMapLocation` on the
+   phone sets `openMapMenu` to `null` when it holds a `'peek:'` value — and the test covers a Heat
+   chip press and a Pins button press as well as a Leaflet `dragstart`.
 8. **Lifted stack**: with the bar gone, rewrite the phone block's literals — attribution
    `padding-bottom` clears 74 px, the counts footer is **hidden on phone** (§4 #10), the upsell chip
    in `.wf-map-chrome-bl` sits at `bottom: calc(74px + 8px)`, the tide strip's phone rule stays for
@@ -647,8 +668,9 @@ Branch `feature/map-mobile-sheet-m6-sweep`; slug `map-mobile-sheet-m6-sweep`, he
   "not a mode"). A saved Off on the phone has no desktop effect. Record or extend.
 - **Q5 — The 8.5 px key labels.** Below the app's smallest existing mono size; the accessibility
   lens at M2 measures them. If they fail AA at ink-2 the fix is 9 px, not a different alpha.
-- ~~Q6 — Safe-area inset.~~ **Settled at planning**: `index.css` already carries a *Safe areas*
-  block with the bottom inset live and a no-op-at-zero rule; the sheet joins it (§3 M2 task 1).
+- ~~Q6 — Safe-area inset.~~ **Settled at planning**: the app root's `.app-safe` already carries the
+  bottom inset and `index.css` ~307–310 says in-frame map chrome needs no term of its own; the
+  sheet adds none (§3 M2 task 1).
 
 ---
 
