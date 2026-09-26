@@ -162,7 +162,9 @@ session never pushes.
 > older one, a response applied only if it answers the newest request (§3 M4 task 4, a Codex
 > finding on M0); reuse `createColourSaveQueue`'s mechanics if the generalisation is small,
 > otherwise a sibling line with the same rules, and pin it with the held-first-request test (hold
-> the first save, queue several newer choices, resolve, only the newest goes out and wins).
+> the first save, queue several newer choices, resolve, only the newest goes out and wins) AND the
+> baseline test (first save succeeds, newest fails, shown and recorded value are the first save's
+> mode — the line records every successful persisted mode as the rollback baseline, M4 task 4).
 > CLAUDE.md's API section gains the endpoint beside `map-colours`. No UI.
 >
 > Tests per §3 M4 (service: three valid, invalid and null → 400, writes through the column-scoped
@@ -199,7 +201,8 @@ session never pushes.
 > button renders iff the rule; an open Tide section closes in the same render the rule turns false,
 > with focus rescued to the Other windows button. The pulse plays once on a false → true transition
 > after mount, never on mount, never under reduced motion. The Layers Tide segment (Auto | Always |
-> Off, 220 × 36) saves through the hook's serialised `saveTideMode` and reverts on failure with the
+> Off, 220 × 36) saves through the hook's serialised `saveTideMode` and on failure reverts to the
+> line's last successfully persisted mode (M4's baseline, never a queued-unsent choice) with the
 > pane's `role="status"` line. Off does **not** touch `TideFitBlock` (§4 #13). Desktop: no change of
 > any kind — `data-tide` still present on a Poor window whatever the saved mode.
 >

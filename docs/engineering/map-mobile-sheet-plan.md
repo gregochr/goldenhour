@@ -496,7 +496,13 @@ with M2/M3** (disjoint files); merge `origin/main` in before push, never rebase.
    shape (a Codex finding on M0 against this plan's earlier "older request resolves last" wording,
    which a strict one-at-a-time line makes impossible): hold the first save unresolved, assert it
    alone is in flight, queue several newer choices, resolve it, and assert that only the newest
-   queued choice is sent and becomes the stored and shown value.
+   queued choice is sent and becomes the stored and shown value. **And the line records every
+   successful persisted mode as the rollback baseline** (the colour line's `saved`; a Codex finding
+   on M0): with `always` in flight and `off` then `auto` queued, only `always` and `auto` are sent —
+   if `always` lands and `auto` fails, the server holds `always`, and a revert to `off` (never sent)
+   or to the pre-session value would leave the UI and the server divergent. Second test: first save
+   succeeds, newest fails, and the shown value AND the hook's record both read the first save's
+   mode.
    ⚠️ **The hook has ONE instance, owned by `App.jsx`** (a Codex finding on M0): `mapColourScale`
    reaches the map as props, `App` → `WindowFirstMapPane` (~584) → `MapView`, and `mapTideMode` +
    `saveTideMode` take the **same route in this phase** (threaded, unread by any UI until M5), so
@@ -563,7 +569,9 @@ view; Tide mode auto / always / off`. Depends on M2, M3, M4.
    Maybe or better and the coast is in view.` A press goes through the hook's serialised
    `saveTideMode` (M4 task 4 — one save in flight, newest press wins, stale responses ignored),
    which `MapView` receives as a prop from `App` through `WindowFirstMapPane` (M4 wired it; M5 reads
-   it — never a second `useReaderSettings` call); the segment moves at once, and a failed save reverts and announces in the pane's existing
+   it — never a second `useReaderSettings` call); the segment moves at once, and a failed save
+   reverts to the line's **last successfully persisted mode** (M4's baseline — never to a queued
+   choice that was never sent, never to the pre-session value) and announces in the pane's existing
    `role="status"` line.
 5. The callout's and the location sheet's `TideFitBlock` are **untouched** by Off (§4 #13, and
    §6 Q2 for the owner).
