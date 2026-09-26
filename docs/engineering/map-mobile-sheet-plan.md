@@ -746,7 +746,7 @@ Branch `feature/map-mobile-sheet-m6-sweep`; slug `map-mobile-sheet-m6-sweep`, he
 
 | phase | size | depends on | parallel with |
 |---|---|---|---|
-| M1 quiet start | S | — | M4 **Adversarial review (five read-only lenses, run by the orchestrator after the session's own review stalled at one): three confirmed findings, all fixed before the commit landed** — (1) `openDrilldown` calls `dismissLanding` unconditionally and the pill menu's drilldown row renders on every viewport, so the phone COULD write `mapLandingSeenRun` (§5 D-3 broken by a route the session's tests never pressed); `dismissLanding` now returns at once on the phone and a test presses `wf-win-more`; (2) the fade timer was keyed on the window alone, so a toast whose gate opened > 3 s after mount (a slow briefing load) was born with the class applied — the effect now keys on a single `toastShown` gate shared with the render, and a rerender-after-5-s test pins it; (3) an unmount-before-3-s cleanup test was missing. **Browser (390 × 844 and 1280 × 900, §9 fixture with a Worth-it tonight and a Poor tomorrow morning, SEEN AND MEASURED)**: phone — no `.wf-land`, `mapLandingSeenRun` null after the tab mount, toast at `top` 62 px in-frame, centred to the pixel, one line 26.5 px tall (it had wrapped to three lines, 43 px — fixed with the design's own `white-space: nowrap`, pinned in the cascade test), opacity 0 with `aria-hidden` and `pointer-events: none` after 3 s; desktop — landing card open (`Tonight, or tomorrow?`), toast standing bottom-right (8 px / 54 px gaps), no class, no fade. |
+| M1 quiet start | S | — | M4 |
 | M2 sheet + Windows + Layers | L | M1 (toast/lifted stack) | M4 |
 | M3 Tide section | M/L | M2 | M4 |
 | M4 Tide mode setting (backend) | S/M | — | M1, M2, M3 |
