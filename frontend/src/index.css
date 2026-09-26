@@ -3937,10 +3937,10 @@ button.wf-hc.also.on:hover {
      own rect spans the FULL frame width, so ANYTHING sharing its row collides with it regardless
      of that thing's own horizontal position or width. That single fact is what shapes everything
      below: attribution gets a row to itself, and every other lifted element stacks in its own row
-     above it, never sharing a row with any of the other three (the viewline-upsell chip's own
+     above it, never sharing a row with any of the others (the viewline-upsell chip's own
      text — "Aurora viewline available — upgrade to Pro" — is long enough at 11px to approach the
-     frame's own width, so even the counts footer and the scored-legend chip, on opposite sides of
-     the frame from it, cannot be assumed clear without their own measured rects).
+     frame's own width, so even the counts footer, on the opposite side of the frame from it,
+     cannot be assumed clear without its own measured rect).
 
      Rows, bottom-to-top, each `>= ` the row below's own top edge (bottom + height) plus an 8px
      clearance gap — `mapPhoneChromeCascade.test.jsx`'s "THE SWEEP" describe pins the full pairwise
@@ -3949,13 +3949,19 @@ button.wf-hc.also.on:hover {
        Bar                        bottom  8px, height  48px (assumed) → top  56px
        Attribution (full width)   bottom 76px, height  27px (measured)→ top 103px  (clears bar by 20px)
        Counts footer (centred)    bottom 112px, height  28px (assumed)→ top 140px  (clears attribution by 9px)
-       Scored-locations chip      bottom 152px, height  26px (measured)→ top 178px (clears footer by 12px)
-       LITE viewline-upsell chip  bottom 192px, height  28px (assumed)→ top 220px  (clears the chip by 14px)
+       LITE viewline-upsell chip  bottom 192px, height  28px (assumed)→ top 220px  (clears the footer by 52px)
      Total stack reaches 220px up from the frame's bottom edge on a 780px-tall frame — comfortably
      clear of the window control at the TOP (well under the frame's own mid-line), so this does not
      reopen the "no page scroll" contract: every element here is `position: absolute` and was
      already removed from flow before this phase, so a taller stack changes nothing about the
-     frame's own box, only where within it these five chips paint. */
+     frame's own box, only where within it these chips paint.
+
+     ⚠️ **The scored-locations chip's own row (`bottom: 152px`, measured 26px tall) LEFT this stack
+     at M1** (map-mobile-sheet-plan.md §3 M1 task 2) — it moved to a fixed `top: 62px`, independent
+     of everything below, so the measured rect and the original PR #741 collision this comment
+     records are history rather than a live row any more; the arithmetic above reflects the four
+     rows that remain. See the phone-toast note beside `.wf-map-scored-legend`, further down this
+     block, for the retirement itself. */
   .wf-map-tab .wf-map-counts-footer {
     bottom: 112px;
   }
@@ -3970,13 +3976,31 @@ button.wf-hc.also.on:hover {
     bottom: 192px;
   }
 
-  /* The scored-locations chip (`photocast-scored-legend`) — PR #741 review found it colliding
-     with the bar; the live-measurement review above then found it colliding with the ATTRIBUTION
-     control once both were lifted to the same row. Given its own row instead — not hidden or
-     folded into the counts footer, since its text ("★ PhotoCast-scored locations shown") is not
-     duplicated anywhere else on the phone. */
+  /* The scored-locations chip / toast (`photocast-scored-legend`) — PR #741 review found it
+     colliding with the bar; the live-measurement review above then found it colliding with the
+     ATTRIBUTION control once both were lifted to the same row. **M1 (map-mobile-sheet-plan.md §3
+     M1 task 2) moves it out of the lifted stack entirely** rather than re-tuning its row in it: the
+     design's Frame section puts it at a fixed `top: 62px`, centred, independent of the bar/strip/
+     footer arithmetic below — so it is no longer one of THE SWEEP's pairwise candidates
+     (`mapPhoneChromeCascade.test.jsx`), and `bottom`/`right` are explicitly cleared so this query
+     fully owns the phone position rather than only amending the Tailwind `bottom-2 right-[54px]`
+     utilities the element also carries. It fades 3 s after `MapView.jsx`'s own `|date|eventType|`
+     key last changed (`wf-map-scored-legend-gone`, set via a `useEffect` with cleanup — never CSS
+     alone, since the class has to survive a window change resetting the clock). */
   .wf-map-tab .wf-map-scored-legend {
-    bottom: 152px;
+    top: 62px;
+    left: 50%;
+    bottom: auto;
+    right: auto;
+    transform: translateX(-50%);
+    transition: opacity 0.5s ease;
+    /* The design's own toast rule is `white-space: nowrap`; centred at 390px the pill otherwise
+       wrapped to three lines (measured in the browser at M1 — 43px tall). */
+    white-space: nowrap;
+  }
+  .wf-map-tab .wf-map-scored-legend-gone {
+    opacity: 0;
+    pointer-events: none;
   }
 
   /* Leaflet's own attribution control (PR #741 review, then the live-measurement review above) —
@@ -4046,14 +4070,35 @@ button.wf-hc.also.on:hover {
   /* Everything that used to clear the FOOTER's own assumed ~28px height now clears the STRIP's
      real one instead (`--tsh`, T6 #6) — open and collapsed are roughly 4x apart (T6's own
      1280x800 measurement: 167px vs 38px), so a fixed offset is wrong for one of the two states by
-     construction, the same argument that made `--tsh` exist in the first place (§7 check 4). Both
-     rows keep the SAME 26px/14px figures and the same ≥8px-clearance shape the pre-existing,
-     strip-off chain above already used (footer → scored-legend → chrome-bl), re-anchored onto the
-     strip's own bottom + real height rather than the footer's assumed one, so the stack's spacing
-     is byte-identical to before whenever there is no strip to displace the footer with. */
-  .wf-map-tab.wf-tide-strip-on .wf-map-scored-legend {
-    bottom: calc(112px + var(--tsh, 120px) + 12px);
-  }
+     construction, the same argument that made `--tsh` exist in the first place (§7 check 4). This
+     row keeps the SAME 26px/14px figures and the same ≥8px-clearance shape the pre-existing,
+     strip-off chain above already used (footer → chrome-bl), re-anchored onto the strip's own
+     bottom + real height rather than the footer's assumed one, so the stack's spacing is
+     byte-identical to before whenever there is no strip to displace the footer with.
+
+     ⚠️ **The scored-legend chip left this chain at M1** (map-mobile-sheet-plan.md §3 M1 task 2/
+     §1 #4) — it is no longer bottom-anchored at all (it moved to a fixed `top: 62px`, above), so a
+     `.wf-tide-strip-on`-scoped `bottom` override for it would have OUTRANKED the base rule's own
+     `bottom: auto` on specificity alone (three classes vs two) and re-introduced a `bottom` value
+     alongside the base rule's `top` — over-constraining the box (`height: auto` with both `top`
+     and `bottom` set stretches it to fill the gap between them, rather than sizing to content).
+     Retired outright rather than left for M3 to find, since it would otherwise misposition the
+     toast on every render where the tide strip happens to be visible. `mapPhoneChromeCascade
+     .test.jsx` pins its absence.
+
+     ⚠️ **The rule immediately below THIS comment is therefore now resting on an orphaned
+     premise, on purpose, until M2/M3 rewrite it.** Its own last two terms — `+ 26px + 14px` —
+     are not a free-standing clearance figure; they ARE (were) "the scored-legend chip's own
+     measured height, plus the gap above it", the exact two numbers this file used to chain
+     footer → scored-legend → chrome-bl before M1. With the scored-legend chip gone from the
+     chain, this formula still clears the strip by construction (it is a pure sum of positive
+     terms, so it can only ever clear MORE than the strip's real top, never less) — but do not
+     read the `26px + 14px` tail as still describing a real intermediate row; it is a fossil.
+     M2 task 8 rewrites `.wf-map-chrome-bl`'s BASE literal wholesale, and M3 task 5 deletes this
+     whole `wf-tide-strip-on` rule outright — neither is obligated to preserve these two numbers,
+     and a session copying them forward as if they still meant something would be copying a
+     fossil. `mapPhoneChromeCascade.test.jsx`'s own "chrome-bl clears the strip's REAL height…"
+     describe block carries the identical warning next to its own reading of this formula. */
   .wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl {
     bottom: calc(112px + var(--tsh, 120px) + 12px + 26px + 14px);
   }
@@ -9603,6 +9648,14 @@ button.wf-mchip:hover {
   .wf-wsh-pick,
   .window-pick-action,
   .window-pick-close { transition: none; }
+}
+/* The scored-locations toast's phone fade (map-mobile-sheet-plan.md §3 M1 task 2) — its
+   `transition: opacity .5s` only ever exists inside the `@media (max-width: 639px)` block above
+   (there is no desktop transition to drop), so a reader on a narrow viewport who has asked for
+   reduced motion still gets the toast disappearing — just without the half-second fade — the same
+   "keep the state change, drop the animation" rule this file applies everywhere else. */
+@media (prefers-reduced-motion: reduce) {
+  .wf-map-tab .wf-map-scored-legend { transition: none; }
 }
 /* The topic pills take the channel as INK on the neutral badge, which is the matrix card's own
    treatment for the same words — a filled chip per channel here would put five fills in a header
