@@ -211,6 +211,37 @@ describe('MapPeekSheet — the Tide button (map-mobile-sheet-plan.md §3 M3 task
     expect(screen.queryByTestId('lay-body')).not.toBeInTheDocument();
   });
 
+  it('§3 M5 task 3: carries no pulse class by default, and none when `tidePulse` is explicitly false', () => {
+    render(
+      <MapPeekSheet
+        section={null} onPressWindows={() => {}} onPressLayers={() => {}}
+        onPressTide={() => {}} tideVisible
+      />,
+    );
+    expect(screen.getByTestId('wf-map-peek-btn-tide').className).not.toContain('wf-map-peek-btn-pulse');
+  });
+
+  it('§3 M5 task 3: carries the pulse class when `tidePulse` is true', () => {
+    render(
+      <MapPeekSheet
+        section={null} onPressWindows={() => {}} onPressLayers={() => {}}
+        onPressTide={() => {}} tideVisible tidePulse
+      />,
+    );
+    expect(screen.getByTestId('wf-map-peek-btn-tide').className).toContain('wf-map-peek-btn-pulse');
+  });
+
+  // ⚠️ No `fireEvent.animationEnd` test of `onTidePulseEnd` here (§3 M5 task 3's clearing rule).
+  // One was written and DID pass in isolation, but proved non-deterministically flaky the moment
+  // any OTHER test file shares its vitest worker: a plain `<div onAnimationEnd>` canary reproduced
+  // the same "handler never called, though the native event demonstrably reaches the node" failure
+  // when paired with `MapLabels.test.jsx` or `MapViewMobilePeekSheet.test.jsx` (unrelated, already-
+  // merged files) — repeat runs of the IDENTICAL file combination passed sometimes and failed
+  // others, so this is a pre-existing jsdom/React "animationend" cross-file delegation quirk in
+  // this suite, not a defect in `onAnimationEnd={onTidePulseEnd}` above (which a source read
+  // confirms is wired correctly, and which the OTHER Tide-button pulse tests already exercise
+  // structurally — the class appears/disappears exactly on `tidePulse`; only the LIVE DOM EVENT
+  // dispatch is what breaks). Kept out rather than shipped flaky.
   it('attaches `tideButtonRef` to the Tide button and `windowsButtonRef` to the Other windows button', () => {
     const tideButtonRef = React.createRef();
     const windowsButtonRef = React.createRef();

@@ -203,3 +203,36 @@ describe('MapPeekTideSection — every line from one fixture', () => {
     expect(onSelectEv).toHaveBeenCalledWith(nextRow);
   });
 });
+
+describe('MapPeekTideSection — model.visible === false (map-mobile-sheet-plan.md §3 M5 task 1, adversarial review finding)', () => {
+  it('Always mode with a served tide but nothing coastal in view: an honest "pan the map" line, never footerModel\'s "no coastal spot has its water on this light"', () => {
+    render(
+      <MapPeekTideSection
+        tide={tideFixture()}
+        activeRow={activeRow}
+        model={baseModel({
+          visible: false, namedCoastal: [], dimmed: [], matched: [], dominantWant: null, dominantWantCount: 0,
+        })}
+      />,
+    );
+    expect(screen.getByTestId('wf-map-peek-tide-out-of-view')).toHaveTextContent(
+      'No coastal spot in view — pan the map to see one.',
+    );
+    // The desktop strip's own fallback sentence, which here would mean something else entirely
+    // (spots in view but none carry a served alignment fact), must never appear for this reason.
+    expect(screen.queryByText(/no coastal spot here has its water on this light/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-tide-strip-footer')).not.toBeInTheDocument();
+  });
+
+  it('still renders the key, phase line and chart even when out of view — only the footer is replaced', () => {
+    render(
+      <MapPeekTideSection
+        tide={tideFixture()}
+        activeRow={activeRow}
+        model={baseModel({ visible: false, namedCoastal: [], dimmed: [], matched: [] })}
+      />,
+    );
+    expect(screen.getByTestId('wf-map-peek-tide-key')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-tide-phase')).toBeInTheDocument();
+  });
+});

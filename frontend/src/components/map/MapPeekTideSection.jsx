@@ -37,6 +37,21 @@ import {
  * that survives the transition is the peek button that opened it. `focusTargetRef` is handed
  * straight to `TideStripFooter`'s own `focusAfterJump`, focused BEFORE `onSelectEv` runs (the same
  * order the strip's own `focusStrip` uses) so a fast reader never sees a gap.
+ *
+ * <p>⚠️ <b>`model.visible` is checked BEFORE `TideStripFooter` renders, and this section is the
+ * one caller of it that must</b> (found in M5's adversarial review). On the desktop strip
+ * `footerModel`'s own "no coastal spot here has its water on this light" fallback (its third
+ * branch, `namedCoastal`/`dimmed`/`matched` all empty) can only mean "spots are in view but none
+ * carry a served alignment fact", because the desktop strip's own mount is gated on
+ * `stripModel.visible` — reaching that fallback with an EMPTY viewport was structurally
+ * impossible there. Always mode (§3 M5 task 1) breaks that structural guarantee on purpose — it
+ * ignores the coast-in-view test so a served tide still shows on a panned-away Poor window — so
+ * this section can now open with `namedCoastal.length === 0` (nothing in the padded viewport at
+ * all), which would print the IDENTICAL "no coastal spot here has its water on this light"
+ * sentence for a completely different reason: not "wrong water", but "nothing to look at yet".
+ * Rather than teach `footerModel` a fourth branch shared with the desktop strip (which can never
+ * reach it and needs no such distinction), this section states the phone-only case itself and
+ * skips the footer entirely.
  */
 export default function MapPeekTideSection({
   tide, activeRow = null, sunriseTime = null, sunsetTime = null, model, onSelectEv = undefined,
@@ -56,12 +71,21 @@ export default function MapPeekTideSection({
         <p className="wf-map-peek-tide-meta" data-testid="wf-map-peek-tide-meta">{heightTimeLine}</p>
       )}
       <TideDayChart tide={tide} sunriseTime={sunriseTime} sunsetTime={sunsetTime} tall />
-      <TideStripFooter
-        model={model}
-        activeRow={activeRow}
-        onSelectEv={onSelectEv}
-        focusAfterJump={() => focusTargetRef?.current?.focus()}
-      />
+      {model.visible ? (
+        <TideStripFooter
+          model={model}
+          activeRow={activeRow}
+          onSelectEv={onSelectEv}
+          focusAfterJump={() => focusTargetRef?.current?.focus()}
+        />
+      ) : (
+        // Always mode only (§3 M5 task 1) — a served tide with no coastal spot in the padded
+        // viewport. `footerModel`'s own fallback text means something else (see this file's own
+        // doc above); never print it for an empty viewport.
+        <div className="wf-tide-strip-footer" data-testid="wf-map-peek-tide-out-of-view">
+          <span>No coastal spot in view — pan the map to see one.</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -72,6 +96,7 @@ MapPeekTideSection.propTypes = {
   sunriseTime: PropTypes.string,
   sunsetTime: PropTypes.string,
   model: PropTypes.shape({
+    visible: PropTypes.bool,
     namedCoastal: PropTypes.array,
     dimmed: PropTypes.array,
     matched: PropTypes.array,

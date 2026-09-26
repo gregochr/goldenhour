@@ -32,7 +32,7 @@ import RegionsJump from './map/RegionsJump.jsx';
 import MapBreadcrumb from './map/MapBreadcrumb.jsx';
 import MapPeekSheet, { OtherWindowValue, MapPeekWindowsSection } from './map/MapPeekSheet.jsx';
 import MapPeekTideSection from './map/MapPeekTideSection.jsx';
-import { otherWindow, tideSummary } from '../utils/mapPeek.js';
+import { otherWindow, tideSummary, tideVisible } from '../utils/mapPeek.js';
 import TideWave from './map/TideWave.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import {
@@ -46,7 +46,7 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
 import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
-import { tierOf, stripModel, siblingEventTime } from '../utils/mapTideFit.js';
+import { tierOf, stripModel, siblingEventTime, coastalInView } from '../utils/mapTideFit.js';
 import MapTideStrip from './map/MapTideStrip.jsx';
 import MapLandingCard from './map/MapLandingCard.jsx';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
@@ -1379,11 +1379,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // every colour read goes to `scoreRamp`'s live module state.
   void mapColourScale;
   // `mapTideMode` and `saveTideMode` (map-mobile-sheet-plan.md M4) are threaded on this same route
-  // — App.jsx's `useReaderSettings` → `WindowFirstMapPane` → here — but neither is read by any UI
-  // in this phase. M5 is what consumes them (the Auto rule and the Tide mode control); this phase
-  // only wires and tests the plumbing, so the hook has one instance for both M4 and M5 to share.
-  void mapTideMode;
-  void saveTideMode;
+  // — App.jsx's `useReaderSettings` → `WindowFirstMapPane` → here — one hook instance shared by
+  // both phases. M5 is the first consumer: `mapTideMode` feeds `tideCuesOn`'s Auto/Always/Off rule
+  // (below) and the Layers section's own segment; `saveTideMode` is that segment's press handler
+  // (`handleTideModePress`, further down) — never a second `useReaderSettings` call.
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -1711,6 +1710,32 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const windowsPeekBtnRef = useRef(null);
   const tidePeekBtnRef = useRef(null);
   /**
+   * Whether the Tide peek button currently HOLDS focus — maintained by real `focus`/`blur` DOM
+   * events on the button itself (wired through `MapPeekSheet`'s `onTideButtonFocus`/
+   * `onTideButtonBlur` props), never by comparing `document.activeElement` after the fact.
+   *
+   * <p>⚠️ **This replaces a `document.activeElement === tidePeekBtnRef.current` comparison that
+   * could never be true** (a defect found while wiring M5's own Auto rule, the first gate able to
+   * flip false purely from a VERDICT change while the Tide button already holds focus — M3's own
+   * close scenarios, a night row or a coast panned out of view, never happened to land on a
+   * focused-and-unmounting button in its own browser pass, so this stayed latent, and a Codex
+   * retrospective finding against #928 confirmed it live). The button that held focus is IN THE
+   * SAME RENDER'S OWN JSX conditional (`tideVisible && onPressTide && (<button>…)`), so when the
+   * gate goes false the button unmounts in the SAME commit; removing a focused element resets
+   * `document.activeElement` to `<body>` SYNCHRONOUSLY as part of that commit, before even a
+   * `useLayoutEffect` could read it — so a `useEffect` (which runs strictly after) always sees
+   * `body`, never the removed button, and could never rescue focus at all (proven with a plain
+   * jsdom `removeChild` call). A `blur` event, by contrast, is NOT fired when a focused element is
+   * simply removed from the document — so a ref updated only by `focus`/`blur` retains its `true`
+   * value straight through the unmount, and the close-and-rescue effect below can read it
+   * regardless of render/commit timing. Reset to `false` the instant it is consumed (below) so a
+   * later close, on a future mount of the button that was never refocused, cannot rescue on stale
+   * state.
+   */
+  const tideButtonHadFocusRef = useRef(false);
+  const handleTideButtonFocus = useCallback(() => { tideButtonHadFocusRef.current = true; }, []);
+  const handleTideButtonBlur = useCallback(() => { tideButtonHadFocusRef.current = false; }, []);
+  /**
    * The Tide section's close-and-rescue hand-off (map-mobile-sheet-plan.md §3 M3 task 4) —
    * `{active, tideVisible}`, written fresh by a plain (non-hook) assignment further down this
    * render, right next to where `tideStripModel`/`sheetSection` are actually computed. The EFFECT
@@ -1720,7 +1745,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * computable after that guard. There is no staleness window between the write and the read —
    * React finishes executing this whole render function (including the later ref write) before
    * committing, and only THEN runs effects, so by the time the effect below fires the ref already
-   * holds this exact render's own values, never a prior one's.
+   * holds this exact render's own `{active, tideVisible}`, never a prior one's. `hadFocus` is NOT
+   * part of this hand-off — it lives in `tideButtonHadFocusRef` above, maintained independently by
+   * DOM focus/blur events rather than by this render's own snapshot, for the reason that ref's own
+   * doc explains.
    *
    * <p>⚠️ Deliberately NO dependency array — there is nothing available this early whose IDENTITY
    * tracks the ref's own contents (that is the whole reason the hand-off exists), so this runs
@@ -1734,7 +1762,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => {
     const { active, tideVisible } = tideCloseGateRef.current;
     if (!active || tideVisible) return;
-    const hadFocus = document.activeElement === tidePeekBtnRef.current;
+    const hadFocus = tideButtonHadFocusRef.current;
+    tideButtonHadFocusRef.current = false;
     setOpenMapMenu(null);
     if (hadFocus) windowsPeekBtnRef.current?.focus();
   });
@@ -3332,6 +3361,246 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     () => scopedVisibleLocations.filter((loc) => getRatingForLocation(loc) != null).length,
     [scopedVisibleLocations, getRatingForLocation],
   );
+  /**
+   * ⚠️ Hoisted ABOVE `labelSpots` below (map-mobile-sheet-plan.md §3 M5 task 1): the phone tide
+   * rule (`tideCuesOn`, just below this block) reads the active window's own served verdict
+   * tier off `evVerdicts`/`activeMapEvent`, and `labelSpots` reads `tideCuesOn` to decide whether
+   * to carry `tideTier` at all — so this block (unchanged from its previous position further
+   * down the render) has to exist before `labelSpots`'s own `useMemo` runs. Every input below
+   * (`heat`, `forecastDates`, `mapTodayStr`, `auroraNight`, `eventType`/`nightDate`,
+   * `astroAvailableDates`/`astroConditionsByDate`, `auroraAvailableDates`/`auroraResultsByDate`,
+   * `role`, `regionVerdictIndex`) is already in scope this early in the render — none of it is
+   * itself derived from `labelSpots` or from anything declared between the two positions.
+   */
+  /**
+   * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
+   * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
+   * `eventSelector` above, inherited from the card that opened it).
+   *
+   * <p>Built fresh every render rather than `useMemo`'d: every input already recomputes on its
+   * own cadence above (the briefing poll's `heat.windows`, the two multi-date fetches), so a memo
+   * here would carry the identical dependency list for a builder over a few tens of rows at most —
+   * not a cost worth a second list to keep in sync.
+   *
+   * <p>The overlay gets the empty list outright rather than a real one nobody reads: it never
+   * mounts {@code WindowControl} below, so building one would be pure waste on a surface that
+   * cannot show it (the same reasoning that scopes the multi-date astro/aurora fetches above).
+   */
+  const mapEvents = overlayMode ? [] : buildMapEvents({
+    solarWindows: heat?.windows || [],
+    forecastDates,
+    todayStr: mapTodayStr,
+    tomorrowStr: ukDateStrOffset(1),
+    // D-14 (`utils/mapEvents.js`'s module doc): only nights not yet over become rows. The night in
+    // progress is `auroraNight`, the SAME value `App` hands `resolveMapDate`, so the two agree on
+    // which nights are over; and the night on screen keeps its row once it ends, so the pill never
+    // reads "No forecast" over stars this map is still painting for it. That exception is a row
+    // `App` would refuse, which is why `selectEvRow` forwards only `isForwardableRow` rows.
+    currentNightDate: auroraNight,
+    nightOnScreen: (isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null,
+    astroAvailableDates,
+    astroConditionsByDate,
+    auroraAvailableDates,
+    auroraResultsByDate,
+    isLite: role === 'LITE_USER',
+    formatTimeUk: formatEventTimeUk,
+  });
+  /**
+   * The night rows whose served rows the window control's preview has NOT answered — still in
+   * flight, or failed with nothing earlier to keep — by EV row id, for the callout's every-window
+   * strip: its cell for one of these reads "…", never the "—" that says this location is not rated
+   * that night.
+   *
+   * <p>⚠️ <b>Only nights the preview actually asks about</b> — {@code astroPreviewDates}/
+   * {@code auroraPreviewDates}, the same two lists its effects fetch, so the two cannot drift. A
+   * night outside them is never fetched by the preview, so it is never pending — marking it would
+   * leave "…" beside it for good. Its cell reads "—" unless it is the window on screen;
+   * `MapCallout`'s strip note says why.
+   *
+   * <p>A plain {@code const}, built fresh every render for the reason {@code mapEvents} above is:
+   * that list is itself new on every render. ⚠️ Hoisted alongside {@code mapEvents} above (§3 M5
+   * task 1) to sit BEFORE the {@code if (!date || locations.length === 0)} early return a few
+   * hundred lines down — harmless to compute unconditionally, since it is not a hook.
+   */
+  const pendingNightRowIds = new Set(mapEvents
+    .filter((row) => (row.kind === EVENT_KIND.ASTRO
+      ? astroPreviewDates.includes(row.date) && !astroConditionsByDate.has(row.date)
+      : row.kind === EVENT_KIND.AURORA
+        && auroraPreviewDates.includes(row.date) && !auroraResultsByDate.has(row.date)))
+    .map((row) => row.id));
+  /**
+   * The region names in scope — "My area" or "Everywhere", before every OTHER filter
+   * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
+   *
+   * <p><b>Read off the scope pool, which is the point.</b> The design's first check is that
+   * minimum rating, reach, subject and dark-sky must never move the verdict while the scope segment
+   * must — so the tally's population is taken from the one pool that is already scope-only, the same
+   * pool the counts footer reports as "of K". A reader hiding 3★ locations cannot turn a Maybe into
+   * a Worth it, because no reader filter reaches this list at all.
+   *
+   * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
+   * is a real defect this phase's review caught. {@code heatOffered} folds in {@code !isAuroraMode}
+   * because it gates whether the FIELD is drawable — and selecting any aurora night row sets
+   * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
+   * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
+   * is a fact about geography and has nothing to do with which layer is currently painted. L2's
+   * stepper ticks are exactly the case that would have exposed it: standing on an aurora row is when
+   * both neighbours are solar and both ticks must be coloured.
+   *
+   * <p>⚠️ A plain {@code const}, <b>not</b> a {@code useMemo}. Hoisted alongside {@code mapEvents}
+   * above (§3 M5 task 1) to sit BEFORE the {@code if (!date || locations.length === 0)} early
+   * return a few hundred lines down; a {@code useMemo} there would be a conditional hook — that is
+   * the trap {@code scopedRatedCount}'s own doc block records having already paid for once, in a
+   * lint error and a "rendered fewer hooks" failure — but a plain {@code const} pays no such cost
+   * on either side of that line. The work is a `Set` over ~50 spots.
+   */
+  const verdictScopePool = heat?.enabled
+    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
+    : EMPTY_POINTS;
+  const regionsInScope = regionNamesOf(verdictScopePool);
+
+  /**
+   * Each solar EV row's verdict, the region it names, and how many other in-scope regions share its
+   * tier — keyed by row id (map-landing-plan.md §3 L1).
+   *
+   * <p>A thin wrapper over {@code utils/mapVerdict.buildEvVerdicts}, which holds the guards, the
+   * night-row rule and the keying so a test can reach them without a component — the correction the
+   * doors series' own no-caller-yet phase was given at review.
+   *
+   * <p>Built fresh every render, for the same reason {@code mapEvents} above is, and not merely by
+   * analogy: {@code mapEvents} is a new array on every render, so a {@code useMemo} listing it as a
+   * dependency could never hit.
+   *
+   * <p>Read by the window control's verdict cell, its medallion and its two stepper ticks
+   * (map-landing-plan.md §3 L2).
+   */
+  const evVerdicts = buildEvVerdicts({
+    events: mapEvents, index: regionVerdictIndex, regionsInScope, overlayMode,
+  });
+
+  /**
+   * Everything the landing card draws (map-landing-plan.md §3 L4) — one call into the pure
+   * {@code utils/mapLanding.landingCardModel}, which owns the row selection, the header
+   * derivation, the pick suppression and the all-Poor branch.
+   *
+   * <p><b>Derived here rather than inside the card, because it has two readers</b>: the card, and
+   * the window pill's own reopen row, which prints the SAME header string. Deriving it twice is
+   * how the reopen row would come to name a different pair of windows from the card it reopens —
+   * which is L4's own "a header naming windows not on screen" defect, one level out.
+   *
+   * <p>Built fresh every render, like {@code mapEvents} and {@code evVerdicts} above and for the
+   * identical reason: {@code mapEvents} is a new array on every render, so a memo listing it could
+   * never hit.
+   */
+  const landingModel = landingCardModel({ events: mapEvents, verdicts: evVerdicts });
+
+
+  /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
+  const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
+
+  /**
+   * The active EV row's label+time, for {@code MapLabels}' hover tooltip "event" line
+   * (`docs/design/map-tab-v2/README.md` "Interactions & behaviour": "Tooltip: name, event, N★
+   * verdict, region · drive · Bortle"). Read straight off the row the window control itself shows
+   * as current, so the tooltip can never name a different window than the pill does.
+   */
+  const mapEventLabel = (() => {
+    const row = mapEvents[activeEvIndex];
+    if (!row) return '';
+    return row.time ? `${row.label} ${row.time}` : row.label;
+  })();
+
+  /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
+   * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
+  const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * The peek sheet's "Other windows" button value (map-mobile-sheet-plan.md §3 M2 task 3) — a scan
+   * over the SAME `mapEvents`/`evVerdicts` the pill and the Windows section both already read, never
+   * a second roster. Phone only; harmless to compute on desktop (it is simply never rendered there).
+   */
+  const peekOtherWindow = otherWindow(mapEvents, activeEvIndex, evVerdicts);
+  const peekOtherWindowVerdict = peekOtherWindow ? (evVerdicts.get(peekOtherWindow.id) ?? null) : null;
+
+  /**
+   * The phone tide-visibility rule's own three inputs (map-mobile-sheet-plan.md §3 M5 task 1) —
+   * computed from the UNDECORATED spot list, never from `labelSpots` below: `labelSpots` is what
+   * `tideCuesOn` DECIDES (it carries `tideTier` only when this is true), so reading it here would
+   * be a cycle (a Codex finding on the plan's M0). `scopedVisibleLocations` already carries
+   * `lat`/`lon` and everything `isCoastalTidalLocation` needs, before any tide decoration exists.
+   *
+   * <p>`hasCoastalInView` is a BOOLEAN (`.length > 0`), never the filtered array itself —
+   * `mapTideFit.coastalInView` returns the array, and an empty array is truthy, so passing it
+   * straight into the gate would keep the tide on after a pan inland.
+   *
+   * <p>Desktop/tablet never read this at all: `tideCuesOn` short-circuits on `!isMobile` before
+   * `tideVisible` is even called, so a Poor window's `data-tide` is untouched there whatever the
+   * saved mode is (plan §5 D-6, README Verify 6's invariance).
+   */
+  const tideAvailableForCues = activeMapEvent?.kind === EVENT_KIND.SOLAR && activeMapEvent?.tide != null;
+  const hasCoastalInViewForCues = coastalInView(
+    scopedVisibleLocations.map((loc) => ({ lat: loc.lat, lng: loc.lon, coastal: isCoastalTidalLocation(loc) })),
+    tideViewBounds,
+  ).length > 0;
+  const activeWindowTier = evVerdicts.get(activeMapEvent?.id)?.tier ?? null;
+  /**
+   * The one gate every phone tide cue reads (map-mobile-sheet-plan.md §1 #6, §3 M5 task 2) — a
+   * single boolean, never a flag threaded to `MapLabels`, `PinsLayer` or the tooltips. Desktop and
+   * tablet are unconditionally `true` here: the mode/rule are phone-only by construction, so
+   * `tierOf(tide)` below runs exactly as it always has on every other viewport.
+   */
+  const tideCuesOn = !isMobile || tideVisible({
+    mode: mapTideMode,
+    tideAvailable: tideAvailableForCues,
+    hasCoastalInView: hasCoastalInViewForCues,
+    tier: activeWindowTier,
+  });
+
+  /**
+   * The Tide peek button's one-shot pulse (map-mobile-sheet-plan.md §3 M5 task 3) — plays once on a
+   * false → true transition of `tideCuesOn`, ARMED ONLY after the first bounds-backed evaluation.
+   *
+   * <p>`tideViewBounds` is `null` until `BoundsTracker`'s own mount effect reports the real
+   * viewport (declared above, alongside `handleTideBounds`), so a coastal Worth-it window's FIRST
+   * resolved visibility is itself a post-mount `false → true` — pulsing on it would fire on every
+   * load of a tide-eligible window, not on a genuine change (a Codex finding on the plan's M0). The
+   * ref is therefore seeded, never compared, on the first render whose `tideViewBounds` is not
+   * null; only renders after that seed ever set the pulse.
+   *
+   * <p>Declared here (a hook, so it must run unconditionally, ahead of the
+   * {@code if (!date || locations.length === 0)} early return a few hundred lines down) rather than
+   * beside {@code tideCloseGateRef} above: unlike that ref's hand-off, this effect needs
+   * {@code tideCuesOn} and {@code tideViewBounds} as VALUES, not a ref written after the return, and
+   * both are already in scope here.
+   */
+  const tidePulseArmedRef = useRef({ armed: false, prevTideVisible: false });
+  const [tidePulse, setTidePulse] = useState(false);
+  useEffect(() => {
+    if (tideViewBounds == null) return; // no bounds report yet — nothing to arm or compare against
+    const state = tidePulseArmedRef.current;
+    if (!state.armed) {
+      // The seed render: record where things stand, but this is the baseline, never a transition.
+      state.armed = true;
+      state.prevTideVisible = tideCuesOn;
+      return;
+    }
+    if (!state.prevTideVisible && tideCuesOn) setTidePulse(true);
+    state.prevTideVisible = tideCuesOn;
+  }, [tideCuesOn, tideViewBounds]);
+  /** Clears the pulse on the animation's own `animationend` (`MapPeekSheet`'s `onTidePulseEnd`) —
+   * never a timer, which could race a second transition landing mid-animation. Under
+   * `prefers-reduced-motion: reduce` the CSS drops the animation outright (this file's existing
+   * convention), so the class simply sits inert until the next genuine transition overwrites it;
+   * either way nothing ever double-pulses, since `setTidePulse(true)` above is idempotent. */
+  const clearTidePulse = useCallback(() => setTidePulse(false), []);
+  /**
+   * The Layers Tide segment's own save-failure announcement (map-mobile-sheet-plan.md §3 M5 task
+   * 4) — folded into the tab's ONE status region (`statusLine`, below), never a second live region.
+   * `saveTideMode` itself already reverts `mapTideMode` to the hook's last-persisted baseline on a
+   * failure (`useReaderSettings.js`'s own doc), so this state carries only the WORDS a screen
+   * reader needs, cleared the instant a later press succeeds or is itself in flight.
+   */
+  const [tideModeSaveFailed, setTideModeSaveFailed] = useState(false);
 
   /**
    * The Map tab's label catalogue (map-tab-v2-plan.md §3 P8) — `MapLabels`' own "named" pool,
@@ -3390,8 +3659,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // (`tideAligned`), never the on-the-light one above.
         tideTypes: loc.tideType ?? [],
         coastal: isCoastalTidalLocation(loc),
-        tideTier: tierOf(tide),
-        tideShortfall: tide?.shortfall ?? null,
+        // ⚠️ The phone tide-visibility rule's ONE gate (map-mobile-sheet-plan.md §1 #6, §3 M5 task
+        // 2) — `tideCuesOn` is `true` unconditionally on desktop/tablet (computed above,
+        // `!isMobile || tideVisible(...)`), so this null only ever fires on a phone whose mode/
+        // verdict/viewport combination says "hide". `tideShortfall`/`tideFitPhrase` follow it so a
+        // tooltip clause can never read a real phrase behind a glyph the chip isn't drawing; every
+        // consumer (`MapLabels`, `PinsLayer`) already gates on `tideTier` first, so this is the
+        // single null they all inherit — never a second flag threaded to any of them.
+        tideTier: tideCuesOn ? tierOf(tide) : null,
+        tideShortfall: tideCuesOn ? (tide?.shortfall ?? null) : null,
         // The served state at the light this window (tide-window-plan.md §4 #21) — the match
         // glyph's own letter reads this, never a level or threshold computed here.
         tideState: tide?.state ?? null,
@@ -3400,7 +3676,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // carried here rather than left for that phase to add, since it is the same `tide` object
         // this function already has in hand and the plan's own goal for this phase is that every
         // fact reaches the components that will draw it.
-        tideFitPhrase: tide?.fitPhrase ?? null,
+        tideFitPhrase: tideCuesOn ? (tide?.fitPhrase ?? null) : null,
       };
     };
     const spots = scopedVisibleLocations.map(spotOf);
@@ -3410,7 +3686,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return spots;
   }, [
     scopedVisibleLocations, getRatingForLocation, getTideOnLightForLocation, driveMinutesFor,
-    selectedLoc, isStandDownLocation,
+    selectedLoc, isStandDownLocation, tideCuesOn,
   ]);
 
   /**
@@ -3698,151 +3974,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     />
   );
 
-  /**
-   * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
-   * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
-   * `eventSelector` above, inherited from the card that opened it).
-   *
-   * <p>Built fresh every render rather than `useMemo`'d: every input already recomputes on its
-   * own cadence above (the briefing poll's `heat.windows`, the two multi-date fetches), so a memo
-   * here would carry the identical dependency list for a builder over a few tens of rows at most —
-   * not a cost worth a second list to keep in sync.
-   *
-   * <p>The overlay gets the empty list outright rather than a real one nobody reads: it never
-   * mounts {@code WindowControl} below, so building one would be pure waste on a surface that
-   * cannot show it (the same reasoning that scopes the multi-date astro/aurora fetches above).
-   */
-  const mapEvents = overlayMode ? [] : buildMapEvents({
-    solarWindows: heat?.windows || [],
-    forecastDates,
-    todayStr: mapTodayStr,
-    tomorrowStr: ukDateStrOffset(1),
-    // D-14 (`utils/mapEvents.js`'s module doc): only nights not yet over become rows. The night in
-    // progress is `auroraNight`, the SAME value `App` hands `resolveMapDate`, so the two agree on
-    // which nights are over; and the night on screen keeps its row once it ends, so the pill never
-    // reads "No forecast" over stars this map is still painting for it. That exception is a row
-    // `App` would refuse, which is why `selectEvRow` forwards only `isForwardableRow` rows.
-    currentNightDate: auroraNight,
-    nightOnScreen: (isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null,
-    astroAvailableDates,
-    astroConditionsByDate,
-    auroraAvailableDates,
-    auroraResultsByDate,
-    isLite: role === 'LITE_USER',
-    formatTimeUk: formatEventTimeUk,
-  });
-  /**
-   * The night rows whose served rows the window control's preview has NOT answered — still in
-   * flight, or failed with nothing earlier to keep — by EV row id, for the callout's every-window
-   * strip: its cell for one of these reads "…", never the "—" that says this location is not rated
-   * that night.
-   *
-   * <p>⚠️ <b>Only nights the preview actually asks about</b> — {@code astroPreviewDates}/
-   * {@code auroraPreviewDates}, the same two lists its effects fetch, so the two cannot drift. A
-   * night outside them is never fetched by the preview, so it is never pending — marking it would
-   * leave "…" beside it for good. Its cell reads "—" unless it is the window on screen;
-   * `MapCallout`'s strip note says why.
-   *
-   * <p>A plain {@code const} below the early return, built fresh every render for the reason
-   * {@code mapEvents} above is: that list is itself new on every render.
-   */
-  const pendingNightRowIds = new Set(mapEvents
-    .filter((row) => (row.kind === EVENT_KIND.ASTRO
-      ? astroPreviewDates.includes(row.date) && !astroConditionsByDate.has(row.date)
-      : row.kind === EVENT_KIND.AURORA
-        && auroraPreviewDates.includes(row.date) && !auroraResultsByDate.has(row.date)))
-    .map((row) => row.id));
-  /**
-   * The region names in scope — "My area" or "Everywhere", before every OTHER filter
-   * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
-   *
-   * <p><b>Read off the scope pool, which is the point.</b> The design's first check is that
-   * minimum rating, reach, subject and dark-sky must never move the verdict while the scope segment
-   * must — so the tally's population is taken from the one pool that is already scope-only, the same
-   * pool the counts footer reports as "of K". A reader hiding 3★ locations cannot turn a Maybe into
-   * a Worth it, because no reader filter reaches this list at all.
-   *
-   * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
-   * is a real defect this phase's review caught. {@code heatOffered} folds in {@code !isAuroraMode}
-   * because it gates whether the FIELD is drawable — and selecting any aurora night row sets
-   * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
-   * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
-   * is a fact about geography and has nothing to do with which layer is currently painted. L2's
-   * stepper ticks are exactly the case that would have exposed it: standing on an aurora row is when
-   * both neighbours are solar and both ticks must be coloured.
-   *
-   * <p>⚠️ A plain {@code const}, <b>not</b> a {@code useMemo} — it is declared below the
-   * {@code if (!date || locations.length === 0)} early return, where a hook would be a conditional
-   * hook. That is the trap {@code scopedRatedCount}'s own doc block records having already paid for
-   * once, in a lint error and a "rendered fewer hooks" failure. The work is a `Set` over ~50 spots.
-   */
-  const verdictScopePool = heat?.enabled
-    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
-    : EMPTY_POINTS;
-  const regionsInScope = regionNamesOf(verdictScopePool);
-
-  /**
-   * Each solar EV row's verdict, the region it names, and how many other in-scope regions share its
-   * tier — keyed by row id (map-landing-plan.md §3 L1).
-   *
-   * <p>A thin wrapper over {@code utils/mapVerdict.buildEvVerdicts}, which holds the guards, the
-   * night-row rule and the keying so a test can reach them without a component — the correction the
-   * doors series' own no-caller-yet phase was given at review.
-   *
-   * <p>Built fresh every render, for the same reason {@code mapEvents} above is, and not merely by
-   * analogy: {@code mapEvents} is a new array on every render, so a {@code useMemo} listing it as a
-   * dependency could never hit.
-   *
-   * <p>Read by the window control's verdict cell, its medallion and its two stepper ticks
-   * (map-landing-plan.md §3 L2).
-   */
-  const evVerdicts = buildEvVerdicts({
-    events: mapEvents, index: regionVerdictIndex, regionsInScope, overlayMode,
-  });
-
-  /**
-   * Everything the landing card draws (map-landing-plan.md §3 L4) — one call into the pure
-   * {@code utils/mapLanding.landingCardModel}, which owns the row selection, the header
-   * derivation, the pick suppression and the all-Poor branch.
-   *
-   * <p><b>Derived here rather than inside the card, because it has two readers</b>: the card, and
-   * the window pill's own reopen row, which prints the SAME header string. Deriving it twice is
-   * how the reopen row would come to name a different pair of windows from the card it reopens —
-   * which is L4's own "a header naming windows not on screen" defect, one level out.
-   *
-   * <p>Built fresh every render, like {@code mapEvents} and {@code evVerdicts} above and for the
-   * identical reason: {@code mapEvents} is a new array on every render, so a memo listing it could
-   * never hit.
-   */
-  const landingModel = landingCardModel({ events: mapEvents, verdicts: evVerdicts });
-
-
-  /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
-  const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
-
-  /**
-   * The active EV row's label+time, for {@code MapLabels}' hover tooltip "event" line
-   * (`docs/design/map-tab-v2/README.md` "Interactions & behaviour": "Tooltip: name, event, N★
-   * verdict, region · drive · Bortle"). Read straight off the row the window control itself shows
-   * as current, so the tooltip can never name a different window than the pill does.
-   */
-  const mapEventLabel = (() => {
-    const row = mapEvents[activeEvIndex];
-    if (!row) return '';
-    return row.time ? `${row.label} ${row.time}` : row.label;
-  })();
-
-  /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
-   * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
-  const activeMapEvent = mapEvents[activeEvIndex] ?? null;
-
-  /**
-   * The peek sheet's "Other windows" button value (map-mobile-sheet-plan.md §3 M2 task 3) — a scan
-   * over the SAME `mapEvents`/`evVerdicts` the pill and the Windows section both already read, never
-   * a second roster. Phone only; harmless to compute on desktop (it is simply never rendered there).
-   */
-  const peekOtherWindow = otherWindow(mapEvents, activeEvIndex, evVerdicts);
-  const peekOtherWindowVerdict = peekOtherWindow ? (evVerdicts.get(peekOtherWindow.id) ?? null) : null;
 
   /**
    * The tide strip's own per-render model (tide-window-plan.md T6) — one call into the pure
@@ -4013,10 +4144,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * one boolean. ⚠️ Not this file's {@code paneIsOffScreen}, which asks only whether the pane's
    * panel is laid out, for focus and Escape handling.
    */
-  const statusLine = paneVisible && ratingRetrying && (
-    unscoredLineShown
-    || (selectedLoc != null && activeMapEvent != null && getRatingForLocation(selectedLoc) == null)
-  ) ? NIGHT_RETRY_LINE : '';
+  const statusLine = tideModeSaveFailed
+    ? 'Could not save tide mode — kept the last saved choice.'
+    : (paneVisible && ratingRetrying && (
+      unscoredLineShown
+      || (selectedLoc != null && activeMapEvent != null && getRatingForLocation(selectedLoc) == null)
+    ) ? NIGHT_RETRY_LINE : '');
 
   /**
    * "No forecast to show." — the Map tab's own empty state, in the Plan screen's exact words
@@ -4482,18 +4615,40 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
+   * The Layers Tide segment's press handler (map-mobile-sheet-plan.md §3 M5 task 4) — the segment
+   * moves at once (`saveTideMode` sets `mapTideMode` synchronously before its own save resolves,
+   * `useReaderSettings.js`'s own doc), and this only has to react to the OUTCOME: clear a standing
+   * failure message on a save that succeeds or is itself superseded/ended by a newer press, or show
+   * one when this reader's own choice comes back `'failed'` (the hook has already reverted the
+   * shown/stored mode to its last-persisted baseline by the time the promise settles).
+   */
+  function handleTideModePress(mode) {
+    if (!saveTideMode) return;
+    // Clear a standing failure message the instant a fresh press is made — a reader retrying should
+    // not keep reading the previous attempt's outcome while this one is still in flight.
+    setTideModeSaveFailed(false);
+    saveTideMode(mode).then((outcome) => {
+      setTideModeSaveFailed(outcome === 'failed');
+    });
+  }
+
+  /**
    * The Tide section's close-and-rescue gate, freshly written every render (map-mobile-sheet-
-   * plan.md §3 M3 task 4 — M3 ships the rule M5 later reuses UNCHANGED against a fuller gate). The
-   * `‹ ›` steppers can land the pill on a night row, or a solar window with no coastal spot in the
-   * padded viewport, while `'peek:tide'` is open; the Tide button that opened it is gated on the
-   * SAME test (`tideStripModel.visible`), so it unmounts on the very render this value also goes
-   * stale — an open body with nothing left to have opened it. The actual close-and-rescue EFFECT
-   * lives next to `tideCloseGateRef`'s own declaration, ahead of this component's early return
-   * (that comment explains why); this plain assignment is the hand-off, never a hook itself, so it
-   * is exactly as safe to place after the early return as any other derived `const`.
+   * plan.md §3 M3 task 4, reused UNCHANGED here per §3 M5 task 2 — only the gate's SOURCE changed,
+   * `tideStripModel.visible` → `tideCuesOn`). The `‹ ›` steppers can land the pill on a night row, a
+   * solar window with no coastal spot in the padded viewport, a Poor window in Auto, or an
+   * Off/mode change while `'peek:tide'` is open; the Tide button that opened it is gated on the
+   * SAME test, so it unmounts on the very render this value also goes stale — an open body with
+   * nothing left to have opened it. The actual close-and-rescue EFFECT lives next to
+   * `tideCloseGateRef`'s own declaration, ahead of this component's early return (that comment
+   * explains why, and `tideButtonHadFocusRef`'s own doc explains why focus itself is tracked
+   * separately, by DOM events, rather than here); this plain assignment is the hand-off, never a
+   * hook itself, so it is exactly as safe to place after the early return as any other derived
+   * `const`.
    */
   tideCloseGateRef.current = {
-    active: isMobile && sheetSection === 'tide', tideVisible: tideStripModel.visible,
+    active: isMobile && sheetSection === 'tide',
+    tideVisible: tideCuesOn,
   };
 
   /**
@@ -5888,19 +6043,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               <>
                 <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current} />
                 <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current} />
-                {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2, Tide wired at M3) —
-                    mounted always on phone, collapsed by default. The Tide button is gated on
-                    `tideStripModel.visible` through M3 (M5 replaces the gate with the fuller
-                    `tideVisible(...)` rule, unchanged here). */}
+                {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2, Tide wired at M3, its
+                    fuller Auto/Always/Off gate and pulse wired at M5). The Tide button is gated on
+                    `tideCuesOn` — the SAME one gate the spot-build site's `tideTier` null reads
+                    (§1 #6) — never a second flag. */}
                 <MapPeekSheet
                   section={sheetSection}
                   onPressWindows={() => handlePeekPress('win')}
                   onPressLayers={() => handlePeekPress('lay')}
                   onPressTide={() => handlePeekPress('tide')}
-                  tideVisible={tideStripModel.visible}
+                  tideVisible={tideCuesOn}
+                  tidePulse={tidePulse}
+                  onTidePulseEnd={clearTidePulse}
                   layersButtonRef={layersPeekBtnRef}
                   windowsButtonRef={windowsPeekBtnRef}
                   tideButtonRef={tidePeekBtnRef}
+                  onTideButtonFocus={handleTideButtonFocus}
+                  onTideButtonBlur={handleTideButtonBlur}
                   tideButtonContent={(
                     <>
                       <TideWave />
@@ -5933,6 +6092,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   )}
                   layersBody={(
                     <div data-testid="wf-map-peek-layers" className="wf-map-peek-pane">
+                      {/* ⚠️ Gated on `heatOffered`, matching the desktop toolbar cluster
+                          (`.wf-map-toolbar-cluster` above, itself `{heatOffered && (...)}`) — a
+                          Codex retrospective finding against #927. With `heatOffered` false (no
+                          served heat data, or an astro/aurora window selected) `heatOn`/
+                          `heatPinsOn` are both forced false, so neither `MapLabels` nor
+                          `PinsLayer` mounts and this row's two buttons only flipped `heatView`
+                          with nothing on the map to show for it. */}
+                      {heatOffered && (
                       <div className="wf-map-peek-lay-row">
                         <span className="wf-map-peek-lay-label">Show</span>
                         <div className="wf-seg" role="group" aria-label="Map view">
@@ -5957,6 +6124,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                           </button>
                         </div>
                       </div>
+                      )}
                       <button
                         type="button"
                         data-testid="wf-map-peek-lay-regions"
@@ -5977,6 +6145,45 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                         </span>
                         <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
                       </button>
+                      {/* The persisted Tide mode (map-mobile-sheet-plan.md §3 M5 task 4) — Auto is
+                          the default (never-chosen server value), Always/Off override it. The
+                          segment moves at once (`saveTideMode` sets `mapTideMode` synchronously);
+                          a failed save is announced through the tab's one status region, below. */}
+                      <div className="wf-map-peek-lay-row wf-map-peek-lay-tide-row">
+                        <span className="wf-map-peek-lay-label">Tide</span>
+                        <div className="wf-seg" role="group" aria-label="Tide">
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-tide-mode-auto"
+                            aria-pressed={mapTideMode === 'auto'}
+                            onClick={() => handleTideModePress('auto')}
+                            className={`wf-seg-btn${mapTideMode === 'auto' ? ' on' : ''}`}
+                          >
+                            Auto
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-tide-mode-always"
+                            aria-pressed={mapTideMode === 'always'}
+                            onClick={() => handleTideModePress('always')}
+                            className={`wf-seg-btn${mapTideMode === 'always' ? ' on' : ''}`}
+                          >
+                            Always
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-tide-mode-off"
+                            aria-pressed={mapTideMode === 'off'}
+                            onClick={() => handleTideModePress('off')}
+                            className={`wf-seg-btn${mapTideMode === 'off' ? ' on' : ''}`}
+                          >
+                            Off
+                          </button>
+                        </div>
+                      </div>
+                      <p data-testid="wf-map-peek-tide-hint" className="wf-map-peek-tide-hint">
+                        Auto: shown when the light is Maybe or better and the coast is in view.
+                      </p>
                       {heatOffered && unscoredLineShown && (
                         <div data-testid="wf-map-peek-heat-unscored" className="wf-map-peek-lay-row">
                           <span className="wf-map-peek-lay-label">{unscoredLineText}</span>

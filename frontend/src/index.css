@@ -4300,6 +4300,25 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-secondary);
 }
 
+/* ── The Layers Tide mode segment (map-mobile-sheet-plan.md §3 M5 task 4) ─────────────────────
+   Reuses `.wf-seg`/`.wf-seg-btn` (above) rather than growing a third copy of a segmented control —
+   the same reasoning the Show row's Heat|Pins toggle and the Map tab's own heat toolbar already
+   state for themselves. The hint sits BELOW the row (design README "Peek row" table), never beside
+   it — three words ("Auto", "Always", "Off") plus a sentence would not fit one line at any phone
+   width this pane supports. */
+.wf-map-peek-lay-tide-row { align-items: center; }
+.wf-map-peek-tide-hint {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  /* ⚠️ ink-2 (`--color-plex-text-secondary`, .66), not the muted ink-3 a caption this size would
+     otherwise take — map-mobile-sheet-plan.md §4 #9's rule (already the peek sheet's own
+     convention on every other key/label line): inside the map frame, on the sheet's `.97`-opaque
+     ground, every label reads at ≥ .66 alpha for AA at small text. */
+  color: var(--color-plex-text-secondary);
+  margin: 2px 0 6px;
+  line-height: 1.4;
+}
+
 /* ── The Tide peek button (map-mobile-sheet-plan.md §3 M3 task 4) ─────────────────────────────
    Tide-tinted, unlike the other two buttons' neutral panel ground (design README "Peek row"
    table's own border/bg pair) — `--color-tide`'s own rgba family, the SAME hue the desktop strip's
@@ -4321,6 +4340,22 @@ button.wf-hc.also.on:hover {
   font-size: 11.5px;
   font-weight: 500;
   color: var(--color-badge-tide);
+}
+/* The Tide button's one-shot pulse (map-mobile-sheet-plan.md §3 M5 task 3) — plays once on a
+   false → true visibility transition (never on mount, never on the first bounds-backed
+   evaluation), removed by `MapPeekSheet`'s own `onAnimationEnd` rather than a timer. `--color-tide`'s
+   own hue, matching `.wf-map-peek-btn-tide`'s border/bg family above rather than the gold every
+   other peek-button state uses — this IS the tide control announcing itself, not a generic "look
+   here" ring. */
+@keyframes wf-map-peek-tide-pulse {
+  from { box-shadow: 0 0 0 0 rgba(111, 168, 176, .7); }
+  to { box-shadow: 0 0 0 10px rgba(111, 168, 176, 0); }
+}
+.wf-map-peek-btn-pulse {
+  animation: wf-map-peek-tide-pulse 1.2s ease-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-map-peek-btn-pulse { animation: none; }
 }
 
 /* ── The Tide section (map-mobile-sheet-plan.md §3 M3 task 3, `MapPeekTideSection.jsx`) ────────

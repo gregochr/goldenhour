@@ -51,8 +51,15 @@ import { KindChip } from './WindowControl.jsx';
  *        rendered at all when this is null (M2's "a released control must never open an empty
  *        panel" rule still applies to every future gate, not only M2's own withholding of it).
  * @param {boolean} [props.tideVisible=false] gates the Tide button's presence, independent of
- *        `onPressTide` being handed in at all — M3 passes `stripModel.visible`; M5 replaces the
- *        gate's SOURCE, never this prop's shape (map-mobile-sheet-plan.md §3 M3 task 4).
+ *        `onPressTide` being handed in at all — M3 passed `stripModel.visible`; M5 replaces the
+ *        gate's SOURCE with the fuller `tideVisible(...)` rule (`utils/mapPeek.js`), never this
+ *        prop's shape (map-mobile-sheet-plan.md §3 M3 task 4, §3 M5 task 2).
+ * @param {boolean} [props.tidePulse=false] plays the Tide button's one-shot pulse (§3 M5 task 3) —
+ *        a false → true transition of `tideVisible` after the first bounds-backed evaluation, never
+ *        on mount. Cleared by `onTidePulseEnd` on the animation's own `animationend`.
+ * @param {?Function} [props.onTidePulseEnd] called on the pulse animation's `animationend`, so the
+ *        class can be removed once it has played (never removed by a timer, which could race a
+ *        SECOND transition arriving mid-animation).
  * @param {React.ReactNode} [props.otherWindowContent] the "Other windows" button's value line.
  * @param {React.ReactNode} [props.tideButtonContent] the Tide button's value line
  *        (`utils/mapPeek.js#tideSummary`, after the `TideWave` glyph).
@@ -65,16 +72,22 @@ import { KindChip } from './WindowControl.jsx';
  * @param {?object} [props.windowsButtonRef] the "Other windows" button's own ref — the rescue
  *        target when the Tide button disappears while its section is open and held focus (§3 M3
  *        task 4's close-and-rescue rule).
- * @param {?object} [props.tideButtonRef] the Tide button's own ref — both `MapView`'s
- *        close-and-rescue effect (was this button focused when its gate turned false?) and
- *        `MapPeekTideSection`'s own next-fit jump (the stable focus target a disappearing link
- *        hands focus to) read it.
+ * @param {?object} [props.tideButtonRef] the Tide button's own ref — `MapPeekTideSection`'s own
+ *        next-fit jump reads it as the stable focus target a disappearing link hands focus to.
+ * @param {?Function} [props.onTideButtonFocus] called on the Tide button's own `focus` event —
+ *        `MapView` uses this (not a `document.activeElement` comparison) to track whether the
+ *        button holds focus at the moment its own gate might unmount it (§3 M3 task 4's
+ *        close-and-rescue rule, fixed at M5 — see `MapView`'s `tideButtonHadFocusRef` for why).
+ * @param {?Function} [props.onTideButtonBlur] called on the Tide button's own `blur` event —
+ *        the counterpart to `onTideButtonFocus`.
  */
 export default function MapPeekSheet({
   section, onPressWindows, onPressLayers, onPressTide = null, tideVisible = false,
+  tidePulse = false, onTidePulseEnd = null,
   otherWindowContent = null, tideButtonContent = null,
   windowsBody = null, tideBody = null, layersBody = null,
   layersButtonRef = null, windowsButtonRef = null, tideButtonRef = null,
+  onTideButtonFocus = null, onTideButtonBlur = null,
 }) {
   const open = section != null;
   return (
@@ -105,10 +118,13 @@ export default function MapPeekSheet({
             ref={tideButtonRef}
             type="button"
             data-testid="wf-map-peek-btn-tide"
-            className={`wf-map-peek-btn wf-map-peek-btn-tide${section === 'tide' ? ' wf-map-peek-btn-on' : ''}`}
+            className={`wf-map-peek-btn wf-map-peek-btn-tide${section === 'tide' ? ' wf-map-peek-btn-on' : ''}${tidePulse ? ' wf-map-peek-btn-pulse' : ''}`}
             aria-expanded={section === 'tide'}
             aria-controls="wf-map-peek-body"
             onClick={onPressTide}
+            onAnimationEnd={onTidePulseEnd}
+            onFocus={onTideButtonFocus}
+            onBlur={onTideButtonBlur}
           >
             {/* Fixed key — unlike Other windows, Tide never swaps to CLOSE (design README "Peek
                 row" table gives it one key throughout). */}
@@ -149,6 +165,8 @@ MapPeekSheet.propTypes = {
   onPressLayers: PropTypes.func.isRequired,
   onPressTide: PropTypes.func,
   tideVisible: PropTypes.bool,
+  tidePulse: PropTypes.bool,
+  onTidePulseEnd: PropTypes.func,
   otherWindowContent: PropTypes.node,
   tideButtonContent: PropTypes.node,
   windowsBody: PropTypes.node,
@@ -161,9 +179,13 @@ MapPeekSheet.propTypes = {
   /** The "Other windows" button's own ref — the Tide close-and-rescue's fallback target (§3 M3
    * task 4). */
   windowsButtonRef: PropTypes.object,
-  /** The Tide button's own ref — read by `MapView`'s close-and-rescue effect and handed to
-   * `MapPeekTideSection` as its next-fit jump's stable focus target (§3 M3 tasks 3–4). */
+  /** The Tide button's own ref — handed to `MapPeekTideSection` as its next-fit jump's stable
+   * focus target (§3 M3 task 3). */
   tideButtonRef: PropTypes.object,
+  /** Tracks whether the Tide button holds focus, via real DOM `focus`/`blur` events (§3 M3 task 4,
+   * fixed at M5) — never removed via a `document.activeElement` comparison after the fact. */
+  onTideButtonFocus: PropTypes.func,
+  onTideButtonBlur: PropTypes.func,
 };
 
 /**

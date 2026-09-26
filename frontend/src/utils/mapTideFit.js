@@ -19,6 +19,30 @@ import { STATE_WORD } from './windowFirstRows.js';
  */
 
 /**
+ * The coastal, in-view pool a padded viewport holds — the SAME {@code bounds.pad(0.12).contains(...)}
+ * filter {@link stripModel} has always run internally, lifted out to its own export
+ * (map-mobile-sheet-plan.md §3 M5 task 1) so there is exactly one definition: {@code stripModel}
+ * itself now calls this rather than repeating the filter, and the Tide-visibility rule
+ * (`mapPeek.js#tideVisible`) calls it a SECOND time on the map's UNDECORATED spot list (before
+ * {@code tideTier} exists) to answer "is there a named coastal spot in view at all", independent of
+ * the strip's own decorated pool. ⚠️ Returns the filtered ARRAY, not a boolean — an empty array is
+ * truthy in JavaScript, so a caller that passes the array straight into a boolean-shaped gate (rather
+ * than its `.length > 0`) would keep tide cues on after a pan inland (a Codex finding on the plan's
+ * M0). {@code coastalInView(spots, bounds).length > 0} is the caller's job, not this function's.
+ *
+ * @param {Array<{lat: number, lng: number, coastal: boolean}>} spots
+ * @param {?{pad: function(number): object}} bounds a Leaflet {@code LatLngBounds} (or any object
+ *   exposing the same {@code pad}/{@code contains} pair) — null/undefined (no bounds report yet)
+ *   answers the empty array, never throws
+ * @returns {Array<object>} the coastal spots inside the padded viewport
+ */
+export function coastalInView(spots, bounds) {
+  if (!bounds || typeof bounds.pad !== 'function') return [];
+  const padded = bounds.pad(0.12);
+  return (Array.isArray(spots) ? spots : []).filter((s) => s.coastal && padded.contains([s.lat, s.lng]));
+}
+
+/**
  * The tier a served tide-alignment fact reads as, for the chip/ring/tiebreak/callout-row/strip.
  *
  * <p>{@code fact} is one entry from {@link buildTideAlignmentIndex} in {@code locationSheet.js}
@@ -272,10 +296,8 @@ function dominantWantOf(dimmedSpots) {
 export function stripModel({
   row, spots = [], bounds = null, evRows = [], evIndex = -1, idx = null,
 }) {
-  const coastalInView = bounds && typeof bounds.pad === 'function'
-    ? spots.filter((s) => s.coastal && bounds.pad(0.12).contains([s.lat, s.lng]))
-    : [];
-  const visible = row?.kind === EVENT_KIND.SOLAR && row?.tide != null && coastalInView.length > 0;
+  const inView = coastalInView(spots, bounds);
+  const visible = row?.kind === EVENT_KIND.SOLAR && row?.tide != null && inView.length > 0;
   if (!visible) {
     return {
       visible: false,
@@ -289,7 +311,7 @@ export function stripModel({
     };
   }
 
-  const namedCoastal = coastalInView;
+  const namedCoastal = inView;
   const dimmed = namedCoastal.filter((s) => s.tideTier === 'miss');
   const matched = namedCoastal.filter((s) => s.tideTier === 'match');
   const dominantWant = dominantWantOf(dimmed);

@@ -268,6 +268,32 @@ describe('MapView (tab) — the Windows section (map-mobile-sheet-plan.md §3 M2
   });
 });
 
+describe('MapView (tab) — the Layers section\'s Show row (Codex retrospective finding on #927, fixed at M5)', () => {
+  // ⚠️ Until this fix, the Show (Heat | Pins) row rendered unconditionally in the Layers section —
+  // when `heatOffered` is false (no served heat data, or an astro/aurora window on screen) neither
+  // `MapLabels` nor `PinsLayer` mounts, so the row's two buttons only flipped `heatView` and
+  // changed nothing on the map. The desktop toolbar cluster was already correctly gated on
+  // `heatOffered`; the phone Layers row now matches it.
+  it('is present when heat is offered (a solar window with served heat data)', async () => {
+    mockIsMobile = true;
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(screen.getByTestId('wf-map-peek-view-heat')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-view-pins')).toBeInTheDocument();
+  });
+
+  it('is absent when heat is not offered (no served heat data)', async () => {
+    mockIsMobile = true;
+    await renderMap({ heat: { ...heatProp(), enabled: false } });
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(screen.getByTestId('wf-map-peek-layers')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-view-heat')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-view-pins')).not.toBeInTheDocument();
+    // The rest of Layers survives — this gate is scoped to the Show row alone.
+    expect(screen.getByTestId('wf-map-peek-lay-regions')).toBeInTheDocument();
+  });
+});
+
 describe('MapView (tab) — map-touch collapse (map-mobile-sheet-plan.md §3 M2 task 7, README rule 4)', () => {
   it('a Leaflet `dragstart` collapses an open section', async () => {
     mockIsMobile = true;

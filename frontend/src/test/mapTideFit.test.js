@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime, tideAccessibleClause,
+  coastalInView,
 } from '../utils/mapTideFit.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
@@ -69,6 +70,41 @@ function rectBounds(south, west, north, east) {
     },
   };
 }
+
+describe('coastalInView (map-mobile-sheet-plan.md §3 M5 task 1)', () => {
+  it('returns the coastal spots inside the padded viewport, and excludes an inland one', () => {
+    const bounds = rectBounds(50, -2, 51, -1);
+    const spots = [
+      spot('Coastal In View', { lat: 50.5, lng: -1.5, coastal: true }),
+      spot('Inland In View', { lat: 50.5, lng: -1.5, coastal: false }),
+      spot('Coastal Far Away', { lat: 60, lng: -1.5, coastal: true }),
+    ];
+    const result = coastalInView(spots, bounds);
+    expect(result.map((s) => s.name)).toEqual(['Coastal In View']);
+  });
+
+  it('returns the empty array with no bounds report yet (null), never throws', () => {
+    const spots = [spot('A', { lat: 50.5, lng: -1.5, coastal: true })];
+    expect(coastalInView(spots, null)).toEqual([]);
+    expect(coastalInView(spots, undefined)).toEqual([]);
+  });
+
+  it('is defensive against a non-array spot list', () => {
+    const bounds = rectBounds(50, -2, 51, -1);
+    expect(coastalInView(null, bounds)).toEqual([]);
+    expect(coastalInView(undefined, bounds)).toEqual([]);
+  });
+
+  it('an empty result is a real empty array, never a falsy value — the caller must test .length', () => {
+    const bounds = rectBounds(50, -2, 51, -1);
+    const result = coastalInView([], bounds);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(0);
+    // The array itself is truthy even when empty — this is exactly why `tideVisible`'s caller must
+    // pass `.length > 0`, never the array itself (a Codex finding on the plan's M0).
+    expect(Boolean(result)).toBe(true);
+  });
+});
 
 describe('tierOf', () => {
   it('reads match off an aligned fact', () => {
