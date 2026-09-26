@@ -5,6 +5,323 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.1] - 2026-09-26
+
+### Fixed — the map tide-mode save no longer takes part in the settings answers' order
+
+A tide-mode save that landed before the mount-time settings read made that read fail its own
+ordering claim and be dropped whole — home, colour and last-seen date with it — and an older
+choice landing or failing after a newer press put the older mode back on screen for the newer
+save's whole flight. Two Codex findings on the merged M4 change. The tide mode now keeps an order
+of its own, apart from the answers' order, and only the newest press moves what is shown; the
+mount read applies its tide mode only while nothing has been chosen and sets the rollback
+baseline only while nothing has landed.
+
+### Docs — Map tab on a phone: the peek sheet, planned
+
+The owner's `design_handoff_map_mobile_sheet` bundle is vendored at `docs/design/map-mobile-sheet/`
+(spec, prototype, six screenshots, `VENDORING.md`), and `docs/engineering/map-mobile-sheet-plan.md`
+is the port plan: sixteen places the codebase already differs from the spec (`BottomSheet.jsx`
+cannot be the sheet; the phone "bottom bar" is CSS on `.wf-map-chrome-tr`; the toast has no
+timer; every tide cue already keys off one `tideTier` field), six single-session phases M1–M6, the
+deliberate disagreements, the decisions taken, and the README's Verify list mapped to measurements.
+`docs/engineering/map-mobile-sheet-prompts.md` carries one kickoff prompt per phase. No code.
+
+### Docs — map peek sheet series complete
+
+`docs/engineering/map-mobile-sheet-plan.md`'s M6 sweep closes out the phone peek-sheet series
+(M1–M6, all six phases now landed): §1's line-number citations re-verified against the tree
+(`MapView.jsx` grew to 6,729 lines) and corrected, with the handful that had been semantically
+overtaken by M1/M2/M3/M5 themselves flagged rather than silently renumbered; the §0 phase log gains
+a measured M6 row (collapsed sheet 74px exactly, open 356px clamped to `calc(100% - 64px)`, the
+map's own visible height above the collapsed sheet measured 591px against the spec's ~440px
+estimate) at both 390×844 and 1280×900, plus a tablet spot-check; the §0 table's `commit` column
+now carries every phase's PR (M1 #924, M2 #927, M4 #925/#929, M3 #928, M5 #930); §6's six owner
+questions answered against what shipped; M3's one-off `outerHTML` golden-string pin deleted from
+`MapTideStrip.test.jsx` now that the split it proved has stood. CLAUDE.md gains a new **Map tab on
+a phone — the peek sheet** bullet, the Backend-heavy bullet's three new client reads join the
+existing filter/map/select licence rather than opening an eighth numbered class, the stale "Phone
+layout moves Regions/Heat-Pins/Filters into a bottom bar" and tide-strip-phone-mount sentences are
+corrected, and a stale API-doc parenthetical on `PUT /api/user/settings/map-tide-mode` (still
+claiming "no frontend caller" after M5 wired it up) is fixed. `map-tab-v2-plan.md`, `tide-window-
+plan.md` and `map-landing-plan.md` each gain a short cross-reference note recording what this
+series retired or superseded in their own territory. No user-visible behaviour change.
+
+### Added — the phone tide rule: Auto/Always/Off, one gate, a one-shot pulse
+
+Phase M5 of `docs/engineering/map-mobile-sheet-plan.md`. `utils/mapPeek.js#tideVisible({ mode,
+tideAvailable, hasCoastalInView, tier })` is the pure Auto/Always/Off rule: `off` is always false;
+`always` reads only `tideAvailable` (a served solar tide, ignoring the coast-in-view test and the
+verdict — a night row still shows nothing); `auto` requires all three — a served tide, a named
+coastal spot in the padded viewport, and the window's own served verdict at `WORTH_IT` or `MAYBE`
+(a `null`/`AWAITING` verdict reads as "not Maybe or better", never as a pass). `mapTideFit.js` gains
+`coastalInView(spots, bounds)`, the `bounds.pad(0.12).contains(...)` filter `stripModel` already ran
+internally, lifted to its own export so there is one definition — `stripModel` now calls it too, and
+`tideVisible`'s caller calls it a second time on the map's UNDECORATED spot list, before `tideTier`
+exists, taking care to pass `.length > 0` rather than the array itself (an empty array is truthy).
+
+`MapView` computes the three inputs from data available BEFORE the spot-build site — the block
+computing `mapEvents`/`evVerdicts`/`activeMapEvent` moved earlier in the render for exactly this
+reason, since the rule needs the active window's own verdict tier before `labelSpots` decorates
+anything — and the single `tideTier` null at that site (§1 #6) now reads `tideCuesOn ? tierOf(tide)
+: null`, with `tideShortfall`/`tideFitPhrase` following it; every consumer (`MapLabels`,
+`PinsLayer`, both tooltips, the dimming CSS) is unchanged, because they all already keyed off that
+one field. `tideCuesOn` is `!isMobile || tideVisible(...)`, so desktop/tablet are provably
+untouched. The Tide peek button and its section now render exactly `iff tideVisible`, reusing M3's
+close-and-rescue mechanism unchanged in shape — only the gate's source moved from
+`stripModel.visible` to `tideCuesOn`.
+
+A one-shot pulse (`.wf-map-peek-btn-pulse`, a `box-shadow` sweep, 1.2s, removed on its own
+`animationend` rather than a timer) plays on a false → true transition of `tideCuesOn`, armed only
+after the FIRST bounds-backed evaluation (`tideViewBounds` is `null` until `BoundsTracker`'s mount
+effect reports the real viewport, so a coastal Worth-it window's first resolved visibility is itself
+a post-mount transition that must not pulse). Dropped under `prefers-reduced-motion: reduce`.
+
+The Layers section gains a Tide row — a `.wf-seg` Auto/Always/Off segment plus a fixed hint line —
+wired to `useReaderSettings`' existing `mapTideMode`/`saveTideMode` (M4), which already serialises
+saves and reverts to the last persisted mode on failure; `MapView` only reacts to the outcome,
+announcing a failure through the pane's one `role="status"` region and clearing that message the
+instant a fresh press is made.
+
+**Two Codex retrospective findings on #927/#928, fixed here** (both land in code this phase already
+edits):
+
+- **#927 — the Layers Show (Heat | Pins) row rendered unconditionally on phone.** When
+  `heatOffered` is false (no served heat data, or an astro/aurora window on screen), both `heatOn`
+  and `heatPinsOn` are forced false and neither `MapLabels` nor `PinsLayer` mounts — the desktop
+  toolbar cluster was already correctly gated on `heatOffered`; the phone Layers row now matches it.
+- **#928 — the close-and-focus-rescue effect could never actually rescue focus.** It compared
+  `document.activeElement === tidePeekBtnRef.current` from inside a `useEffect`, which runs strictly
+  after the commit that unmounts the Tide button when its own gate turns false — by then the
+  browser has already reset focus to `<body>` and React has already nulled the ref (proven with a
+  plain jsdom `removeChild` call). M3's own close scenarios never happened to land on a
+  focused-and-unmounting button in a real browser pass, so this stayed latent until M5's Auto rule
+  made it routine. Fixed by tracking focus independently: `focus`/`blur` handlers on the Tide button
+  itself maintain a `tideButtonHadFocusRef` (a `blur` event is not fired when a focused element is
+  simply removed, so the ref's `true` survives the unmount intact), and the rescue effect reads and
+  resets that ref instead of comparing `document.activeElement` after the fact.
+
+A third finding surfaced by this phase's own adversarial review (not from Codex): **Always mode can
+open the Tide section with NOTHING coastal in the padded viewport** (Always deliberately ignores the
+coast-in-view test), which made `MapPeekTideSection` fall through to `footerModel`'s "no coastal
+spot here has its water on this light" sentence — a sentence that, on the desktop strip, can only
+mean "spots are in view but none carry a served alignment fact" (the desktop strip's own mount is
+gated on `stripModel.visible`, so an empty viewport was structurally impossible there). The phone
+section now checks `model.visible` itself and states the honest, distinct reason ("No coastal spot
+in view — pan the map to see one.") rather than printing the ambiguous shared sentence for a case
+the desktop strip can never reach.
+
+**Tests**: `tideVisible`'s full 3×2×2×5 truth table (`mapPeek.test.js`); `coastalInView`'s own unit
+tests including the empty-array-is-truthy trap (`mapTideFit.test.js`); new `MapPeekSheet`-level
+pulse-class-present/absent tests; two new `MapPeekTideSection` tests for the `model.visible` fix; a
+new `MapViewMobileTideRule.test.jsx` proving the WIRING a unit test cannot reach — a coastal spot in
+view on a Poor window carries no `data-tide` on any chip or pin though its tide is served and
+aligned, Off/Always invert that on the same fixture, panning the spot out of view hides it on an
+otherwise Worth-it window, the pulse fires only on a genuine post-seed transition, the
+close-and-rescue actually lands focus on Other windows (and does NOT steal it when the button never
+held it — the `#928` fix's own negative case), the Layers segment calls `saveTideMode` and surfaces
+a failure, and desktop/tablet carry `data-tide` on a Poor window regardless of the saved mode; two
+new tests in `MapViewMobilePeekSheet.test.jsx` for the `#927` fix (Show row present/absent on
+`heatOffered`); a cascade test reads the pulse keyframes and its reduced-motion override off the
+real stylesheet.
+
+⚠️ One test was written and removed: `fireEvent.animationEnd` reliably invoking a React
+`onAnimationEnd` handler proved non-deterministically flaky the moment ANY other test file shares
+its vitest worker — reproduced with a trivial `<div onAnimationEnd>` canary paired against
+already-merged, unrelated files (`MapLabels.test.jsx`, `MapViewMobilePeekSheet.test.jsx`), with the
+identical file combination passing on some runs and failing on others, in both directions. This is
+a pre-existing jsdom/React event-delegation quirk in the suite, not a defect in the wiring it was
+testing (a source read confirms `onAnimationEnd={onTidePulseEnd}`/`onTidePulseEnd={clearTidePulse}`
+are both wired, and the pulse-class tests already exercise the class itself appearing/disappearing
+with state); recorded here so the missing coverage reads as a decision.
+
+**Browser (390 × 844, the seeded fixture with today's Worth-it sunset and tomorrow's Poor sunrise,
+real coastal `tide_extreme` data, SEEN AND MEASURED)**: stepping the pill to the Poor window removes
+the Tide button and every `data-tide` glyph on the coastal chips shown; zooming into an inland view
+removes the button on the still-Worth-it window (Dunstanburgh Castle's dim count drops from 4 to 2
+to 0 as the padded viewport narrows); zooming back out restores it; the Layers section's Tide row
+renders with Auto pre-selected and the exact hint copy. Desktop (browser default width) is
+unchanged: the landing card, the standing tide strip and its own footer render exactly as before, no
+`.wf-map-peek` in the DOM. NOT independently confirmed this session: a mid-flight screenshot of the
+pulse animation itself (the tool's round-trip latency exceeds the 1.2s window; the class's
+appear/clear behaviour is TESTED, not photographed) and the Always/Off segment's live visual effect
+or its persistence across reload — pressing Off/Always against the shared local backend on :8083
+returned `500` from `PUT /api/user/settings/map-tide-mode` (confirmed directly with `curl`, and via
+H2 introspection: `app_user` has no `map_tide_mode` column on that running instance's database,
+though the source's V155 migration and `AppUserEntity` both declare it — the shared backend process
+needs restarting to pick up schema changes made since it was last started, which this session's
+rules withhold permission for). The FAILURE path was genuinely exercised and behaved correctly: the
+segment stayed on Auto (never got stuck showing the failed choice) and the pane's `role="status"`
+region read "Could not save tide mode — kept the last saved choice." — a real, unscripted proof of
+`saveTideMode`'s own revert-on-failure rule, for what that is worth. The success/persistence path
+is TESTED (`MapViewMobileTideRule.test.jsx`'s Layers-segment describe block, `useReaderSettings`'s
+own M4 tests) but not SEEN live this session.
+
+### Added — user settings: persisted map tide mode (auto / always / off)
+
+A new per-user preference, `map_tide_mode` (V155), copying the map-colour preference's shape
+exactly: nullable with no default (null = never chosen = Auto on the client), written only through
+a column-scoped repository update, never a whole-entity save. `PUT /api/user/settings/map-tide-mode`
+validates against `auto`/`always`/`off`, `UserSettingsResponse.mapTideMode` rides the existing
+settings payload, and `hooks/useReaderSettings.js` exposes `mapTideMode` (defaulting to `'auto'`)
+and a `saveTideMode(mode)` action serialised through its own line of saves — one save in flight at a
+time, a newer choice queued behind an older one supersedes it, and a failed save reverts to the last
+mode the server is known to hold rather than to a discarded queued choice or the pre-session value
+(reusing `colourSaveQueue.js`'s mechanics, which already generalise over the save function).
+
+This is Phase M4 of the map mobile sheet plan (`docs/engineering/map-mobile-sheet-plan.md`): no UI
+ships in this phase. `mapTideMode`/`saveTideMode` are threaded through `App.jsx` →
+`WindowFirstMapPane` → `MapView` on the same route as `mapColourScale`, wired and tested here so
+Phase M5 (the Auto rule and the Tide mode control) needs no new plumbing of its own.
+
+### Added — the phone tide strip becomes the peek sheet's Tide section
+
+Phase M3 of `docs/engineering/map-mobile-sheet-plan.md`. `components/map/MapTideStrip.jsx` is
+split into three exported pieces the desktop/tablet strip keeps composing unchanged —
+`TideStripHeader`, `TideDayChart` (the served curve, night shading, dashed HIGH/MID/LOW rules, the
+light marker and its height) and `TideStripFooter` (the dimmed-count sentence and the next-fit
+jump/denial) — a refactor pinned by a one-off `outerHTML` golden-string test (captured from the
+pre-split component, deleted at M6) so the desktop strip's own rendered DOM is provably untouched.
+`TideDayChart` gains a `tall` projection (viewBox height 92 instead of 32, algebraically identical
+at the default via a `× (32/32)` no-op) that the new `components/map/MapPeekTideSection.jsx` reuses
+for the sheet, alongside `TideStripFooter` unchanged — the section's own header line (key, phase,
+height/time) is new layout, but the chart and footer read the identical served facts the desktop
+strip already prints, so the two can never disagree.
+
+The peek sheet gains its third button — `MapPeekSheet` mounts `Tide` (fixed key
+`TIDE AT THIS LIGHT`, never swapping to `CLOSE` the way `Other windows` does) gated on
+`stripModel.visible`, with a value line from a new `utils/mapPeek.js#tideSummary` (the served tide
+state as one word, an arrow only when `MID`, and the strip's own licensed dimmed count — omitted
+entirely at zero rather than printed as "0 dim"). `MapView` owns the close-and-rescue this button
+needs: the `‹ ›` steppers can land on a window with no served tide (a night row, or a solar window
+with no coastal spot in view) while the Tide section is open, unmounting its own trigger — the
+section then closes in the same render and, if the vanishing button held focus, hands it to Other
+windows. Because this component's early "no forecast data" return sits between where every hook
+must run and where the tide state is actually computed, the close-and-rescue is a `useRef` hand-off:
+an effect declared ahead of that return reads a `{active, tideVisible}` pair a plain (non-hook)
+assignment further down writes fresh every render — the ref read always sees the render that just
+committed, never a stale one. M5 replaces only the gate's source (`stripModel.visible` →
+`tideVisible(...)`), reusing this mechanism unchanged.
+
+The phone `MapTideStrip` mount and its `--tsh`-driven phone CSS
+(`.wf-map-tab .wf-map-tide-strip`, `.wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl`) are retired
+outright — `--tsh`/`wf-tide-strip-on` are desktop/tablet-only from here, and the phone's
+`.wf-map-chrome-bl` bottom is the plain M2 literal in every state.
+
+**Tests**: the `outerHTML` pin; `MapPeekTideSection.test.jsx` (every line from one `stripModel`
+fixture, the zero-dimmed sentence, the jump calling `onSelectEv` with the scanned row and focusing
+the stable target *before* that call, the disappearing-link keyboard path, the beyond denial);
+`tideSummary`'s five named cases; `MapPeekSheet.test.jsx`'s new Tide-button describe (the AND-gate,
+the fixed key, ref attachment, one-body-at-a-time); `mapPhoneChromeCascade.test.jsx`'s phone
+tide-strip describe rewritten to assert the retired rules' absence and the unconditional
+`calc(74px + 27px + 8px)` literal; `MapViewTideStripCalloutWiring.test.jsx` re-pointed to assert no
+`MapTideStrip` mounts on the phone at all (not merely that it's unreachable) and that
+`tideStripHeight` therefore never leaves the `null` `MapCallout`'s `--psh`-based band reads instead.
+
+**Adversarial review (three read-only lenses)**: no findings survived. One lens re-derived the
+`yForAt`/`32÷32` floating-point identity by hand and confirmed the desktop strip's `outerHTML`,
+CSS and focus-order are provably unchanged; one lens read every new computation
+(`tideSummary`, the section's height/time join, the `tall` viewBox) against CLAUDE.md's
+Backend-heavy rule and found each one a licensed filter/map/select over already-served facts, never
+a new derivation; one lens verified the `useRef`/no-dep-array close-and-rescue effect is race- and
+loop-safe, every prop MapView passes matches `MapPeekSheet`'s PropTypes, the chart stays
+`aria-hidden` as a whole, and `eslint --max-warnings 0` passes clean.
+
+**Browser (390 × 844 and 1280 wide, seeded with real coastal tide extremes, SEEN AND MEASURED)**:
+phone — the Tide button shows `~Mid ↑ · 4 dim` on tonight's Worth-it sunset; opening it renders the
+section against screenshot 03's structure (key, phase line, height/time, chart with HW/LW labels
+and the light dot, dimmed sentence, next-fit line); stepping the pill to tomorrow's Poor sunrise
+updates the section in place without hiding the button (M5's own rule, not this phase's); a map
+touch collapses the open section back to 74px. Desktop at 1280 wide — the strip renders unchanged
+(`TIDE AT THIS LIGHT`, the state/direction phrase, the chart, the same dimmed-count/beyond footer
+text), no `.wf-map-peek` present. TESTED, not merely seen: the served fixture's tide never produces
+a "jump" (only "beyond") case within its 4-day horizon, an artifact of the synthetic seed's phase —
+the jump path itself is exercised at the unit level (`MapPeekTideSection.test.jsx`,
+`MapTideStrip.test.jsx`), not in the browser this session.
+
+### Added — one collapsed peek sheet replaces the phone's floating map controls
+
+Phase M2 of `docs/engineering/map-mobile-sheet-plan.md`. On a phone (`hooks/useIsMobile.js`) the
+Map tab's window pill dropdown, the Regions/Heat-Pins/Filters bar and the standing tide strip are
+replaced by one new `components/map/MapPeekSheet.jsx` — an in-frame, backdrop-free section (never
+`components/BottomSheet.jsx`, which has no collapsed state, portals behind a map-blocking backdrop
+and reads as a foreign modal to every Escape rule on the tab) that starts collapsed at 74px with
+two summary buttons (Other windows · Layers — the Tide button and section arrive at M3) and opens
+to 356px on one section at a time, clamped to the frame (`max-height: calc(100% - 64px)`).
+
+The pill body opens the sheet's Windows section on the phone instead of the desktop listbox
+(`WindowControl`'s new `pillOverride` prop swaps its popup semantics along with it — no
+`aria-haspopup="listbox"`, `aria-controls` pointed at the sheet's own body, `aria-expanded` read
+from whether the section is open). The Windows section heading is the served-derived
+`landingCardModel().header`, never a fixed string; its rows are the pill's own roster, with night
+rows showing the licensed `{bestRating}★ best` figure in place of a verdict word; its last row is
+the only phone entry to the region drilldown, which collapses the sheet by `openMapMenu`
+exclusivity alone. The Layers section carries Show (Heat/Pins), Regions and Filters trigger rows
+and the ramp legend; `RegionsJump`/`FiltersPopover` gain a `chipHidden` prop and stay mounted
+outside the sheet's body so their `BottomSheet` stays reachable once the row that opened it
+unmounts, with a new `restoreFallback` prop (threaded through to `useDialogFocus`) returning focus
+to the Layers button on close.
+
+The sheet collapses on any Leaflet `mousedown`/`touchstart`/`dragstart`/`zoomstart`
+(`SheetDismissOnMapTouch`, deliberately not `useOutsideDismiss`, whose whole rule is the opposite —
+panels persist through a map touch) and whenever a selection installs by any route (a new effect
+keyed on `selectedLocationName`, since chips/pins/handoffs all write it directly and stop click
+propagation before the map listener ever sees them); a peek press clears the selection first, so
+the callout and an open section never coexist in either order. The phone's lifted stack (attribution,
+the LITE viewline-upsell chip) is rebuilt against the sheet's own collapsed height instead of the
+retired bar, and the counts footer — with no phone home left at all — is unconditionally
+`sr-only`-clipped rather than lifted; `MapCallout`'s phone band now reads a fixed `--psh: 74px`
+custom property instead of measuring a live rect, since the callout and an open sheet never
+coexist. `mapPhoneChromeCascade.test.jsx` is rewritten (not deleted) for the new two-row stack.
+
+**Adversarial review (four read-only lenses): all real findings fixed before the commit landed** —
+a stale doc comment claiming the phone tide strip sat at its own `z-index: 1120` rung (it is
+chrome-tier, 1100, unchanged by the phone media query) corrected; a `MapPeekWindowsSection` test
+asserted only that the active row carried the `.on` class, never that its sibling did not; no test
+proved the Tide button is absent in M2 (task 2's explicit "never render an empty panel" rule); no
+test proved `aria-expanded` tracks the same pill through a real open→close cycle rather than two
+separate mounts; and no test exercised D-7's reverse-order clause (a peek press clearing an
+existing selection before growing the sheet) — all five closed. The accessibility lens measured the
+peek row's 8.5px key labels at `~7.1:1` contrast against the sheet's own background — comfortably
+clears WCAG AA for small text.
+
+**Browser (390 × 844 and 1280 wide, SEEN AND MEASURED)**: phone — sheet exactly 74px collapsed,
+356px open; the pill's `aria-haspopup` absent and `aria-controls="wf-map-peek-body"`; the Windows
+section shows the served header and per-tier verdict colours; the Layers section's Regions row
+opens the real `BottomSheet` with the peek sheet gone, and both a real Escape press and the ✕
+button return focus to the Layers peek button; a real mouse drag on the map collapses an open
+section; the verdict span in the "Other windows" button computed `flex: none`. Desktop — the
+landing card, the Regions/Heat-Pins/Filters bar, the Legend chip and the counts footer render
+exactly as before, no `.wf-map-peek` anywhere.
+
+### Changed — on a phone the Map tab now opens quiet: no landing card, and the scored-locations toast fades
+
+Phase M1 of `docs/engineering/map-mobile-sheet-plan.md`. On a phone (`hooks/useIsMobile.js`) the
+"Tonight, or tomorrow?" landing card no longer auto-opens — `MapView`'s own `landingOpen` is
+unconditionally `false` there, so the phone never writes `localStorage.mapLandingSeenRun` either (a
+reader who dismisses nothing on the phone still meets the card fresh on a desktop later), and the
+window pill's `↺ Back to …` reopen row is withheld rather than left pointing at a card that can
+never be reopened. The "★ PhotoCast-scored locations shown" toast (the Map tab's own copy — the
+frozen Plan-tab overlay's copy is untouched) moves from the bottom lifted stack to a fixed, centred
+`top: 62px` and fades out (`wf-map-scored-legend-gone`, `aria-hidden="true"`) 3,000 ms after its
+`|date|eventType|` key last changes — a window change or a re-mount restarts the clock — with the
+fade dropped under `prefers-reduced-motion: reduce`. Desktop and tablet are unchanged on both
+counts. A conflicting tide-strip-displaced `bottom` override for the toast, which would otherwise
+have out-specificity'd the new fixed `top` rule and over-constrained the box, is retired the same
+way its own arithmetic is retired for the rest of the phone chrome in a later phase.
+
+### Changed — the map's match tide glyph now carries its matched water as a letter
+
+Two neighbouring coastal spots could show different tide glyphs for the same window purely because
+their wanted tide types differed — a plain wave here, an arrow two kilometres away — over one
+identical served tide state, which read as a contradiction rather than as two questions answered
+correctly. The match glyph now spends the same wide slot the miss arrow already used on a direction
+to state the water it matched instead: H, M or L, drawn beside the wave on the map label chip, the
+region-panel row, the callout/sheet tide-fit block, and the Plan tab's best-reachable line. No new
+backend field — the letter reads the tide state each of those surfaces already carried. The
+accessible clause changes to match ("mid tide, right here" rather than the state-blind "tide right
+here").
+
 ## [v2.22.0] - 2026-09-25
 
 ### Added — Plan/Map: the per-location eclipse spot line, and the lunar eclipse docs sweep (L7)
