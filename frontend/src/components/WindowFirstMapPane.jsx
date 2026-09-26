@@ -151,6 +151,13 @@ function subscribeForeignModalDom(onChange) {
  * @param {boolean}  [props.colourScaleDefaulted] whether the loaded colour preference was never
  *                                         explicitly chosen — forwarded to `MapView`'s one-time
  *                                         "colours changed" notice
+ * @param {'auto'|'always'|'off'} [props.mapTideMode] the caller's persisted Map tab tide mode
+ *                                         (map-mobile-sheet-plan.md M4) — forwarded to `MapView`
+ *                                         on the same route as `mapColourScale`, above. Unread by
+ *                                         any UI until M5; wired and tested here only.
+ * @param {Function} [props.saveTideMode] `App.jsx`'s `useReaderSettings().saveTideMode` — the
+ *                                         serialised save action, forwarded straight through
+ *                                         alongside `mapTideMode`. Also unread until M5.
  * @param {Function} [props.onOpenSettings]
  * @param {Function} [props.onOpenLocationSheet] the selection callout's two routes into one
  *                                         four-day sheet (map-tab-v2-plan.md §3 P9) —
@@ -167,8 +174,8 @@ export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
   onForecastRun = null, seasonalFeatures = [], homeCoords,
-  mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
-  onOpenLocationSheet = null, onReturnToPlan = null,
+  mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null,
+  onOpenSettings = null, onOpenLocationSheet = null, onReturnToPlan = null,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
@@ -583,6 +590,10 @@ export default function WindowFirstMapPane({
         origin={origin}
         mapColourScale={mapColourScale}
         colourScaleDefaulted={colourScaleDefaulted}
+        // Unread by any UI until M5 (map-mobile-sheet-plan.md) — wired and tested in this phase so
+        // M5 needs no new plumbing of its own.
+        mapTideMode={mapTideMode}
+        saveTideMode={saveTideMode}
         onOpenSettings={onOpenSettings}
         resizeNonce={resizeNonce}
         paneVisible={paneVisible}
@@ -645,6 +656,13 @@ WindowFirstMapPane.propTypes = {
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
   /** Whether the colour preference was never explicitly chosen — forwarded to `MapView`'s notice. */
   colourScaleDefaulted: PropTypes.bool,
+  /**
+   * The caller's persisted Map tab tide mode (map-mobile-sheet-plan.md M4) — forwarded to
+   * `MapView` on the same route as `mapColourScale`. Unread by any UI until M5.
+   */
+  mapTideMode: PropTypes.oneOf(['auto', 'always', 'off']),
+  /** The serialised save action for `mapTideMode` — forwarded straight through. Unread until M5. */
+  saveTideMode: PropTypes.func,
   onOpenSettings: PropTypes.func,
   onOpenLocationSheet: PropTypes.func,
   onReturnToPlan: PropTypes.func,

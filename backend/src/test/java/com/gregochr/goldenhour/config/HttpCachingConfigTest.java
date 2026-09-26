@@ -101,6 +101,10 @@ class HttpCachingConfigTest {
         // Map colour preferences (Stage 6). Write-only (PUT) today, so already excluded by the
         // GET-only filter — pinned anyway so a future GET added under this path cannot be missed.
         "/api/user/settings/map-colours",
+        // The Map tab's phone tide mode (map-mobile-sheet-plan.md M4). Same shape and same reason
+        // as map-colours, immediately above: write-only (PUT) today, pinned so a future GET cannot
+        // be missed.
+        "/api/user/settings/map-tide-mode",
         // The Coming up badge's last-seen write (plan D3/P5). Write-only (PUT) today, pinned for
         // the same reason as map-colours: per-user state must never gain a revalidatable GET here.
         "/api/user/settings/coming-up-seen",

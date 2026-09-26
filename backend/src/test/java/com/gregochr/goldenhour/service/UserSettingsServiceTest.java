@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
+import com.gregochr.goldenhour.model.MapTideModeRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -538,6 +539,59 @@ class UserSettingsServiceTest {
         }
     }
 
+    // ── saveMapTideMode (map-mobile-sheet-plan.md M4) ────────────────────────────
+
+    @Nested
+    @DisplayName("saveMapTideMode")
+    class SaveMapTideMode {
+
+        @ParameterizedTest(name = "\"{0}\"")
+        @ValueSource(strings = {"auto", "always", "off"})
+        @DisplayName("writes the mode alone, then answers with the row read back")
+        void writesTheModeAlone(String mode) {
+            stubAuth();
+            AppUserEntity afterSave = home(DURHAM, DURHAM_LAT, DURHAM_LON);
+            afterSave.setMapTideMode(mode);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(afterSave));
+
+            UserSettingsResponse response = service.saveMapTideMode(auth,
+                    new MapTideModeRequest(mode));
+
+            assertThat(response.mapTideMode()).isEqualTo(mode);
+            // The home rides along in the response because it is read back, not because it was
+            // written: a whole-entity save here would write back the home it had loaded.
+            assertThat(response.homePostcode()).isEqualTo(DURHAM);
+            InOrder order = inOrder(userRepository);
+            order.verify(userRepository).updateMapTideModeByUsername(USERNAME, mode);
+            order.verify(userRepository).findByUsername(USERNAME);
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("rejects an unrecognised mode before touching the row")
+        void invalidMode_throws400() {
+            // Validated before the user is even looked up, so auth.getName() is never called here.
+            assertThatThrownBy(() -> service.saveMapTideMode(auth,
+                    new MapTideModeRequest("sometimes")))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("auto', 'always' or 'off'");
+
+            verifyNoInteractions(userRepository);
+        }
+
+        @Test
+        @DisplayName("rejects a null mode with 400, not a 500")
+        void nullMode_throws400NotNpe() {
+            // VALID_MAP_TIDE_MODES is Set.of(...), whose contains() throws NullPointerException on
+            // a null argument rather than returning false — an omitted field must still 400.
+            assertThatThrownBy(() -> service.saveMapTideMode(auth, new MapTideModeRequest(null)))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("auto', 'always' or 'off'");
+
+            verifyNoInteractions(userRepository);
+        }
+    }
+
     // ── reads ────────────────────────────────────────────────────────────────────
 
     @Test
@@ -701,6 +755,18 @@ class UserSettingsServiceTest {
         UserSettingsResponse response = service.getSettings(auth);
 
         assertThat(response.mapColourScale()).isNull();
+    }
+
+    @Test
+    @DisplayName("getSettings returns null mapTideMode when never chosen — round-trips as such")
+    void getSettings_neverChosenTideMode_returnsNull() {
+        stubAuth();
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.getSettings(auth);
+
+        assertThat(response.mapTideMode()).isNull();
     }
 
     @Test

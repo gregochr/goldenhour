@@ -14,9 +14,23 @@
  * them — the mount read, its supersession by the dialog, the colour, the last-seen date — is tested
  * through its one consumer, `App`, with the real settings dialog and the real provider
  * (`App.test.jsx`), as the frontend test standards prefer to a harness.
+ *
+ * <p><b>The Map tab's tide mode is the one exception</b> (map-mobile-sheet-plan.md M4): it ships no
+ * settings control in this phase, so there is no dialog to route it through and no `App.test.jsx`
+ * flow that presses a choice. Its save line (`mapTideMode`/`saveTideMode`, below) is tested directly
+ * against the hook with `renderHook`, mocking `../api/settingsApi.js` — the same API-module-boundary
+ * mock every other frontend test in this suite already uses.
  */
-import { describe, it, expect } from 'vitest';
-import { recordReducer, INITIAL_RECORD } from '../hooks/useReaderSettings.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import useReaderSettings, { recordReducer, INITIAL_RECORD } from '../hooks/useReaderSettings.js';
+
+vi.mock('../api/settingsApi.js', () => ({
+  getSettings: vi.fn(),
+  saveMapTideMode: vi.fn(),
+}));
+
+import { getSettings, saveMapTideMode } from '../api/settingsApi.js';
 
 /** `GET /api/user/settings` for one reader, before and after moving from Morpeth to Keswick. */
 const MORPETH = {
@@ -238,5 +252,148 @@ describe('useReaderSettings — a recalculation', () => {
     const record = readOf({ ...KESWICK, driveTimesCalculatedAt: '2026-09-15T11:00:00.123457Z' });
 
     expect(recordReducer(record, recalculated('2026-09-15T11:00:00.123456789Z'))).toBe(record);
+  });
+});
+
+describe('useReaderSettings — mapTideMode / saveTideMode (map-mobile-sheet-plan.md M4)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  /**
+   * Flushes the mount read's effect and any queued save's continuations — the line is a few
+   * `then`s deep per turn, so twenty microtask ticks (`colourSaveQueue.test.js`'s own margin) is
+   * ample. Wrapped in one `act()` so every state update the flush produces is captured.
+   */
+  async function drain() {
+    await act(async () => {
+      for (let i = 0; i < 20; i += 1) {
+        await Promise.resolve();
+      }
+    });
+  }
+
+  /** Mounts the hook with a settled mount read of `settings`. */
+  async function mountSettled(settings) {
+    getSettings.mockResolvedValue(settings);
+    const view = renderHook(() => useReaderSettings());
+    await drain();
+    return view;
+  }
+
+  /** A tide-mode save the test settles by hand — the same shape `colourSaveQueue.test.js` uses. */
+  function heldSave() {
+    const calls = [];
+    saveMapTideMode.mockImplementation((mode) => new Promise((resolve, reject) => {
+      calls.push({ mode, resolve, reject });
+    }));
+    return calls;
+  }
+
+  it('defaults to auto before the mount read answers', () => {
+    getSettings.mockReturnValue(new Promise(() => {})); // never settles in this test
+    const { result } = renderHook(() => useReaderSettings());
+
+    expect(result.current.mapTideMode).toBe('auto');
+  });
+
+  it("takes the mount read's mode", async () => {
+    const { result } = await mountSettled({ mapTideMode: 'always' });
+
+    expect(result.current.mapTideMode).toBe('always');
+  });
+
+  it('reads a never-chosen (null) server value as auto', async () => {
+    const { result } = await mountSettled({ mapTideMode: null });
+
+    expect(result.current.mapTideMode).toBe('auto');
+  });
+
+  it('a press BEFORE the mount read lands does not drop that read — the save is numbered when it lands', async () => {
+    // Found by M4's review: the first cut claimed the answer order at press time, so a slow
+    // getSettings() that landed after a press failed its own claim and the WHOLE read — home,
+    // colour, last-seen date — was silently dropped, not just the tide mode.
+    let landRead;
+    getSettings.mockReturnValue(new Promise((resolve) => { landRead = resolve; }));
+    const { result } = renderHook(() => useReaderSettings());
+    const calls = heldSave();
+
+    act(() => { result.current.saveTideMode('off'); });
+    expect(result.current.mapTideMode, 'optimistic while the save is out').toBe('off');
+
+    await act(async () => {
+      landRead({ mapColourScale: 'temp', mapTideMode: 'always', comingUpLastSeenDate: '2026-09-10' });
+      await drain();
+    });
+    expect(result.current.comingUpLastSeenDate, 'the read landed — it was not dropped')
+        .toBe('2026-09-10');
+    expect(result.current.mapColourScale).toBe('temp');
+    expect(result.current.mapTideMode, "the read's answer stands until the save lands").toBe('always');
+
+    calls[0].resolve({ mapTideMode: 'off' });
+    await drain();
+    expect(result.current.mapTideMode, 'the landed save is the newest answer').toBe('off');
+
+    // And the landed save is the rollback baseline from here, not the read's older value.
+    const later = heldSave();
+    act(() => { result.current.saveTideMode('auto'); });
+    later[0].reject(new Error('502'));
+    await drain();
+    expect(result.current.mapTideMode).toBe('off');
+  });
+
+  it('holds the first save alone in flight, then sends only the newest queued choice', async () => {
+    const { result } = await mountSettled({ mapTideMode: 'auto' });
+    const calls = heldSave();
+
+    act(() => { result.current.saveTideMode('always'); });
+    expect(saveMapTideMode, 'starts at once — nothing ahead of it').toHaveBeenCalledTimes(1);
+    expect(saveMapTideMode).toHaveBeenCalledWith('always');
+
+    // Three more choices arrive while the first is still held. Only the LAST is ever sent — the
+    // earlier two are overtaken before their own turn comes and never reach the network at all.
+    act(() => {
+      result.current.saveTideMode('off');
+      result.current.saveTideMode('auto');
+      result.current.saveTideMode('always');
+    });
+    expect(result.current.mapTideMode, 'the newest choice is shown at once, optimistically')
+        .toBe('always');
+    expect(saveMapTideMode, 'nothing goes out beside a save already in flight')
+        .toHaveBeenCalledTimes(1);
+
+    calls[0].resolve({ mapTideMode: 'always' });
+    await drain();
+
+    expect(saveMapTideMode, 'exactly one more call — the newest queued choice')
+        .toHaveBeenCalledTimes(2);
+    expect(saveMapTideMode).toHaveBeenLastCalledWith('always');
+
+    calls[1].resolve({ mapTideMode: 'always' });
+    await drain();
+
+    expect(result.current.mapTideMode).toBe('always');
+  });
+
+  it('reverts to the last mode the server holds when the newest choice fails — never the '
+      + 'discarded queued value, and never the pre-session value', async () => {
+    const { result } = await mountSettled({ mapTideMode: 'auto' });
+    const calls = heldSave();
+
+    act(() => { result.current.saveTideMode('always'); });
+    calls[0].resolve({ mapTideMode: 'always' });
+    await drain();
+    expect(result.current.mapTideMode).toBe('always');
+
+    let outcome;
+    act(() => { outcome = result.current.saveTideMode('off'); });
+    calls[1].reject(new Error('502'));
+    await drain();
+
+    expect(await outcome).toBe('failed');
+    expect(result.current.mapTideMode,
+        'reverts to the baseline the server actually holds — "always" — not "off" (never sent) '
+        + 'and not "auto" (the pre-session default)')
+        .toBe('always');
   });
 });

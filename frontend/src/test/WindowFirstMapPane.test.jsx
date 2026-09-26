@@ -248,6 +248,32 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.homeCoords).toBe(home);
     });
 
+    it('forwards the Map tab\'s persisted tide mode and its save action (map-mobile-sheet-plan.md '
+        + 'M4) — wired here, unread until M5', () => {
+      const saveTideMode = vi.fn();
+      renderPane({ mapTideMode: 'always', saveTideMode });
+
+      expect(MapStub.lastProps.mapTideMode).toBe('always');
+      expect(MapStub.lastProps.saveTideMode).toBe(saveTideMode);
+    });
+
+    it('defaults the tide mode to auto when App has not passed one', () => {
+      renderPane();
+      expect(MapStub.lastProps.mapTideMode).toBe('auto');
+    });
+
+    it('hands MapView a saved mode on the next render — the live-update `App.jsx`\'s '
+        + '`useReaderSettings` relies on, the same route `mapColourScale` already takes', () => {
+      const { rerender } = renderPane({ mapTideMode: 'auto' });
+      expect(MapStub.lastProps.mapTideMode).toBe('auto');
+
+      rerender(
+        <WindowFirstMapPane locations={[]} dates={DATES} selectedDate={DATES[0]}
+          onSelectDate={vi.fn()} mapTideMode="off" />,
+      );
+      expect(MapStub.lastProps.mapTideMode).toBe('off');
+    });
+
     it('forwards a darkSky handoff (D8, plan §6b) — the Coming up dark-sky-spots action', () => {
       renderPane({ handoff: { darkSky: true, nonce: 3 } });
       expect(MapStub.lastProps.handoffDarkSky).toBe(true);

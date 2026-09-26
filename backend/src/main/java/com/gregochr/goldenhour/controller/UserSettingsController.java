@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
+import com.gregochr.goldenhour.model.MapTideModeRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
@@ -103,6 +104,19 @@ public class UserSettingsController {
     public UserSettingsResponse saveMapColourPreferences(
             @RequestBody MapColourPreferencesRequest request, Authentication auth) {
         return settingsService.saveMapColourPreferences(auth, request);
+    }
+
+    /**
+     * Saves the caller's Map tab tide mode — Auto, Always or Off (map-mobile-sheet-plan.md M4).
+     *
+     * @param request the chosen mode
+     * @param auth    the current authentication context
+     * @return the updated user settings
+     */
+    @PutMapping("/map-tide-mode")
+    public UserSettingsResponse saveMapTideMode(
+            @RequestBody MapTideModeRequest request, Authentication auth) {
+        return settingsService.saveMapTideMode(auth, request);
     }
 
     /**

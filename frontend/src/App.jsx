@@ -184,6 +184,9 @@ function AppInner() {
     homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate,
     homeSettingsVersion, driveTimesVersion, mapColourScale, colourScaleDefaulted,
     startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
+    // Threaded to the Map pane on the same route as `mapColourScale` (map-mobile-sheet-plan.md
+    // M4) — unread by any UI until M5, which is why nothing here calls `saveTideMode` yet.
+    mapTideMode, saveTideMode,
   } = useReaderSettings();
   /**
    * Where the settings dialog puts focus on close if the element that opened it has gone — a
@@ -723,6 +726,8 @@ function AppInner() {
                     homeCoords={homeCoords}
                     mapColourScale={mapColourScale}
                     colourScaleDefaulted={colourScaleDefaulted}
+                    mapTideMode={mapTideMode}
+                    saveTideMode={saveTideMode}
                     onOpenSettings={() => setSettingsFocus('postcode')}
                     onOpenLocationSheet={openLocationSheet}
                     // The breadcrumb's `← Plan` (D2) — a `tabRequest` for `'plan'`, no window key.

@@ -28,9 +28,9 @@ import java.util.List;
  * <p>Implements {@link UserDetails} so Spring Security can load and authenticate users
  * directly from the database. Passwords are stored as BCrypt hashes.
  *
- * <p><strong>The seven settings columns are {@code updatable = false}, deliberately.</strong> The
- * home postcode and coordinates, the local radius, the drive-time stamp, the map colour scale and
- * the Coming-up last-seen instant are written only by the column-scoped updates on
+ * <p><strong>The eight settings columns are {@code updatable = false}, deliberately.</strong> The
+ * home postcode and coordinates, the local radius, the drive-time stamp, the map colour scale, the
+ * map tide mode and the Coming-up last-seen instant are written only by the column-scoped updates on
  * {@link com.gregochr.goldenhour.repository.AppUserRepository}, never by {@code save()} on this
  * entity. It carries neither {@code @Version} nor {@code @DynamicUpdate}, so a whole-entity save
  * writes every updatable column from whatever copy it holds, and several callers hold a copy across
@@ -162,6 +162,20 @@ public class AppUserEntity implements UserDetails {
      */
     @Column(name = "map_colour_scale", length = 10, updatable = false)
     private String mapColourScale;
+
+    /**
+     * Whether the Map tab's phone tide cues show — {@code "auto"}, {@code "always"} or
+     * {@code "off"}, or {@code null} when never chosen (the client reads null as {@code "auto"}).
+     *
+     * <p>Null rather than a defaulted {@code "auto"}, matching {@link #mapColourScale}'s reasoning:
+     * it lets a later stage change what "never chosen" resolves to without overriding anyone who
+     * explicitly picked a mode.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updateMapTideModeByUsername}.
+     */
+    @Column(name = "map_tide_mode", length = 10, updatable = false)
+    private String mapTideMode;
 
     /**
      * When this user last opened the "Coming up" tab, or {@code null} when they never have.
