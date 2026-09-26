@@ -283,7 +283,12 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
 **Tasks**
 1. **`components/map/MapPeekSheet.jsx`** (new, PropTypes, `data-testid="wf-peek"`): an
    in-frame `section` (`role="region"`, `aria-label="Map panels"`) at `position: absolute; left: 0;
-   right: 0; bottom: 0` inside the map frame, `.wf-peek` collapsed (`height: 74px`) and
+   right: 0; bottom: 0; z-index: 1120` inside the map frame — an explicit rung on the map's own
+   z-ladder (markers 600, `MapLabels` 650, Leaflet popups 700, the landing card 1050, chrome 1100,
+   the tide strip 1120, the drilldown panels 1150), **never the prototype's `520`**, which would let
+   chips and popups paint and take input over the open sheet (a Codex finding on M0); the strip's
+   rung is free on the phone because the strip is gone there, and the drilldown's 1150 stays above
+   for the one render in which both exist. `test/mapChromeZLadderCascade` gains the rung — `.wf-peek` collapsed (`height: 74px`) and
    `.wf-peek.wf-peek-open` (`height: 356px`, **clamped** `max-height: calc(100% - 64px)` so it never
    covers the pill, §4 #7), `transition: height .26s cubic-bezier(.3,.7,.2,1)` (none under reduced
    motion), the handle row (14 px, 36 × 4 bar, `--color-plex-border-light`), the peek row
@@ -348,7 +353,8 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
    `padding-bottom` clears 74 px, the counts footer is **hidden on phone** (§4 #10), the upsell chip
    in `.wf-map-chrome-bl` sits at `bottom: calc(74px + 8px)`, the tide strip's phone rule stays for
    M3 to remove. Publish `--psh: 74px` on `.wf-map-tab` in the phone block and point
-   `MapCallout`'s phone band at it (§5 D-7). Rewrite `mapPhoneChromeCascade.test.jsx`'s pairwise
+   `MapCallout`'s phone band at it (§5 D-7); on the phone a peek press clears the selection first,
+   so the band only ever has to clear the collapsed sheet (D-7's reverse-order clause). Rewrite `mapPhoneChromeCascade.test.jsx`'s pairwise
    arithmetic for the new stack.
 
 **Tests** — `MapPeekSheet.test.jsx` (collapsed height class, open class, one body, switch vs
@@ -616,7 +622,12 @@ Branch `feature/map-mobile-sheet-m6-sweep`; slug `map-mobile-sheet-m6-sweep`, he
 - **D-6** In Auto, a null or `AWAITING` verdict hides the tide. "Maybe or better" is a positive
   test; unscored is not better.
 - **D-7** The sheet publishes a fixed `--psh: 74px` obstacle, never a measured height, because
-  every callout-opening route is a map tap and every map tap collapses the sheet.
+  **the callout and an open sheet never coexist on the phone**, in either order: every
+  callout-opening route is a map tap and every map tap collapses the sheet; and the reverse —
+  select a spot, then press a peek button — **clears the selection** (`selectedLocationName` is
+  independent of `openMapMenu`, so without this the callout would sit placed for 74 px under a
+  356 px sheet — a Codex finding on M0). A peek press on the phone therefore closes the callout
+  before the sheet grows, and the test pins both orders. Desktop keeps its live `--tsh` band.
 - **D-8** The pill's dropdown listbox is unreachable on the phone after M2 (the pill toggles the
   Windows section). Everything it held is in the section (rows, drilldown) or withheld on phone
   anyway (the landing reopen row).

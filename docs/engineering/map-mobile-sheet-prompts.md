@@ -76,7 +76,10 @@ session never pushes.
 > `touchstart` / `dragstart` / `zoomstart` — **not** `useOutsideDismiss` (§1 #11). `.wf-map-chrome-tr`
 > is not rendered on the phone. Rewrite the phone lifted-stack literals and `mapPhoneChromeCascade
 > .test.jsx` (§1 #1) — never delete it. Publish `--psh: 74px` and point the callout's phone band at
-> it (D-7). Clamp the open height (§4 #7). Tokens per §1 #12 and §4 #8/#9.
+> it, and make a peek press clear the selection on the phone so the callout and an open sheet never
+> coexist in either order (D-7, both orders pinned by test). The sheet's `z-index` is an explicit
+> `1120` on the map's own ladder — never the prototype's 520 (§3 M2 task 1). Clamp the open height
+> (§4 #7). Tokens per §1 #12 and §4 #8/#9.
 >
 > Tests per §3 M2 — fire key events at `document.activeElement`, never at a node (map-landing's
 > four-times lesson), and pin desktop invariance on the SAME fixture. Gate:
