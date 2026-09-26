@@ -3928,52 +3928,73 @@ button.wf-hc.also.on:hover {
     justify-content: center;
   }
 
-  /* ── The lifted stack, staggered into DISTINCT rows (live-measurement review) ─────────────────
-     A live 390×780 pass proved the bar-clearance formula (below) correct for every element
-     against the BAR, but caught a SECOND collision class the formula never considered: two lifted
-     elements sharing the same row can collide with EACH OTHER. Measured: the scored-locations
-     chip (rect x:125–336, y:678–704) and Leaflet's attribution control (rect x:0–390, y:677–704)
-     both landed on the identical `bottom: 76px` row and overlapped outright — the attribution's
-     own rect spans the FULL frame width, so ANYTHING sharing its row collides with it regardless
-     of that thing's own horizontal position or width. That single fact is what shapes everything
-     below: attribution gets a row to itself, and every other lifted element stacks in its own row
-     above it, never sharing a row with any of the others (the viewline-upsell chip's own
-     text — "Aurora viewline available — upgrade to Pro" — is long enough at 11px to approach the
-     frame's own width, so even the counts footer, on the opposite side of the frame from it,
-     cannot be assumed clear without its own measured rect).
+  /* ── The lifted stack, rebuilt against the PEEK SHEET (map-mobile-sheet-plan.md §3 M2 task 8) ──
+     ⚠️ **The bar this arithmetic used to clear is GONE.** `.wf-map-chrome-tr` — the Regions/
+     Heat-Pins/Filters bar this stack's every row used to clear at `bottom: 8px, height: 48px` — is
+     no longer rendered on the phone at all (its three children live in the peek sheet's Layers
+     section instead, mounted outside `.wf-map-chrome-tr` — see `MapView.jsx`'s own mount comment).
+     The new floor every phone chip clears is the peek sheet's own COLLAPSED height, 74px
+     (`.wf-map-peek`, above) — never the OPEN 356px height, because D-7 guarantees the callout and
+     an open sheet never coexist on the phone in either order, so nothing on this tab is ever asked
+     to clear more than the collapsed sheet.
 
-     Rows, bottom-to-top, each `>= ` the row below's own top edge (bottom + height) plus an 8px
-     clearance gap — `mapPhoneChromeCascade.test.jsx`'s "THE SWEEP" describe pins the full pairwise
-     matrix on this same arithmetic, not these literal numbers, so a future re-tune only has to
-     keep every inequality true:
-       Bar                        bottom  8px, height  48px (assumed) → top  56px
-       Attribution (full width)   bottom 76px, height  27px (measured)→ top 103px  (clears bar by 20px)
-       Counts footer (centred)    bottom 112px, height  28px (assumed)→ top 140px  (clears attribution by 9px)
-       LITE viewline-upsell chip  bottom 192px, height  28px (assumed)→ top 220px  (clears the footer by 52px)
-     Total stack reaches 220px up from the frame's bottom edge on a 780px-tall frame — comfortably
-     clear of the window control at the TOP (well under the frame's own mid-line), so this does not
-     reopen the "no page scroll" contract: every element here is `position: absolute` and was
-     already removed from flow before this phase, so a taller stack changes nothing about the
-     frame's own box, only where within it these chips paint.
+     The counts footer has no phone home (plan §4 #10, §6 Q3 — "hidden until asked") — WITHDRAWN
+     from the lifted stack entirely rather than given a new row in it, so this query no longer
+     stacks four rows, only two: attribution (still full-width, so it still cannot share a row with
+     anything, per the live-measurement review this comment used to record in full) and the LITE
+     viewline-upsell chip, each clearing the row below it by its own real/assumed height plus the
+     stack's standing 8px gap — the identical discipline the four-row stack used, just with two
+     rows instead of four.
+       Peek sheet (collapsed)     bottom  0px,  height  74px (real)     → top   74px
+       Attribution (full width)   bottom 74px,  height  27px (measured) → top  101px (clears the sheet, no gap — its own corner container already sits flush against it)
+       LITE viewline-upsell chip  bottom 109px, height  28px (assumed)  → top  137px (clears attribution by 8px)
+     `mapPhoneChromeCascade.test.jsx` is REWRITTEN for this phase (§3 M2), not merely re-tuned: THE
+     SWEEP's bar-clearance rows are gone with the bar, and the new pairwise fact to pin is "every
+     lifted element's floor is `>= ` the row below it, with the peek sheet's own collapsed height as
+     the new base of the stack".
 
-     ⚠️ **The scored-locations chip's own row (`bottom: 152px`, measured 26px tall) LEFT this stack
-     at M1** (map-mobile-sheet-plan.md §3 M1 task 2) — it moved to a fixed `top: 62px`, independent
-     of everything below, so the measured rect and the original PR #741 collision this comment
-     records are history rather than a live row any more; the arithmetic above reflects the four
-     rows that remain. See the phone-toast note beside `.wf-map-scored-legend`, further down this
-     block, for the retirement itself. */
+     ⚠️ **The tide strip's phone rule is UNTOUCHED here** — it stays at its pre-existing
+     `bottom: 112px` (below) through M2; M3 task 5 removes the phone `MapTideStrip` mount and this
+     rule together. Its own `.wf-tide-strip-on` chrome-bl override (further down this file) is
+     likewise left exactly as M1 found it, fossil formula and all — M3 deletes that whole rule
+     outright rather than M2 re-deriving a new one for a mount that is about to go. */
+  /* Withdrawn rather than repositioned — the phone footer keeps its count in the accessibility
+     tree (tide-window-plan.md §6 Q8's own rule, applied here for the identical reason: a
+     non-visual reader has no stake in the phone's space contention) via the same `sr-only`-shaped
+     clip this file already writes out elsewhere for a selector that has to apply from a media
+     query. Unconditional now, not merely while `.wf-tide-strip-on` — with no phone home for the
+     count at all, hiding it only under the strip left it standing, unlifted, whenever the strip was
+     off, which is exactly the state the strip-conditioned clip further down this block used to
+     leave unhandled; that now-redundant clip is removed below rather than left to disagree with
+     this one. */
   .wf-map-tab .wf-map-counts-footer {
-    bottom: 112px;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
   }
   .wf-map-tab .wf-map-counts-second {
     display: none;
   }
 
-  /* Bottom-left chrome (the LITE viewline-upsell chip, `MapView.jsx`'s `.wf-map-chrome-bl`) — the
-     WIDEST of the lifted set (its own text can approach the frame's full width, see the stack
-     comment above), so it takes the TOPMOST row rather than sharing one with anything else. */
+  /* Bottom-left chrome (the LITE viewline-upsell chip, `MapView.jsx`'s `.wf-map-chrome-bl`) — takes
+     its own row clear of BOTH remaining lifted elements, never merely the sheet.
+     ⚠️ **Attribution still cannot share a row with anything** — the live-measurement review that
+     first staggered this stack found Leaflet's attribution control rendering at the FULL frame
+     width (measured x:0–390 on a 390px frame), which the bar's removal does not change: it is a
+     property of the CONTROL's own content, not of anything that used to sit beside it. So
+     `calc(74px + 8px)` (the sheet's own collapsed height plus the standing 8px gap) is not enough
+     on its own — attribution now sits in exactly that gap (`padding-bottom: 74px`, next rule down)
+     and its own measured 27px height pushes its top edge up to 101px from the frame's bottom edge.
+     Chrome-bl clears THAT, not the sheet directly: `74px` (sheet) `+ 27px` (attribution's own
+     measured height) `+ 8px` (this stack's standing clearance) `= 109px`. */
   .wf-map-tab .wf-map-chrome-bl {
-    bottom: 192px;
+    bottom: calc(74px + 27px + 8px);
   }
 
   /* The scored-locations chip / toast (`photocast-scored-legend`) — PR #741 review found it
@@ -4012,11 +4033,29 @@ button.wf-hc.also.on:hover {
      something claims the space back. `padding-bottom` on the corner container
      (`.leaflet-bottom.leaflet-right`, the same selector `MapCallout.jsx`'s own
      `LEAFLET_CORNER_SELECTOR` already reads) pushes it up — the LOWEST of the lifted rows, right
-     above the bar, since it is full-width and therefore cannot share a row with anything. The P3
+     above the sheet, since it is full-width and therefore cannot share a row with anything. The P3
      quieting styles on `.leaflet-control-attribution` itself (background/colour/font-size/padding)
-     are a DIFFERENT selector entirely and are untouched by this rule. */
+     are a DIFFERENT selector entirely and are untouched by this rule.
+
+     ⚠️ **`74px`, not the pre-M2 `76px`** (map-mobile-sheet-plan.md §3 M2 task 8) — it clears the
+     peek sheet's own collapsed height exactly (`.wf-map-peek`, above), which is the ONLY thing this
+     row shares the frame's bottom edge with now that the bar is gone. No extra clearance gap is
+     needed the way the OTHER lifted rows below take one: the sheet's own `border-radius` and shadow
+     already read as a hard edge, and the corner container's `padding-bottom` moves the WHOLE
+     Leaflet control box up by exactly this figure, so `74px` is precise rather than approximate. */
   .wf-map-tab .leaflet-bottom.leaflet-right {
-    padding-bottom: 76px;
+    padding-bottom: 74px;
+  }
+
+  /* The peek sheet's own collapsed height, published as a CSS custom property rather than a
+     measured rect (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8) — `MapCallout`'s phone band
+     reads this INSTEAD of measuring `.wf-map-peek`'s real DOM rect, because the callout and an
+     open (356px) sheet never coexist on the phone in either order (D-7: every callout-opening
+     route is a map tap, which collapses the sheet; a peek press clears the selection first), so
+     the band only ever has to clear the COLLAPSED figure — never the live height a `ResizeObserver`
+     would report while the sheet happens to be open. */
+  .wf-map-tab {
+    --psh: 74px;
   }
 
   /* ── The tide strip on the phone (tide-window-plan.md §3 T7, docs/design/tide-window/README.md
@@ -4048,25 +4087,14 @@ button.wf-hc.also.on:hover {
     width: auto;
     max-width: none;
   }
-  /* Visually hidden, NOT `display: none` (tide-window-plan.md §6 Q8, decided 2026-09-18, option
-     2) — a screen-reader user has no stake in the space contention the design's own §6 reasoning
-     is about, so hiding the count VISUALLY honours the design while keeping it in the
-     accessibility tree. The recipe is Tailwind's own `sr-only` utility (confirmed against
-     `node_modules/tailwindcss`: `clip-path: inset(50%)`, not the older `clip: rect(...)`), written
-     out rather than applied as a class because this selector only exists inside a media query.
-     `.wf-map-counts-footer`'s own base rule already carries `pointer-events: none` (below), so
-     this 1px box can never intercept a tap either way. */
-  .wf-map-tab.wf-tide-strip-on .wf-map-counts-footer {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-    border-width: 0;
-  }
+  /* ⚠️ **The `.wf-tide-strip-on`-scoped sr-only clip that used to live here is GONE** (M2 task 8):
+     the base `.wf-map-tab .wf-map-counts-footer` rule above now carries the identical `sr-only`
+     clip UNCONDITIONALLY, because the footer has no phone home at all any more (plan §4 #10) —
+     not merely while the tide strip happens to be on screen. A rule scoped to `.wf-tide-strip-on`
+     duplicating what the base rule already does is dead weight that can only drift from it; kept
+     as a fossil once already (M1's own comment on the chrome-bl formula below names that trap), so
+     it is removed here rather than repeated. `mapPhoneChromeCascade.test.jsx` pins the base rule's
+     unconditional clip instead. */
   /* Everything that used to clear the FOOTER's own assumed ~28px height now clears the STRIP's
      real one instead (`--tsh`, T6 #6) — open and collapsed are roughly 4x apart (T6's own
      1280x800 measurement: 167px vs 38px), so a fixed offset is wrong for one of the two states by
@@ -4111,6 +4139,227 @@ button.wf-hc.also.on:hover {
   .wf-map-tab .map-home-control {
     display: none;
   }
+}
+
+/* ── The Map tab's phone peek sheet (map-mobile-sheet-plan.md §3 M2) ──────────────────────────
+   `components/map/MapPeekSheet.jsx` — replaces the phone's floating map controls (the window
+   pill's dropdown, the tide strip, `.wf-map-chrome-tr`'s Regions/Heat-Pins/Filters bar) with one
+   bottom sheet that starts collapsed and opens to one section at a time. Phone-only in PRACTICE
+   (the component is never mounted on desktop/tablet), so these rules sit at the top level rather
+   than behind the `(max-width: 639px)` query below — nothing to gate since nothing renders it.
+
+   ⚠️ `z-index: 1120` is an EXPLICIT rung on the map's own z-ladder (markers 600, `MapLabels` 650,
+   Leaflet popups 700, the landing card 1050, chrome 1100, the drilldown panels 1150) — never the
+   prototype's `520`, which would let chips and popups paint and take input OVER the open sheet
+   (a Codex finding on the plan's M0). ⚠️ **The phone tide strip is chrome-tier (1100), NOT 1120**
+   — `.wf-map-tide-strip`'s only `z-index` declaration is its base rule's `1100`, and the phone
+   media query below changes only `position`/`left`/`right`/`bottom`, never re-declaring it (an
+   earlier draft of this comment, copying the plan's own prose, claimed 1120 for the strip too;
+   there is no such rule). So through M2 — while the phone strip and the sheet both exist — the
+   sheet already outranks it by construction, the same margin it holds over every other chrome
+   chip; M3 removes the phone strip mount entirely, at which point this rung has nothing left to
+   sit above there at all. The drilldown's 1150 stays above the sheet for the one render in which
+   both could coexist. */
+.wf-map-peek {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1120;
+  background: rgba(22, 17, 13, .97);
+  border-top: 1px solid var(--color-plex-border-light);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, .5);
+  display: flex;
+  flex-direction: column;
+  height: 74px;
+  transition: height .26s cubic-bezier(.3, .7, .2, 1);
+}
+/* Clamped to the frame (plan §4 #7): 356px is the reference frame's own figure, but an iPhone SE
+   (667 tall) or Safari's bars expanded leaves under 420px of map area, where 356 would cover the
+   pill (`top: 10px; height: 44px` — 10 + 44 + 10 = 64px it must stay clear of). */
+.wf-map-peek-open {
+  height: 356px;
+  max-height: calc(100% - 64px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-map-peek { transition: none; }
+}
+.wf-map-peek-hdl {
+  height: 14px;
+  flex: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.wf-map-peek-hdl i {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-plex-border-light);
+}
+.wf-map-peek-row {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 10px;
+  flex: none;
+}
+.wf-map-peek-btn {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 10px;
+  background: var(--color-plex-panel);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 0 9px;
+  text-align: left;
+}
+.wf-map-peek-btn-on {
+  border-color: rgba(201, 162, 75, .6);
+  background: rgba(201, 162, 75, .1);
+}
+.wf-map-peek-btn-lay {
+  flex: 0 0 58px;
+  align-items: center;
+}
+/* ⚠️ **8.5px, and the app's ≥.66-alpha rule, not the design's own 50%** (plan §4 #9, §1 #12): the
+   spec's own token note requires ≥ .66 alpha on an opaque in-frame panel for AA, and this sheet is
+   `.97` opaque — `--color-plex-text-secondary` is this app's ink-2 (0.66), never
+   `--color-plex-text-muted` (0.42, this app's ink-3). Q5's accessibility lens measures the actual
+   contrast ratio at this size; see the plan's §0 row for the number. */
+.wf-map-peek-k {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-map-peek-v {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+/* README Verify 5 ("the verdict never cuts") — the day truncates, the verdict/star clause never
+   does. Measured as computed `flex-basis: auto; flex-grow: 0` (i.e. `flex: none`) on the verdict
+   span and `scrollWidth === clientWidth` on the day span. */
+.wf-map-peek-v-day {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.wf-map-peek-v-verdict {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.wf-map-peek-v-verdict[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
+.wf-map-peek-v-verdict[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
+.wf-map-peek-v-verdict[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
+.wf-map-peek-v-empty {
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-peek-body {
+  border-top: 1px solid var(--color-plex-border);
+  padding: 4px 14px 14px;
+  overflow: auto;
+}
+.wf-map-peek-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+.wf-map-peek-h3 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+.wf-map-peek-wlist {
+  display: flex;
+  flex-direction: column;
+}
+.wf-map-peek-wr {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 4px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--color-plex-border);
+  text-align: left;
+  width: 100%;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+}
+.wf-map-peek-wr:last-child { border-bottom: 0; }
+.wf-map-peek-wr.on {
+  background: rgba(201, 162, 75, .09);
+  box-shadow: inset 3px 0 0 var(--color-close-to-home);
+}
+.wf-map-peek-wr-day {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.wf-map-peek-wr-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-peek-wr-verdict {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wf-map-peek-wr-verdict[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
+.wf-map-peek-wr-verdict[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
+.wf-map-peek-wr-verdict[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
+.wf-map-peek-wr-unscored { color: var(--color-plex-text-muted); }
+.wf-map-peek-drilldown {
+  color: var(--color-plex-text-secondary);
+  font-size: 13px;
+}
+.wf-map-peek-lay-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+}
+.wf-map-peek-lay-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-peek-lay-trigger { cursor: pointer; text-align: left; }
+.wf-map-peek-legend-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
 }
 
 /* ── The window control (map-tab-v2-plan.md §3 P6, relocated at §3 P7) ─────────────────────────

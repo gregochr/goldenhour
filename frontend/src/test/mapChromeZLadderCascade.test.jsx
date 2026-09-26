@@ -99,16 +99,24 @@ const MENU_CLASSES = ['wf-win-menu', 'wf-filters-panel', 'wf-legend-panel'];
 // tooltip, shipped at P8 with the ladder's reserved 1400 but never asserted here until P12's own
 // z-relation sweep asked for the full "menus > tooltip > callout > chrome" chain.
 const TOOLTIP_CLASSES = ['wf-maplab-tip'];
+// The phone peek sheet (map-mobile-sheet-plan.md §3 M2 task 1) — an EXPLICIT rung of its own,
+// `1120`, above every chrome tier member (1100) and below the menus tier (1500, which the
+// drilldown panels this rung must never outrank also share): never the design prototype's `520`,
+// which would let a chip or a popup paint OVER an open sheet.
+const PEEK_SHEET_CLASSES = ['wf-map-peek'];
 
 let styleEl;
 beforeAll(() => {
-  const slice = [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES]
-    .map((cls) => sliceRules(`.${cls}`)).join('\n');
+  const slice = [
+    ...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES, ...PEEK_SHEET_CLASSES,
+  ].map((cls) => sliceRules(`.${cls}`)).join('\n');
   // Fail loudly rather than silently injecting nothing — a no-match extraction would leave every
   // probe element's z-index as `auto` and the ">" assertions below would pass for the wrong
   // reason (`auto` compares as `NaN` against a number, and `NaN > NaN` is false — so this guard
   // is what stands between a real pass and a silently-skipped one).
-  for (const cls of [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES]) {
+  for (const cls of [
+    ...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES, ...PEEK_SHEET_CLASSES,
+  ]) {
     expect(slice, `no rule found for .${cls} in index.css`).toContain(`.${cls} {`);
   }
   styleEl = document.createElement('style');
@@ -139,6 +147,24 @@ describe('the Map tab\'s full-frame chrome z-ladder (map-tab-v2-plan.md §3 P7)'
     const menuZ = zIndexOf(menuCls);
     for (const chromeCls of CHROME_CLASSES) {
       expect(menuZ).toBeGreaterThan(zIndexOf(chromeCls));
+    }
+  });
+
+  it.each(PEEK_SHEET_CLASSES)('.%s (the phone peek sheet) sits at its OWN explicit rung, 1120 — never the prototype\'s 520', (cls) => {
+    expect(zIndexOf(cls)).toBe(1120);
+  });
+
+  it.each(PEEK_SHEET_CLASSES)('.%s beats every chrome chip — chips and popups must never paint over an open sheet', (peekCls) => {
+    const peekZ = zIndexOf(peekCls);
+    for (const chromeCls of CHROME_CLASSES) {
+      expect(peekZ).toBeGreaterThan(zIndexOf(chromeCls));
+    }
+  });
+
+  it.each(PEEK_SHEET_CLASSES)('.%s never outranks a menu — the drilldown panels\' own rung stays above it', (peekCls) => {
+    const peekZ = zIndexOf(peekCls);
+    for (const menuCls of MENU_CLASSES) {
+      expect(peekZ).toBeLessThan(zIndexOf(menuCls));
     }
   });
 

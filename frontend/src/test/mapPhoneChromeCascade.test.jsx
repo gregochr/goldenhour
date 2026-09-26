@@ -252,17 +252,23 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     }
   });
 
-  it('the counts footer\'s second line (the area note) is dropped, the footer itself lifted clear of the bar', () => {
+  it('⚠️ M2 (map-mobile-sheet-plan.md §3 M2 task 8): the counts footer has no phone home at all now — unconditionally `sr-only`-clipped, not merely lifted', () => {
+    // Withdrawn from the lifted stack entirely (plan §4 #10, §6 Q3 — "hidden until asked"), not
+    // given a new row in it: with the bar gone there is nowhere left for its "N of M shown" line
+    // to stand without either colliding with the peek sheet or duplicating a count the sheet's own
+    // Layers section states nowhere yet. Kept in the accessibility tree via the SAME `sr-only`
+    // clip the tide-strip-on case used to apply CONDITIONALLY (below) — now unconditional, since
+    // the footer has nothing to be conditional ON any more.
     const slice = extractRulesIncludingMedia(['.wf-map-counts-footer', '.wf-map-counts-second']);
     expect(slice).toContain('.wf-map-tab .wf-map-counts-second');
     const cleanup = inject(slice);
     try {
-      // 112px, not a rounder-looking number chosen by eye — a live-measurement review found the
-      // footer's PR #741 value (`64px`, itself a correction of an earlier `60px`) sharing a row
-      // with Leaflet's full-width attribution control once both were lifted; `112px` is its own
-      // row in the staggered stack (see index.css's own comment above this rule, and the sweep
-      // describe block below, which pins the full pairwise arithmetic rather than this literal).
-      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom).toBe('112px');
+      const style = computedStyleFor('wf-map-counts-footer', ['wf-map-tab']);
+      expect(style.position).toBe('absolute');
+      expect(style.width).toBe('1px');
+      expect(style.height).toBe('1px');
+      expect(style.overflow).toBe('hidden');
+      expect(style.clipPath).toBe('inset(50%)');
       expect(computedStyleFor('wf-map-counts-second', ['wf-map-tab']).display).toBe('none');
     } finally {
       cleanup();
@@ -362,21 +368,22 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     }
   });
 
-  it('the bottom-left chrome (LITE upsell) clears the bar rather than being hidden — a monetisation surface, not decoration', () => {
-    // Geometry, not layout: jsdom computes no real box, so this pins the ARITHMETIC the CSS
-    // comment documents rather than a measured rect. `.wf-map-chrome-bl`'s own `bottom` offset
-    // must stay `>=` the bar's `bottom` offset plus the bar's own DOCUMENTED assumed height (the
-    // Heat/Pins cluster stacked two rows, its own tallest column) plus a clearance gap — the same
-    // inequality a real device's rendered heights have to satisfy. Re-tuning either constant only
-    // has to keep this test green, not hit an exact 76px.
-    const slice = extractRulesIncludingMedia(['.wf-map-chrome-bl', '.wf-map-chrome-tr']);
+  it('⚠️ M2: the bottom-left chrome (LITE upsell) clears the SHEET and the ATTRIBUTION row, never a bar that no longer renders on this viewport', () => {
+    // `.wf-map-chrome-tr` is not rendered on the phone at all (task 1, §1 #1) — the bar this test
+    // used to clear is gone, and the floor this chip must clear now is the peek sheet's own
+    // collapsed height PLUS attribution's real row, which sits directly above it (see index.css's
+    // own comment on `.wf-map-chrome-bl`, above, for why attribution — full-width by measurement —
+    // still cannot be shared with).
+    const slice = extractRulesIncludingMedia(['.wf-map-chrome-bl', '.leaflet-bottom.leaflet-right']);
     const cleanup = inject(slice);
     try {
-      const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
+      const attributionBottom = parseFloat(
+        computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).paddingBottom,
+      );
       const blBottom = parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom);
-      const ASSUMED_BAR_HEIGHT = 48; // documented in index.css's own `.wf-map-chrome-bl` comment
+      const MEASURED_ATTRIBUTION_HEIGHT = 27; // live 390×780 pass, documented in index.css
       const CLEARANCE_GAP = 8;
-      expect(blBottom).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
+      expect(blBottom).toBeGreaterThanOrEqual(attributionBottom + MEASURED_ATTRIBUTION_HEIGHT + CLEARANCE_GAP);
     } finally {
       cleanup();
     }
@@ -487,16 +494,17 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     }
   });
 
-  it('⚠️ PR #741: Leaflet\'s attribution control lifts clear of the bar via its corner container\'s padding — a licensing requirement, not chrome', () => {
-    const slice = extractRulesIncludingMedia(['.leaflet-bottom.leaflet-right', '.wf-map-chrome-tr']);
+  it('⚠️ M2: Leaflet\'s attribution control lifts clear of the PEEK SHEET (not the retired bar) via its corner container\'s padding', () => {
+    // `74px`, exactly the sheet's own collapsed height (§3 M2 task 8) — no extra clearance gap is
+    // needed the way the row ABOVE attribution takes one: the sheet's own border/shadow already
+    // reads as a hard edge, and the corner container's padding moves the whole control up by
+    // exactly this figure.
+    const slice = extractRulesIncludingMedia('.leaflet-bottom.leaflet-right');
     expect(slice).toContain('.wf-map-tab .leaflet-bottom.leaflet-right');
     const cleanup = inject(slice);
     try {
-      const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
       const corner = computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']);
-      const ASSUMED_BAR_HEIGHT = 48;
-      const CLEARANCE_GAP = 8;
-      expect(parseFloat(corner.paddingBottom)).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
+      expect(parseFloat(corner.paddingBottom)).toBe(74);
     } finally {
       cleanup();
     }
@@ -552,17 +560,19 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
    *
    * Considered and a CANDIDATE (all pairwise-checked below, "everything active" — a scored solar
    * window, a LITE reader mid aurora alert, and an active filter, simultaneously):
-   *   - `.wf-map-chrome-tr` (the bar itself) — the original reference rect.
+   *   - `.wf-map-peek` COLLAPSED (the peek sheet, map-mobile-sheet-plan.md §3 M2) — the new BASE
+   *     of the stack, replacing the bar this sweep used to clear.
    *   - `.wf-map-chrome-bl` (LITE viewline-upsell chip) — lifted, PR #741 review round 1.
-   *   - `.wf-map-counts-footer` — lifted, re-tuned twice (PR #741, then this stagger).
-   *   - `.leaflet-bottom.leaflet-right` (Leaflet's attribution corner) — lifted, PR #741; kept at
-   *     the lowest lifted row here, since it is full-width and cannot share one with anything.
+   *   - `.leaflet-bottom.leaflet-right` (Leaflet's attribution corner) — lifted, PR #741; still the
+   *     LOWEST lifted row above the sheet, since it is full-width and cannot share one with
+   *     anything.
    *
-   * ⚠️ **`.wf-map-scored-legend` LEFT this sweep at M1** (map-mobile-sheet-plan.md §3 M1 task 2):
-   * it no longer occupies the bottom lifted stack at all — a fixed `top: 62px`, centred, replaces
-   * the old `bottom: 152px` row — so it can never collide with anything checked here by
-   * construction, and testing it as a bottom-anchored rect would be testing a claim the CSS no
-   * longer makes.
+   * ⚠️ **`.wf-map-scored-legend` LEFT this sweep at M1**, and **`.wf-map-chrome-tr`
+   * (the old bar) and `.wf-map-counts-footer` both LEFT it at M2** (§3 M2 task 8, §4 #10): the bar
+   * is not rendered on the phone at all any more (its children moved into the peek sheet's Layers
+   * section), and the counts footer has no phone home and is unconditionally `sr-only`-clipped —
+   * neither occupies a real position in this stack any more, so testing either as a bottom-anchored
+   * rect would be testing a claim the CSS no longer makes.
    *
    * Considered and RULED OUT (not a candidate, with the reason, so the next reviewer does not
    * have to re-derive it):
@@ -573,30 +583,30 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
    *   - `.wf-maplab-tip` (the desktop hover tooltip) — mouse-only by construction
    *     (`onMouseEnter`/`onMouseMove`), which a touch tap never fires; it cannot appear on a phone.
    *   - `.wf-selmk` / `.wf-callout` (the selection ring/card) — not a static `bottom:` rule at all;
-   *     `utils/mapCallout.calloutBand`'s own ≥50%-width-bar rule already treats the (now full-width)
-   *     bottom bar as a floor, proven live in the P12 review round.
-   *   - `WindowControl`'s dropdown — top-anchored, under the (now full-width) pill, never near the
-   *     bottom band.
+   *     `MapCallout`'s own phone band reads the sheet's fixed `--psh` obstacle directly rather than
+   *     measuring a DOM rect (map-mobile-sheet-plan.md §5 D-7) — a browser claim, not this file's.
+   *   - `WindowControl`'s dropdown — never opens on the phone at all (the pill body opens the peek
+   *     sheet's Windows section instead, §3 M2 task 4).
    *   - `FiltersPopover`/`RegionsJump`'s phone panels — `BottomSheet`s that cover the whole frame
-   *     while open (their own backdrop), not passive residents of a fixed bottom band; they are
-   *     also mutually exclusive with the bar being usable at all (deliberately: you cannot tap the
-   *     bar behind an open sheet, the same as any other modal-shaped disclosure).
+   *     while open (their own backdrop), not passive residents of a fixed bottom band; opening
+   *     either collapses the peek sheet by exclusivity (the swap-not-stack rule the phone already
+   *     had), so the two are also mutually exclusive with the sheet being open.
    *
    * The check itself is ARITHMETIC, not real layout (jsdom computes none): each candidate's own
-   * declared `bottom`/`padding-bottom` (real, extracted from `index.css`) plus a documented assumed
-   * or measured height is converted into a `{top, bottom}` rect against a fixed frame height (780px
-   * — the live-measured no-scroll figure), then every PAIR of rects is checked for vertical
-   * disjointness. Vertical alone is deliberate and sufficient here — the fix stacks every element
-   * into its own row precisely so no pair's horizontal footprint (unmeasured for three of these
-   * five, and provably close to the full frame width for the widest) ever needs estimating at all.
-   * Re-tuning any offset only has to keep every pairwise inequality true, not hit these exact
-   * numbers.
+   * declared `bottom`/`padding-bottom`/`height` (real, extracted from `index.css` where it is a
+   * literal) plus a documented assumed or measured height is converted into a `{top, bottom}` rect
+   * against a fixed frame height (780px — the live-measured no-scroll figure), then every PAIR of
+   * rects is checked for vertical disjointness. Vertical alone is deliberate and sufficient here —
+   * the fix stacks every element into its own row precisely so no pair's horizontal footprint
+   * (unmeasured for two of these three, and provably close to the full frame width for the
+   * remaining one) ever needs estimating at all. Re-tuning any offset only has to keep every
+   * pairwise inequality true, not hit these exact numbers.
    */
   describe('THE SWEEP — full pairwise disjointness across the whole lifted stack, everything active at once', () => {
     const FRAME_HEIGHT = 780;
-    const ASSUMED_BAR_HEIGHT = 48;
-    const ASSUMED_CHIP_HEIGHT = 28; // a single-line pill/text chip — chrome-bl, counts footer
+    const ASSUMED_CHIP_HEIGHT = 28; // a single-line pill/text chip — chrome-bl
     const MEASURED_ATTRIBUTION_HEIGHT = 27; // live 390×780 pass: y 677–704
+    const PEEK_SHEET_COLLAPSED_HEIGHT = 74; // `.wf-map-peek`'s own real, literal height
 
     /** `{top, bottom}` of an element anchored `bottomPx` from the frame's own bottom edge,
      * `heightPx` tall — both measured downward from the frame's TOP, matching
@@ -612,25 +622,19 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       return a.bottom <= b.top || b.bottom <= a.top;
     }
 
-    it('every one of the 6 pairs among {bar, attribution, counts footer, chrome-bl} is vertically disjoint', () => {
+    it('every one of the 3 pairs among {peek sheet, attribution, chrome-bl} is vertically disjoint', () => {
       const slice = extractRulesIncludingMedia([
-        '.wf-map-chrome-tr', '.wf-map-chrome-bl', '.wf-map-counts-footer',
-        '.leaflet-bottom.leaflet-right',
+        '.wf-map-chrome-bl', '.leaflet-bottom.leaflet-right',
       ]);
       const cleanup = inject(slice);
       try {
-        const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
         const attributionBottom = parseFloat(
           computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).paddingBottom,
         );
 
         const rects = {
-          bar: rectFromBottom(barBottom, ASSUMED_BAR_HEIGHT),
+          peek_sheet: rectFromBottom(0, PEEK_SHEET_COLLAPSED_HEIGHT),
           attribution: rectFromBottom(attributionBottom, MEASURED_ATTRIBUTION_HEIGHT),
-          counts_footer: rectFromBottom(
-            parseFloat(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom),
-            ASSUMED_CHIP_HEIGHT,
-          ),
           chrome_bl: rectFromBottom(
             parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom),
             ASSUMED_CHIP_HEIGHT,
@@ -708,40 +712,46 @@ describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
     }
   });
 
-  it('visually hides the count footer while the strip is on — an sr-only clip, never `display: none` (§6 Q8, decided)', () => {
+  it('visually hides the count footer WHETHER OR NOT the strip is on — an sr-only clip, never `display: none` (§6 Q8, decided; UNCONDITIONAL since M2 §4 #10)', () => {
+    // ⚠️ **This clip is no longer conditioned on `.wf-tide-strip-on` at all** (map-mobile-sheet-
+    // plan.md §3 M2 task 8) — the footer has no phone home full stop, so it is `sr-only`-clipped
+    // regardless of the strip's own state. Asserted with AND without the strip's class to pin that
+    // the base rule alone (no `.wf-tide-strip-on` needed) already produces the clip.
     const slice = extractRulesIncludingMedia('.wf-map-counts-footer');
     const cleanup = inject(slice);
     try {
-      // Both classes on the SAME node — `computedStyleFor`'s ancestor entries become one
-      // element's `className`, so a space-separated string sets both at once.
-      const style = computedStyleFor('wf-map-counts-footer', ['wf-map-tab wf-tide-strip-on']);
-      // `display: none` would also remove the element from the accessibility tree (§6 Q8) — the
-      // fix is specifically that this must NOT be `none` any more.
-      expect(style.display).not.toBe('none');
-      // The `sr-only` recipe itself: a 1px, clipped, off-flow box — visually equivalent to
-      // `display: none` (nothing paints) without the accessibility-tree removal.
-      expect(style.position).toBe('absolute');
-      expect(style.width).toBe('1px');
-      expect(style.height).toBe('1px');
-      expect(style.overflow).toBe('hidden');
-      expect(style.clipPath).toBe('inset(50%)');
+      for (const ancestors of [['wf-map-tab'], ['wf-map-tab wf-tide-strip-on']]) {
+        const style = computedStyleFor('wf-map-counts-footer', ancestors);
+        // `display: none` would also remove the element from the accessibility tree (§6 Q8) — the
+        // fix is specifically that this must NOT be `none`.
+        expect(style.display).not.toBe('none');
+        // The `sr-only` recipe itself: a 1px, clipped, off-flow box — visually equivalent to
+        // `display: none` (nothing paints) without the accessibility-tree removal.
+        expect(style.position).toBe('absolute');
+        expect(style.width).toBe('1px');
+        expect(style.height).toBe('1px');
+        expect(style.overflow).toBe('hidden');
+        expect(style.clipPath).toBe('inset(50%)');
+      }
     } finally {
       cleanup();
     }
   });
 
-  it('leaves the footer shown on the phone whenever the strip is NOT on', () => {
-    const slice = extractRulesIncludingMedia('.wf-map-counts-footer');
-    const cleanup = inject(slice);
-    try {
-      const style = computedStyleFor('wf-map-counts-footer', ['wf-map-tab']);
-      expect(style.display).not.toBe('none');
-      // Not the sr-only clip either — the strip-off footer keeps its full on-screen size.
-      expect(style.width).not.toBe('1px');
-      expect(style.clipPath).not.toBe('inset(50%)');
-    } finally {
-      cleanup();
-    }
+  it('⚠️ M2: the PHONE `.wf-tide-strip-on`-scoped duplicate of the sr-only clip is GONE — the base rule alone already covers it', () => {
+    // ⚠️ NOT the same rule as the DESKTOP `.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer`
+    // (top-level, `bottom: calc(var(--tsh, 120px) + 16px)` — `mapChromeZLadderCascade.test.jsx`'s
+    // own rule, untouched by this phase and still very much live). Only the PHONE MEDIA QUERY's
+    // own copy of that selector — the one that used to carry the sr-only clip — is removed: left
+    // standing beside the now-unconditional base rule (above), it would be dead weight that could
+    // only drift from it (M1's own comment on the chrome-bl formula names that exact trap).
+    //
+    // Matched by BODY shape (`clip-path` inside it), not by selector alone: the selector text
+    // `.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer` also names the live DESKTOP rule above,
+    // whose body is the unrelated `bottom: calc(var(--tsh, ...))` — a selector-only match would
+    // false-positive on that rule and fail this test for the wrong reason.
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).not.toMatch(/\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-counts-footer\s*\{[^}]*clip-path/);
   });
 
   /**

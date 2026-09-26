@@ -210,14 +210,26 @@ describe('MapView (tab) — overlay never carries a sheet-capable chip at all, o
 describe('MapView (tab) — phone sheet exclusivity: swap, not stack (map-tab-v2-plan.md §3 P7/P12)', () => {
   beforeEach(() => { mockIsMobile = true; });
 
+  // ⚠️ M2 (map-mobile-sheet-plan.md §3 M2 task 6): the standalone `wf-jump-chip`/`wf-filters-chip`
+  // triggers are WITHHELD on the phone now (`chipHidden`) — `RegionsJump`/`FiltersPopover` stay
+  // mounted for their `BottomSheet` alone, and the ONLY phone route to either is the peek sheet's
+  // Layers section. Every case below opens Layers first, exactly as a reader would.
+  function openLayers() {
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+  }
+
   it('opening Filters while Regions is open SWAPS — never more than one bottom sheet at a time', async () => {
     await renderMap();
-    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+    openLayers();
+    fireEvent.click(screen.getByTestId('wf-map-peek-lay-regions'));
     expect(screen.getByTestId('bottom-sheet')).toBeInTheDocument();
     expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    // The Layers section itself was collapsed by the Regions sheet opening (swap-not-stack, by
+    // `openMapMenu` exclusivity) — reopen it to reach the Filters row.
+    openLayers();
+    fireEvent.click(screen.getByTestId('wf-map-peek-lay-filters'));
     // Exactly ONE `bottom-sheet` node in the whole document — not two stacked portals.
     expect(screen.getAllByTestId('bottom-sheet')).toHaveLength(1);
     expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
@@ -226,10 +238,12 @@ describe('MapView (tab) — phone sheet exclusivity: swap, not stack (map-tab-v2
 
   it('the reverse swap — Filters open, then Regions — behaves identically', async () => {
     await renderMap();
-    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    openLayers();
+    fireEvent.click(screen.getByTestId('wf-map-peek-lay-filters'));
     expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+    openLayers();
+    fireEvent.click(screen.getByTestId('wf-map-peek-lay-regions'));
     expect(screen.getAllByTestId('bottom-sheet')).toHaveLength(1);
     expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
@@ -237,7 +251,8 @@ describe('MapView (tab) — phone sheet exclusivity: swap, not stack (map-tab-v2
 
   it('closing the open sheet via its own backdrop leaves no sheet mounted at all', async () => {
     await renderMap();
-    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    openLayers();
+    fireEvent.click(screen.getByTestId('wf-map-peek-lay-filters'));
     expect(screen.getByTestId('bottom-sheet')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('bottom-sheet-overlay'));
     expect(screen.queryByTestId('bottom-sheet')).not.toBeInTheDocument();

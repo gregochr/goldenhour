@@ -86,6 +86,15 @@ const LEAFLET_CORNER_SELECTOR = '.leaflet-bottom.leaflet-right';
 /** `pendingNightRowIds`' default — one shared empty set rather than a fresh one per render. */
 const NO_PENDING_ROWS = new Set();
 
+/**
+ * The peek sheet's own collapsed height, in px — the fallback for {@code --psh} when the CSS
+ * custom property cannot be read (a test harness with no real stylesheet, mainly). Matches
+ * `index.css`'s own `--psh: 74px` publish exactly (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8);
+ * kept as a named constant rather than a bare literal so the one place this number is duplicated
+ * says so.
+ */
+const PEEK_SHEET_COLLAPSED_HEIGHT = 74;
+
 /** am / pm / night — reuses `WindowControl.jsx`'s own kind-chip class rather than minting a second
  * chip vocabulary (that file's own comment on `.wf-hc-sun`). */
 function kindClass(event) {
@@ -287,15 +296,32 @@ export default function MapCallout({
         width: r.width,
         height: r.height,
         // The one opt-out — see `COUNTS_FOOTER_SELECTOR`. `matches` rather than a index/order test,
-        // because `barEls` is built from two separate queries whose order is not a contract.
+        // because `barEls` is built from two separate queries whose own order is not a contract.
         always: typeof el.matches === 'function' && el.matches(COUNTS_FOOTER_SELECTOR),
       };
     });
+    // ⚠️ **The peek sheet is a FIXED obstacle on the phone, never a measured one**
+    // (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8): the callout and an open (356px) sheet never
+    // coexist on this tab in either order, so the band only ever has to clear the sheet's
+    // COLLAPSED height — reading `--psh` off the pane rather than measuring `.wf-map-peek`'s own
+    // DOM rect keeps this floor from ever momentarily reading the OPEN figure mid-transition, the
+    // one thing "never a measured height" is there to rule out. A synthetic bar, not a DOM
+    // element — `always: true` (full-width by construction) and spanning the frame's own bottom
+    // edge, exactly the shape `calloutBand`'s floor branch already expects.
+    if (isMobile) {
+      const pane = container.closest('.wf-map-tab');
+      const psh = pane
+        ? parseFloat(getComputedStyle(pane).getPropertyValue('--psh')) || PEEK_SHEET_COLLAPSED_HEIGHT
+        : PEEK_SHEET_COLLAPSED_HEIGHT;
+      bars.push({
+        top: size.y - psh, bottom: size.y, width: size.x, height: psh, always: true,
+      });
+    }
     const band = calloutBand({ frameWidth: size.x, frameHeight: size.y, bars });
     setFrame({
       point, frameWidth: size.x, frameHeight: size.y, band,
     });
-  }, [map, location]);
+  }, [map, location, isMobile]);
 
   useEffect(() => { paintRef.current = paint; }, [paint]);
   const repaintNow = useCallback(() => {

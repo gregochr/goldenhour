@@ -180,12 +180,17 @@ describe('the landing card never opens on the phone (map-mobile-sheet-plan.md §
   it('never writes `mapLandingSeenRun` on the phone from the pill menu\'s drilldown row either — the one caller of `dismissLanding` the phone can still reach', async () => {
     // A review of M1 found this route: `openDrilldown` calls `dismissLanding` unconditionally,
     // and the drilldown row renders on every viewport. The write must not happen on the phone.
+    //
+    // ⚠️ M2 (map-mobile-sheet-plan.md §3 M2 task 4/§4 #4): the pill body opens the peek sheet's
+    // Windows section on the phone now, never the desktop dropdown — the drilldown row is
+    // `wf-map-peek-drilldown`, not `wf-win-more` (which lives in `wf-win-listbox`, unreachable on
+    // the phone since the pill no longer opens it there).
     mockIsMobile = true;
     await renderMap({ runId: '2026-01-15T04:00:00' });
     expect(screen.queryByTestId('wf-land')).not.toBeInTheDocument();
 
     await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
-    const more = screen.getByTestId('wf-win-more');
+    const more = screen.getByTestId('wf-map-peek-drilldown');
     await act(async () => { fireEvent.click(more); });
 
     expect(localStorage.getItem('mapLandingSeenRun')).toBeNull();
@@ -241,8 +246,11 @@ describe('the scored-locations toast fades on the phone after 3,000 ms (map-mobi
     await elapse(3000);
     expect(toast()).toHaveClass('wf-map-scored-legend-gone');
 
+    // ⚠️ M2 (map-mobile-sheet-plan.md §3 M2 task 4): on the phone the pill body opens the peek
+    // sheet's Windows section now, never the desktop dropdown — `wf-map-peek-win-row`, not
+    // `wf-win-row`.
     fireEvent.click(screen.getByTestId('wf-win-pill'));
-    const sunriseRow = screen.getAllByTestId('wf-win-row')
+    const sunriseRow = screen.getAllByTestId('wf-map-peek-win-row')
       .find((r) => r.getAttribute('data-ev-id') === `solar:${TODAY}:SUNRISE`);
     expect(sunriseRow?.getAttribute('data-ev-id')).toBe(`solar:${TODAY}:SUNRISE`);
     await act(async () => { fireEvent.click(sunriseRow); });
