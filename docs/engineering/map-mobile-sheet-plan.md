@@ -559,7 +559,13 @@ view; Tide mode auto / always / off`. Depends on M2, M3, M4.
    renders iff `tideVisible`; the close-and-rescue when it turns false while `'peek:tide'` is open
    **already exists from M3** (task 4) and is reused unchanged with the new gate (rule 6's "close
    the sheet").
-3. **Pulse**: `prevTideVisible` ref; on a false → true transition **after** first mount, add
+3. **Pulse**: `prevTideVisible` ref, **armed only after the first bounds-backed evaluation** —
+   `tideViewBounds` is `null` at mount and `BoundsTracker` supplies the real bounds from a mount
+   effect, so a coastal Worth-it window's first resolved visibility is itself a post-mount
+   false → true (a Codex finding on M0); the ref is seeded from the first evaluation made with
+   `tideViewBounds != null`, and only transitions after that count. Test: mount with null bounds,
+   deliver the first real bounds, assert no pulse; then hide and re-show, assert one. On a false →
+   true transition after that, add
    `.wf-map-peek-btn-pulse` (the `@keyframes` box-shadow `0 0 0 0 rgba(111,168,176,.7)` → `0 0 0 10px
    transparent`, 1.2 s, once; removed on `animationend`; none under reduced motion). Not on first
    load.

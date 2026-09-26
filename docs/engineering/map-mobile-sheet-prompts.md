@@ -200,7 +200,9 @@ session never pushes.
 > `tideTier` (§1 #6) — do not thread a flag to `MapLabels`, `PinsLayer` or the tooltips. The Tide
 > button renders iff the rule; an open Tide section closes in the same render the rule turns false,
 > with focus rescued to the Other windows button. The pulse plays once on a false → true transition
-> after mount, never on mount, never under reduced motion. The Layers Tide segment (Auto | Always |
+> after the FIRST bounds-backed evaluation (`tideViewBounds` is null at mount and arrives from
+> `BoundsTracker`'s effect, so the initial resolution must be the baseline, not a transition — task
+> 3, with the null-bounds mount test), never on mount, never under reduced motion. The Layers Tide segment (Auto | Always |
 > Off, 220 × 36) saves through the hook's serialised `saveTideMode` and on failure reverts to the
 > line's last successfully persisted mode (M4's baseline, never a queued-unsent choice) with the
 > pane's `role="status"` line. Off does **not** touch `TideFitBlock` (§4 #13). Desktop: no change of
