@@ -326,12 +326,20 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
    by exclusivity; the panel's own focus rule (map-landing's "a panel that REPLACES another must
    move focus") applies.
 6. **Layers section** (rows `justify-content: space-between`, label mono 10 px `.1em` uppercase
-   at ink-2): **Show** — the existing `.wf-seg` Heat | Pins toggle, 170 × 36; **Regions** — the
-   existing `RegionsJump` chip (its phone `BottomSheet` opens on press; by exclusivity the peek
-   collapses — the swap-not-stack rule the phone already has, §4 #5); **Filters** — the existing
-   `FiltersPopover` chip, same swap (§4 #5); **Legend** — `Poor [ramp] Worth it` using the
-   `.wf-map-key` ramp. (The **Tide** segment and its hint land in M5; leave a documented slot.)
-   `.wf-map-chrome-tr` is **not rendered on phone**; its desktop mount is unchanged.
+   at ink-2): **Show** — the existing `.wf-seg` Heat | Pins toggle, 170 × 36; **Regions** — a
+   trigger row that sets `openMapMenu = 'jump'` (by exclusivity the peek collapses and
+   `RegionsJump`'s phone `BottomSheet` opens — the swap-not-stack rule the phone already has,
+   §4 #5); **Filters** — a trigger row that sets `openMapMenu = 'filters'`, same swap (§4 #5);
+   **Legend** — `Poor [ramp] Worth it` using the `.wf-map-key` ramp. (The **Tide** segment and its
+   hint land in M5; leave a documented slot.) ⚠️ **The two sheet hosts stay mounted outside the
+   peek body** (a Codex finding on M0, gregochr/goldenhour#923): `RegionsJump` and `FiltersPopover`
+   each render their chip AND their `BottomSheet` portal, and the peek body unmounts the moment
+   `openMapMenu` leaves `'peek:lay'` — so a host mounted inside the Layers section would be torn
+   down by the very press that opens its sheet. On the phone both components are mounted **once,
+   in the pane, outside the sheet**, with their chips hidden (`chipHidden` prop, or an equivalent
+   split of trigger from sheet — the session decides, and the test is that the sheet is in the DOM
+   after the Layers row is pressed); the Layers rows are plain buttons. `.wf-map-chrome-tr` is
+   **not rendered on phone**; its desktop mount is unchanged.
 7. **Map-touch collapse**: `SheetDismissOnMapTouch` — a `useMapEvents` child inside `MapContainer`
    (only when `isMobile`) on `mousedown`, `touchstart`, `dragstart`, `zoomstart` → if
    `openMapMenu` starts with `'peek:'`, set `null` (rule 4; §1 #11 says why not
@@ -425,9 +433,16 @@ with M2/M3** (disjoint files); merge `origin/main` in before push, never rebase.
 3. `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` gains `/api/user/settings/map-tide-mode`
    (the `/api/user/settings*` exclusion already covers it; the test pins it per path).
 4. `api/settingsApi.js#saveMapTideMode(mode)`; `useReaderSettings` exposes `mapTideMode`
-   (`'auto'` when null) and `tideModeSaved(response)`; the save is **not** queued through
-   `colourSaveQueue` (a three-way segment changes rarely; one in-flight save, last-write-wins, is
-   enough — record this as a deliberate non-reuse in the hook's doc).
+   (`'auto'` when null) and a `saveTideMode(mode)` action that **serialises** saves the way
+   `colourSaveQueue` does for colour (a Codex finding on M0: two quick presses can commit out of
+   order, and a stale response can then write the earlier choice back into the hook). The shape:
+   a page-lived line — one save in flight at a time, a newer choice queued behind it supersedes
+   any older queued one, and a response is applied **only if it answers the newest request**
+   (a request counter in the hook), so the UI and the stored value always end on the last press.
+   Reuse `createColourSaveQueue`'s mechanics by generalising it over the save function if that is
+   a small change; otherwise a sibling `settingSaveLine` with the same rules and the same
+   "ends with its owner" clause. Either way the hook's doc names the rule and the test pins the
+   out-of-order case (older request resolves last; stored and shown value are the newer one).
 5. CLAUDE.md API section: add the endpoint beside `map-colours`; Migrations table: nothing (the
    table says "latest is deliberately not written down").
 
@@ -449,11 +464,14 @@ Branch `feature/map-mobile-sheet-m5-tide-rule`; slug `map-mobile-sheet-m5-tide-r
 view; Tide mode auto / always / off`. Depends on M2, M3, M4.
 
 **Tasks**
-1. `utils/mapPeek.js#tideVisible({ mode, stripVisible, tier })`: `mode === 'off' → false`;
-   `'always' → stripVisible`-independent **true** (the spec: "Always ignores both conditions" —
-   but with no served tide on a night row there is nothing to draw, so Always still requires
-   `row.kind === 'solar' && row.tide != null`, §4 #12); `'auto' → stripVisible && (tier ===
-   'WORTH_IT' || tier === 'MAYBE')`. Pure, exhaustively tested.
+1. `utils/mapPeek.js#tideVisible({ mode, tideAvailable, coastalInView, tier })` — the three
+   prerequisites are **separate inputs**, never folded into `stripModel.visible` (a Codex finding on
+   M0: `visible` is false both for "no coast in view" and for "night row / no served tide", and
+   Always must ignore the first while still respecting the second). `tideAvailable = row.kind ===
+   'solar' && row.tide != null`; `coastalInView = stripModel.coastalInView.length > 0`.
+   `mode === 'off' → false`; `'always' → tideAvailable` (ignores the coast and the verdict, §4
+   #12); `'auto' → tideAvailable && coastalInView && (tier === 'WORTH_IT' || tier === 'MAYBE')`.
+   Pure, exhaustively tested.
 2. `MapView.jsx`: `tideCuesOn = !isMobile || tideVisible(...)`; at the spot-build site (~3208)
    `tideTier: tideCuesOn ? tierOf(tide) : null` (§1 #6 — one null, no consumer changes;
    `tideShortfall`/`tideFitPhrase` follow it so the tooltip clause goes too). The Tide peek button
@@ -467,9 +485,10 @@ view; Tide mode auto / always / off`. Depends on M2, M3, M4.
 4. **Layers → Tide row**: a `.wf-seg` Auto | Always | Off (220 × 36), `aria-label="Tide"`,
    selected `rgba(201,162,75,.16)` / `--color-segment-active` (`#EBD9A8`, already the theme's
    active-segment token — the Heat|Pins segment's own rule is the authority) / 600; hint below (mono 9.5 px, ink-3 → ink-2 per §4 #9): `Auto: shown when the light is
-   Maybe or better and the coast is in view.` A press writes through `saveMapTideMode`
-   optimistically (the segment moves at once; a failed save reverts and announces in the pane's
-   existing `role="status"` line).
+   Maybe or better and the coast is in view.` A press goes through the hook's serialised
+   `saveTideMode` (M4 task 4 — one save in flight, newest press wins, stale responses ignored);
+   the segment moves at once, and a failed save reverts and announces in the pane's existing
+   `role="status"` line.
 5. The callout's and the location sheet's `TideFitBlock` are **untouched** by Off (§4 #13, and
    §6 Q2 for the owner).
 

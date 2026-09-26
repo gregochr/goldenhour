@@ -144,7 +144,10 @@ session never pushes.
 > repository writer, request record, service save validating `Set.of("auto","always","off")` with
 > the null-before-`Set.of` guard, `@PutMapping("/map-tide-mode")`, response field, caching-test
 > path, `settingsApi.saveMapTideMode`, `useReaderSettings` exposing `mapTideMode` (`'auto'` when
-> null) and `tideModeSaved` — **not** through `colourSaveQueue` (record why in the hook doc).
+> null) and a serialised `saveTideMode` action — one save in flight, a newer press supersedes a queued
+> older one, a response applied only if it answers the newest request (§3 M4 task 4, a Codex
+> finding on M0); reuse `createColourSaveQueue`'s mechanics if the generalisation is small,
+> otherwise a sibling line with the same rules, and pin the out-of-order case by test.
 > CLAUDE.md's API section gains the endpoint beside `map-colours`. No UI.
 >
 > Tests per §3 M4 (service: three valid, invalid and null → 400, writes through the column-scoped
@@ -169,14 +172,15 @@ session never pushes.
 > *phone*. Re-verify every line number. Never push. Branch `feature/map-mobile-sheet-m5-tide-rule`
 > off up-to-date `main` (M2, M3 and M4 merged), in a worktree.
 >
-> Scope is §3 M5's five tasks. The rule is pure (`utils/mapPeek.js#tideVisible`) and exhaustively
-> tabled; "Poor" is `STAND_DOWN` on the pill's own scope verdict (§1 #7) and a null/`AWAITING`
+> Scope is §3 M5's five tasks. The rule is pure (`utils/mapPeek.js#tideVisible`, with
+> `tideAvailable` and `coastalInView` as SEPARATE inputs — never `stripModel.visible`, §3 M5 task 1)
+> and exhaustively tabled; "Poor" is `STAND_DOWN` on the pill's own scope verdict (§1 #7) and a null/`AWAITING`
 > verdict hides in Auto (D-6). **Every tide cue is gated by ONE null** at the spot-build site's
 > `tideTier` (§1 #6) — do not thread a flag to `MapLabels`, `PinsLayer` or the tooltips. The Tide
 > button renders iff the rule; an open Tide section closes in the same render the rule turns false,
 > with focus rescued to the Other windows button. The pulse plays once on a false → true transition
 > after mount, never on mount, never under reduced motion. The Layers Tide segment (Auto | Always |
-> Off, 220 × 36) saves optimistically through `saveMapTideMode` and reverts on failure with the
+> Off, 220 × 36) saves through the hook's serialised `saveTideMode` and reverts on failure with the
 > pane's `role="status"` line. Off does **not** touch `TideFitBlock` (§4 #13). Desktop: no change of
 > any kind — `data-tide` still present on a Poor window whatever the saved mode.
 >
