@@ -161,7 +161,8 @@ session never pushes.
 > serialised `saveTideMode` action — one save in flight, a newer press supersedes a queued
 > older one, a response applied only if it answers the newest request (§3 M4 task 4, a Codex
 > finding on M0); reuse `createColourSaveQueue`'s mechanics if the generalisation is small,
-> otherwise a sibling line with the same rules, and pin the out-of-order case by test.
+> otherwise a sibling line with the same rules, and pin it with the held-first-request test (hold
+> the first save, queue several newer choices, resolve, only the newest goes out and wins).
 > CLAUDE.md's API section gains the endpoint beside `map-colours`. No UI.
 >
 > Tests per §3 M4 (service: three valid, invalid and null → 400, writes through the column-scoped

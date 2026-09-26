@@ -492,8 +492,11 @@ with M2/M3** (disjoint files); merge `origin/main` in before push, never rebase.
    (a request counter in the hook), so the UI and the stored value always end on the last press.
    Reuse `createColourSaveQueue`'s mechanics by generalising it over the save function if that is
    a small change; otherwise a sibling `settingSaveLine` with the same rules and the same
-   "ends with its owner" clause. Either way the hook's doc names the rule and the test pins the
-   out-of-order case (older request resolves last; stored and shown value are the newer one).
+   "ends with its owner" clause. Either way the hook's doc names the rule, and the test is the **held-first-request**
+   shape (a Codex finding on M0 against this plan's earlier "older request resolves last" wording,
+   which a strict one-at-a-time line makes impossible): hold the first save unresolved, assert it
+   alone is in flight, queue several newer choices, resolve it, and assert that only the newest
+   queued choice is sent and becomes the stored and shown value.
    ⚠️ **The hook has ONE instance, owned by `App.jsx`** (a Codex finding on M0): `mapColourScale`
    reaches the map as props, `App` → `WindowFirstMapPane` (~584) → `MapView`, and `mapTideMode` +
    `saveTideMode` take the **same route in this phase** (threaded, unread by any UI until M5), so
