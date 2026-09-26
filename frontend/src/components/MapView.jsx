@@ -1324,7 +1324,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1340,6 +1340,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // the old ramp while the markers around it repaint. Neither use reads the value for colour:
   // every colour read goes to `scoreRamp`'s live module state.
   void mapColourScale;
+  // `mapTideMode` and `saveTideMode` (map-mobile-sheet-plan.md M4) are threaded on this same route
+  // — App.jsx's `useReaderSettings` → `WindowFirstMapPane` → here — but neither is read by any UI
+  // in this phase. M5 is what consumes them (the Auto rule and the Tide mode control); this phase
+  // only wires and tests the plumbing, so the hook has one instance for both M4 and M5 to share.
+  void mapTideMode;
+  void saveTideMode;
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -6008,6 +6014,17 @@ MapView.propTypes = {
    * fetch resolves.
    */
   colourScaleDefaulted: PropTypes.bool,
+  /**
+   * The caller's persisted Map tab tide mode (map-mobile-sheet-plan.md M4) — threaded here from
+   * `App.jsx`'s `useReaderSettings` through `WindowFirstMapPane`, on the same route as
+   * `mapColourScale`. Not read by this component in this phase; M5 is its first consumer.
+   */
+  mapTideMode: PropTypes.oneOf(['auto', 'always', 'off']),
+  /**
+   * The serialised save action for `mapTideMode` — threaded on the same route, forwarded straight
+   * through. Not called by this component in this phase; M5 is its first consumer.
+   */
+  saveTideMode: PropTypes.func,
   /**
    * From `utils/locationSheet.buildScoreIndex` over `WindowFirstBriefingContext`'s `scoreRows` —
    * the selection callout's reason prose and "every window" strip (map-tab-v2-plan.md §3 P9). Tab

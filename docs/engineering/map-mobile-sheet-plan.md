@@ -41,6 +41,7 @@ orphaned at merge; the PR number is the durable pointer (the map-landing plan's 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
 | M0 | `docs/map-mobile-sheet-plan` | — | 2026-09-25 | Vendored the bundle; this plan; `map-mobile-sheet-prompts.md`. No code. |
+| M4 | `feature/map-mobile-sheet-m4-tide-mode-setting` | — | 2026-09-26 | Tide mode persisted setting: `V155__user_map_tide_mode.sql`, `MapTideModeRequest`, `UserSettingsService.saveMapTideMode`, `PUT /api/user/settings/map-tide-mode`, `useReaderSettings`' `mapTideMode`/`saveTideMode` (its own save line, reusing `colourSaveQueue.js`'s mechanics unchanged), threaded `App` → `WindowFirstMapPane` → `MapView` as unread props. No UI. Migration proven only in CI (no local Docker). **Adversarial review (three read-only lenses run by the orchestrator plus the session's own late reviewer): backend clean; two findings fixed before landing** — (1) `saveTideMode` claimed the hook's answer-order slot at PRESS time, the one participant that did (every other save is numbered when it lands), so a press during a slow `getSettings()` made that whole mount read fail its own `claim` and be dropped — home, colour and last-seen date with it; the claim now happens in `onSaved`, the landed mode is shown again in case a read landed in between, and a held-read test pins it; (2) `App.test.jsx`'s null → `'auto'` case waited on a call already made and asserted the pre-load default, so it passed with the mapping deleted — it now gates on the same read changing `mapColourScale` off its bootstrap. Migration pending CI. |
 
 ---
 
@@ -747,7 +748,7 @@ Branch `feature/map-mobile-sheet-m6-sweep`; slug `map-mobile-sheet-m6-sweep`, he
 | M1 quiet start | S | — | M4 |
 | M2 sheet + Windows + Layers | L | M1 (toast/lifted stack) | M4 |
 | M3 Tide section | M/L | M2 | M4 |
-| M4 Tide mode setting (backend) | S/M | — | M1, M2, M3 |
+| M4 Tide mode setting (backend) | S/M | — | M1, M2, M3 **Adversarial review (three read-only lenses run by the orchestrator plus the session's own late reviewer): backend clean; two findings fixed before landing** — (1) `saveTideMode` claimed the hook's answer-order slot at PRESS time, the one participant that did (every other save is numbered when it lands), so a press during a slow `getSettings()` made that whole mount read fail its own `claim` and be dropped — home, colour and last-seen date with it; the claim now happens in `onSaved`, the landed mode is shown again in case a read landed in between, and a held-read test pins it; (2) `App.test.jsx`'s null → `'auto'` case waited on a call already made and asserted the pre-load default, so it passed with the mapping deleted — it now gates on the same read changing `mapColourScale` off its bootstrap. Migration pending CI. |
 | M5 Tide rule + mode control | M | M2, M3, M4 | — |
 | M6 sweep | S | M5 | — |
 

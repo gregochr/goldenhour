@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
+import com.gregochr.goldenhour.model.MapTideModeRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -56,6 +57,9 @@ public class UserSettingsService {
 
     /** The only two values {@code mapColourScale} may take. */
     private static final Set<String> VALID_MAP_COLOUR_SCALES = Set.of("temp", "verdict");
+
+    /** The only three values {@code mapTideMode} may take (map-mobile-sheet-plan.md, M4). */
+    private static final Set<String> VALID_MAP_TIDE_MODES = Set.of("auto", "always", "off");
 
 
     private static final Logger LOG = LoggerFactory.getLogger(UserSettingsService.class);
@@ -313,6 +317,37 @@ public class UserSettingsService {
     }
 
     /**
+     * Persists the caller's Map tab tide mode — Auto, Always or Off (map-mobile-sheet-plan.md M4).
+     *
+     * <p>Copies {@link #saveMapColourPreferences}'s shape exactly: its own endpoint because a tide
+     * mode is not home-derived, so folding it into {@code saveHome} would deserialise the home
+     * fields to null and wipe a saved postcode; a column-scoped write
+     * ({@link AppUserRepository#updateMapTideModeByUsername}) so a whole-entity save elsewhere can
+     * never discard it; then a read-back for the response.
+     *
+     * @param auth    the authenticated user
+     * @param request the chosen mode
+     * @return the updated user settings response
+     * @throws ResponseStatusException 400 if {@code mapTideMode} is not "auto", "always" or "off"
+     */
+    @Transactional
+    public UserSettingsResponse saveMapTideMode(Authentication auth, MapTideModeRequest request) {
+        // Null-checked before the Set lookup, matching saveMapColourPreferences:
+        // VALID_MAP_TIDE_MODES is Set.of(...), whose contains() throws NullPointerException on a
+        // null argument rather than returning false — an omitted field would otherwise 500 instead
+        // of the 400 a bad request deserves.
+        if (request.mapTideMode() == null || !VALID_MAP_TIDE_MODES.contains(request.mapTideMode())) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "mapTideMode must be 'auto', 'always' or 'off'");
+        }
+        userRepository.updateMapTideModeByUsername(auth.getName(), request.mapTideMode());
+        AppUserEntity user = getUser(auth);
+        LOG.info("User '{}' saved map tide mode: mode={}", user.getUsername(), request.mapTideMode());
+        // null place name, matching saveMapColourPreferences: this save does not geocode.
+        return mapToResponse(user, null);
+    }
+
+    /**
      * Records that the caller has just looked at the "Coming up" tab (plan D3).
      *
      * <p>Its own endpoint's backing write, never folded into {@code saveHome} — the same reasoning
@@ -391,6 +426,7 @@ public class UserSettingsService {
                 user.getMapColourScale(),
                 // The London civil date, derived here so the client compares two ISO date strings
                 // and no timezone rule reaches the browser (plan D3). The instant stays stored.
-                ForecastHorizon.civilDate(user.getComingUpLastSeenAt()));
+                ForecastHorizon.civilDate(user.getComingUpLastSeenAt()),
+                user.getMapTideMode());
     }
 }

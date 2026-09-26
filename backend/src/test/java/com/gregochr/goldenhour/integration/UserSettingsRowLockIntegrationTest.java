@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
+import com.gregochr.goldenhour.model.MapTideModeRequest;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -262,5 +263,23 @@ class UserSettingsRowLockIntegrationTest extends IntegrationTestBase {
         assertThat(storedDriveTimes(id)).isEqualTo(2);
         assertThat(stamp(id)).isNotNull();
         assertThat(homePostcode(id)).isEqualTo(NEWCASTLE);
+    }
+
+    /**
+     * Proves the V155 column exists on Postgres, under {@code ddl-auto: validate} — the JPA layer
+     * would have refused to start against a schema missing it — and that the column-scoped write
+     * (map-mobile-sheet-plan.md M4) round-trips through the real dialect, not just H2's.
+     */
+    @Test
+    @DisplayName("map_tide_mode round-trips through the column-scoped update on Postgres")
+    void mapTideModeRoundTripsOnPostgres() {
+        Long id = durhamReader("tide-mode-reader");
+        Authentication auth = new TestingAuthenticationToken("tide-mode-reader", null);
+
+        settingsService.saveMapTideMode(auth, new MapTideModeRequest("always"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT map_tide_mode FROM app_user WHERE id = ?", String.class, id))
+                .isEqualTo("always");
     }
 }

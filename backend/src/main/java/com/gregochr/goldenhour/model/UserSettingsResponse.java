@@ -26,6 +26,10 @@ import java.time.LocalDate;
  *                                 each entry's {@code enteredWindow} as two ISO date strings, so
  *                                 the timezone rule stays server-side ({@code ForecastHorizon
  *                                 .civilDate}) and the timestamp column remains the durable truth.
+ * @param mapTideMode              which tide cues the phone Map tab shows — {@code "auto"},
+ *                                 {@code "always"} or {@code "off"}, or null when never chosen.
+ *                                 Raw pass-through, deliberately not defaulted here, matching
+ *                                 {@code mapColourScale}'s reasoning (map-mobile-sheet-plan.md M4).
  */
 public record UserSettingsResponse(
         String username,
@@ -38,5 +42,6 @@ public record UserSettingsResponse(
         Integer localRadiusMiles,
         Instant driveTimesCalculatedAt,
         String mapColourScale,
-        LocalDate comingUpLastSeenDate) {
+        LocalDate comingUpLastSeenDate,
+        String mapTideMode) {
 }

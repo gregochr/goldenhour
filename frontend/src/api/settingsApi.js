@@ -71,6 +71,21 @@ export async function saveMapColourPreferences(mapColourScale) {
 }
 
 /**
+ * Saves the caller's Map tab tide mode (map-mobile-sheet-plan.md M4).
+ *
+ * <p>Its own endpoint, matching `saveMapColourPreferences`'s reasoning: a tide mode is not
+ * home-derived, so folding it into `saveHome` would deserialise the home fields to null and wipe a
+ * saved postcode.
+ *
+ * @param {'auto'|'always'|'off'} mapTideMode which tide cues the phone Map tab shows
+ * @returns {Promise<Object>} UserSettingsResponse
+ */
+export async function saveMapTideMode(mapTideMode) {
+  const response = await apiClient.put(`${BASE_URL}/map-tide-mode`, { mapTideMode });
+  return response.data;
+}
+
+/**
  * Records that the caller has just looked at the "Coming up" tab (plan D3/P5) — the badge's only
  * write. Its own endpoint rather than fields on `saveHome`, matching `saveMapColourPreferences`'s
  * precedent: this is not home-derived, so folding it into that request would deserialise the home

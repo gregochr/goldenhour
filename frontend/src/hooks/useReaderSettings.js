@@ -1,8 +1,9 @@
 import {
   useCallback, useEffect, useMemo, useReducer, useRef, useState,
 } from 'react';
-import { getSettings } from '../api/settingsApi.js';
+import { getSettings, saveMapTideMode } from '../api/settingsApi.js';
 import { setMode, getMode, resolveMode } from '../utils/scoreRamp.js';
+import { createColourSaveQueue, keepColourSaveLineOpen, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
 /** Nothing on record yet: the home is not known, and neither counter has moved. */
 export const INITIAL_RECORD = { settings: undefined, homeSettingsVersion: 0, driveTimesVersion: 0 };
@@ -138,11 +139,25 @@ export function recordReducer(record, action) {
  * while it is unknown and never overwrites it, so an answer read before a `Mark seen` landed cannot
  * put an older date back.
  *
+ * <p><b>The Map tab's tide mode</b> (map-mobile-sheet-plan.md M4 — Auto/Always/Off, no UI yet)
+ * copies the colour preference's shape exactly, but owns its OWN line of saves
+ * ({@code colourSaveQueue.js}'s mechanics, reused unchanged — every export there already takes the
+ * save function as a parameter, so nothing needed generalising) rather than one handed in from a
+ * dialog: this phase has no settings control for it, so this hook is the line's only owner, held
+ * open for as long as it is mounted — which is the same "one instance, owned by `App`" rule
+ * `mapColourScale` follows, threaded to the map as a prop on the same route. {@code saveTideMode}
+ * sets the mode at once (optimistic), then reverts to the last mode the SERVER is known to hold —
+ * never a queued choice that was itself never sent, and never the pre-session value — if that
+ * choice's own turn ends in failure. A choice already sent cannot be recalled, so a later failure
+ * can only ever mean the LATEST choice failed; the line still guarantees the newest queued choice
+ * is the one sent.
+ *
  * @returns {{homePlace: (?string|undefined), homeCoords: (?{lat: number, lon: number}|undefined),
  *           comingUpLastSeenDate: (?string|undefined), setComingUpLastSeenDate: function,
  *           homeSettingsVersion: number, driveTimesVersion: number, mapColourScale: string,
  *           colourScaleDefaulted: boolean, startSettingsRead: function, homeSaved: function,
- *           driveTimesRecalculated: function, colourSaved: function}}
+ *           driveTimesRecalculated: function, colourSaved: function,
+ *           mapTideMode: ('auto'|'always'|'off'), saveTideMode: function}}
  */
 export default function useReaderSettings() {
   const [record, dispatch] = useReducer(recordReducer, INITIAL_RECORD);
@@ -157,6 +172,18 @@ export default function useReaderSettings() {
   // The one thing the Map tab's one-time notice needs and `mapColourScale` above cannot answer:
   // that mirrors the RESOLVED mode, and null resolves to the same `'temp'` an explicit choice does.
   const [colourScaleDefaulted, setColourScaleDefaulted] = useState(false);
+  // The Map tab's persisted tide mode (map-mobile-sheet-plan.md M4). 'auto' is both the default
+  // before the mount read answers and what a null (never-chosen) server value means.
+  const [mapTideMode, setMapTideMode] = useState('auto');
+  // The last mode the SERVER is known to hold — the rollback baseline `saveTideMode` reverts to on
+  // a failed save. Never the pre-session value and never a choice that was itself queued but never
+  // sent: only a landed save (the mount read, or a save's own success) moves it.
+  const tideModeBaseline = useRef('auto');
+  // The page's one line of tide-mode saves — see the class doc's paragraph on this. Reuses
+  // `colourSaveQueue.js` wholesale rather than a sibling module: every export there already takes
+  // the save function as a parameter, so nothing about it is colour-specific.
+  const [tideSaveQueue] = useState(createColourSaveQueue);
+  useEffect(() => keepColourSaveLineOpen(tideSaveQueue), [tideSaveQueue]);
   // The answers' order (see above): how many have been numbered, and the newest number applied.
   const order = useRef({ numbered: 0, applied: 0 });
 
@@ -193,6 +220,9 @@ export default function useReaderSettings() {
         dispatch({ type: 'read', settings });
         setComingUpLastSeenDate(settings?.comingUpLastSeenDate ?? null);
         applyColour(settings?.mapColourScale);
+        const tideMode = settings?.mapTideMode ?? 'auto';
+        tideModeBaseline.current = tideMode;
+        setMapTideMode(tideMode);
       })
       // Nothing is written: the home and the date stay unknown until the dialog answers, and the
       // ramp keeps the default it started with.
@@ -237,6 +267,44 @@ export default function useReaderSettings() {
     applyColour(scale);
   }, [number, claim, applyColour]);
 
+  /**
+   * Saves a chosen Map tab tide mode (map-mobile-sheet-plan.md M4 task 4), through this hook's own
+   * line of tide-mode saves — one save in flight at a time, a newer choice queued behind an
+   * older, not-yet-started one superseding it (`colourSaveQueue.js`'s rules, reused unchanged).
+   *
+   * <p>Sets the mode at once — the newest choice is always what the reader sees while its save is
+   * out — and is <b>numbered when it lands</b>, like every other save here (the class doc's rule),
+   * so a mount read that lands after the save cannot put an older mode back, while a save pressed
+   * BEFORE the mount read lands does not outrank it. ⚠️ The first cut claimed the order at press
+   * time, the one participant that did: a press during a slow {@code getSettings()} made that
+   * whole read fail its own {@code claim} — home, colour and last-seen date dropped with the tide
+   * mode — found by M4's review. Reverts to
+   * {@code tideModeBaseline.current} (the last mode the SERVER is known to hold) if this choice's
+   * own turn ends in {@code 'failed'}; does nothing on {@code 'superseded'} or {@code 'ended'},
+   * since a newer choice's own call already owns what is shown.
+   *
+   * @param {'auto'|'always'|'off'} mode the reader's choice
+   * @returns {Promise<'saved'|'failed'|'superseded'|'ended'>} settles when this choice's turn ends
+   */
+  const saveTideMode = useCallback(async (mode) => {
+    setMapTideMode(mode);
+    const outcome = await saveColourInTurn(tideSaveQueue, mode, {
+      save: saveMapTideMode,
+      onSaved: (updated, savedMode) => {
+        const landed = updated?.mapTideMode ?? savedMode;
+        tideModeBaseline.current = landed;
+        // Numbered as it lands (see the doc above): the newest answer now, so it outranks any read
+        // that landed between the press and this — and is shown again in case one did.
+        claim(number());
+        setMapTideMode(landed);
+      },
+    });
+    if (outcome === 'failed') {
+      setMapTideMode(tideModeBaseline.current);
+    }
+    return outcome;
+  }, [number, claim, tideSaveQueue]);
+
   const { settings } = record;
   const known = settings !== undefined;
   const lat = settings?.homeLatitude;
@@ -262,5 +330,7 @@ export default function useReaderSettings() {
     homeSaved,
     driveTimesRecalculated,
     colourSaved,
+    mapTideMode,
+    saveTideMode,
   };
 }

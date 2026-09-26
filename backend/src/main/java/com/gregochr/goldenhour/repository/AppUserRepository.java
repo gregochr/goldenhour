@@ -17,7 +17,7 @@ import java.util.Optional;
  * Spring Data repository for {@link AppUserEntity}.
  *
  * <p><strong>Every settings write is a column-scoped update here, never a {@code save()}.</strong>
- * The entity marks its seven settings columns {@code updatable = false} (its class Javadoc records
+ * The entity marks its eight settings columns {@code updatable = false} (its class Javadoc records
  * why), so a whole-entity save cannot write them at all; these updates are the only way in. Each
  * writes exactly the columns its own request changes, so two settings saves in two tabs, or a
  * settings save and the nightly drive-time job, can no longer discard one another's change.
@@ -177,6 +177,21 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             + "WHERE u.username = :username")
     int updateMapColourScaleByUsername(@Param("username") String username,
             @Param("mapColourScale") String mapColourScale);
+
+    /**
+     * Writes the Map tab tide mode alone (map-mobile-sheet-plan.md, M4) — the same shape as
+     * {@link #updateMapColourScaleByUsername}.
+     *
+     * @param username    the caller's username
+     * @param mapTideMode the validated mode, {@code "auto"}, {@code "always"} or {@code "off"}
+     * @return the number of rows updated — 1, or 0 if the username no longer matches a row
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.mapTideMode = :mapTideMode "
+            + "WHERE u.username = :username")
+    int updateMapTideModeByUsername(@Param("username") String username,
+            @Param("mapTideMode") String mapTideMode);
 
     /**
      * Stamps the drive times as calculated — but only while the home is still the one they were

@@ -46,6 +46,7 @@ vi.mock('../api/settingsApi.js', () => ({
   saveHome: vi.fn(),
   refreshDriveTimes: vi.fn(),
   saveMapColourPreferences: vi.fn(),
+  saveMapTideMode: vi.fn(),
   markComingUpSeen: vi.fn(),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
@@ -1310,6 +1311,43 @@ describe('App — wires the loaded map colour preference into scoreRamp', () => 
     await screen.findByTestId('window-first-pane-empty');
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     expect(scoreRamp.getMode()).toBe('verdict');
+  });
+});
+
+// ── The Map tab's tide mode reaches WindowFirstMapPane (map-mobile-sheet-plan.md M4) ────────
+//
+// Wired on the same route as `mapColourScale` above — App.jsx's `useReaderSettings` through to
+// `WindowFirstMapPane` — but with no settings UI in this phase; M5 is its first reader. These pin
+// only that `App` passes the hook's own value and its save action through, unchanged.
+
+describe('App — wires the loaded map tide mode into the Map pane', () => {
+  it('a loaded mode reaches the pane as mapTideMode', async () => {
+    getSettings.mockResolvedValue({ mapColourScale: 'temp', mapTideMode: 'always' });
+    renderApp();
+    await openMapPane();
+
+    await waitFor(() => expect(mapPaneProps.last.mapTideMode).toBe('always'));
+  });
+
+  it('a never-chosen (null) mode reaches the pane as auto', async () => {
+    getSettings.mockResolvedValue({ mapColourScale: 'temp', mapTideMode: null });
+    renderApp();
+    await openMapPane();
+
+    // `getSettings` is called synchronously at mount, so waiting on it gates nothing — and
+    // 'auto' is also the hook's pre-load default, so an assertion made before the read LANDS
+    // would pass with the null → 'auto' mapping deleted. Gate on a value the same read changes
+    // away from its bootstrap ('verdict' → 'temp'), which proves the answer has been applied.
+    await waitFor(() => expect(mapPaneProps.last.mapColourScale).toBe('temp'));
+    expect(mapPaneProps.last.mapTideMode).toBe('auto');
+  });
+
+  it('hands the pane the hook\'s own save action', async () => {
+    getSettings.mockResolvedValue({ mapColourScale: 'temp', mapTideMode: 'auto' });
+    renderApp();
+    await openMapPane();
+
+    expect(typeof mapPaneProps.last.saveTideMode).toBe('function');
   });
 });
 
