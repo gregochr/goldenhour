@@ -43,9 +43,16 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  *        its rows are a grid with a flush-right last track while the Filters rows are columns led by
  *        a left-aligned label. See `index.css`'s `.wf-jump-sheet` note for the figures.
  * @param {React.ReactNode} props.children - Content rendered inside the sheet.
+ * @param {?Function} [props.restoreFallback] - forwarded to `useDialogFocus`'s own option of the
+ *        same name (map-mobile-sheet-plan.md §3 M2 task 6): where to send focus on close when the
+ *        element that opened this sheet can no longer take it back — the phone Layers section's
+ *        Regions/Filters rows unmount themselves the instant `RegionsJump`/`FiltersPopover` open,
+ *        since the peek body tears down whenever `openMapMenu` leaves `'peek:lay'` (a Codex finding
+ *        on the plan's M0). Omit for every other caller, unchanged.
  */
 export default function BottomSheet({
-  open, onClose, label = 'Details', modal = true, reserveCloseStrip = false, children,
+  open, onClose, label = 'Details', modal = true, reserveCloseStrip = false, restoreFallback = null,
+  children,
 }) {
   // Prevent body scroll while open
   useEffect(() => {
@@ -57,7 +64,7 @@ export default function BottomSheet({
 
   // Gated on `open`, unlike Modal's — this component returns null rather than unmounting, so the
   // hook has to be told when the sheet is actually on screen.
-  const dialogRef = useDialogFocus(open);
+  const dialogRef = useDialogFocus(open, { restoreFallback });
 
   if (!open) return null;
 
@@ -140,5 +147,6 @@ BottomSheet.propTypes = {
   label: PropTypes.string,
   modal: PropTypes.bool,
   reserveCloseStrip: PropTypes.bool,
+  restoreFallback: PropTypes.func,
   children: PropTypes.node,
 };

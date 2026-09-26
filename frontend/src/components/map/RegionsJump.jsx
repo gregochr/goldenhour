@@ -64,6 +64,7 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
 export default function RegionsJump({
   open, onOpenChange, rows, onSelectRegion,
   activeRegion = null, resetLabel = null, onReset = null,
+  chipHidden = false, restoreFallback = null,
 }) {
   const rootRef = useRef(null);
   const isMobile = useIsMobile();
@@ -163,22 +164,35 @@ export default function RegionsJump({
   return (
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div ref={rootRef} data-testid="wf-jump" className="wf-jump" onKeyDown={onKeyDown}>
-      <button
-        type="button"
-        data-testid="wf-jump-chip"
-        className="wf-jump-chip"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls="wf-jump-menu"
-        onClick={() => onOpenChange(!open)}
-      >
-        <span aria-hidden="true">&#9678; </span>
-        Regions
-        <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
-      </button>
+      {/* ⚠️ Withheld, not merely hidden, on the phone Layers section's host mount
+          (map-mobile-sheet-plan.md §3 M2 task 6): the trigger there is a Layers row inside the
+          peek sheet, not this chip — a second, invisible-but-present button would still take a tab
+          stop and a hit-test no reader could see the reason for. */}
+      {!chipHidden && (
+        <button
+          type="button"
+          data-testid="wf-jump-chip"
+          className="wf-jump-chip"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls="wf-jump-menu"
+          onClick={() => onOpenChange(!open)}
+        >
+          <span aria-hidden="true">&#9678; </span>
+          Regions
+          <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
+        </button>
+      )}
 
       {isMobile ? (
-        <BottomSheet open={open} onClose={() => onOpenChange(false)} label="Jump to a region" modal={false} reserveCloseStrip>
+        <BottomSheet
+          open={open}
+          onClose={() => onOpenChange(false)}
+          label="Jump to a region"
+          modal={false}
+          reserveCloseStrip
+          restoreFallback={restoreFallback}
+        >
           <div id="wf-jump-menu" data-testid="wf-jump-menu" className="wf-jump-sheet">
             {resetRow}
             {panelBody}
@@ -217,4 +231,11 @@ RegionsJump.propTypes = {
   activeRegion: PropTypes.string,
   resetLabel: PropTypes.string,
   onReset: PropTypes.func,
+  /**
+   * Withholds the standalone trigger chip while still mounting the sheet/popover — the phone
+   * Layers section provides its own trigger row instead (map-mobile-sheet-plan.md §3 M2 task 6).
+   */
+  chipHidden: PropTypes.bool,
+  /** Forwarded to `BottomSheet`'s own prop of the same name (phone only). */
+  restoreFallback: PropTypes.func,
 };
