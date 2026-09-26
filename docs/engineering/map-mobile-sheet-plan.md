@@ -304,9 +304,10 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
 2. **Peek buttons** (`.wf-peek-btn`, 46 px tall, `border: 1px solid --color-plex-border`, radius
    10, `--color-plex-panel`; key line mono 8.5 px `.1em` uppercase; value line 12.5 px / 600, single
    line, ellipsis): `Other windows` (flex 1; key reads `CLOSE` while its section is open), `Tide`
-   (flex 1, tide-tinted — **rendered only when M5's `tideVisible` is true; in M2 it is always
-   rendered while the strip's `stripModel.visible` holds**, so the phone keeps a tide summary until
-   M3/M5), `Layers` (`flex: 0 0 58px`, `☰`). Each carries `aria-expanded` and
+   (flex 1, tide-tinted — **not rendered at all in M2**: its section body arrives in M3 and its
+   rule in M5, and a released control must never open an empty panel (a Codex finding on M0); the
+   phone tide strip stays mounted through M2 so the phone keeps its tide summary, and M3 mounts
+   the button gated on `stripModel.visible` until M5 replaces that with `tideVisible`), `Layers` (`flex: 0 0 58px`, `☰`). Each carries `aria-expanded` and
    `aria-controls="wf-peek-body"`; the active one gets `.wf-peek-btn-on` (border
    `rgba(201,162,75,.6)`, bg `rgba(201,162,75,.1)`; the tide one `rgba(111,168,176,.8)` /
    `.16`). Tapping the active button collapses; a different one switches without collapsing
@@ -431,7 +432,8 @@ heading `### Map tab — the phone tide strip becomes the sheet's Tide section`.
    collapses).
 4. **Tide button value**: `utils/mapPeek.js#tideSummary(tide, dimmedCount)` → `{High|Mid|Low}`
    + `↑`/`↓` **only when Mid** (from the served direction) + ` · N dim` when N > 0; rendered after
-   the existing `TideWave` glyph in mono 11.5 px `--color-badge-tide`.
+   the existing `TideWave` glyph in mono 11.5 px `--color-badge-tide`. **This phase mounts the
+   Tide peek button** (withheld in M2), gated on `stripModel.visible` until M5.
 5. Remove the phone `MapTideStrip` mount (`MapView.jsx` ~5774–5787) and the phone block's
    `.wf-map-tide-strip`/`wf-tide-strip-on` rules; `--tsh` is desktop-only from here (the pane class
    is still set by the desktop strip — leave its effect alone). Desktop mount untouched.
@@ -478,6 +480,12 @@ with M2/M3** (disjoint files); merge `origin/main` in before push, never rebase.
    a small change; otherwise a sibling `settingSaveLine` with the same rules and the same
    "ends with its owner" clause. Either way the hook's doc names the rule and the test pins the
    out-of-order case (older request resolves last; stored and shown value are the newer one).
+   ⚠️ **The hook has ONE instance, owned by `App.jsx`** (a Codex finding on M0): `mapColourScale`
+   reaches the map as props, `App` → `WindowFirstMapPane` (~584) → `MapView`, and `mapTideMode` +
+   `saveTideMode` take the **same route in this phase** (threaded, unread by any UI until M5), so
+   M5 never calls the hook a second time and creates a second settings read and an independent
+   record. Test: `App` passes the value and the action to the pane, and a saved mode is the one
+   `MapView` receives on the next render (live-update).
 5. CLAUDE.md API section: add the endpoint beside `map-colours`; Migrations table: nothing (the
    table says "latest is deliberately not written down").
 
@@ -533,8 +541,9 @@ view; Tide mode auto / always / off`. Depends on M2, M3, M4.
    selected `rgba(201,162,75,.16)` / `--color-segment-active` (`#EBD9A8`, already the theme's
    active-segment token — the Heat|Pins segment's own rule is the authority) / 600; hint below (mono 9.5 px, ink-3 → ink-2 per §4 #9): `Auto: shown when the light is
    Maybe or better and the coast is in view.` A press goes through the hook's serialised
-   `saveTideMode` (M4 task 4 — one save in flight, newest press wins, stale responses ignored);
-   the segment moves at once, and a failed save reverts and announces in the pane's existing
+   `saveTideMode` (M4 task 4 — one save in flight, newest press wins, stale responses ignored),
+   which `MapView` receives as a prop from `App` through `WindowFirstMapPane` (M4 wired it; M5 reads
+   it — never a second `useReaderSettings` call); the segment moves at once, and a failed save reverts and announces in the pane's existing
    `role="status"` line.
 5. The callout's and the location sheet's `TideFitBlock` are **untouched** by Off (§4 #13, and
    §6 Q2 for the owner).

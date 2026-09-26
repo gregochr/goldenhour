@@ -66,9 +66,9 @@ session never pushes.
 > Scope is §3 M2's eight tasks. **Do not use `components/BottomSheet.jsx` for the sheet** — §1 #2
 > gives the five reasons; build `components/map/MapPeekSheet.jsx` in-frame, backdrop-free, not a
 > dialog, always mounted on the phone. The open section is a value of `openMapMenu` (`'peek:win' |
-> 'peek:tide' | 'peek:lay'`, D-1) — no second piece of state. The Tide button in this phase renders
-> while the strip's `stripModel.visible` holds (M5 replaces that with the rule); its section body is
-> a placeholder that says so in a comment, and the strip stays mounted until M3. The Windows
+> 'peek:tide' | 'peek:lay'`, D-1) — no second piece of state. The Tide button is **not rendered in this phase** — its
+> body arrives in M3 and its rule in M5, and a released control must never open an empty panel;
+> the peek row is two buttons here and the strip stays mounted until M3. The Windows
 > heading is `landingCardModel().header`, never a fixed string (§4 #2); night rows show `N★ best`
 > (§4 #3); the last row is the drilldown door (§4 #4); Layers carries Show / Regions / Filters /
 > Legend, and Regions/Filters open their existing phone `BottomSheet`s with the peek collapsing by
@@ -153,7 +153,9 @@ session never pushes.
 > repository writer, request record, service save validating `Set.of("auto","always","off")` with
 > the null-before-`Set.of` guard, `@PutMapping("/map-tide-mode")`, response field, caching-test
 > path, `settingsApi.saveMapTideMode`, `useReaderSettings` exposing `mapTideMode` (`'auto'` when
-> null) and a serialised `saveTideMode` action — one save in flight, a newer press supersedes a queued
+> null), threaded as props `App` → `WindowFirstMapPane` → `MapView` on the `mapColourScale` route
+> (unread until M5, but wired and tested here — the hook has one instance, owned by `App`), and a
+> serialised `saveTideMode` action — one save in flight, a newer press supersedes a queued
 > older one, a response applied only if it answers the newest request (§3 M4 task 4, a Codex
 > finding on M0); reuse `createColourSaveQueue`'s mechanics if the generalisation is small,
 > otherwise a sibling line with the same rules, and pin the out-of-order case by test.
