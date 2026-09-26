@@ -403,19 +403,72 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     }
   });
 
-  it('⚠️ PR #741: the scored-locations chip lifts clear of the bar — it painted over AND intercepted taps on it', () => {
-    const slice = extractRulesIncludingMedia(['.wf-map-scored-legend', '.wf-map-chrome-tr']);
+  it('⚠️ M1 (map-mobile-sheet-plan.md §3 M1 task 2): the scored-locations toast leaves the bottom lifted stack for a fixed, centred top position', () => {
+    // PR #741 lifted this chip clear of the bar at `bottom: 152px`; M1 moves it out of the bottom
+    // stack entirely rather than re-tuning that offset — the design's Frame section fixes it at
+    // `top: 62px`, centred, independent of the bar/strip/footer arithmetic this file otherwise
+    // tracks (THE SWEEP, below, no longer carries it as a candidate).
+    const slice = extractRulesIncludingMedia('.wf-map-scored-legend');
     expect(slice).toContain('.wf-map-tab .wf-map-scored-legend');
     const cleanup = inject(slice);
     try {
-      const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
-      const scoredBottom = parseFloat(computedStyleFor('wf-map-scored-legend', ['wf-map-tab']).bottom);
-      const ASSUMED_BAR_HEIGHT = 48;
-      const CLEARANCE_GAP = 8;
-      expect(scoredBottom).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
+      const style = computedStyleFor('wf-map-scored-legend', ['wf-map-tab']);
+      expect(style.top).toBe('62px');
+      expect(style.left).toBe('50%');
+      expect(style.bottom).toBe('auto');
+      expect(style.right).toBe('auto');
+      expect(style.transform).toBe('translateX(-50%)');
+      // One line, as the design's toast rule says — centred at 390px it wrapped to three otherwise.
+      expect(style.whiteSpace).toBe('nowrap');
     } finally {
       cleanup();
     }
+    // ⚠️ `transition` is asserted on the RAW rule text, not a computed style: this file's own
+    // extractor strips every `@media` wrapper it slices through, including the UNRELATED
+    // `prefers-reduced-motion` block a few lines below that shares this exact selector — injecting
+    // both rules unconditionally would let the reduced-motion arm's `transition: none` win the
+    // cascade by source order, regardless of which media condition a real browser would apply. The
+    // raw-text check pins the base rule's own declaration without dragging that second rule in.
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.wf-map-tab \.wf-map-scored-legend\s*\{[^}]*transition:\s*opacity/);
+  });
+
+  it('drops the fade transition under `prefers-reduced-motion: reduce` — the state change stays, the animation does not', () => {
+    // A standalone top-level block (this file's own convention, `index.css` ~1694/~2889/~9624) —
+    // pinned by raw text for the same reason as the test above: injecting it through this file's
+    // media-stripping extractor would make it indistinguishable from an unconditional override.
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*\.wf-map-tab \.wf-map-scored-legend\s*\{\s*transition:\s*none;?\s*\}/,
+    );
+  });
+
+  it('the `wf-map-scored-legend-gone` class (added 3,000 ms after the toast\'s key last changes, `MapView.jsx`) fades it out and drops it from the hit-test', () => {
+    const slice = extractRulesIncludingMedia('.wf-map-scored-legend');
+    const cleanup = inject(slice);
+    try {
+      const el = document.createElement('div');
+      el.className = 'wf-map-scored-legend wf-map-scored-legend-gone';
+      const ancestor = document.createElement('div');
+      ancestor.className = 'wf-map-tab';
+      ancestor.appendChild(el);
+      document.body.appendChild(ancestor);
+      cleanupFns.push(() => ancestor.remove());
+      const style = getComputedStyle(el);
+      expect(style.opacity).toBe('0');
+      expect(style.pointerEvents).toBe('none');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('the tide-strip-on override for the scored-legend chip is GONE (M1 retired it — the toast no longer rides the strip-displaced bottom stack)', () => {
+    // Left standing, this rule's higher specificity (three classes vs the base rule's two) would
+    // still win the cascade for `bottom`, re-introducing a `bottom` value alongside the base rule's
+    // `top: 62px` and over-constraining the box (`height: auto` with both set stretches it to fill
+    // the gap rather than sizing to content) — see index.css's own note at this rule's old site.
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).not.toMatch(/\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-scored-legend/);
   });
 
   it('touches nothing without `.wf-map-tab` — the desktop offset is Tailwind\'s own `bottom-2` utility, not an index.css rule', () => {
@@ -494,18 +547,22 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
    * prove any two share a row safely by width — the attribution's measured rect spans the FULL
    * frame width, so anything sharing its row collides with it regardless of the other element's
    * own width, and the viewline-upsell chip's text is long enough to make the same true of ANY
-   * row it joins. This describe block is the PAIRWISE matrix that fix demands: every one of the 10
-   * pairs among {bar, attribution, counts footer, scored legend, chrome-bl/upsell}, not merely each
-   * vs the bar.
+   * row it joins. This describe block is the PAIRWISE matrix that fix demands: every one of the 6
+   * pairs among {bar, attribution, counts footer, chrome-bl/upsell}, not merely each vs the bar.
    *
    * Considered and a CANDIDATE (all pairwise-checked below, "everything active" — a scored solar
    * window, a LITE reader mid aurora alert, and an active filter, simultaneously):
    *   - `.wf-map-chrome-tr` (the bar itself) — the original reference rect.
    *   - `.wf-map-chrome-bl` (LITE viewline-upsell chip) — lifted, PR #741 review round 1.
    *   - `.wf-map-counts-footer` — lifted, re-tuned twice (PR #741, then this stagger).
-   *   - `.wf-map-scored-legend` (`photocast-scored-legend`) — lifted, PR #741; re-staggered here.
    *   - `.leaflet-bottom.leaflet-right` (Leaflet's attribution corner) — lifted, PR #741; kept at
    *     the lowest lifted row here, since it is full-width and cannot share one with anything.
+   *
+   * ⚠️ **`.wf-map-scored-legend` LEFT this sweep at M1** (map-mobile-sheet-plan.md §3 M1 task 2):
+   * it no longer occupies the bottom lifted stack at all — a fixed `top: 62px`, centred, replaces
+   * the old `bottom: 152px` row — so it can never collide with anything checked here by
+   * construction, and testing it as a bottom-anchored rect would be testing a claim the CSS no
+   * longer makes.
    *
    * Considered and RULED OUT (not a candidate, with the reason, so the next reviewer does not
    * have to re-derive it):
@@ -539,7 +596,6 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     const FRAME_HEIGHT = 780;
     const ASSUMED_BAR_HEIGHT = 48;
     const ASSUMED_CHIP_HEIGHT = 28; // a single-line pill/text chip — chrome-bl, counts footer
-    const MEASURED_SCORED_LEGEND_HEIGHT = 26; // live 390×780 pass: y 678–704
     const MEASURED_ATTRIBUTION_HEIGHT = 27; // live 390×780 pass: y 677–704
 
     /** `{top, bottom}` of an element anchored `bottomPx` from the frame's own bottom edge,
@@ -556,10 +612,10 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       return a.bottom <= b.top || b.bottom <= a.top;
     }
 
-    it('every one of the 10 pairs among {bar, attribution, counts footer, scored legend, chrome-bl} is vertically disjoint', () => {
+    it('every one of the 6 pairs among {bar, attribution, counts footer, chrome-bl} is vertically disjoint', () => {
       const slice = extractRulesIncludingMedia([
         '.wf-map-chrome-tr', '.wf-map-chrome-bl', '.wf-map-counts-footer',
-        '.wf-map-scored-legend', '.leaflet-bottom.leaflet-right',
+        '.leaflet-bottom.leaflet-right',
       ]);
       const cleanup = inject(slice);
       try {
@@ -574,10 +630,6 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
           counts_footer: rectFromBottom(
             parseFloat(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom),
             ASSUMED_CHIP_HEIGHT,
-          ),
-          scored_legend: rectFromBottom(
-            parseFloat(computedStyleFor('wf-map-scored-legend', ['wf-map-tab']).bottom),
-            MEASURED_SCORED_LEGEND_HEIGHT,
           ),
           chrome_bl: rectFromBottom(
             parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom),
@@ -701,31 +753,30 @@ describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
    * not this unit test's job — this only proves the FORMULA cannot produce a collision for either
    * of the two states T6 actually measured.
    */
-  describe('the scored-legend chip and chrome-bl clear the strip\'s REAL height, not the footer\'s assumed one', () => {
+  describe('chrome-bl clears the strip\'s REAL height, not the footer\'s assumed one — the scored-legend chip left this chain at M1', () => {
     const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    const scoredMatch = css.match(
-      /\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-scored-legend\s*\{[^}]*bottom:\s*calc\((\d+)px\s*\+\s*var\(--tsh,\s*(\d+)px\)\s*\+\s*(\d+)px\)/,
-    );
     const chromeBlMatch = css.match(
       /\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-chrome-bl\s*\{[^}]*bottom:\s*calc\((\d+)px\s*\+\s*var\(--tsh,\s*(\d+)px\)\s*\+\s*(\d+)px\s*\+\s*(\d+)px\s*\+\s*(\d+)px\)/,
     );
     const STRIP_BASE = 112; // the strip's own `bottom`, pinned literally by this file's first test above
 
-    it('both rules exist, in the anchor-plus-`--tsh`-plus-clearance shape', () => {
-      expect(scoredMatch, 'scored-legend bottom must be calc(112px + var(--tsh, Npx) + Mpx)').not.toBeNull();
-      expect(chromeBlMatch, 'chrome-bl bottom must chain off the scored-legend row the same way').not.toBeNull();
-      expect(Number(scoredMatch[1])).toBe(STRIP_BASE);
+    it('the rule exists, in the anchor-plus-`--tsh`-plus-clearance shape (its own numbers untouched by M1 — M2/M3 rewrite this chain)', () => {
+      expect(chromeBlMatch, 'chrome-bl bottom must be calc(112px + var(--tsh, Npx) + Mpx + Npx + Mpx)').not.toBeNull();
       expect(Number(chromeBlMatch[1])).toBe(STRIP_BASE);
+    });
+
+    it('⚠️ M1 (map-mobile-sheet-plan.md §3 M1 task 2): the scored-legend chip no longer has a tide-strip-on override at all', () => {
+      const scoredMatch = css.match(/\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-scored-legend/);
+      expect(scoredMatch).toBeNull();
     });
 
     it.each([
       ['open', 167],
       ['collapsed', 38],
-    ])('clears every pairwise boundary with >= 8px to spare while %s (%dpx)', (_label, stripHeight) => {
+    ])('the strip clears the bar and chrome-bl clears the strip\'s REAL top, both with >= 8px to spare, while %s (%dpx)', (_label, stripHeight) => {
       // Read the bar's real `bottom` off the actual CSS rather than a bare literal — the same
-      // technique the rest of this file already uses (e.g. "PR #741: the scored-locations chip
-      // lifts clear of the bar", above), so a future retune of `.wf-map-chrome-tr`'s own phone
-      // offset cannot silently desync this check from the real geometry it claims to test.
+      // technique the rest of this file already uses, so a future retune of `.wf-map-chrome-tr`'s
+      // own phone offset cannot silently desync this check from the real geometry it claims to test.
       const barSlice = extractRulesIncludingMedia('.wf-map-chrome-tr');
       const barCleanup = inject(barSlice);
       let barBottom;
@@ -738,18 +789,15 @@ describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
       const barTop = barBottom + BAR_HEIGHT;
       const stripTop = STRIP_BASE + stripHeight;
 
-      const [, , , scoredClearance] = scoredMatch.map(Number);
-      const scoredBottom = STRIP_BASE + stripHeight + scoredClearance;
-      const [, , , blClearanceA, blAssumedHeight, blClearanceB] = chromeBlMatch.map(Number);
-      const scoredTop = scoredBottom + blAssumedHeight; // the scored-legend chip's own measured/assumed height
-      const chromeBlBottom = STRIP_BASE + stripHeight + blClearanceA + blAssumedHeight + blClearanceB;
+      const [, , , clearanceA, assumedHeight, clearanceB] = chromeBlMatch.map(Number);
+      const chromeBlBottom = STRIP_BASE + stripHeight + clearanceA + assumedHeight + clearanceB;
 
       // 1. the strip itself never comes near the bar (its `bottom` is fixed regardless of state).
       expect(STRIP_BASE - barTop).toBeGreaterThanOrEqual(8);
-      // 2. the scored-legend chip clears the strip's REAL top, open or collapsed alike.
-      expect(scoredBottom - stripTop).toBeGreaterThanOrEqual(8);
-      // 3. chrome-bl (the LITE viewline-upsell chip) clears the scored-legend chip's own top.
-      expect(chromeBlBottom - scoredTop).toBeGreaterThanOrEqual(8);
+      // 2. chrome-bl (the LITE viewline-upsell chip) clears the strip's REAL top, open or
+      //    collapsed alike — its own formula still carries the old scored-legend clearance baked
+      //    into its literal (M2/M3 territory), so this is a lower bound, not a tight one.
+      expect(chromeBlBottom - stripTop).toBeGreaterThanOrEqual(8);
     });
   });
 });

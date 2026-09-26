@@ -1345,6 +1345,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
   const [eventType, setEventType] = useState(() => getNextEventType(locations, date));
   /**
+   * The scored-locations toast's phone fade (map-mobile-sheet-plan.md §3 M1 task 2,
+   * `docs/design/map-mobile-sheet/README.md` "Frame" — "Fades out after 3000 ms"). Phone only:
+   * desktop keeps the standing legend (§5 D-4), so this state and its effect are inert there —
+   * {@code toastGone} never turns true because the effect below returns before starting a timer.
+   *
+   * <p>Keyed on the SAME {@code |date|eventType|} pair the toast's own gate reads off
+   * {@code briefingScores} (below), so a window change restarts the 3 s clock and the reader sees
+   * the toast again for the new window — "a window change re-shows it for 3 s; a re-mount re-shows
+   * it" (§3 M1). The cleanup clears the pending timer on every change, so an in-flight fade from the
+   * PREVIOUS window can never fire after this one has already reset {@code toastGone} to false.
+   *
+   * <p>⚠️ The clock starts when the toast is SHOWN, not when the window changes — the effect lives
+   * further down, beside {@code toastShown}, and keys on it. A review of M1 found the gap: keyed on
+   * the window alone, a toast whose gate opened more than 3 s after mount (a slow {@code
+   * /api/briefing} landing on an already-open Map tab) was born with the class already applied —
+   * invisible from its first render, {@code aria-hidden} and all.
+   */
+  const [toastGone, setToastGone] = useState(false);
+  /**
    * The EV-ownership forwarding rule's local half (map-tab-v2-plan.md §3 P6). A night (astro or
    * aurora) EV row `App` would reject cannot be forwarded through `onSelectDate` — one whose date is
    * not in `forecastDates` (`App`'s `allDates.includes` check), or whose night is over (the ended
@@ -1804,13 +1823,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [landingSeenRun, setLandingSeenRun] = useState(() => readMapFilter(LANDING_SEEN_KEY));
   const [landingReopenedRun, setLandingReopenedRun] = useState(null);
   const landingRunStamp = overlayMode ? null : landingSeenKeyFor(runId);
-  const landingOpen = Boolean(landingRunStamp)
+  /**
+   * ⚠️ **On the phone the card never opens at all** (map-mobile-sheet-plan.md §3 M1 task 1,
+   * §1 #3 — {@code MapLandingCard}'s own class doc, which used to open with "the phone keeps this
+   * card, inset", is rewritten by this SAME phase to say so). The `!isMobile` term is first so the
+   * whole expression short-circuits before
+   * touching `landingSeenRun`/`landingReopenedRun` — neither is ever read, let alone written, on a
+   * phone mount, which is what keeps {@link LANDING_SEEN_KEY} untouched there (§5 D-3): the card's
+   * only writer is {@link dismissLanding}, and with `landingOpen` permanently false the card never
+   * renders, so its close button, its `Escape` listener and `selectLandingRow` are all unreachable.
+   * One caller IS reachable on the phone — {@code openDrilldown}, from the pill menu's drilldown
+   * row — which is why {@link dismissLanding} itself also returns at once on the phone.
+   */
+  const landingOpen = !isMobile && Boolean(landingRunStamp)
     && (landingSeenRun !== landingRunStamp || landingReopenedRun === landingRunStamp);
   /**
    * Closes the card for this run. Clears the reopen stamp too — without that, a card reopened from
    * the pill menu could never be closed again, since the reopen clause would keep winning.
    */
   const dismissLanding = () => {
+    // ⚠️ On the phone there is no card to dismiss and the stamp must not be written (§5 D-3) —
+    // and this is NOT unreachable there: `openDrilldown` calls it unconditionally, and the pill
+    // menu's drilldown row renders on every viewport. A review of M1 found exactly that route.
+    if (isMobile) return;
     setLandingReopenedRun(null);
     if (!landingRunStamp) return;
     setLandingSeenRun(landingRunStamp);
@@ -2840,6 +2875,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       || solarRowExists(date, eventType),
     [overlayMode, solarRowExists, date, eventType],
   );
+
+  /**
+   * Whether the scored-locations toast is on screen for this window — the ONE gate its render
+   * and its phone fade both read (map-mobile-sheet-plan.md §3 M1 task 2), so the 3 s clock can only
+   * start once there is a toast to fade. The tab's copy only: the overlay's own copy is
+   * deliberately ungated (see the mount).
+   */
+  const toastShown = useMemo(() => {
+    if (overlayMode || isAuroraMode || isAstroMode || briefingScores.size === 0) return false;
+    if (!solarWindowOnScreen()) return false;
+    const suffix = `|${date}|${eventType}|`;
+    for (const key of briefingScores.keys()) {
+      if (key.includes(suffix)) return true;
+    }
+    return false;
+  }, [overlayMode, isAuroraMode, isAstroMode, briefingScores, solarWindowOnScreen, date, eventType]);
+  useEffect(() => {
+    if (!isMobile) return undefined;
+    // Inline async wrapper satisfies react-hooks/set-state-in-effect while the setState still
+    // applies synchronously this tick (the same idiom this file already uses above, for the
+    // aurora-unavailable and auto-event-type effects).
+    (async () => {
+      setToastGone(false);
+    })();
+    if (!toastShown) return undefined;
+    const timer = setTimeout(() => setToastGone(true), 3000);
+    return () => clearTimeout(timer);
+  }, [isMobile, toastShown, date, eventType]);
 
   /** True when this location's forecast for the current event was triaged (stand-down). */
   const isStandDownLocation = useCallback((loc) => {
@@ -4305,8 +4368,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // `landingReopenedRun` to that stamp, so with no run to key on it writes null and
       // `landingOpen` stays false — a menu row whose every press does nothing, which this file
       // bans outright elsewhere in its own words (`CentreOnHomeControl`).
-      landingLabel={!landingOpen ? landingModel.header : ''}
-      onReopenLanding={landingRunStamp && landingModel.rows.length > 0 ? reopenLanding : null}
+      //
+      // ⚠️ `!isMobile` is a FOURTH, explicit term on both lines (map-mobile-sheet-plan.md §3 M1
+      // task 1) — `landingOpen` is already permanently false on the phone (above), and `!landingOpen`
+      // alone would therefore read TRUE there, handing `landingLabel` the card's header and standing
+      // the `↺ Back to …` row up for a card that can never be reopened (`reopenLanding` sets a stamp
+      // nothing on the phone ever reads back). Withheld, not merely inert: the row must not exist to
+      // land a press on at all.
+      landingLabel={!isMobile && !landingOpen ? landingModel.header : ''}
+      onReopenLanding={!isMobile && landingRunStamp && landingModel.rows.length > 0 ? reopenLanding : null}
       // The drilldown's entry (map-landing-plan.md §3 L5). Withheld when the map is on a date the
       // EV list has no row for at all — there would be no window for the panel to be about.
       // ⚠️ `served`, not merely "there is a row". A D-13 filler is a window the briefing served
@@ -5700,7 +5770,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 reported it. The OVERLAY's own copy above is deliberately NOT gated: the predicate
                 exempts `overlayMode` outright, so a guard there would be dead code wearing a
                 comment that claims otherwise. */}
-            {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && solarWindowOnScreen() && (() => {
+            {toastShown && (() => {
               const suffix = `|${date}|${eventType}|`;
               for (const key of briefingScores.keys()) {
                 if (key.includes(suffix)) {
@@ -5717,9 +5787,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       // `wf-map-scored-legend` is a pure CSS hook (PR #741 review) — the phone
                       // media query lifts this clear of the new bottom bar the same way it lifts
                       // `.wf-map-chrome-bl`; every Tailwind class above it is unmodified.
-                      className="absolute bottom-2 right-[54px] z-[1100] bg-plex-surface/80 backdrop-blur-sm
-                        text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 wf-map-scored-legend"
+                      //
+                      // ⚠️ `wf-map-scored-legend-gone` (map-mobile-sheet-plan.md §3 M1 task 2) only
+                      // ever lands on the PHONE mount: `toastGone` starts false and the effect that
+                      // flips it true returns before starting a timer whenever `!isMobile`, so a
+                      // desktop/tablet render's class list is exactly what it was before this phase.
+                      className={`absolute bottom-2 right-[54px] z-[1100] bg-plex-surface/80 backdrop-blur-sm
+                        text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 wf-map-scored-legend
+                        ${isMobile && toastGone ? 'wf-map-scored-legend-gone' : ''}`}
                       style={{ fontSize: '11px' }}
+                      // Once faded, a screen-reader user has no reason to keep hearing a toast the
+                      // sighted reader can no longer see — `aria-hidden` only once `wf-map-scored-
+                      // legend-gone` is actually applied, never merely because the timer fired on a
+                      // WIDER viewport where the class itself never lands (see the className note).
+                      aria-hidden={isMobile && toastGone ? 'true' : undefined}
                     >
                       ★ PhotoCast-scored locations shown
                     </div>
