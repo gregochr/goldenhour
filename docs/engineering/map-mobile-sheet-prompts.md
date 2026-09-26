@@ -117,7 +117,9 @@ session never pushes.
 > new threshold. `MapPeekTideSection.jsx` lays the strip's content out vertically per the spec's
 > copy; the dimmed line and the next-fit link are `footerModel`/`nextFitCopy`'s own, and the
 > extracted footer takes a stable focus target (the Tide peek button) that it focuses BEFORE
-> `onSelectEv`, because the link can unmount itself on the jump (M3 task 3; keyboard test required). The Tide
+> `onSelectEv`, because the link can unmount itself on the jump (M3 task 3; keyboard test required). This phase
+> mounts the Tide peek button gated on `stripModel.visible` AND owns the close-and-rescue when that
+> gate turns false with the section open (task 4) — M5 changes only the gate. The Tide
 > button's value is `utils/mapPeek.js#tideSummary` (High/Mid/Low, arrow only on Mid, `· N dim` only
 > when N > 0) after the existing `TideWave` glyph, in `--color-badge-tide` (§4 #8). Remove the phone
 > `MapTideStrip` mount and the phone block's strip/`wf-tide-strip-on` rules; the desktop mount and

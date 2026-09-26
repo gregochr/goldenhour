@@ -281,18 +281,21 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
 `### Map tab — one collapsed peek sheet replaces the phone's floating map controls`.
 
 **Tasks**
-1. **`components/map/MapPeekSheet.jsx`** (new, PropTypes, `data-testid="wf-peek"`): an
+1. **`components/map/MapPeekSheet.jsx`** (new, PropTypes, `data-testid="wf-map-peek"` — ⚠️ NOT
+   `wf-peek`, which `WindowSpotPeek.jsx` already owns with global `index.css` rules (~7236–7278:
+   `position: fixed`, a 280 px width, an entry animation and an `::after` arrow) that a same-named
+   sheet would inherit; a Codex finding on M0 — every hook below is `wf-map-peek-*`): an
    in-frame `section` (`role="region"`, `aria-label="Map panels"`) at `position: absolute; left: 0;
    right: 0; bottom: 0; z-index: 1120` inside the map frame — an explicit rung on the map's own
    z-ladder (markers 600, `MapLabels` 650, Leaflet popups 700, the landing card 1050, chrome 1100,
    the tide strip 1120, the drilldown panels 1150), **never the prototype's `520`**, which would let
    chips and popups paint and take input over the open sheet (a Codex finding on M0); the strip's
    rung is free on the phone because the strip is gone there, and the drilldown's 1150 stays above
-   for the one render in which both exist. `test/mapChromeZLadderCascade` gains the rung — `.wf-peek` collapsed (`height: 74px`) and
-   `.wf-peek.wf-peek-open` (`height: 356px`, **clamped** `max-height: calc(100% - 64px)` so it never
+   for the one render in which both exist. `test/mapChromeZLadderCascade` gains the rung — `.wf-map-peek` collapsed (`height: 74px`) and
+   `.wf-map-peek.wf-map-peek-open` (`height: 356px`, **clamped** `max-height: calc(100% - 64px)` so it never
    covers the pill, §4 #7), `transition: height .26s cubic-bezier(.3,.7,.2,1)` (none under reduced
    motion), the handle row (14 px, 36 × 4 bar, `--color-plex-border-light`), the peek row
-   (`.wf-peek-row`, `gap: 6px; padding: 0 10px 10px`) and the body (`.wf-peek-body`, `border-top:
+   (`.wf-map-peek-row`, `gap: 6px; padding: 0 10px 10px`) and the body (`.wf-map-peek-body`, `border-top:
    1px solid --color-plex-border; padding: 4px 14px 14px; overflow: auto`, rendered only when open).
    **No safe-area term of its own**: the app root already carries `.app-safe`, and `index.css`
    ~307–310 records that absolute chrome inside the map frame already sits above that root padding
@@ -301,14 +304,14 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
    which had added one). Props:
    `{ section: null | 'win' | 'tide' | 'lay', onSectionChange, windows, tide, layers }` where the
    three are render-props/slots — the sheet owns no data.
-2. **Peek buttons** (`.wf-peek-btn`, 46 px tall, `border: 1px solid --color-plex-border`, radius
+2. **Peek buttons** (`.wf-map-peek-btn`, 46 px tall, `border: 1px solid --color-plex-border`, radius
    10, `--color-plex-panel`; key line mono 8.5 px `.1em` uppercase; value line 12.5 px / 600, single
    line, ellipsis): `Other windows` (flex 1; key reads `CLOSE` while its section is open), `Tide`
    (flex 1, tide-tinted — **not rendered at all in M2**: its section body arrives in M3 and its
    rule in M5, and a released control must never open an empty panel (a Codex finding on M0); the
    phone tide strip stays mounted through M2 so the phone keeps its tide summary, and M3 mounts
    the button gated on `stripModel.visible` until M5 replaces that with `tideVisible`), `Layers` (`flex: 0 0 58px`, `☰`). Each carries `aria-expanded` and
-   `aria-controls="wf-peek-body"`; the active one gets `.wf-peek-btn-on` (border
+   `aria-controls="wf-map-peek-body"`; the active one gets `.wf-map-peek-btn-on` (border
    `rgba(201,162,75,.6)`, bg `rgba(201,162,75,.1)`; the tide one `rgba(111,168,176,.8)` /
    `.16`). Tapping the active button collapses; a different one switches without collapsing
    (rule 2).
@@ -326,14 +329,14 @@ Branch `feature/map-mobile-sheet-m2-sheet`; changelog slug `map-mobile-sheet-m2-
    `aria-haspopup="listbox"`, `aria-controls="wf-win-listbox"` and derives `aria-expanded` from
    its listbox `open` prop, all of which would be false claims on the phone. The override is a
    small contract — `{ onPress, expanded, controlsId }` — under which the pill drops the listbox
-   popup type, points `aria-controls` at `wf-peek-body`, and reads `aria-expanded` from whether
+   popup type, points `aria-controls` at `wf-map-peek-body`, and reads `aria-expanded` from whether
    `'peek:win'` is open; tested on the real pill on both viewports. `handleMapPaneKeyDown`'s third rung
    (close `openMapMenu`) already collapses the sheet; `foreignModalOver` already stands it down.
 5. **Windows section**: heading = `landingCardModel(...).header` (§4 #2) in 16 px / 700; rows =
    the pill's roster (`events`), each ≥ 48 px, 1 px divider, the pill's own `KindChip` (a
    module-private function in `WindowControl.jsx` today — export it rather than copying its
    markup), `dayLabel` 13.5 px / 600, `time` mono 11 px at ink-3, verdict word right-aligned
-   mono 10.5 px / 600 `.1em` (night rows: `{bestRating}★ best`); the selected row `.wf-peek-row-on`
+   mono 10.5 px / 600 `.1em` (night rows: `{bestRating}★ best`); the selected row `.wf-map-peek-row-on`
    (`rgba(201,162,75,.09)`, `inset 3px 0 0 --color-home`). Tapping selects (`onSelect(row)`) and the
    sheet **stays open** (rule for the Windows rows). Last row: `▤ This window, region by region`
    → `openDrilldown` (§4 #4), which sets `openMapMenu = 'window-panel'` and so collapses the sheet
@@ -394,7 +397,7 @@ sheet stays open; the drilldown row opens `MapWindowPanel` and the sheet is coll
 key tests at `document.activeElement`, never at a node, per map-landing's four-times lesson);
 `MapViewResponsivePhone.test.jsx`'s swap-not-stack cases re-pointed at the new Regions/Filters
 routes; the cascade test rewritten. **Desktop invariance**: a snapshot-free assertion that the
-desktop tab still mounts chrome-tr, the legend chip and no `.wf-peek`.
+desktop tab still mounts chrome-tr, the legend chip and no `.wf-map-peek`.
 
 **Verify (browser, 390 × 844)** — README Verify 1 (74 px, nothing else open — measure
 `getBoundingClientRect().height`), 4 (drag collapses), 5 (computed `flex-basis`/`overflow` on the
@@ -438,7 +441,13 @@ heading `### Map tab — the phone tide strip becomes the sheet's Tide section`.
 4. **Tide button value**: `utils/mapPeek.js#tideSummary(tide, dimmedCount)` → `{High|Mid|Low}`
    + `↑`/`↓` **only when Mid** (from the served direction) + ` · N dim` when N > 0; rendered after
    the existing `TideWave` glyph in mono 11.5 px `--color-badge-tide`. **This phase mounts the
-   Tide peek button** (withheld in M2), gated on `stripModel.visible` until M5.
+   Tide peek button** (withheld in M2), gated on `stripModel.visible` until M5 — **and this phase
+   also owns the close**: the `‹ ›` steps can land on a night row with the Tide section open, which
+   would unmount the trigger and leave `openMapMenu === 'peek:tide'` with nothing behind it (a
+   Codex finding on M0). So M3 ships the rule M5 later reuses unchanged: when the button's gate
+   turns false while `'peek:tide'` is open, set `null` in the same render and rescue focus to the
+   Other windows button if the removed button held it (`useRowFocusRescue`'s pattern). M5 changes
+   only what the gate IS, not what happens when it closes.
 5. Remove the phone `MapTideStrip` mount (`MapView.jsx` ~5774–5787) and the phone block's
    `.wf-map-tide-strip`/`wf-tide-strip-on` rules; `--tsh` is desktop-only from here (the pane class
    is still set by the desktop strip — leave its effect alone). Desktop mount untouched.
@@ -538,11 +547,11 @@ view; Tide mode auto / always / off`. Depends on M2, M3, M4.
 2. `MapView.jsx`: `tideCuesOn = !isMobile || tideVisible(...)`; at the spot-build site (~3208)
    `tideTier: tideCuesOn ? tierOf(tide) : null` (§1 #6 — one null, no consumer changes;
    `tideShortfall`/`tideFitPhrase` follow it so the tooltip clause goes too). The Tide peek button
-   renders iff `tideVisible`; if `openMapMenu === 'peek:tide'` and it turns false, set `null` in
-   the same render (rule 6's "close the sheet"), and rescue focus to the Other windows button via
-   `useRowFocusRescue`'s pattern when the removed button held it.
+   renders iff `tideVisible`; the close-and-rescue when it turns false while `'peek:tide'` is open
+   **already exists from M3** (task 4) and is reused unchanged with the new gate (rule 6's "close
+   the sheet").
 3. **Pulse**: `prevTideVisible` ref; on a false → true transition **after** first mount, add
-   `.wf-peek-btn-pulse` (the `@keyframes` box-shadow `0 0 0 0 rgba(111,168,176,.7)` → `0 0 0 10px
+   `.wf-map-peek-btn-pulse` (the `@keyframes` box-shadow `0 0 0 0 rgba(111,168,176,.7)` → `0 0 0 10px
    transparent`, 1.2 s, once; removed on `animationend`; none under reduced motion). Not on first
    load.
 4. **Layers → Tide row**: a `.wf-seg` Auto | Always | Off (220 × 36), `aria-label="Tide"`,
@@ -705,12 +714,12 @@ Branch `feature/map-mobile-sheet-m6-sweep`; slug `map-mobile-sheet-m6-sweep`, he
 
 | README check | phase | how |
 |---|---|---|
-| 1. First load at 390 × 844: sheet 74 px, nothing else open | M1 (card, toast), M2 (sheet) | `document.querySelector('.wf-peek').getBoundingClientRect().height === 74`; no `.wf-land`, no `[data-testid=wf-peek-body]`, no `.wf-map-chrome-tr`, no `.wf-map-tide-strip`; toast opacity `0` after 3.5 s |
+| 1. First load at 390 × 844: sheet 74 px, nothing else open | M1 (card, toast), M2 (sheet) | `document.querySelector('.wf-map-peek').getBoundingClientRect().height === 74`; no `.wf-land`, no `[data-testid=wf-map-peek-body]`, no `.wf-map-chrome-tr`, no `.wf-map-tide-strip`; toast opacity `0` after 3.5 s |
 | 2. Coastal + Worth it → Tide shows; Poor → gone; inland → gone | M5 | step the pill with `›` to a Poor window and assert the button is absent; `map.panTo` inland and assert; back and assert the pulse class appeared once |
 | 3. Off removes glyphs and dimming; Always keeps them on Poor | M5 | count `[data-tide]` chips/pins under each mode; computed `opacity` of a coastal chip |
 | 4. Dragging with the sheet open collapses it | M2 | dispatch a Leaflet `dragstart` (or a real drag via the browser tool) and measure height back to 74 |
 | 5. "Other windows" never cuts the verdict | M2 | computed `flex-basis: auto; flex-grow: 0` (i.e. `flex: none`) on the verdict span and `scrollWidth === clientWidth`; the day span carries `text-overflow: ellipsis` |
-| 6. Desktop and tablet unchanged | every phase | at 1280 and 768 wide: no `.wf-peek`; chrome-tr, legend chip, tide strip and landing card exactly as before (screenshot diff on the same fixture) |
+| 6. Desktop and tablet unchanged | every phase | at 1280 and 768 wide: no `.wf-map-peek`; chrome-tr, legend chip, tide strip and landing card exactly as before (screenshot diff on the same fixture) |
 
 ---
 
