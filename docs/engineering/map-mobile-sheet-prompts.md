@@ -174,7 +174,10 @@ session never pushes.
 >
 > Scope is §3 M5's five tasks. The rule is pure (`utils/mapPeek.js#tideVisible`, with
 > `tideAvailable` and `coastalInView` as SEPARATE inputs — never `stripModel.visible`, §3 M5 task 1)
-> and exhaustively tabled; "Poor" is `STAND_DOWN` on the pill's own scope verdict (§1 #7) and a null/`AWAITING`
+> and exhaustively tabled; `coastalInView` is a new exported helper on `mapTideFit.js` computed from
+> the UNDECORATED spot list before `tideTier` is set (`stripModel` returns `namedCoastal`, not
+> `coastalInView`, and is built from the decorated list — reading it there is a cycle; §3 M5 task 1's
+> order-of-evaluation note is binding, and a real-`MapView` wiring test pins it); "Poor" is `STAND_DOWN` on the pill's own scope verdict (§1 #7) and a null/`AWAITING`
 > verdict hides in Auto (D-6). **Every tide cue is gated by ONE null** at the spot-build site's
 > `tideTier` (§1 #6) — do not thread a flag to `MapLabels`, `PinsLayer` or the tooltips. The Tide
 > button renders iff the rule; an open Tide section closes in the same render the rule turns false,

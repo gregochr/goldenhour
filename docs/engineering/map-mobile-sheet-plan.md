@@ -468,10 +468,22 @@ view; Tide mode auto / always / off`. Depends on M2, M3, M4.
    prerequisites are **separate inputs**, never folded into `stripModel.visible` (a Codex finding on
    M0: `visible` is false both for "no coast in view" and for "night row / no served tide", and
    Always must ignore the first while still respecting the second). `tideAvailable = row.kind ===
-   'solar' && row.tide != null`; `coastalInView = stripModel.coastalInView.length > 0`.
+   'solar' && row.tide != null`; `coastalInView` comes from a **new exported helper**
+   `mapTideFit.js#coastalInView(spots, bounds)` — the `s.coastal && bounds.pad(0.12).contains(...)`
+   filter that `stripModel` runs internally today, lifted out so there is one definition and
+   `stripModel` calls it too (⚠️ `stripModel`'s return exposes `namedCoastal`, not
+   `coastalInView` — a second Codex finding on M0; do not reach for a field that is not there).
    `mode === 'off' → false`; `'always' → tideAvailable` (ignores the coast and the verdict, §4
    #12); `'auto' → tideAvailable && coastalInView && (tier === 'WORTH_IT' || tier === 'MAYBE')`.
    Pure, exhaustively tested.
+   ⚠️ **Order of evaluation in `MapView`, because there is a cycle to avoid** (the same Codex
+   finding): today `stripModel` is built from the *decorated* `labelSpots` — the list that
+   carries `tideTier` — and this rule decides `tideTier`. So the gate is computed from the
+   **undecorated** spot list (`coastal`, `lat`, `lng` are on the base heat spots before the tide
+   decoration; `coastalInView(baseSpots, tideViewBounds)`), `tideCuesOn` follows, the decoration
+   reads it, and `stripModel` runs after, exactly as it does now. A test on the real `MapView`
+   wiring (not only the pure function) pins that a coastal spot in view on a Poor window yields
+   no `data-tide` — the case a circular or undefined read would silently pass.
 2. `MapView.jsx`: `tideCuesOn = !isMobile || tideVisible(...)`; at the spot-build site (~3208)
    `tideTier: tideCuesOn ? tierOf(tide) : null` (§1 #6 — one null, no consumer changes;
    `tideShortfall`/`tideFitPhrase` follow it so the tooltip clause goes too). The Tide peek button
