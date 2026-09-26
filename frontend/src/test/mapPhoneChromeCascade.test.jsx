@@ -667,66 +667,59 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
 });
 
 /**
- * The tide strip on the phone (tide-window-plan.md §3 T7, docs/design/tide-window/README.md §6):
- * it takes the count footer's OWN row of the lifted stack rather than sharing space with it — "the
- * tide sentence is the more useful line at that width" — so the footer is visually hidden outright,
- * not merely lifted alongside it the way every other row above is. Everything that used to clear
- * the footer's assumed ~28px height now has to clear the strip's REAL one instead (`--tsh`, T6 #6):
- * open and collapsed are roughly 4x apart (T6's own 1280x800 measurement — 167px vs 38px — used as
- * the stub here too, since this suite has no real layout to measure its own), so a fixed offset
- * would be wrong for one of the two states by construction.
- *
- * ⚠️ "Visually" is load-bearing since §6 Q8 (decided 2026-09-18, option 2, tide-window-plan.md §4
- * #19): T7 originally hid the footer with `display: none`, which also pulled it out of the
- * accessibility tree — an unexamined side effect of a decision the design's own §6 only reasoned
- * about screen SPACE. The footer is now `sr-only`-clipped instead (still absent from the
- * rendered layout, still not painted) so a screen-reader user keeps the count.
+ * ⚠️ M3 (map-mobile-sheet-plan.md §3 M3 task 5): the phone tide strip and its `--tsh`-driven
+ * `.wf-map-chrome-bl` override are RETIRED, not merely re-tuned — the peek sheet's Tide section
+ * (`MapPeekTideSection`) replaces the strip's phone content, and every phone obstacle reads the
+ * sheet's own fixed `--psh` instead of a live-measured strip height (§5 D-7). This describe block
+ * used to assert the strip's own phone geometry (T7); it now asserts that geometry is GONE and that
+ * `.wf-map-chrome-bl`'s phone `bottom` no longer branches on `--tsh`/`.wf-tide-strip-on` at all —
+ * the M2 literal (`calc(74px + 27px + 8px)`) is the only value left, on the phone, in EITHER state.
  */
-describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
-  it('spans the frame edge-to-edge, anchored to the count footer\'s own row', () => {
+describe('the phone tide strip is retired (map-mobile-sheet-plan.md §3 M3)', () => {
+  it('`.wf-map-tide-strip` carries no phone-media override any more — only the desktop/tablet rule survives', () => {
     const slice = extractRulesIncludingMedia('.wf-map-tide-strip');
+    // The retired phone literals (`bottom: 112px`, `left: 8px`) must not appear in whatever this
+    // needle now extracts, media-scoped or not.
+    expect(slice).not.toContain('112px');
+    expect(slice).not.toMatch(/left:\s*8px/);
     const cleanup = inject(slice);
     try {
       const style = computedStyleFor('wf-map-tide-strip', ['wf-map-tab']);
-      expect(style.position).toBe('absolute');
-      expect(style.left).toBe('8px');
-      expect(style.right).toBe('8px');
-      expect(style.bottom).toBe('112px');
-      expect(style.width).toBe('auto');
-      expect(style.maxWidth).toBe('none');
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('keeps its desktop/tablet flex-column placement without the `.wf-map-tab` ancestor — the overlay and every wider viewport are untouched', () => {
-    const slice = extractRulesIncludingMedia('.wf-map-tide-strip');
-    const cleanup = inject(slice);
-    try {
-      const style = computedStyleFor('wf-map-tide-strip');
+      // No phone override left to win the cascade — the `.wf-map-tab` ancestor makes no
+      // difference now, which is exactly the point.
       expect(style.position).toBe('relative');
-      expect(style.left).toBe('auto');
       expect(style.width).toBe('474px');
     } finally {
       cleanup();
     }
   });
 
-  it('visually hides the count footer WHETHER OR NOT the strip is on — an sr-only clip, never `display: none` (§6 Q8, decided; UNCONDITIONAL since M2 §4 #10)', () => {
-    // ⚠️ **This clip is no longer conditioned on `.wf-tide-strip-on` at all** (map-mobile-sheet-
-    // plan.md §3 M2 task 8) — the footer has no phone home full stop, so it is `sr-only`-clipped
-    // regardless of the strip's own state. Asserted with AND without the strip's class to pin that
-    // the base rule alone (no `.wf-tide-strip-on` needed) already produces the clip.
+  it('`.wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl` no longer exists — the phone chain never branches on `--tsh`', () => {
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).not.toMatch(/\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-chrome-bl/);
+  });
+
+  it('the phone `.wf-map-chrome-bl` bottom is the fixed M2 literal, unaffected by `.wf-tide-strip-on`', () => {
+    const slice = extractRulesIncludingMedia('.wf-map-chrome-bl');
+    const cleanup = inject(slice);
+    try {
+      for (const ancestors of [['wf-map-tab'], ['wf-map-tab wf-tide-strip-on']]) {
+        // calc(74px + 27px + 8px) — the sheet's own collapsed height, plus attribution's real
+        // height, plus this stack's standing clearance (M2 task 8's own literal).
+        expect(computedStyleFor('wf-map-chrome-bl', ancestors).bottom).toBe('109px');
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('the counts footer stays `sr-only`-clipped on the phone, unconditionally — unaffected by the strip\'s removal (§4 #10, unconditional since M2)', () => {
     const slice = extractRulesIncludingMedia('.wf-map-counts-footer');
     const cleanup = inject(slice);
     try {
       for (const ancestors of [['wf-map-tab'], ['wf-map-tab wf-tide-strip-on']]) {
         const style = computedStyleFor('wf-map-counts-footer', ancestors);
-        // `display: none` would also remove the element from the accessibility tree (§6 Q8) — the
-        // fix is specifically that this must NOT be `none`.
         expect(style.display).not.toBe('none');
-        // The `sr-only` recipe itself: a 1px, clipped, off-flow box — visually equivalent to
-        // `display: none` (nothing paints) without the accessibility-tree removal.
         expect(style.position).toBe('absolute');
         expect(style.width).toBe('1px');
         expect(style.height).toBe('1px');
@@ -736,78 +729,5 @@ describe('the tide strip on the phone (tide-window-plan.md §3 T7)', () => {
     } finally {
       cleanup();
     }
-  });
-
-  it('⚠️ M2: the PHONE `.wf-tide-strip-on`-scoped duplicate of the sr-only clip is GONE — the base rule alone already covers it', () => {
-    // ⚠️ NOT the same rule as the DESKTOP `.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer`
-    // (top-level, `bottom: calc(var(--tsh, 120px) + 16px)` — `mapChromeZLadderCascade.test.jsx`'s
-    // own rule, untouched by this phase and still very much live). Only the PHONE MEDIA QUERY's
-    // own copy of that selector — the one that used to carry the sr-only clip — is removed: left
-    // standing beside the now-unconditional base rule (above), it would be dead weight that could
-    // only drift from it (M1's own comment on the chrome-bl formula names that exact trap).
-    //
-    // Matched by BODY shape (`clip-path` inside it), not by selector alone: the selector text
-    // `.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer` also names the live DESKTOP rule above,
-    // whose body is the unrelated `bottom: calc(var(--tsh, ...))` — a selector-only match would
-    // false-positive on that rule and fail this test for the wrong reason.
-    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(css).not.toMatch(/\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-counts-footer\s*\{[^}]*clip-path/);
-  });
-
-  /**
-   * `calc(var(--tsh, …))` is exactly what `mapChromeZLadderCascade.test.jsx`'s own `--tsh` describe
-   * block already says jsdom cannot resolve numerically (`css: false`) — so, like that file, this
-   * reads the RAW rule text (pinning the formula's shape, not a computed style) and does the
-   * arithmetic itself in JS, with STUBBED heights standing in for the real `--tsh` a browser would
-   * write. Real numeric clearance at a real width is a browser measurement (plan §9, §7 check 8),
-   * not this unit test's job — this only proves the FORMULA cannot produce a collision for either
-   * of the two states T6 actually measured.
-   */
-  describe('chrome-bl clears the strip\'s REAL height, not the footer\'s assumed one — the scored-legend chip left this chain at M1', () => {
-    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    const chromeBlMatch = css.match(
-      /\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-chrome-bl\s*\{[^}]*bottom:\s*calc\((\d+)px\s*\+\s*var\(--tsh,\s*(\d+)px\)\s*\+\s*(\d+)px\s*\+\s*(\d+)px\s*\+\s*(\d+)px\)/,
-    );
-    const STRIP_BASE = 112; // the strip's own `bottom`, pinned literally by this file's first test above
-
-    it('the rule exists, in the anchor-plus-`--tsh`-plus-clearance shape (its own numbers untouched by M1 — M2/M3 rewrite this chain)', () => {
-      expect(chromeBlMatch, 'chrome-bl bottom must be calc(112px + var(--tsh, Npx) + Mpx + Npx + Mpx)').not.toBeNull();
-      expect(Number(chromeBlMatch[1])).toBe(STRIP_BASE);
-    });
-
-    it('⚠️ M1 (map-mobile-sheet-plan.md §3 M1 task 2): the scored-legend chip no longer has a tide-strip-on override at all', () => {
-      const scoredMatch = css.match(/\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-scored-legend/);
-      expect(scoredMatch).toBeNull();
-    });
-
-    it.each([
-      ['open', 167],
-      ['collapsed', 38],
-    ])('the strip clears the bar and chrome-bl clears the strip\'s REAL top, both with >= 8px to spare, while %s (%dpx)', (_label, stripHeight) => {
-      // Read the bar's real `bottom` off the actual CSS rather than a bare literal — the same
-      // technique the rest of this file already uses, so a future retune of `.wf-map-chrome-tr`'s
-      // own phone offset cannot silently desync this check from the real geometry it claims to test.
-      const barSlice = extractRulesIncludingMedia('.wf-map-chrome-tr');
-      const barCleanup = inject(barSlice);
-      let barBottom;
-      try {
-        barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
-      } finally {
-        barCleanup();
-      }
-      const BAR_HEIGHT = 48; // documented assumption, matches the rest of this file
-      const barTop = barBottom + BAR_HEIGHT;
-      const stripTop = STRIP_BASE + stripHeight;
-
-      const [, , , clearanceA, assumedHeight, clearanceB] = chromeBlMatch.map(Number);
-      const chromeBlBottom = STRIP_BASE + stripHeight + clearanceA + assumedHeight + clearanceB;
-
-      // 1. the strip itself never comes near the bar (its `bottom` is fixed regardless of state).
-      expect(STRIP_BASE - barTop).toBeGreaterThanOrEqual(8);
-      // 2. chrome-bl (the LITE viewline-upsell chip) clears the strip's REAL top, open or
-      //    collapsed alike — its own formula still carries the old scored-legend clearance baked
-      //    into its literal (M2/M3 territory), so this is a lower bound, not a tight one.
-      expect(chromeBlBottom - stripTop).toBeGreaterThanOrEqual(8);
-    });
   });
 });

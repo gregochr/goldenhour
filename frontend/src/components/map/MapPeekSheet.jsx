@@ -25,9 +25,18 @@ import { KindChip } from './WindowControl.jsx';
  *
  * <p>{@code section} is the single caller-owned value of `MapView`'s own {@code openMapMenu}
  * (stripped of its {@code 'peek:'} prefix) — this component has no state of its own beyond the
- * collapse/expand CSS transition. The peek row's two button VALUES and the body content for each
+ * collapse/expand CSS transition. The peek row's button VALUES and the body content for each
  * section are handed in as props/children; this file only lays them out and wires the toggle
  * button presses back to the caller (map-mobile-sheet-plan.md §5 D-1).
+ *
+ * <h2>The Tide button (map-mobile-sheet-plan.md §3 M3 task 4)</h2>
+ *
+ * <p>Withheld entirely in M2 ("a released control must never open an empty panel") and mounted
+ * here from M3 on, gated on {@code tideVisible} — through M3 that gate is
+ * {@code stripModel.visible} (M5 replaces it with the fuller {@code tideVisible(...)} rule without
+ * touching this component at all). Its key line NEVER swaps to `CLOSE` the way the Windows
+ * button's does — the design's own peek-row table gives Tide one fixed key,
+ * {@code TIDE AT THIS LIGHT}, unlike Other windows' `OTHER WINDOWS ⇄ CLOSE` pair.
  *
  * <p>⚠️ {@code data-testid="wf-map-peek"}, deliberately NOT {@code wf-peek}: `WindowSpotPeek.jsx`
  * already owns that class in `index.css` (`position: fixed`, a 280px width, an entry animation and
@@ -35,20 +44,37 @@ import { KindChip } from './WindowControl.jsx';
  * the plan's M0 — every hook this component and its CSS use is `wf-map-peek-*`).
  *
  * @param {object} props
- * @param {?('win'|'lay')} props.section the open section, or null when collapsed. `'tide'` arrives
- *        at M3 — the Tide button is not rendered at all in M2 (a released control must never open
- *        an empty panel).
+ * @param {?('win'|'tide'|'lay')} props.section the open section, or null when collapsed.
  * @param {Function} props.onPressWindows called when the "Other windows" button is pressed.
  * @param {Function} props.onPressLayers called when the "Layers" button is pressed.
+ * @param {?Function} [props.onPressTide] called when the Tide button is pressed; the button is not
+ *        rendered at all when this is null (M2's "a released control must never open an empty
+ *        panel" rule still applies to every future gate, not only M2's own withholding of it).
+ * @param {boolean} [props.tideVisible=false] gates the Tide button's presence, independent of
+ *        `onPressTide` being handed in at all — M3 passes `stripModel.visible`; M5 replaces the
+ *        gate's SOURCE, never this prop's shape (map-mobile-sheet-plan.md §3 M3 task 4).
  * @param {React.ReactNode} [props.otherWindowContent] the "Other windows" button's value line.
+ * @param {React.ReactNode} [props.tideButtonContent] the Tide button's value line
+ *        (`utils/mapPeek.js#tideSummary`, after the `TideWave` glyph).
  * @param {React.ReactNode} [props.windowsBody] the Windows section's body, rendered while
  *        {@code section === 'win'}.
+ * @param {React.ReactNode} [props.tideBody] the Tide section's body (`MapPeekTideSection`),
+ *        rendered while {@code section === 'tide'}.
  * @param {React.ReactNode} [props.layersBody] the Layers section's body, rendered while
  *        {@code section === 'lay'}.
+ * @param {?object} [props.windowsButtonRef] the "Other windows" button's own ref — the rescue
+ *        target when the Tide button disappears while its section is open and held focus (§3 M3
+ *        task 4's close-and-rescue rule).
+ * @param {?object} [props.tideButtonRef] the Tide button's own ref — both `MapView`'s
+ *        close-and-rescue effect (was this button focused when its gate turned false?) and
+ *        `MapPeekTideSection`'s own next-fit jump (the stable focus target a disappearing link
+ *        hands focus to) read it.
  */
 export default function MapPeekSheet({
-  section, onPressWindows, onPressLayers, otherWindowContent = null, windowsBody = null, layersBody = null,
-  layersButtonRef = null,
+  section, onPressWindows, onPressLayers, onPressTide = null, tideVisible = false,
+  otherWindowContent = null, tideButtonContent = null,
+  windowsBody = null, tideBody = null, layersBody = null,
+  layersButtonRef = null, windowsButtonRef = null, tideButtonRef = null,
 }) {
   const open = section != null;
   return (
@@ -60,6 +86,7 @@ export default function MapPeekSheet({
       <div className="wf-map-peek-hdl" aria-hidden="true"><i /></div>
       <div className="wf-map-peek-row">
         <button
+          ref={windowsButtonRef}
           type="button"
           data-testid="wf-map-peek-btn-win"
           className={`wf-map-peek-btn${section === 'win' ? ' wf-map-peek-btn-on' : ''}`}
@@ -73,6 +100,22 @@ export default function MapPeekSheet({
           <span className="wf-map-peek-k">{section === 'win' ? 'CLOSE' : 'OTHER WINDOWS'}</span>
           <span className="wf-map-peek-v">{otherWindowContent}</span>
         </button>
+        {tideVisible && onPressTide && (
+          <button
+            ref={tideButtonRef}
+            type="button"
+            data-testid="wf-map-peek-btn-tide"
+            className={`wf-map-peek-btn wf-map-peek-btn-tide${section === 'tide' ? ' wf-map-peek-btn-on' : ''}`}
+            aria-expanded={section === 'tide'}
+            aria-controls="wf-map-peek-body"
+            onClick={onPressTide}
+          >
+            {/* Fixed key — unlike Other windows, Tide never swaps to CLOSE (design README "Peek
+                row" table gives it one key throughout). */}
+            <span className="wf-map-peek-k">TIDE AT THIS LIGHT</span>
+            <span className="wf-map-peek-v">{tideButtonContent}</span>
+          </button>
+        )}
         <button
           ref={layersButtonRef}
           type="button"
@@ -92,6 +135,7 @@ export default function MapPeekSheet({
       {open && (
         <div id="wf-map-peek-body" data-testid="wf-map-peek-body" className="wf-map-peek-body">
           {section === 'win' && windowsBody}
+          {section === 'tide' && tideBody}
           {section === 'lay' && layersBody}
         </div>
       )}
@@ -103,13 +147,23 @@ MapPeekSheet.propTypes = {
   section: PropTypes.oneOf(['win', 'tide', 'lay']),
   onPressWindows: PropTypes.func.isRequired,
   onPressLayers: PropTypes.func.isRequired,
+  onPressTide: PropTypes.func,
+  tideVisible: PropTypes.bool,
   otherWindowContent: PropTypes.node,
+  tideButtonContent: PropTypes.node,
   windowsBody: PropTypes.node,
+  tideBody: PropTypes.node,
   layersBody: PropTypes.node,
   /** Attached to the Layers button — the phone Regions/Filters `BottomSheet` hosts' own restore
    * target, since both unmount their trigger the instant they open (map-mobile-sheet-plan.md
    * §3 M2 task 6). */
   layersButtonRef: PropTypes.object,
+  /** The "Other windows" button's own ref — the Tide close-and-rescue's fallback target (§3 M3
+   * task 4). */
+  windowsButtonRef: PropTypes.object,
+  /** The Tide button's own ref — read by `MapView`'s close-and-rescue effect and handed to
+   * `MapPeekTideSection` as its next-fit jump's stable focus target (§3 M3 tasks 3–4). */
+  tideButtonRef: PropTypes.object,
 };
 
 /**

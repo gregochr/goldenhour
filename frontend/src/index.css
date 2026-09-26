@@ -4058,78 +4058,16 @@ button.wf-hc.also.on:hover {
     --psh: 74px;
   }
 
-  /* ── The tide strip on the phone (tide-window-plan.md §3 T7, docs/design/tide-window/README.md
-     §6) ─────────────────────────────────────────────────────────────────────────────────────────
-     "The tide sentence is the more useful line at that width" (design §6), so the strip does not
-     share the counts footer's row — it REPLACES it: the footer is visually hidden outright (not
-     merely lifted, unlike every other row here) and the strip takes its `bottom: 112px` anchor
-     instead. ⚠️ Visually, not `display: none` — §6 Q8 (adversarial review, T7) found the earlier
-     `display: none` also pulled the count/rated/filtered figures out of the accessibility tree
-     for as long as the strip was showing, with no `aria-live`/status substitute anywhere else on
-     the tab. The design's own reasoning ("stacking both pushes the map to nothing") is a claim
-     about screen SPACE, which a non-visual reader has none of — so the owner decision (2026-09-18,
-     option 2) keeps the design's visual behaviour exactly and restores the count to the
-     accessibility tree via the same `sr-only`-shaped clip this file already writes out elsewhere
-     (`.wf-win-pick-words`, further down this file) for a selector that has to apply from a media query rather than
-     a class on the element.
-     ⚠️ The strip is `MapView.jsx`'s own SIBLING of `.wf-map-chrome-bl` on the phone, never nested
-     inside it the way the desktop mount is (T6, §4 #6) — it needs to span `left: 8px; right: 8px`
-     against the FRAME, the same containing block the footer/scored-legend rules above already use,
-     and `.wf-map-chrome-bl` is only ever left-anchored (no `right`), so a descendant of it could
-     never stretch edge to edge. `position: relative` (its own desktop/tablet rule, above the phone
-     query) is overridden here because a plain flex/sibling box has no `left`/`right`/`bottom` of
-     its own to override otherwise. */
-  .wf-map-tab .wf-map-tide-strip {
-    position: absolute;
-    left: 8px;
-    right: 8px;
-    bottom: 112px;
-    width: auto;
-    max-width: none;
-  }
-  /* ⚠️ **The `.wf-tide-strip-on`-scoped sr-only clip that used to live here is GONE** (M2 task 8):
-     the base `.wf-map-tab .wf-map-counts-footer` rule above now carries the identical `sr-only`
-     clip UNCONDITIONALLY, because the footer has no phone home at all any more (plan §4 #10) —
-     not merely while the tide strip happens to be on screen. A rule scoped to `.wf-tide-strip-on`
-     duplicating what the base rule already does is dead weight that can only drift from it; kept
-     as a fossil once already (M1's own comment on the chrome-bl formula below names that trap), so
-     it is removed here rather than repeated. `mapPhoneChromeCascade.test.jsx` pins the base rule's
-     unconditional clip instead. */
-  /* Everything that used to clear the FOOTER's own assumed ~28px height now clears the STRIP's
-     real one instead (`--tsh`, T6 #6) — open and collapsed are roughly 4x apart (T6's own
-     1280x800 measurement: 167px vs 38px), so a fixed offset is wrong for one of the two states by
-     construction, the same argument that made `--tsh` exist in the first place (§7 check 4). This
-     row keeps the SAME 26px/14px figures and the same ≥8px-clearance shape the pre-existing,
-     strip-off chain above already used (footer → chrome-bl), re-anchored onto the strip's own
-     bottom + real height rather than the footer's assumed one, so the stack's spacing is
-     byte-identical to before whenever there is no strip to displace the footer with.
-
-     ⚠️ **The scored-legend chip left this chain at M1** (map-mobile-sheet-plan.md §3 M1 task 2/
-     §1 #4) — it is no longer bottom-anchored at all (it moved to a fixed `top: 62px`, above), so a
-     `.wf-tide-strip-on`-scoped `bottom` override for it would have OUTRANKED the base rule's own
-     `bottom: auto` on specificity alone (three classes vs two) and re-introduced a `bottom` value
-     alongside the base rule's `top` — over-constraining the box (`height: auto` with both `top`
-     and `bottom` set stretches it to fill the gap between them, rather than sizing to content).
-     Retired outright rather than left for M3 to find, since it would otherwise misposition the
-     toast on every render where the tide strip happens to be visible. `mapPhoneChromeCascade
-     .test.jsx` pins its absence.
-
-     ⚠️ **The rule immediately below THIS comment is therefore now resting on an orphaned
-     premise, on purpose, until M2/M3 rewrite it.** Its own last two terms — `+ 26px + 14px` —
-     are not a free-standing clearance figure; they ARE (were) "the scored-legend chip's own
-     measured height, plus the gap above it", the exact two numbers this file used to chain
-     footer → scored-legend → chrome-bl before M1. With the scored-legend chip gone from the
-     chain, this formula still clears the strip by construction (it is a pure sum of positive
-     terms, so it can only ever clear MORE than the strip's real top, never less) — but do not
-     read the `26px + 14px` tail as still describing a real intermediate row; it is a fossil.
-     M2 task 8 rewrites `.wf-map-chrome-bl`'s BASE literal wholesale, and M3 task 5 deletes this
-     whole `wf-tide-strip-on` rule outright — neither is obligated to preserve these two numbers,
-     and a session copying them forward as if they still meant something would be copying a
-     fossil. `mapPhoneChromeCascade.test.jsx`'s own "chrome-bl clears the strip's REAL height…"
-     describe block carries the identical warning next to its own reading of this formula. */
-  .wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl {
-    bottom: calc(112px + var(--tsh, 120px) + 12px + 26px + 14px);
-  }
+  /* ── The phone tide strip is RETIRED (map-mobile-sheet-plan.md §3 M3 task 5) ───────────────────
+     `.wf-map-tab .wf-map-tide-strip` (position/left/right/bottom: 112px) and
+     `.wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl` (the `--tsh`-driven bottom, tide-window-plan.md
+     §3 T7) both lived here — the strip's content is now the peek sheet's Tide section
+     (`MapPeekTideSection`, ".wf-map-peek-tide-*" below) and `.wf-map-chrome-bl`'s phone bottom is
+     therefore the plain, unconditional `calc(74px + 27px + 8px)` literal set above (M2 task 8) —
+     `--tsh`/`wf-tide-strip-on` are desktop/tablet-only from here; the desktop mount's own top-level
+     rule (`.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer`, far above) is untouched. The counts
+     footer's `sr-only` clip (also set above) was already unconditional since M2, so nothing about
+     it changes with the strip's removal. `mapPhoneChromeCascade.test.jsx` pins both absences. */
 
   /* Pinch instead (README "Responsive" table: "Zoom buttons | hidden (pinch instead)"). Real
      Leaflet markup this component never renders itself, so a CSS scope on the shared ancestor
@@ -4360,6 +4298,64 @@ button.wf-hc.also.on:hover {
   gap: 6px;
   font-size: 10px;
   color: var(--color-plex-text-secondary);
+}
+
+/* ── The Tide peek button (map-mobile-sheet-plan.md §3 M3 task 4) ─────────────────────────────
+   Tide-tinted, unlike the other two buttons' neutral panel ground (design README "Peek row"
+   table's own border/bg pair) — `--color-tide`'s own rgba family, the SAME hue the desktop strip's
+   `.wf-map-tide-strip` surface already keys its own accents off, never the design's bare
+   `#8FC0C7`/`#6FA8B0` (the tide-window increment's own §4 #12 ruling, kept rather than
+   re-litigated). The active state overrides `.wf-map-peek-btn-on`'s gold treatment by SPECIFICITY
+   (a compound two-class selector beats one class) — the same trick `.wf-map-peek-btn-lay`'s own
+   `flex: 0 0 58px` already relies on — never a second modifier class. */
+.wf-map-peek-btn-tide {
+  border-color: rgba(111, 168, 176, .4);
+  background: rgba(111, 168, 176, .08);
+}
+.wf-map-peek-btn-tide.wf-map-peek-btn-on {
+  border-color: rgba(111, 168, 176, .8);
+  background: rgba(111, 168, 176, .16);
+}
+.wf-map-peek-btn-tide .wf-map-peek-v {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-badge-tide);
+}
+
+/* ── The Tide section (map-mobile-sheet-plan.md §3 M3 task 3, `MapPeekTideSection.jsx`) ────────
+   "The existing tide strip content, laid out vertically" — the key/phase/meta lines are new (the
+   desktop strip's own header has a different layout), but the chart below is `TideDayChart`'s
+   `tall` projection of the SAME `.wf-tide-strip-*` classes the desktop strip composes (§4 #6), so
+   only the two rows whose height differs between projections need a rule here; the dashed rules,
+   curve, night shading, extremes and dot inherit their desktop styling untouched. `--color-
+   plex-text-secondary` throughout (ink-2, `.66`) rather than the design's own 50%/70% figures —
+   the sheet is `.97` opaque, and §4 #9's rule (already the peek sheet's own convention on every
+   other key/label line) applies here too. */
+.wf-map-peek-tide-key {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-peek-tide-phase {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-badge-tide);
+}
+.wf-map-peek-tide-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+/* The tall projection's own height — bands and chart MUST match (both percentage-positioned
+   against their own box), so both rules take the same figure rather than one deriving from the
+   other (map-mobile-sheet-plan.md §3 M3 task 2: "viewBox height for ~92px at full width"). */
+.wf-tide-strip-body-tall .wf-tide-strip-bands,
+.wf-tide-strip-body-tall .wf-tide-strip-chart {
+  height: 92px;
 }
 
 /* ── The window control (map-tab-v2-plan.md §3 P6, relocated at §3 P7) ─────────────────────────

@@ -31,7 +31,9 @@ import MapLegendPanel from './map/MapLegendPanel.jsx';
 import RegionsJump from './map/RegionsJump.jsx';
 import MapBreadcrumb from './map/MapBreadcrumb.jsx';
 import MapPeekSheet, { OtherWindowValue, MapPeekWindowsSection } from './map/MapPeekSheet.jsx';
-import { otherWindow } from '../utils/mapPeek.js';
+import MapPeekTideSection from './map/MapPeekTideSection.jsx';
+import { otherWindow, tideSummary } from '../utils/mapPeek.js';
+import TideWave from './map/TideWave.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, nightPreviewDates, solarHorizonDates, solarRowPredicate,
@@ -1587,9 +1589,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * card kept a stale band until an unrelated pan/zoom forced a re-measure. `MapView` is the one
    * place both components already meet, so it is the one place this can be wired without either
    * importing the other or a second `ResizeObserver` duplicating the one `MapTideStrip` already
-   * runs. Fed to whichever of the two `<MapTideStrip>` mounts is actually on screen (desktop/
-   * tablet nested in `.wf-map-chrome-bl`, phone as `.wf-map-chrome-bl`'s own sibling, T7 #16) —
-   * only one is ever mounted at a time, so one shared state serves both.
+   * runs. ⚠️ **Desktop/tablet-only since map-mobile-sheet-plan.md §3 M3 task 5** — the phone's own
+   * `<MapTideStrip>` mount (T7 #16) is retired; its content is the peek sheet's Tide section
+   * instead, which reads no live-measured height at all (the sheet publishes a fixed `--psh`,
+   * §5 D-7). The desktop/tablet mount nested in `.wf-map-chrome-bl` is therefore the ONLY caller
+   * left that ever sets this state.
    */
   const [tideStripHeight, setTideStripHeight] = useState(null);
   /**
@@ -1696,6 +1700,44 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * collapsed, so it is always there to focus back onto.
    */
   const layersPeekBtnRef = useRef(null);
+  /**
+   * The peek sheet's Other windows and Tide buttons — the LATTER's own close-and-rescue rule
+   * (map-mobile-sheet-plan.md §3 M3 task 4) needs both: `tidePeekBtnRef` to test whether IT held
+   * focus when its gate turned false, and `windowsPeekBtnRef` as the rescue target, since Other
+   * windows is the one peek button guaranteed to stay mounted whatever the tide gate does.
+   * `tidePeekBtnRef` is also `MapPeekTideSection`'s own next-fit jump's stable focus target (§3 M3
+   * task 3) — the same button, one ref, two callers.
+   */
+  const windowsPeekBtnRef = useRef(null);
+  const tidePeekBtnRef = useRef(null);
+  /**
+   * The Tide section's close-and-rescue hand-off (map-mobile-sheet-plan.md §3 M3 task 4) —
+   * `{active, tideVisible}`, written fresh by a plain (non-hook) assignment further down this
+   * render, right next to where `tideStripModel`/`sheetSection` are actually computed. The EFFECT
+   * that reads it has to be declared HERE instead, ahead of this component's "no forecast data"
+   * early return (`if (!date || locations.length === 0) return (...)`, a few thousand lines down):
+   * every hook must run unconditionally (Rules of Hooks), while the values this rule needs are only
+   * computable after that guard. There is no staleness window between the write and the read —
+   * React finishes executing this whole render function (including the later ref write) before
+   * committing, and only THEN runs effects, so by the time the effect below fires the ref already
+   * holds this exact render's own values, never a prior one's.
+   *
+   * <p>⚠️ Deliberately NO dependency array — there is nothing available this early whose IDENTITY
+   * tracks the ref's own contents (that is the whole reason the hand-off exists), so this runs
+   * after every commit and re-reads the freshest values each time. Self-terminating, not an
+   * infinite chain: `setOpenMapMenu(null)` only fires while `active` is true, and it immediately
+   * makes the NEXT render's own hand-off write `active: false` (`sheetSection` follows
+   * `openMapMenu`), so the guard fails on the very next pass.
+   */
+  const tideCloseGateRef = useRef({ active: false, tideVisible: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- no dep array is intentional, see doc above
+  useEffect(() => {
+    const { active, tideVisible } = tideCloseGateRef.current;
+    if (!active || tideVisible) return;
+    const hadFocus = document.activeElement === tidePeekBtnRef.current;
+    setOpenMapMenu(null);
+    if (hadFocus) windowsPeekBtnRef.current?.focus();
+  });
   /**
    * ⚠️ **The drilldown can close with nobody pressing anything, and that path has no handler to hang
    * a focus move on.** Every DELIBERATE exit — both ✕ buttons, the sheet handoff, `Zoom to region` —
@@ -4440,6 +4482,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
+   * The Tide section's close-and-rescue gate, freshly written every render (map-mobile-sheet-
+   * plan.md §3 M3 task 4 — M3 ships the rule M5 later reuses UNCHANGED against a fuller gate). The
+   * `‹ ›` steppers can land the pill on a night row, or a solar window with no coastal spot in the
+   * padded viewport, while `'peek:tide'` is open; the Tide button that opened it is gated on the
+   * SAME test (`tideStripModel.visible`), so it unmounts on the very render this value also goes
+   * stale — an open body with nothing left to have opened it. The actual close-and-rescue EFFECT
+   * lives next to `tideCloseGateRef`'s own declaration, ahead of this component's early return
+   * (that comment explains why); this plain assignment is the hand-off, never a hook itself, so it
+   * is exactly as safe to place after the early return as any other derived `const`.
+   */
+  tideCloseGateRef.current = {
+    active: isMobile && sheetSection === 'tide', tideVisible: tideStripModel.visible,
+  };
+
+  /**
    * `RegionsJump`'s own props, in ONE object rather than typed out twice — the desktop mount
    * (`.wf-map-chrome-tr`, chip visible) and the phone mount (mounted once outside the peek body,
    * chip withheld, its `BottomSheet` opened from a Layers row instead — map-mobile-sheet-plan.md
@@ -5831,14 +5888,36 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               <>
                 <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current} />
                 <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current} />
-                {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2) — mounted always on
-                    phone, collapsed by default. The Tide button/section arrive at M3; the peek
-                    row is two buttons here. */}
+                {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2, Tide wired at M3) —
+                    mounted always on phone, collapsed by default. The Tide button is gated on
+                    `tideStripModel.visible` through M3 (M5 replaces the gate with the fuller
+                    `tideVisible(...)` rule, unchanged here). */}
                 <MapPeekSheet
                   section={sheetSection}
                   onPressWindows={() => handlePeekPress('win')}
                   onPressLayers={() => handlePeekPress('lay')}
+                  onPressTide={() => handlePeekPress('tide')}
+                  tideVisible={tideStripModel.visible}
                   layersButtonRef={layersPeekBtnRef}
+                  windowsButtonRef={windowsPeekBtnRef}
+                  tideButtonRef={tidePeekBtnRef}
+                  tideButtonContent={(
+                    <>
+                      <TideWave />
+                      {tideSummary(activeMapEvent?.tide, tideStripModel.dimmed.length)}
+                    </>
+                  )}
+                  tideBody={(
+                    <MapPeekTideSection
+                      tide={activeMapEvent?.tide ?? null}
+                      activeRow={activeMapEvent}
+                      sunriseTime={tideStripSunriseTime}
+                      sunsetTime={tideStripSunsetTime}
+                      model={tideStripModel}
+                      onSelectEv={selectEvRow}
+                      focusTargetRef={tidePeekBtnRef}
+                    />
+                  )}
                   otherWindowContent={(
                     <OtherWindowValue row={peekOtherWindow} verdict={peekOtherWindowVerdict} />
                   )}
@@ -6101,33 +6180,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               </div>
             )}
 
-            {/* T7 — the phone tide strip (tide-window-plan.md §3 T7, docs/design/tide-window/
-                README.md §6). ⚠️ Deliberately NOT nested inside `.wf-map-chrome-bl` the way the
-                desktop mount above is (T6, §4 #6): on the phone it needs to span
-                `left: 8px; right: 8px` against the FRAME itself — the same containing block
-                `.wf-map-counts-footer`/`.wf-map-scored-legend` already use — and `.wf-map-chrome-bl`
-                is only ever left-anchored (`left: 8px`, no `right`), so an element positioned
-                relative to IT could never stretch edge to edge. Mounted here as a plain sibling of
-                every other independently-positioned chrome chip instead, so `index.css`'s phone
-                query can give it its own `position: absolute; left: 8px; right: 8px; bottom: 112px`
-                — the count footer's own row of the lifted stack, which is why that footer is hidden
-                (not merely lifted) in the same query while `wf-tide-strip-on`. Unconditioned on
-                `tideStripModel.visible` for the same reason the desktop mount is: `MapTideStrip`
-                itself returns `null` when not visible. */}
-            {isMobile && (
-              <MapTideStrip
-                model={tideStripModel}
-                tide={activeMapEvent?.tide ?? null}
-                activeRow={activeMapEvent}
-                sunriseTime={tideStripSunriseTime}
-                sunsetTime={tideStripSunsetTime}
-                collapsed={tideStripCollapsed}
-                onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
-                onSelectEv={selectEvRow}
-                mapPaneRef={mapPaneRef}
-                onHeightChange={setTideStripHeight}
-              />
-            )}
+            {/* ⚠️ The phone MapTideStrip mount that used to live here (tide-window-plan.md §3 T7)
+                is RETIRED (map-mobile-sheet-plan.md §3 M3 task 5) — its content is now the peek
+                sheet's Tide section (`MapPeekTideSection`, mounted above inside `MapPeekSheet`'s
+                `tideBody`), and `--tsh` is desktop-only from here: the desktop mount below is the
+                ONLY caller left that can ever set it or `wf-tide-strip-on`. */}
           </>
         )}
       </div>
