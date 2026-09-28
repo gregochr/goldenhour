@@ -733,6 +733,12 @@ They share a philosophy and almost no mechanics, so the wrong one is close to us
 | Backend (Java, Mockito, JUnit) | `docs/engineering/test-improvement-standards.md` |
 | Frontend (React, Vitest, Testing Library) | `docs/engineering/frontend-test-standards.md` |
 
+**Suite sizes, measured 2026-09-28 at `f849f13d` — re-measure rather than trust, the same way the
+migrations table refuses to name its latest number:** backend **8,690** tests with the 11 CI-only
+integration classes excluded (`./mvnw test -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false`;
+those classes hold 53 more `@Test` methods and run only in CI), frontend **6,807** Vitest tests in
+**266** files (`npx vitest run`). A run well below these numbers has stopped early, not passed.
+
 ---
 
 ## UI Work — Review Cadence
