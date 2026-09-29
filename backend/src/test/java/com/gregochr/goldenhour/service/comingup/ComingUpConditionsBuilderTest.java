@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.SurvivorSignalReader;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
@@ -64,6 +65,8 @@ class ComingUpConditionsBuilderTest {
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
     private SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    @Mock
+    private EvaluationViewService evaluationViewService;
 
     private ComingUpConditionsBuilder builder;
 
@@ -76,12 +79,15 @@ class ComingUpConditionsBuilderTest {
         lenient().when(forecastScoreRepository.findComponentsByType(any(), any(), any()))
                 .thenReturn(List.of());
         lenient().when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
+        // No stability skips — this class's tests are about the almanac condition-scoring logic,
+        // not the stability-skip retraction SurvivorSignalReaderTest already covers on its own.
+        lenient().when(evaluationViewService.loadStabilitySkips(any(), any())).thenReturn(Map.of());
         // No tide history/stats by default — every run scores the cold-start default unless a test
         // stubs otherwise.
         lenient().when(tideRunBuilder.peakRange(anyList(), anyList())).thenReturn(Optional.empty());
 
-        SurvivorSignalReader survivorSignalReader =
-                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
+        SurvivorSignalReader survivorSignalReader = new SurvivorSignalReader(
+                forecastScoreRepository, survivorAtmosphereRepository, evaluationViewService);
         builder = new ComingUpConditionsBuilder(locationRepository, tideRunBuilder, tideRunPeakHistory,
                 tideService, forecastEvaluationRepository, survivorSignalReader, new ComingUpScoringProperties());
     }
@@ -429,7 +435,9 @@ class ComingUpConditionsBuilderTest {
         zeroWindow.setPeakLightWindowMinutes(0);
         ComingUpConditionsBuilder zeroWindowBuilder = new ComingUpConditionsBuilder(locationRepository,
                 tideRunBuilder, tideRunPeakHistory, tideService, forecastEvaluationRepository,
-                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository), zeroWindow);
+                new SurvivorSignalReader(
+                        forecastScoreRepository, survivorAtmosphereRepository, evaluationViewService),
+                zeroWindow);
 
         assertThat(zeroWindowBuilder.passesPeakGate(TargetType.SUNRISE)).isFalse();
     }
