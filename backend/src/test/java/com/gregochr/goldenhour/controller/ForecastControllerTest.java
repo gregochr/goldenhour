@@ -138,9 +138,11 @@ class ForecastControllerTest extends AbstractControllerTest {
     @DisplayName("GET /api/forecast retracts a forecast_evaluation row superseded by a newer "
             + "nightly stability skip for its slot")
     void getForecasts_retractsRowSupersededByNewerStabilitySkip() throws Exception {
-        // A RATED row — a stability skip retracts an opinion; see hasSomethingToSayRowsNeverRetracted
-        // below for why a row with neither a rating nor a triage reason must never be dropped this
-        // way. buildEntity's forecastRunAt is 2026-02-20T12:00 (winter — GMT, so 12:00Z).
+        // A RATED row — a stability skip retracts an opinion; see emptyRowRetractedWhenSkipStands
+        // below for the sibling case where the row itself says nothing but the slot is STILL
+        // retracted (no live evidence anywhere), and emptyRowWithNoSkipSurvives for the case where
+        // no skip is recorded at all and the row is unconditionally kept. buildEntity's
+        // forecastRunAt is 2026-02-20T12:00 (winter — GMT, so 12:00Z).
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
         entity.setRating(4);
         when(forecastEvaluationRepository
@@ -203,14 +205,18 @@ class ForecastControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser
-    @DisplayName("GET /api/forecast never retracts a row with neither a rating nor a triage reason, "
-            + "however stale — it was never an opinion for the skip to supersede")
-    void hasSomethingToSayRowsNeverRetracted() throws Exception {
+    @DisplayName("GET /api/forecast: a row with neither a rating nor a triage reason IS retracted "
+            + "when a skip stands against its slot — a second Codex re-review of #940's fix, "
+            + "reversing this test's own previous claim")
+    void emptyRowRetractedWhenSkipStands() throws Exception {
         // buildEntity's fixture carries no rating and no triage — exactly the "nothing to say"
-        // shape hasSomethingToSay exists to name. A stale-but-opinionless row must survive even
-        // when a skip postdates it, mirroring EvaluationViewService.cachedWins' own clause 2 (a row
-        // that says nothing cannot be evidence against a rating, and equally is not itself an
-        // opinion this rule may retract).
+        // shape hasSomethingToSay exists to name, and exactly the shape an ABANDONED (or otherwise
+        // closed-out-empty) PENDING row takes. This row genuinely POSTDATES the skip below (its
+        // forecastRunAt is 2026-02-20T12:00Z, the skip 13:00Z), so per-source staleness alone would
+        // call it "not stale" and serve it as an ordinary unscored slot — the exact gap
+        // EvaluationViewService.isSlotRetracted exists to close: with a skip recorded and no live
+        // evidence anywhere (no cache here at all, and this row says nothing), the slot must read
+        // as retracted regardless of whether the row postdates the skip.
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
         when(forecastEvaluationRepository
                 .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
@@ -218,6 +224,39 @@ class ForecastControllerTest extends AbstractControllerTest {
         when(evaluationViewService.loadStabilitySkips(any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(java.util.Map.of("Durham UK|2026-02-20|SUNSET",
                         Instant.parse("2026-02-20T13:00:00Z")));
+        when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
+        when(evaluationViewService.cachedOnlyViewsForDateRange(
+                any(LocalDate.class), any(LocalDate.class), any(), any(), any()))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ForecastEvaluationEntity>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(dtoMapper).toListDtoList(captor.capture(), anyBoolean());
+        assertThat(captor.getValue())
+                .as("no live evidence survives the skip, so the slot must not reach the DTO mapper")
+                .isEmpty();
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast: an ordinary unscored row with NO skip recorded is always kept "
+            + "— isSlotRetracted is unaffected when there is no skip to apply")
+    void emptyRowWithNoSkipSurvives() throws Exception {
+        // The overwhelming majority of forecast_evaluation carries a null rating and no skip at
+        // all — an ordinary base-forecast row nobody has evaluated yet. This must be entirely
+        // unaffected by the fix above: isSlotRetracted returns false immediately whenever no skip
+        // is recorded, regardless of whether the row has anything to say.
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(entity));
+        when(evaluationViewService.loadStabilitySkips(any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(java.util.Map.of());
         when(dtoMapper.toListDtoList(any(), anyBoolean()))
                 .thenReturn(List.of(buildListDto("Durham UK", 72, 80)));
         when(evaluationViewService.cachedOnlyViewsForDateRange(

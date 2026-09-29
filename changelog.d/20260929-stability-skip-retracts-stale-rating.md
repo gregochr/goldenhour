@@ -85,3 +85,39 @@ now loads the (marker-preserving) `getScoresForEnrichmentBulk` once per build in
 shape `ServedBriefingAssembler.reEnrichVerdicts` already used on the serve path. Per-request paths
 (`GET /api/briefing`, `GET /api/briefing/evaluate/scores`, `GET /api/forecast`) were untouched by
 either fix and still issue one stability-skip query each.
+
+**Fourth follow-up fix, same day (a second Codex re-review of #940):** retraction was still being
+decided by asking, per source, "is the evidence I can see stale relative to the skip" — and that
+question has a blind spot. `forecast_evaluation` is insert-only, and the "latest row per slot" query
+every reader here relies on can legitimately return a newer, EMPTY row (an `ABANDONED` batch attempt,
+or any other `PENDING`-then-closed-out row with neither a rating nor a triage reason) sitting on top
+of an older RATED row from an earlier cycle — the query correctly hides the older row, because a
+newer one exists. That empty row genuinely postdates the skip, so asking "is it stale" answers "no" —
+the wrong answer, because the only reason anything postdates the skip is a row saying nothing at all.
+A slot in exactly this shape (a forecast-only rating superseded by a skip, then hidden behind a later
+empty row) read as plain absence rather than retraction, and on the Plan payload — the one surface
+that starts from a persisted tree rather than building one fresh — an absence leaves an EMBEDDED
+rating from an earlier build untouched, so the stale star survived there while the map, built fresh
+each time, correctly showed nothing.
+
+New `EvaluationViewService.isSlotRetracted(cachedResult, cachedEvaluatedAt, forecastRow,
+latestStabilitySkipAt)` is the fix, and the ONE place every path now decides retraction: a slot with
+a recorded skip is retracted when NO live evidence survives it at all — neither a cached result
+written after it, nor a forecast row that both postdates it AND has something to say — regardless of
+whether the caller can see the stale evidence that skip superseded, a newer empty row hiding it, or
+nothing at all. `resolveForEnrichmentRetractionAware` (used by both `getScoresForEnrichment` and a
+restructured `getScoresForEnrichmentBulk`, which now resolves every slot through the same method the
+single-key read uses rather than a separate two-phase cache-then-forecast reconciliation),
+`mergeToView`, and `ForecastController`'s raw-row filter all call it, so the three cannot disagree.
+`ForecastController` has no cache lookup of its own and calls `isSlotRetracted` with a null cached
+side — correctly meaning "no live cache evidence available here" — which also closes a narrow,
+genuine behaviour gap on that endpoint: an otherwise-unscored row with a skip against it and nothing
+else live is now dropped rather than served with a null rating, agreeing with `mergeToView`'s
+`Source.NONE`. An ordinary unscored row with no skip recorded — the overwhelming majority of
+`forecast_evaluation`'s null-rating rows — is completely unaffected, since `isSlotRetracted` returns
+false immediately whenever there is no skip to apply. Canopy (woodland) and bluebell slots need no
+carve-out: `ForecastTaskCollector` runs the Gate 4 eligibility decision for every candidate before
+branching on which prompt to build, so a canopy or bluebell slot can carry a `SKIPPED_STABILITY`
+disposition exactly like a sky slot, and both mini-batches write their ratings into
+`cached_evaluation` via `mergeWoodlandFromBatch`/`mergeBluebellFromBatch` — the same store the
+resolver already reads, so no rating source is invisible to the new rule.

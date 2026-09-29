@@ -209,25 +209,22 @@ public class ForecastController {
         // A nightly Gate 4 stability skip writes no row to this table — the whole reason the slot
         // can go on reading as "the latest row" long after the pipeline declined to re-look at it.
         // This is the one serve path that reads forecast_evaluation directly rather than through
-        // EvaluationViewService.mergeToView, so it has to apply the same retraction itself: a row
-        // (rated OR triaged) that predates its slot's most recent stability skip is dropped here,
-        // exactly as EvaluationViewService drops it, so the two never disagree about the same slot.
-        //
-        // Gated on hasSomethingToSay, not on staleness alone: a row with neither a rating nor a
-        // triage reason was never itself an opinion a reader could see as "the rating" for this
-        // slot, so a skip predating it retracts nothing — the same reasoning that already lets
-        // EvaluationViewService.cachedWins leave such a row alone rather than treating it as
-        // contradicting evidence. (In practice every SUNRISE/SUNSET row this query can return
-        // already satisfies this — the batch collector's only rating-less writes are triage rows,
-        // which always carry a reason — so the guard is a safety net for a shape this query cannot
-        // currently produce, not a behaviour change measured against production today.)
+        // EvaluationViewService.mergeToView, so it has to apply the same retraction decision
+        // itself, via the SAME method: this endpoint has no cached_evaluation lookup of its own, so
+        // it calls isSlotRetracted with a null cached side, which correctly means "no live cache
+        // evidence to fall back to" here — a slot is dropped when its only visible row is stale OR
+        // says nothing at all while a skip stands against it, exactly as EvaluationViewService drops
+        // it, so the two never disagree about the same slot. (This intentionally now drops an
+        // otherwise-unscored row too, when a skip is recorded against it — the single case this
+        // changes from a plain "row has nothing to say" filter: an ordinary, never-skipped unscored
+        // row is completely unaffected, since isSlotRetracted returns false immediately whenever no
+        // skip is recorded, which is true for the overwhelming majority of forecast_evaluation's
+        // null-rating rows.)
         Map<String, Instant> stabilitySkips = evaluationViewService.loadStabilitySkips(from, horizon);
         entities = entities.stream()
-                .filter(e -> !EvaluationViewService.hasSomethingToSay(e)
-                        || !EvaluationViewService.isRetractedByStabilitySkip(
-                                EvaluationViewService.forecastRunInstant(e),
-                                stabilitySkips.get(e.getLocationName() + "|" + e.getTargetDate()
-                                        + "|" + e.getTargetType())))
+                .filter(e -> !EvaluationViewService.isSlotRetracted(null, null, e,
+                        stabilitySkips.get(e.getLocationName() + "|" + e.getTargetDate()
+                                + "|" + e.getTargetType())))
                 .toList();
         List<ForecastListDto> dtos = new ArrayList<>(dtoMapper.toListDtoList(entities, lite));
 
