@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -13,12 +15,19 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -42,6 +51,9 @@ class DriveTimeRefreshJobTest {
     private AppUserRepository userRepository;
 
     @Mock
+    private LocationRepository locationRepository;
+
+    @Mock
     private DriveDurationService driveDurationService;
 
     @Mock
@@ -54,8 +66,8 @@ class DriveTimeRefreshJobTest {
 
     @BeforeEach
     void setUp() {
-        job = new DriveTimeRefreshJob(userRepository, driveDurationService, driveTimeWriter,
-                dynamicSchedulerService, Clock.fixed(NOW, ZoneOffset.UTC));
+        job = new DriveTimeRefreshJob(userRepository, locationRepository, driveDurationService,
+                driveTimeWriter, dynamicSchedulerService, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static AppUserEntity user(long id, Double lat, Double lon, boolean enabled) {
@@ -82,11 +94,13 @@ class DriveTimeRefreshJobTest {
     void registersJobTarget() {
         job.registerJob();
 
-        ArgumentCaptor<Runnable> target = ArgumentCaptor.forClass(Runnable.class);
-        verify(dynamicSchedulerService).registerJobTarget(eq("drive_time_refresh"), target.capture());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Consumer<Boolean>> target = ArgumentCaptor.forClass(Consumer.class);
+        verify(dynamicSchedulerService)
+                .registerManualAwareJobTarget(eq("drive_time_refresh"), target.capture());
         // The registered target is the run itself: firing it reads the roster.
         when(userRepository.findAll()).thenReturn(List.of());
-        target.getValue().run();
+        target.getValue().accept(false);
         verify(userRepository).findAll();
     }
 
@@ -102,7 +116,7 @@ class DriveTimeRefreshJobTest {
                     user(2L, 54.97, null, true),
                     user(3L, null, -1.61, true)));
 
-            job.runScheduled();
+            job.run(false);
 
             verifyNoInteractions(driveDurationService, driveTimeWriter);
         }
@@ -112,7 +126,7 @@ class DriveTimeRefreshJobTest {
         void skipsDisabledUsers() {
             when(userRepository.findAll()).thenReturn(List.of(user(1L, 54.97, -1.61, false)));
 
-            job.runScheduled();
+            job.run(false);
 
             verifyNoInteractions(driveDurationService, driveTimeWriter);
         }
@@ -122,7 +136,7 @@ class DriveTimeRefreshJobTest {
         void emptyRosterIsNoOp() {
             when(userRepository.findAll()).thenReturn(List.of());
 
-            job.runScheduled();
+            job.run(false);
 
             verifyNoInteractions(driveDurationService, driveTimeWriter);
         }
@@ -140,7 +154,7 @@ class DriveTimeRefreshJobTest {
             when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, first, NOW)).thenReturn(true);
             when(driveTimeWriter.storeIfHomeUnchanged(2L, 51.50, -0.12, second, NOW)).thenReturn(true);
 
-            job.runScheduled();
+            job.run(false);
 
             // The coordinates handed to the store are the ones measured from — the store's guard
             // compares against them, so passing anything else would defeat it.
@@ -166,7 +180,7 @@ class DriveTimeRefreshJobTest {
             when(driveTimeWriter.storeIfHomeUnchanged(2L, 54.97, -1.61, second, NOW)).thenReturn(true);
             when(driveTimeWriter.storeIfHomeUnchanged(3L, 54.97, -1.61, third, NOW)).thenReturn(true);
 
-            job.runScheduled();
+            job.run(false);
 
             // The run continues past the thrower rather than propagating out of the scheduler tick,
             // and the thrower itself stores nothing.
@@ -188,12 +202,37 @@ class DriveTimeRefreshJobTest {
             when(driveDurationService.measureForUser(3L, 54.97, -1.61)).thenReturn(Optional.empty());
             when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
 
-            job.runScheduled();
+            job.run(false);
 
             // Storing an empty measurement would stamp a fresh "last calculated" over drive times
             // that never changed — or, for user 2, clear them on one bad night.
             verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
             verifyNoMoreInteractions(driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("Confirmed unreachable (ORS answered, no valid duration anywhere) does NOT "
+                + "clear an existing user's rows or stamp on the scheduled route — the deliberate "
+                + "asymmetry with the manual path's UserDriveTimeWriter.clearIfHomeUnchanged, "
+                + "because nobody is watching an overnight run (see this class's own javadoc)")
+        void confirmedUnreachable_doesNotClearOnScheduledRoute() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            // Simulates a user who already has rows and a stamp from a previous, successful run.
+            user.setDriveTimesCalculatedAt(stamp);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            // Due because the roster grew since the stamp (a location was added) — not because
+            // the stamp is null, so this user already has rows to lose if the job cleared them.
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(stamp.plusSeconds(1), ZoneOffset.UTC));
+            // ORS answered, but confirmed no valid duration to any location.
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(List.of()));
+
+            job.run(false);
+
+            // The asymmetry: no writer call of any kind — not storeIfHomeUnchanged, and no
+            // clearIfHomeUnchanged either. Rows and stamp are both left exactly as they were.
+            verifyNoInteractions(driveTimeWriter);
         }
 
         @Test
@@ -209,7 +248,7 @@ class DriveTimeRefreshJobTest {
             when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, movedAway, NOW)).thenReturn(false);
             when(driveTimeWriter.storeIfHomeUnchanged(2L, 54.97, -1.61, next, NOW)).thenReturn(true);
 
-            job.runScheduled();
+            job.run(false);
 
             // Not retried, not cleared, and nothing else written for that user.
             verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, movedAway, NOW);
@@ -228,18 +267,21 @@ class DriveTimeRefreshJobTest {
             when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
             when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
 
-            job.runScheduled();
+            job.run(false);
 
             verify(userRepository).findAll();
             verifyNoMoreInteractions(userRepository);
         }
 
-        // The manual path in UserSettingsService enforces a cooldown to stop the button being
-        // hammered. A nightly tick is not abuse, and applying the cooldown here would skip exactly
-        // the user who pressed the button that evening — the one whose data most likely just moved.
+        // The Settings dialog's manual REFRESH BUTTON enforces its own 30-minute cooldown, in
+        // UserSettingsService — that is a distinct concept from this job entirely and is untouched
+        // here. A manual "Run now" trigger of this job carries no cooldown of its own: it is the
+        // deliberate override tool, and it measures a user regardless of when they were last
+        // measured (unlike a scheduled fire, which now skips them — see the Selection nested class).
         @Test
-        @DisplayName("No cooldown: a user refreshed moments ago is still refreshed by the job")
-        void ignoresTheManualCooldown() {
+        @DisplayName("A manual Run Now trigger has no cooldown of its own: a user refreshed "
+                + "moments ago is still measured")
+        void manualTriggerIgnoresAnyCooldown() {
             AppUserEntity justRefreshed = withHome(1L);
             justRefreshed.setDriveTimesCalculatedAt(NOW.minusSeconds(60));
             List<UserDriveTimeEntity> measured = rowsFor(1L, 3);
@@ -247,9 +289,573 @@ class DriveTimeRefreshJobTest {
             when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
             when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
 
-            job.runScheduled();
+            job.run(true);
 
             verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+            // Manual measures everyone outright — it never needs to know the roster's newest
+            // location, unlike a scheduled fire.
+            verifyNoInteractions(locationRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("A partial answer (one destination confirmed unroutable) advances the stamp — "
+            + "decision, 2026-09-29, taken in review: see needsRefresh's own javadoc for why an "
+            + "omitted destination is never retried on the schedule alone")
+    class PartialAnswerDecision {
+
+        @Test
+        @DisplayName("Valid rows are stored, the stamp advances to the roster-read instant, and "
+                + "the confirmed-unreachable location has no row")
+        void partialAnswer_storesValidRows_advancesStamp_omitsConfirmedUnreachable() {
+            AppUserEntity user = withHome(1L);
+            // A null/negative entry for ONE destination within an otherwise successful ORS answer
+            // is a definitive "no route exists" result for that destination — never a transient
+            // failure, which fails the WHOLE call instead (see DriveDurationService.measureForUser
+            // and OpenRouteServiceClient.fetchDurations: one un-chunked call, no partial responses
+            // from a failure).
+            List<UserDriveTimeEntity> partial = List.of(new UserDriveTimeEntity(1L, 10L, 900));
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(partial));
+            when(locationRepository.findAll()).thenReturn(List.of(
+                    LocationEntity.builder().id(10L).name("Reachable Spot").build(),
+                    LocationEntity.builder().id(20L).name("Unroutable Spot").build()));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, partial, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, partial, NOW);
+        }
+
+        @Test
+        @DisplayName("The following scheduled night (no roster or home change) makes zero client "
+                + "calls, and a manual Run now after that measures the user again")
+        void quietNightAfterPartialAnswer_thenManualRunMeasuresAgain() {
+            AppUserEntity user = withHome(1L);
+            List<UserDriveTimeEntity> partial = List.of(new UserDriveTimeEntity(1L, 10L, 900));
+            List<LocationEntity> roster = List.of(
+                    LocationEntity.builder().id(10L).name("Reachable Spot").build(),
+                    LocationEntity.builder().id(20L).name("Unroutable Spot").build());
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findAll()).thenReturn(roster);
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(partial));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, partial, NOW)).thenReturn(true);
+
+            // Night one: due (null stamp), the partial answer is stored, the stamp advances to NOW.
+            job.run(false);
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, partial, NOW);
+            user.setDriveTimesCalculatedAt(NOW); // simulate persistence
+
+            // Night two: the roster has not grown since that stamp — zero client calls. The
+            // omitted "Unroutable Spot" is NOT retried on its own; that is the decision. Comfortably
+            // outside ROSTER_VISIBILITY_MARGIN (one hour), not merely before the stamp itself — see
+            // VisibilityMargin's own tests for why a margin-boundary gap would still be due.
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    NOW.minus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).minusSeconds(60),
+                    ZoneOffset.UTC));
+            job.run(false);
+            verify(driveDurationService, times(1)).measureForUser(1L, 54.97, -1.61);
+            verifyNoMoreInteractions(driveTimeWriter);
+
+            // A manual Run now bypasses needsRefresh entirely and measures everyone regardless —
+            // the remedy once an admin has corrected the unroutable location's coordinates.
+            List<UserDriveTimeEntity> full = List.of(
+                    new UserDriveTimeEntity(1L, 10L, 900), new UserDriveTimeEntity(1L, 20L, 1200));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(full));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, full, NOW)).thenReturn(true);
+
+            job.run(true);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, full, NOW);
+        }
+    }
+
+    @Nested
+    @DisplayName("Scheduled fire — only re-measures a user who needs it")
+    class ScheduledSkipLogic {
+
+        @Test
+        @DisplayName("A null stamp — never measured, or a postcode change discarded it — measures")
+        void nullStampMeasures() {
+            AppUserEntity neverMeasured = withHome(1L);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(neverMeasured));
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.parse("2026-09-01T00:00:00"));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+
+        @Test
+        @DisplayName("A null stamp still measures a user who has no user_drive_time rows at all — "
+                + "needsRefresh has no rows-check of its own, and DOES NOT need one: a null stamp "
+                + "already covers both the never-measured and the postcode-just-changed case")
+        void nullStampMeasures_evenWithNoExistingRows() {
+            // No stubbing of user_drive_time anywhere here — this job never queries that table at
+            // all (DriveTimeRefreshJob has no repository for it beyond the writer), which is the
+            // point: the null STAMP is the only signal this predicate reads, and a user with no
+            // rows and no stamp is exactly the "never measured" shape it is designed to catch.
+            AppUserEntity neverMeasuredNoRows = withHome(1L);
+            when(userRepository.findAll()).thenReturn(List.of(neverMeasuredNoRows));
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.parse("2026-09-01T00:00:00"));
+            // ORS gives no answer either — the user stays unroutable, matching needsRefresh's own
+            // documented consequence: no rows are ever stored, so the stamp stays null, and this
+            // same user is due again on the very next scheduled run.
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.empty());
+
+            job.run(false);
+
+            verify(driveDurationService).measureForUser(1L, 54.97, -1.61);
+            verifyNoInteractions(driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("A stamp left null by a manual confirmed-unreachable clear is measured by the "
+                + "next scheduled run — UserDriveTimeWriter.clearIfHomeUnchanged leaves the exact "
+                + "same null-stamp state a postcode change does, so this job needs no special case "
+                + "for it: the null stamp alone is enough")
+        void stampClearedByManualConfirmedUnreachable_isMeasuredNextScheduledRun() {
+            AppUserEntity user = withHome(1L);
+            // Simulates the row UserSettingsService.refreshDriveTimes leaves behind after a manual
+            // confirmed-unreachable refresh: no rows (this test cannot see that directly, since
+            // driveTimeWriter is mocked — see UserDriveTimeWriterTest for the row deletion itself)
+            // and a null stamp, which is the one thing this job's own predicate reads.
+            user.setDriveTimesCalculatedAt(null);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 3);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+
+        @Test
+        @DisplayName("A stamp present with the roster unchanged skips — no ORS call at all")
+        void stampPresentRosterUnchangedSkips() {
+            AppUserEntity upToDate = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            upToDate.setDriveTimesCalculatedAt(stamp);
+            when(userRepository.findAll()).thenReturn(List.of(upToDate));
+            // Nothing in the roster is newer than the stamp — comfortably outside
+            // ROSTER_VISIBILITY_MARGIN (one hour), not merely before the stamp itself.
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    stamp.minus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).minusSeconds(60),
+                    ZoneOffset.UTC));
+
+            job.run(false);
+
+            verifyNoInteractions(driveDurationService);
+            verifyNoInteractions(driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("A location created after the stamp measures")
+        void locationCreatedAfterStampMeasures() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(stamp.plusSeconds(1), ZoneOffset.UTC));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+
+        @Test
+        @DisplayName("A location created well before the stamp — outside the visibility margin — "
+                + "does not measure")
+        void locationCreatedBeforeStampDoesNotMeasure() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            // A mere 1 second before the stamp is now WITHIN ROSTER_VISIBILITY_MARGIN (one hour)
+            // and DOES measure — see VisibilityMargin.locationCreatedShortlyBeforeStamp_*. This
+            // fixture instead tests a location genuinely old news: clear of the margin entirely.
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    stamp.minus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).minusSeconds(1),
+                    ZoneOffset.UTC));
+
+            job.run(false);
+
+            verifyNoInteractions(driveDurationService);
+            verifyNoInteractions(driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("The exact boundary — a location created AT the stamp — DOES measure "
+                + "(inclusive on purpose: created_at can tie the stamp when both are roster-read "
+                + "instants taken from equivalent clock reads, and only the inclusive answer can "
+                + "never miss a location)")
+        void locationCreatedExactlyAtStampDoesMeasure() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            // Equal, not later — the inclusive boundary treats a tie as "grown", not "unchanged".
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(stamp, ZoneOffset.UTC));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+
+        @Test
+        @DisplayName("An empty roster's newest created_at is null and never measures anyone "
+                + "already up to date")
+        void nullNewestCreatedAtDoesNotMeasureAnUpToDateUser() {
+            AppUserEntity user = withHome(1L);
+            user.setDriveTimesCalculatedAt(NOW.minusSeconds(60));
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findMaxCreatedAt()).thenReturn(null);
+
+            job.run(false);
+
+            verifyNoInteractions(driveDurationService);
+        }
+
+        @Test
+        @DisplayName("A quiet scheduled night makes zero OpenRouteService calls, decided from one "
+                + "location query")
+        void quietNightMakesNoCalls() {
+            AppUserEntity a = withHome(1L);
+            AppUserEntity b = withHome(2L);
+            Instant stamp = NOW.minusSeconds(3600);
+            a.setDriveTimesCalculatedAt(stamp);
+            b.setDriveTimesCalculatedAt(stamp);
+            when(userRepository.findAll()).thenReturn(List.of(a, b));
+            // Outside ROSTER_VISIBILITY_MARGIN, not merely before the stamp — see the comment on
+            // locationCreatedBeforeStampDoesNotMeasure for why 1 second before is not enough any more.
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    stamp.minus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).minusSeconds(1),
+                    ZoneOffset.UTC));
+
+            job.run(false);
+
+            verifyNoInteractions(driveDurationService, driveTimeWriter);
+            verify(locationRepository, times(1)).findMaxCreatedAt();
+        }
+
+        @Test
+        @DisplayName("Mixed users in one run: due users are measured, unchanged users are skipped, "
+                + "and the counts add up")
+        void mixedUsersInOneRun() {
+            Instant newestLocation = NOW.minusSeconds(1800);
+            AppUserEntity dueByNullStamp = withHome(1L);
+            AppUserEntity upToDate = withHome(2L);
+            // Refreshed AFTER the newest location was added, and comfortably outside
+            // ROSTER_VISIBILITY_MARGIN of it too — nothing new to see.
+            upToDate.setDriveTimesCalculatedAt(
+                    newestLocation.plus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).plusSeconds(100));
+            AppUserEntity dueByRosterGrowth = withHome(3L);
+            // Refreshed BEFORE the newest location was added — due again.
+            dueByRosterGrowth.setDriveTimesCalculatedAt(newestLocation.minusSeconds(100));
+
+            List<UserDriveTimeEntity> firstRows = rowsFor(1L, 2);
+            List<UserDriveTimeEntity> thirdRows = rowsFor(3L, 2);
+
+            when(userRepository.findAll()).thenReturn(List.of(dueByNullStamp, upToDate, dueByRosterGrowth));
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(newestLocation, ZoneOffset.UTC));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(firstRows));
+            when(driveDurationService.measureForUser(3L, 54.97, -1.61)).thenReturn(Optional.of(thirdRows));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, firstRows, NOW)).thenReturn(true);
+            when(driveTimeWriter.storeIfHomeUnchanged(3L, 54.97, -1.61, thirdRows, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveDurationService).measureForUser(1L, 54.97, -1.61);
+            verify(driveDurationService).measureForUser(3L, 54.97, -1.61);
+            // upToDate (id 2) never reaches ORS at all.
+            verify(driveDurationService, never()).measureForUser(eq(2L), anyDouble(), anyDouble());
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, firstRows, NOW);
+            verify(driveTimeWriter).storeIfHomeUnchanged(3L, 54.97, -1.61, thirdRows, NOW);
+            verifyNoMoreInteractions(driveTimeWriter);
+        }
+    }
+
+    @Nested
+    @DisplayName("ROSTER_VISIBILITY_MARGIN — a location's created_at can be earlier than the "
+            + "stamp that missed it (P1-B fix, 2026-09-29)")
+    class VisibilityMargin {
+
+        @Test
+        @DisplayName("A location created 10 minutes BEFORE the stamp still measures — fails "
+                + "against 13f704d0, which had no margin and caught only a tie or a strictly "
+                + "later created_at")
+        void locationCreatedShortlyBeforeStamp_withinMargin_measures() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            // The roster-visibility race the margin exists for: this row committed AFTER the
+            // stamp's roster read even though its own created_at — assigned by the application
+            // before the INSERT — reads ten minutes earlier.
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(stamp.minusSeconds(10 * 60), ZoneOffset.UTC));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+
+        @Test
+        @DisplayName("Exactly ROSTER_VISIBILITY_MARGIN (one hour) before the stamp is still "
+                + "within it — measures")
+        void locationCreatedExactlyAtTheMarginBoundary_measures() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findMaxCreatedAt()).thenReturn(
+                    LocalDateTime.ofInstant(stamp.minus(Duration.ofHours(1)), ZoneOffset.UTC));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+
+        @Test
+        @DisplayName("One hour and one second before the stamp is OUTSIDE the margin — does not measure")
+        void locationCreatedJustOutsideTheMargin_doesNotMeasure() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    stamp.minus(Duration.ofHours(1)).minusSeconds(1), ZoneOffset.UTC));
+
+            job.run(false);
+
+            verifyNoInteractions(driveDurationService);
+            verifyNoInteractions(driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("Three consecutive scheduled nights after a location lands within the "
+                + "margin: measured again on night two (the fresh stamp is still within the "
+                + "margin of that location), zero client calls on night three once the stamp "
+                + "has cleared it")
+        void threeNightsAfterAMarginLocation_settlesOnNightThree() {
+            Instant locationCreatedAt = Instant.parse("2026-09-29T02:00:00Z");
+            // Night one is due for an ordinary reason (a week-stale stamp) — nothing to do with
+            // the margin yet. It leaves a FRESH stamp only 30 minutes after the location was
+            // created: still inside the one-hour ROSTER_VISIBILITY_MARGIN of that created_at.
+            Instant night1 = locationCreatedAt.plusSeconds(30 * 60);
+            Instant night2 = night1.plusSeconds(24 * 3600);
+            Instant night3 = night2.plusSeconds(24 * 3600);
+
+            SteppingClock steppingClock = new SteppingClock(night1);
+            DriveTimeRefreshJob nightsJob = new DriveTimeRefreshJob(userRepository, locationRepository,
+                    driveDurationService, driveTimeWriter, dynamicSchedulerService, steppingClock);
+
+            AppUserEntity user = withHome(1L);
+            user.setDriveTimesCalculatedAt(locationCreatedAt.minusSeconds(7 * 24 * 3600));
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(locationCreatedAt, ZoneOffset.UTC));
+
+            List<UserDriveTimeEntity> night1Rows = rowsFor(1L, 2);
+            List<UserDriveTimeEntity> night2Rows = rowsFor(1L, 3);
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61))
+                    .thenReturn(Optional.of(night1Rows))
+                    .thenReturn(Optional.of(night2Rows));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, night1Rows, night1)).thenReturn(true);
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, night2Rows, night2)).thenReturn(true);
+
+            // Night one: due on the week-old stamp alone.
+            nightsJob.run(false);
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, night1Rows, night1);
+            // Simulate persistence: the next run reads the stamp storeIfHomeUnchanged just wrote.
+            user.setDriveTimesCalculatedAt(night1);
+
+            // Night two: the fresh stamp (30 minutes after the location) is STILL within the
+            // margin of that same location's created_at, so this user is measured ONCE more —
+            // exactly the "admin adds a location and presses Run now within the hour" cost
+            // ROSTER_VISIBILITY_MARGIN's own javadoc names.
+            steppingClock.advanceTo(night2);
+            nightsJob.run(false);
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, night2Rows, night2);
+            user.setDriveTimesCalculatedAt(night2);
+
+            // Night three: the stamp is now a full day clear of the location's created_at —
+            // outside the margin — so this user is skipped, with zero further client calls.
+            steppingClock.advanceTo(night3);
+            nightsJob.run(false);
+
+            verify(driveDurationService, times(2)).measureForUser(1L, 54.97, -1.61);
+            verifyNoMoreInteractions(driveTimeWriter);
+        }
+    }
+
+    @Nested
+    @DisplayName("Manual trigger vs scheduled fire")
+    class ManualVsScheduled {
+
+        @Test
+        @DisplayName("A manual trigger measures a user the scheduled fire would skip")
+        void manualMeasuresAUserScheduledWouldSkip() {
+            AppUserEntity upToDate = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            upToDate.setDriveTimesCalculatedAt(stamp);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(upToDate));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(true);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+    }
+
+    /**
+     * A {@link Clock} whose {@link #instant()} can be moved forward mid-test, so a stub's
+     * {@code thenAnswer} can simulate "time passes while this call runs" — the only way to make a
+     * mocked {@link DriveDurationService#measureForUser} observably take seconds without a real
+     * clock or a sleep.
+     */
+    private static final class SteppingClock extends Clock {
+        private Instant now;
+
+        SteppingClock(Instant start) {
+            this.now = start;
+        }
+
+        void advanceTo(Instant instant) {
+            this.now = instant;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+    }
+
+    @Nested
+    @DisplayName("The stamp names the roster read, not the store (P1 fix, 2026-09-29)")
+    class RosterReadRace {
+
+        @Test
+        @DisplayName("A location created during routing is measured on the NEXT scheduled run — "
+                + "this fails against 4c502fd0, which stamped after measureForUser returned")
+        void locationCreatedDuringRoutingWindow_isPickedUpByTheNextScheduledRun() {
+            Instant rosterReadAt = Instant.parse("2026-09-29T02:40:00Z");
+            // What clock.instant() wrongly returned under 4c502fd0, captured AFTER
+            // measureForUser — simulating that routing took 45 seconds.
+            Instant afterRoutingAt = rosterReadAt.plusSeconds(45);
+            // The location is created 20 seconds into that routing window: after the roster was
+            // read, but before a post-measurement stamp would have been taken.
+            Instant locationCreatedAt = rosterReadAt.plusSeconds(20);
+
+            SteppingClock clock = new SteppingClock(rosterReadAt);
+            DriveTimeRefreshJob raceJob = new DriveTimeRefreshJob(userRepository, locationRepository,
+                    driveDurationService, driveTimeWriter, dynamicSchedulerService, clock);
+
+            AppUserEntity user = withHome(1L); // null stamp — due on run 1 regardless of roster state
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            // Run 1's roster read (before the new location exists), then run 2's (after it does).
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(rosterReadAt.minusSeconds(3600), ZoneOffset.UTC))
+                    .thenReturn(LocalDateTime.ofInstant(locationCreatedAt, ZoneOffset.UTC));
+
+            List<UserDriveTimeEntity> firstMeasurement = rowsFor(1L, 2);
+            List<UserDriveTimeEntity> secondMeasurement = rowsFor(1L, 3);
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61))
+                    .thenAnswer(invocation -> {
+                        // The location is created, and routing finishes, WHILE this call runs.
+                        clock.advanceTo(afterRoutingAt);
+                        return Optional.of(firstMeasurement);
+                    })
+                    .thenReturn(Optional.of(secondMeasurement));
+            when(driveTimeWriter.storeIfHomeUnchanged(
+                    1L, 54.97, -1.61, firstMeasurement, rosterReadAt)).thenReturn(true);
+            when(driveTimeWriter.storeIfHomeUnchanged(
+                    1L, 54.97, -1.61, secondMeasurement, afterRoutingAt)).thenReturn(true);
+
+            raceJob.run(false);
+
+            // The literal assertion that fails against 4c502fd0: the stored stamp is the
+            // roster-READ instant, never the later one the mock advanced to mid-call.
+            verify(driveTimeWriter)
+                    .storeIfHomeUnchanged(1L, 54.97, -1.61, firstMeasurement, rosterReadAt);
+
+            // Simulate persistence: the next run's findAll() would read this stamp back from the
+            // row storeIfHomeUnchanged just wrote.
+            user.setDriveTimesCalculatedAt(rosterReadAt);
+
+            raceJob.run(false);
+
+            // Picked up on run 2 — reachable only because the stored stamp (rosterReadAt) is
+            // earlier than the location (locationCreatedAt = rosterReadAt + 20s). Under 4c502fd0
+            // the stored stamp would have been afterRoutingAt (+45s), later than the location, so
+            // rosterGrewSince would read this user as already covering it and this verify fails.
+            verify(driveDurationService, times(2)).measureForUser(1L, 54.97, -1.61);
+            verify(driveTimeWriter)
+                    .storeIfHomeUnchanged(1L, 54.97, -1.61, secondMeasurement, afterRoutingAt);
+            user.setDriveTimesCalculatedAt(afterRoutingAt);
+
+            // Run 2's own fresh stamp (afterRoutingAt = rosterReadAt + 45s) is only 25 seconds
+            // past the location (locationCreatedAt = rosterReadAt + 20s) — STILL within
+            // ROSTER_VISIBILITY_MARGIN (one hour) of it. That is the margin's own documented cost
+            // (see its javadoc): one further redundant measurement before settling, not zero. So
+            // run 3 measures once more rather than staying quiet.
+            List<UserDriveTimeEntity> thirdMeasurement = rowsFor(1L, 4);
+            Instant thirdStampAt = afterRoutingAt.plus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN)
+                    .plusSeconds(60);
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61))
+                    .thenReturn(Optional.of(thirdMeasurement));
+            clock.advanceTo(thirdStampAt);
+            when(driveTimeWriter.storeIfHomeUnchanged(
+                    1L, 54.97, -1.61, thirdMeasurement, thirdStampAt)).thenReturn(true);
+
+            raceJob.run(false);
+
+            verify(driveDurationService, times(3)).measureForUser(1L, 54.97, -1.61);
+            verify(driveTimeWriter)
+                    .storeIfHomeUnchanged(1L, 54.97, -1.61, thirdMeasurement, thirdStampAt);
+
+            // A quiet following night — the fresh stamp (thirdStampAt) is now comfortably clear
+            // of ROSTER_VISIBILITY_MARGIN from the location — makes no further calls at all.
+            // findMaxCreatedAt() keeps returning locationCreatedAt (Mockito repeats the last
+            // stubbed answer), so this run sees no growth since the stamp run 3 just set.
+            user.setDriveTimesCalculatedAt(thirdStampAt);
+
+            raceJob.run(false);
+
+            verify(driveDurationService, times(3)).measureForUser(1L, 54.97, -1.61);
+            verifyNoMoreInteractions(driveTimeWriter);
         }
     }
 }

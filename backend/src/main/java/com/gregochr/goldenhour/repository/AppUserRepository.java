@@ -222,4 +222,32 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             + "WHERE u.id = :id AND u.homeLatitude = :latitude AND u.homeLongitude = :longitude")
     int stampDriveTimesIfHomeIs(@Param("id") Long id, @Param("latitude") double latitude,
             @Param("longitude") double longitude, @Param("calculatedAt") Instant calculatedAt);
+
+    /**
+     * Clears the drive-time stamp to {@code null} — but only while the home is still the one the
+     * (empty) measurement was taken from. The same compare-and-set {@link #stampDriveTimesIfHomeIs}
+     * performs, for the one case that has nothing to store:
+     * {@link com.gregochr.goldenhour.service.UserDriveTimeWriter#clearIfHomeUnchanged}'s "confirmed
+     * unreachable" answer (ORS answered; no valid duration to anywhere), where the rows are cleared
+     * alongside the stamp rather than replaced.
+     *
+     * <p>A literal {@code SET ... = NULL}, not {@link #stampDriveTimesIfHomeIs} called with a
+     * {@code null} {@code calculatedAt}. Both would very likely work — Hibernate binds a null
+     * parameter as an ordinary typed {@code NULL}, which every JDBC driver this project targets
+     * (H2, Postgres) accepts for a nullable timestamp column — but a bound null is one more thing
+     * for a driver to get right than a literal that names no type at all, on a statement executed
+     * exactly once, for exactly this reason. This method removes the question rather than relying
+     * on an answer nothing exercised before this method was added.
+     *
+     * @param id        the user's primary key
+     * @param latitude  the latitude the (empty) measurement was taken from
+     * @param longitude the longitude the (empty) measurement was taken from
+     * @return 1 if cleared; 0 if the home has moved since (or no user has that id)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.driveTimesCalculatedAt = NULL "
+            + "WHERE u.id = :id AND u.homeLatitude = :latitude AND u.homeLongitude = :longitude")
+    int clearDriveTimesCalculatedAtIfHomeIs(@Param("id") Long id, @Param("latitude") double latitude,
+            @Param("longitude") double longitude);
 }

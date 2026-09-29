@@ -282,4 +282,31 @@ class UserSettingsRowLockIntegrationTest extends IntegrationTestBase {
                 "SELECT map_tide_mode FROM app_user WHERE id = ?", String.class, id))
                 .isEqualTo("always");
     }
+
+    @Test
+    @DisplayName("clearIfHomeUnchanged deletes the rows and nulls the stamp on Postgres — proving "
+            + "the compare-and-set's literal SET ... = NULL repository method round-trips through "
+            + "the real dialect, not just H2's")
+    void clearIfHomeUnchangedDeletesRowsAndNullsStampOnPostgres() {
+        Long id = durhamReader("clear-reader");
+
+        boolean cleared = driveTimeWriter.clearIfHomeUnchanged(id, DURHAM_LAT, DURHAM_LON);
+
+        assertThat(cleared).isTrue();
+        assertThat(storedDriveTimes(id)).isZero();
+        assertThat(stamp(id)).isNull();
+    }
+
+    @Test
+    @DisplayName("clearIfHomeUnchanged writes nothing on Postgres when the home does not match — "
+            + "rows and stamp survive untouched")
+    void clearIfHomeUnchanged_homeMismatch_writesNothingOnPostgres() {
+        Long id = durhamReader("no-clear-reader");
+
+        boolean cleared = driveTimeWriter.clearIfHomeUnchanged(id, NEWCASTLE_LAT, NEWCASTLE_LON);
+
+        assertThat(cleared).isFalse();
+        assertThat(storedDriveTimes(id)).isEqualTo(2);
+        assertThat(stamp(id)).isNotNull();
+    }
 }
