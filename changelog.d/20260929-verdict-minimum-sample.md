@@ -21,7 +21,7 @@ gate, and is floored at `Confidence.LOW`. The star is never touched: `meanRating
 keep serving the rated average and maximum exactly as before, whatever the sample size — only the
 verdict word, the pick and the ranking change.
 
-**The exemption, added the same day at the owner's direction once the interaction was raised:**
+**The exemption — an owner decision dated 2026-09-29, the same day, added once the interaction was raised:**
 `ForceEvalHeadlineSelector` force-evaluates a capped handful of far-out headline candidates a night
 specifically so a clear far-out day can be crowned with real Claude evidence — a handful of forced
 ratings can never reach the sample gate's own threshold, so a gate with no exemption would have left
