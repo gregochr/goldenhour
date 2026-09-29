@@ -140,8 +140,12 @@ class BestBetFallbackServiceTest {
     }
 
     private static List<BriefingDay> daysWithRegion(BriefingRegion region) {
+        return daysWithRegions(region);
+    }
+
+    private static List<BriefingDay> daysWithRegions(BriefingRegion... regions) {
         return List.of(new BriefingDay(LocalDate.of(2026, 6, 14), List.of(
-                new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of()))));
+                new BriefingEventSummary(TargetType.SUNSET, List.of(regions), List.of()))));
     }
 
     @Test
@@ -185,5 +189,73 @@ class BestBetFallbackServiceTest {
 
         assertThat(picks).hasSize(1);
         assertThat(picks.get(0).region()).isEqualTo("Northumberland");
+    }
+
+    // ── removing a stored pick withdraws the whole set when rank 1 is the one removed
+    //    (round 11 — a Codex review of round 10's fallback fix) ──
+
+    @Test
+    @DisplayName("prior run had two picks; rank 1 now ineligible, rank 2 eligible → the fallback "
+            + "returns NO picks (withdrawn), never a lone promoted rank 2")
+    void rankOneNowIneligible_rankTwoEligible_withdrawsWholeSet() {
+        when(pickRepository.findFreshFallbackCandidates(any(), any())).thenReturn(List.of(
+                row(5L, 1, "Northumberland", NOW.minusSeconds(600)),
+                row(5L, 2, "North Yorkshire Coast", NOW.minusSeconds(600))));
+
+        List<BestBet> picks = service.findFreshFallback(daysWithRegions(
+                region("Northumberland", false),
+                region("North Yorkshire Coast", true)));
+
+        assertThat(picks).isEmpty();
+    }
+
+    @Test
+    @DisplayName("prior run had two picks; rank 1 eligible, rank 2 now ineligible → rank 1 alone, "
+            + "unchanged, still rank 1")
+    void rankOneEligible_rankTwoNowIneligible_keepsRankOneAlone() {
+        when(pickRepository.findFreshFallbackCandidates(any(), any())).thenReturn(List.of(
+                row(5L, 1, "Northumberland", NOW.minusSeconds(600)),
+                row(5L, 2, "North Yorkshire Coast", NOW.minusSeconds(600))));
+
+        List<BestBet> picks = service.findFreshFallback(daysWithRegions(
+                region("Northumberland", true),
+                region("North Yorkshire Coast", false)));
+
+        assertThat(picks).hasSize(1);
+        assertThat(picks.get(0).rank()).isEqualTo(1);
+        assertThat(picks.get(0).region()).isEqualTo("Northumberland");
+        assertThat(picks.get(0).headline()).isEqualTo("headline-1");
+    }
+
+    @Test
+    @DisplayName("prior run had two picks; both now ineligible → no picks")
+    void bothNowIneligible_noPicks() {
+        when(pickRepository.findFreshFallbackCandidates(any(), any())).thenReturn(List.of(
+                row(5L, 1, "Northumberland", NOW.minusSeconds(600)),
+                row(5L, 2, "North Yorkshire Coast", NOW.minusSeconds(600))));
+
+        List<BestBet> picks = service.findFreshFallback(daysWithRegions(
+                region("Northumberland", false),
+                region("North Yorkshire Coast", false)));
+
+        assertThat(picks).isEmpty();
+    }
+
+    @Test
+    @DisplayName("prior run had two picks; both still eligible → both returned unchanged "
+            + "(existing behaviour)")
+    void bothEligible_bothReturnedUnchanged() {
+        when(pickRepository.findFreshFallbackCandidates(any(), any())).thenReturn(List.of(
+                row(5L, 1, "Northumberland", NOW.minusSeconds(600)),
+                row(5L, 2, "North Yorkshire Coast", NOW.minusSeconds(600))));
+
+        List<BestBet> picks = service.findFreshFallback(daysWithRegions(
+                region("Northumberland", true),
+                region("North Yorkshire Coast", true)));
+
+        assertThat(picks).hasSize(2);
+        assertThat(picks).extracting(BestBet::rank).containsExactly(1, 2);
+        assertThat(picks).extracting(BestBet::region)
+                .containsExactly("Northumberland", "North Yorkshire Coast");
     }
 }

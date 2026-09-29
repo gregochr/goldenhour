@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.service.evaluation.BestBetRanker;
 
 import java.time.LocalDate;
 import java.util.HashSet;
@@ -72,9 +73,6 @@ final class BriefingHonestyFilter {
 
     /** Pill label that replaces the default {@code STAND_DOWN} label when the override fires. */
     static final String VERDICT_LABEL = "Too unsettled to forecast";
-
-    /** The top Best Bet's rank. Losing it withdraws the block; see {@link #withdrawUnsupportedBets}. */
-    private static final int RANK_TOP = 1;
 
     /** Single-line summary that replaces "Clear at N of M locations" when the override fires. */
     static final String REPLACEMENT_SUMMARY =
@@ -190,7 +188,12 @@ final class BriefingHonestyFilter {
      * top pick positionally while labelling by {@code rank}, so leaving one behind renders a lone
      * "② ALSO GOOD" card compared against itself. Promoting it instead would need its prose
      * rewritten, which cannot be done without another Claude call. Withdrawing rank 2 alone is
-     * safe and keeps rank 1.
+     * safe and keeps rank 1. ⚠️ **This is no longer this method's own rule** — round 11 generalised
+     * it onto {@link BestBetRanker#afterRemoval}, shared with {@link
+     * BestBetRanker#dropUnevaluatedPicks}, {@link BestBetRanker#dropIneligiblePicks} and {@code
+     * BestBetFallbackService}'s current-briefing eligibility re-check, after a Codex review found
+     * the fallback re-check promoting an orphaned rank 2 exactly this method was written to refuse.
+     * This method's own behaviour is unchanged; only where the rule lives moved.
      *
      * <p>{@code bestBetStatus} is deliberately untouched: setting it to {@code FAILED} would be a
      * lie about the advisor, which succeeded. An empty list leaves the client on its honest empty
@@ -213,12 +216,7 @@ final class BriefingHonestyFilter {
         List<BestBet> kept = bets.stream()
                 .filter(bet -> !namesBlankedRegion(bet, blanked))
                 .toList();
-        if (kept.size() == bets.size()) {
-            return bets;
-        }
-        boolean lostRankOne = bets.stream().anyMatch(bet -> bet.rank() == RANK_TOP)
-                && kept.stream().noneMatch(bet -> bet.rank() == RANK_TOP);
-        return lostRankOne ? List.of() : kept;
+        return BestBetRanker.afterRemoval(bets, kept);
     }
 
     /**

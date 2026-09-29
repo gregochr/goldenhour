@@ -572,6 +572,28 @@ class CloseToHomeServiceTest {
     }
 
     @Test
+    @DisplayName("a bestBets list whose LOWEST rank is 2 — the exact orphan shape round 10's "
+            + "fallback bug could have produced — never matches (round 11, item 5)")
+    void rankTwoOnlyListNeverMatches() {
+        // This shape should no longer be constructible upstream (BestBetRanker#afterRemoval and
+        // BestBetFallbackService now withdraw the whole set rather than leave a lone rank 2 when
+        // rank 1 is removed) — this test is the belt-and-braces confirmation that even if it were,
+        // matchingBestBet's own rank()==1 filter refuses to treat a rank-2-only list as a match.
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        BestBet orphanedRankTwo = new BestBet(2, "H", "D", TODAY + "_sunrise", "Durham",
+                null, null, "Today", "sunrise", "05:09", null, List.of());
+
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
+                List.of(slotAt(1L, "Alpha", 4, TODAY, 5)))), List.of(orphanedRankTwo));
+
+        CloseToHomeResponse.Window w = service.build(1L, HOME_LAT, HOME_LON).windows().get(0);
+
+        assertThat(w.sameWindowAsBestBet()).isFalse();
+        assertThat(w.bestBetRegionName()).isNull();
+    }
+
+    @Test
     @DisplayName("a STALE day label does not misfire the Best Bet flag — the join is on the date")
     void staleDayLabelDoesNotMisfireBestBetFlag() {
         // dayName is baked at briefing BUILD time. Between midnight and the next pipeline run it

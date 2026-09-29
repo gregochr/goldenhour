@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DiffersBy;
 import com.gregochr.goldenhour.repository.PipelineRunPickRepository;
+import com.gregochr.goldenhour.service.evaluation.BestBetRanker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,6 +48,21 @@ import java.util.Locale;
  *
  * <p>Pick rows exist only for {@code SUCCESS_WITH_PICKS} runs (the orchestrator's persist gate),
  * so a row's presence already implies it came from a successful run.
+ *
+ * <p>⚠️ <b>Dropping a stored pick follows the same rule every other removal site in this feature
+ * uses — {@link BestBetRanker#afterRemoval} (round 11).</b> The round-10 cut above filtered
+ * ineligible rows with a bare {@code continue}, so a run whose rank 1 went ineligible but whose
+ * rank 2 stayed eligible would serve rank 2 ALONE — a stored "Also Good", written and persisted as
+ * the runner-up to a headline that has just been dropped, rendered as the block's only pick. A
+ * Codex review of the round-10 commit caught it: rank 2's {@code headline}/{@code detail} were
+ * composed to read as a distinct alternative to rank 1 (see {@code BestBetPromptText}'s ALSO GOOD
+ * SELECTION RULE), never rewritten on promotion (nothing here calls Claude again), so it would have
+ * announced itself as "a second strong window" or "a separate opportunity" while being the only
+ * window on screen. {@link #findFreshFallback} now builds the run's FULL original pick list before
+ * filtering, and hands both the original and the filtered list to {@link
+ * BestBetRanker#afterRemoval}: losing rank 1 withdraws the whole stale set (the fallback answers
+ * with the same "no usable fallback" empty result it already uses when nothing qualifies at all);
+ * losing only rank 2 keeps rank 1, unrenumbered and untouched.
  */
 @Service
 public class BestBetFallbackService {
@@ -104,27 +120,43 @@ public class BestBetFallbackService {
         // Candidates are newest-recorded first; all rows of one run share recorded_at, so the
         // most recent run's picks sit contiguously at the front. Take exactly that run's set.
         Long runId = candidates.get(0).getPipelineRunId();
-        List<BestBet> picks = new ArrayList<>();
+        List<PipelineRunPickEntity> runRows = new ArrayList<>();
         for (PipelineRunPickEntity row : candidates) {
             if (!runId.equals(row.getPipelineRunId())) {
                 break;
             }
+            runRows.add(row);
+        }
+        // The FULL original set, before any filtering, so afterRemoval can tell whether rank 1
+        // specifically was the one dropped — a bare filter-and-continue (round 10's shape) cannot
+        // ask that question, which is how a lone, orphaned rank 2 slipped through.
+        List<BestBet> original = runRows.stream().map(row -> toBestBet(row, today)).toList();
+        List<BestBet> kept = new ArrayList<>();
+        for (PipelineRunPickEntity row : runRows) {
             if (isNowIneligible(row, currentDays)) {
                 LOG.info("[BEST-BET FALLBACK] Dropping stale pick region='{}' event='{}' — no "
                         + "longer verdict-eligible in the current briefing", row.getRegion(),
                         row.getEventId());
-                continue;
+            } else {
+                kept.add(toBestBet(row, today));
             }
-            picks.add(toBestBet(row, today));
         }
+        List<BestBet> picks = BestBetRanker.afterRemoval(original, kept);
         if (picks.isEmpty()) {
-            LOG.info("[BEST-BET FALLBACK] Every pick from run {} is now verdict-ineligible — "
-                    + "serving honest empty state instead of a stale resurrection", runId);
+            if (kept.isEmpty()) {
+                LOG.info("[BEST-BET FALLBACK] Every pick from run {} is now verdict-ineligible — "
+                        + "serving honest empty state instead of a stale resurrection", runId);
+            } else {
+                LOG.info("[BEST-BET FALLBACK] Run {}'s headline pick is now verdict-ineligible — "
+                        + "withdrawing the whole stale set rather than serving its runner-up's "
+                        + "prose, written relative to that headline, as the block's only pick",
+                        runId);
+            }
             return List.of();
         }
         LOG.info("[BEST-BET FALLBACK] Serving {} stale pick(s) from run {} (recorded {})",
                 picks.size(), runId, candidates.get(0).getRecordedAt());
-        return List.copyOf(picks);
+        return picks;
     }
 
     /**
