@@ -10,13 +10,11 @@ import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 
 /**
  * The unified survivor read model — the ONE read path the survivor-signal hot-topic detectors use.
@@ -30,119 +28,55 @@ import java.util.function.Supplier;
  * this model structurally cannot sample the triaged rejects that broke the legacy
  * {@code forecast_evaluation} reads.
  *
- * <p>⚠️ <b>A {@code forecast_score} component is evidence exactly like a {@code cached_evaluation}
- * rating, and a nightly Gate 4 stability skip retracts it the same way</b> (a Codex review of #940,
- * the day after the stability-skip retraction feature landed on the other two stores — see
- * {@code EvaluationViewService}'s "Where a rating lives" javadoc). {@code forecast_score} rows are
- * UPSERTed only when a Claude call actually happens, so a slot the pipeline later declines to
- * re-score (a stability skip) leaves its old INVERSION/BLUEBELL row standing as "the latest" with
- * nothing to mark it stale — exactly the {@code forecast_evaluation}/{@code cached_evaluation} defect
- * the earlier fix closed, one store over. {@link #read} therefore drops (never assigns to a
- * composite's {@link SurvivorSignals.Scores}) an INVERSION or BLUEBELL row whose own
- * {@link ForecastScoreEntity#getEvaluatedAt()} predates the slot's most recent stability skip,
- * via the same low-level primitive the other two stores use,
- * {@code EvaluationViewService.isRetractedByStabilitySkip} — never a second, hand-written condition.
- * {@code survivor_atmosphere} readings are untouched: they are measured or forecast atmospheric
- * INPUT (dust, surge, snow, humidity), never Claude's opinion, so a skip — which retracts an
- * evaluation the pipeline declined to redo, not a measurement — has nothing to say about them.
+ * <p>⚠️ <b>The owner's two-question rule (2026-09-29) — hot topics answer a different question from
+ * a rating, and a stability skip or a triage stand-down must never silence the first.</b> "What is
+ * happening?" is answered by hot topics and the Coming up panel. "Where is worth going?" is answered
+ * by stars, verdicts and picks — {@code cached_evaluation}, {@code forecast_evaluation},
+ * {@code GET /api/briefing}, {@code GET /api/briefing/evaluate/scores} and the map's forecast rows.
+ * A nightly Gate 4 stability skip or a weather-triage stand-down is a decision against the SECOND
+ * question, so it retracts a rating (still true, unchanged, in {@code EvaluationViewService}) but has
+ * nothing to say about the first: knowing there is snow, dust or a likely inversion is interesting on
+ * its own terms, independent of whether the pipeline currently judges anywhere worth the drive to
+ * photograph it. {@link #read} therefore applies NO retraction of any kind — it returns every
+ * {@code forecast_score} component (INVERSION, BLUEBELL) and every {@code survivor_atmosphere}
+ * reading in the window exactly as stored, whatever the pipeline has since decided about the rating
+ * for the same slot.
  *
- * <p>⚠️ <b>The skip lookup is loaded ONCE per hot-topic aggregation, never once per strategy.</b> Six
- * strategies each call {@link #read} independently for the same window, which would mean six
- * {@code loadStabilitySkips} queries per {@code GET /api/briefing} if this class simply loaded its
- * own copy every call. {@link #withStabilityWindow} is the fix: {@code HotTopicAggregator} opens one
- * window around its whole strategies pass, {@link #read} shares that one loaded map across every
- * call made from inside it (matched on the exact {@code (from, to)} pair), and the window is cleared
- * in a {@code finally} block the instant the pass ends — never a time-based cache with a staleness
- * window of its own, just call-scoped sharing with a hard, deterministic boundary. A {@link #read}
- * call made from OUTSIDE a window (this class's other caller, {@code ComingUpConditionsBuilder}, on
- * the separate "Coming up" almanac path) falls back to loading its own copy — one query, not shared,
- * and not part of the cost this rule was written to bound.
+ * <p>This reverses part of a fix (#940, commit c6e14cc8) that briefly made this class drop an
+ * INVERSION or BLUEBELL component older than its slot's latest nightly stability skip, on the theory
+ * that a {@code forecast_score} component is "evidence exactly like a rating". The owner's decision
+ * is that this was the wrong analogy for the hot-topic/Coming-up surface: those panels report
+ * conditions, not verdicts, so a component being superseded on the rating side is not a reason to
+ * silence it here. See {@code changelog.d/20260929-hot-topics-report-conditions.md} and
+ * {@code EvaluationViewService}'s own "Where a rating lives" javadoc for the (unchanged) rating-side
+ * rule this class deliberately does not apply.
+ *
+ * <p>⚠️ <b>A consequence, stated so it is not later filed as an inconsistency.</b> The bluebell hot
+ * topic ({@code BluebellHotTopicStrategy}) reads the identical BLUEBELL component
+ * {@link com.gregochr.goldenhour.model.ForecastDtoMapper} serves as the API DTO's bluebell RATING —
+ * but {@code ForecastDtoMapper} answers the second question (is this place worth going to) and keeps
+ * its own stability-skip retraction unchanged. So after a stability skip, a slot's bluebell hot-topic
+ * chip can keep showing while the same slot's DTO bluebell rating reads null. That is not a bug: the
+ * chip says bluebells are (or were) out, the rating says whether the pipeline currently judges that
+ * place worth the drive — two different questions, deliberately answered from the same underlying
+ * component by two different rules.
  */
 @Service
 public class SurvivorSignalReader {
 
     private final ForecastScoreRepository forecastScoreRepository;
     private final SurvivorAtmosphereRepository survivorAtmosphereRepository;
-    private final EvaluationViewService evaluationViewService;
-    private final ThreadLocal<StabilityWindow> stabilityWindow = new ThreadLocal<>();
-
-    /** A shared, call-scoped stability-skip load — see {@link #withStabilityWindow}. */
-    private record StabilityWindow(LocalDate from, LocalDate to, Map<String, Instant> skips) {
-    }
 
     /**
      * Constructs the reader.
      *
      * @param forecastScoreRepository      the scores half ({@code forecast_score})
      * @param survivorAtmosphereRepository the readings half ({@code survivor_atmosphere})
-     * @param evaluationViewService        source of the stability-skip lookup and its retraction
-     *                                      primitive, shared with the {@code forecast_evaluation}/
-     *                                      {@code cached_evaluation} retraction rule
      */
     public SurvivorSignalReader(ForecastScoreRepository forecastScoreRepository,
-            SurvivorAtmosphereRepository survivorAtmosphereRepository,
-            EvaluationViewService evaluationViewService) {
+            SurvivorAtmosphereRepository survivorAtmosphereRepository) {
         this.forecastScoreRepository = forecastScoreRepository;
         this.survivorAtmosphereRepository = survivorAtmosphereRepository;
-        this.evaluationViewService = evaluationViewService;
-    }
-
-    /**
-     * Opens a shared stability-skip window for the duration of {@code action}, so every
-     * {@link #read} call made from inside it — however many strategies call it, over whatever
-     * dates they each ask for within {@code [from, to]} — shares ONE {@code loadStabilitySkips}
-     * query rather than one per caller. Always cleared in a {@code finally} block, so a
-     * {@link #read} call made after {@code action} returns (or from an unrelated concurrent
-     * request on another thread — this is thread-local, not a shared mutable field) never sees a
-     * stale window.
-     *
-     * @param from   first evaluation date the window covers (inclusive)
-     * @param to     last evaluation date the window covers (inclusive)
-     * @param action the strategies pass to run inside the window
-     * @param <T>    the action's return type
-     * @return whatever {@code action} returns
-     */
-    public <T> T withStabilityWindow(LocalDate from, LocalDate to, Supplier<T> action) {
-        stabilityWindow.set(new StabilityWindow(from, to, evaluationViewService.loadStabilitySkips(from, to)));
-        try {
-            return action.get();
-        } finally {
-            stabilityWindow.remove();
-        }
-    }
-
-    /**
-     * Resolves the stability-skip map for a {@link #read} call: the shared window's map when one is
-     * open and covers exactly this {@code (from, to)} pair, otherwise a fresh, unshared load.
-     *
-     * @param from first evaluation date (inclusive)
-     * @param to   last evaluation date (inclusive)
-     * @return {@code "locationName|date|targetType"} to that slot's most recent stability-skip instant
-     */
-    private Map<String, Instant> resolveStabilitySkips(LocalDate from, LocalDate to) {
-        StabilityWindow window = stabilityWindow.get();
-        if (window != null && window.from().equals(from) && window.to().equals(to)) {
-            return window.skips();
-        }
-        return evaluationViewService.loadStabilitySkips(from, to);
-    }
-
-    /**
-     * Whether a {@code forecast_score} component row must be treated as absent because a nightly
-     * Gate 4 stability skip stands against its slot and postdates it.
-     *
-     * @param row             the component row (INVERSION or BLUEBELL)
-     * @param stabilitySkips  the resolved stability-skip map for the read's window
-     * @return true if the row predates its slot's most recent stability skip
-     */
-    private static boolean isComponentRetracted(
-            ForecastScoreEntity row, Map<String, Instant> stabilitySkips) {
-        if (stabilitySkips.isEmpty() || row.getLocation() == null) {
-            return false;
-        }
-        Instant latestSkip = stabilitySkips.get(EvaluationViewService.stabilitySkipKey(
-                row.getLocation().getName(), row.getEvaluationDate(), row.getEventType()));
-        return EvaluationViewService.isRetractedByStabilitySkip(row.getEvaluatedAt(), latestSkip);
     }
 
     /**
@@ -150,25 +84,20 @@ public class SurvivorSignalReader {
      * present for any key that has at least one score or reading; absent signals are left null in
      * their sub-record. The list is in no guaranteed order — detectors group/sort as they need.
      *
-     * <p>An INVERSION or BLUEBELL row superseded by a nightly Gate 4 stability skip against its own
-     * slot (see the class javadoc) is treated as though it were never written — its score never
-     * reaches a composite's {@link SurvivorSignals.Scores}, exactly as a retracted
-     * {@code cached_evaluation}/{@code forecast_evaluation} rating reads as never-rated on the Plan
-     * and map surfaces. A {@code survivor_atmosphere} reading is never retracted this way.
+     * <p>No retraction of any kind is applied here — see the class javadoc. Every INVERSION and
+     * BLUEBELL {@code forecast_score} row and every {@code survivor_atmosphere} reading in the
+     * window is returned exactly as stored, whatever a later nightly stability skip or triage
+     * stand-down has since decided about the RATING for the same slot.
      *
      * @param from inclusive start date
      * @param to   inclusive end date
      * @return one composite per survivor {@code (location, date, event_type)} in the window
      */
     public List<SurvivorSignals> read(LocalDate from, LocalDate to) {
-        Map<String, Instant> stabilitySkips = resolveStabilitySkips(from, to);
         Map<String, Accumulator> byKey = new LinkedHashMap<>();
 
         for (ForecastScoreEntity s : forecastScoreRepository.findComponentsByType(
                 ForecastType.INVERSION.getId(), from, to)) {
-            if (isComponentRetracted(s, stabilitySkips)) {
-                continue;
-            }
             Accumulator acc = accumulatorFor(
                     byKey, s.getLocation(), s.getEvaluationDate(), s.getEventType());
             acc.inversion = s.getScore();
@@ -178,9 +107,6 @@ public class SurvivorSignalReader {
         }
         for (ForecastScoreEntity s : forecastScoreRepository.findComponentsByType(
                 ForecastType.BLUEBELL.getId(), from, to)) {
-            if (isComponentRetracted(s, stabilitySkips)) {
-                continue;
-            }
             Accumulator acc = accumulatorFor(
                     byKey, s.getLocation(), s.getEvaluationDate(), s.getEventType());
             acc.bluebell = s.getScore();

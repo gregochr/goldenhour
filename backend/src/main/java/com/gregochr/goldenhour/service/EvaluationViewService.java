@@ -86,28 +86,31 @@ import java.util.stream.Collectors;
  * {@code ForecastController}'s raw-row filter all call it, so the three cannot disagree about the
  * same slot the way the class's other retellings of this warning describe them once having done.
  *
- * <p>⚠️ <b>A {@code forecast_score} component is evidence exactly like a rating, and reaches this
- * class's two low-level primitives directly rather than through {@link #isSlotRetracted} itself.</b>
- * A third Codex review of #940 found this class's rule had stopped one store short:
- * {@code forecast_score} (the normalised INVERSION/BLUEBELL component rows, V108) is read by
- * {@code SurvivorSignalReader} (all six survivor-signal hot-topic strategies) and
- * {@code ForecastDtoMapper} (the API DTO's Claude BLUEBELL rating), and both used to serve a
- * component a nightly Gate 4 stability skip had already superseded — the map and the Plan hot-topic
- * chips going on citing a rating the pipeline had moved past. {@code forecast_score} has no sibling
- * store the way {@code cached_evaluation}/{@code forecast_evaluation} do (a component row is written
- * ONLY when a Claude call actually happens, never a placeholder), so its retraction question is
- * simpler than {@link #isSlotRetracted}'s — "is this one row's own evaluated-at older than the skip"
- * — rather than "does ANY live evidence across two stores survive it". Both readers therefore call
- * {@link #isRetractedByStabilitySkip} directly against the component's own {@code evaluatedAt}, keyed
- * by {@link #stabilitySkipKey} (now public for exactly this reuse) against a {@link #loadStabilitySkips}
- * map each loads itself — never a second, hand-written staleness condition. See
- * {@code SurvivorSignalReader}'s own javadoc for how it shares ONE such load across all six
- * strategies' calls in one hot-topic aggregation, and {@code ForecastDtoMapper}'s for its bulk/
- * single-row split. ⚠️ <b>Not the same gap as a stale forecast_score row hidden behind a newer
- * TRIAGE row</b> (as opposed to a stability skip) — {@code forecast_score} has no mechanism at all to
- * detect that case (no fresh row is ever written for a triage stand-down the way
- * {@code forecast_evaluation} always gets one), so it remains a known, unaddressed gap, narrower in
- * cause but not fixed by this change; recorded here rather than filed as a surprise later.
+ * <p>⚠️ <b>A {@code forecast_score} component read as a RATING is evidence exactly like a
+ * {@code cached_evaluation} rating, and reaches this class's two low-level primitives directly
+ * rather than through {@link #isSlotRetracted} itself.</b> {@code forecast_score} (the normalised
+ * INVERSION/BLUEBELL component rows, V108) has exactly one such reader: {@code ForecastDtoMapper}
+ * (the API DTO's Claude BLUEBELL rating). It calls {@link #isRetractedByStabilitySkip} directly
+ * against the component's own {@code evaluatedAt}, keyed by {@link #stabilitySkipKey} (public for
+ * exactly this reuse) against a {@link #loadStabilitySkips} map it loads itself — never a second,
+ * hand-written staleness condition. {@code forecast_score} has no sibling store the way
+ * {@code cached_evaluation}/{@code forecast_evaluation} do (a component row is written ONLY when a
+ * Claude call actually happens, never a placeholder), so its retraction question is simpler than
+ * {@link #isSlotRetracted}'s — "is this one row's own evaluated-at older than the skip" — rather
+ * than "does ANY live evidence across two stores survive it".
+ *
+ * <p>⚠️ <b>{@code SurvivorSignalReader} — the read path for all six survivor-signal hot-topic
+ * strategies and the "Coming up" almanac's dust/inversion conditions — deliberately does NOT apply
+ * this rule.</b> A 2026-09-29 owner decision drew a line between two questions: "what is happening"
+ * (hot topics, Coming up) and "where is worth going" (ratings, verdicts, picks — everything this
+ * class serves). A stability skip or a triage stand-down answers only the second question, so it
+ * must never silence the first. Between #940 landing and this decision, {@code SurvivorSignalReader}
+ * briefly applied the identical retraction this javadoc describes for {@code ForecastDtoMapper} (see
+ * commit c6e14cc8); that was reversed, not merely left unfinished — see
+ * {@code SurvivorSignalReader}'s own class javadoc and
+ * {@code changelog.d/20260929-hot-topics-report-conditions.md}. A stale forecast_score row hidden
+ * behind a newer TRIAGE row (as opposed to a stability skip) therefore is not a gap on the hot-topic
+ * path at all — nothing there is retracted by either mechanism, by design.
  */
 @Service
 public class EvaluationViewService {
@@ -204,10 +207,12 @@ public class EvaluationViewService {
      * {@link #resolveForEnrichment} agree on — location name (never id: the disposition table and
      * {@code cached_evaluation} are both keyed by name), evaluation date, event type name.
      *
-     * <p>Public so a third store's reader — {@code SurvivorSignalReader} (the {@code forecast_score}
-     * component rows) and {@code ForecastDtoMapper} (its own {@code forecast_score} BLUEBELL lookup)
-     * — can look a slot's skip up in a {@link #loadStabilitySkips} map with the exact same key shape,
-     * rather than hand-rolling the format and risking it drifting from this one.
+     * <p>Public so a third store's reader — {@code ForecastDtoMapper} (its own {@code forecast_score}
+     * BLUEBELL lookup, the API DTO's rating) — can look a slot's skip up in a
+     * {@link #loadStabilitySkips} map with the exact same key shape, rather than hand-rolling the
+     * format and risking it drifting from this one. {@code SurvivorSignalReader} (the hot-topic read
+     * path) deliberately does not use this — see its own class javadoc for the owner's two-question
+     * rule.
      *
      * @param locationName the location name
      * @param date         the evaluation date

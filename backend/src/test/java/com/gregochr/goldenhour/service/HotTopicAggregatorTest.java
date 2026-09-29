@@ -1,6 +1,13 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.ForecastScoreEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
+import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -8,12 +15,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -24,10 +30,12 @@ import static org.mockito.Mockito.mock;
 /**
  * Unit tests for {@link HotTopicAggregator}.
  *
- * <p>{@code survivorSignalReader} is stubbed leniently to run the strategies pass straight through
- * {@code withStabilityWindow}, since most tests here are about collect/filter/sort behaviour, not
- * the stability-skip window itself — the simulation-enabled tests never touch it at all (the
- * branch that opens the window is skipped entirely), which is exactly why the stub is lenient.
+ * <p>⚠️ Between #940 landing (commit c6e14cc8) and the owner's two-question rule (2026-09-29,
+ * see {@code SurvivorSignalReader}'s class javadoc), this aggregator opened a shared
+ * {@code SurvivorSignalReader.withStabilityWindow} around the whole strategies pass. That
+ * dependency is gone entirely — this class no longer holds a {@code SurvivorSignalReader}
+ * reference at all, and {@link #getHotTopics_aggregationIssuesNoStabilityOrDispositionQuery}
+ * below proves it end to end through real strategies.
  */
 @ExtendWith(MockitoExtension.class)
 class HotTopicAggregatorTest {
@@ -38,7 +46,6 @@ class HotTopicAggregatorTest {
     private HotTopicSimulationService simulationService;
     private final TravelDayService travelDayService = mock(TravelDayService.class);
     private final HotTopicEventEnricher eventEnricher = mock(HotTopicEventEnricher.class);
-    private final SurvivorSignalReader survivorSignalReader = mock(SurvivorSignalReader.class);
 
     @BeforeEach
     void setUp() {
@@ -46,18 +53,13 @@ class HotTopicAggregatorTest {
         // Passthrough — the enrichment of event type/time is exercised in its own test; here we
         // assert the aggregator's collect/filter/sort behaviour on the topics unchanged.
         when(eventEnricher.enrich(anyList())).thenAnswer(inv -> inv.getArgument(0));
-        // Passthrough — runs the strategies pass with no shared-window behaviour under test here;
-        // SurvivorSignalReaderTest and HotTopicAggregator's own stability-skip integration test
-        // (below) cover the window's actual sharing.
-        lenient().when(survivorSignalReader.withStabilityWindow(any(), any(), any()))
-                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(2)).get());
     }
 
     @Test
     @DisplayName("empty detector list returns empty topics")
     void getHotTopics_noDetectors_returnsEmpty() {
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(), simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                List.of(), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -76,7 +78,7 @@ class HotTopicAggregatorTest {
         HotTopicStrategy strategy2 = (from, to) -> List.of(topic2);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy1, strategy2),
-                simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -95,7 +97,7 @@ class HotTopicAggregatorTest {
 
         HotTopicStrategy strategy = (from, to) -> List.of(away, workable);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy),
-                simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -111,7 +113,7 @@ class HotTopicAggregatorTest {
 
         HotTopicStrategy strategy = (from, to) -> List.of(lowPriority, medPriorityLaterDate, highPriority);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy), simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                List.of(strategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -125,7 +127,7 @@ class HotTopicAggregatorTest {
     void getHotTopics_detectorReturnsEmpty_noError() {
         HotTopicStrategy emptyStrategy = (from, to) -> List.of();
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(emptyStrategy), simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                List.of(emptyStrategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -143,7 +145,7 @@ class HotTopicAggregatorTest {
         };
 
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(neverCalledStrategy), simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                List.of(neverCalledStrategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -159,7 +161,7 @@ class HotTopicAggregatorTest {
         HotTopic realTopic = new HotTopic("SPRING_TIDE", "Spring tide", "real", FROM, 1, null, List.of(), null, null);
         HotTopicStrategy strategy = (from, to) -> List.of(realTopic);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy), simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                List.of(strategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -180,7 +182,7 @@ class HotTopicAggregatorTest {
         when(mockStrategy1.detect(FROM, TO)).thenReturn(List.of());
         when(mockStrategy2.detect(FROM, TO)).thenReturn(List.of());
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(mockStrategy1, mockStrategy2),
-                simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                simulationService, travelDayService, eventEnricher);
 
         aggregator.getHotTopics(FROM, TO);
 
@@ -194,41 +196,72 @@ class HotTopicAggregatorTest {
         simulationService.setEnabled(true);
         simulationService.setTypeActive("BLUEBELL", true);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher, survivorSignalReader);
+                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher);
 
         aggregator.getHotTopics(FROM, TO);
 
         verifyNoInteractions(mockStrategy1);
     }
 
+    // ── Owner decision (2026-09-29): no stability-skip or disposition query on this path ────
+
+    @Mock
+    private ForecastScoreRepository forecastScoreRepository;
+    @Mock
+    private SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    @Mock
+    private ForecastRunDispositionRepository forecastRunDispositionRepository;
+
+    /**
+     * Proves the count from the brief directly, through a real strategy and a real
+     * {@link SurvivorSignalReader} — not a mock standing in for the claim. Before 2026-09-29 this
+     * same shape of pass opened one shared {@code loadStabilitySkips} query (backed by
+     * {@link ForecastRunDispositionRepository#findLatestStabilitySkipTimestamps}); now
+     * {@code SurvivorSignalReader}'s only two collaborators are {@link ForecastScoreRepository} and
+     * {@link SurvivorAtmosphereRepository}, and {@code HotTopicAggregator} itself holds neither an
+     * {@code EvaluationViewService} nor a {@code SurvivorSignalReader} reference — so the
+     * disposition repository, mocked here exactly as production wires it to other beans (e.g.
+     * {@code EvaluationViewService} for the rating-retraction path this test does not exercise), is
+     * verified to receive ZERO interactions across a full real aggregation.
+     */
     @Test
-    @DisplayName("the whole strategies pass runs inside ONE withStabilityWindow call for the exact "
-            + "requested range — never once per strategy (Codex review of #940)")
-    void getHotTopics_opensOneSharedStabilityWindowForTheWholePass() {
-        when(mockStrategy1.detect(FROM, TO)).thenReturn(List.of());
-        when(mockStrategy2.detect(FROM, TO)).thenReturn(List.of());
+    @DisplayName("one hot-topic aggregation issues no stability-skip or disposition query at all — "
+            + "the repository behind that lookup is never touched, proven through a real strategy "
+            + "and a real SurvivorSignalReader (owner decision, 2026-09-29)")
+    void getHotTopics_aggregationIssuesNoStabilityOrDispositionQuery() {
+        LocationEntity fell = new LocationEntity();
+        fell.setId(1L);
+        fell.setName("Great Gable");
+        ForecastScoreEntity strongInversion = new ForecastScoreEntity();
+        strongInversion.setForecastType(ForecastType.INVERSION);
+        strongInversion.setLocation(fell);
+        strongInversion.setEvaluationDate(FROM);
+        strongInversion.setEventType(TargetType.SUNRISE);
+        strongInversion.setScore(9);
+        strongInversion.setSummary("STRONG");
+        strongInversion.setEvaluatedAt(Instant.parse("2026-04-25T05:00:00Z"));
+        lenient().when(forecastScoreRepository.findComponentsByType(
+                        ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of(strongInversion));
+        lenient().when(forecastScoreRepository.findComponentsByType(
+                        ForecastType.BLUEBELL.getId(), FROM, TO))
+                .thenReturn(List.of());
+        lenient().when(survivorAtmosphereRepository.findInDateRange(FROM, TO)).thenReturn(List.of());
+
+        SolarEventFreshness freshness = mock(SolarEventFreshness.class);
+        lenient().when(freshness.isAhead(fell, FROM, TargetType.SUNRISE)).thenReturn(true);
+        SurvivorSignalReader realReader =
+                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
+        InversionHotTopicStrategy realInversionStrategy =
+                new InversionHotTopicStrategy(realReader, freshness);
+
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1, mockStrategy2), simulationService, travelDayService,
-                eventEnricher, survivorSignalReader);
+                List.of(realInversionStrategy), simulationService, travelDayService, eventEnricher);
 
-        aggregator.getHotTopics(FROM, TO);
+        List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
-        verify(survivorSignalReader, org.mockito.Mockito.times(1))
-                .withStabilityWindow(org.mockito.ArgumentMatchers.eq(FROM),
-                        org.mockito.ArgumentMatchers.eq(TO), any());
-    }
-
-    @Test
-    @DisplayName("simulation enabled — no stability window is opened at all, since no strategy runs")
-    void getHotTopics_simulationEnabled_noStabilityWindowOpened() {
-        simulationService.setEnabled(true);
-        simulationService.setTypeActive("BLUEBELL", true);
-        HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher,
-                survivorSignalReader);
-
-        aggregator.getHotTopics(FROM, TO);
-
-        verifyNoInteractions(survivorSignalReader);
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("INVERSION");
+        verifyNoInteractions(forecastRunDispositionRepository);
     }
 }
