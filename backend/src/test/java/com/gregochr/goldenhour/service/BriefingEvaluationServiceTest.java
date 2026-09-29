@@ -610,32 +610,45 @@ class BriefingEvaluationServiceTest {
         }
 
         @Test
-        @DisplayName("forced sky from cycle N + ordinary bluebell arriving in cycle N+1 → the "
-                + "later ordinary write ENDS the exemption")
+        @DisplayName("forced sky from cycle N + ordinary bluebell arriving in cycle N+1 → NOT "
+                + "combined (a genuine cross-cycle mismatch) — the bluebell stands alone, unforced")
         void recombineBluebell_forcedSkyCycleN_ordinaryBluebellCycleNPlus1_exemptionEnds() {
-            // existing = the cache's prior sky entry, forced when it was written in an earlier
-            // cycle; bluebell = the just-arrived, ordinary result from a LATER cycle. The newer
-            // write's mark must win — an ordinary evaluation now exists for this candidate, so the
-            // force-evaluation exemption (a stand-in for evidence Gate 4 would otherwise have
-            // starved THIS cycle) no longer applies.
+            // Round 12: cross-cycle is now told apart by submittedAt, not by argument position —
+            // this test predates that mechanism and originally carried no timestamps at all (both
+            // null read as "same cycle, unknown" and combined via OR, which happened to still
+            // clear the exemption here only by coincidence — a sibling case broke exactly this
+            // way, see BriefingEvaluationResultTest). Real, differing instants now encode what the
+            // test's name always claimed: existing = the cache's prior sky entry, forced when it
+            // was written in an earlier cycle; bluebell = the just-arrived, ordinary result from a
+            // LATER, genuinely different cycle. A cross-cycle bluebell is not combined with the
+            // older sky entry at all (see recombineBluebell's own javadoc) — it stands alone,
+            // unforced, which is the same end result the exemption-ending story described, reached
+            // by the correct mechanism.
+            Instant cycleN = Instant.parse("2026-03-30T01:05:00Z");
+            Instant cycleNPlus1 = Instant.parse("2026-03-30T14:04:00Z");
             BriefingEvaluationResult forcedSkyFromEarlierCycle =
-                    new BriefingEvaluationResult("X", 3, 60, 55, "sky").withForced(true);
+                    new BriefingEvaluationResult("X", 3, 60, 55, "sky").withForced(true)
+                            .withSubmittedAt(cycleN);
             BriefingEvaluationResult ordinaryBluebellThisCycle =
-                    new BriefingEvaluationResult("X", 4, null, null, "bb", null, null, null);
+                    new BriefingEvaluationResult("X", 4, null, null, "bb", null, null, null)
+                            .withSubmittedAt(cycleNPlus1);
             assertThat(service.recombineBluebell(
                     forcedSkyFromEarlierCycle, ordinaryBluebellThisCycle, BluebellExposure.OPEN_FELL)
                     .forced()).isFalse();
         }
 
         @Test
-        @DisplayName("ordinary sky from cycle N + forced bluebell arriving in cycle N+1 → the "
-                + "later forced write carries the combination")
+        @DisplayName("ordinary sky from cycle N + forced bluebell arriving in cycle N+1 → NOT "
+                + "combined (a genuine cross-cycle mismatch) — the bluebell stands alone, forced")
         void recombineBluebell_ordinarySkyCycleN_forcedBluebellCycleNPlus1_combinedIsForced() {
+            // Real, differing instants — see the sibling test's comment above for why.
+            Instant cycleN = Instant.parse("2026-03-30T01:05:00Z");
+            Instant cycleNPlus1 = Instant.parse("2026-03-30T14:04:00Z");
             BriefingEvaluationResult ordinarySkyFromEarlierCycle =
-                    new BriefingEvaluationResult("X", 3, 60, 55, "sky");
+                    new BriefingEvaluationResult("X", 3, 60, 55, "sky").withSubmittedAt(cycleN);
             BriefingEvaluationResult forcedBluebellThisCycle =
                     new BriefingEvaluationResult("X", 4, null, null, "bb", null, null, null)
-                            .withForced(true);
+                            .withForced(true).withSubmittedAt(cycleNPlus1);
             assertThat(service.recombineBluebell(
                     ordinarySkyFromEarlierCycle, forcedBluebellThisCycle, BluebellExposure.OPEN_FELL)
                     .forced()).isTrue();
@@ -675,6 +688,215 @@ class BriefingEvaluationServiceTest {
 
             assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)
                     .get("Bluebell Wood").evaluatedAt()).isNotNull();
+        }
+    }
+
+    // ── submission order decides writes and combination, never arrival order (round 12) ──
+
+    @Nested
+    @DisplayName("every cached_evaluation write compares SUBMISSION order, never ARRIVAL order")
+    class SubmissionOrderStaleness {
+
+        private final String cacheKey = REGION + "|" + DATE + "|SUNSET";
+
+        // Nightly ~01:05, intraday ~14:04 — the two real cycles this class's own javadoc names.
+        private static final Instant NIGHTLY = Instant.parse("2026-03-30T01:05:00Z");
+        private static final Instant INTRADAY = Instant.parse("2026-03-30T14:04:00Z");
+
+        private static BriefingEvaluationResult sky(String location, int rating, boolean forced,
+                Instant submittedAt) {
+            BriefingEvaluationResult r = new BriefingEvaluationResult(
+                    location, rating, 70, 65, "sky-" + rating).withSubmittedAt(submittedAt);
+            return forced ? r.withForced(true) : r;
+        }
+
+        private static BriefingEvaluationResult bluebell(String location, int rating,
+                boolean forced, Instant submittedAt) {
+            BriefingEvaluationResult r = new BriefingEvaluationResult(
+                    location, rating, null, null, "bb-" + rating, null, null, null)
+                    .withSubmittedAt(submittedAt);
+            return forced ? r.withForced(true) : r;
+        }
+
+        @Test
+        @DisplayName("Codex's case: forced bluebell submitted at the nightly cycle, ordinary sky "
+                + "submitted at the later intraday cycle, sky arrives first, bluebell arrives "
+                + "second — the stored result is the sky result alone, NOT forced, and the region "
+                + "gets no exemption — must fail against 9761f365")
+        void forcedBluebellFromOlderCycle_rejectedAsStaleAfterNewerSkyArrives() {
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 3, false, INTRADAY)));
+            service.mergeBluebellFromBatch(cacheKey,
+                    List.of(bluebell("X", 5, true, NIGHTLY)),
+                    Map.of("X", BluebellExposure.OPEN_FELL));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored.rating()).isEqualTo(3);
+            assertThat(stored.forced()).isFalse();
+            assertThat(stored.summary()).isEqualTo("sky-3");
+        }
+
+        @Test
+        @DisplayName("the mirror: ordinary bluebell submitted at the nightly cycle, forced sky "
+                + "submitted at the intraday cycle, sky arrives first — the stored result is the "
+                + "forced sky result; the late bluebell is rejected as stale")
+        void ordinaryBluebellFromOlderCycle_rejectedAsStaleAfterForcedSkyArrives() {
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 4, true, INTRADAY)));
+            service.mergeBluebellFromBatch(cacheKey,
+                    List.of(bluebell("X", 2, false, NIGHTLY)),
+                    Map.of("X", BluebellExposure.OPEN_FELL));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored.rating()).isEqualTo(4);
+            assertThat(stored.forced()).isTrue();
+            assertThat(stored.summary()).isEqualTo("sky-4");
+        }
+
+        @Test
+        @DisplayName("same-cycle pair (equal submittedAt): combined, forced because the BLUEBELL "
+                + "half is, and the combined result carries the shared cycle's instant")
+        void sameCycle_forcedBluebell_combinedAndForced() {
+            BriefingEvaluationResult combined = service.recombineBluebell(
+                    sky("X", 3, false, NIGHTLY), bluebell("X", 5, true, NIGHTLY),
+                    BluebellExposure.OPEN_FELL);
+            assertThat(combined.rating()).isEqualTo(4); // avg(3, 5) = 4
+            assertThat(combined.forced()).isTrue();
+            assertThat(combined.submittedAt()).isEqualTo(NIGHTLY);
+        }
+
+        @Test
+        @DisplayName("same-cycle pair (equal submittedAt): combined, forced because the SKY half "
+                + "is — either half forces the combination, matching the mirror case above")
+        void sameCycle_forcedSky_combinedAndForced() {
+            BriefingEvaluationResult combined = service.recombineBluebell(
+                    sky("X", 3, true, NIGHTLY), bluebell("X", 5, false, NIGHTLY),
+                    BluebellExposure.OPEN_FELL);
+            assertThat(combined.rating()).isEqualTo(4);
+            assertThat(combined.forced()).isTrue();
+            assertThat(combined.submittedAt()).isEqualTo(NIGHTLY);
+        }
+
+        @Test
+        @DisplayName("newer-but-different-cycle bluebell does not combine with an older sky entry "
+                + "— it stands alone, exactly the pre-existing race, until its own cycle's sky "
+                + "arrives")
+        void differentCycle_newerBluebell_standsAloneNotCombined() {
+            BriefingEvaluationResult combined = service.recombineBluebell(
+                    sky("X", 3, true, NIGHTLY), bluebell("X", 5, false, INTRADAY),
+                    BluebellExposure.OPEN_FELL);
+            // Not stale (INTRADAY > NIGHTLY) so it IS written — but not combined: no averaging,
+            // no sky narrative, bluebell stands exactly as it arrived.
+            assertThat(combined.rating()).isEqualTo(5);
+            assertThat(combined.summary()).isEqualTo("bb-5");
+            assertThat(combined.forced()).isFalse();
+        }
+
+        @Test
+        @DisplayName("the wider defect, pinned generally: a late ORDINARY sky result from an "
+                + "older cycle arriving after a newer sky result is rejected — the newer RATING "
+                + "is kept, not merely the newer forced mark")
+        void lateOlderOrdinarySkyResult_rejectedAfterNewerSkyResult_ratingProtected() {
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 4, false, INTRADAY)));
+            // A delayed nightly-cycle batch, carrying a worse rating, finally completes.
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 1, false, NIGHTLY)));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored.rating()).isEqualTo(4);
+            assertThat(stored.summary()).isEqualTo("sky-4");
+        }
+
+        @Test
+        @DisplayName("the same for woodland: a late older-cycle woodland result is rejected after "
+                + "a newer one has already landed")
+        void lateOlderWoodlandResult_rejectedAfterNewerWoodlandResult() {
+            BriefingEvaluationResult newerWoodland = new BriefingEvaluationResult(
+                    "Bluebell Wood", 4, null, null, "newer", null, null, null)
+                    .withSubmittedAt(INTRADAY);
+            BriefingEvaluationResult olderWoodland = new BriefingEvaluationResult(
+                    "Bluebell Wood", 1, null, null, "older", null, null, null)
+                    .withSubmittedAt(NIGHTLY);
+
+            service.mergeWoodlandFromBatch(cacheKey, List.of(newerWoodland));
+            service.mergeWoodlandFromBatch(cacheKey, List.of(olderWoodland));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("Bluebell Wood");
+            assertThat(stored.rating()).isEqualTo(4);
+            assertThat(stored.summary()).isEqualTo("newer");
+        }
+
+        @Test
+        @DisplayName("the same for a bluebell-only (WOODLAND-exposure) site: a late older-cycle "
+                + "bluebell result is rejected after a newer one has already landed")
+        void lateOlderBluebellOnlyResult_rejectedAfterNewerBluebellOnlyResult() {
+            service.mergeBluebellFromBatch(cacheKey,
+                    List.of(bluebell("Bluebell Wood", 4, false, INTRADAY)),
+                    Map.of("Bluebell Wood", BluebellExposure.WOODLAND));
+            service.mergeBluebellFromBatch(cacheKey,
+                    List.of(bluebell("Bluebell Wood", 1, false, NIGHTLY)),
+                    Map.of("Bluebell Wood", BluebellExposure.WOODLAND));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("Bluebell Wood");
+            assertThat(stored.rating()).isEqualTo(4);
+            assertThat(stored.summary()).isEqualTo("bb-4");
+        }
+
+        @Test
+        @DisplayName("a synchronous result written after an older batch was submitted but before "
+                + "it completed, then the batch completes late — the sync result wins, because "
+                + "its SUBMISSION instant (when the admin pressed the button) is newer, whatever "
+                + "order the two calls actually landed in")
+        void syncResultNewerThanPendingBatch_winsWhenBatchLateArrives() {
+            // The batch was SUBMITTED first (NIGHTLY) but is slow; an admin's hand-started sync
+            // evaluation is submitted and completes immediately at INTRADAY, well before the
+            // slow batch's own result eventually arrives.
+            BriefingEvaluationResult syncResult = sky("X", 5, false, INTRADAY);
+            service.mergeFromBatch(cacheKey, List.of(syncResult));
+
+            // The slow batch, submitted BEFORE the sync call, only now completes and arrives.
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 2, false, NIGHTLY)));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored.rating()).isEqualTo(5);
+            assertThat(stored.summary()).isEqualTo("sky-5");
+        }
+
+        @Test
+        @DisplayName("legacy stored row with no submission instant: the incoming result always "
+                + "wins, whatever its own submittedAt")
+        void legacyStoredRowWithNoSubmittedAt_incomingWins() {
+            BriefingEvaluationResult legacyStored =
+                    new BriefingEvaluationResult("X", 2, 40, 35, "legacy");
+            service.mergeFromBatch(cacheKey, List.of(legacyStored));
+
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 4, false, NIGHTLY)));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored.rating()).isEqualTo(4);
+            assertThat(stored.summary()).isEqualTo("sky-4");
+        }
+
+        @Test
+        @DisplayName("incoming result with no submission instant: treated as today's behaviour — "
+                + "it still wins over an older stored result with a known instant")
+        void incomingWithNoSubmittedAt_stillWinsOverStoredWithKnownInstant() {
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 2, false, NIGHTLY)));
+
+            // A fixture or a not-yet-migrated writer producing a result with no submittedAt at
+            // all — treated as "unknown, no comparison possible", the pre-round-12 behaviour.
+            BriefingEvaluationResult noInstant =
+                    new BriefingEvaluationResult("X", 4, 70, 65, "no-instant");
+            service.mergeFromBatch(cacheKey, List.of(noInstant));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored.rating()).isEqualTo(4);
+            assertThat(stored.summary()).isEqualTo("no-instant");
         }
     }
 

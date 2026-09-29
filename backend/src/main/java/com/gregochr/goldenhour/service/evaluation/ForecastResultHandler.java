@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -225,7 +226,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             BriefingEvaluationResult result = buildResult(
                     location, eval, parsed.date(), parsed.targetType(), regionName, modelName,
                     context != null ? context.pipelineRunId() : null,
-                    parsed.evalRowId(), outcome.model(), parsed.forced());
+                    parsed.evalRowId(), outcome.model(), parsed.forced(),
+                    context != null ? context.submissionInstant() : null);
 
             if (parsed0.usedRegexFallback()) {
                 // Strict JSON parse failed and the regex fallback recovered the result (possibly
@@ -295,7 +297,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildBluebellResult(
                     location, bluebell, parsed.date(), parsed.targetType(), regionName, modelName,
-                    context != null ? context.pipelineRunId() : null, parsed.forced());
+                    context != null ? context.pipelineRunId() : null, parsed.forced(),
+                    context != null ? context.submissionInstant() : null);
             persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
                     outcome.model(), null, outcome.rawText());
             return Optional.of(new BatchSuccess(cacheKey, result));
@@ -415,7 +418,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildWoodlandResult(
                     location, woodland, parsed.date(), parsed.targetType(), regionName, modelName,
-                    context != null ? context.pipelineRunId() : null, parsed.forced());
+                    context != null ? context.pipelineRunId() : null, parsed.forced(),
+                    context != null ? context.submissionInstant() : null);
             persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
                     outcome.model(), null, outcome.rawText());
             return Optional.of(new BatchSuccess(cacheKey, result));
@@ -444,7 +448,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      */
     private BriefingEvaluationResult buildWoodlandResult(LocationEntity location,
             WoodlandEvaluation woodland, LocalDate date, TargetType targetType, String regionName,
-            String modelName, Long pipelineRunId, boolean forced) {
+            String modelName, Long pipelineRunId, boolean forced, Instant submittedAt) {
         RatingCombiner.CombinedRating combined = ratingCombiner.combine(
                 location, new VisitorContext(null, null, null, woodland));
         Integer safeRating = RatingValidator.validateRating(
@@ -466,7 +470,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         BriefingEvaluationResult result = new BriefingEvaluationResult(
                 location.getName(), safeRating, null, null, woodland.summary(),
                 null, null, woodland.headline());
-        return forced ? result.withForced(true) : result;
+        BriefingEvaluationResult stamped = result.withSubmittedAt(submittedAt);
+        return forced ? stamped.withForced(true) : stamped;
     }
 
     @Override
@@ -499,7 +504,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                 task.location(), eval, task.date(), task.targetType(),
                 regionName, task.model().name(),
                 context != null ? context.pipelineRunId() : null,
-                task.evalRowId(), task.model(), task.forced());
+                task.evalRowId(), task.model(), task.forced(),
+                context != null ? context.submissionInstant() : null);
 
         persistSyncLog(context, outcome, task);
         if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
@@ -554,11 +560,15 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *                      batch custom id, or {@code task.forced()} on the sync path) — the ONLY
      *                      input {@link BriefingEvaluationResult#forced} is ever set from; see its
      *                      own javadoc for why a serve-time timestamp comparison was abandoned
+     * @param submittedAt   round 12: this result's submission instant — see {@link
+     *                      BriefingEvaluationResult#submittedAt}'s own javadoc for how it is
+     *                      resolved on the batch and sync paths
      * @return the result to persist (cache payload element)
      */
     private BriefingEvaluationResult buildResult(LocationEntity location, SunsetEvaluation eval,
             LocalDate date, TargetType targetType, String regionName, String modelName,
-            Long pipelineRunId, Long evalRowId, EvaluationModel resolvedModel, boolean forced) {
+            Long pipelineRunId, Long evalRowId, EvaluationModel resolvedModel, boolean forced,
+            Instant submittedAt) {
         BriefingEvaluationResult result;
         if (eval.rating() == null) {
             // Sky not forecast: Claude omitted the rating. The combiner never runs, so there is
@@ -611,6 +621,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         // javadoc. `withForced` itself is a no-op on a null rating (the substituted
         // SKY_NOT_FORECAST_RATING above is never null, so a forced sky-not-forecast task is still
         // exempted, matching the old timestamp-based behaviour's lack of a similar carve-out).
+        result = result.withSubmittedAt(submittedAt);
         if (forced) {
             result = result.withForced(true);
         }
@@ -725,10 +736,14 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *               WOODLAND-exposure or OPEN_FELL-paired bluebell candidate can be force-
      *               evaluated exactly like a sky one; the marker is stamped here the same way
      *               {@link #buildResult} stamps it for the sky lane
+     * @param submittedAt round 12: this result's submission instant — see {@link
+     *               BriefingEvaluationResult#submittedAt}'s own javadoc. Read by {@code
+     *               BriefingEvaluationService.recombineBluebell} to decide whether this bluebell
+     *               result belongs to the same cycle as a prior sky entry it might combine with
      */
     private BriefingEvaluationResult buildBluebellResult(LocationEntity location,
             BluebellEvaluation bluebell, LocalDate date, TargetType targetType, String regionName,
-            String modelName, Long pipelineRunId, boolean forced) {
+            String modelName, Long pipelineRunId, boolean forced, Instant submittedAt) {
         Set<TideType> tideTypes = location.getTideType();
         boolean coastal = tideTypes != null && !tideTypes.isEmpty();
         boolean openFell = location.getBluebellExposure() == BluebellExposure.OPEN_FELL;
@@ -758,7 +773,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         BriefingEvaluationResult result = new BriefingEvaluationResult(
                 location.getName(), safeRating, null, null, bluebell.summary(),
                 null, null, bluebell.headline());
-        return forced ? result.withForced(true) : result;
+        BriefingEvaluationResult stamped = result.withSubmittedAt(submittedAt);
+        return forced ? stamped.withForced(true) : stamped;
     }
 
     /**

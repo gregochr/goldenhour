@@ -434,7 +434,8 @@ class ClaudeResponseParseResilienceTest {
         BatchResultProcessor processor = new BatchResultProcessor(
                 stubbedClient(response), batchRepository, mock(LocationRepository.class),
                 batchJobRunService, costCalculator, mockHandler, mock(AuroraResultHandler.class),
-                mock(EvaluationAbandonmentService.class));
+                mock(EvaluationAbandonmentService.class),
+                mock(com.gregochr.goldenhour.repository.PipelineRunRepository.class));
 
         ForecastBatchEntity batch = new ForecastBatchEntity(
                 BATCH_ID, BatchType.FORECAST, 1, Instant.now().plusSeconds(86_400));

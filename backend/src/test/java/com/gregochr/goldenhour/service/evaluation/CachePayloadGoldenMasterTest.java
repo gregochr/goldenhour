@@ -36,6 +36,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -292,6 +293,60 @@ class CachePayloadGoldenMasterTest {
                 });
     }
 
+    // ── submission instant provenance (round 12) ───────────────────────────────
+
+    @Test
+    @DisplayName("a result with a null submission instant is byte-identical to today's — "
+            + "submittedAt is omitted entirely, so every existing fixture (and every row already "
+            + "in the database) is unaffected by this field's introduction")
+    void nullSubmittedAtOmitsFieldEntirely() {
+        LocationEntity location = landscape("Keswick", 3L, "Lake District");
+        SunsetEvaluation eval = new SunsetEvaluation(
+                3, 58, 62, "Broken cloud over the fells with a chance of colour.");
+
+        // The 3-arg ResultContext.forBatch overload every pre-round-12 call site and fixture
+        // uses — submissionInstant defaults null.
+        String serialised = serialisePayload(location, eval, false);
+
+        assertThat(serialised).as("a null submittedAt must never appear in the serialised JSON — "
+                + "@JsonInclude(NON_NULL) omits it, exactly like a legacy row")
+                .doesNotContain("submittedAt");
+    }
+
+    @Test
+    @DisplayName("a result with a real submission instant carries it in the JSON, and round-trips "
+            + "back through the production deserialiser to the same Instant")
+    void nonNullSubmittedAtRoundTrips() throws Exception {
+        LocationEntity location = landscape("Keswick", 3L, "Lake District");
+        SunsetEvaluation eval = new SunsetEvaluation(
+                3, 58, 62, "Broken cloud over the fells with a chance of colour.");
+        Instant submittedAt = Instant.parse("2026-06-21T01:05:00Z");
+
+        String serialised = serialisePayload(location, eval, false, submittedAt);
+
+        assertThat(serialised).contains("\"submittedAt\"");
+        List<BriefingEvaluationResult> roundTripped = productionMapper.readValue(serialised,
+                productionMapper.getTypeFactory()
+                        .constructCollectionType(List.class, BriefingEvaluationResult.class));
+        assertThat(roundTripped).singleElement()
+                .satisfies(r -> assertThat(r.submittedAt()).isEqualTo(submittedAt));
+    }
+
+    @Test
+    @DisplayName("a legacy row's JSON with no submittedAt field deserialises to submittedAt=null "
+            + "— unknown is never treated as stale (see BriefingEvaluationService's staleness rule)")
+    void legacyJsonWithNoSubmittedAtDeserialisesToNull() throws Exception {
+        String legacyJson = "[{\"locationName\":\"Keswick\",\"rating\":3,"
+                + "\"fierySkyPotential\":58,\"goldenHourPotential\":62,\"summary\":\"X\"}]";
+
+        List<BriefingEvaluationResult> deserialised = productionMapper.readValue(legacyJson,
+                productionMapper.getTypeFactory()
+                        .constructCollectionType(List.class, BriefingEvaluationResult.class));
+
+        assertThat(deserialised).singleElement()
+                .satisfies(r -> assertThat(r.submittedAt()).isNull());
+    }
+
     /**
      * Serialises the payload for {@code location}+{@code eval} through the production seam and
      * compares the normalised result to the committed fixture (or writes it when regenerating).
@@ -337,6 +392,16 @@ class CachePayloadGoldenMasterTest {
      */
     private String serialisePayload(LocationEntity location, SunsetEvaluation eval,
             boolean forced) {
+        return serialisePayload(location, eval, forced, null);
+    }
+
+    /**
+     * As above, with the round-12 submission instant controllable — {@code
+     * BriefingEvaluationResult#submittedAt}, stamped by {@link ForecastResultHandler#buildResult}
+     * from {@link ResultContext#submissionInstant()}.
+     */
+    private String serialisePayload(LocationEntity location, SunsetEvaluation eval,
+            boolean forced, Instant submissionInstant) {
         ForecastResultHandler handler = new ForecastResultHandler(
                 briefingEvaluationService,
                 jobRunService, parserHandle,
@@ -353,9 +418,12 @@ class CachePayloadGoldenMasterTest {
 
         ForecastIdentity identity =
                 new ForecastIdentity(location.getId(), DATE, SUNSET, null, forced);
+        ResultContext context = submissionInstant == null
+                ? ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED)
+                : ResultContext.forBatch(99L, "msgbatch_x", null, submissionInstant,
+                        BatchTriggerSource.SCHEDULED);
         Optional<BatchSuccess> parsed = handler.parseBatchResponse(
-                location, identity, outcome,
-                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+                location, identity, outcome, context);
 
         assertThat(parsed).as("handler should return a parsed success").isPresent();
 
