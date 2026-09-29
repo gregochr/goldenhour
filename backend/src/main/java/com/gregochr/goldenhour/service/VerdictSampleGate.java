@@ -1,9 +1,9 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.BriefingSlot;
-import com.gregochr.goldenhour.model.Verdict;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Gates a region's rated {@code displayVerdict}, pick eligibility and ranking on whether its
@@ -37,15 +37,26 @@ import java.util.List;
  * </ul>
  *
  * <p><b>{@link #examinedCount}, not the rated count alone, is the coverage half's numerator.</b> A
- * voting slot the pipeline triaged (a resolved weather stand-down — {@code Verdict.STANDDOWN}, the
- * pre-Claude weather triage that skips the Claude call entirely to save cost, distinct from
- * {@code BriefingGatingPolicy}'s now-empty hard-constraint gate) is evidence the sky there is poor;
- * an unrated, un-triaged slot — beyond Gate 4's horizon, or a stability-gated far cell nobody forced
- * — is no evidence at all. On a poor-weather near window most of a region is triaged and only the
- * viable remainder is rated: that region HAS been looked at, and its ratings keep deciding its
- * verdict exactly as before this gate existed. The gate bites only where most of the region was
- * never examined — the far-horizon, stability-gated case {@code ForceEvalHeadlineSelector} was
- * built to rescue six cells at a time.
+ * voting slot the BATCH itself triaged — its most recent non-{@code SKIPPED_CACHED} disposition
+ * recorded {@code SKIPPED_TRIAGED}, a resolved weather stand-down that skipped the Claude call
+ * entirely to save cost — is evidence the sky there is poor; an unrated, un-triaged slot — beyond
+ * Gate 4's horizon, or a stability-gated far cell nobody forced — is no evidence at all. On a
+ * poor-weather near window most of a region is triaged and only the viable remainder is rated:
+ * that region HAS been looked at, and its ratings keep deciding its verdict exactly as before this
+ * gate existed. The gate bites only where most of the region was never examined — the far-horizon,
+ * stability-gated case {@code ForceEvalHeadlineSelector} was built to rescue six cells at a time.
+ *
+ * <p>⚠️ <b>"Examined" is the BATCH's own evidence, never the briefing's own weather-triage
+ * {@code Verdict}.</b> A Codex review of #943 (P1-A) found the first cut read
+ * {@code slot.verdict() == Verdict.STANDDOWN} — the briefing's independently-computed weather
+ * verdict, spanning the whole horizon — as a stand-in for "the batch looked at this slot". The two
+ * can disagree, and worse, an unrated slot the briefing marks STANDDOWN that the BATCH then
+ * Gate-4-stability-skipped (never even fetching fresh weather for it) was never examined at all,
+ * yet the old code counted it — letting five ratings cross the coverage half on the strength of
+ * slots nobody in this cycle actually looked at, precisely the failure this gate exists to stop.
+ * {@link #examinedCount} now takes the set of voting location NAMES whose latest BATCH disposition
+ * (from {@code EvaluationViewService#loadTriagedByBatch}, itself sourced from {@code
+ * forecast_run_disposition} — never the briefing tree) was {@code SKIPPED_TRIAGED}.
  *
  * <p><b>The force-evaluation exemption is not this class's concern.</b> A region with at least one
  * currently force-evaluated rated voting slot bypasses this gate outright — see
@@ -67,7 +78,7 @@ public final class VerdictSampleGate {
     public static final int MIN_RATED = 5;
 
     /**
-     * Fraction of the voting roster that must be <em>examined</em> (rated or triaged — see
+     * Fraction of the voting roster that must be <em>examined</em> (rated or batch-triaged — see
      * {@link #examinedCount}) before a region's ratings may set its own verdict.
      */
     public static final double MIN_EXAMINED_COVERAGE = 0.5;
@@ -81,8 +92,8 @@ public final class VerdictSampleGate {
      *
      * @param rated        count of voting slots carrying a usable Claude rating — the same count
      *                     {@code BriefingRatingStats.Stats#count()} reports over the voting entries
-     * @param examined     count of voting slots that are rated OR carry a resolved weather
-     *                     stand-down — see {@link #examinedCount}
+     * @param examined     count of voting slots that are rated OR were triaged by the BATCH itself
+     *                     — see {@link #examinedCount}
      * @param votingRoster size of the region's voting roster — {@code
      *                     ConfidenceDeriver.RegionRoster#voting()}
      * @return {@code true} when both {@link #MIN_RATED} and {@link #MIN_EXAMINED_COVERAGE} clear
@@ -92,28 +103,47 @@ public final class VerdictSampleGate {
     }
 
     /**
-     * Counts how many of the given voting slots the pipeline has actually <b>examined</b> — rated
-     * by Claude, or triaged (a resolved weather stand-down, {@code Verdict.STANDDOWN} with no
-     * rating). An unrated, un-triaged slot has never been looked at for this cycle's horizon and
-     * contributes nothing.
+     * Counts how many of the given voting slots the BATCH has actually <b>examined</b> this cycle —
+     * rated by Claude, or triaged by the batch itself (its latest non-{@code SKIPPED_CACHED}
+     * {@code forecast_run_disposition} recorded {@code SKIPPED_TRIAGED}). An unrated slot the batch
+     * never triaged — beyond Gate 4's horizon, or stability-skipped before fresh weather was ever
+     * fetched for it — has never been looked at THIS cycle and contributes nothing, whatever the
+     * briefing's own independently-computed weather {@code Verdict} for it happens to read.
+     *
+     * <p>⚠️ <b>Deliberately not {@code slot.verdict()}.</b> A Codex review of #943 (P1-A) found the
+     * first cut read the briefing's own weather-triage verdict ({@code Verdict.STANDDOWN}) as a
+     * stand-in for "the batch examined this slot" — but that verdict is computed independently,
+     * across the whole horizon, by {@code BriefingHierarchyBuilder}, and can name STANDDOWN for a
+     * slot the batch never looked at this cycle at all (Gate 4 stability-skipped it before ever
+     * re-fetching weather). {@code triagedByBatchLocationNames} is sourced instead from {@code
+     * EvaluationViewService#loadTriagedByBatch}, which reads {@code forecast_run_disposition}
+     * directly — the batch's own record of what it actually decided.
      *
      * <p>A triaged and a rated outcome are mutually exclusive for a voting (non-canopy) slot in the
      * nightly batch: {@code ForecastTaskCollector} skips a triaged candidate before it ever reaches
      * Claude or the Gate 4 eligibility check, so a slot cannot be both. The two counts are therefore
      * summed rather than unioned, which is equivalent here but cheaper to read.
      *
-     * @param votingSlots the region's voting slots ({@link BriefingSlot#votingSlots})
-     * @param ratedCount  how many of them carry a usable rating — passed in rather than
-     *                    recomputed, so this method agrees by construction with whatever count the
-     *                    caller's own {@code BriefingRatingStats.Stats} already validated
+     * @param votingSlots               the region's voting slots ({@link BriefingSlot#votingSlots})
+     * @param ratedCount                how many of them carry a usable rating — passed in rather
+     *                                  than recomputed, so this method agrees by construction with
+     *                                  whatever count the caller's own {@code
+     *                                  BriefingRatingStats.Stats} already validated
+     * @param triagedByBatchLocationNames location names (never null) whose latest batch disposition
+     *                                  was {@code SKIPPED_TRIAGED} — see {@code
+     *                                  EvaluationViewService#loadTriagedByBatch}; an empty set (a
+     *                                  failed or empty lookup) simply counts no one, the safe
+     *                                  under-counting direction
      * @return the examined count, never greater than {@code votingSlots.size()}
      */
-    public static int examinedCount(List<BriefingSlot> votingSlots, int ratedCount) {
+    public static int examinedCount(List<BriefingSlot> votingSlots, int ratedCount,
+            Set<String> triagedByBatchLocationNames) {
         if (votingSlots == null || votingSlots.isEmpty()) {
             return ratedCount;
         }
         long triaged = votingSlots.stream()
-                .filter(s -> s.claudeRating() == null && s.verdict() == Verdict.STANDDOWN)
+                .filter(s -> s.claudeRating() == null
+                        && triagedByBatchLocationNames.contains(s.locationName()))
                 .count();
         return ratedCount + (int) triaged;
     }

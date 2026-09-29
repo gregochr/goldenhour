@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -2551,10 +2552,21 @@ class EvaluationViewServiceTest {
     /**
      * The verdict-minimum-sample rule's force-evaluation exemption (owner decision, 2026-09-29;
      * see {@code docs/engineering/plan-verdict-consolidation-plan.md} and
-     * {@code VerdictSampleGate}) needs one fact per rated slot: was its CURRENT rating written by a
-     * force evaluation? These tests drive {@link EvaluationViewService#loadForcedFlags} through the
-     * real public entry points, mocking only {@link ForecastRunDispositionRepository
+     * {@code VerdictSampleGate}) needs one fact per rated slot: was its CURRENT rating
+     * DEMONSTRABLY written by a force evaluation? These tests drive {@link
+     * EvaluationViewService#loadForceEvaluatedAt} and {@link
+     * EvaluationViewService#resolveForEnrichmentRetractionAware}'s instant check through the real
+     * public entry points, mocking only {@link ForecastRunDispositionRepository
      * #findLatestEvaluatingDispositions} — exactly what production's bulk query returns.
+     *
+     * <p>⚠️ <b>A Codex review of #943 (P1-B) found the first cut trusted the disposition's mere
+     * existence.</b> {@code ScheduledBatchEvaluationService.persistCycleDispositions} writes every
+     * cycle's dispositions at SUBMISSION time, before any Claude result comes back — so {@code
+     * FORCE_EVALUATED} alone only ever meant "a forced run was requested", never "this rating came
+     * from it". Every test here that asserts {@code forced()} true therefore ALSO stubs the
+     * winning result's own evaluation instant to be AT OR AFTER the disposition's {@code
+     * created_at}; a test asserting false because the winning instant PREDATES the disposition
+     * (the regression itself) is named for that specifically, below.
      */
     @Nested
     @DisplayName("force-evaluation flag")
@@ -2563,23 +2575,29 @@ class EvaluationViewServiceTest {
         /**
          * Builds one row of what {@link ForecastRunDispositionRepository
          * #findLatestEvaluatingDispositions} returns: locationName, evaluationDate, eventType
-         * name, and the disposition of that slot's most recent EVALUATED/FORCE_EVALUATED row.
+         * name, the disposition of that slot's most recent EVALUATED/FORCE_EVALUATED row, and that
+         * row's own {@code created_at}.
          */
         private static Object[] dispositionRow(String locationName, LocalDate date,
-                TargetType type, String disposition) {
-            return new Object[] {locationName, date, type.name(), disposition};
+                TargetType type, String disposition, Instant createdAt) {
+            return new Object[] {locationName, date, type.name(), disposition, createdAt};
         }
 
         @Test
-        @DisplayName("a rated slot whose most recent disposition is FORCE_EVALUATED reads forced")
+        @DisplayName("a rated slot whose most recent disposition is FORCE_EVALUATED, and whose "
+                + "rating's own instant is AT OR AFTER it, reads forced")
         void mostRecentForceEvaluated_readsForced() {
+            Instant forceEvaluatedAt = Instant.parse("2026-04-22T01:00:00Z");
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(forceEvaluatedAt.plusSeconds(3600)));
             when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
                     .thenReturn(List.<Object[]>of(
-                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED")));
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED",
+                                    forceEvaluatedAt)));
 
             BriefingEvaluationResult result =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
@@ -2595,15 +2613,170 @@ class EvaluationViewServiceTest {
             // Models the two-night scenario: FORCE_EVALUATED landed first, an ordinary EVALUATED
             // run for the same slot came later. findLatestEvaluatingDispositions' own MAX(created_at)
             // correlated subquery is what decides "later" in production; this test exercises
-            // loadForcedFlags' handling of whichever disposition the repository names as most
-            // recent, taking that answer (EVALUATED, here) as given.
+            // loadForceEvaluatedAt's handling of whichever disposition the repository names as most
+            // recent, taking that answer (EVALUATED, here) as given — the slot's key is removed
+            // from the map entirely, so no instant comparison is even reached.
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
             when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
                     .thenReturn(List.<Object[]>of(
-                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED")));
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result.rating()).isEqualTo(4);
+            assertThat(result.forced()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a FORCE_EVALUATED disposition with no result yet — the winning rating "
+                + "predates it — reads NOT forced. Regression test for #943 P1-B: dispositions are "
+                + "persisted at SUBMISSION, before any Claude result lands")
+        void forceEvaluatedDispositionButWinningRatingPredatesIt_readsNotForced() {
+            // T0: an ordinary cached rating lands. T1 > T0: a force evaluation is REQUESTED for
+            // this same slot (the disposition is written at submission) but its result has not
+            // landed — the cache still holds the T0 rating. The disposition existing must not
+            // stamp that older, unrelated rating as forced.
+            Instant t0CachedAt = Instant.parse("2026-04-22T01:00:00Z");
+            Instant t1ForceEvaluatedAt = t0CachedAt.plusSeconds(3600);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(t0CachedAt));
+            when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED",
+                                    t1ForceEvaluatedAt)));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result.rating()).isEqualTo(4);
+            assertThat(result.forced()).isFalse();
+        }
+
+        @Test
+        @DisplayName("the forced result lands after the disposition: forced")
+        void forcedResultLandsAfterDisposition_readsForced() {
+            // The same two-instant shape as the regression test above, but the forecast_evaluation
+            // row this time IS the forced result itself, scored AFTER (T2) the FORCE_EVALUATED
+            // disposition (T1) — the positive case the instant check exists to still allow.
+            Instant t1ForceEvaluatedAt = Instant.parse("2026-04-22T01:00:00Z");
+            Instant t2ResultAt = t1ForceEvaluatedAt.plusSeconds(3600);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNRISE)
+                            .rating(5).fierySkyPotential(90).goldenHourPotential(85)
+                            .summary("Blazing").evaluationModel(EvaluationModel.HAIKU)
+                            .forecastRunAt(LocalDateTime.ofInstant(t2ResultAt, ZoneOffset.UTC))
+                            .build()));
+            when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED",
+                                    t1ForceEvaluatedAt)));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result.rating()).isEqualTo(5);
+            assertThat(result.forced()).isTrue();
+        }
+
+        @Test
+        @DisplayName("the forced batch fails (a PENDING row, no rating) and the old cached rating "
+                + "remains: not forced — a PENDING row can never become the winning source")
+        void forcedBatchPendingNoRating_oldCachedRatingNotForced() {
+            // Trace for #943 P1-B item 3: ForecastService#persistPendingEvaluation writes a
+            // rating=null row before submission. hasSomethingToSay is false for it, so cachedWins'
+            // second clause always prefers the cache — the PENDING row can never win, and so can
+            // never supply its own (irrelevant) instant as "the winning one".
+            Instant t0CachedAt = Instant.parse("2026-04-22T01:00:00Z");
+            Instant t1ForceEvaluatedAt = t0CachedAt.plusSeconds(1800);
+            Instant t1PendingRowAt = t1ForceEvaluatedAt.plusSeconds(60);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(t0CachedAt));
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNRISE)
+                            .batchState(BatchState.PENDING)
+                            .forecastRunAt(LocalDateTime.ofInstant(t1PendingRowAt, ZoneOffset.UTC))
+                            .build()));
+            when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED",
+                                    t1ForceEvaluatedAt)));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            // The cache's T0 rating wins (the PENDING row has nothing to say), and T0 predates the
+            // T1 force-evaluation, so it correctly reads not forced.
+            assertThat(result.rating()).isEqualTo(4);
+            assertThat(result.forced()).isFalse();
+        }
+
+        @Test
+        @DisplayName("forced at T1, result at T2, ordinary EVALUATED at T3 with a result at T4: "
+                + "not forced — the later ordinary evaluation ends the exemption regardless of T4")
+        void laterOrdinaryEvaluationAfterAForcedOne_notForcedRegardlessOfLatestResultInstant() {
+            Instant t3EvaluatedAt = Instant.parse("2026-04-22T04:00:00Z");
+            Instant t4ResultAt = t3EvaluatedAt.plusSeconds(3600);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNRISE)
+                            .rating(3).fierySkyPotential(50).goldenHourPotential(45)
+                            .summary("Ordinary").evaluationModel(EvaluationModel.HAIKU)
+                            .forecastRunAt(LocalDateTime.ofInstant(t4ResultAt, ZoneOffset.UTC))
+                            .build()));
+            // findLatestEvaluatingDispositions answers with its own MOST RECENT row per slot in
+            // production; here that is the T3 EVALUATED row (T3 > T1, the earlier forced one this
+            // test's name refers to but never itself stubs, since only the most recent matters).
+            when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED", t3EvaluatedAt)));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result.rating()).isEqualTo(3);
+            assertThat(result.forced()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a legacy cached result with no evaluation instant at all (and no region "
+                + "stamp either) is not forced — unknown never grants the exemption")
+        void legacyResultWithNoEvaluationInstant_notForced() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            // No getCachedEvaluatedAt stub — Mockito's default Optional.empty() means
+            // cachedEvaluatedAt is null, and the result's own evaluatedAt is null too (the 5-arg
+            // convenience constructor above), so cacheWriteTime has neither instant to fall back
+            // on.
+            when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
 
             BriefingEvaluationResult result =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
@@ -2673,7 +2846,8 @@ class EvaluationViewServiceTest {
                             .build()));
             when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
                     .thenReturn(List.<Object[]>of(
-                            dispositionRow("Bamburgh", DATE, SUNRISE, disposition)));
+                            dispositionRow("Bamburgh", DATE, SUNRISE, disposition,
+                                    Instant.parse("2026-04-22T00:00:00Z"))));
         }
 
         @Test
@@ -2682,26 +2856,30 @@ class EvaluationViewServiceTest {
         void bulkAgreesWithSingleRegion() {
             LocalDate start = DATE;
             LocalDate end = DATE;
+            Instant forceEvaluatedAt = Instant.parse("2026-04-22T00:30:00Z");
+            Instant cachedAt = forceEvaluatedAt.plusSeconds(1800);
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
             when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
-                    .thenReturn(Optional.of(Instant.parse("2026-04-22T01:00:00Z")));
+                    .thenReturn(Optional.of(cachedAt));
             when(forecastEvaluationRepository
                     .findLatestRunPerSlotByLocationIds(List.of(1L), start, end))
                     .thenReturn(List.of());
             when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(start, end))
                     .thenReturn(List.<Object[]>of(
-                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED")));
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED",
+                                    forceEvaluatedAt)));
 
             // Both readers now resolve every slot through the SAME private method,
             // resolveForEnrichmentRetractionAware — this proves that structurally, not just for
             // this fixture, by driving both public entry points against the identical stubs and
             // asserting they agree, rather than trusting the shared implementation by inspection
-            // alone. Removing the bulk path's forced-flag argument (or its loadForcedFlags call)
-            // would leave bulkResult.forced() false while singleResult.forced() stays true, so
-            // this fails on that regression specifically, not only on a total stamping loss.
+            // alone. Removing the bulk path's forced-flag argument (or its loadForceEvaluatedAt
+            // call, or its instant comparison) would leave bulkResult.forced() false while
+            // singleResult.forced() stays true, so this fails on that regression specifically, not
+            // only on a total stamping loss.
             Map<String, Map<String, BriefingEvaluationResult>> bulk =
                     service.getScoresForEnrichmentBulk(start, end, Set.of(SUNRISE));
             String key = REGION_NAME + "|" + DATE + "|" + SUNRISE;
@@ -2728,18 +2906,19 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
 
+            Instant tieAt = Instant.parse("2026-04-22T01:00:00Z");
             when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
                     .thenReturn(List.<Object[]>of(
-                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED"),
-                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED")));
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED", tieAt),
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED", tieAt)));
             BriefingEvaluationResult forcedFirst =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
             assertThat(forcedFirst.forced()).isFalse();
 
             when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
                     .thenReturn(List.<Object[]>of(
-                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED"),
-                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED")));
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED", tieAt),
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED", tieAt)));
             BriefingEvaluationResult evaluatedFirst =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
             assertThat(evaluatedFirst.forced()).isFalse();
@@ -2774,7 +2953,8 @@ class EvaluationViewServiceTest {
                             new Object[] {"Bamburgh", DATE, SUNRISE.name(), skipAt}));
             when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
                     .thenReturn(List.<Object[]>of(
-                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED")));
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED",
+                                    forceEvaluatedAt)));
 
             BriefingEvaluationResult single =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
@@ -2795,6 +2975,185 @@ class EvaluationViewServiceTest {
             assertThat(bulkResult.retracted()).isTrue();
             assertThat(bulkResult.rating()).isNull();
             assertThat(bulkResult.forced()).isFalse();
+        }
+    }
+
+    /**
+     * The verdict-minimum-sample rule's "examined" evidence (a Codex review of #943, P1-A):
+     * {@link EvaluationViewService#loadTriagedByBatch} must be sourced from the BATCH's own
+     * {@code forecast_run_disposition} table, never from a slot's independently-computed
+     * weather-triage {@code Verdict}. These tests drive it through the real public method, mocking
+     * only {@link ForecastRunDispositionRepository#findLatestNonCachedDispositions} — exactly what
+     * production's bulk query returns — and separately prove {@code getScoresForEnrichment}/
+     * {@code Bulk} stamp the {@link BriefingEvaluationResult#triagedByBatch()} synthetic marker for
+     * a voting slot that has this evidence but no rating or cache entry of its own.
+     */
+    @Nested
+    @DisplayName("batch-triage evidence for the examined count")
+    class TriagedByBatch {
+
+        private static Object[] nonCachedRow(String locationName, LocalDate date, TargetType type,
+                String disposition, Instant createdAt) {
+            return new Object[] {locationName, date, type.name(), disposition, createdAt};
+        }
+
+        @Test
+        @DisplayName("a slot whose latest non-cached disposition is SKIPPED_TRIAGED is in the set")
+        void latestSkippedTriaged_isInTheSet() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
+
+            Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
+
+            assertThat(triaged).containsExactly("Bamburgh|" + DATE + "|SUNRISE");
+        }
+
+        @Test
+        @DisplayName("a slot whose latest non-cached disposition is SKIPPED_STABILITY is absent — "
+                + "SKIPPED_STABILITY never counts as examined")
+        void latestSkippedStability_isAbsent() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_STABILITY",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
+
+            Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
+
+            assertThat(triaged).isEmpty();
+        }
+
+        @Test
+        @DisplayName("triaged last night, SKIPPED_CACHED today: still counts as examined — the "
+                + "A3 decision. findLatestNonCachedDispositions excludes SKIPPED_CACHED from BOTH "
+                + "sides of its correlated subquery, so the query itself re-surfaces last night's "
+                + "SKIPPED_TRIAGED as \"the latest\" once tonight's SKIPPED_CACHED is out of scope")
+        void triagedLastNightCachedTonight_stillCountsAsExamined() {
+            // The repository method itself is what does the excluding (see its own javadoc) — this
+            // test proves loadTriagedByBatch's OWN handling of whatever the query hands it, taking
+            // "the query already filtered SKIPPED_CACHED out" as given, exactly as the sibling
+            // force-evaluation tests take findLatestEvaluatingDispositions' own filtering as given.
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
+                                    Instant.parse("2026-04-21T20:00:00Z"))));
+
+            Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
+
+            assertThat(triaged).containsExactly("Bamburgh|" + DATE + "|SUNRISE");
+        }
+
+        @Test
+        @DisplayName("triaged last night, SKIPPED_STABILITY today: not examined — a later "
+                + "non-cached decision supersedes the triage")
+        void triagedLastNightStabilitySkippedTonight_notExamined() {
+            // Unlike SKIPPED_CACHED, SKIPPED_STABILITY is NOT excluded from the query's scope, so
+            // it legitimately becomes "the latest" and the earlier triage no longer counts.
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_STABILITY",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
+
+            Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
+
+            assertThat(triaged).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a tie between SKIPPED_TRIAGED and a different category at the same instant "
+                + "folds to NOT examined")
+        void tieBetweenTriagedAndAnotherCategory_foldsToNotExamined() {
+            Instant tieAt = Instant.parse("2026-04-22T01:00:00Z");
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED", tieAt),
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_STABILITY", tieAt)));
+
+            Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
+
+            assertThat(triaged).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a failed lookup counts nothing as triaged — the safe under-counting direction")
+        void failedLookup_countsNothing() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenThrow(new RuntimeException("DB unavailable"));
+
+            Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
+
+            assertThat(triaged).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a voting slot with no rating or cache entry, but batch-triaged, gets the "
+                + "synthetic marker from getScoresForEnrichment — and it never touches the "
+                + "rating/triage fields a real result would carry")
+        void getScoresForEnrichment_stampsSyntheticMarkerForPurelyBatchTriagedSlot() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result).isNotNull();
+            assertThat(result.triagedByBatch()).isTrue();
+            assertThat(result.rating()).isNull();
+            assertThat(result.triageReason()).isNull();
+            assertThat(result.retracted()).isFalse();
+        }
+
+        @Test
+        @DisplayName("getScoresForEnrichmentBulk agrees with getScoresForEnrichment on the "
+                + "synthetic marker — same slot, both readers")
+        void bulkAgreesWithSingleRegionOnTriagedMarker() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(List.of(1L), DATE, DATE))
+                    .thenReturn(List.of());
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
+
+            Map<String, Map<String, BriefingEvaluationResult>> bulk =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNRISE));
+            BriefingEvaluationResult bulkResult =
+                    bulk.get(REGION_NAME + "|" + DATE + "|" + SUNRISE).get("Bamburgh");
+            BriefingEvaluationResult singleResult =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(bulkResult.triagedByBatch()).isTrue();
+            assertThat(singleResult.triagedByBatch()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a rated slot is NEVER also stamped triagedByBatch, even if the disposition "
+                + "table somehow also names it SKIPPED_TRIAGED — the rating wins and the marker "
+                + "is only ever synthesised when resolveForEnrichmentRetractionAware has nothing")
+        void ratedSlot_neverCarriesTheTriagedMarker() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
+
+            BriefingEvaluationResult result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+
+            assertThat(result.rating()).isEqualTo(4);
+            assertThat(result.triagedByBatch()).isFalse();
         }
     }
 

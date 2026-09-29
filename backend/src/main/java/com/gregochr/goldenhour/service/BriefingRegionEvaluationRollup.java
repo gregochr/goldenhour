@@ -17,6 +17,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Turns a weather/triage region hierarchy into a <em>scored</em> one: it walks the
@@ -144,8 +145,21 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                     // evidence). Roster and examined coverage are both over the VOTING slots, the
                     // same population the verdict and mean already read.
                     ConfidenceDeriver.RegionRoster roster = rosterOf(enrichedSlots);
+                    // "Examined" is the BATCH's own evidence (a Codex review of #943, P1-A) — the
+                    // resolver stamps a synthetic BriefingEvaluationResult#triagedByBatch marker for
+                    // a voting slot whose latest non-SKIPPED_CACHED disposition was
+                    // SKIPPED_TRIAGED, sourced from EvaluationViewService#loadTriagedByBatch, never
+                    // from this slot's own independently-computed weather-triage Verdict — the two
+                    // can disagree, and a slot the briefing marks STANDDOWN that the batch never
+                    // even looked at this cycle (Gate 4 stability-skipped before fresh weather was
+                    // fetched) must not count. Filtered from `cached` rather than the slots
+                    // themselves, mirroring forcedSample's own read of that same map below.
+                    Set<String> triagedByBatch = cached.values().stream()
+                            .filter(BriefingEvaluationResult::triagedByBatch)
+                            .map(BriefingEvaluationResult::locationName)
+                            .collect(java.util.stream.Collectors.toSet());
                     int examined = VerdictSampleGate.examinedCount(
-                            votingSlotList, votingStats.count());
+                            votingSlotList, votingStats.count(), triagedByBatch);
                     boolean rawSufficient = VerdictSampleGate.isSufficient(
                             votingStats.count(), examined, roster.voting());
                     // Force-evaluation exemption (owner decision, 2026-09-29). ForceEvalHeadlineSelector

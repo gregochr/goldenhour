@@ -101,8 +101,8 @@ public interface ForecastRunDispositionRepository
 
     /**
      * For every (location name, evaluation date, event type) with at least one {@code EVALUATED}
-     * or {@code FORCE_EVALUATED} disposition in the range, returns the disposition of the
-     * <em>most recent</em> such row.
+     * or {@code FORCE_EVALUATED} disposition in the range, returns the disposition AND {@code
+     * created_at} of the <em>most recent</em> such row.
      *
      * <p>Backs the verdict-minimum-sample rule's force-evaluation exemption
      * (owner decision, 2026-09-29 — see {@code docs/engineering/plan-verdict-consolidation-plan.md}
@@ -112,6 +112,15 @@ public interface ForecastRunDispositionRepository
      * evaluating categories, exactly the way {@link #findLatestStabilitySkipTimestamps} answers
      * "most recent decision against a slot" — a later ordinary {@code EVALUATED} run for the same
      * slot supersedes an earlier {@code FORCE_EVALUATED} one and ends the exemption.
+     *
+     * <p>⚠️ <b>{@code created_at} is the row's own timestamp, not the rating's.</b> A codex review
+     * of #943 (P1-B) found that {@code ScheduledBatchEvaluationService.persistCycleDispositions}
+     * writes every cycle's dispositions at SUBMISSION time, before any Claude result comes back —
+     * so {@code FORCE_EVALUATED} alone has only ever meant "a forced run was requested for this
+     * slot", never "the rating currently cached for it came from that run". The column is exposed
+     * here so {@code EvaluationViewService.loadForceEvaluatedAt} can compare it against the WINNING
+     * result's own evaluation instant before granting the exemption, rather than trusting the
+     * category alone.
      *
      * <p>Filtered to {@code EVALUATED} and {@code FORCE_EVALUATED} alone — the only two categories
      * that mean "Claude was actually asked about this slot"; every {@code SKIPPED_*} category never
@@ -132,11 +141,11 @@ public interface ForecastRunDispositionRepository
      * @param start first evaluation date to include (inclusive)
      * @param end   last evaluation date to include (inclusive)
      * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
-     *         (String), disposition (String)]}, one per slot with at least one evaluating
-     *         disposition — the disposition of whichever of EVALUATED/FORCE_EVALUATED is most
-     *         recent for that slot
+     *         (String), disposition (String), createdAt (Instant)]}, one per slot with at least one
+     *         evaluating disposition — the disposition and instant of whichever of
+     *         EVALUATED/FORCE_EVALUATED is most recent for that slot
      */
-    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition "
+    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition, d.createdAt "
             + "FROM ForecastRunDispositionEntity d "
             + "WHERE d.disposition IN ('EVALUATED', 'FORCE_EVALUATED') "
             + "AND d.evaluationDate BETWEEN :start AND :end "
@@ -148,5 +157,58 @@ public interface ForecastRunDispositionRepository
             + "    AND d2.disposition IN ('EVALUATED', 'FORCE_EVALUATED')"
             + ")")
     List<Object[]> findLatestEvaluatingDispositions(
+            @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    /**
+     * For every (location name, evaluation date, event type) with at least one disposition in the
+     * range OTHER THAN {@code SKIPPED_CACHED}, returns the disposition AND {@code created_at} of
+     * the <em>most recent</em> such row.
+     *
+     * <p>Backs the verdict-minimum-sample rule's "examined" evidence ({@code
+     * VerdictSampleGate#examinedCount}, Codex review of #943, P1-A): a voting slot counts as
+     * examined only when the BATCH's own most recent decision for it was {@code SKIPPED_TRIAGED}
+     * — never the briefing's own weather-triage {@code Verdict}, which is computed independently
+     * across the whole horizon and can disagree with what the batch actually looked at (or never
+     * looked at at all, for a slot Gate 4 stability-skipped before the batch ever fetched fresh
+     * weather for it).
+     *
+     * <p>⚠️ <b>{@code SKIPPED_CACHED} is deliberately excluded from BOTH sides of the correlated
+     * subquery, not merely filtered from the outer result.</b> A region-level cache reuse
+     * ({@code SKIPPED_CACHED}) is not a decision about any one slot — it means "this region's
+     * existing ratings were judged fresh and reused" — so a slot triaged last night and then
+     * reported {@code SKIPPED_CACHED} tonight must still read as examined via last night's triage,
+     * not as un-examined because a newer, slot-blind row now sits on top of it. Excluding the
+     * category from the inner {@code MAX(created_at)} scope too (not just the outer filter) is
+     * what makes the triaged decision "the latest" again rather than merely visible-but-superseded.
+     *
+     * <p>One bulk query per serve, grouped in the database rather than fetched row-by-row, bounded
+     * to the caller's own served window — never called per region or per slot. Same table, same
+     * 30-day retention as {@link #findLatestStabilitySkipTimestamps} covers the served horizon.
+     *
+     * <p>⚠️ A tie at the same {@code created_at} between two different non-cached categories for
+     * one slot returns both rows, the same accepted shape {@link #findLatestEvaluatingDispositions}
+     * documents; {@code EvaluationViewService.loadTriagedByBatch} folds a tie to "not examined"
+     * (only counts a slot where every row at the max instant agrees it is {@code SKIPPED_TRIAGED}),
+     * the same safe-under-ambiguity direction the force-evaluation exemption's own tie fold takes.
+     *
+     * @param start first evaluation date to include (inclusive)
+     * @param end   last evaluation date to include (inclusive)
+     * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
+     *         (String), disposition (String), createdAt (Instant)]}, one per slot with at least one
+     *         non-{@code SKIPPED_CACHED} disposition — the disposition and instant of whichever
+     *         such row is most recent for that slot
+     */
+    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition, d.createdAt "
+            + "FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition <> 'SKIPPED_CACHED' "
+            + "AND d.evaluationDate BETWEEN :start AND :end "
+            + "AND d.createdAt = ("
+            + "    SELECT MAX(d2.createdAt) FROM ForecastRunDispositionEntity d2 "
+            + "    WHERE d2.locationName = d.locationName "
+            + "    AND d2.evaluationDate = d.evaluationDate "
+            + "    AND d2.eventType = d.eventType "
+            + "    AND d2.disposition <> 'SKIPPED_CACHED'"
+            + ")")
+    List<Object[]> findLatestNonCachedDispositions(
             @Param("start") LocalDate start, @Param("end") LocalDate end);
 }

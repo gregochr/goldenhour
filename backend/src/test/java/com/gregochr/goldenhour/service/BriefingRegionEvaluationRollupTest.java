@@ -217,10 +217,31 @@ class BriefingRegionEvaluationRollupTest {
                     .withClaudeScores(rating, 75, 60, "summary");
         }
 
-        /** A voting slot the weather triage stood down — examined, but never rated. */
+        /**
+         * A slot the weather triage stood down. Carries the STANDDOWN verdict a real triaged slot
+         * would — but since a Codex review of #943 (P1-A), that verdict is no longer what makes a
+         * slot count as "examined" by {@link VerdictSampleGate#examinedCount}. A caller must ALSO
+         * route the slot's name through {@link #triagedResolver}, mirroring what {@code
+         * EvaluationViewService#loadTriagedByBatch} would report for a slot whose latest
+         * non-{@code SKIPPED_CACHED} batch disposition was {@code SKIPPED_TRIAGED}.
+         */
         private BriefingSlot triaged(String name) {
             return new BriefingSlot(name, EVENT_TIME, Verdict.STANDDOWN, WEATHER,
                     BriefingSlot.TideInfo.NONE, List.of(), "Grey ceiling");
+        }
+
+        /**
+         * A resolver that reports the {@link BriefingEvaluationResult#triagedByBatch} synthetic
+         * marker for the given names — exactly the shape {@code EvaluationViewService
+         * #getScoresForEnrichment}/{@code Bulk} stamp for a voting slot the batch itself triaged
+         * but never rated or cached anything for.
+         */
+        private RegionScoreResolver triagedResolver(List<String> triagedNames) {
+            Map<String, BriefingEvaluationResult> results = new HashMap<>();
+            for (String name : triagedNames) {
+                results.put(name, BriefingEvaluationResult.triagedByBatch(name));
+            }
+            return (regionName, date, targetType) -> results;
         }
 
         /** A voting slot nobody has looked at this cycle — beyond Gate 4's horizon, unforced. */
@@ -298,18 +319,22 @@ class BriefingRegionEvaluationRollupTest {
         }
 
         @Test
-        @DisplayName("the poor-weather near window: 35 triaged + 15 rated of 50 voting keeps "
+        @DisplayName("the poor-weather near window: 35 BATCH-triaged + 15 rated of 50 voting keeps "
                 + "today's verdict — the region HAS been examined in full")
         void poorWeatherNearWindow_thirtyFiveTriagedFifteenRated_keepsVerdict() {
             List<BriefingSlot> slots = new ArrayList<>();
+            List<String> triagedNames = new ArrayList<>();
             for (int i = 0; i < 35; i++) {
-                slots.add(triaged("Triaged" + i));
+                String name = "Triaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
             }
             for (int i = 0; i < 15; i++) {
                 slots.add(rated("Rated" + i, 4));
             }
 
-            BriefingRegion region = enrichedRegion(slots, Verdict.STANDDOWN, noOpResolver());
+            BriefingRegion region = enrichedRegion(slots, Verdict.STANDDOWN,
+                    triagedResolver(triagedNames));
 
             assertThat(region.sampleSufficient()).isTrue();
             assertThat(region.forcedSample()).isFalse();
@@ -317,6 +342,86 @@ class BriefingRegionEvaluationRollupTest {
             // this gate existed. The gate must not touch a region that has been looked at in full.
             assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
             assertThat(region.meanRating()).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("far window: 5 rated + 25 STANDDOWN-verdict slots the batch itself "
+                + "SKIPPED_STABILITY (never SKIPPED_TRIAGED) — insufficient. Regression test for "
+                + "#943 P1-A: must FAIL if examinedCount reads slot.verdict() instead of the "
+                + "batch's own disposition")
+        void farWindow_standdownVerdictButBatchStabilitySkipped_insufficient() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+            // These 25 carry the SAME STANDDOWN verdict + stand-down reason a real triaged slot
+            // would — the old bug read exactly that field to decide "examined". The batch's own
+            // disposition for each was SKIPPED_STABILITY, never SKIPPED_TRIAGED, so NONE of their
+            // names are handed to the resolver — noOpResolver() reports nothing for them, exactly
+            // what EvaluationViewService#loadTriagedByBatch would report for a slot whose latest
+            // disposition is not SKIPPED_TRIAGED.
+            for (int i = 0; i < 25; i++) {
+                slots.add(triaged("StabilitySkipped" + i));
+            }
+            slots.addAll(untouchedSlots("Untouched", 20));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver());
+
+            // examined = 5 rated + 0 (none of the 25 or 20 count) = 5 of 50 = 10% < 50%.
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("the same far window, but the 25 slots' latest batch decision IS "
+                + "SKIPPED_TRIAGED: sufficient")
+        void farWindow_sameRosterButBatchTriaged_sufficient() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+            List<String> triagedNames = new ArrayList<>();
+            for (int i = 0; i < 25; i++) {
+                String name = "Triaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
+            }
+            slots.addAll(untouchedSlots("Untouched", 20));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL,
+                    triagedResolver(triagedNames));
+
+            // examined = 5 rated + 25 batch-triaged = 30 of 50 = 60% >= 50%, rated 5 >= MIN_RATED.
+            assertThat(region.sampleSufficient()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a slot whose BRIEFING verdict is GO still counts as examined once the "
+                + "resolver reports it batch-triaged — the two axes are independent")
+        void goVerdictSlot_countsAsExaminedViaBatchDisposition() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+            // A GO-verdict slot (never STANDDOWN) the batch nonetheless decided SKIPPED_TRIAGED
+            // for — a stale briefing verdict computed before the batch's own, independent pass.
+            BriefingSlot goButTriaged = new BriefingSlot("GoButTriaged", EVENT_TIME, Verdict.GO,
+                    WEATHER, BriefingSlot.TideInfo.NONE, List.of(), null);
+            slots.add(goButTriaged);
+            // 19 more triaged (via the resolver) to clear the 50% coverage line alongside it.
+            List<String> triagedNames = new ArrayList<>(List.of("GoButTriaged"));
+            for (int i = 0; i < 19; i++) {
+                String name = "AlsoTriaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
+            }
+            slots.addAll(untouchedSlots("Untouched", 25));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL,
+                    triagedResolver(triagedNames));
+
+            // examined = 5 rated + 20 batch-triaged (including the GO one) = 25 of 50 = 50%.
+            assertThat(region.sampleSufficient()).isTrue();
         }
 
         @Test

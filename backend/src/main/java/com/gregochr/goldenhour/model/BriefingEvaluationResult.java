@@ -55,22 +55,43 @@ import java.time.Instant;
  *                            always deserialises to {@code false} — the one value it may ever hold
  *                            on a real evaluation result
  * @param forced              true when this location's CURRENT rating was written by a force
- *                            evaluation rather than an ordinary one — see {@code
- *                            EvaluationViewService#loadForcedFlags} and {@code
+ *                            evaluation rather than an ordinary one, AND that rating's own
+ *                            evaluation instant is at or after the force-evaluation disposition's
+ *                            {@code created_at} — see {@code
+ *                            EvaluationViewService#loadForceEvaluatedAt} and {@code
  *                            ForceEvalHeadlineSelector}. Backs the verdict-minimum-sample rule's
  *                            force-evaluation exemption ({@code BriefingRegion#forcedSample}):
  *                            {@code BriefingRegionEvaluationRollup} reads this off the winning
  *                            result for each rated voting slot to decide whether the region as a
  *                            whole is exempt from the sample-size gate. {@code false} whenever
  *                            {@link #rating} is null — a field with no rating behind it cannot be a
- *                            forced <em>rating</em> — and whenever the disposition lookup found
- *                            nothing or failed: unknown must never grant the exemption, the same
- *                            safe-direction rule {@code loadForcedFlags} itself documents.
+ *                            forced <em>rating</em> — whenever the disposition lookup found nothing
+ *                            or failed, and whenever the disposition exists but the winning result
+ *                            demonstrably PREDATES it (a Codex review of #943, P1-B: dispositions
+ *                            are persisted at submission, before any Claude result lands, so
+ *                            {@code FORCE_EVALUATED} alone only ever meant "a forced run was
+ *                            requested", never "this rating came from it" — an older cached rating
+ *                            must not be stamped forced merely because a force-evaluation was later
+ *                            requested for the same slot). Unknown never grants the exemption, the
+ *                            same safe-direction rule {@code loadForceEvaluatedAt} itself documents.
  *                            {@code @JsonIgnore}d for the same reason {@link #retracted} is: it is
  *                            a serve-time annotation stamped onto a result already read back out of
  *                            the cache, never something {@code cached_evaluation} itself persists,
  *                            and a legacy row missing it deserialises to {@code false} — "not
  *                            known to be forced", the correct default
+ * @param triagedByBatch      true for the synthetic marker {@link #triagedByBatch(String)} builds
+ *                            for a voting slot the batch's own latest disposition (ignoring a
+ *                            region-level {@code SKIPPED_CACHED} reuse) recorded as
+ *                            {@code SKIPPED_TRIAGED} — never set on a real rated or cached result.
+ *                            Backs the verdict-minimum-sample rule's "examined" evidence ({@code
+ *                            VerdictSampleGate#examinedCount}, a Codex review of #943, P1-A): the
+ *                            briefing's own weather-triage {@code Verdict} is computed
+ *                            independently across the whole horizon and can disagree with, or
+ *                            simply never have been asked about, what the batch actually looked at
+ *                            for THIS cycle — so "examined" has to come from the batch's own
+ *                            disposition, not from re-reading a verdict the batch never wrote.
+ *                            {@code @JsonIgnore}d for the same reason {@link #forced} is: a
+ *                            serve-time annotation over a synthetic marker, never itself persisted.
  */
 public record BriefingEvaluationResult(
         String locationName,
@@ -84,7 +105,8 @@ public record BriefingEvaluationResult(
         @JsonInclude(JsonInclude.Include.NON_NULL) Instant evaluatedAt,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating,
         @JsonIgnore boolean retracted,
-        @JsonIgnore boolean forced
+        @JsonIgnore boolean forced,
+        @JsonIgnore boolean triagedByBatch
 ) {
 
     /**
@@ -108,7 +130,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, null, null, false, false);
+                triageReason, triageMessage, headline, null, null, false, false, false);
     }
 
     /**
@@ -133,7 +155,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, null, false, false);
+                triageReason, triageMessage, headline, evaluatedAt, null, false, false, false);
     }
 
     /**
@@ -161,7 +183,7 @@ public record BriefingEvaluationResult(
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt,
             Integer skyRating) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, skyRating, false, false);
+                triageReason, triageMessage, headline, evaluatedAt, skyRating, false, false, false);
     }
 
     /**
@@ -180,7 +202,28 @@ public record BriefingEvaluationResult(
      */
     public static BriefingEvaluationResult retracted(String locationName) {
         return new BriefingEvaluationResult(locationName, null, null, null, null,
-                null, null, null, null, null, true, false);
+                null, null, null, null, null, true, false, false);
+    }
+
+    /**
+     * Builds the marker a resolver returns for a voting slot nobody rated or cached anything for
+     * this cycle, but whose batch's own latest non-{@code SKIPPED_CACHED} disposition was
+     * {@code SKIPPED_TRIAGED} — see {@link #triagedByBatch} and {@code
+     * EvaluationViewService#loadTriagedByBatch}.
+     *
+     * <p>Carries no rating and no triage fields, so {@link
+     * com.gregochr.goldenhour.service.BriefingRegionEvaluationRollup#enrichSlot} treats it exactly
+     * like an absent entry — every one of its branches is a no-op on a marker with a null rating,
+     * a false {@link #retracted}, and a null {@link #triageReason}: this marker exists purely to
+     * carry the "examined" evidence one step further, to {@code VerdictSampleGate.examinedCount},
+     * never to touch a slot's Claude fields.
+     *
+     * @param locationName the location the marker is about
+     * @return a batch-triaged marker for that location
+     */
+    public static BriefingEvaluationResult triagedByBatch(String locationName) {
+        return new BriefingEvaluationResult(locationName, null, null, null, null,
+                null, null, null, null, null, false, false, true);
     }
 
     /**
@@ -229,7 +272,7 @@ public record BriefingEvaluationResult(
         return new BriefingEvaluationResult(locationName, newRating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
                 newRating == null ? null : skyRating, retracted,
-                newRating == null ? false : forced);
+                newRating == null ? false : forced, triagedByBatch);
     }
 
     /**
@@ -245,7 +288,7 @@ public record BriefingEvaluationResult(
     public BriefingEvaluationResult withEvaluatedAt(Instant writtenAt) {
         return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, writtenAt,
-                skyRating, retracted, forced);
+                skyRating, retracted, forced, triagedByBatch);
     }
 
     /**
@@ -253,11 +296,12 @@ public record BriefingEvaluationResult(
      * exemption — see {@link #forced}.
      *
      * <p>Applied by {@code EvaluationViewService} once it has decided which source (cache or
-     * {@code forecast_evaluation}) speaks for this slot, using its own bulk-loaded disposition
-     * lookup ({@code loadForcedFlags}). A no-op when {@link #rating} is null: an unrated result
-     * cannot carry a forced <em>rating</em>.
+     * {@code forecast_evaluation}) speaks for this slot AND confirmed that source's own evaluation
+     * instant is at or after the slot's latest {@code FORCE_EVALUATED} disposition ({@code
+     * loadForceEvaluatedAt}). A no-op when {@link #rating} is null: an unrated result cannot carry
+     * a forced <em>rating</em>.
      *
-     * @param newForced whether this slot's most recent evaluating disposition is FORCE_EVALUATED
+     * @param newForced whether the winning result demonstrably came from a force evaluation
      * @return a copy carrying the flag, or this result unchanged when there is no rating to flag
      */
     public BriefingEvaluationResult withForced(boolean newForced) {
@@ -266,6 +310,6 @@ public record BriefingEvaluationResult(
         }
         return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
-                skyRating, retracted, newForced);
+                skyRating, retracted, newForced, triagedByBatch);
     }
 }

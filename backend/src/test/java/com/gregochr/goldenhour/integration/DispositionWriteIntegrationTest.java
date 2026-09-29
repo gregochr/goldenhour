@@ -422,12 +422,15 @@ class DispositionWriteIntegrationTest extends IntegrationTestBase {
             assertThat(rows).extracting(r -> (String) r[3])
                     .containsExactlyInAnyOrder("EVALUATED", "FORCE_EVALUATED");
 
-            // The safety net is in Java: EvaluationViewService.loadForcedFlags folds a tie to NOT
-            // forced regardless of which order the two rows arrive in (its own javadoc explains the
-            // AND-merge), so the exemption can never be granted by accident off undefined row order.
-            Map<String, Boolean> forcedFlags = evaluationViewService.loadForcedFlags(date, date);
+            // The safety net is in Java: EvaluationViewService.loadForceEvaluatedAt removes a key
+            // the moment it sees ANY row for it named EVALUATED (its own javadoc explains the
+            // fold), so a tie's key is absent from the map — not forced — regardless of which order
+            // the two rows arrive in, and the exemption can never be granted by accident off
+            // undefined row order.
+            Map<String, Instant> forceEvaluatedAt = evaluationViewService
+                    .loadForceEvaluatedAt(date, date);
 
-            assertThat(forcedFlags.get("Tied Loc|" + date + "|SUNRISE")).isFalse();
+            assertThat(forceEvaluatedAt).doesNotContainKey("Tied Loc|" + date + "|SUNRISE");
         }
 
         @Test
@@ -478,6 +481,219 @@ class DispositionWriteIntegrationTest extends IntegrationTestBase {
             assertThat(rowFor(rows, "Location B", dateOne, "SUNRISE")).isEqualTo("FORCE_EVALUATED");
             assertThat(rowFor(rows, "Location A", dateTwo, "SUNRISE")).isEqualTo("FORCE_EVALUATED");
             assertThat(rowFor(rows, "Location A", dateOne, "SUNSET")).isEqualTo("FORCE_EVALUATED");
+        }
+
+        private String rowFor(List<Object[]> rows, String locationName, LocalDate date,
+                String eventType) {
+            return rows.stream()
+                    .filter(r -> locationName.equals(r[0]) && date.equals(r[1])
+                            && eventType.equals(r[2]))
+                    .map(r -> (String) r[3])
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "No row for " + locationName + "|" + date + "|" + eventType));
+        }
+    }
+
+    /**
+     * SQL-level proof for {@link ForecastRunDispositionRepository#findLatestNonCachedDispositions}
+     * — the verdict-minimum-sample rule's "examined" evidence (a Codex review of #943, P1-A). These
+     * mirror {@code FindLatestEvaluatingDispositions} above in shape, with the one deliberate
+     * difference the method itself documents: {@code SKIPPED_CACHED} is excluded from BOTH sides
+     * of the correlated subquery, not merely filtered from the outer result, so a slot triaged last
+     * night and reported {@code SKIPPED_CACHED} tonight still reads as examined via last night's
+     * triage.
+     */
+    @Nested
+    @DisplayName("findLatestNonCachedDispositions")
+    class FindLatestNonCachedDispositions {
+
+        @Test
+        @DisplayName("names the most recent disposition: SKIPPED_TRIAGED on night one, "
+                + "SKIPPED_STABILITY on night two → SKIPPED_STABILITY")
+        void namesMostRecent_triagedThenStabilitySkipped() throws InterruptedException {
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9201L, List.of(
+                    new CandidateDisposition(40L, "Two Night NonCached Loc", date,
+                            TargetType.SUNRISE, 2, DispositionCategory.SKIPPED_TRIAGED,
+                            "Heavy cloud")));
+            Thread.sleep(50);
+            dispositionService.persist(9202L, List.of(
+                    new CandidateDisposition(40L, "Two Night NonCached Loc", date,
+                            TargetType.SUNRISE, 2, DispositionCategory.SKIPPED_STABILITY,
+                            "T+2 UNSETTLED")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(date, date);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("Two Night NonCached Loc");
+            assertThat(rows.getFirst()[3]).isEqualTo("SKIPPED_STABILITY");
+        }
+
+        @Test
+        @DisplayName("names the most recent disposition in the reverse order too: "
+                + "SKIPPED_STABILITY on night one, SKIPPED_TRIAGED on night two → SKIPPED_TRIAGED")
+        void namesMostRecent_stabilitySkippedThenTriaged() throws InterruptedException {
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9203L, List.of(
+                    new CandidateDisposition(41L, "Reverse NonCached Loc", date,
+                            TargetType.SUNSET, 2, DispositionCategory.SKIPPED_STABILITY,
+                            "T+2 UNSETTLED")));
+            Thread.sleep(50);
+            dispositionService.persist(9204L, List.of(
+                    new CandidateDisposition(41L, "Reverse NonCached Loc", date,
+                            TargetType.SUNSET, 2, DispositionCategory.SKIPPED_TRIAGED,
+                            "Heavy cloud")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(date, date);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("Reverse NonCached Loc");
+            assertThat(rows.getFirst()[3]).isEqualTo("SKIPPED_TRIAGED");
+        }
+
+        @Test
+        @DisplayName("SKIPPED_CACHED is excluded from BOTH sides of the correlated subquery: "
+                + "triaged last night, SKIPPED_CACHED tonight still names SKIPPED_TRIAGED as "
+                + "the latest — the A3 decision")
+        void skippedCachedExcludedFromBothSides_earlierTriageStillNamedLatest()
+                throws InterruptedException {
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9205L, List.of(
+                    new CandidateDisposition(42L, "Cached Tonight Loc", date, TargetType.SUNRISE,
+                            2, DispositionCategory.SKIPPED_TRIAGED, "Heavy cloud")));
+            Thread.sleep(50);
+            // Tonight's cycle judged the region's existing (cached) ratings fresh and reused them
+            // — a region-level decision, newer in wall-clock time than last night's triage, but
+            // NOT a decision about this slot specifically.
+            dispositionService.persist(9206L, List.of(
+                    new CandidateDisposition(42L, "Cached Tonight Loc", date, TargetType.SUNRISE,
+                            2, DispositionCategory.SKIPPED_CACHED,
+                            "Fresh cached evaluation within 6h")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(date, date);
+
+            // If SKIPPED_CACHED were merely filtered from the OUTER result (rather than excluded
+            // from the inner MAX(created_at) scope too), this slot would be ABSENT here — its only
+            // "latest" row would be the excluded SKIPPED_CACHED one, and the query's own
+            // correlated subquery would never re-surface the SKIPPED_TRIAGED row underneath it.
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("Cached Tonight Loc");
+            assertThat(rows.getFirst()[3]).isEqualTo("SKIPPED_TRIAGED");
+        }
+
+        @Test
+        @DisplayName("a SKIPPED_CACHED-only slot (never triaged, never anything else) never "
+                + "appears in the result at all")
+        void skippedCachedOnlySlot_neverAppears() {
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9207L, List.of(
+                    new CandidateDisposition(43L, "Cached Only NonCached Loc", date,
+                            TargetType.SUNRISE, 2, DispositionCategory.SKIPPED_CACHED,
+                            "Fresh cached evaluation within 6h")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(date, date);
+
+            assertThat(rows).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a same-instant tie between two different non-cached categories for one "
+                + "slot: the query CAN return both rows, and EvaluationViewService folds that to "
+                + "NOT examined")
+        void tieBetweenTwoNonCachedCategories_queryMayReturnBoth_serviceFoldsToNotExamined() {
+            // Same mechanism as findLatestEvaluatingDispositions' own tie test: one persist() call
+            // is one transaction, and Postgres' CURRENT_TIMESTAMP is the transaction START time —
+            // constant across every row it writes — so these two rows for the same slot share an
+            // identical created_at and both satisfy the correlated MAX(created_at) predicate.
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9208L, List.of(
+                    new CandidateDisposition(44L, "Tied NonCached Loc", date, TargetType.SUNRISE,
+                            2, DispositionCategory.SKIPPED_TRIAGED, "Heavy cloud"),
+                    new CandidateDisposition(44L, "Tied NonCached Loc", date, TargetType.SUNRISE,
+                            2, DispositionCategory.SKIPPED_STABILITY, "T+2 UNSETTLED")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(date, date);
+
+            assertThat(rows).hasSize(2);
+            assertThat(rows).extracting(r -> r[0]).containsOnly("Tied NonCached Loc");
+            assertThat(rows).extracting(r -> (String) r[3])
+                    .containsExactlyInAnyOrder("SKIPPED_TRIAGED", "SKIPPED_STABILITY");
+
+            // The safety net is in Java: EvaluationViewService.loadTriagedByBatch only includes a
+            // key when EVERY row seen for it is SKIPPED_TRIAGED, so a tie against any other
+            // category folds to NOT examined regardless of row order.
+            java.util.Set<String> triagedByBatch =
+                    evaluationViewService.loadTriagedByBatch(date, date);
+
+            assertThat(triagedByBatch).doesNotContain("Tied NonCached Loc|" + date + "|SUNRISE");
+        }
+
+        @Test
+        @DisplayName("date-range bounds are inclusive at both ends; a slot outside the range is absent")
+        void respectsInclusiveDateRange() {
+            LocalDate startBoundary = LocalDate.now().plusDays(1);
+            LocalDate endBoundary = LocalDate.now().plusDays(3);
+            LocalDate justOutside = LocalDate.now().plusDays(4);
+            dispositionService.persist(9209L, List.of(
+                    new CandidateDisposition(45L, "Start Boundary NonCached Loc", startBoundary,
+                            TargetType.SUNRISE, 1, DispositionCategory.SKIPPED_TRIAGED,
+                            "Heavy cloud"),
+                    new CandidateDisposition(46L, "End Boundary NonCached Loc", endBoundary,
+                            TargetType.SUNRISE, 3, DispositionCategory.SKIPPED_STABILITY,
+                            "T+3 UNSETTLED"),
+                    new CandidateDisposition(47L, "Just Outside NonCached Loc", justOutside,
+                            TargetType.SUNRISE, 4, DispositionCategory.SKIPPED_TRIAGED,
+                            "Heavy cloud")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(startBoundary, endBoundary);
+
+            assertThat(rows).extracting(r -> r[0])
+                    .containsExactlyInAnyOrder(
+                            "Start Boundary NonCached Loc", "End Boundary NonCached Loc");
+        }
+
+        @Test
+        @DisplayName("two different locations, and the same location on two dates and two event "
+                + "types, do not bleed into each other")
+        void distinctSlotsDoNotBleedTogether() {
+            LocalDate dateOne = LocalDate.now().plusDays(2);
+            LocalDate dateTwo = LocalDate.now().plusDays(3);
+            dispositionService.persist(9210L, List.of(
+                    // Two different locations, same date and event.
+                    new CandidateDisposition(48L, "NonCached Location A", dateOne,
+                            TargetType.SUNRISE, 2, DispositionCategory.SKIPPED_TRIAGED,
+                            "Heavy cloud"),
+                    new CandidateDisposition(49L, "NonCached Location B", dateOne,
+                            TargetType.SUNRISE, 2, DispositionCategory.SKIPPED_STABILITY,
+                            "T+2 UNSETTLED"),
+                    // The SAME location as "NonCached Location A", but a different date...
+                    new CandidateDisposition(48L, "NonCached Location A", dateTwo,
+                            TargetType.SUNRISE, 3, DispositionCategory.SKIPPED_STABILITY,
+                            "T+3 UNSETTLED"),
+                    // ...and the same location, same first date, but the OTHER event type.
+                    new CandidateDisposition(48L, "NonCached Location A", dateOne,
+                            TargetType.SUNSET, 2, DispositionCategory.SKIPPED_STABILITY,
+                            "T+2 UNSETTLED")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(dateOne, dateTwo);
+
+            assertThat(rows).hasSize(4);
+            assertThat(rowFor(rows, "NonCached Location A", dateOne, "SUNRISE"))
+                    .isEqualTo("SKIPPED_TRIAGED");
+            assertThat(rowFor(rows, "NonCached Location B", dateOne, "SUNRISE"))
+                    .isEqualTo("SKIPPED_STABILITY");
+            assertThat(rowFor(rows, "NonCached Location A", dateTwo, "SUNRISE"))
+                    .isEqualTo("SKIPPED_STABILITY");
+            assertThat(rowFor(rows, "NonCached Location A", dateOne, "SUNSET"))
+                    .isEqualTo("SKIPPED_STABILITY");
         }
 
         private String rowFor(List<Object[]> rows, String locationName, LocalDate date,

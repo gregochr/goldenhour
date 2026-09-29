@@ -37,16 +37,36 @@ import java.util.Set;
  * cost bound, by design far short of a sample the gate would trust — so WITHOUT an exemption every
  * forced call this class buys would spend real Claude cost for stars nobody's verdict could use.
  * The exemption: a region with at least one CURRENTLY force-evaluated rated voting slot (per
- * {@code EvaluationViewService#loadForcedFlags}, "currently" meaning that slot's most recent
+ * {@code EvaluationViewService#loadForceEvaluatedAt}, "currently" meaning that slot's most recent
  * evaluating disposition is {@code FORCE_EVALUATED} rather than a later ordinary
- * {@code EVALUATED}) bypasses the sample gate outright — its verdict, pick eligibility and ranking
- * follow the rated average exactly as they did before the minimum-sample rule existed, and its
- * confidence takes no extra floor from it. That exemption is why this class keeps its original
- * purpose rather than being retired or repurposed by the sample rule. The interaction with the
- * PARENT stability-skip retraction (see CLAUDE.md's "Where a rating lives" table) is also
- * deliberate: a forced rating is withdrawn the next time a nightly cycle stability-skips that slot
- * again, so the exemption lasts at most until the next nightly run unless the slot is forced or
- * evaluated again that night.
+ * {@code EVALUATED} — AND the winning rating's own evaluation instant is at or after that
+ * disposition's {@code created_at}) bypasses the sample gate outright — its verdict, pick
+ * eligibility and ranking follow the rated average exactly as they did before the minimum-sample
+ * rule existed, and its confidence takes no extra floor from it. That exemption is why this class
+ * keeps its original purpose rather than being retired or repurposed by the sample rule. The
+ * interaction with the PARENT stability-skip retraction (see CLAUDE.md's "Where a rating lives"
+ * table) is also deliberate: a forced rating is withdrawn the next time a nightly cycle
+ * stability-skips that slot again, so the exemption lasts at most until the next nightly run
+ * unless the slot is forced or evaluated again that night.
+ *
+ * <p>⚠️ <b>The instant check is load-bearing, not decoration.</b> A Codex review of #943 (P1-B)
+ * found this selector's own cap deliberately writes its {@code FORCE_EVALUATED} disposition at
+ * SUBMISSION time, before Claude's answer lands — so, WITHOUT the instant check, a slot this
+ * selector chose could stamp an OLDER, unrelated cached rating as forced for as long as the forced
+ * run stayed pending or if it failed outright, exempting a region on the strength of a rating that
+ * never came from this selector's own spend at all. {@code loadForceEvaluatedAt} answers only
+ * "when was a forced run requested"; {@code EvaluationViewService
+ * #resolveForEnrichmentRetractionAware} is where that instant is actually compared against the
+ * winning result's own write time before the exemption is granted.
+ *
+ * <p>⚠️ <b>This selector's own force-evaluation is a DIFFERENT thing from the sample gate's
+ * "examined" count.</b> {@code VerdictSampleGate#examinedCount} (P1-A, the same review) counts a
+ * voting slot as examined only when the BATCH's own latest non-{@code SKIPPED_CACHED} disposition
+ * was {@code SKIPPED_TRIAGED} — never a slot this class force-evaluated (that counts via the
+ * ordinary rated path instead, once the instant check above confirms it), and never the briefing's
+ * own weather-triage {@code Verdict}, which this selector does read ({@code
+ * ForceEvalHeadlineSelector}'s own candidate scoring) but which is a different question from "did
+ * the batch examine this slot this cycle".
  */
 public final class ForceEvalHeadlineSelector {
 
