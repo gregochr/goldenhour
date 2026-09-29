@@ -24,3 +24,18 @@ than a bare absent entry when a skip is the reason nothing survived, and the rol
 slot's rating, sky rating, both potentials, summary and headline on it — never by setting a triage
 reason, so the slot's verdict and stand-down text read exactly as a never-rated slot's, not a
 weather stand-down.
+
+**Follow-up fix, same day (Codex review of #940):** the rule above compares a forecast row's
+`forecast_run_at` against a disposition's true `Instant`, and that comparison was silently wrong.
+`EvaluationViewService.forecastRunInstant` zoned the naive `forecast_run_at` column as
+`Europe/London`, but the column has only ever been written as a naive UTC wall clock
+(`ForecastService.buildEntity`, unchanged since the column's introduction on 2026-02-24). Through
+British Summer Time this read every forecast row as one hour OLDER than it actually was, which both
+skewed the pre-existing freshness gate (a cached rating written up to an hour before a later triage
+row could wrongly outrank it) and could wrongly retract a row written shortly AFTER a stability skip
+because it read as shortly before it. Fixed by zoning as UTC — the zone the column is actually
+written in — and correcting the method's javadoc, which had asserted the opposite. No other site in
+the codebase converts `forecast_run_at` to an `Instant`; the two DTO mappers that serialise it
+untouched, and the two direct `LocalDateTime`-to-`LocalDateTime` comparisons in
+`ForecastCalibrationService`/`EvaluationViewService.loadLatestForecasts`, are correct as they stand
+and were left alone.

@@ -237,6 +237,41 @@ class ForecastControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("Codex #940: a row run at 01:30 (naive UTC wall clock) survives a 01:00Z skip on a "
+            + "BST date — this is the line Codex anchored the review on")
+    void codex940_rowAt0130SurvivesA0100SkipOnBstDate() throws Exception {
+        // EvaluationViewService.forecastRunInstant used to zone this naive value as Europe/London,
+        // reading 01:30 as 00:30Z during BST — BEFORE the skip — and wrongly dropping a row the
+        // pipeline had not, in fact, decided against. forecast_run_at is a naive UTC wall clock, so
+        // 01:30 IS 01:30Z; the row must survive and be mapped normally.
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 4, 22));
+        entity.setRating(4);
+        entity.setForecastRunAt(LocalDateTime.of(2026, 4, 22, 1, 30));
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(entity));
+        when(evaluationViewService.loadStabilitySkips(any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(java.util.Map.of("Durham UK|2026-04-22|SUNSET",
+                        Instant.parse("2026-04-22T01:00:00Z")));
+        when(dtoMapper.toListDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildListDto("Durham UK", 72, 80)));
+        when(evaluationViewService.cachedOnlyViewsForDateRange(
+                any(LocalDate.class), any(LocalDate.class), any(), any(), any()))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].locationName").value("Durham UK"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ForecastEvaluationEntity>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(dtoMapper).toListDtoList(captor.capture(), anyBoolean());
+        assertThat(captor.getValue()).containsExactly(entity);
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/forecast passes enabled location ids and the date window to the repository")
     @SuppressWarnings("unchecked")
     void getForecasts_passesLocationIdsAndDateWindowToRepository() throws Exception {

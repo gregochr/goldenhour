@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -76,9 +76,6 @@ import java.util.stream.Collectors;
 public class EvaluationViewService {
 
     private static final Logger LOG = LoggerFactory.getLogger(EvaluationViewService.class);
-
-    /** Zone {@code forecast_evaluation.forecast_run_at} is implicitly recorded in. */
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     private static final TypeReference<List<BriefingEvaluationResult>> RESULT_LIST_TYPE =
             new TypeReference<>() { };
@@ -1213,11 +1210,21 @@ public class EvaluationViewService {
     /**
      * The forecast run instant, or null when there is no row or no stamp.
      *
-     * <p>{@code forecast_run_at} is a naive {@code LocalDateTime}; it is recorded in
-     * {@link #LONDON}, not UTC, so it must be zoned before it can be compared with an
-     * {@link Instant}. Comparing it raw would be silently out by an hour through BST — enough to
-     * invert the verdict on any pair written within an hour of each other, which the nightly
-     * cycle produces routinely.
+     * <p>{@code forecast_run_at} is a naive {@code LocalDateTime} — the ONE and ONLY write site,
+     * {@code ForecastService.buildEntity}, has stamped it {@code LocalDateTime.now(ZoneOffset.UTC)}
+     * since the column's introduction (commit b3284f52, 2026-02-24; confirmed by {@code git blame}
+     * — the line has never changed) and the batch result handler never bumps it when scoring a
+     * PENDING row in place ("submit-time, not score-time" — see {@code ForecastResultHandler}'s own
+     * javadoc). It must therefore be zoned as {@link ZoneOffset#UTC}, not {@code Europe/London},
+     * before it can be compared with an {@link Instant}.
+     *
+     * <p>⚠️ <b>This zoned as London until a Codex review of #940 caught it.</b> The wrong zone made
+     * every forecast row read one hour OLDER than it actually was during BST, which both skewed the
+     * pre-existing {@link #cachedIsAtLeastAsFresh} freshness gate (a cached rating written up to an
+     * hour before a later triage row could wrongly outrank it) and, once the stability-skip
+     * retraction rule started comparing this instant against a true {@code Instant} from {@code
+     * forecast_run_disposition}, could wrongly retract a row written shortly AFTER a skip because it
+     * read as shortly before it instead.
      *
      * <p>Public so {@code ForecastController} can apply {@link #isRetractedByStabilitySkip} to the
      * raw rows it reads directly from {@code forecast_evaluation} for {@code GET /api/forecast} —
@@ -1231,7 +1238,7 @@ public class EvaluationViewService {
         if (forecastRow == null || forecastRow.getForecastRunAt() == null) {
             return null;
         }
-        return forecastRow.getForecastRunAt().atZone(LONDON).toInstant();
+        return forecastRow.getForecastRunAt().toInstant(ZoneOffset.UTC);
     }
 
     private LocationEvaluationView emptyView(Long locationId, String locationName,
