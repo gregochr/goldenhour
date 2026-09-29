@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,11 +106,13 @@ class BriefingRollupBuilderTest {
         Arrays.stream(spots).filter(spot -> spot.rating() != null).forEach(spot ->
                 cached.put(spot.name(), new BriefingEvaluationResult(
                         spot.name(), spot.rating(), 60, 60, "Conditions.")));
-        // eq(), not any(): the cache key is the one argument a refactor of this method would get
-        // wrong, and a matcher that accepts anything cannot fail when it does.
-        when(evaluationViewService.getLiveScoresForEnrichment(
-                eq(REGION), eq(DATE), eq(TargetType.SUNRISE)))
-                .thenReturn(cached);
+        // eq(), not any(): the bulk window and the map key are the arguments a refactor of this
+        // method would get wrong, and a matcher that accepts anything cannot fail when it does.
+        // One bulk call for the whole rollup, never a per-region getLiveScoresForEnrichment —
+        // see BriefingRollupBuilder.loadLiveScores.
+        when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                eq(DATE), eq(DATE), eq(Set.of(TargetType.SUNRISE))))
+                .thenReturn(Map.of(REGION + "|" + DATE + "|" + TargetType.SUNRISE, cached));
     }
 
     /** The region node the advisor is prompted with. */

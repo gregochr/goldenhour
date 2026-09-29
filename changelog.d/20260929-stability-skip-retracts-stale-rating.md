@@ -64,3 +64,24 @@ ratings. The pre-existing fail-open roster-hygiene residual on this lookup (a re
 moved location still answering under a name no slot claims) is unchanged by this move, not fixed —
 `getScoresForEnrichment` carries the same cache-outlives-the-roster behaviour forward for the
 identical, already-documented reason.
+
+**Third follow-up fix, same day (a second Codex re-review of #940):** the retraction-aware read the
+previous fix introduced was itself a performance regression, caught before merge. Routing
+`BriefingRollupBuilder.computeRegionStats` and `logCacheCoverage` through
+`getLiveScoresForEnrichment` meant calling it once per region **and** event — up to 6 events × the
+region count × 2 call sites, each call costing three queries — roughly 216 queries per best-bet
+rollup against production's roster, where the in-memory cache read it replaced cost none. New
+`EvaluationViewService.getLiveScoresForEnrichmentBulk(start, end, types)` closes it: the bulk sibling
+of `getScoresForEnrichmentBulk`, filtering out retraction markers the identical way
+`getLiveScoresForEnrichment` does. `BriefingRollupBuilder.loadLiveScores` now loads it exactly ONCE
+per rollup, and `computeRegionStats`/`logCacheCoverage` both read that one pre-loaded map by key —
+never calling `EvaluationViewService` themselves. Single-key `getLiveScoresForEnrichment` keeps
+exactly one caller, `PipelineRunPickService.lookupAverageRating`, which persists at most a handful of
+picks per run — the right shape for a single-key read, not a bulk one. The build path for the Plan
+payload itself carried the same shape of bug, one query narrower: `BriefingService` used to hand its
+enrichment rollup the single-key `getScoresForEnrichment` as a resolver, once per region/event — two
+queries each until the stability-skip fix above added a third. `BriefingService.bulkScoreResolver`
+now loads the (marker-preserving) `getScoresForEnrichmentBulk` once per build instead, mirroring the
+shape `ServedBriefingAssembler.reEnrichVerdicts` already used on the serve path. Per-request paths
+(`GET /api/briefing`, `GET /api/briefing/evaluate/scores`, `GET /api/forecast`) were untouched by
+either fix and still issue one stability-skip query each.
