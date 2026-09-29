@@ -72,13 +72,20 @@ public class DynamicSchedulerService {
      *
      * <p>Called by owning services during {@code @PostConstruct}. The target never learns whether
      * it was fired by the schedule or by {@link #triggerNow} — use
-     * {@link #registerJobTarget(String, Consumer)} for a job that needs to tell the two apart.
+     * {@link #registerManualAwareJobTarget(String, Consumer)} for a job that needs to tell the two
+     * apart.
+     *
+     * <p>Deliberately not overloaded on {@link Consumer} in this same argument position: two
+     * functional interfaces sharing a slot forces every caller passing a bare Mockito {@code any()}
+     * matcher, or a method reference to an overloaded method, into an explicit type witness to
+     * disambiguate — friction on call sites that have nothing to do with the manual/scheduled
+     * distinction. A distinct method name avoids that entirely.
      *
      * @param jobKey the unique job key matching a row in scheduler_job_config
      * @param target the runnable to execute when the job fires
      */
     public void registerJobTarget(String jobKey, Runnable target) {
-        registerJobTarget(jobKey, manual -> target.run());
+        putTarget(jobKey, manual -> target.run());
     }
 
     /**
@@ -93,7 +100,11 @@ public class DynamicSchedulerService {
      * @param target the target; receives {@code true} for a manual trigger, {@code false} for a
      *               scheduled fire
      */
-    public void registerJobTarget(String jobKey, Consumer<Boolean> target) {
+    public void registerManualAwareJobTarget(String jobKey, Consumer<Boolean> target) {
+        putTarget(jobKey, target);
+    }
+
+    private void putTarget(String jobKey, Consumer<Boolean> target) {
         jobTargets.put(jobKey, target);
         LOG.debug("Registered job target for key: {}", jobKey);
     }

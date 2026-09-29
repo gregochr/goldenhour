@@ -101,7 +101,7 @@ public class DriveTimeRefreshJob {
     /** Registers the nightly refresh with the dynamic scheduler. */
     @PostConstruct
     void registerJob() {
-        dynamicSchedulerService.registerJobTarget(JOB_KEY, this::run);
+        dynamicSchedulerService.registerManualAwareJobTarget(JOB_KEY, this::run);
     }
 
     /**
@@ -200,11 +200,12 @@ public class DriveTimeRefreshJob {
     }
 
     /**
-     * The owner's literal instruction: a user is due a refresh only when their postcode has
-     * changed. {@code driveTimesCalculatedAt} is {@code null} exactly when that is true — it is
-     * cleared the moment a home is saved or moved (see {@code UserSettingsService.saveHome}) and
-     * was never set if drive times have not been measured yet — so a null stamp covers both the
-     * "postcode changed" and the "never measured" case.
+     * A user is due a refresh when their postcode has changed since it was last measured, or when
+     * the location roster has grown since (see {@link #rosterGrewSince}) — both owner-approved
+     * rules, 2026-09-29. {@code driveTimesCalculatedAt} is {@code null} exactly when the postcode
+     * has changed: it is cleared the moment a home is saved or moved (see
+     * {@code UserSettingsService.saveHome}) and was never set if drive times have not been measured
+     * yet — so a null stamp covers both the "postcode changed" and the "never measured" case.
      *
      * @param user                      a candidate user
      * @param newestLocationCreatedAt   the roster's newest {@code created_at}, or {@code null} if
@@ -217,12 +218,12 @@ public class DriveTimeRefreshJob {
     }
 
     /**
-     * The orchestrator's addition to the owner's literal instruction above — not something the
-     * owner asked for. Without it, a location added after a user's last refresh would never gain a
-     * drive time for that user again: a location with no drive time passes every reach tier, so it
-     * would render, unfiltered, forever. Kept as its own predicate, deliberately separate from
-     * {@link #needsRefresh}, precisely so it can be deleted in one small edit if the owner decides
-     * the literal "only on a postcode change" reading is what they actually want.
+     * A location added to the roster since a user's last refresh must be measured for them too —
+     * owner-approved, 2026-09-29. A location with no drive time passes every reach tier, so without
+     * this rule a location added after everyone's last refresh would stay unmeasured, and therefore
+     * unfiltered, forever. Kept as its own predicate, deliberately separate from
+     * {@link #needsRefresh}'s postcode-change rule, so this one can be narrowed or dropped on its
+     * own without touching that one.
      *
      * <p>{@code stamp} is compared as an instant — the wall-clock reading is a UTC one either way,
      * since {@code LocationEntity.createdAt} is written via {@code LocalDateTime.now(ZoneOffset.UTC)}

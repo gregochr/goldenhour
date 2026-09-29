@@ -71,10 +71,9 @@ class SkyRatingEvalBatchServiceTest {
     @DisplayName("registerJob registers both the weekly job and the reconciler targets")
     void registerJobRegistersBothTargets() {
         service.registerJob();
+        verify(dynamicSchedulerService).registerJobTarget(eq(SkyRatingEvalService.JOB_KEY), any());
         verify(dynamicSchedulerService).registerJobTarget(
-                eq(SkyRatingEvalService.JOB_KEY), any(Runnable.class));
-        verify(dynamicSchedulerService).registerJobTarget(
-                eq(SkyRatingEvalBatchService.POLL_JOB_KEY), any(Runnable.class));
+                eq(SkyRatingEvalBatchService.POLL_JOB_KEY), any());
     }
 
     @Test

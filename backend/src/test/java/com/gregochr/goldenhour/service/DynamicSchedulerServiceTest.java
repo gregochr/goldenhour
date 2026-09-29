@@ -325,7 +325,7 @@ class DynamicSchedulerServiceTest {
         when(taskScheduler.schedule(any(Runnable.class), any(CronTrigger.class)))
                 .thenReturn(mock(ScheduledFuture.class));
         java.util.List<Boolean> seen = new java.util.ArrayList<>();
-        service.registerJobTarget("tide_refresh", (java.util.function.Consumer<Boolean>) seen::add);
+        service.registerManualAwareJobTarget("tide_refresh", seen::add);
 
         // A scheduled fire.
         service.scheduleJob(config);

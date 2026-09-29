@@ -117,9 +117,16 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      * the roster {@code DriveDurationService.measureForUser} actually measures against — that
      * method calls {@link #findAll()} with no {@code enabled} filter.
      *
-     * <p>The column is a UTC wall-clock value ({@code LocationEntity.createdAt} is written via
-     * {@code LocalDateTime.now(ZoneOffset.UTC)}), stored without a time zone — the caller is
-     * responsible for reattaching {@code ZoneOffset.UTC} before comparing it to a zoned instant.
+     * <p>The column is a UTC wall-clock value when the application writes it
+     * ({@code LocationEntity.createdAt} is set via {@code LocalDateTime.now(ZoneOffset.UTC)}), but
+     * it is stored without a time zone (Postgres {@code timestamp without time zone}), and several
+     * Flyway migrations (V84, V138, V143) insert location rows by raw SQL using the column default
+     * {@code NOW()} instead of going through the application. Postgres's {@code NOW()} is
+     * timezone-aware internally, but writing it into a zone-less column converts it to the
+     * database session's {@code TimeZone} setting first — so treating every row in this column as
+     * UTC (as {@code DriveTimeRefreshJob.usersNeedingRefresh} does) is only correct while every
+     * writer's session runs in UTC, application and migration alike. Nothing in this repository
+     * pins that; it is an environmental assumption, not an enforced one.
      *
      * @return the newest creation timestamp, or {@code null} if the roster is empty
      */

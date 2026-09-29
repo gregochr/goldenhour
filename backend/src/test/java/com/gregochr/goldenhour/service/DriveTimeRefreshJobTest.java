@@ -93,7 +93,8 @@ class DriveTimeRefreshJobTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Consumer<Boolean>> target = ArgumentCaptor.forClass(Consumer.class);
-        verify(dynamicSchedulerService).registerJobTarget(eq("drive_time_refresh"), target.capture());
+        verify(dynamicSchedulerService)
+                .registerManualAwareJobTarget(eq("drive_time_refresh"), target.capture());
         // The registered target is the run itself: firing it reads the roster.
         when(userRepository.findAll()).thenReturn(List.of());
         target.getValue().accept(false);

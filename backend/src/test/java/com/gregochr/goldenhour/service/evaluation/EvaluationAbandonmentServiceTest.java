@@ -54,7 +54,7 @@ class EvaluationAbandonmentServiceTest {
         service().registerJob();
 
         verify(dynamicSchedulerService).registerJobTarget(
-                eq("evaluation_abandonment_sweep"), any(Runnable.class));
+                eq("evaluation_abandonment_sweep"), any());
     }
 
     // ── R7(a): abandonPendingForBatch ───────────────────────────────────────
