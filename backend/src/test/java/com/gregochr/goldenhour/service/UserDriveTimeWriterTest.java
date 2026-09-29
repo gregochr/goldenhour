@@ -106,10 +106,12 @@ class UserDriveTimeWriterTest {
     class ClearIfHomeUnchanged {
 
         @Test
-        @DisplayName("stamps null first, then clears the rows — reusing the same guard "
-                + "storeIfHomeUnchanged uses and the same row delete clearForUser uses")
-        void homeUnchanged_stampsNullThenClears() {
-            when(userRepository.stampDriveTimesIfHomeIs(USER_ID, LAT, LON, null)).thenReturn(1);
+        @DisplayName("clears the stamp first, then clears the rows — reusing the same guard "
+                + "shape storeIfHomeUnchanged uses (its own dedicated literal-NULL repository "
+                + "method, not stampDriveTimesIfHomeIs with a null instant) and the same row "
+                + "delete clearForUser uses")
+        void homeUnchanged_clearsStampThenRows() {
+            when(userRepository.clearDriveTimesCalculatedAtIfHomeIs(USER_ID, LAT, LON)).thenReturn(1);
 
             boolean cleared = writer.clearIfHomeUnchanged(USER_ID, LAT, LON);
 
@@ -117,7 +119,7 @@ class UserDriveTimeWriterTest {
             // Same order, same reasoning as storeIfHomeUnchanged: the guard runs before anything
             // is written, and the user row's lock is taken before the drive-time rows.
             InOrder order = inOrder(userRepository, userDriveTimeRepository);
-            order.verify(userRepository).stampDriveTimesIfHomeIs(USER_ID, LAT, LON, null);
+            order.verify(userRepository).clearDriveTimesCalculatedAtIfHomeIs(USER_ID, LAT, LON);
             order.verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
             verifyNoMoreInteractions(userRepository, userDriveTimeRepository);
         }
@@ -126,7 +128,7 @@ class UserDriveTimeWriterTest {
         @DisplayName("when the home has moved since measuring, writes nothing and says so — "
                 + "exactly as storeIfHomeUnchanged does on the same race")
         void homeMoved_writesNothing() {
-            when(userRepository.stampDriveTimesIfHomeIs(USER_ID, LAT, LON, null)).thenReturn(0);
+            when(userRepository.clearDriveTimesCalculatedAtIfHomeIs(USER_ID, LAT, LON)).thenReturn(0);
 
             boolean cleared = writer.clearIfHomeUnchanged(USER_ID, LAT, LON);
 

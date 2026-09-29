@@ -138,13 +138,14 @@ public class UserDriveTimeWriter {
      * table): ORS answered, and confirmed no destination has a valid duration, so the stored rows
      * are known-stale rather than merely unmeasured.
      *
-     * <p>Reuses the exact same compare-and-set {@link #storeIfHomeUnchanged} does
-     * ({@link AppUserRepository#stampDriveTimesIfHomeIs}, here with a {@code null} instant, which
-     * the query writes as an ordinary {@code SET ... = NULL}) and the exact same row delete
-     * {@link #clearForUser} performs — no third way to delete rows, and no new repository method.
-     * The guard comes first, in the same order and for the same reason
-     * {@code storeIfHomeUnchanged}'s javadoc gives: it takes the user row's lock before the
-     * drive-time rows, so it orders correctly against a concurrent {@code saveHome} without a
+     * <p>The guard is the same compare-and-set shape {@link #storeIfHomeUnchanged} uses, on its own
+     * dedicated repository method, {@link AppUserRepository#clearDriveTimesCalculatedAtIfHomeIs} — a
+     * literal {@code SET ... = NULL}, not {@link AppUserRepository#stampDriveTimesIfHomeIs} called
+     * with a {@code null} instant, so this write never depends on how a bound null binds on a given
+     * JDBC driver (see that method's own javadoc). The row delete reuses {@link #clearForUser}
+     * exactly — no third way to delete rows. The guard comes first, in the same order and for the
+     * same reason {@code storeIfHomeUnchanged}'s javadoc gives: it takes the user row's lock before
+     * the drive-time rows, so it orders correctly against a concurrent {@code saveHome} without a
      * separate lock of its own.
      *
      * @param userId    the user's primary key
@@ -155,7 +156,7 @@ public class UserDriveTimeWriter {
      */
     @Transactional
     public boolean clearIfHomeUnchanged(Long userId, double originLat, double originLon) {
-        if (userRepository.stampDriveTimesIfHomeIs(userId, originLat, originLon, null) != 1) {
+        if (userRepository.clearDriveTimesCalculatedAtIfHomeIs(userId, originLat, originLon) != 1) {
             return false;
         }
         clearForUser(userId);

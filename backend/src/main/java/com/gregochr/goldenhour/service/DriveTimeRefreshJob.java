@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -14,7 +15,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Nightly refresh of every user's per-location drive times.
@@ -218,6 +222,14 @@ public class DriveTimeRefreshJob {
         int superseded = 0;
         int failed = 0;
         int locationsWritten = 0;
+        // Lazily fetched at most once per run, only if a store actually succeeds — a run where
+        // nothing measures (or nothing stores) costs no extra query beyond what it already made.
+        List<LocationEntity> allLocationsForOmissionCheck = null;
+        // Deduplicated and order-preserving: a location unroutable from one home is typically
+        // unroutable from every home, so this collects ONE run-wide set rather than one WARN per
+        // user — see the ⚠️ below and needsRefresh's javadoc for why an omission is never retried
+        // on its own.
+        Set<String> omittedLocationNames = new LinkedHashSet<>();
 
         for (AppUserEntity user : due) {
             try {
@@ -249,6 +261,27 @@ public class DriveTimeRefreshJob {
                         user.getId(), originLat, originLon, driveTimes, rosterReadAt)) {
                     refreshed++;
                     locationsWritten += driveTimes.size();
+                    if (!manual) {
+                        // Visibility for the unattended route only: a manual Run now already
+                        // hands its result to the admin who pressed it, so this omission-naming
+                        // query and the WARN it can produce below are scoped to the scheduled
+                        // fire, matching the manual/scheduled asymmetry this class's own javadoc
+                        // already documents elsewhere. Manual keeps its existing, narrower
+                        // locationRepository footprint (findMaxCreatedAt alone, and only on the
+                        // scheduled route at that).
+                        if (allLocationsForOmissionCheck == null) {
+                            allLocationsForOmissionCheck = locationRepository.findAll();
+                        }
+                        if (driveTimes.size() < allLocationsForOmissionCheck.size()) {
+                            Set<Long> measuredLocationIds = driveTimes.stream()
+                                    .map(UserDriveTimeEntity::getLocationId)
+                                    .collect(Collectors.toSet());
+                            allLocationsForOmissionCheck.stream()
+                                    .filter(location -> !measuredLocationIds.contains(location.getId()))
+                                    .map(LocationEntity::getName)
+                                    .forEach(omittedLocationNames::add);
+                        }
+                    }
                 } else {
                     superseded++;
                     LOG.info("Drive time refresh for user {} discarded — the home moved while it "
@@ -259,6 +292,14 @@ public class DriveTimeRefreshJob {
                 failed++;
                 LOG.warn("Drive time refresh failed for user {}: {}", user.getId(), e.getMessage());
             }
+        }
+
+        if (!omittedLocationNames.isEmpty()) {
+            // One line for the whole run, not one per user — see the field's own comment above and
+            // needsRefresh's javadoc for why this is visibility, not a retry trigger.
+            LOG.warn("Drive time refresh ({}): {} location(s) had no valid duration from at least "
+                    + "one home this run and were omitted from that user's stored rows — {}",
+                    routeName(manual), omittedLocationNames.size(), omittedLocationNames);
         }
 
         LOG.info("Drive time refresh ({}) complete — {} user(s) refreshed ({} location rows), "
@@ -307,6 +348,30 @@ public class DriveTimeRefreshJob {
      * unroutable user off this path. It matches this job's own behaviour from before the
      * skip-logic change (2026-09-29) — every user was measured every night then, this one still is
      * — so the cost is not new, only now confined to the users it actually applies to.
+     *
+     * <p>⚠️ <strong>Owner decision, 2026-09-29, following review.</strong> {@link #run} does advance
+     * the stamp on a PARTIAL answer — a successful measurement that stored durations for some
+     * destinations and omitted others — and this method then reads that stamp as covering ALL of
+     * them, so a destination ORS could not route to is never retried on its own on the schedule. A
+     * null or negative entry in an otherwise successful ORS matrix response is a definitive result
+     * for that destination — "no route exists from this origin" — not a transient failure; a
+     * transient one (unconfigured, rate-limited, a malformed or empty response) fails the WHOLE call
+     * ({@link com.gregochr.goldenhour.client.OpenRouteServiceClient#fetchDurations}), which
+     * {@link #run}'s {@code driveTimes.isEmpty()}
+     * branch already treats as a failure that stores nothing and leaves the stamp alone. Refusing to
+     * advance the stamp until every destination succeeds was considered and rejected: it would make
+     * EVERY user due EVERY night for as long as ONE location in the roster is unroutable from
+     * anywhere — not hypothetical, since production held exactly such a location (a latitude typo
+     * placing it in the sea) until this date, undetected. A location like that is a data problem an
+     * admin corrects by fixing its coordinates, and the admin's "Run now" (which bypasses this
+     * predicate entirely) re-measures everyone the moment it is — nightly retries cannot fix
+     * coordinates. In the meantime the location renders honestly: no drive time is "unknown", which
+     * passes every reach tier and shows no leave-by time, never a wrong or stale one. On the
+     * SCHEDULED route only, {@link #run} logs one aggregated WARN per run (not per user) naming
+     * every location a successful measurement omitted this run, so an unroutable location is
+     * visible to an operator the first night it appears rather than discovered by a reader's silent
+     * "unknown" drive time — a manual "Run now" already hands its result straight to the admin who
+     * pressed it, so it skips this query and carries no WARN of its own.
      *
      * @param user                      a candidate user
      * @param newestLocationCreatedAt   the roster's newest {@code created_at}, or {@code null} if

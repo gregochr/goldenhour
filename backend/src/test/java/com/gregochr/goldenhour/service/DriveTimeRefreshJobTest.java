@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -294,6 +295,78 @@ class DriveTimeRefreshJobTest {
             // Manual measures everyone outright — it never needs to know the roster's newest
             // location, unlike a scheduled fire.
             verifyNoInteractions(locationRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("A partial answer (one destination confirmed unroutable) advances the stamp — "
+            + "owner decision, 2026-09-29, following review: see needsRefresh's own javadoc for "
+            + "why an omitted destination is never retried on the schedule alone")
+    class PartialAnswerDecision {
+
+        @Test
+        @DisplayName("Valid rows are stored, the stamp advances to the roster-read instant, and "
+                + "the confirmed-unreachable location has no row")
+        void partialAnswer_storesValidRows_advancesStamp_omitsConfirmedUnreachable() {
+            AppUserEntity user = withHome(1L);
+            // A null/negative entry for ONE destination within an otherwise successful ORS answer
+            // is a definitive "no route exists" result for that destination — never a transient
+            // failure, which fails the WHOLE call instead (see DriveDurationService.measureForUser
+            // and OpenRouteServiceClient.fetchDurations: one un-chunked call, no partial responses
+            // from a failure).
+            List<UserDriveTimeEntity> partial = List.of(new UserDriveTimeEntity(1L, 10L, 900));
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(partial));
+            when(locationRepository.findAll()).thenReturn(List.of(
+                    LocationEntity.builder().id(10L).name("Reachable Spot").build(),
+                    LocationEntity.builder().id(20L).name("Unroutable Spot").build()));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, partial, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, partial, NOW);
+        }
+
+        @Test
+        @DisplayName("The following scheduled night (no roster or home change) makes zero client "
+                + "calls, and a manual Run now after that measures the user again")
+        void quietNightAfterPartialAnswer_thenManualRunMeasuresAgain() {
+            AppUserEntity user = withHome(1L);
+            List<UserDriveTimeEntity> partial = List.of(new UserDriveTimeEntity(1L, 10L, 900));
+            List<LocationEntity> roster = List.of(
+                    LocationEntity.builder().id(10L).name("Reachable Spot").build(),
+                    LocationEntity.builder().id(20L).name("Unroutable Spot").build());
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findAll()).thenReturn(roster);
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(partial));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, partial, NOW)).thenReturn(true);
+
+            // Night one: due (null stamp), the partial answer is stored, the stamp advances to NOW.
+            job.run(false);
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, partial, NOW);
+            user.setDriveTimesCalculatedAt(NOW); // simulate persistence
+
+            // Night two: the roster has not grown since that stamp — zero client calls. The
+            // omitted "Unroutable Spot" is NOT retried on its own; that is the decision. Comfortably
+            // outside ROSTER_VISIBILITY_MARGIN (one hour), not merely before the stamp itself — see
+            // VisibilityMargin's own tests for why a margin-boundary gap would still be due.
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    NOW.minus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).minusSeconds(60),
+                    ZoneOffset.UTC));
+            job.run(false);
+            verify(driveDurationService, times(1)).measureForUser(1L, 54.97, -1.61);
+            verifyNoMoreInteractions(driveTimeWriter);
+
+            // A manual Run now bypasses needsRefresh entirely and measures everyone regardless —
+            // the remedy once an admin has corrected the unroutable location's coordinates.
+            List<UserDriveTimeEntity> full = List.of(
+                    new UserDriveTimeEntity(1L, 10L, 900), new UserDriveTimeEntity(1L, 20L, 1200));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(full));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, full, NOW)).thenReturn(true);
+
+            job.run(true);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, full, NOW);
         }
     }
 

@@ -102,10 +102,12 @@ confirmed-unreachable answer (ORS answered; no destination has a valid duration)
 learned" — ORS has just told us the stored drive times are stale, and the previous fix's merge left
 them in place, so the reach lens and a leave-by time went on using journeys ORS had just
 invalidated. The decision: a confirmed-unreachable manual refresh CLEARS the user's rows and sets
-the stamp to `null` together — a new guarded `UserDriveTimeWriter.clearIfHomeUnchanged`, reusing
-`storeIfHomeUnchanged`'s own compare-and-set (`AppUserRepository.stampDriveTimesIfHomeIs`, called
-with a `null` instant, which the query writes as an ordinary `SET ... = NULL`) and `clearForUser`'s
-row delete — no third way to delete rows, and no new repository method. That leaves the EXACT state
+the stamp to `null` together — a new guarded `UserDriveTimeWriter.clearIfHomeUnchanged`, using the
+same compare-and-set shape `storeIfHomeUnchanged` uses, on its own dedicated repository method
+(`AppUserRepository.clearDriveTimesCalculatedAtIfHomeIs` — a literal `SET ... = NULL`, added after
+review rather than calling `stampDriveTimesIfHomeIs` with a `null` instant, so the write never
+depends on how a bound null binds on a given JDBC driver) and `clearForUser`'s row delete — no third
+way to delete rows. That leaves the EXACT state
 a home move already produces (rows gone, stamp `null`), which the rest of the product already
 handles honestly: no "Last calculated" line, the reach lens reads the location as unknown, and the
 scheduled job measures the user again on its very next run because the stamp is null. The no-answer
@@ -143,3 +145,36 @@ no rows) cannot affect a result even incidentally. The container field was alrea
 (a fresh container, and therefore a fresh schema, per test method), so the two test methods were
 never able to see each other's rows regardless of run order — the collision was each method against
 Flyway's own seed data, not the two methods against each other.
+
+A further review pointed out that `clearIfHomeUnchanged`'s compare-and-set had only ever been
+exercised through mocks — no test had run the actual `SET ... = NULL` statement against a real
+database, so a null bind that a JDBC driver could not type would only fail at runtime, on a rare
+path. `AppUserRepository` gained its own dedicated `clearDriveTimesCalculatedAtIfHomeIs` method (a
+literal `SET u.driveTimesCalculatedAt = NULL ...`, not `stampDriveTimesIfHomeIs` called with a
+`null` instant), removing the question rather than relying on an untested answer, and
+`clearIfHomeUnchanged` now calls it. Two real-database tests were added either way, because they
+prove the method's whole behaviour (the delete, the atomicity, the guard), not only the null-bind
+question the repository change already settles: `UserSettingsRaceSequenceTest` (H2, runs locally)
+and `UserSettingsRowLockIntegrationTest` (Postgres, CI-only) each gained a pair proving the rows are
+deleted and the stamp nulled when the home matches, and that both survive untouched when it does not.
+
+One more P1 (fifth review of PR #942), on `DriveDurationService.measureForUser`'s OTHER kind of
+partial result: a successful ORS answer that omits one or more destinations (a null or negative
+duration for that destination specifically) while storing valid durations for the rest. `run` was
+already advancing the stamp on such an answer, so an omitted destination was never retried on the
+schedule alone. Verified before deciding: `OpenRouteServiceClient.fetchDurations` makes one
+un-chunked call per measurement, and a transient failure (unconfigured, rate-limited, malformed or
+empty response) fails that whole call rather than returning a partial list — so a null or negative
+entry can only come from ORS's own per-destination answer within an otherwise successful response, a
+definitive "no route exists" result, never a transient one. Decision: **keep the behaviour.**
+Refusing to advance the stamp until every destination succeeds would make every user due every
+night for as long as one location in the roster is unroutable from anywhere — not hypothetical,
+since production held exactly such a location (a latitude typo placing it in the sea) until this
+date, undetected. That is a data problem an admin fixes by correcting the coordinates, and the
+admin's "Run now" (which bypasses this predicate) re-measures everyone the moment they do; nightly
+retries cannot fix coordinates, and the location renders honestly meanwhile (no drive time is
+"unknown," passing every reach tier). `DriveTimeRefreshJob.needsRefresh`'s javadoc now records this
+as an owner decision dated 2026-09-29, and the scheduled route logs one aggregated WARN per run
+(never one per user) naming every location a successful measurement omitted that run, so an
+unroutable location is visible to an operator the first night it appears — a manual "Run now" skips
+this query and its WARN, since it already hands its result straight to the admin who pressed it.

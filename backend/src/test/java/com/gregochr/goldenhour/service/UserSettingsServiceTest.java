@@ -364,6 +364,28 @@ class UserSettingsServiceTest {
         }
 
         @Test
+        @DisplayName("a PARTIAL answer (ORS confirms one destination unroutable, valid durations "
+                + "for the rest) stores the subset and sets the stamp — owner decision, "
+                + "2026-09-29: an omitted destination is a definitive per-destination result, not "
+                + "a reason to withhold the whole store")
+        void partialAnswer_storesTheSubsetAndSetsTheStamp() {
+            durhamHome(null);
+            // Present, non-empty, but smaller than the full destination list — ORS answered for
+            // every location and confirmed one of them unroutable from this home.
+            List<UserDriveTimeEntity> partial = rows(9);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.of(partial));
+            when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, partial, NOW))
+                    .thenReturn(true);
+
+            DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+            assertThat(response.locationsUpdated()).isEqualTo(9);
+            assertThat(response.calculatedAt()).isEqualTo(NOW);
+            verify(driveTimeWriter).storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, partial, NOW);
+        }
+
+        @Test
         @DisplayName("a present-but-empty answer (ORS answered, confirmed no valid duration "
                 + "anywhere) CLEARS the user's rows and stamp — fails against fe8ee278, which "
                 + "merged this into the no-answer-at-all case and left the stale rows in place")
