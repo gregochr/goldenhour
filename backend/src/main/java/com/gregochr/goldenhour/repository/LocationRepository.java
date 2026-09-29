@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -107,4 +108,28 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      */
     @Query("SELECT DISTINCT l FROM LocationEntity l JOIN l.tideType tt WHERE l.enabled = true")
     List<LocationEntity> findCoastalLocations();
+
+    /**
+     * Returns the most recent {@code created_at} across the whole location roster.
+     *
+     * <p>One query, so a caller deciding "has anything been added" never needs to page through
+     * locations or query per candidate. Scoped to every location, not just enabled ones, to match
+     * the roster {@code DriveDurationService.measureForUser} actually measures against — that
+     * method calls {@link #findAll()} with no {@code enabled} filter.
+     *
+     * <p>The column is a UTC wall-clock value when the application writes it
+     * ({@code LocationEntity.createdAt} is set via {@code LocalDateTime.now(ZoneOffset.UTC)}), but
+     * it is stored without a time zone (Postgres {@code timestamp without time zone}), and several
+     * Flyway migrations (V84, V138, V143) insert location rows by raw SQL using the column default
+     * {@code NOW()} instead of going through the application. Postgres's {@code NOW()} is
+     * timezone-aware internally, but writing it into a zone-less column converts it to the
+     * database session's {@code TimeZone} setting first — so treating every row in this column as
+     * UTC (as {@code DriveTimeRefreshJob.usersNeedingRefresh} does) is only correct while every
+     * writer's session runs in UTC, application and migration alike. Nothing in this repository
+     * pins that; it is an environmental assumption, not an enforced one.
+     *
+     * @return the newest creation timestamp, or {@code null} if the roster is empty
+     */
+    @Query("SELECT MAX(l.createdAt) FROM LocationEntity l")
+    LocalDateTime findMaxCreatedAt();
 }

@@ -102,26 +102,37 @@ class UserDriveTimeWriterTest {
     }
 
     @Nested
-    @DisplayName("stampIfHomeUnchanged")
-    class StampIfHomeUnchanged {
+    @DisplayName("clearIfHomeUnchanged")
+    class ClearIfHomeUnchanged {
 
         @Test
-        @DisplayName("stamps through the compare-and-set and leaves the stored rows alone")
-        void homeUnchanged_stampsOnly() {
-            when(userRepository.stampDriveTimesIfHomeIs(USER_ID, LAT, LON, CALCULATED_AT)).thenReturn(1);
+        @DisplayName("clears the stamp first, then clears the rows — reusing the same guard "
+                + "shape storeIfHomeUnchanged uses (its own dedicated literal-NULL repository "
+                + "method, not stampDriveTimesIfHomeIs with a null instant) and the same row "
+                + "delete clearForUser uses")
+        void homeUnchanged_clearsStampThenRows() {
+            when(userRepository.clearDriveTimesCalculatedAtIfHomeIs(USER_ID, LAT, LON)).thenReturn(1);
 
-            assertThat(writer.stampIfHomeUnchanged(USER_ID, LAT, LON, CALCULATED_AT)).isTrue();
+            boolean cleared = writer.clearIfHomeUnchanged(USER_ID, LAT, LON);
 
-            verifyNoInteractions(userDriveTimeRepository);
+            assertThat(cleared).isTrue();
+            // Same order, same reasoning as storeIfHomeUnchanged: the guard runs before anything
+            // is written, and the user row's lock is taken before the drive-time rows.
+            InOrder order = inOrder(userRepository, userDriveTimeRepository);
+            order.verify(userRepository).clearDriveTimesCalculatedAtIfHomeIs(USER_ID, LAT, LON);
+            order.verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
+            verifyNoMoreInteractions(userRepository, userDriveTimeRepository);
         }
 
         @Test
-        @DisplayName("reports a moved home as not stamped")
-        void homeMoved_reportsNotStamped() {
-            when(userRepository.stampDriveTimesIfHomeIs(USER_ID, LAT, LON, CALCULATED_AT)).thenReturn(0);
+        @DisplayName("when the home has moved since measuring, writes nothing and says so — "
+                + "exactly as storeIfHomeUnchanged does on the same race")
+        void homeMoved_writesNothing() {
+            when(userRepository.clearDriveTimesCalculatedAtIfHomeIs(USER_ID, LAT, LON)).thenReturn(0);
 
-            assertThat(writer.stampIfHomeUnchanged(USER_ID, LAT, LON, CALCULATED_AT)).isFalse();
+            boolean cleared = writer.clearIfHomeUnchanged(USER_ID, LAT, LON);
 
+            assertThat(cleared).isFalse();
             verifyNoInteractions(userDriveTimeRepository);
         }
     }

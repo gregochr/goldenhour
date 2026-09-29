@@ -102,6 +102,9 @@ class UserSettingsRaceSequenceTest {
     private DriveTimeRefreshJob job;
 
     @Autowired
+    private UserDriveTimeWriter driveTimeWriter;
+
+    @Autowired
     private AppUserRepository userRepository;
 
     @Autowired
@@ -233,8 +236,11 @@ class UserSettingsRaceSequenceTest {
     @DisplayName("a home saved while the nightly job routes is kept, that user is stored nothing, "
             + "and the run still refreshes everyone else")
     void homeSavedWhileTheNightlyJobRoutes() {
-        Long mover = durhamReader("night-mover", NOW.minusSeconds(86_400));
-        Long stayer = durhamReader("night-stayer", NOW.minusSeconds(86_400));
+        // Never measured — a null stamp — so a scheduled fire is due to measure both of them
+        // regardless of the location roster; the race this test exists to pin is orthogonal to
+        // that skip logic.
+        Long mover = durhamReader("night-mover", null);
+        Long stayer = durhamReader("night-stayer", null);
         Authentication moverAuth = signedInAs("night-mover");
         when(driveDurationService.measureForUser(mover, DURHAM_LAT, DURHAM_LON)).thenAnswer(routing -> {
             settingsService.saveHome(moverAuth,
@@ -244,7 +250,7 @@ class UserSettingsRaceSequenceTest {
         when(driveDurationService.measureForUser(stayer, DURHAM_LAT, DURHAM_LON))
                 .thenReturn(Optional.of(measuredFrom(stayer, 960, 1860)));
 
-        job.runScheduled();
+        job.run(false);
 
         assertThat(row(mover).get("home_postcode")).isEqualTo(NEWCASTLE);
         assertThat(row(mover).get("home_latitude")).isEqualTo(NEWCASTLE_LAT);
@@ -326,5 +332,34 @@ class UserSettingsRaceSequenceTest {
         assertThat(row(id).get("local_radius_miles")).isEqualTo(25);
         assertThat(driveTimes(id)).containsExactly("1=900", "2=1800");
         assertThat(stamp(id)).isEqualTo(calculated);
+    }
+
+    @Test
+    @DisplayName("clearIfHomeUnchanged deletes the rows and nulls the stamp on the real database "
+            + "— proving the compare-and-set's literal SET ... = NULL repository method actually "
+            + "works, not only the mocks every other test of it uses")
+    void clearIfHomeUnchanged_deletesRowsAndNullsStamp() {
+        Long id = durhamReader("cleared", NOW.minusSeconds(7200));
+
+        boolean cleared = driveTimeWriter.clearIfHomeUnchanged(id, DURHAM_LAT, DURHAM_LON);
+
+        assertThat(cleared).isTrue();
+        assertThat(driveTimes(id)).isEmpty();
+        assertThat(stamp(id)).isNull();
+    }
+
+    @Test
+    @DisplayName("clearIfHomeUnchanged writes nothing when the home does not match — rows and "
+            + "stamp survive untouched, and it reports false, exactly as storeIfHomeUnchanged "
+            + "does on the same race")
+    void clearIfHomeUnchanged_homeMismatch_writesNothing() {
+        Instant calculatedAt = NOW.minusSeconds(7200);
+        Long id = durhamReader("not-cleared", calculatedAt);
+
+        boolean cleared = driveTimeWriter.clearIfHomeUnchanged(id, NEWCASTLE_LAT, NEWCASTLE_LON);
+
+        assertThat(cleared).isFalse();
+        assertThat(driveTimes(id)).containsExactly("1=900", "2=1800");
+        assertThat(stamp(id)).isEqualTo(calculatedAt);
     }
 }

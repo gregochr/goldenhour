@@ -19,9 +19,55 @@ import java.util.List;
  *
  * <p><strong>Nothing measured is stored unless it was measured from the user's home as it stands
  * when it is stored.</strong> A refresh reads the home, routes from it for seconds, and only then
- * writes, and a save can move the home in that gap. {@link #storeIfHomeUnchanged} and
- * {@link #stampIfHomeUnchanged} both begin with a compare-and-set of the stamp on the coordinates
- * the caller measured from, and write nothing when it matches no row.
+ * writes, and a save can move the home in that gap. Both {@link #storeIfHomeUnchanged} and
+ * {@link #clearIfHomeUnchanged} begin with a compare-and-set on the coordinates the caller measured
+ * from, and write nothing when it matches no row.
+ *
+ * <p>⚠️ There is deliberately no "stamp only, no rows" method here — one existed
+ * ({@code stampIfHomeUnchanged}) for the case where ORS gave no answer at all, so the manual
+ * refresh's 30-minute cooldown still applied to a failed attempt; advancing
+ * {@code driveTimesCalculatedAt} with no rows stored broke the stamp's own meaning ("drive times
+ * were stored for the roster read at this instant") and, on the one realistic sequence that reaches
+ * it (a postcode change, whose only enabled button is this one, followed by an ORS failure), left
+ * the scheduled job reading a non-null stamp newer than the roster and skipping that user
+ * indefinitely. {@code UserSettingsService.refreshDriveTimes} tracks a failed ATTEMPT in its own
+ * in-memory map instead, and never calls a writer method at all when ORS gave no answer.
+ *
+ * <p><strong>The invariant this class exists to hold: no outcome on any path may leave a non-null
+ * stamp with zero rows.</strong> {@link DriveDurationService#measureForUser} distinguishes two
+ * different kinds of nothing — an empty {@code Optional} (no answer from ORS at all) and a present
+ * but empty {@code List} (ORS answered; no destination had a valid duration, "confirmed
+ * unreachable") — and the two routes treat "confirmed unreachable" differently on purpose:
+ *
+ * <table>
+ *   <caption>What each outcome does to the rows and the stamp, on each route</caption>
+ *   <tr><th>outcome</th><th>route</th><th>rows</th><th>stamp</th></tr>
+ *   <tr><td rowspan="2">rows stored (ORS answered, &ge;1 valid duration)</td>
+ *       <td>manual</td><td>replaced</td><td>set to the roster-read instant</td></tr>
+ *   <tr><td>scheduled</td><td>replaced</td><td>set to the roster-read instant</td></tr>
+ *   <tr><td rowspan="2">no answer at all (unconfigured, rate-limited, or an empty/failed response)</td>
+ *       <td>manual</td><td>unchanged</td><td>unchanged</td></tr>
+ *   <tr><td>scheduled</td><td>unchanged</td><td>unchanged</td></tr>
+ *   <tr><td rowspan="2">confirmed unreachable (ORS answered; no valid duration anywhere)</td>
+ *       <td>manual</td><td><b>cleared</b></td><td><b>set to null</b></td></tr>
+ *   <tr><td>scheduled</td><td>unchanged</td><td>unchanged</td></tr>
+ *   <tr><td rowspan="2">home moved during measurement</td>
+ *       <td>manual</td><td>unchanged (409, nothing written)</td>
+ *       <td>unchanged (409, nothing written)</td></tr>
+ *   <tr><td>scheduled</td><td>unchanged (counted superseded)</td>
+ *       <td>unchanged (counted superseded)</td></tr>
+ * </table>
+ *
+ * <p>The manual/scheduled split on "confirmed unreachable" is deliberate, not an inconsistency: a
+ * person pressed the Settings button and is looking at the result, so clearing stale rows the
+ * moment ORS has confirmed they no longer apply is the honest answer — keeping them would let the
+ * reach lens and a leave-by time keep using drive times ORS has just invalidated. The scheduled job
+ * runs with nobody watching, so a transient ORS wobble that returns zero valid durations for one
+ * night must not silently wipe a user's drive times overnight; see {@link DriveTimeRefreshJob}'s own
+ * javadoc for that reasoning. Clearing on the manual path leaves the EXACT state a home move already
+ * produces (rows gone, stamp null) — a state the rest of the system already handles: no "Last
+ * calculated" line, the reach lens treats the location as unknown, and a null stamp makes the
+ * scheduled job measure the user again on its very next run.
  */
 @Component
 public class UserDriveTimeWriter {
@@ -54,14 +100,20 @@ public class UserDriveTimeWriter {
      * other.
      *
      * <p>When it stores, it stores atomically: the stamp, the delete and the inserts share one
-     * transaction, so a failed write leaves the previous drive times and their stamp intact. An
-     * empty list clears the user's drive times (ORS answered, but with no valid duration to any
-     * location).
+     * transaction, so a failed write leaves the previous drive times and their stamp intact.
+     *
+     * <p>⚠️ {@code driveTimes} is expected non-empty — every live caller reaches this method only
+     * after confirming it measured at least one valid duration, routing an empty answer to
+     * {@link #clearIfHomeUnchanged} instead (see the class javadoc's table). An empty list here
+     * would still stamp (a non-null {@code calculatedAt} with zero rows behind it), which is
+     * exactly the invariant this class exists to hold — the defensive {@code isEmpty()} guard
+     * below exists only so a future caller's mistake clears rather than corrupts, never so an empty
+     * list becomes a second, quieter way to reach that state.
      *
      * @param userId       the user's primary key
      * @param originLat    the latitude the drive times were measured from
      * @param originLon    the longitude the drive times were measured from
-     * @param driveTimes   the new drive times for that user; may be empty
+     * @param driveTimes   the new drive times for that user; expected non-empty (see above)
      * @param calculatedAt when they were calculated
      * @return {@code true} if stored; {@code false} if the home has moved since, and nothing was
      *         written
@@ -80,25 +132,35 @@ public class UserDriveTimeWriter {
     }
 
     /**
-     * Stamps a calculation that produced no answer to store, leaving the stored drive times as they
-     * are — only while the home is still the one the attempt was made from.
+     * Clears a user's drive times AND their calculated-at stamp together — only while the home is
+     * still the one they were measured from. The manual-refresh counterpart to
+     * {@link #storeIfHomeUnchanged} for a "confirmed unreachable" answer (see the class javadoc's
+     * table): ORS answered, and confirmed no destination has a valid duration, so the stored rows
+     * are known-stale rather than merely unmeasured.
      *
-     * <p>The manual refresh's path when ORS gives no answer at all (unconfigured, an empty
-     * response, or no locations): it has always stamped that attempt, which is what its response
-     * reports and what its cooldown reads. Guarded like {@link #storeIfHomeUnchanged}, because a
-     * stamp landing after a move would put the cooldown back on someone who has just moved house and
-     * has no drive times at all.
+     * <p>The guard is the same compare-and-set shape {@link #storeIfHomeUnchanged} uses, on its own
+     * dedicated repository method, {@link AppUserRepository#clearDriveTimesCalculatedAtIfHomeIs} — a
+     * literal {@code SET ... = NULL}, not {@link AppUserRepository#stampDriveTimesIfHomeIs} called
+     * with a {@code null} instant, so this write never depends on how a bound null binds on a given
+     * JDBC driver (see that method's own javadoc). The row delete reuses {@link #clearForUser}
+     * exactly — no third way to delete rows. The guard comes first, in the same order and for the
+     * same reason {@code storeIfHomeUnchanged}'s javadoc gives: it takes the user row's lock before
+     * the drive-time rows, so it orders correctly against a concurrent {@code saveHome} without a
+     * separate lock of its own.
      *
-     * @param userId       the user's primary key
-     * @param originLat    the latitude the attempt was made from
-     * @param originLon    the longitude the attempt was made from
-     * @param calculatedAt when the attempt was made
-     * @return {@code true} if stamped; {@code false} if the home has moved since
+     * @param userId    the user's primary key
+     * @param originLat the latitude the (empty) measurement was taken from
+     * @param originLon the longitude the (empty) measurement was taken from
+     * @return {@code true} if cleared; {@code false} if the home has moved since, and nothing was
+     *         written
      */
     @Transactional
-    public boolean stampIfHomeUnchanged(Long userId, double originLat, double originLon,
-            Instant calculatedAt) {
-        return userRepository.stampDriveTimesIfHomeIs(userId, originLat, originLon, calculatedAt) == 1;
+    public boolean clearIfHomeUnchanged(Long userId, double originLat, double originLon) {
+        if (userRepository.clearDriveTimesCalculatedAtIfHomeIs(userId, originLat, originLon) != 1) {
+            return false;
+        }
+        clearForUser(userId);
+        return true;
     }
 
     /**
