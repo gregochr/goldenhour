@@ -582,7 +582,7 @@ public class BriefingService {
         // issued two queries per call, but the stability-skip retraction rule added a third
         // (loadStabilitySkips) to every one of them, which is what made the multiplication worth
         // closing here rather than leaving as a pre-existing pattern.
-        days = rollup.enrich(days, bulkScoreResolver(days));
+        days = rollup.enrich(days, bulkScoreResolver(days), bulkTriagedResolver(days));
 
         // Enrich GO/MARGINAL regions with Claude-generated one-line gloss
         if (succeeded > 0) {
@@ -727,6 +727,39 @@ public class BriefingService {
                 evaluationViewService.getScoresForEnrichmentBulk(start, end, types);
         return (regionName, date, targetType) ->
                 index.getOrDefault(regionName + "|" + date + "|" + targetType, Map.of());
+    }
+
+    /**
+     * A {@link TriagedByBatchResolver} backed by one {@link EvaluationViewService
+     * #getTriagedByBatchLocationNamesBulk} load over the given days' whole date range and
+     * target-type set — the sibling of {@link #bulkScoreResolver}, read INDEPENDENTLY rather than
+     * derived from it, because the two answer different questions about the same region/date/event
+     * (a Codex review of #943, P1-A, round 2 — see {@link TriagedByBatchResolver}'s own javadoc).
+     *
+     * <p>Mirrors {@link ServedBriefingAssembler#reEnrichVerdicts}'s own triaged resolver exactly —
+     * same bulk accessor, same key shape, same empty-set default for an uncovered slot.
+     *
+     * @param days the assembled briefing days for this build
+     * @return a resolver reading from one pre-loaded bulk index
+     */
+    private TriagedByBatchResolver bulkTriagedResolver(List<BriefingDay> days) {
+        if (days.isEmpty()) {
+            return (regionName, date, targetType) -> Set.of();
+        }
+        LocalDate start = days.getFirst().date();
+        LocalDate end = days.getLast().date();
+        Set<TargetType> types = days.stream()
+                .flatMap(day -> day.eventSummaries().stream())
+                .map(BriefingEventSummary::targetType)
+                .collect(java.util.stream.Collectors.toCollection(
+                        () -> EnumSet.noneOf(TargetType.class)));
+        if (types.isEmpty()) {
+            return (regionName, date, targetType) -> Set.of();
+        }
+        Map<String, Set<String>> index =
+                evaluationViewService.getTriagedByBatchLocationNamesBulk(start, end, types);
+        return (regionName, date, targetType) ->
+                index.getOrDefault(regionName + "|" + date + "|" + targetType, Set.of());
     }
 
     private String circuitState() {

@@ -260,7 +260,15 @@ class ServedBriefingAssembler {
                 evaluationViewService.getScoresForEnrichmentBulk(start, end, types);
         RegionScoreResolver resolver = (regionName, date, targetType) ->
                 index.getOrDefault(regionName + "|" + date + "|" + targetType, Map.of());
-        return response.withDays(scoreEnricher.enrich(response.days(), resolver));
+        // Independent of `resolver` above — answers a different question about the same
+        // region/date/event key (a Codex review of #943, P1-A, round 2; see
+        // TriagedByBatchResolver's own javadoc for why this cannot be derived from `resolver`'s
+        // own return value).
+        Map<String, Set<String>> triagedIndex =
+                evaluationViewService.getTriagedByBatchLocationNamesBulk(start, end, types);
+        TriagedByBatchResolver triagedResolver = (regionName, date, targetType) ->
+                triagedIndex.getOrDefault(regionName + "|" + date + "|" + targetType, Set.of());
+        return response.withDays(scoreEnricher.enrich(response.days(), resolver, triagedResolver));
     }
 
     /**

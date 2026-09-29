@@ -37,7 +37,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -2984,9 +2986,22 @@ class EvaluationViewServiceTest {
      * {@code forecast_run_disposition} table, never from a slot's independently-computed
      * weather-triage {@code Verdict}. These tests drive it through the real public method, mocking
      * only {@link ForecastRunDispositionRepository#findLatestNonCachedDispositions} — exactly what
-     * production's bulk query returns — and separately prove {@code getScoresForEnrichment}/
-     * {@code Bulk} stamp the {@link BriefingEvaluationResult#triagedByBatch()} synthetic marker for
-     * a voting slot that has this evidence but no rating or cache entry of its own.
+     * production's bulk query returns — and separately prove {@link
+     * EvaluationViewService#getTriagedByBatchLocationNames}/{@code
+     * getTriagedByBatchLocationNamesBulk} report the disposition-sourced set for a region/date/event,
+     * INDEPENDENTLY of whatever {@code getScoresForEnrichment}/{@code Bulk} separately resolve for
+     * the same slot.
+     *
+     * <p>⚠️ <b>A second Codex review of #943 (P1-A, round 2) replaced a synthetic {@code
+     * BriefingEvaluationResult#triagedByBatch} marker with this dedicated resolver.</b> The marker
+     * rode on the score map and was stamped only in the branch where {@code
+     * resolveForEnrichmentRetractionAware} had nothing else to return — but production always
+     * writes a real {@code forecast_evaluation} triage row alongside {@code SKIPPED_TRIAGED} (see
+     * {@code ForecastService#fetchWeatherAndTriage}), so that branch almost never fired and {@code
+     * VerdictSampleGate#examinedCount} silently collapsed to rated-only on the exact production
+     * shape the gate exists to protect. The two lookups below now answer independently and are
+     * combined by {@code BriefingRegionEvaluationRollup} itself, never by one deriving from the
+     * other's map entry.
      */
     @Nested
     @DisplayName("batch-triage evidence for the examined count")
@@ -3087,10 +3102,10 @@ class EvaluationViewServiceTest {
         }
 
         @Test
-        @DisplayName("a voting slot with no rating or cache entry, but batch-triaged, gets the "
-                + "synthetic marker from getScoresForEnrichment — and it never touches the "
-                + "rating/triage fields a real result would carry")
-        void getScoresForEnrichment_stampsSyntheticMarkerForPurelyBatchTriagedSlot() {
+        @DisplayName("getTriagedByBatchLocationNames reports a purely-batch-triaged slot (no "
+                + "rating or cache entry of its own) — and getScoresForEnrichment separately "
+                + "resolves nothing for it, proving the two lookups are genuinely independent")
+        void getTriagedByBatchLocationNames_reportsPurelyBatchTriagedSlot() {
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of());
@@ -3099,47 +3114,44 @@ class EvaluationViewServiceTest {
                             nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
                                     Instant.parse("2026-04-22T01:00:00Z"))));
 
-            BriefingEvaluationResult result =
+            Set<String> triagedNames =
+                    service.getTriagedByBatchLocationNames(REGION_NAME, DATE, SUNRISE);
+            BriefingEvaluationResult scoreResult =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
 
-            assertThat(result).isNotNull();
-            assertThat(result.triagedByBatch()).isTrue();
-            assertThat(result.rating()).isNull();
-            assertThat(result.triageReason()).isNull();
-            assertThat(result.retracted()).isFalse();
+            assertThat(triagedNames).containsExactly("Bamburgh");
+            // No forecast_evaluation row was mocked at all (findLatestRunPerSlotByLocationIds
+            // defaults to empty), so the score map has genuinely nothing to say for this slot —
+            // exactly the "resolved to null" case BriefingRegionEvaluationRollup must still see
+            // this slot as examined for, via the SEPARATE triagedResolver channel.
+            assertThat(scoreResult).isNull();
         }
 
         @Test
-        @DisplayName("getScoresForEnrichmentBulk agrees with getScoresForEnrichment on the "
-                + "synthetic marker — same slot, both readers")
-        void bulkAgreesWithSingleRegionOnTriagedMarker() {
+        @DisplayName("getTriagedByBatchLocationNamesBulk agrees with getTriagedByBatchLocationNames "
+                + "— same slot, both readers")
+        void bulkAgreesWithSingleRegionOnTriagedNames() {
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
-            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
-                    .thenReturn(Map.of());
-            when(forecastEvaluationRepository
-                    .findLatestRunPerSlotByLocationIds(List.of(1L), DATE, DATE))
-                    .thenReturn(List.of());
             when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
                     .thenReturn(List.<Object[]>of(
                             nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
                                     Instant.parse("2026-04-22T01:00:00Z"))));
 
-            Map<String, Map<String, BriefingEvaluationResult>> bulk =
-                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNRISE));
-            BriefingEvaluationResult bulkResult =
-                    bulk.get(REGION_NAME + "|" + DATE + "|" + SUNRISE).get("Bamburgh");
-            BriefingEvaluationResult singleResult =
-                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+            Map<String, Set<String>> bulk =
+                    service.getTriagedByBatchLocationNamesBulk(DATE, DATE, Set.of(SUNRISE));
+            Set<String> bulkResult = bulk.get(REGION_NAME + "|" + DATE + "|" + SUNRISE);
+            Set<String> singleResult =
+                    service.getTriagedByBatchLocationNames(REGION_NAME, DATE, SUNRISE);
 
-            assertThat(bulkResult.triagedByBatch()).isTrue();
-            assertThat(singleResult.triagedByBatch()).isTrue();
+            assertThat(bulkResult).containsExactly("Bamburgh");
+            assertThat(singleResult).containsExactly("Bamburgh");
         }
 
         @Test
-        @DisplayName("a rated slot is NEVER also stamped triagedByBatch, even if the disposition "
-                + "table somehow also names it SKIPPED_TRIAGED — the rating wins and the marker "
-                + "is only ever synthesised when resolveForEnrichmentRetractionAware has nothing")
-        void ratedSlot_neverCarriesTheTriagedMarker() {
+        @DisplayName("getTriagedByBatchLocationNames reports a slot regardless of whether it is "
+                + "SEPARATELY rated — the two lookups are independent, so a caller (the rollup) "
+                + "combines them rather than either one silently overriding the other")
+        void triagedNameSetIsIndependentOfWhatTheScoreMapResolves() {
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of("Bamburgh",
@@ -3149,11 +3161,16 @@ class EvaluationViewServiceTest {
                             nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
                                     Instant.parse("2026-04-22T01:00:00Z"))));
 
-            BriefingEvaluationResult result =
+            Set<String> triagedNames =
+                    service.getTriagedByBatchLocationNames(REGION_NAME, DATE, SUNRISE);
+            BriefingEvaluationResult scoreResult =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
 
-            assertThat(result.rating()).isEqualTo(4);
-            assertThat(result.triagedByBatch()).isFalse();
+            // The disposition-based lookup does not consult ratings at all — it still names the
+            // slot. VerdictSampleGate#examinedCount's own claudeRating()==null guard, not this
+            // lookup, is what prevents a rated slot from being double-counted.
+            assertThat(triagedNames).containsExactly("Bamburgh");
+            assertThat(scoreResult.rating()).isEqualTo(4);
         }
     }
 
@@ -3742,6 +3759,299 @@ class EvaluationViewServiceTest {
             assertThat(views).hasSize(1);
             assertThat(views.getFirst().source()).isEqualTo(Source.NONE);
             assertThat(views.getFirst().rating()).isNull();
+        }
+    }
+
+    /**
+     * End-to-end proof, through the REAL {@link EvaluationViewService} under test (mocked
+     * repositories only) and a REAL {@link BriefingRegionEvaluationRollup}, that the
+     * verdict-minimum-sample rule's examined evidence reaches the rollup for both the bulk (build
+     * and serve) resolver shape and the single-key shape, and that the two AGREE.
+     *
+     * <p>A second Codex review of #943 (P1-A, round 2) found the first fix's own rollup-level tests
+     * used a hand-rolled resolver that never modelled what production actually writes — a real
+     * {@code forecast_evaluation} triage row alongside every {@code SKIPPED_TRIAGED} disposition —
+     * which is exactly why the bug survived a green suite once already. These tests build that
+     * shape through the real repositories this class already mocks, wiring resolvers in the SAME
+     * shape {@code BriefingService.bulkScoreResolver}/{@code bulkTriagedResolver} and {@code
+     * ServedBriefingAssembler#reEnrichVerdicts} actually use — never a second stand-in resolver.
+     */
+    @Nested
+    @DisplayName("end-to-end: BriefingRegionEvaluationRollup over real EvaluationViewService "
+            + "resolvers (a Codex review of #943, P1-A, round 2)")
+    class EndToEndVerdictSampleGate {
+
+        private static final RegionEntity ROSTER_REGION = new RegionEntity();
+        private static final String ROSTER_REGION_NAME = "Tyne and Wear";
+
+        static {
+            ROSTER_REGION.setId(77L);
+            ROSTER_REGION.setName(ROSTER_REGION_NAME);
+        }
+
+        private final Clock fixedClock =
+                Clock.fixed(DATE.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        private final BriefingRegionEvaluationRollup rollup =
+                new BriefingRegionEvaluationRollup(fixedClock);
+
+        private static LocationEntity location(long id, String name) {
+            LocationEntity loc = new LocationEntity();
+            loc.setId(id);
+            loc.setName(name);
+            loc.setRegion(ROSTER_REGION);
+            loc.setLat(54.5 + id * 0.001);
+            loc.setLon(-1.0 - id * 0.001);
+            return loc;
+        }
+
+        /** An un-embedded voting slot — every field the rollup reads comes from the resolvers. */
+        private static BriefingSlot slot(String name) {
+            return new BriefingSlot(name, LocalDateTime.of(2026, 4, 23, 6, 0), Verdict.GO,
+                    null, BriefingSlot.TideInfo.NONE, List.of(), null);
+        }
+
+        private static List<BriefingDay> daysWith(List<BriefingSlot> slots, Verdict triageFallback) {
+            BriefingRegion region = new BriefingRegion(ROSTER_REGION_NAME, triageFallback,
+                    "Clear skies", List.of(), slots, 12.0, 11.0, 3.0, 0, null, null,
+                    DisplayVerdict.resolve(null, triageFallback), 1);
+            BriefingEventSummary summary = new BriefingEventSummary(
+                    SUNRISE, List.of(region), List.of());
+            return List.of(new BriefingDay(DATE, List.of(summary)));
+        }
+
+        /** A real, rating-less {@code forecast_evaluation} triage row — what the batch actually
+         * writes alongside a {@code SKIPPED_TRIAGED} disposition (and what a hand-started run
+         * writes with NO disposition at all). */
+        private static ForecastEvaluationEntity triageRow(LocationEntity loc) {
+            return ForecastEvaluationEntity.builder()
+                    .location(loc)
+                    .targetDate(DATE)
+                    .targetType(SUNRISE)
+                    .forecastRunAt(LocalDateTime.of(2026, 4, 22, 1, 0))
+                    .triage(new TriageDetails(TriageReason.GENERIC, "Grey ceiling"))
+                    .build();
+        }
+
+        private static Object[] triagedDispositionRow(String locationName) {
+            return new Object[] {locationName, DATE, SUNRISE.name(), "SKIPPED_TRIAGED",
+                    Instant.parse("2026-04-22T01:00:00Z")};
+        }
+
+        /** Mirrors {@code BriefingService.bulkScoreResolver} exactly. */
+        private RegionScoreResolver bulkScoreResolver() {
+            Map<String, Map<String, BriefingEvaluationResult>> index =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNRISE));
+            return (regionName, date, targetType) ->
+                    index.getOrDefault(regionName + "|" + date + "|" + targetType, Map.of());
+        }
+
+        /** Mirrors {@code BriefingService.bulkTriagedResolver} exactly. */
+        private TriagedByBatchResolver bulkTriagedResolver() {
+            Map<String, Set<String>> index =
+                    service.getTriagedByBatchLocationNamesBulk(DATE, DATE, Set.of(SUNRISE));
+            return (regionName, date, targetType) ->
+                    index.getOrDefault(regionName + "|" + date + "|" + targetType, Set.of());
+        }
+
+        /** The single-key sibling of {@link #bulkScoreResolver}. */
+        private RegionScoreResolver singleKeyScoreResolver() {
+            return service::getScoresForEnrichment;
+        }
+
+        /** The single-key sibling of {@link #bulkTriagedResolver}. */
+        private TriagedByBatchResolver singleKeyTriagedResolver() {
+            return service::getTriagedByBatchLocationNames;
+        }
+
+        private BriefingRegion enrichedRegion(List<BriefingSlot> slots, Verdict triageFallback,
+                RegionScoreResolver scoreResolver, TriagedByBatchResolver triagedResolver) {
+            List<BriefingDay> enriched = rollup.enrich(
+                    daysWith(slots, triageFallback), scoreResolver, triagedResolver);
+            return enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        }
+
+        /** The near-window fixture both the bulk and single-key tests below share: a 50-slot
+         * voting roster, 35 with a genuine batch triage (disposition AND forecast_evaluation row),
+         * 15 rated via {@code cached_evaluation}. */
+        private List<BriefingSlot> nearWindowRoster(List<LocationEntity> allLocations) {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (LocationEntity loc : allLocations) {
+                slots.add(slot(loc.getName()));
+            }
+            return slots;
+        }
+
+        private void stubNearWindowRoster(List<LocationEntity> triagedLocations,
+                List<LocationEntity> ratedLocations, List<LocationEntity> allLocations) {
+            when(locationService.findAllEnabled()).thenReturn(allLocations);
+            Map<String, BriefingEvaluationResult> cachedRatings = new HashMap<>();
+            for (LocationEntity loc : ratedLocations) {
+                cachedRatings.put(loc.getName(),
+                        new BriefingEvaluationResult(loc.getName(), 4, 75, 60, "summary"));
+            }
+            when(briefingEvaluationService.getCachedScores(ROSTER_REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(cachedRatings);
+            List<ForecastEvaluationEntity> triageRows = triagedLocations.stream()
+                    .map(EndToEndVerdictSampleGate::triageRow)
+                    .toList();
+            when(forecastEvaluationRepository.findLatestRunPerSlotByLocationIds(
+                    anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(triageRows);
+            List<Object[]> dispositionRows = triagedLocations.stream()
+                    .map(loc -> triagedDispositionRow(loc.getName()))
+                    .toList();
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(dispositionRows);
+        }
+
+        @Test
+        @DisplayName("near window (35 triaged + 15 rated of 50), BULK resolvers: sufficient, "
+                + "verdict from the rated average — must FAIL against 72e7b612 (whose synthetic "
+                + "marker never reached a slot production actually resolves to a real triage row)")
+        void nearWindow_bulkResolvers_sufficient() {
+            List<LocationEntity> triagedLocations = new ArrayList<>();
+            List<LocationEntity> ratedLocations = new ArrayList<>();
+            List<LocationEntity> allLocations = new ArrayList<>();
+            for (int i = 0; i < 35; i++) {
+                LocationEntity loc = location(i, "Triaged" + i);
+                triagedLocations.add(loc);
+                allLocations.add(loc);
+            }
+            for (int i = 0; i < 15; i++) {
+                LocationEntity loc = location(100 + i, "Rated" + i);
+                ratedLocations.add(loc);
+                allLocations.add(loc);
+            }
+            stubNearWindowRoster(triagedLocations, ratedLocations, allLocations);
+
+            BriefingRegion region = enrichedRegion(nearWindowRoster(allLocations),
+                    Verdict.STANDDOWN, bulkScoreResolver(), bulkTriagedResolver());
+
+            assertThat(region.sampleSufficient()).isTrue();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(region.meanRating()).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("the identical near window, SINGLE-KEY resolvers: agrees with the bulk result")
+        void nearWindow_singleKeyResolvers_agreesWithBulk() {
+            List<LocationEntity> triagedLocations = new ArrayList<>();
+            List<LocationEntity> ratedLocations = new ArrayList<>();
+            List<LocationEntity> allLocations = new ArrayList<>();
+            for (int i = 0; i < 35; i++) {
+                LocationEntity loc = location(i, "Triaged" + i);
+                triagedLocations.add(loc);
+                allLocations.add(loc);
+            }
+            for (int i = 0; i < 15; i++) {
+                LocationEntity loc = location(100 + i, "Rated" + i);
+                ratedLocations.add(loc);
+                allLocations.add(loc);
+            }
+            stubNearWindowRoster(triagedLocations, ratedLocations, allLocations);
+
+            BriefingRegion fromSingleKey = enrichedRegion(nearWindowRoster(allLocations),
+                    Verdict.STANDDOWN, singleKeyScoreResolver(), singleKeyTriagedResolver());
+
+            assertThat(fromSingleKey.sampleSufficient()).isTrue();
+            assertThat(fromSingleKey.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(fromSingleKey.meanRating()).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("far window: 5 rated + 25 SKIPPED_STABILITY (never SKIPPED_TRIAGED, and no "
+                + "forecast_evaluation row at all — exactly what Gate 4 leaves behind) — "
+                + "insufficient. Must FAIL against 72e7b612")
+        void farWindow_stabilitySkipped_insufficient() {
+            List<LocationEntity> ratedLocations = new ArrayList<>();
+            List<LocationEntity> allLocations = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                LocationEntity loc = location(i, "Rated" + i);
+                ratedLocations.add(loc);
+                allLocations.add(loc);
+            }
+            for (int i = 0; i < 25; i++) {
+                allLocations.add(location(100 + i, "StabilitySkipped" + i));
+            }
+            for (int i = 0; i < 20; i++) {
+                allLocations.add(location(200 + i, "Untouched" + i));
+            }
+            when(locationService.findAllEnabled()).thenReturn(allLocations);
+            Map<String, BriefingEvaluationResult> cachedRatings = new HashMap<>();
+            for (LocationEntity loc : ratedLocations) {
+                cachedRatings.put(loc.getName(),
+                        new BriefingEvaluationResult(loc.getName(), 4, 75, 60, "summary"));
+            }
+            when(briefingEvaluationService.getCachedScores(ROSTER_REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(cachedRatings);
+            // No forecast_evaluation rows at all for the 25 stability-skipped slots — Gate 4
+            // writes neither a row nor anything this resolver can see for them.
+            when(forecastEvaluationRepository.findLatestRunPerSlotByLocationIds(
+                    anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+            // Their latest disposition is SKIPPED_STABILITY, never SKIPPED_TRIAGED.
+            List<Object[]> stabilityRows = new ArrayList<>();
+            for (int i = 0; i < 25; i++) {
+                stabilityRows.add(new Object[] {"StabilitySkipped" + i, DATE, SUNRISE.name(),
+                        "SKIPPED_STABILITY", Instant.parse("2026-04-22T01:00:00Z")});
+            }
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(stabilityRows);
+
+            BriefingRegion region = enrichedRegion(nearWindowRoster(allLocations),
+                    Verdict.MARGINAL, bulkScoreResolver(), bulkTriagedResolver());
+
+            // examined = 5 rated + 0 = 5 of 50 = 10% < 50%.
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("item 4: a hand-started/synchronous-engine triage — a real forecast_evaluation "
+                + "triage row with NO matching forecast_run_disposition row at all — still counts "
+                + "as examined, via the resolved-evidence channel alone")
+        void handStartedTriage_noDispositionRow_stillExamined() {
+            List<LocationEntity> ratedLocations = new ArrayList<>();
+            List<LocationEntity> allLocations = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                LocationEntity loc = location(i, "Rated" + i);
+                ratedLocations.add(loc);
+                allLocations.add(loc);
+            }
+            List<LocationEntity> handStartedLocations = new ArrayList<>();
+            for (int i = 0; i < 25; i++) {
+                LocationEntity loc = location(100 + i, "HandStarted" + i);
+                handStartedLocations.add(loc);
+                allLocations.add(loc);
+            }
+            for (int i = 0; i < 20; i++) {
+                allLocations.add(location(200 + i, "Untouched" + i));
+            }
+            when(locationService.findAllEnabled()).thenReturn(allLocations);
+            Map<String, BriefingEvaluationResult> cachedRatings = new HashMap<>();
+            for (LocationEntity loc : ratedLocations) {
+                cachedRatings.put(loc.getName(),
+                        new BriefingEvaluationResult(loc.getName(), 4, 75, 60, "summary"));
+            }
+            when(briefingEvaluationService.getCachedScores(ROSTER_REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(cachedRatings);
+            // A real forecast_evaluation triage row for each hand-started location — this is the
+            // ONLY evidence: no disposition table entry at all (the hand-started/synchronous
+            // engine writes no forecast_run_disposition row).
+            List<ForecastEvaluationEntity> triageRows = handStartedLocations.stream()
+                    .map(EndToEndVerdictSampleGate::triageRow)
+                    .toList();
+            when(forecastEvaluationRepository.findLatestRunPerSlotByLocationIds(
+                    anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(triageRows);
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.of());
+
+            BriefingRegion region = enrichedRegion(nearWindowRoster(allLocations),
+                    Verdict.MARGINAL, bulkScoreResolver(), bulkTriagedResolver());
+
+            // examined = 5 rated + 25 resolved-triage (channel B alone) = 30 of 50 = 60% >= 50%.
+            assertThat(region.sampleSufficient()).isTrue();
         }
     }
 }

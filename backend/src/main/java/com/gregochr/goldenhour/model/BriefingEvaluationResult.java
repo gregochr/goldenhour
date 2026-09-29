@@ -79,19 +79,6 @@ import java.time.Instant;
  *                            the cache, never something {@code cached_evaluation} itself persists,
  *                            and a legacy row missing it deserialises to {@code false} — "not
  *                            known to be forced", the correct default
- * @param triagedByBatch      true for the synthetic marker {@link #triagedByBatch(String)} builds
- *                            for a voting slot the batch's own latest disposition (ignoring a
- *                            region-level {@code SKIPPED_CACHED} reuse) recorded as
- *                            {@code SKIPPED_TRIAGED} — never set on a real rated or cached result.
- *                            Backs the verdict-minimum-sample rule's "examined" evidence ({@code
- *                            VerdictSampleGate#examinedCount}, a Codex review of #943, P1-A): the
- *                            briefing's own weather-triage {@code Verdict} is computed
- *                            independently across the whole horizon and can disagree with, or
- *                            simply never have been asked about, what the batch actually looked at
- *                            for THIS cycle — so "examined" has to come from the batch's own
- *                            disposition, not from re-reading a verdict the batch never wrote.
- *                            {@code @JsonIgnore}d for the same reason {@link #forced} is: a
- *                            serve-time annotation over a synthetic marker, never itself persisted.
  */
 public record BriefingEvaluationResult(
         String locationName,
@@ -105,8 +92,7 @@ public record BriefingEvaluationResult(
         @JsonInclude(JsonInclude.Include.NON_NULL) Instant evaluatedAt,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating,
         @JsonIgnore boolean retracted,
-        @JsonIgnore boolean forced,
-        @JsonIgnore boolean triagedByBatch
+        @JsonIgnore boolean forced
 ) {
 
     /**
@@ -130,7 +116,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, null, null, false, false, false);
+                triageReason, triageMessage, headline, null, null, false, false);
     }
 
     /**
@@ -155,7 +141,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, null, false, false, false);
+                triageReason, triageMessage, headline, evaluatedAt, null, false, false);
     }
 
     /**
@@ -183,7 +169,7 @@ public record BriefingEvaluationResult(
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt,
             Integer skyRating) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, skyRating, false, false, false);
+                triageReason, triageMessage, headline, evaluatedAt, skyRating, false, false);
     }
 
     /**
@@ -202,28 +188,7 @@ public record BriefingEvaluationResult(
      */
     public static BriefingEvaluationResult retracted(String locationName) {
         return new BriefingEvaluationResult(locationName, null, null, null, null,
-                null, null, null, null, null, true, false, false);
-    }
-
-    /**
-     * Builds the marker a resolver returns for a voting slot nobody rated or cached anything for
-     * this cycle, but whose batch's own latest non-{@code SKIPPED_CACHED} disposition was
-     * {@code SKIPPED_TRIAGED} — see {@link #triagedByBatch} and {@code
-     * EvaluationViewService#loadTriagedByBatch}.
-     *
-     * <p>Carries no rating and no triage fields, so {@link
-     * com.gregochr.goldenhour.service.BriefingRegionEvaluationRollup#enrichSlot} treats it exactly
-     * like an absent entry — every one of its branches is a no-op on a marker with a null rating,
-     * a false {@link #retracted}, and a null {@link #triageReason}: this marker exists purely to
-     * carry the "examined" evidence one step further, to {@code VerdictSampleGate.examinedCount},
-     * never to touch a slot's Claude fields.
-     *
-     * @param locationName the location the marker is about
-     * @return a batch-triaged marker for that location
-     */
-    public static BriefingEvaluationResult triagedByBatch(String locationName) {
-        return new BriefingEvaluationResult(locationName, null, null, null, null,
-                null, null, null, null, null, false, false, true);
+                null, null, null, null, null, true, false);
     }
 
     /**
@@ -272,7 +237,7 @@ public record BriefingEvaluationResult(
         return new BriefingEvaluationResult(locationName, newRating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
                 newRating == null ? null : skyRating, retracted,
-                newRating == null ? false : forced, triagedByBatch);
+                newRating == null ? false : forced);
     }
 
     /**
@@ -288,7 +253,7 @@ public record BriefingEvaluationResult(
     public BriefingEvaluationResult withEvaluatedAt(Instant writtenAt) {
         return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, writtenAt,
-                skyRating, retracted, forced, triagedByBatch);
+                skyRating, retracted, forced);
     }
 
     /**
@@ -310,6 +275,6 @@ public record BriefingEvaluationResult(
         }
         return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
-                skyRating, retracted, newForced, triagedByBatch);
+                skyRating, retracted, newForced);
     }
 }

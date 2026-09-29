@@ -15,6 +15,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -77,7 +78,8 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
      * enrichment is actually computed. See {@code docs/engineering/served-briefing-assembler-plan.md}.
      */
     @Override
-    public List<BriefingDay> enrich(List<BriefingDay> days, RegionScoreResolver resolver) {
+    public List<BriefingDay> enrich(List<BriefingDay> days, RegionScoreResolver resolver,
+            TriagedByBatchResolver triagedResolver) {
         // Request-time "today" so the confidence horizon stays fresh when a briefing built
         // yesterday is served today (this method runs on both the build and the serve paths).
         LocalDate today = LocalDate.now(clock.withZone(LONDON));
@@ -145,21 +147,49 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                     // evidence). Roster and examined coverage are both over the VOTING slots, the
                     // same population the verdict and mean already read.
                     ConfidenceDeriver.RegionRoster roster = rosterOf(enrichedSlots);
-                    // "Examined" is the BATCH's own evidence (a Codex review of #943, P1-A) — the
-                    // resolver stamps a synthetic BriefingEvaluationResult#triagedByBatch marker for
-                    // a voting slot whose latest non-SKIPPED_CACHED disposition was
-                    // SKIPPED_TRIAGED, sourced from EvaluationViewService#loadTriagedByBatch, never
-                    // from this slot's own independently-computed weather-triage Verdict — the two
-                    // can disagree, and a slot the briefing marks STANDDOWN that the batch never
-                    // even looked at this cycle (Gate 4 stability-skipped before fresh weather was
-                    // fetched) must not count. Filtered from `cached` rather than the slots
-                    // themselves, mirroring forcedSample's own read of that same map below.
-                    Set<String> triagedByBatch = cached.values().stream()
-                            .filter(BriefingEvaluationResult::triagedByBatch)
+                    // "Examined" is real evidence the pipeline looked at a slot and stood it down
+                    // on weather — never this slot's own independently-computed weather-triage
+                    // Verdict, which is computed once across the whole horizon and can disagree
+                    // with, or simply never have been asked about, what actually happened this
+                    // cycle (a Codex review of #943, P1-A). Two INDEPENDENT sources are unioned,
+                    // because neither alone covers every path that can triage a slot:
+                    //
+                    //   (a) triagedResolver — the batch's own disposition table, resolved for this
+                    //   exact region/date/event by EvaluationViewService#getTriagedByBatchLocationNames
+                    //   (single-key) / #getTriagedByBatchLocationNamesBulk (bulk). Reaches the
+                    //   rollup for EVERY such slot regardless of what `cached` resolves to for it
+                    //   — a genuine triage result, nothing, or a retraction marker — because it is
+                    //   queried independently rather than filtered out of `cached` (a second Codex
+                    //   review of #943, P1-A round 2: production always writes a real
+                    //   forecast_evaluation triage row alongside SKIPPED_TRIAGED, so a synthetic
+                    //   marker stamped only into the "resolver had nothing else" branch of `cached`
+                    //   almost never fired, and examinedCount silently collapsed to rated-only on
+                    //   the very production shape this gate exists to protect: a 50-slot region
+                    //   with 35 batch-triaged, 15 rated read 15-of-50, under half, INSUFFICIENT).
+                    //
+                    //   (b) `cached` itself — a resolved triageReason, whatever produced it. A
+                    //   hand-started synchronous-engine run can triage a slot (ForecastService#
+                    //   fetchWeatherAndTriage writes a real forecast_evaluation triage row) WITHOUT
+                    //   ever writing a forecast_run_disposition row, so (a) alone would miss it;
+                    //   the evidence that the pipeline stood it down lives only on that
+                    //   forecast_evaluation row, which `cached` already resolved.
+                    //
+                    // A stability-skipped slot (Gate 4 declined to re-look this cycle) is excluded
+                    // from BOTH: (a) because its latest disposition is SKIPPED_STABILITY, not
+                    // SKIPPED_TRIAGED, and (b) because a recorded stability skip retracts whatever
+                    // `cached` would otherwise resolve to a `retracted()` marker with a null
+                    // triageReason — so neither channel can be fooled by a stale, superseded
+                    // triage. VerdictSampleGate.examinedCount's own claudeRating()==null guard
+                    // still prevents double-counting a slot that is both rated and carries an
+                    // older triage decision.
+                    Set<String> triagedLocationNames = new HashSet<>(
+                            triagedResolver.resolve(region.regionName(), day.date(), es.targetType()));
+                    cached.values().stream()
+                            .filter(eval -> eval.triageReason() != null)
                             .map(BriefingEvaluationResult::locationName)
-                            .collect(java.util.stream.Collectors.toSet());
+                            .forEach(triagedLocationNames::add);
                     int examined = VerdictSampleGate.examinedCount(
-                            votingSlotList, votingStats.count(), triagedByBatch);
+                            votingSlotList, votingStats.count(), triagedLocationNames);
                     boolean rawSufficient = VerdictSampleGate.isSufficient(
                             votingStats.count(), examined, roster.voting());
                     // Force-evaluation exemption (owner decision, 2026-09-29). ForceEvalHeadlineSelector

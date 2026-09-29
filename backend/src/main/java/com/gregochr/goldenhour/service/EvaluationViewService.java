@@ -343,6 +343,101 @@ public class EvaluationViewService {
     }
 
     /**
+     * Bulk equivalent of {@link #getTriagedByBatchLocationNames}, keyed by the SAME
+     * {@code "regionName|date|targetType"} shape {@link #getScoresForEnrichmentBulk} uses, so a
+     * caller building both indices for one window can look either up by the identical key.
+     *
+     * <p>⚠️ <b>This — not a flag riding on {@link BriefingEvaluationResult} — is the fix for a
+     * second Codex review of #943 (P1-A, round 2).</b> The first cut stamped a synthetic {@code
+     * triagedByBatch} marker onto the resolved score map, but ONLY in the branch where the resolver
+     * had nothing else to return for that slot. Production always writes a real {@code
+     * forecast_evaluation} triage row alongside the {@code SKIPPED_TRIAGED} disposition (see {@code
+     * ForecastService#fetchWeatherAndTriage}), so the resolver almost never actually hits that
+     * branch — {@code resolveForEnrichmentRetractionAware} resolves a genuine triage entry instead,
+     * with the marker never attached — and {@code examinedCount} collapsed to rated-only on the
+     * production shape the gate exists to protect (a 50-slot region with 35 batch-triaged, 15 rated
+     * read 15-of-50, under half, INSUFFICIENT). This method hands {@code
+     * BriefingRegionEvaluationRollup} the disposition-sourced location-name set DIRECTLY, so a
+     * voting slot counts as examined whatever the score resolver returned for it that same
+     * region/date/event — a real triage result, nothing, or a retraction marker — because the two
+     * questions ("what did the batch's OWN disposition most recently decide for this slot" and
+     * "what does the score resolver currently say about it") are asked independently and their
+     * answers are combined by the rollup, never derived one from the other.
+     *
+     * <p>Built from the SAME {@link #loadTriagedByBatch} bulk read {@link
+     * #getScoresForEnrichmentBulk} used to call internally — one extra {@code findAllEnabled} roster
+     * fetch is the only added query, kept as its OWN small method (rather than folded into {@code
+     * getScoresForEnrichmentBulk}'s existing loop) because the two questions have genuinely
+     * different callers now: only the two production sites that hand a resolver pair to {@code
+     * BriefingRegionEvaluationRollup.enrich} need this one, while {@code
+     * BriefingRollupBuilder.loadLiveScores} (the best-bet advisor's OWN separate rollup, which never
+     * calls {@code BriefingRegionEvaluationRollup.enrich} at all) has no use for it and no longer
+     * pays for it — a query this cast was over-fetching before this fix, since it always fell
+     * through {@code getScoresForEnrichmentBulk}'s own {@code loadTriagedByBatch} call regardless of
+     * whether its caller read the marker.
+     *
+     * @param start first evaluation date to include (inclusive)
+     * @param end   last evaluation date to include (inclusive)
+     * @param types the target types to include
+     * @return map of {@code "regionName|date|targetType"} to the set of location names whose latest
+     *         non-cached batch decision for that slot was {@code SKIPPED_TRIAGED}; a key with
+     *         nothing triaged is simply absent, never mapped to an empty set
+     */
+    public Map<String, Set<String>> getTriagedByBatchLocationNamesBulk(
+            LocalDate start, LocalDate end, Set<TargetType> types) {
+        Set<String> triagedKeys = loadTriagedByBatch(start, end);
+        if (triagedKeys.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Set<String>> byKey = new HashMap<>();
+        for (LocationEntity loc : locationService.findAllEnabled()) {
+            if (loc.getRegion() == null) {
+                continue;
+            }
+            String regionName = loc.getRegion().getName();
+            for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+                for (TargetType type : types) {
+                    if (triagedKeys.contains(stabilitySkipKey(loc.getName(), date, type))) {
+                        byKey.computeIfAbsent(regionName + "|" + date + "|" + type,
+                                k -> new HashSet<>()).add(loc.getName());
+                    }
+                }
+            }
+        }
+        return byKey;
+    }
+
+    /**
+     * Single-region equivalent of {@link #getTriagedByBatchLocationNamesBulk}, mirroring {@link
+     * #getScoresForEnrichment}'s own per-region shape. Not currently reached by a production
+     * caller (both {@code BriefingService.bulkScoreResolver} and {@code
+     * ServedBriefingAssembler#reEnrichVerdicts} read the bulk sibling only, exactly as they already
+     * do for {@link #getScoresForEnrichment} vs {@link #getScoresForEnrichmentBulk}), but kept and
+     * tested so the single-key and bulk reads are PROVEN to agree rather than merely assumed to,
+     * the same reasoning {@code EvaluationViewServiceTest.bulkAgreesWithSingleRegion} already
+     * applies to the score map itself.
+     *
+     * @param regionName the region to resolve
+     * @param date       the forecast date
+     * @param targetType SUNRISE or SUNSET
+     * @return the set of location names in that region whose latest non-cached batch decision for
+     *         this slot was {@code SKIPPED_TRIAGED}; empty when nothing qualifies
+     */
+    public Set<String> getTriagedByBatchLocationNames(
+            String regionName, LocalDate date, TargetType targetType) {
+        Set<String> triagedKeys = loadTriagedByBatch(date, date);
+        if (triagedKeys.isEmpty()) {
+            return Set.of();
+        }
+        return locationService.findAllEnabled().stream()
+                .filter(loc -> loc.getRegion() != null
+                        && loc.getRegion().getName().equals(regionName))
+                .map(LocationEntity::getName)
+                .filter(name -> triagedKeys.contains(stabilitySkipKey(name, date, targetType)))
+                .collect(Collectors.toSet());
+    }
+
+    /**
      * Stamps a resolved enrichment result as forced — a no-op on a null result, an unrated result,
      * or when the caller has already determined the winning result was NOT demonstrably produced
      * by a force evaluation.
@@ -801,7 +896,6 @@ public class EvaluationViewService {
                 loadLatestForecasts(regionLocations, date, date, Set.of(targetType));
         Map<String, Instant> stabilitySkips = loadStabilitySkips(date, date);
         Map<String, Instant> forceEvaluatedAt = loadForceEvaluatedAt(date, date);
-        Set<String> triagedByBatch = loadTriagedByBatch(date, date);
 
         Map<String, BriefingEvaluationResult> result = new HashMap<>();
         for (LocationEntity loc : regionLocations) {
@@ -811,15 +905,16 @@ public class EvaluationViewService {
                     cached.get(loc.getName()), cachedEvaluatedAt,
                     latest.get(loc.getId() + "|" + date + "|" + targetType), latestSkipAt,
                     forceEvaluatedAt.get(key));
-            // A voting slot the batch triaged but never rated or cached anything for carries no
-            // BriefingEvaluationResult of its own — SKIPPED_TRIAGED writes only a disposition row,
-            // no forecast_evaluation row and no cache entry — so resolveForEnrichmentRetractionAware
-            // correctly returns null for it. Stamp the synthetic marker here instead, so the
-            // verdict-minimum-sample rule's examined count can see it without VerdictSampleGate
-            // ever having to query anything itself.
-            if (resolved == null && triagedByBatch.contains(key)) {
-                resolved = BriefingEvaluationResult.triagedByBatch(loc.getName());
-            }
+            // The verdict-minimum-sample rule's "examined" evidence (VerdictSampleGate#
+            // examinedCount) is NOT derived from this map — a second Codex review of #943 (P1-A,
+            // round 2) found that stamping a synthetic marker here only reached the branch where
+            // this method had nothing else to return, which production almost never hits (a batch
+            // triage always writes a real forecast_evaluation row too, so `resolved` is usually a
+            // genuine triage result already). BriefingRegionEvaluationRollup now reads {@link
+            // #getTriagedByBatchLocationNames}/{@link #getTriagedByBatchLocationNamesBulk}
+            // directly — a set of names independent of whatever this map resolves to for the same
+            // slot, so it reaches the rollup whether `resolved` here is a triage result, null, or a
+            // retraction marker.
             if (resolved != null) {
                 result.put(loc.getName(), resolved);
             }
@@ -916,10 +1011,12 @@ public class EvaluationViewService {
         // one place, {@link #resolveForEnrichmentRetractionAware}, the same place the single-key
         // getScoresForEnrichment stamps it, so the two reads cannot disagree.
         Map<String, Instant> forceEvaluatedAt = loadForceEvaluatedAt(start, end);
-        // A third bulk load for the whole window — the verdict-minimum-sample rule's "examined"
-        // evidence (Codex review of #943, P1-A; see VerdictSampleGate#examinedCount). Sourced from
-        // the batch's own disposition table, never from a slot's weather-triage Verdict.
-        Set<String> triagedByBatch = loadTriagedByBatch(start, end);
+        // The verdict-minimum-sample rule's "examined" evidence (VerdictSampleGate#examinedCount)
+        // is NOT loaded or stamped here any more (a second Codex review of #943, P1-A round 2) —
+        // see getTriagedByBatchLocationNamesBulk's own javadoc for why a flag riding on this
+        // method's return value could not reach the rollup for the production shape the gate
+        // exists to protect. Callers that need it call that method directly, keyed the same way
+        // this method's own return value is.
 
         // 1. In-memory cached scores for every region/date/type in the window — no DB round trip.
         //    Bulk-loaded once here (rather than once per location) because
@@ -1007,13 +1104,6 @@ public class EvaluationViewService {
                     BriefingEvaluationResult resolved = resolveForEnrichmentRetractionAware(
                             loc.getName(), cachedResult, cachedEvaluatedAt, forecastRow, skipAt,
                             forceEvaluatedAt.get(slotKey));
-                    // See the single-key getScoresForEnrichment's identical comment: SKIPPED_TRIAGED
-                    // writes only a disposition row, so a purely-batch-triaged slot has no
-                    // BriefingEvaluationResult of its own to resolve — stamp the synthetic marker
-                    // here instead, so VerdictSampleGate's examined count can see it.
-                    if (resolved == null && triagedByBatch.contains(slotKey)) {
-                        resolved = BriefingEvaluationResult.triagedByBatch(loc.getName());
-                    }
                     if (resolved != null) {
                         byKey.computeIfAbsent(key, k -> new HashMap<>())
                                 .put(loc.getName(), resolved);
