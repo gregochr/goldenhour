@@ -174,7 +174,7 @@ date, undetected. That is a data problem an admin fixes by correcting the coordi
 admin's "Run now" (which bypasses this predicate) re-measures everyone the moment they do; nightly
 retries cannot fix coordinates, and the location renders honestly meanwhile (no drive time is
 "unknown," passing every reach tier). `DriveTimeRefreshJob.needsRefresh`'s javadoc now records this
-as an owner decision dated 2026-09-29, and the scheduled route logs one aggregated WARN per run
+as a decision taken in review, dated 2026-09-29, and the scheduled route logs one aggregated WARN per run
 (never one per user) naming every location a successful measurement omitted that run, so an
 unroutable location is visible to an operator the first night it appears — a manual "Run now" skips
 this query and its WARN, since it already hands its result straight to the admin who pressed it.

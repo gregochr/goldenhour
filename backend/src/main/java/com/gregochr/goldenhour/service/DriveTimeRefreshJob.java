@@ -349,7 +349,7 @@ public class DriveTimeRefreshJob {
      * skip-logic change (2026-09-29) — every user was measured every night then, this one still is
      * — so the cost is not new, only now confined to the users it actually applies to.
      *
-     * <p>⚠️ <strong>Owner decision, 2026-09-29, following review.</strong> {@link #run} does advance
+     * <p>⚠️ <strong>Decision, 2026-09-29, taken in review.</strong> {@link #run} does advance
      * the stamp on a PARTIAL answer — a successful measurement that stored durations for some
      * destinations and omitted others — and this method then reads that stamp as covering ALL of
      * them, so a destination ORS could not route to is never retried on its own on the schedule. A

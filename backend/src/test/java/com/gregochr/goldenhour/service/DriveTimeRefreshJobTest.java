@@ -300,8 +300,8 @@ class DriveTimeRefreshJobTest {
 
     @Nested
     @DisplayName("A partial answer (one destination confirmed unroutable) advances the stamp — "
-            + "owner decision, 2026-09-29, following review: see needsRefresh's own javadoc for "
-            + "why an omitted destination is never retried on the schedule alone")
+            + "decision, 2026-09-29, taken in review: see needsRefresh's own javadoc for why an "
+            + "omitted destination is never retried on the schedule alone")
     class PartialAnswerDecision {
 
         @Test

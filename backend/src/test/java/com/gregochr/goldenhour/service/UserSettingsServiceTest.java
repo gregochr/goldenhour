@@ -365,8 +365,8 @@ class UserSettingsServiceTest {
 
         @Test
         @DisplayName("a PARTIAL answer (ORS confirms one destination unroutable, valid durations "
-                + "for the rest) stores the subset and sets the stamp — owner decision, "
-                + "2026-09-29: an omitted destination is a definitive per-destination result, not "
+                + "for the rest) stores the subset and sets the stamp — decision, 2026-09-29, "
+                + "taken in review: an omitted destination is a definitive per-destination result, not "
                 + "a reason to withhold the whole store")
         void partialAnswer_storesTheSubsetAndSetsTheStamp() {
             durhamHome(null);
