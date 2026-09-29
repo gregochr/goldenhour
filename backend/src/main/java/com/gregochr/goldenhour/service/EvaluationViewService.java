@@ -166,6 +166,76 @@ public class EvaluationViewService {
     }
 
     /**
+     * Bulk-loads, for every slot with at least one {@code EVALUATED} or {@code FORCE_EVALUATED}
+     * disposition in the range, whether its most recent such disposition is
+     * {@code FORCE_EVALUATED} — the one fact the verdict-minimum-sample rule's force-evaluation
+     * exemption needs (owner decision, 2026-09-29;
+     * {@code docs/engineering/plan-verdict-consolidation-plan.md}, {@code VerdictSampleGate}).
+     *
+     * <p>Same shape and the same reasoning as {@link #loadStabilitySkips}: one bulk query per
+     * serve, bounded to the caller's own served window, never called per region or per slot.
+     *
+     * <p><b>Defensive by design.</b> A failed or empty lookup must never grant the exemption — an
+     * unknown answer reads as "not forced", the same safe direction every other unknown-freshness
+     * case in this class already fails toward — so a repository failure is caught and logged rather
+     * than propagated, and this returns an empty map on that path.
+     *
+     * <p>Inherits the same location-NAME join limit {@link #loadStabilitySkips} documents: a
+     * location renamed between the forced evaluation and this serve is not found under its new
+     * name and reads as not forced. Not fixed here, for the same reason it is not fixed there — the
+     * failure direction is safe (the exemption simply does not apply one cycle too early, rather
+     * than applying when it should not).
+     *
+     * @param start first evaluation date to include (inclusive)
+     * @param end   last evaluation date to include (inclusive)
+     * @return {@code "locationName|date|targetType"} to whether that slot's most recent evaluating
+     *         disposition is {@code FORCE_EVALUATED}; a slot with none is absent, never mapped to
+     *         a value
+     */
+    public Map<String, Boolean> loadForcedFlags(LocalDate start, LocalDate end) {
+        Map<String, Boolean> result = new HashMap<>();
+        try {
+            for (Object[] row : forecastRunDispositionRepository
+                    .findLatestEvaluatingDispositions(start, end)) {
+                String locationName = (String) row[0];
+                LocalDate date = (LocalDate) row[1];
+                String eventType = (String) row[2];
+                String disposition = (String) row[3];
+                result.put(stabilitySkipKey(locationName, date, eventType),
+                        "FORCE_EVALUATED".equals(disposition));
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("[FORCE-EVAL] Could not load forced-evaluation dispositions for {}..{} — "
+                    + "every slot in range reads as not forced this serve: {}",
+                    start, end, e.toString());
+            return new HashMap<>();
+        }
+        return result;
+    }
+
+    /**
+     * Stamps a resolved enrichment result as forced when the disposition lookup says its most
+     * recent evaluating run was {@code FORCE_EVALUATED} — a no-op on a null result, an unrated
+     * result, or when the lookup has nothing for this slot's key.
+     *
+     * <p>One predicate for both {@link #getScoresForEnrichment} and
+     * {@link #getScoresForEnrichmentBulk}, so the two cannot disagree about when a rating counts as
+     * forced — the same reason {@link #cachedWins} is one method rather than two derivations.
+     *
+     * @param result the resolved result, or null
+     * @param forced whether this slot's key was found FORCE_EVALUATED, or null when absent
+     * @return {@code result} unchanged, or stamped forced when it carries a rating and the lookup
+     *         says so
+     */
+    private static BriefingEvaluationResult stampForced(BriefingEvaluationResult result,
+            Boolean forced) {
+        if (result == null || result.rating() == null || !Boolean.TRUE.equals(forced)) {
+            return result;
+        }
+        return result.withForced(true);
+    }
+
+    /**
      * The lookup key {@link #loadStabilitySkips} and every caller of {@link #mergeToView} /
      * {@link #resolveForEnrichment} agree on — location name (never id: the disposition table and
      * {@code cached_evaluation} are both keyed by name), evaluation date, event type name.
@@ -521,14 +591,16 @@ public class EvaluationViewService {
         Map<String, ForecastEvaluationEntity> latest =
                 loadLatestForecasts(regionLocations, date, date, Set.of(targetType));
         Map<String, Instant> stabilitySkips = loadStabilitySkips(date, date);
+        Map<String, Boolean> forcedFlags = loadForcedFlags(date, date);
 
         Map<String, BriefingEvaluationResult> result = new HashMap<>();
         for (LocationEntity loc : regionLocations) {
-            Instant latestSkipAt =
-                    stabilitySkips.get(stabilitySkipKey(loc.getName(), date, targetType));
+            String key = stabilitySkipKey(loc.getName(), date, targetType);
+            Instant latestSkipAt = stabilitySkips.get(key);
             BriefingEvaluationResult resolved = resolveForEnrichmentRetractionAware(loc.getName(),
                     cached.get(loc.getName()), cachedEvaluatedAt,
                     latest.get(loc.getId() + "|" + date + "|" + targetType), latestSkipAt);
+            resolved = stampForced(resolved, forcedFlags.get(key));
             if (resolved != null) {
                 result.put(loc.getName(), resolved);
             }
@@ -570,6 +642,10 @@ public class EvaluationViewService {
         // One bulk load for the whole window — see the class javadoc on why a stability skip is
         // applied before precedence rather than inside it.
         Map<String, Instant> stabilitySkips = loadStabilitySkips(start, end);
+        // One more bulk load for the whole window — the force-evaluation sample exemption's one
+        // fact (owner decision, 2026-09-29; see VerdictSampleGate). Loaded once here rather than
+        // inside either loop below, same reasoning as stabilitySkips.
+        Map<String, Boolean> forcedFlags = loadForcedFlags(start, end);
         // Locations retracted by either step, per key — a location can be retracted in step 1
         // (its cache entry) and then found to have no surviving forecast row in step 2 either, or
         // vice versa. Recorded rather than resolved inline because step 1 cannot yet see step 2's
@@ -599,15 +675,20 @@ public class EvaluationViewService {
                             .getCachedEvaluatedAt(regionName, date, type).orElse(null);
                     Map<String, BriefingEvaluationResult> retained = new HashMap<>();
                     for (Map.Entry<String, BriefingEvaluationResult> e : cached.entrySet()) {
-                        Instant skipAt = stabilitySkips.get(
-                                stabilitySkipKey(e.getKey(), date, type));
+                        String slotKey = stabilitySkipKey(e.getKey(), date, type);
+                        Instant skipAt = stabilitySkips.get(slotKey);
                         if (isRetractedByStabilitySkip(
                                 cacheWriteTime(e.getValue(), regionEvaluatedAt), skipAt)) {
                             retractedLocationsByKey.computeIfAbsent(key, k -> new HashSet<>())
                                     .add(e.getKey());
                             continue;
                         }
-                        retained.put(e.getKey(), e.getValue());
+                        // Stamped here so a cache-only location (never visited by step 2 below,
+                        // which iterates forecast_evaluation rows) still carries its forced flag —
+                        // step 2 re-stamps the winning result anyway, harmlessly, for every
+                        // location that DOES have a forecast row.
+                        retained.put(e.getKey(),
+                                stampForced(e.getValue(), forcedFlags.get(slotKey)));
                     }
                     byKey.put(key, retained);
                     if (regionEvaluatedAt != null) {
@@ -658,8 +739,9 @@ public class EvaluationViewService {
                 String key = regionName + "|" + row.getTargetDate() + "|" + row.getTargetType();
                 Map<String, BriefingEvaluationResult> regionMap =
                         byKey.computeIfAbsent(key, k -> new HashMap<>());
-                Instant skipAt = stabilitySkips.get(stabilitySkipKey(
-                        loc.getName(), row.getTargetDate(), row.getTargetType()));
+                String slotKey = stabilitySkipKey(
+                        loc.getName(), row.getTargetDate(), row.getTargetType());
+                Instant skipAt = stabilitySkips.get(slotKey);
                 ForecastEvaluationEntity retainedRow = row;
                 if (isRetractedByStabilitySkip(forecastRunInstant(row), skipAt)) {
                     retractedLocationsByKey.computeIfAbsent(key, k -> new HashSet<>())
@@ -668,6 +750,7 @@ public class EvaluationViewService {
                 }
                 BriefingEvaluationResult resolved = resolveForEnrichment(loc.getName(),
                         regionMap.get(loc.getName()), cachedEvaluatedAtByKey.get(key), retainedRow);
+                resolved = stampForced(resolved, forcedFlags.get(slotKey));
                 if (resolved != null) {
                     regionMap.put(loc.getName(), resolved);
                 }

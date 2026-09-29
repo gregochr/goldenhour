@@ -630,7 +630,8 @@ class PlanWindowProjectorTest {
             // copy out of the recommendation slot.
             BriefingRegion r = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
                     ratedSlots(4), 14.0, 13.0, 4.5, 3, HEADLINE, null,
-                    DisplayVerdict.WORTH_IT, 1, null, false, null);
+                    DisplayVerdict.WORTH_IT, 1, null, false, null)
+                    .withSampleSufficient(true);
 
             assertThat(projectOne(r).pick().headline()).isEqualTo(HEADLINE);
             assertThat(projectOne(r).pick().detail()).isNull();
@@ -773,7 +774,8 @@ class PlanWindowProjectorTest {
                             BriefingSlot.TideInfo.NONE, List.of(), null)
                             .withClaudeScores(4, 60, 55, "s")),
                     14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                    DisplayVerdict.WORTH_IT, 1, null, false, null);
+                    DisplayVerdict.WORTH_IT, 1, null, false, null)
+                    .withSampleSufficient(true);
 
             DailyBriefingResponse out = projectAt(List.of(dayOf(TODAY, timeless)), List.of(),
                     LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
@@ -1469,7 +1471,8 @@ class PlanWindowProjectorTest {
                 "North East", Verdict.GO, "summary", List.of(),
                 List.of(unratedSlot("Bamburgh"), unratedSlot("Alnmouth")),
                 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                DisplayVerdict.WORTH_IT, 0, null, false, Confidence.HIGH);
+                DisplayVerdict.WORTH_IT, 0, null, false, Confidence.HIGH)
+                .withSampleSufficient(true);
         DailyBriefingResponse raw = response(
                 List.of(new BriefingDay(TODAY, List.of(
                         new BriefingEventSummary(TargetType.SUNSET, List.of(zeroCoverage),
@@ -1692,7 +1695,9 @@ class PlanWindowProjectorTest {
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
                         r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
-                        .withBestRating(r.bestRating()))
+                        .withBestRating(r.bestRating())
+                        .withSampleSufficient(r.sampleSufficient())
+                        .withForcedSample(r.forcedSample()))
                 .toList();
     }
 
@@ -1706,7 +1711,9 @@ class PlanWindowProjectorTest {
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
                         r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
-                        .withBestRating(r.bestRating()))
+                        .withBestRating(r.bestRating())
+                        .withSampleSufficient(r.sampleSufficient())
+                        .withForcedSample(r.forcedSample()))
                 .toList();
     }
 
@@ -1774,9 +1781,19 @@ class PlanWindowProjectorTest {
 
     private static BriefingRegion regionWithSlots(String name, List<BriefingSlot> slots,
             DisplayVerdict dv, Confidence confidence, String headline) {
+        // sampleSufficient defaults to true here, not to the fixture's own rated count: this class
+        // tests PlanWindowProjector in isolation from BriefingRegionEvaluationRollup, which is
+        // where the verdict-minimum-sample rule (VerdictSampleGate) actually lives — exactly the
+        // same reason displayVerdict/confidence are pre-set arguments rather than derived from a
+        // roster here. A fixture representing "the rollup already judged this sample sufficient"
+        // is what every test in this file not specifically about the eligibility gate needs; the
+        // gate's own effect on ranking and pick eligibility is covered by the dedicated
+        // SampleEligibility nested class below, which builds sampleSufficient(false)/forcedSample
+        // fixtures explicitly.
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), slots,
                 14.0, 13.0, 4.5, 3, headline, headline == null ? null : DETAIL,
-                dv, slots.size(), null, false, confidence);
+                dv, slots.size(), null, false, confidence)
+                .withSampleSufficient(true);
     }
 
     private static List<BriefingSlot> ratedSlots(int... ratings) {

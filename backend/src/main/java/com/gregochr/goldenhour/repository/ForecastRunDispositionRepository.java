@@ -98,4 +98,55 @@ public interface ForecastRunDispositionRepository
             + "GROUP BY d.locationName, d.evaluationDate, d.eventType")
     List<Object[]> findLatestStabilitySkipTimestamps(
             @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    /**
+     * For every (location name, evaluation date, event type) with at least one {@code EVALUATED}
+     * or {@code FORCE_EVALUATED} disposition in the range, returns the disposition of the
+     * <em>most recent</em> such row.
+     *
+     * <p>Backs the verdict-minimum-sample rule's force-evaluation exemption
+     * (owner decision, 2026-09-29 — see {@code docs/engineering/plan-verdict-consolidation-plan.md}
+     * and {@code VerdictSampleGate}): a region's minimum-sample gate is waived when at least one of
+     * its rated voting slots currently reads a rating written by a force evaluation
+     * ({@code ForceEvalHeadlineSelector}). "Currently" is answered by the MOST RECENT of the two
+     * evaluating categories, exactly the way {@link #findLatestStabilitySkipTimestamps} answers
+     * "most recent decision against a slot" — a later ordinary {@code EVALUATED} run for the same
+     * slot supersedes an earlier {@code FORCE_EVALUATED} one and ends the exemption.
+     *
+     * <p>Filtered to {@code EVALUATED} and {@code FORCE_EVALUATED} alone — the only two categories
+     * that mean "Claude was actually asked about this slot"; every {@code SKIPPED_*} category never
+     * reached Claude and so cannot be the disposition a rating came from.
+     *
+     * <p>One bulk query per serve, grouped in the database rather than fetched row-by-row, bounded
+     * to the caller's own served window — never called per region or per slot. Same table, same
+     * 30-day retention as {@link #findLatestStabilitySkipTimestamps} covers the served horizon.
+     *
+     * <p>⚠️ On an exact {@code created_at} tie between an {@code EVALUATED} and a
+     * {@code FORCE_EVALUATED} row for the same slot — practically unreachable, since the two
+     * categories are written by different job-run cycles — both rows satisfy the correlated
+     * {@code MAX(created_at)} predicate and both are returned; the caller keeps whichever it reads
+     * last. Mirrors the same accepted tie behaviour {@link #findLatestStabilitySkipTimestamps}
+     * documents is not a concern for MAX-of-one-category, and is even rarer here since it needs a
+     * cross-category collision rather than a same-category one.
+     *
+     * @param start first evaluation date to include (inclusive)
+     * @param end   last evaluation date to include (inclusive)
+     * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
+     *         (String), disposition (String)]}, one per slot with at least one evaluating
+     *         disposition — the disposition of whichever of EVALUATED/FORCE_EVALUATED is most
+     *         recent for that slot
+     */
+    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition "
+            + "FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition IN ('EVALUATED', 'FORCE_EVALUATED') "
+            + "AND d.evaluationDate BETWEEN :start AND :end "
+            + "AND d.createdAt = ("
+            + "    SELECT MAX(d2.createdAt) FROM ForecastRunDispositionEntity d2 "
+            + "    WHERE d2.locationName = d.locationName "
+            + "    AND d2.evaluationDate = d.evaluationDate "
+            + "    AND d2.eventType = d.eventType "
+            + "    AND d2.disposition IN ('EVALUATED', 'FORCE_EVALUATED')"
+            + ")")
+    List<Object[]> findLatestEvaluatingDispositions(
+            @Param("start") LocalDate start, @Param("end") LocalDate end);
 }

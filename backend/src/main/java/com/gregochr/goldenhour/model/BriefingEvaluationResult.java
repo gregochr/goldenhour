@@ -54,6 +54,23 @@ import java.time.Instant;
  *                            round-trips through {@code results_json} and a legacy row missing it
  *                            always deserialises to {@code false} — the one value it may ever hold
  *                            on a real evaluation result
+ * @param forced              true when this location's CURRENT rating was written by a force
+ *                            evaluation rather than an ordinary one — see {@code
+ *                            EvaluationViewService#loadForcedFlags} and {@code
+ *                            ForceEvalHeadlineSelector}. Backs the verdict-minimum-sample rule's
+ *                            force-evaluation exemption ({@code BriefingRegion#forcedSample}):
+ *                            {@code BriefingRegionEvaluationRollup} reads this off the winning
+ *                            result for each rated voting slot to decide whether the region as a
+ *                            whole is exempt from the sample-size gate. {@code false} whenever
+ *                            {@link #rating} is null — a field with no rating behind it cannot be a
+ *                            forced <em>rating</em> — and whenever the disposition lookup found
+ *                            nothing or failed: unknown must never grant the exemption, the same
+ *                            safe-direction rule {@code loadForcedFlags} itself documents.
+ *                            {@code @JsonIgnore}d for the same reason {@link #retracted} is: it is
+ *                            a serve-time annotation stamped onto a result already read back out of
+ *                            the cache, never something {@code cached_evaluation} itself persists,
+ *                            and a legacy row missing it deserialises to {@code false} — "not
+ *                            known to be forced", the correct default
  */
 public record BriefingEvaluationResult(
         String locationName,
@@ -66,7 +83,8 @@ public record BriefingEvaluationResult(
         @JsonInclude(JsonInclude.Include.NON_NULL) String headline,
         @JsonInclude(JsonInclude.Include.NON_NULL) Instant evaluatedAt,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating,
-        @JsonIgnore boolean retracted
+        @JsonIgnore boolean retracted,
+        @JsonIgnore boolean forced
 ) {
 
     /**
@@ -90,7 +108,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, null, null, false);
+                triageReason, triageMessage, headline, null, null, false, false);
     }
 
     /**
@@ -115,7 +133,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, null, false);
+                triageReason, triageMessage, headline, evaluatedAt, null, false, false);
     }
 
     /**
@@ -143,7 +161,7 @@ public record BriefingEvaluationResult(
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt,
             Integer skyRating) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, skyRating, false);
+                triageReason, triageMessage, headline, evaluatedAt, skyRating, false, false);
     }
 
     /**
@@ -162,7 +180,7 @@ public record BriefingEvaluationResult(
      */
     public static BriefingEvaluationResult retracted(String locationName) {
         return new BriefingEvaluationResult(locationName, null, null, null, null,
-                null, null, null, null, null, true);
+                null, null, null, null, null, true, false);
     }
 
     /**
@@ -210,7 +228,8 @@ public record BriefingEvaluationResult(
     public BriefingEvaluationResult withRating(Integer newRating) {
         return new BriefingEvaluationResult(locationName, newRating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
-                newRating == null ? null : skyRating, retracted);
+                newRating == null ? null : skyRating, retracted,
+                newRating == null ? false : forced);
     }
 
     /**
@@ -226,6 +245,27 @@ public record BriefingEvaluationResult(
     public BriefingEvaluationResult withEvaluatedAt(Instant writtenAt) {
         return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, writtenAt,
-                skyRating, retracted);
+                skyRating, retracted, forced);
+    }
+
+    /**
+     * Returns a copy of this result stamped as forced (or not), for the force-evaluation sample
+     * exemption — see {@link #forced}.
+     *
+     * <p>Applied by {@code EvaluationViewService} once it has decided which source (cache or
+     * {@code forecast_evaluation}) speaks for this slot, using its own bulk-loaded disposition
+     * lookup ({@code loadForcedFlags}). A no-op when {@link #rating} is null: an unrated result
+     * cannot carry a forced <em>rating</em>.
+     *
+     * @param newForced whether this slot's most recent evaluating disposition is FORCE_EVALUATED
+     * @return a copy carrying the flag, or this result unchanged when there is no rating to flag
+     */
+    public BriefingEvaluationResult withForced(boolean newForced) {
+        if (rating == null) {
+            return this;
+        }
+        return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
+                goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
+                skyRating, retracted, newForced);
     }
 }

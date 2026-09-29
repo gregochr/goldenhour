@@ -27,6 +27,26 @@ import java.util.Set;
  * <p>Instance-scoped seam extracted from {@code ForecastTaskCollector}. The
  * {@code forceEvalCap} bounds the per-cycle force-eval cost; a zero cap disables
  * the feature entirely.
+ *
+ * <p>⚠️ <b>Interaction with the verdict-minimum-sample rule
+ * ({@code docs/engineering/plan-verdict-consolidation-plan.md}, {@code VerdictSampleGate}) —
+ * owner decision, 2026-09-29.</b> That rule withholds a region's own verdict, pick eligibility and
+ * ranking-by-average until at least {@code VerdictSampleGate.MIN_RATED} of its voting slots are
+ * rated and roughly half the voting roster has been examined. A handful of forced ratings can never
+ * reach that bar on their own — this selector's {@code forceEvalCap} is a "targeted, not blanket"
+ * cost bound, by design far short of a sample the gate would trust — so WITHOUT an exemption every
+ * forced call this class buys would spend real Claude cost for stars nobody's verdict could use.
+ * The exemption: a region with at least one CURRENTLY force-evaluated rated voting slot (per
+ * {@code EvaluationViewService#loadForcedFlags}, "currently" meaning that slot's most recent
+ * evaluating disposition is {@code FORCE_EVALUATED} rather than a later ordinary
+ * {@code EVALUATED}) bypasses the sample gate outright — its verdict, pick eligibility and ranking
+ * follow the rated average exactly as they did before the minimum-sample rule existed, and its
+ * confidence takes no extra floor from it. That exemption is why this class keeps its original
+ * purpose rather than being retired or repurposed by the sample rule. The interaction with the
+ * PARENT stability-skip retraction (see CLAUDE.md's "Where a rating lives" table) is also
+ * deliberate: a forced rating is withdrawn the next time a nightly cycle stability-skips that slot
+ * again, so the exemption lasts at most until the next nightly run unless the slot is forced or
+ * evaluated again that night.
  */
 public final class ForceEvalHeadlineSelector {
 

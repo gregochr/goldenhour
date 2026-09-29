@@ -71,9 +71,24 @@ import java.util.Set;
  */
 public final class PlanWindowProjector {
 
-    /** Ranks a region above another: better average, then wider scored coverage, then name. */
+    /**
+     * Ranks a region above another: verdict-eligible first (see {@link #verdictEligible}), then
+     * better average, then wider scored coverage, then name.
+     *
+     * <p><b>The eligibility term is the verdict-minimum-sample rule's ranking half</b>
+     * ({@code docs/engineering/plan-verdict-consolidation-plan.md}, {@code VerdictSampleGate}): a
+     * region whose sample is too small to trust — and which carries no force-evaluation exemption —
+     * must never outrank a region whose sample IS large enough, however its raw average compares.
+     * Before this term a single rated location could out-average, and therefore outrank, a fully
+     * rated region averaging lower — the defect this whole rule exists to close. Every other term
+     * is unchanged, so two regions on the SAME side of the eligibility line are still ordered
+     * exactly as before.
+     */
     private static final Comparator<RankedRegion> BY_RANK =
-            Comparator.comparingDouble((RankedRegion r) -> r.stats().averageRating()).reversed()
+            Comparator.comparing((RankedRegion r) -> verdictEligible(r.region())).reversed()
+                    .thenComparing(
+                            Comparator.comparingDouble(
+                                    (RankedRegion r) -> r.stats().averageRating()).reversed())
                     .thenComparing(Comparator.comparingInt(
                             (RankedRegion r) -> r.stats().count()).reversed())
                     // Content before name: with nothing rated, a blanked region (no slots at all)
@@ -82,6 +97,24 @@ public final class PlanWindowProjector {
                     .thenComparing((RankedRegion r) -> r.region().slots().isEmpty())
                     .thenComparing(r -> r.region().regionName(),
                             Comparator.nullsLast(Comparator.naturalOrder()));
+
+    /**
+     * Whether a region's ratings are trusted enough to set its own verdict, crown a pick or
+     * outrank another region on their raw averages — the verdict-minimum-sample rule
+     * ({@code VerdictSampleGate}) plus its force-evaluation exemption, both already resolved onto
+     * the region by {@code BriefingRegionEvaluationRollup} at enrichment time.
+     *
+     * <p>{@code null} on either field — a payload cached before this rule existed — reads as
+     * <b>not</b> eligible, the safe direction: the same convention {@link BriefingRegion}'s own
+     * field javadoc documents.
+     *
+     * @param region the region to test
+     * @return true when the region is either a sufficient sample or force-evaluation exempt
+     */
+    private static boolean verdictEligible(BriefingRegion region) {
+        return Boolean.TRUE.equals(region.sampleSufficient())
+                || Boolean.TRUE.equals(region.forcedSample());
+    }
 
     /** Ranks a slot above another for the Pick's named location: better rating, then name. */
     private static final Comparator<BriefingSlot> BY_SLOT_RATING =
@@ -474,7 +507,9 @@ public final class PlanWindowProjector {
 
     /**
      * This window's candidate for the forecast-wide pick — its top region's narrative — or null when
-     * that region has no usable gloss headline.
+     * that region has no usable gloss headline, or is not {@link #verdictEligible} (the
+     * verdict-minimum-sample rule: a region whose rated sample is too small to trust, and which
+     * carries no force-evaluation exemption, may not be crowned BEST BET or ALSO GOOD).
      *
      * <p>A candidate is not a recommendation. Most windows have one and publish nothing.
      */
@@ -513,7 +548,8 @@ public final class PlanWindowProjector {
     }
 
     private static BriefingWindow.Pick candidate(RankedRegion ranked, boolean canopyCounts) {
-        if (ranked == null || !usable(ranked.region().glossHeadline())) {
+        if (ranked == null || !usable(ranked.region().glossHeadline())
+                || !verdictEligible(ranked.region())) {
             return null;
         }
         BriefingRegion region = ranked.region();
