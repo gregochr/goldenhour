@@ -443,17 +443,45 @@ Two consequences worth stating plainly:
   cycle — so an earlier, more eligible run's rating would otherwise go on being served forever, read
   as a live verdict long after the pipeline moved past it. `EvaluationViewService` bulk-loads each
   slot's most recent `SKIPPED_STABILITY` disposition from `forecast_run_disposition` (30-day
-  retention comfortably covers the served horizon; one query per serve, never per slot) and, before
-  any precedence rule runs, retracts whichever of the cached result and the `forecast_evaluation` row
-  predates it — a stale rating and a stale triage row alike, so the slot reads as never-rated rather
-  than as a weather stand-down. One rule, `EvaluationViewService.isRetractedByStabilitySkip`, reused
-  by `mergeToView` (the map's `GET /api/forecast` and `GET /api/briefing/evaluate/scores`) and
-  `getScoresForEnrichment`/`getScoresForEnrichmentBulk` (the Plan payload), so the two cannot
-  disagree. A later real evaluation (eligible or forced) simply outdates the skip. Excluded by
-  construction: a region-level `SKIPPED_CACHED` reuse, a past-date/travel-day/error/triage skip, a
-  row with neither a rating nor a triage reason (`hasSomethingToSay`, the same rule `cachedWins`
-  already applied), and the intraday cycle's `SKIPPED_NO_REFRESH_NEEDED` ("a later look is already
-  guaranteed") — none of these is a decision against the rating. No migration; no new column.
+  retention comfortably covers the served horizon; one query per serve, never per slot) and applies
+  `EvaluationViewService.isSlotRetracted` before any precedence rule runs: a stale rating and a stale
+  triage row alike read as never-rated rather than as a weather stand-down. A later real evaluation
+  (eligible or forced) simply outdates the skip. Excluded by construction: a region-level
+  `SKIPPED_CACHED` reuse, a past-date/travel-day/error/triage skip, a row with neither a rating nor a
+  triage reason (`hasSomethingToSay`, the same rule `cachedWins` already applied) UNLESS a skip is
+  recorded against that exact slot (see the ⚠️ below), and the intraday cycle's
+  `SKIPPED_NO_REFRESH_NEEDED` ("a later look is already guaranteed") — none of these is a decision
+  against the rating. No migration; no new column.
+  ⚠️ **Retraction is a property of the SLOT, decided once — not of whether the evidence a caller
+  happened to see individually looked stale.** The first cut checked each source's own staleness
+  independently (`isRetractedByStabilitySkip` against the cache, and separately against the forecast
+  row) and inferred "nothing survived, so retract" only when it could actually SEE stale evidence. A
+  second Codex re-review of #940 found the gap: `forecast_evaluation` is insert-only, and the
+  dedup-at-source "latest row per slot" query (`loadLatestForecasts`) can return a newer, EMPTY row —
+  an `ABANDONED` batch attempt, or any other `PENDING`-then-closed-out row with neither a rating nor
+  a triage reason — written AFTER a real RATED row and hiding it completely from every caller. That
+  empty row genuinely postdates the skip, so a per-source staleness check answers "not stale" — the
+  wrong answer, because the only reason anything postdates the skip is a row that says nothing at
+  all. `isSlotRetracted(cachedResult, cachedEvaluatedAt, forecastRow, latestStabilitySkipAt)` is the
+  fix: a slot with a recorded skip is retracted when NO live evidence survives it at all — neither a
+  cached result written after it, nor a forecast row that both postdates it AND has something to say
+  — regardless of whether the caller can see the stale rated row, a newer empty row hiding it, or
+  nothing. It is the ONE place every path decides this: `resolveForEnrichmentRetractionAware` (both
+  `getScoresForEnrichment` and the restructured `getScoresForEnrichmentBulk`, which now resolves each
+  slot through the SAME method the single-key read uses rather than a separate two-phase
+  cache-then-forecast reconciliation), `mergeToView` and `ForecastController`'s raw-row filter all
+  call it. `ForecastController` has no cache lookup of its own, so it calls `isSlotRetracted` with a
+  null cached side — which correctly means "no live cache evidence available here" — and this closes
+  a real, if narrow, behaviour gap there too: an otherwise-unscored row is now dropped (not merely
+  served with a null rating) when a skip stands against it and nothing else is live, agreeing with
+  `mergeToView`'s `Source.NONE`. An ordinary, never-skipped unscored row (the overwhelming majority of
+  `forecast_evaluation`'s null-rating rows) is entirely unaffected — `isSlotRetracted` returns false
+  immediately whenever no skip is recorded. Canopy (woodland) and bluebell slots are not exempted and
+  need no carve-out: `ForecastTaskCollector` runs the Gate 4 eligibility decision for every candidate
+  before it branches on `woodlandTask`/`bluebellWoodInSeason`, so a canopy or bluebell slot can carry
+  a `SKIPPED_STABILITY` disposition exactly like a sky slot, and both mini-batches write their
+  ratings into `cached_evaluation` via `mergeWoodlandFromBatch`/`mergeBluebellFromBatch` — the same
+  store the resolver already reads.
   ⚠️ **The Plan payload needed a second piece, because it starts from a persisted tree rather than
   building one fresh.** A `BriefingSlot` read out of `daily_briefing_cache` already carries whatever
   rating the last build gave it, and `BriefingRegionEvaluationRollup.enrichSlot` correctly leaves a
