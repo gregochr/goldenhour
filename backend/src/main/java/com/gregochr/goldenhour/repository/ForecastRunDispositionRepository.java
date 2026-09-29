@@ -100,66 +100,6 @@ public interface ForecastRunDispositionRepository
             @Param("start") LocalDate start, @Param("end") LocalDate end);
 
     /**
-     * For every (location name, evaluation date, event type) with at least one {@code EVALUATED}
-     * or {@code FORCE_EVALUATED} disposition in the range, returns the disposition AND {@code
-     * created_at} of the <em>most recent</em> such row.
-     *
-     * <p>Backs the verdict-minimum-sample rule's force-evaluation exemption
-     * (owner decision, 2026-09-29 — see {@code docs/engineering/plan-verdict-consolidation-plan.md}
-     * and {@code VerdictSampleGate}): a region's minimum-sample gate is waived when at least one of
-     * its rated voting slots currently reads a rating written by a force evaluation
-     * ({@code ForceEvalHeadlineSelector}). "Currently" is answered by the MOST RECENT of the two
-     * evaluating categories, exactly the way {@link #findLatestStabilitySkipTimestamps} answers
-     * "most recent decision against a slot" — a later ordinary {@code EVALUATED} run for the same
-     * slot supersedes an earlier {@code FORCE_EVALUATED} one and ends the exemption.
-     *
-     * <p>⚠️ <b>{@code created_at} is the row's own timestamp, not the rating's.</b> A codex review
-     * of #943 (P1-B) found that {@code ScheduledBatchEvaluationService.persistCycleDispositions}
-     * writes every cycle's dispositions at SUBMISSION time, before any Claude result comes back —
-     * so {@code FORCE_EVALUATED} alone has only ever meant "a forced run was requested for this
-     * slot", never "the rating currently cached for it came from that run". The column is exposed
-     * here so {@code EvaluationViewService.loadForceEvaluatedAt} can compare it against the WINNING
-     * result's own evaluation instant before granting the exemption, rather than trusting the
-     * category alone.
-     *
-     * <p>Filtered to {@code EVALUATED} and {@code FORCE_EVALUATED} alone — the only two categories
-     * that mean "Claude was actually asked about this slot"; every {@code SKIPPED_*} category never
-     * reached Claude and so cannot be the disposition a rating came from.
-     *
-     * <p>One bulk query per serve, grouped in the database rather than fetched row-by-row, bounded
-     * to the caller's own served window — never called per region or per slot. Same table, same
-     * 30-day retention as {@link #findLatestStabilitySkipTimestamps} covers the served horizon.
-     *
-     * <p>⚠️ On an exact {@code created_at} tie between an {@code EVALUATED} and a
-     * {@code FORCE_EVALUATED} row for the same slot — practically unreachable, since the two
-     * categories are written by different job-run cycles — both rows satisfy the correlated
-     * {@code MAX(created_at)} predicate and both are returned; the caller keeps whichever it reads
-     * last. Mirrors the same accepted tie behaviour {@link #findLatestStabilitySkipTimestamps}
-     * documents is not a concern for MAX-of-one-category, and is even rarer here since it needs a
-     * cross-category collision rather than a same-category one.
-     *
-     * @param start first evaluation date to include (inclusive)
-     * @param end   last evaluation date to include (inclusive)
-     * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
-     *         (String), disposition (String), createdAt (Instant)]}, one per slot with at least one
-     *         evaluating disposition — the disposition and instant of whichever of
-     *         EVALUATED/FORCE_EVALUATED is most recent for that slot
-     */
-    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition, d.createdAt "
-            + "FROM ForecastRunDispositionEntity d "
-            + "WHERE d.disposition IN ('EVALUATED', 'FORCE_EVALUATED') "
-            + "AND d.evaluationDate BETWEEN :start AND :end "
-            + "AND d.createdAt = ("
-            + "    SELECT MAX(d2.createdAt) FROM ForecastRunDispositionEntity d2 "
-            + "    WHERE d2.locationName = d.locationName "
-            + "    AND d2.evaluationDate = d.evaluationDate "
-            + "    AND d2.eventType = d.eventType "
-            + "    AND d2.disposition IN ('EVALUATED', 'FORCE_EVALUATED')"
-            + ")")
-    List<Object[]> findLatestEvaluatingDispositions(
-            @Param("start") LocalDate start, @Param("end") LocalDate end);
-
-    /**
      * For every (location name, evaluation date, event type) with at least one disposition in the
      * range OTHER THAN {@code SKIPPED_CACHED}, returns the disposition AND {@code created_at} of
      * the <em>most recent</em> such row.
@@ -186,10 +126,10 @@ public interface ForecastRunDispositionRepository
      * 30-day retention as {@link #findLatestStabilitySkipTimestamps} covers the served horizon.
      *
      * <p>⚠️ A tie at the same {@code created_at} between two different non-cached categories for
-     * one slot returns both rows, the same accepted shape {@link #findLatestEvaluatingDispositions}
-     * documents; {@code EvaluationViewService.loadTriagedByBatch} folds a tie to "not examined"
-     * (only counts a slot where every row at the max instant agrees it is {@code SKIPPED_TRIAGED}),
-     * the same safe-under-ambiguity direction the force-evaluation exemption's own tie fold takes.
+     * one slot returns both rows; {@code EvaluationViewService.loadTriagedByBatch} folds a tie to
+     * "not examined" (only counts a slot where every row at the max instant agrees it is
+     * {@code SKIPPED_TRIAGED}), the same safe-under-ambiguity direction every other tie fold in
+     * this repository's callers takes.
      *
      * @param start first evaluation date to include (inclusive)
      * @param end   last evaluation date to include (inclusive)

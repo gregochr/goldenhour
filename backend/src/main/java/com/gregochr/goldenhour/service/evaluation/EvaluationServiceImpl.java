@@ -142,14 +142,16 @@ public class EvaluationServiceImpl implements EvaluationService {
             Long locationId = task.location().getId();
             switch (task.promptKind()) {
                 case BLUEBELL -> requests.add(batchRequestFactory.buildBluebellRequest(
-                        CustomIdFactory.forBluebell(locationId, task.date(), task.targetType()),
+                        CustomIdFactory.forBluebell(locationId, task.date(), task.targetType(),
+                                task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
                 case WOODLAND -> requests.add(batchRequestFactory.buildWoodlandRequest(
-                        CustomIdFactory.forWoodland(locationId, task.date(), task.targetType()),
+                        CustomIdFactory.forWoodland(locationId, task.date(), task.targetType(),
+                                task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
                 case SKY -> requests.add(batchRequestFactory.buildForecastRequest(
-                        CustomIdFactory.forForecast(
-                                locationId, task.date(), task.targetType(), task.evalRowId()),
+                        CustomIdFactory.forForecast(locationId, task.date(), task.targetType(),
+                                task.evalRowId(), task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
             }
         }

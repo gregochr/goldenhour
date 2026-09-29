@@ -155,7 +155,8 @@ public class BatchRetryService {
             }
             if (parsed instanceof ParsedCustomId.Forecast f) {
                 byCustomId.put(customId, new RetrySelection.RetryFailure(
-                        customId, f.locationId(), f.date(), f.targetType(), f.evalRowId()));
+                        customId, f.locationId(), f.date(), f.targetType(), f.evalRowId(),
+                        f.forced()));
             } else {
                 LOG.warn("RETRY_FAILED: dropping non-forecast failed custom_id '{}' "
                         + "(pipelineRunId={})", customId, pipelineRunId);
@@ -271,7 +272,7 @@ public class BatchRetryService {
             return new EvaluationTask.Forecast(location, failure.date(), failure.targetType(),
                     model, pre.atmosphericData(),
                     EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
-                    EvaluationTask.Forecast.PromptKind.SKY, newRowId);
+                    EvaluationTask.Forecast.PromptKind.SKY, newRowId, failure.forced());
         } catch (Exception e) {
             LOG.warn("RETRY_FAILED: could not reconstruct request {} — stays failed: {}",
                     failure.customId(), e.getMessage());

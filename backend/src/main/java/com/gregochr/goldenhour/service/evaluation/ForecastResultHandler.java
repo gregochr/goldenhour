@@ -164,9 +164,30 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param evalRowId  primary key of the {@code PENDING} row this result scores in place (R5),
      *                   or {@code null} for every non-{@code fc-} lane and for an {@code fc-} id
      *                   with no embedded row id (pre-deploy format)
+     * @param forced     whether the task carried the {@code ForceEvalHeadlineSelector}
+     *                   force-evaluation marker — {@code false} for every non-{@code fc-} lane
+     *                   and for an {@code fc-} id with no embedded marker (pre-deploy format).
+     *                   The ONLY input {@link #buildResult} uses to stamp {@link
+     *                   com.gregochr.goldenhour.model.BriefingEvaluationResult#forced} — never a
+     *                   timestamp comparison at serve time
      */
     public record ForecastIdentity(Long locationId, LocalDate date, TargetType targetType,
-            Long evalRowId) {
+            Long evalRowId, boolean forced) {
+
+        /**
+         * Convenience constructor for every lane that never carries the force-evaluation marker
+         * (bluebell, woodland, JFDI, force-submit) — the four-arg shape every pre-existing call
+         * site uses.
+         *
+         * @param locationId location id from the custom id
+         * @param date       evaluation date
+         * @param targetType SUNRISE / SUNSET / HOURLY
+         * @param evalRowId  primary key of the pending row, or {@code null}
+         */
+        public ForecastIdentity(Long locationId, LocalDate date, TargetType targetType,
+                Long evalRowId) {
+            this(locationId, date, targetType, evalRowId, false);
+        }
     }
 
     /**
@@ -204,7 +225,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             BriefingEvaluationResult result = buildResult(
                     location, eval, parsed.date(), parsed.targetType(), regionName, modelName,
                     context != null ? context.pipelineRunId() : null,
-                    parsed.evalRowId(), outcome.model());
+                    parsed.evalRowId(), outcome.model(), parsed.forced());
 
             if (parsed0.usedRegexFallback()) {
                 // Strict JSON parse failed and the regex fallback recovered the result (possibly
@@ -274,7 +295,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildBluebellResult(
                     location, bluebell, parsed.date(), parsed.targetType(), regionName, modelName,
-                    context != null ? context.pipelineRunId() : null);
+                    context != null ? context.pipelineRunId() : null, parsed.forced());
             persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
                     outcome.model(), null, outcome.rawText());
             return Optional.of(new BatchSuccess(cacheKey, result));
@@ -394,7 +415,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildWoodlandResult(
                     location, woodland, parsed.date(), parsed.targetType(), regionName, modelName,
-                    context != null ? context.pipelineRunId() : null);
+                    context != null ? context.pipelineRunId() : null, parsed.forced());
             persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
                     outcome.model(), null, outcome.rawText());
             return Optional.of(new BatchSuccess(cacheKey, result));
@@ -415,10 +436,15 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *
      * <p>No tide context is derived: {@code isWoodlandOnly()} excludes SEASCAPE, so a canopy site
      * has no tide preference to score and the tide visitor would abstain regardless.
+     *
+     * @param forced whether the task carried the {@code ForceEvalHeadlineSelector} force-
+     *               evaluation marker — see {@link BriefingEvaluationResult#forced}'s javadoc.
+     *               A canopy candidate can be force-evaluated exactly like a sky one; the marker
+     *               is stamped here the same way {@link #buildResult} stamps it for the sky lane
      */
     private BriefingEvaluationResult buildWoodlandResult(LocationEntity location,
             WoodlandEvaluation woodland, LocalDate date, TargetType targetType, String regionName,
-            String modelName, Long pipelineRunId) {
+            String modelName, Long pipelineRunId, boolean forced) {
         RatingCombiner.CombinedRating combined = ratingCombiner.combine(
                 location, new VisitorContext(null, null, null, woodland));
         Integer safeRating = RatingValidator.validateRating(
@@ -437,9 +463,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     location.getName(), date, targetType, e.getMessage(), e);
         }
 
-        return new BriefingEvaluationResult(
+        BriefingEvaluationResult result = new BriefingEvaluationResult(
                 location.getName(), safeRating, null, null, woodland.summary(),
                 null, null, woodland.headline());
+        return forced ? result.withForced(true) : result;
     }
 
     @Override
@@ -472,7 +499,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                 task.location(), eval, task.date(), task.targetType(),
                 regionName, task.model().name(),
                 context != null ? context.pipelineRunId() : null,
-                task.evalRowId(), task.model());
+                task.evalRowId(), task.model(), task.forced());
 
         persistSyncLog(context, outcome, task);
         if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
@@ -522,11 +549,16 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param resolvedModel the model that actually produced this response, persisted on the row
      *                      alongside the rating so the row's {@code evaluation_model} reflects
      *                      what scored it rather than only what was requested
+     * @param forced        whether the task that produced this response carried the {@code
+     *                      ForceEvalHeadlineSelector} force-evaluation marker (decoded from the
+     *                      batch custom id, or {@code task.forced()} on the sync path) — the ONLY
+     *                      input {@link BriefingEvaluationResult#forced} is ever set from; see its
+     *                      own javadoc for why a serve-time timestamp comparison was abandoned
      * @return the result to persist (cache payload element)
      */
     private BriefingEvaluationResult buildResult(LocationEntity location, SunsetEvaluation eval,
             LocalDate date, TargetType targetType, String regionName, String modelName,
-            Long pipelineRunId, Long evalRowId, EvaluationModel resolvedModel) {
+            Long pipelineRunId, Long evalRowId, EvaluationModel resolvedModel, boolean forced) {
         BriefingEvaluationResult result;
         if (eval.rating() == null) {
             // Sky not forecast: Claude omitted the rating. The combiner never runs, so there is
@@ -574,6 +606,13 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     location.getName(), safeRating,
                     eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
                     null, null, eval.headline(), null, skyRating);
+        }
+        // The ONE place a result is ever stamped forced — see BriefingEvaluationResult#forced's
+        // javadoc. `withForced` itself is a no-op on a null rating (the substituted
+        // SKY_NOT_FORECAST_RATING above is never null, so a forced sky-not-forecast task is still
+        // exempted, matching the old timestamp-based behaviour's lack of a similar carve-out).
+        if (forced) {
+            result = result.withForced(true);
         }
         if (evalRowId != null) {
             scoreEvaluationRow(evalRowId, eval, result, resolvedModel);
@@ -680,10 +719,16 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * WOODLAND rating regardless of what this method passes — so WOODLAND always derives tide,
      * both because it is harmless to the rating and because an in-season WOODLAND site has no
      * sky call to record a TIDAL {@code forecast_score} component otherwise.
+     *
+     * @param forced whether the task carried the {@code ForceEvalHeadlineSelector} force-
+     *               evaluation marker — see {@link BriefingEvaluationResult#forced}'s javadoc. A
+     *               WOODLAND-exposure or OPEN_FELL-paired bluebell candidate can be force-
+     *               evaluated exactly like a sky one; the marker is stamped here the same way
+     *               {@link #buildResult} stamps it for the sky lane
      */
     private BriefingEvaluationResult buildBluebellResult(LocationEntity location,
             BluebellEvaluation bluebell, LocalDate date, TargetType targetType, String regionName,
-            String modelName, Long pipelineRunId) {
+            String modelName, Long pipelineRunId, boolean forced) {
         Set<TideType> tideTypes = location.getTideType();
         boolean coastal = tideTypes != null && !tideTypes.isEmpty();
         boolean openFell = location.getBluebellExposure() == BluebellExposure.OPEN_FELL;
@@ -710,9 +755,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     location.getName(), date, targetType, e.getMessage(), e);
         }
 
-        return new BriefingEvaluationResult(
+        BriefingEvaluationResult result = new BriefingEvaluationResult(
                 location.getName(), safeRating, null, null, bluebell.summary(),
                 null, null, bluebell.headline());
+        return forced ? result.withForced(true) : result;
     }
 
     /**

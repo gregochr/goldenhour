@@ -204,7 +204,7 @@ import java.util.List;
  * @param forcedSample                 whether at least one of this region's CURRENTLY rated voting
  *                                     slots carries a rating written by a force evaluation — see
  *                                     {@code ForceEvalHeadlineSelector} and
- *                                     {@code EvaluationViewService#loadForcedFlags}. A region with
+ *                                     {@code BriefingEvaluationResult#forced}. A region with
  *                                     this {@code true} is exempt from the {@link #sampleSufficient}
  *                                     gate outright: its verdict, pick eligibility and ranking follow
  *                                     the rated average exactly as they did before the minimum-sample
@@ -215,15 +215,23 @@ import java.util.List;
  *                                     spending calls for stars alone, since a handful of forced
  *                                     ratings can never reach the sample gate on its own.
  *
- *                                     <p>"Currently" matters: {@code loadForcedFlags} answers per
- *                                     slot from the MOST RECENT of that slot's {@code EVALUATED} and
- *                                     {@code FORCE_EVALUATED} dispositions, so a later ordinary
- *                                     evaluation ends the exemption for that slot, and the parent
- *                                     stability-skip retraction (see the "Where a rating lives" table
- *                                     in CLAUDE.md) clears a forced rating outright the next time a
- *                                     nightly cycle declines to re-look at it — so the exemption
- *                                     lasts at most until the next nightly run unless the slot is
- *                                     forced or evaluated again.
+ *                                     <p>"Currently" matters: each slot's {@code forced} flag is
+ *                                     provenance stamped ONCE, at write time, by {@code
+ *                                     ForecastResultHandler#buildResult} — from the task that
+ *                                     actually produced the rating, never inferred from a
+ *                                     disposition's timestamp (that approach was tried and found
+ *                                     provably wrong, since a slot's dispositions are anchored to
+ *                                     the CYCLE's first job run rather than the specific bucket that
+ *                                     force-evaluated it — see {@code
+ *                                     BriefingEvaluationResult#forced}'s own javadoc for the full
+ *                                     history). So a later ordinary evaluation ends the exemption for
+ *                                     that slot simply by overwriting the stored result with one that
+ *                                     carries no forced marker, and the parent stability-skip
+ *                                     retraction (see the "Where a rating lives" table in CLAUDE.md)
+ *                                     clears a forced rating outright the next time a nightly cycle
+ *                                     declines to re-look at it — so the exemption lasts at most
+ *                                     until the next nightly run unless the slot is forced or
+ *                                     evaluated again.
  *
  *                                     <p>Nullable, {@code NON_NULL}, no migration — the
  *                                     {@code confidence} precedent; {@code null} on a legacy payload

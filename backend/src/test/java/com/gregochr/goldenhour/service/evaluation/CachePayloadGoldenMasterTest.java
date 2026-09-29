@@ -236,6 +236,62 @@ class CachePayloadGoldenMasterTest {
                 .isEqualTo(readFixture("sky-not-forecast"));
     }
 
+    // ── Force-evaluation provenance (verdict-minimum-sample rule) ──────────────
+
+    @Test
+    @DisplayName("a non-forced result's JSON is byte-identical to today's — forced is omitted "
+            + "entirely, not merely false, so every existing fixture (and every row already in "
+            + "the database) is unaffected by this field's introduction")
+    void nonForcedResultOmitsForcedFieldEntirely() {
+        LocationEntity location = landscape("Keswick", 3L, "Lake District");
+        SunsetEvaluation eval = new SunsetEvaluation(
+                3, 58, 62, "Broken cloud over the fells with a chance of colour.");
+
+        String serialised = serialisePayload(location, eval, false);
+
+        assertThat(serialised).as("forced=false must never appear in the serialised JSON — "
+                + "@JsonInclude(NON_DEFAULT) omits it, exactly like a legacy row")
+                .doesNotContain("forced");
+    }
+
+    @Test
+    @DisplayName("a forced result's JSON carries \"forced\":true, and round-trips back through "
+            + "the production deserialiser to a BriefingEvaluationResult with forced()==true")
+    void forcedResultIncludesForcedTrueInJsonAndRoundTrips() throws Exception {
+        LocationEntity location = landscape("Keswick", 3L, "Lake District");
+        SunsetEvaluation eval = new SunsetEvaluation(
+                3, 58, 62, "Broken cloud over the fells with a chance of colour.");
+
+        String serialised = serialisePayload(location, eval, true);
+
+        assertThat(serialised).contains("\"forced\":true");
+        List<BriefingEvaluationResult> roundTripped = productionMapper.readValue(serialised,
+                productionMapper.getTypeFactory()
+                        .constructCollectionType(List.class, BriefingEvaluationResult.class));
+        assertThat(roundTripped).singleElement()
+                .satisfies(r -> assertThat(r.forced()).isTrue());
+    }
+
+    @Test
+    @DisplayName("a legacy row's JSON with no forced field at all deserialises to forced=false — "
+            + "unknown never grants the verdict-minimum-sample exemption")
+    void legacyJsonWithNoForcedFieldDeserialisesToForcedFalse() throws Exception {
+        // A row persisted before this field existed — exactly what production's existing
+        // cached_evaluation rows look like today.
+        String legacyJson = "[{\"locationName\":\"Keswick\",\"rating\":3,"
+                + "\"fierySkyPotential\":58,\"goldenHourPotential\":62,\"summary\":\"X\"}]";
+
+        List<BriefingEvaluationResult> deserialised = productionMapper.readValue(legacyJson,
+                productionMapper.getTypeFactory()
+                        .constructCollectionType(List.class, BriefingEvaluationResult.class));
+
+        assertThat(deserialised).singleElement()
+                .satisfies(r -> {
+                    assertThat(r.forced()).isFalse();
+                    assertThat(r.rating()).isEqualTo(3);
+                });
+    }
+
     /**
      * Serialises the payload for {@code location}+{@code eval} through the production seam and
      * compares the normalised result to the committed fixture (or writes it when regenerating).
@@ -271,6 +327,16 @@ class CachePayloadGoldenMasterTest {
      * {@code objectMapper.writeValueAsString(new ArrayList<>(results.values()))}.
      */
     private String serialisePayload(LocationEntity location, SunsetEvaluation eval) {
+        return serialisePayload(location, eval, false);
+    }
+
+    /**
+     * As above, with the {@link ForecastIdentity#forced()} flag controllable — the verdict-
+     * minimum-sample rule's force-evaluation provenance, stamped by {@link
+     * ForecastResultHandler#buildResult} from this exact flag.
+     */
+    private String serialisePayload(LocationEntity location, SunsetEvaluation eval,
+            boolean forced) {
         ForecastResultHandler handler = new ForecastResultHandler(
                 briefingEvaluationService,
                 jobRunService, parserHandle,
@@ -278,14 +344,15 @@ class CachePayloadGoldenMasterTest {
                 forecastDataAugmentor, forecastScoreWriter, parser,
                 forecastEvaluationRepository);
 
-        String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET";
+        String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET" + (forced ? "-f" : "");
         String rawText = "{\"injected-by-stub\":true}";
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 customId, rawText, new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
         when(parser.parseEvaluationWithMetadata(eq(rawText), eq(parserHandle)))
                 .thenReturn(new SunsetEvaluationParser.ParseResult(eval, false));
 
-        ForecastIdentity identity = new ForecastIdentity(location.getId(), DATE, SUNSET, null);
+        ForecastIdentity identity =
+                new ForecastIdentity(location.getId(), DATE, SUNSET, null, forced);
         Optional<BatchSuccess> parsed = handler.parseBatchResponse(
                 location, identity, outcome,
                 ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));

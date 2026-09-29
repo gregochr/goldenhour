@@ -279,6 +279,112 @@ class CustomIdFactoryTest {
     }
 
     @Test
+    void forecastWithForcedMarkerStaysWithin64CharCapAtLargestPlausibleIds() {
+        // The absolute worst case this factory can produce: fc- (3) + Long.MAX_VALUE locationId
+        // (19) + - (1) + date (10) + - (1) + SUNRISE (7) + -r (2) + Long.MAX_VALUE evalRowId (19)
+        // + -f (2) = 64 — exactly at the Anthropic ^[a-zA-Z0-9_-]{1,64}$ boundary, not merely
+        // under it. This is the id the verdict-minimum-sample force-evaluation exemption relies
+        // on to survive the batch custom_id round trip (EvaluationTask.Forecast#forced).
+        String id = CustomIdFactory.forForecast(
+                Long.MAX_VALUE, DATE, TargetType.SUNRISE, Long.MAX_VALUE, true);
+        assertThat(id).hasSize(64);
+        assertThat(id).matches(ANTHROPIC);
+        assertThat(CustomIdFactory.parse(id))
+                .isEqualTo(new ParsedCustomId.Forecast(
+                        Long.MAX_VALUE, DATE, TargetType.SUNRISE, Long.MAX_VALUE, true));
+    }
+
+    @Test
+    void forcedForecastIdRoundTripsThroughParse() {
+        String id = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 12345L, true);
+        assertThat(id).isEqualTo("fc-42-2026-04-16-SUNRISE-r12345-f");
+        ParsedCustomId parsed = CustomIdFactory.parse(id);
+        assertThat(parsed).isEqualTo(
+                new ParsedCustomId.Forecast(42L, DATE, TargetType.SUNRISE, 12345L, true));
+        assertThat(((ParsedCustomId.Forecast) parsed).forced()).isTrue();
+    }
+
+    @Test
+    void forcedForecastIdWithNoEvalRowIdRoundTripsThroughParse() {
+        // forced without an evalRowId is not a shape production ever produces (R8 scopes pending
+        // rows to the sky lane, and the sky lane always has one when forced), but the -f suffix
+        // and the -r suffix are independent, so this proves the parser does not assume the pair.
+        String id = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, null, true);
+        assertThat(id).isEqualTo("fc-42-2026-04-16-SUNRISE-f");
+        assertThat(CustomIdFactory.parse(id))
+                .isEqualTo(new ParsedCustomId.Forecast(42L, DATE, TargetType.SUNRISE, null, true));
+    }
+
+    @Test
+    void nonForcedForecastIdIsByteIdenticalToPreExistingFourArgForm() {
+        // forced=false must produce EXACTLY what the pre-existing four-arg overload produces —
+        // no `-f` appended, no behaviour change for the overwhelming majority of ordinary
+        // (non-force-evaluated) batch tasks.
+        assertThat(CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 12345L, false))
+                .isEqualTo(CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 12345L));
+    }
+
+    @Test
+    void forBluebellWithForcedMarkerRoundTripsThroughParse() {
+        // A WOODLAND-exposure or OPEN_FELL-paired bluebell candidate can be force-evaluated
+        // exactly like a sky one (ForecastTaskCollector decides eligibility before routing to a
+        // lane) — the bluebell custom id needs the identical marker.
+        String id = CustomIdFactory.forBluebell(7L, DATE, TargetType.SUNSET, true);
+        assertThat(id).isEqualTo("bb-7-2026-04-16-SUNSET-f");
+        ParsedCustomId parsed = CustomIdFactory.parse(id);
+        assertThat(parsed).isInstanceOf(ParsedCustomId.Bluebell.class);
+        assertThat(((ParsedCustomId.Bluebell) parsed).forced()).isTrue();
+    }
+
+    @Test
+    void forWoodlandWithForcedMarkerRoundTripsThroughParse() {
+        String id = CustomIdFactory.forWoodland(7L, DATE, TargetType.SUNSET, true);
+        assertThat(id).isEqualTo("wd-7-2026-04-16-SUNSET-f");
+        ParsedCustomId parsed = CustomIdFactory.parse(id);
+        assertThat(parsed).isInstanceOf(ParsedCustomId.Woodland.class);
+        assertThat(((ParsedCustomId.Woodland) parsed).forced()).isTrue();
+    }
+
+    @Test
+    void oldFormatBluebellAndWoodlandIdsParseWithForcedFalse() {
+        // Backward compatibility, mirroring oldFormatForecastIdParsesWithNullEvalRowId: an id
+        // with no -f suffix — every id the previous binary could have produced, since forced did
+        // not exist before this change — parses with forced=false, never an error.
+        ParsedCustomId bluebell = CustomIdFactory.parse("bb-99-2026-04-16-SUNSET");
+        assertThat(((ParsedCustomId.Bluebell) bluebell).forced()).isFalse();
+        ParsedCustomId woodland = CustomIdFactory.parse("wd-99-2026-04-16-SUNSET");
+        assertThat(((ParsedCustomId.Woodland) woodland).forced()).isFalse();
+    }
+
+    /**
+     * Compatibility table: every OLD-format id shape this factory could produce before the
+     * {@code -f} forced marker existed must still parse to the identical values, with
+     * {@code forced} reading false — proving the new parser is a strict superset of the old one
+     * for every id already in flight at deploy (the Anthropic Batch API can take up to 24 hours,
+     * so a batch submitted by the previous binary is still returning results well after this
+     * version is live).
+     */
+    @Test
+    void everyPreExistingIdShapeStillParsesIdenticallyWithForcedFalse() {
+        assertThat(CustomIdFactory.parse("fc-42-2026-04-16-SUNRISE"))
+                .isEqualTo(new ParsedCustomId.Forecast(42L, DATE, TargetType.SUNRISE, null, false));
+        assertThat(CustomIdFactory.parse("fc-42-2026-04-16-SUNRISE-r12345"))
+                .isEqualTo(
+                        new ParsedCustomId.Forecast(42L, DATE, TargetType.SUNRISE, 12345L, false));
+        assertThat(CustomIdFactory.parse("bb-42-2026-04-16-SUNRISE"))
+                .isEqualTo(new ParsedCustomId.Bluebell(42L, DATE, TargetType.SUNRISE, false));
+        assertThat(CustomIdFactory.parse("wd-42-2026-04-16-SUNRISE"))
+                .isEqualTo(new ParsedCustomId.Woodland(42L, DATE, TargetType.SUNRISE, false));
+        assertThat(CustomIdFactory.parse("jfdi-42-2026-04-16-SUNRISE"))
+                .isEqualTo(new ParsedCustomId.Jfdi(42L, DATE, TargetType.SUNRISE));
+        assertThat(CustomIdFactory.parse("force-TheNorthYorkMoors-42-2026-04-16-SUNRISE"))
+                .isEqualTo(new ParsedCustomId.ForceSubmit(
+                        "TheNorthYorkMoors", 42L, DATE, TargetType.SUNRISE));
+        assertThat(CustomIdFactory.parse("au-MODERATE-2026-04-16"))
+                .isEqualTo(new ParsedCustomId.Aurora(AlertLevel.MODERATE, DATE));
+    }
+
+    @Test
     void jfdiRoundTripsThroughParse() {
         String id = CustomIdFactory.forJfdi(7L, DATE, TargetType.SUNSET);
         assertThat(CustomIdFactory.parse(id))

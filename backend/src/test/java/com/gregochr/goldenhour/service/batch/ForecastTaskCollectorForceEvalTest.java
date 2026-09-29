@@ -136,12 +136,48 @@ class ForecastTaskCollectorForceEvalTest {
         assertThat(result.farInland().get(0).location().getName()).isEqualTo("Bamburgh");
         assertThat(result.farInland().get(0).model()).isEqualTo(EvaluationModel.HAIKU);
         assertThat(result.nearInland()).isEmpty();
+        // The verdict-minimum-sample rule's force-evaluation exemption (owner decision,
+        // 2026-09-29) needs this fact to survive the batch custom_id round trip — see
+        // EvaluationTask.Forecast#forced's javadoc for why a serve-time timestamp comparison was
+        // abandoned in favour of carrying it on the task itself.
+        assertThat(result.farInland().get(0).forced()).isTrue();
 
         List<CandidateDisposition> forced = result.dispositions().stream()
                 .filter(d -> d.category() == DispositionCategory.FORCE_EVALUATED).toList();
         assertThat(forced).hasSize(1);
         assertThat(forced.get(0).locationName()).isEqualTo("Bamburgh");
         assertThat(forced.get(0).daysAhead()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("Force-eval rescues a WOODLAND-only canopy candidate too — the eligibility "
+            + "decision happens before routing to a lane, so the woodland task must carry the "
+            + "same forced marker the sky lane does")
+    void forceEvalRescuesWoodlandCandidate() {
+        LocationEntity loc = gridLocation("Bamburgh");
+        loc.setLocationType(Set.of(com.gregochr.goldenhour.entity.LocationType.WOODLAND));
+        stubBriefing(buildBriefing(TODAY.plusDays(3), TargetType.SUNSET,
+                region("Northumberland", goSlot(loc.getName(), true))));
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubPrefetch(loc);
+        stubTriagePass(loc, TODAY.plusDays(3), 3, false);
+        stubStability(loc, ForecastStability.UNSETTLED);
+
+        ForecastTaskCollector collector = collectorWithCap(1);
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.woodland()).hasSize(1);
+        assertThat(result.woodland().get(0).location().getName()).isEqualTo("Bamburgh");
+        assertThat(result.woodland().get(0).promptKind())
+                .isEqualTo(com.gregochr.goldenhour.service.evaluation.EvaluationTask.Forecast
+                        .PromptKind.WOODLAND);
+        assertThat(result.woodland().get(0).forced()).isTrue();
+        assertThat(result.farInland()).isEmpty();
+
+        List<CandidateDisposition> forced = result.dispositions().stream()
+                .filter(d -> d.category() == DispositionCategory.FORCE_EVALUATED).toList();
+        assertThat(forced).hasSize(1);
+        assertThat(forced.get(0).locationName()).isEqualTo("Bamburgh");
     }
 
     @Test
@@ -254,6 +290,7 @@ class ForecastTaskCollectorForceEvalTest {
         assertThat(result.dispositions())
                 .extracting(CandidateDisposition::category)
                 .containsExactly(DispositionCategory.EVALUATED);
+        assertThat(result.nearInland().get(0).forced()).isFalse();
     }
 
     // ── helpers ──

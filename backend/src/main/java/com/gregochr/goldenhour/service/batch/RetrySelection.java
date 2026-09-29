@@ -53,9 +53,31 @@ public record RetrySelection(Decision decision, List<RetrySelection.RetryFailure
      *                       {@code null} for a pre-deploy custom id with no embedded row id — in
      *                       that case the precursor cannot be stamped {@code ABANDONED} here and
      *                       is left for the R7 backstop sweep instead
+     * @param forced         whether the precursor's own custom id carried the {@code
+     *                       ForceEvalHeadlineSelector} force-evaluation marker ({@code -f}) — a
+     *                       retry of a force-evaluated slot's failed request still IS that same
+     *                       slot's force-evaluation attempt, so {@link BatchRetryService
+     *                       #reconstruct} carries this through to the reconstructed task rather
+     *                       than defaulting it away, which would silently deny the exemption to a
+     *                       force-evaluated slot that happened to need one retry
      */
     public record RetryFailure(String customId, Long locationId, LocalDate date,
-            TargetType targetType, Long precursorRowId) {
+            TargetType targetType, Long precursorRowId, boolean forced) {
+
+        /**
+         * Convenience constructor defaulting {@code forced} to {@code false} — the five-arg
+         * shape every pre-existing call site and test uses.
+         *
+         * @param customId       the original batch custom id
+         * @param locationId     location id parsed from the custom id
+         * @param date           evaluation date parsed from the custom id
+         * @param targetType     SUNRISE / SUNSET / HOURLY parsed from the custom id
+         * @param precursorRowId primary key of the precursor's pending row, or {@code null}
+         */
+        public RetryFailure(String customId, Long locationId, LocalDate date,
+                TargetType targetType, Long precursorRowId) {
+            this(customId, locationId, date, targetType, precursorRowId, false);
+        }
     }
 
     /**

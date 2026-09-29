@@ -261,15 +261,16 @@ public class BatchResultProcessor {
                 switch (parsed) {
                     case ParsedCustomId.Forecast f ->
                         identity = new ForecastIdentity(
-                                f.locationId(), f.date(), f.targetType(), f.evalRowId());
+                                f.locationId(), f.date(), f.targetType(), f.evalRowId(),
+                                f.forced());
                     case ParsedCustomId.Bluebell b -> {
                         identity = new ForecastIdentity(
-                                b.locationId(), b.date(), b.targetType(), null);
+                                b.locationId(), b.date(), b.targetType(), null, b.forced());
                         isBluebell = true;
                     }
                     case ParsedCustomId.Woodland w -> {
                         identity = new ForecastIdentity(
-                                w.locationId(), w.date(), w.targetType(), null);
+                                w.locationId(), w.date(), w.targetType(), null, w.forced());
                         isWoodland = true;
                     }
                     case ParsedCustomId.Jfdi j ->

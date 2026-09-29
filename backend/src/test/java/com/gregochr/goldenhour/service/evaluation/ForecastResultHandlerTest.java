@@ -316,6 +316,137 @@ class ForecastResultHandlerTest {
         verify(forecastEvaluationRepository, never()).save(any());
     }
 
+    // ── Force-evaluation provenance (verdict-minimum-sample rule) ──────────────
+    //
+    // ⚠️ These are the regression tests for the P1 Codex found against 26044705: the exemption
+    // used to be decided at SERVE time by comparing a forecast_run_disposition row's created_at
+    // against the winning result's own evaluation instant, which let an entirely unrelated,
+    // later-landing rating (a hand-started synchronous admin run, in the reported case) satisfy
+    // the comparison and be wrongly exempted. `forced` is now provenance recorded HERE, once, from
+    // the task/identity's own flag — there is no timestamp comparison left to race at all, so these
+    // tests prove that structurally rather than by re-checking specific instants.
+
+    @Test
+    @DisplayName("a batch response whose identity carries forced=true stamps the result forced, "
+            + "with no dependency on any timestamp")
+    void parseBatchResponse_identityForced_stampsResultForced() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 777L, true);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r777-f",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        when(forecastEvaluationRepository.findById(777L)).thenReturn(Optional.of(
+                ForecastEvaluationEntity.builder().id(777L).batchState(BatchState.PENDING)
+                        .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0)).build()));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().rating()).isEqualTo(4);
+        assertThat(result.get().result().forced()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a batch response whose identity carries forced=false (the ordinary case) never "
+            + "stamps the result forced")
+    void parseBatchResponse_identityNotForced_resultNeverForced() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().forced()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the sync engine (an ordinary hand-started admin run) never produces a forced "
+            + "result — Codex's #943 P1-B/round-9 scenario: an unrelated rating landing AFTER a "
+            + "forced batch's own disposition must not be exempted, and now cannot be, because "
+            + "this task's own forced field is false and nothing here compares timestamps at all")
+    void handleSyncResult_ordinaryAdminRun_neverForced() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        // The exact shape ForecastService#evaluateAndPersist builds: the six-arg convenience
+        // constructor, which defaults forced to false — the sync engine has no concept of
+        // ForceEvalHeadlineSelector at all.
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        assertThat(task.forced()).isFalse();
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
+                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU, 8500);
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
+
+        handler.handleSyncResult(task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
+
+        ArgumentCaptor<List<BriefingEvaluationResult>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).mergeFromBatch(
+                eq("Lake District|2026-04-16|SUNRISE"), captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        assertThat(captor.getValue().getFirst().forced()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a bluebell batch response whose identity carries forced=true (a WOODLAND-"
+            + "exposure or OPEN_FELL candidate the collector force-evaluated) stamps the result "
+            + "forced")
+    void parseBluebellBatchResponse_identityForced_stampsResultForced() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null, true);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE-f",
+                "{\"rating\":4,\"summary\":\"Blooming\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(4, "Blooming", null));
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().forced()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a woodland batch response whose identity carries forced=true stamps the result "
+            + "forced")
+    void parseWoodlandBatchResponse_identityForced_stampsResultForced() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null, true);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "wd-53-2026-04-16-SUNRISE-f",
+                "{\"rating\":3,\"summary\":\"Misty\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new WoodlandEvaluation(3, "Misty", null));
+
+        Optional<BatchSuccess> result = handler.parseWoodlandBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().forced()).isTrue();
+    }
+
     @Test
     @DisplayName("parseWoodlandBatchResponse: woodland rating stands alone and is filed under "
             + "WOODLAND, not BLUEBELL")

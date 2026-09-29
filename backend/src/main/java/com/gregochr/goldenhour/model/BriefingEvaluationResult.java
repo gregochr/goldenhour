@@ -54,31 +54,48 @@ import java.time.Instant;
  *                            round-trips through {@code results_json} and a legacy row missing it
  *                            always deserialises to {@code false} — the one value it may ever hold
  *                            on a real evaluation result
- * @param forced              true when this location's CURRENT rating was written by a force
- *                            evaluation rather than an ordinary one, AND that rating's own
- *                            evaluation instant is at or after the force-evaluation disposition's
- *                            {@code created_at} — see {@code
- *                            EvaluationViewService#loadForceEvaluatedAt} and {@code
- *                            ForceEvalHeadlineSelector}. Backs the verdict-minimum-sample rule's
- *                            force-evaluation exemption ({@code BriefingRegion#forcedSample}):
- *                            {@code BriefingRegionEvaluationRollup} reads this off the winning
- *                            result for each rated voting slot to decide whether the region as a
- *                            whole is exempt from the sample-size gate. {@code false} whenever
- *                            {@link #rating} is null — a field with no rating behind it cannot be a
- *                            forced <em>rating</em> — whenever the disposition lookup found nothing
- *                            or failed, and whenever the disposition exists but the winning result
- *                            demonstrably PREDATES it (a Codex review of #943, P1-B: dispositions
- *                            are persisted at submission, before any Claude result lands, so
- *                            {@code FORCE_EVALUATED} alone only ever meant "a forced run was
- *                            requested", never "this rating came from it" — an older cached rating
- *                            must not be stamped forced merely because a force-evaluation was later
- *                            requested for the same slot). Unknown never grants the exemption, the
- *                            same safe-direction rule {@code loadForceEvaluatedAt} itself documents.
- *                            {@code @JsonIgnore}d for the same reason {@link #retracted} is: it is
- *                            a serve-time annotation stamped onto a result already read back out of
- *                            the cache, never something {@code cached_evaluation} itself persists,
- *                            and a legacy row missing it deserialises to {@code false} — "not
- *                            known to be forced", the correct default
+ * @param forced              true when this location's rating was produced by a task that carried
+ *                            the {@code ForceEvalHeadlineSelector} force-evaluation marker —
+ *                            decoded from the Anthropic batch custom id (or, on the sync path,
+ *                            from the {@code EvaluationTask.Forecast} itself) and stamped ONCE, at
+ *                            the single point in {@code ForecastResultHandler#buildResult} where a
+ *                            result is built from a Claude response. Backs the verdict-minimum-
+ *                            sample rule's force-evaluation exemption ({@code
+ *                            BriefingRegion#forcedSample}): {@code BriefingRegionEvaluationRollup}
+ *                            reads this off the winning result for each rated voting slot to decide
+ *                            whether the region as a whole is exempt from the sample-size gate.
+ *                            {@code false} whenever {@link #rating} is null — a field with no
+ *                            rating behind it cannot be a forced <em>rating</em> — and for a result
+ *                            built from a {@code forecast_evaluation} row rather than the cache
+ *                            (that entity carries no forced marker of its own, so a winning source
+ *                            that is a bare forecast row is never forced, unknown-is-safe).
+ *                            {@code @JsonInclude(NON_DEFAULT)}, unlike {@link #retracted}: this
+ *                            field IS persisted into {@code cached_evaluation.results_json} — it
+ *                            has to survive the write/read round trip so a later serve can read
+ *                            back exactly what the writing task decided, rather than re-inferring
+ *                            it from timestamps (see the class-level history below). {@code false}
+ *                            is omitted from the JSON (a non-forced result is byte-identical to one
+ *                            written before this field existed), so a legacy row missing it
+ *                            deserialises to {@code false} — "not forced", the correct default.
+ *                            ⚠️ Any LATER write for the same slot — an ordinary batch evaluation, a
+ *                            synchronous admin run, a force-submit, an intraday refresh — replaces
+ *                            the stored result wholesale and none of those writers ever pass
+ *                            {@code forced = true}, so the flag is cleared automatically the moment
+ *                            anything but the forced task's own result speaks for the slot again.
+ *                            ⚠️ <b>This field used to be computed at SERVE time, by comparing a
+ *                            {@code forecast_run_disposition} row's {@code created_at} against the
+ *                            winning result's own evaluation instant</b> (owner decision,
+ *                            2026-09-29 — see {@code EvaluationViewService}'s former {@code
+ *                            loadForceEvaluatedAt}/{@code isCurrentlyForced}). A second review found
+ *                            that inference provably wrong: {@code FORCE_EVALUATED} dispositions are
+ *                            written at submission, before any Claude result lands, and are anchored
+ *                            to the CYCLE's first job run rather than the specific bucket that
+ *                            actually force-evaluated a slot — so an unrelated, ordinary rating
+ *                            (from a hand-started synchronous admin run, in the reported case) that
+ *                            merely landed AFTER the disposition's timestamp satisfied the same
+ *                            comparison and was wrongly granted the exemption. Provenance recorded
+ *                            at write time, by the task that actually produced the rating, closes
+ *                            that gap by construction rather than narrowing the inference further.
  */
 public record BriefingEvaluationResult(
         String locationName,
@@ -92,7 +109,7 @@ public record BriefingEvaluationResult(
         @JsonInclude(JsonInclude.Include.NON_NULL) Instant evaluatedAt,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating,
         @JsonIgnore boolean retracted,
-        @JsonIgnore boolean forced
+        @JsonInclude(JsonInclude.Include.NON_DEFAULT) boolean forced
 ) {
 
     /**
@@ -260,13 +277,13 @@ public record BriefingEvaluationResult(
      * Returns a copy of this result stamped as forced (or not), for the force-evaluation sample
      * exemption — see {@link #forced}.
      *
-     * <p>Applied by {@code EvaluationViewService} once it has decided which source (cache or
-     * {@code forecast_evaluation}) speaks for this slot AND confirmed that source's own evaluation
-     * instant is at or after the slot's latest {@code FORCE_EVALUATED} disposition ({@code
-     * loadForceEvaluatedAt}). A no-op when {@link #rating} is null: an unrated result cannot carry
-     * a forced <em>rating</em>.
+     * <p>Applied exactly once, by {@code ForecastResultHandler#buildResult}, from the task's own
+     * {@code forced} field (decoded from the batch custom id, or read directly off the sync-path
+     * {@code EvaluationTask.Forecast}) — never re-derived at serve time. A no-op when
+     * {@link #rating} is null: an unrated result cannot carry a forced <em>rating</em>.
      *
-     * @param newForced whether the winning result demonstrably came from a force evaluation
+     * @param newForced whether the task that produced this result carried the force-evaluation
+     *                  marker
      * @return a copy carrying the flag, or this result unchanged when there is no rating to flag
      */
     public BriefingEvaluationResult withForced(boolean newForced) {

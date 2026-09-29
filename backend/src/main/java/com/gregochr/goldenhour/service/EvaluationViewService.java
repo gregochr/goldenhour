@@ -204,85 +204,6 @@ public class EvaluationViewService {
     }
 
     /**
-     * Bulk-loads, for every slot with at least one {@code EVALUATED} or {@code FORCE_EVALUATED}
-     * disposition in the range whose MOST RECENT such disposition is {@code FORCE_EVALUATED}, the
-     * {@code created_at} of that disposition — the fact the verdict-minimum-sample rule's
-     * force-evaluation exemption needs (owner decision, 2026-09-29;
-     * {@code docs/engineering/plan-verdict-consolidation-plan.md}, {@code VerdictSampleGate}).
-     *
-     * <p>⚠️ <b>The instant this returns answers "when was a forced run requested", never "when did
-     * a rating land" — the caller must still compare it against the WINNING result's own evaluation
-     * instant before granting the exemption.</b> A Codex review of #943 (P1-B) found the first cut
-     * skipped that comparison: {@code ScheduledBatchEvaluationService.persistCycleDispositions}
-     * writes every cycle's dispositions at SUBMISSION, before any Claude result comes back, so
-     * {@code FORCE_EVALUATED} alone stamped whatever OLDER rating was still in the cache as forced
-     * while the real forced batch was still pending (or had failed outright). See {@link
-     * #resolveForEnrichmentRetractionAware}'s own instant check, which is where that comparison now
-     * happens — this method supplies only one half of it.
-     *
-     * <p>Same shape and the same reasoning as {@link #loadStabilitySkips}: one bulk query per
-     * serve, bounded to the caller's own served window, never called per region or per slot.
-     *
-     * <p><b>Defensive by design.</b> A failed or empty lookup must never grant the exemption — an
-     * unknown answer reads as "not forced", the same safe direction every other unknown-freshness
-     * case in this class already fails toward — so a repository failure is caught and logged rather
-     * than propagated, and this returns an empty map on that path.
-     *
-     * <p>Inherits the same location-NAME join limit {@link #loadStabilitySkips} documents: a
-     * location renamed between the forced evaluation and this serve is not found under its new
-     * name and reads as not forced. Not fixed here, for the same reason it is not fixed there — the
-     * failure direction is safe (the exemption simply does not apply one cycle too early, rather
-     * than applying when it should not).
-     *
-     * <p>⚠️ <b>A same-instant tie between an {@code EVALUATED} and a {@code FORCE_EVALUATED} row for
-     * one slot must read as NOT forced, and the query alone cannot guarantee that.</b>
-     * {@link ForecastRunDispositionRepository#findLatestEvaluatingDispositions} can return BOTH rows
-     * for one slot on an exact {@code created_at} tie (documented on that method), in whichever order
-     * the database happens to return them — so folding by "last write to the map wins" would make the
-     * exemption depend on undefined row order. Folded here instead by removing a key the moment ANY
-     * row for it names {@code EVALUATED}: a key's presence in the returned map therefore means every
-     * row seen for it was {@code FORCE_EVALUATED}, so the two possible row orders for a tie produce
-     * the same (absent, i.e. not-forced) answer either way, and a slot with only {@code
-     * FORCE_EVALUATED} rows (the ordinary case — findLatestEvaluatingDispositions returns one row
-     * per slot when there is no tie) is unaffected.
-     *
-     * @param start first evaluation date to include (inclusive)
-     * @param end   last evaluation date to include (inclusive)
-     * @return {@code "locationName|date|targetType"} to the {@code created_at} of that slot's
-     *         latest disposition, present ONLY when that disposition is {@code FORCE_EVALUATED};
-     *         a slot with none, or whose latest is {@code EVALUATED}, is simply absent
-     */
-    public Map<String, Instant> loadForceEvaluatedAt(LocalDate start, LocalDate end) {
-        Map<String, Instant> forceEvaluatedAt = new HashMap<>();
-        Set<String> sawEvaluated = new HashSet<>();
-        try {
-            for (Object[] row : forecastRunDispositionRepository
-                    .findLatestEvaluatingDispositions(start, end)) {
-                String locationName = (String) row[0];
-                LocalDate date = (LocalDate) row[1];
-                String eventType = (String) row[2];
-                String disposition = (String) row[3];
-                Instant createdAt = (Instant) row[4];
-                String key = stabilitySkipKey(locationName, date, eventType);
-                if ("FORCE_EVALUATED".equals(disposition)) {
-                    forceEvaluatedAt.put(key, createdAt);
-                } else {
-                    sawEvaluated.add(key);
-                }
-            }
-        } catch (RuntimeException e) {
-            LOG.warn("[FORCE-EVAL] Could not load forced-evaluation dispositions for {}..{} — "
-                    + "every slot in range reads as not forced this serve: {}",
-                    start, end, e.toString());
-            return new HashMap<>();
-        }
-        // See the javadoc's tie paragraph above — a key seen with an EVALUATED row anywhere in the
-        // result (the sole winner, or one half of a tie) can never currently be forced.
-        sawEvaluated.forEach(forceEvaluatedAt::remove);
-        return forceEvaluatedAt;
-    }
-
-    /**
      * Bulk-loads the set of {@code "locationName|date|targetType"} slot keys whose latest
      * non-{@code SKIPPED_CACHED} {@code forecast_run_disposition} in the range is
      * {@code SKIPPED_TRIAGED} — the verdict-minimum-sample rule's "examined" evidence
@@ -296,22 +217,21 @@ public class EvaluationViewService {
      * re-fetching weather for it). This method answers the question the gate actually needs: what
      * did the BATCH decide, most recently, for this slot.
      *
-     * <p>Same shape and the same reasoning as {@link #loadStabilitySkips}/{@link
-     * #loadForceEvaluatedAt}: one bulk query per serve, bounded to the caller's own served window,
-     * never called per region or per slot. A failed or empty lookup must never grant "examined" —
-     * an unknown answer means nothing counts as triaged, which can only make a region read as
-     * INSUFFICIENT rather than falsely SUFFICIENT, the same safe direction every other
-     * unknown-freshness case in this class already fails toward — so a repository failure is caught
-     * and logged rather than propagated.
+     * <p>Same shape and the same reasoning as {@link #loadStabilitySkips}: one bulk query per
+     * serve, bounded to the caller's own served window, never called per region or per slot. A
+     * failed or empty lookup must never grant "examined" — an unknown answer means nothing counts
+     * as triaged, which can only make a region read as INSUFFICIENT rather than falsely SUFFICIENT,
+     * the same safe direction every other unknown-freshness case in this class already fails
+     * toward — so a repository failure is caught and logged rather than propagated.
      *
      * <p>Inherits the same location-NAME join limit {@link #loadStabilitySkips} documents.
      *
      * <p>A tie at the same {@code created_at} between two different non-{@code SKIPPED_CACHED}
      * categories for one slot ({@link ForecastRunDispositionRepository
-     * #findLatestNonCachedDispositions} can return both rows, mirroring {@link
-     * #findLatestEvaluatingDispositions}'s own documented tie shape) folds to NOT examined: a key
-     * is included only when EVERY row seen for it is {@code SKIPPED_TRIAGED}, the same
-     * safe-under-ambiguity direction {@link #loadForceEvaluatedAt}'s own tie fold takes.
+     * #findLatestNonCachedDispositions} can return both rows) folds to NOT examined: a key is
+     * included only when EVERY row seen for it is {@code SKIPPED_TRIAGED}, the same
+     * safe-under-ambiguity direction {@link #loadStabilitySkips}'s own MAX-per-slot grouping keeps
+     * unambiguous by construction.
      *
      * @param start first evaluation date to include (inclusive)
      * @param end   last evaluation date to include (inclusive)
@@ -438,35 +358,6 @@ public class EvaluationViewService {
                 .map(LocationEntity::getName)
                 .filter(name -> triagedKeys.contains(stabilitySkipKey(name, date, targetType)))
                 .collect(Collectors.toSet());
-    }
-
-    /**
-     * Stamps a resolved enrichment result as forced — a no-op on a null result, an unrated result,
-     * or when the caller has already determined the winning result was NOT demonstrably produced
-     * by a force evaluation.
-     *
-     * <p>The caller ({@link #resolveForEnrichmentRetractionAware}) does the actual decision now —
-     * comparing the winning result's own evaluation instant against the slot's latest {@code
-     * FORCE_EVALUATED} disposition (a Codex review of #943, P1-B) — so this method's own job is
-     * unchanged from before that fix: apply whatever the caller decided, with the one guard that
-     * must hold regardless of how {@code forced} was computed — an unrated result can never be a
-     * forced <em>rating</em>.
-     *
-     * <p>One predicate for both {@link #getScoresForEnrichment} and
-     * {@link #getScoresForEnrichmentBulk}, so the two cannot disagree about when a rating counts as
-     * forced — the same reason {@link #cachedWins} is one method rather than two derivations.
-     *
-     * @param result the resolved result, or null
-     * @param forced whether the caller has determined the winning result is currently forced
-     * @return {@code result} unchanged, or stamped forced when it carries a rating and the caller
-     *         says so
-     */
-    private static BriefingEvaluationResult stampForced(BriefingEvaluationResult result,
-            boolean forced) {
-        if (result == null || result.rating() == null || !forced) {
-            return result;
-        }
-        return result.withForced(true);
     }
 
     /**
@@ -900,7 +791,6 @@ public class EvaluationViewService {
         Map<String, ForecastEvaluationEntity> latest =
                 loadLatestForecasts(regionLocations, date, date, Set.of(targetType));
         Map<String, Instant> stabilitySkips = loadStabilitySkips(date, date);
-        Map<String, Instant> forceEvaluatedAt = loadForceEvaluatedAt(date, date);
 
         Map<String, BriefingEvaluationResult> result = new HashMap<>();
         for (LocationEntity loc : regionLocations) {
@@ -908,8 +798,7 @@ public class EvaluationViewService {
             Instant latestSkipAt = stabilitySkips.get(key);
             BriefingEvaluationResult resolved = resolveForEnrichmentRetractionAware(loc.getName(),
                     cached.get(loc.getName()), cachedEvaluatedAt,
-                    latest.get(loc.getId() + "|" + date + "|" + targetType), latestSkipAt,
-                    forceEvaluatedAt.get(key));
+                    latest.get(loc.getId() + "|" + date + "|" + targetType), latestSkipAt);
             // The verdict-minimum-sample rule's "examined" evidence (VerdictSampleGate#
             // examinedCount) is NOT derived from this map — a second Codex review of #943 (P1-A,
             // round 2) found that stamping a synthetic marker here only reached the branch where
@@ -1010,12 +899,12 @@ public class EvaluationViewService {
         // One bulk load for the whole window — see the class javadoc on why a stability skip is
         // applied before precedence rather than inside it.
         Map<String, Instant> stabilitySkips = loadStabilitySkips(start, end);
-        // One more bulk load for the whole window — the force-evaluation sample exemption's one
-        // fact (owner decision, 2026-09-29; see VerdictSampleGate). Loaded once here rather than
-        // inside the resolve loop below, same reasoning as stabilitySkips — and stamped in exactly
-        // one place, {@link #resolveForEnrichmentRetractionAware}, the same place the single-key
-        // getScoresForEnrichment stamps it, so the two reads cannot disagree.
-        Map<String, Instant> forceEvaluatedAt = loadForceEvaluatedAt(start, end);
+        // The force-evaluation sample exemption's one fact (owner decision, 2026-09-29; see
+        // VerdictSampleGate) is no longer loaded or compared here at all — it rides the winning
+        // BriefingEvaluationResult's own `forced` field, stamped once at write time by
+        // ForecastResultHandler#buildResult, so this method has nothing left to bulk-load for it.
+        // See resolveForEnrichmentRetractionAware's own javadoc for why the previous timestamp
+        // comparison against a bulk-loaded disposition map was abandoned.
         // The verdict-minimum-sample rule's "examined" evidence (VerdictSampleGate#examinedCount)
         // is NOT loaded or stamped here any more (a second Codex review of #943, P1-A round 2) —
         // see getTriagedByBatchLocationNamesBulk's own javadoc for why a flag riding on this
@@ -1086,9 +975,9 @@ public class EvaluationViewService {
         //    resolved to absent rather than to the retraction marker. Resolving per slot, with
         //    both sources in hand together, is what lets isSlotRetracted answer the real question
         //    ("does ANY live evidence survive this skip") instead of two independent, incomplete
-        //    ones. All in-memory lookups: no additional queries over step 1/2 above. The one slot
-        //    key computed here also looks up forcedFlags, so `forced` and the retraction decision
-        //    are resolved from the same key in the same call.
+        //    ones. All in-memory lookups: no additional queries over step 1/2 above. `forced`
+        //    itself is never looked up here — it rides whichever BriefingEvaluationResult the
+        //    resolve call below returns, stamped once at write time.
         Map<String, Map<String, BriefingEvaluationResult>> byKey = new HashMap<>();
         for (LocationEntity loc : locations) {
             if (loc.getRegion() == null) {
@@ -1107,8 +996,7 @@ public class EvaluationViewService {
                     String slotKey = stabilitySkipKey(loc.getName(), date, type);
                     Instant skipAt = stabilitySkips.get(slotKey);
                     BriefingEvaluationResult resolved = resolveForEnrichmentRetractionAware(
-                            loc.getName(), cachedResult, cachedEvaluatedAt, forecastRow, skipAt,
-                            forceEvaluatedAt.get(slotKey));
+                            loc.getName(), cachedResult, cachedEvaluatedAt, forecastRow, skipAt);
                     if (resolved != null) {
                         byKey.computeIfAbsent(key, k -> new HashMap<>())
                                 .put(loc.getName(), resolved);
@@ -1121,10 +1009,10 @@ public class EvaluationViewService {
         // to another region since the batch wrote them. Same fail-open carry-forward
         // getScoresForEnrichment documents and for the identical reason: by definition they have
         // no forecast row or skip check available (the current roster is all step 2/3 cover), so
-        // they are appended unconditionally rather than through the decision method above — and
-        // therefore unstamped, exactly as getScoresForEnrichment's own out-of-roster carry-forward
-        // is: a location the current roster no longer names has no disposition lookup available
-        // for it either, so "forced" is simply unknown, not false.
+        // they are appended unconditionally rather than through the decision method above. `forced`
+        // needs no special handling here, unlike under the old timestamp-inference design: the
+        // cached entry is carried forward UNCHANGED, so whatever provenance it was stamped with at
+        // write time (by ForecastResultHandler) rides along exactly as stored.
         for (Map.Entry<String, Map<String, BriefingEvaluationResult>> entry
                 : cachedByKey.entrySet()) {
             Map<String, BriefingEvaluationResult> regionMap =
@@ -1190,48 +1078,41 @@ public class EvaluationViewService {
      * equivalent trap — a fresh {@code LocationEvaluationView} is built on every call regardless,
      * so {@code Source.NONE} already means "nothing" correctly there and needs no third state.
      *
-     * <p>⚠️ <b>This is also the ONE place {@code forced} is decided AND stamped, for both
-     * readers.</b> A Codex review of #943 (P1-B) found the previous version trusted the
-     * force-evaluation disposition's mere existence — but {@code
-     * ScheduledBatchEvaluationService.persistCycleDispositions} writes every cycle's dispositions
-     * at SUBMISSION, before any Claude result comes back, so a {@code FORCE_EVALUATED} row can
-     * outlive its own run (still pending, or failed outright) while an OLDER rating sits in the
-     * cache — and that older rating was being stamped forced merely because the disposition existed.
-     * {@code forced} is now computed HERE by comparing the WINNING source's own evaluation instant
-     * (whichever {@link #resolveForEnrichment} itself is about to pick, via the identical {@link
-     * #cachedWins} precedence) against {@code forceEvaluatedAt} — see {@link #isCurrentlyForced}.
-     * {@link #getScoresForEnrichment} and {@link #getScoresForEnrichmentBulk} both resolve every
-     * slot through this one method, so routing the decision through it rather than repeating it at
-     * each call site is what makes "both reads agree on when a rating counts as forced" a
-     * structural fact rather than a convention two call sites could drift apart on. {@link
-     * #stampForced} is a no-op on a {@code null} result and on one whose {@code rating()} is
-     * {@code null} — which a retraction marker's always is — so a retraction can never be handed
-     * {@code forced = true} regardless of the comparison; the retracted branch below passes
-     * {@code false} directly rather than computing an instant comparison it has no winner to make.
+     * <p>⚠️ <b>{@code forced} is no longer decided here — it rides the winning result itself.</b>
+     * A Codex review of #943 (P1-B) had this method compare the WINNING source's own evaluation
+     * instant against a {@code FORCE_EVALUATED} disposition's {@code created_at}, on the theory
+     * that a rating no earlier than the disposition must have come from it. A later review found
+     * that inference provably wrong: {@code ScheduledBatchEvaluationService.persistCycleDispositions}
+     * anchors EVERY disposition in a cycle to the cycle's FIRST submitted bucket's job run — not the
+     * specific bucket that actually force-evaluated the slot, which is typically a different job run
+     * — and dispositions are written at submission, before any Claude result lands. So an entirely
+     * unrelated, ordinary rating (a hand-started synchronous admin run was the reported case) that
+     * merely landed after the disposition's timestamp satisfied the same comparison and was wrongly
+     * exempted. {@link BriefingEvaluationResult#forced} is now provenance recorded ONCE, by {@code
+     * ForecastResultHandler#buildResult}, from the task that actually produced the rating (decoded
+     * from the Anthropic batch custom id, or read directly off the sync-path task) — never re-derived
+     * from timestamps here. A cached result therefore already carries the right answer when it wins,
+     * and a forecast-row-derived result is always {@code forced = false} ({@code
+     * ForecastEvaluationEntity} carries no such marker, and {@link #toEnrichmentResult} never sets
+     * one) — unknown-is-safe, the same direction the timestamp inference tried and failed to keep.
      *
      * @param locationName          the location this result is about
      * @param cachedResult          the cached entry for it, or null when the cache does not cover it
      * @param cachedEvaluatedAt     when the cache entry was written, or null when unknown
      * @param forecastRow           that location's latest forecast row for the slot, or null
      * @param latestStabilitySkipAt the slot's most recent stability skip instant, or null
-     * @param forceEvaluatedAt      the {@code created_at} of this slot's latest disposition, present
-     *                              ONLY when that disposition is {@code FORCE_EVALUATED}, or null
-     *                              otherwise — see {@link #loadForceEvaluatedAt}
      * @return the winning result, {@link BriefingEvaluationResult#retracted} when
      *         {@link #isSlotRetracted} says so, or {@code null} when there was genuinely nothing to
      *         resolve and no skip is recorded
      */
     private static BriefingEvaluationResult resolveForEnrichmentRetractionAware(
             String locationName, BriefingEvaluationResult cachedResult, Instant cachedEvaluatedAt,
-            ForecastEvaluationEntity forecastRow, Instant latestStabilitySkipAt,
-            Instant forceEvaluatedAt) {
+            ForecastEvaluationEntity forecastRow, Instant latestStabilitySkipAt) {
         if (isSlotRetracted(cachedResult, cachedEvaluatedAt, forecastRow, latestStabilitySkipAt)) {
-            // No winning source survives a retraction, so there is nothing to compare
-            // forceEvaluatedAt against — false is passed directly rather than computing an instant
-            // comparison this branch has no answer for. stampForced's own null-rating guard would
-            // reach the same outcome regardless, since a retraction marker's rating() is always
-            // null, but this keeps the branch honest about there being no winner here.
-            return stampForced(BriefingEvaluationResult.retracted(locationName), false);
+            // No winning source survives a retraction — the marker's rating() is always null, so
+            // it can never be forced regardless (BriefingEvaluationResult.retracted already
+            // constructs it with forced = false).
+            return BriefingEvaluationResult.retracted(locationName);
         }
         // Not retracted: either there is no skip at all, or at least one source is live. Either
         // way the two sources are nulled independently by their OWN staleness against the skip
@@ -1242,43 +1123,7 @@ public class EvaluationViewService {
                 retractStaleEvidence(cachedResult, cachedEvaluatedAt, latestStabilitySkipAt);
         ForecastEvaluationEntity retainedRow =
                 retractStaleForecastRow(forecastRow, latestStabilitySkipAt);
-        BriefingEvaluationResult resolved = resolveForEnrichment(
-                locationName, retainedCache, cachedEvaluatedAt, retainedRow);
-        boolean forced = forceEvaluatedAt != null && isCurrentlyForced(
-                retainedCache, cachedEvaluatedAt, retainedRow, forceEvaluatedAt);
-        return stampForced(resolved, forced);
-    }
-
-    /**
-     * Whether the WINNING source for this slot — cache or forecast row, decided by the identical
-     * {@link #cachedWins} precedence {@link #resolveForEnrichment} itself uses — was evaluated at
-     * or after {@code forceEvaluatedAt}: the fix for a rating from BEFORE a force evaluation was
-     * even requested being stamped forced merely because that disposition exists (a Codex review
-     * of #943, P1-B). Dispositions are persisted at SUBMISSION, not on result, so {@code
-     * FORCE_EVALUATED} alone answers "a forced run was requested", never "this rating came from
-     * it" — and a {@code PENDING} or {@code ABANDONED} {@code forecast_evaluation} row (persisted
-     * before submission too, with no rating) can never become the winning source in the first
-     * place: {@link #hasSomethingToSay} is false for it, so {@link #cachedWins}'s second clause
-     * always prefers whatever the cache still says, exactly as it already does for any other
-     * empty row.
-     *
-     * @param cachedResult     the (possibly stability-retracted) cached entry, or null
-     * @param cachedEvaluatedAt when the cache entry was written, or null
-     * @param forecastRow      the (possibly stability-retracted) forecast row, or null
-     * @param forceEvaluatedAt the slot's latest {@code FORCE_EVALUATED} disposition's own instant;
-     *                         never null when this method is called
-     * @return true only when a winning evaluation instant is known AND it is not before {@code
-     *         forceEvaluatedAt} — a null winning instant (no evidence, or a legacy row with no
-     *         recorded write time) never counts as forced, the same unknown-is-safe direction
-     *         {@link #loadForceEvaluatedAt} itself already applies to a missing/failed lookup
-     */
-    private static boolean isCurrentlyForced(BriefingEvaluationResult cachedResult,
-            Instant cachedEvaluatedAt, ForecastEvaluationEntity forecastRow,
-            Instant forceEvaluatedAt) {
-        Instant winningInstant = cachedWins(cachedResult, cachedEvaluatedAt, forecastRow)
-                ? cacheWriteTime(cachedResult, cachedEvaluatedAt)
-                : forecastRunInstant(forecastRow);
-        return winningInstant != null && !winningInstant.isBefore(forceEvaluatedAt);
+        return resolveForEnrichment(locationName, retainedCache, cachedEvaluatedAt, retainedRow);
     }
 
     /**

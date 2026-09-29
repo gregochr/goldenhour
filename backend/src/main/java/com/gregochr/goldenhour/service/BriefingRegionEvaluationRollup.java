@@ -199,15 +199,17 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                     // nobody's verdict could use. A region with at least one CURRENTLY forced-rated
                     // voting slot is therefore exempt from the sample test outright: its verdict,
                     // pick eligibility, ranking and confidence follow the rated average exactly as
-                    // they did before this gate existed. "Currently" is answered per slot by
-                    // EvaluationViewService.loadForcedFlags (the most recent of that slot's
-                    // EVALUATED/FORCE_EVALUATED dispositions) — a later ordinary evaluation ends the
-                    // exemption for that slot, and the parent stability-skip retraction clears a
-                    // forced rating outright the next time a nightly cycle declines to re-look at
-                    // it, so the exemption lasts at most until the next nightly run. A slot the
-                    // resolver has nothing new to say for (cached.get returns null — the slot kept
-                    // its previously persisted rating unchanged) is never counted as forced: unknown
-                    // must never grant the exemption.
+                    // they did before this gate existed. "Currently" is read straight off each
+                    // slot's own resolved BriefingEvaluationResult#forced — provenance stamped ONCE
+                    // by ForecastResultHandler#buildResult from the task that actually produced the
+                    // rating, never re-derived here from a disposition timestamp (that inference was
+                    // tried and found provably wrong — see BriefingEvaluationResult#forced's own
+                    // javadoc). Any later write for the slot (an ordinary evaluation, a stability
+                    // skip's retraction, a sync/force-submit run) replaces the stored result and
+                    // clears the flag automatically, so the exemption lasts at most until the next
+                    // write. A slot the resolver has nothing new to say for (cached.get returns null
+                    // — the slot kept its previously persisted rating unchanged) is never counted as
+                    // forced: unknown must never grant the exemption.
                     boolean forcedSample = votingSlotList.stream()
                             .filter(s -> s.claudeRating() != null)
                             .anyMatch(s -> {
