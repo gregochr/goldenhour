@@ -542,6 +542,18 @@ Two consequences worth stating plainly:
   `ServedBriefingAssembler.reEnrichVerdicts` already used on the serve path. Per-request paths
   (`GET /api/briefing`, `GET /api/briefing/evaluate/scores`, `GET /api/forecast`) were not touched by
   either fix and still issue their existing one stability-skip query each.
+- ⚠️ **The query counts just above predate the verdict-minimum-sample merge and are one query
+  light of today's truth.** `getScoresForEnrichmentBulk`/`getScoresForEnrichment` also bulk-load
+  `loadForcedFlags` (`VerdictSampleGate`'s force-evaluation exemption fact) alongside
+  `loadStabilitySkips`, so every call this paragraph counts as three (or two) queries costs one
+  more today — the historical "three queries"/"216 queries"/"2 queries each" figures describe the
+  bug and its fix as measured before that merge and are left as measured rather than restated.
+  Measured now: one `GET /api/briefing` serve issues exactly **4** queries for
+  scores+stability+forced together (`findAllEnabled`, `loadStabilitySkips`, `loadForcedFlags`,
+  `findLatestRunPerSlotByLocationIds`) via the single `reEnrichVerdicts` call; one briefing BUILD
+  issues **8** — the same 4 from `BriefingService.bulkScoreResolver`'s own call plus another 4 from
+  `BriefingRollupBuilder.loadLiveScores`'s independent call for the best-bet advisor's rollup, two
+  separate bulk-load sites each loading `loadForcedFlags` exactly ONCE, never once per region.
 
 ---
 

@@ -462,12 +462,23 @@ class BriefingRegionEvaluationRollupTest {
             }
             slots.add(untouched("Untouched"));
 
-            // The build path hands the rollup a per-region resolver
-            // (EvaluationViewService::getScoresForEnrichment); the serve path hands it one backed
-            // by a bulk load (EvaluationViewService::getScoresForEnrichmentBulk /
-            // ServedBriefingAssembler). BriefingRegionEvaluationRollup.enrich cannot tell which
-            // shape produced the map it is handed — both are exercised here as the identical
-            // no-op resolver lambda, and the two calls must produce identical regions.
+            // What this actually proves, and what it does not. Since c7f31e5d both the build path
+            // (BriefingService#bulkScoreResolver) and the serve path (ServedBriefingAssembler
+            // #reEnrichVerdicts) call the SAME EvaluationViewService#getScoresForEnrichmentBulk,
+            // which loads forcedFlags via the one loadForcedFlags/stampForced pair — so real
+            // build/serve agreement on sampleSufficient/forcedSample is now a property of
+            // EvaluationViewService (pinned directly by EvaluationViewServiceTest's
+            // ForcedEvaluationFlag tests), not something this test can independently demonstrate by
+            // wiring two resolver lambdas. What THIS test pins is a different, still load-bearing
+            // property one level up: BriefingRegionEvaluationRollup.enrich/enrichSlot must not care
+            // where its RegionScoreResolver's map came from — a per-region resolver and a
+            // bulk-backed one are handed to it as the identical functional-interface shape, and it
+            // must produce identical regions for identical resolver output regardless of the
+            // resolver's own backing store. Two structurally-identical no-op lambdas are sufficient
+            // for that: the rollup receives no signal at all that would let it tell them apart, so
+            // proving it treats them alike is a legitimate (if narrow) determinism check, not a
+            // tautology — a rollup that closed over resolver identity, call count or a static field
+            // would fail this test while a real build-vs-serve fixture might still pass by chance.
             RegionScoreResolver buildPathResolver = noOpResolver();
             RegionScoreResolver servePathResolver = noOpResolver();
 
