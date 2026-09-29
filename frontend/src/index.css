@@ -2038,45 +2038,78 @@ button.wf-hc.on:hover {
    gap 6px total — visibly wider than the 2px between the five bands, which is what marks it as a
    different KIND of bar rather than a sixth band.
 
-   The hatch is a 45° repeating-linear-gradient in the SAME bone ink the map's unscored plate uses
-   (`HATCH_INK` in `heatField.js`, rgba(242,231,211,·)) and at the SAME angle — it must read as the
-   same convention at a different strength, not a different mark. It cannot be the map's own 0.18
-   alpha: that measures only 1.60:1 against this well (`--color-heat-sea`, #13100e) — not even the
-   3:1 SC 1.4.11 asks for a graphical object, and lower still than the 1.67:1 it measures against
-   the map's OWN land-plate ground (#241d18), which is a lighter surface than this one. 0.45 was
-   chosen instead: measured (sRGB relative-luminance formula, the stripe's own composited pixel
-   colour against the flat well) at 3.91:1, comfortably clearing 3:1 with margin against the
-   anti-aliasing a 45° edge picks up at this size. The 1px line / 2px gap period is tuned for
-   legibility at the bar's actual 5×13px footprint — a period this small still reads as hatching
-   rather than a solid block at that size, unlike the map's own `HATCH_GAP` (7 CSS px, tuned for a
-   whole thumbnail's land plate, not a 5px-wide bar). */
-.wf-hc-hist-unrated {
+   ⚠️ THE SELECTOR IS `.wf-hc-hist .wf-hc-hist-unrated`, not the bare class, and this is load-bearing,
+   not decoration. `.wf-hc-hist i` (below) is a class-plus-type selector, specificity (0,1,1); the
+   bare class `.wf-hc-hist-unrated` is (0,1,0) — LOWER — so `width: 7px` here would lose to that
+   rule's `width: 5px` regardless of source order, and did in the first cut of this fix (caught by
+   loading the page and reading `getComputedStyle`, not by re-reading the CSS). The two-class
+   descendant form is (0,2,0), which clears it. `margin-right` and `background` are not actually
+   contested by `.wf-hc-hist i` (which sets neither), but the selector is written this way
+   throughout for one rule rather than mixing specificities across one element's properties.
+
+   ⚠️ THE ANGLE MUST MATCH THE CANVAS, and 45deg does not — verified 2026-09-29 with a side-by-side
+   canvas/CSS comparison (`moveTo(x, h)` → `lineTo(x + h, 0)`, `heatField.js`'s own hatchPlate loop):
+   canvas coordinates put y=0 at the TOP, so that call draws bottom-left to top-right ("/"), while
+   CSS `repeating-linear-gradient(45deg, …)` draws top-left to bottom-right ("\") — the mirror image.
+   `-45deg` is the form that matches "/": confirmed by rendering both directly rather than reasoned
+   from the angle convention alone, because the mismatch was exactly this kind of "the angle number
+   looked right" error.
+
+   Ink and alpha: the SAME bone the map's unscored plate uses (`HATCH_INK` in `heatField.js`,
+   rgba(242,231,211,·)), at a stronger alpha — it must read as the same convention at a different
+   strength, not a different mark. It cannot be the map's own 0.18: that measures only 1.60:1
+   against this well (`--color-heat-sea`, #13100e), not even the 3:1 SC 1.4.11 asks for a graphical
+   object, and lower still than the 1.67:1 it measures against the map's own land-plate ground
+   (#241d18). 0.45 measures 3.91:1 (sRGB relative-luminance formula) for a FULLY-COVERED pixel — the
+   centre of a stripe wide enough that anti-aliasing at its edges does not matter. That is not the
+   whole legibility question at this bar's minimum size: see `SPREAD_UNRATED_BAR_MIN_PX` in
+   `windowFirstSpread.js` (4px, taller than a rated band's 2px floor) and the 2px line / 2px gap
+   period below, both raised together after the 1px/3px form measured indistinguishable from the
+   1px empty-band hairline at a 2px bar height. ⚠️ Proven in the browser only at DPR 2 (this
+   project's dev host's own ratio — the available tooling could not force DPR 1); the 4px floor and
+   2px stripe are a defensive margin for a lower ratio's coarser rasterisation, reasoned rather than
+   screenshotted at DPR 1. See the plan-matrix-plan.md A27 update for what was actually seen. */
+.wf-hc-hist .wf-hc-hist-unrated {
+  width: 7px;
   margin-right: 4px;
   background: repeating-linear-gradient(
-    45deg,
+    -45deg,
     rgba(242, 231, 211, 0.45) 0,
-    rgba(242, 231, 211, 0.45) 1px,
-    transparent 1px,
-    transparent 3px
+    rgba(242, 231, 211, 0.45) 2px,
+    transparent 2px,
+    transparent 4px
   );
 }
 /* The insufficient-sample state (minimum-sample rule Part 1, 2026-09-29) — no well, no bars, a
    short disclosure instead ("none rated yet" / "N of M rated"), in the SAME voice as the Best row's
    own "nothing in reach" / "not scored yet" (`.wf-hc-best.none`, four rules down): same family,
-   same size, same muted ink, same permission to wrap onto a second line (`text-wrap: pretty`) —
-   proven to fit this exact value column at this exact width, since "not scored yet" already ships
-   there today. Deliberately NOT `.wf-hc-best` itself — a shared class would let an unrelated future
-   edit to the Best row silently retint or reweight this one, which is a different row answering a
-   different question. */
+   same size, same muted ink. Deliberately NOT `.wf-hc-best` itself — a shared class would let an
+   unrelated future edit to the Best row silently retint or reweight this one, which is a different
+   row answering a different question.
+
+   ⚠️ `white-space: nowrap`, never a wrap. The row reserves `min-height: 20px`
+   (`.wf-hc-pls > span`) for ONE line — unlike `.wf-hc-best`'s own `text-wrap: pretty`, which lives
+   in a slot (`.wf-hc-pv2`) built to absorb a second line. A wrapped Spread row grows past its
+   neighbours' and pushes every row below it out of alignment across the card grid.
+
+   ⚠️ `font-size: 10px`, one size down from the card's other value text, and NEITHER escalation the
+   review offered was enough alone — both are applied together. Measured in the real card grid (not
+   estimated) at 320/375/640px (plan-matrix-plan.md A27 has the full table): at 320px the value
+   column is ~88px; "none rated yet" at 11px is 92.4px (over) and at 10px is 84px (fits); the worst
+   realistic partial sample, "124 of 253 rated", is 105.6px at 11px and STILL 96px at 10px (over
+   either way) — only the compact `N/M rated` form the code now returns (`windowFirstSpread.js`'s
+   `spreadRowState`) fits, at 78px (10px) with margin. 10px alone does not save the long form, and
+   the compact form alone does not save "none rated yet" (not an N/M string), so this class needed
+   both a smaller size and `spreadRowState`'s own wording change together, not one or the other. */
 .wf-hc-hist-note {
   display: block;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 400;
   line-height: 1.3;
   text-align: right;
-  text-wrap: pretty;
+  white-space: nowrap;
   color: var(--color-plex-text-secondary);
   cursor: help;
 }

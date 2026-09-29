@@ -19,11 +19,11 @@ import { RAMP_MAX, RAMP_MIN } from './scoreRamp.js';
  *
  * <p><b>The leading N is the POOL's size, not the sum of the bars.</b> An unrated spot is a real
  * place within reach that nothing has looked at, so it counts toward "how many places could I go"
- * and toward none of the bands. That makes {@code N > Σbars} the ordinary state on a far-horizon
- * window (T+4 is never evaluated at all), and the remainder is therefore named — "· 2 not yet
- * rated" — rather than left for the reader to notice the arithmetic does not close. {@link
- * unratedPhrase} is exported because A10's disclosure has to reach the card's accessible sentence
- * too, not the pointer-only tooltip alone.
+ * and toward none of the bands. That makes {@code N > Σbars} the ordinary state whenever bars are
+ * drawn at all, and the remainder is therefore named — "· 2 not yet rated" — rather than left for
+ * the reader to notice the arithmetic does not close. {@link unratedPhrase} is exported because
+ * A10's disclosure has to reach the card's accessible sentence too, not the pointer-only tooltip
+ * alone.
  *
  * <h2>What the word "within reach" may claim</h2>
  *
@@ -50,10 +50,16 @@ import { RAMP_MAX, RAMP_MIN } from './scoreRamp.js';
  * broad distribution); its far windows held 12, 4 and 6 — every one of them a force-evaluated
  * headline candidate, picked because it looked promising, never a random sample of the roster.
  * {@link hasSpreadSample} is the gate: both an absolute floor and a coverage floor, because either
- * alone is gameable — a floor of 5 alone is cleared by 5 headline picks out of 200, and a coverage
- * floor alone is cleared by 3 of a pool of 6. {@link spreadRowState} is the one function that
- * decides what the row shows instead when the gate fails, so the visible text, the tooltip and the
- * card's spoken sentence read it rather than each testing the thresholds on their own.
+ * ALONE is gameable — the absolute floor alone is cleared by 5 headline picks out of 200, and the
+ * coverage floor alone is cleared by 3 of a pool of 6. {@link spreadRowState} is the one function
+ * that decides what the row shows instead when the gate fails, so the visible text, the tooltip and
+ * the card's spoken sentence read it rather than each testing the thresholds on their own.
+ *
+ * <p>An EMPTY pool is not a gate failure — there is no sample to distrust, only nothing to show —
+ * so it keeps the pre-existing treatment: {@link spreadRowState} answers {@code bars: true} for it
+ * exactly as for a sufficient sample, and {@link spreadBars} already draws five hairlines for an
+ * empty spread (every band's count is zero). The empty-pool tooltip sentences in {@link
+ * spreadTitle} are untouched by this rule for the same reason.
  *
  * <h2>The unrated remainder as a sixth, hatched bar</h2>
  *
@@ -65,7 +71,9 @@ import { RAMP_MAX, RAMP_MIN } from './scoreRamp.js';
  * never a ramp colour: the map's own unscored plate already carries that exact convention
  * ("nothing was scored here", never "everything scored badly" — {@code HATCH_INK} in
  * {@code heatField.js}), and drawing the remainder as a 1★ bar would have this histogram
- * contradict the map over the same fact.
+ * contradict the map over the same fact. It carries its own, larger minimum height ({@link
+ * SPREAD_UNRATED_BAR_MIN_PX}) than a rated band's floor — a 1px-thin hatch is not reliably
+ * recognisable as a hatch rather than a hairline at the size a band's own floor would allow.
  */
 
 /** The bands, lowest first — the ramp's own domain, so a re-based ramp cannot silently widen this. */
@@ -77,8 +85,14 @@ export const SPREAD_STARS = Array.from(
 export const SPREAD_BAR_MAX_PX = 13;
 /** A band with at least one location is never thinner than this, so a count of 1 is visible. */
 export const SPREAD_BAR_MIN_PX = 2;
-/** A band with nothing in it draws a hairline rather than disappearing — the row must read as five. */
+/** A band with nothing in it draws a hairline rather than disappearing — a bars-mode row is always five bars. */
 export const SPREAD_BAR_EMPTY_PX = 1;
+/**
+ * The unrated remainder's OWN floor, taller than {@link SPREAD_BAR_MIN_PX} — a hatch this thin
+ * is not reliably distinguishable from an empty band's hairline, whereas a solid band of the same
+ * height reads as "small but present" from its colour alone. See {@link unratedBar}.
+ */
+export const SPREAD_UNRATED_BAR_MIN_PX = 4;
 
 /**
  * The absolute floor on the minimum-sample rule — see the class comment. Below this many rated
@@ -86,15 +100,16 @@ export const SPREAD_BAR_EMPTY_PX = 1;
  */
 export const SPREAD_MIN_RATED_COUNT = 5;
 /**
- * The coverage floor on the minimum-sample rule — see the class comment. {@link hasSpreadSample}
- * implements it as `rated * 2 >= total` rather than multiplying by this fraction, so the boundary
- * is an integer comparison the two floors cannot drift apart on; kept as a named constant anyway so
- * the coverage RULE — not just its arithmetic form — has one exported home.
+ * The coverage floor on the minimum-sample rule — see the class comment, and {@link
+ * hasSpreadSample}, which reads this constant directly (`rated >= total * SPREAD_MIN_RATED_COVERAGE`)
+ * rather than a hand-written fraction, so retuning this value actually changes the gate.
  *
  * <p>This is the same "half the roster" line `ConfidenceDeriver` already draws on the backend
  * (fewer than half the roster scored downgrades confidence one band) — not imported from there
  * (this module reaches for nothing server-side), but the identical answer to the identical
- * question — is this sample big enough to trust — asked of the client's own reach-gated pool.
+ * question — is this sample big enough to trust — asked of the client's own reach-gated pool. The
+ * two gates measure different populations (this one the reach-gated pool a single reader sees;
+ * the backend one the whole region's roster) and can disagree on the same card.
  */
 export const SPREAD_MIN_RATED_COVERAGE = 0.5;
 
@@ -131,8 +146,8 @@ export function buildSpread(pool) {
  *
  * <p>Both floors must hold. The absolute one ({@link SPREAD_MIN_RATED_COUNT}) alone would be
  * cleared by five force-evaluated headline picks out of a two-hundred-strong pool; the coverage
- * one ({@link SPREAD_MIN_RATED_COVERAGE}) alone would be cleared by three of a pool of six. Neither
- * is gameable on its own — see the class comment for the production numbers that motivated both.
+ * one ({@link SPREAD_MIN_RATED_COVERAGE}) alone would be cleared by three of a pool of six. Either
+ * ALONE is gameable — see the class comment for the production numbers that motivated both.
  *
  * @param {object} spread the result of {@link buildSpread}
  * @returns {boolean} true when the sample clears both floors
@@ -140,38 +155,41 @@ export function buildSpread(pool) {
 export function hasSpreadSample(spread) {
   const rated = spread?.rated ?? 0;
   const total = spread?.total ?? 0;
-  // `rated * 2 >= total` rather than `rated >= total * SPREAD_MIN_RATED_COVERAGE`: the multiplied
-  // form is an integer comparison the exported fraction cannot drift out of step with.
-  return rated >= SPREAD_MIN_RATED_COUNT && rated * 2 >= total;
+  return rated >= SPREAD_MIN_RATED_COUNT && rated >= total * SPREAD_MIN_RATED_COVERAGE;
 }
 
 /**
- * The one decision behind the Spread row's three faces — the visible row, the tooltip
- * ({@link spreadTitle}) and the card's hidden spoken sentence all read this rather than testing
- * {@link hasSpreadSample} themselves, so a future retune of either threshold cannot move one
- * reader's answer without moving the other two.
+ * The one decision behind the Spread row's bars-vs-text choice — the visible row and (below the
+ * gate) the card's spoken sentence read this rather than testing {@link hasSpreadSample}
+ * themselves, so a future retune of either threshold cannot move one reader's answer without
+ * moving the other.
  *
- * <p>Three outcomes. An EMPTY pool answers with the card's own established
- * `nothing in reach`/`nothing to show` pair — the SAME wording {@code bestReachLine} already prints
- * for the identical condition on the identical card, gated on the same {@code withinReach} flag —
- * rather than "none rated yet": nowhere to go and somewhere-to-go-that-nobody-rated are different
- * facts, and conflating them is exactly the over-claim plan §6 clause 7 already found and fixed one
- * row down on this card. A pool that holds places but rated none of them answers "none rated yet"
- * with no count attached — the count would be the pool size restated for no reason, since "none"
- * already says the fraction is zero. Otherwise, an insufficient sample names both figures.
+ * <p>An EMPTY pool answers {@code bars: true} — there is no sample to distrust, only nothing to
+ * show, and the pre-existing treatment (five hairlines, the old two tooltip sentences in {@link
+ * spreadTitle}) is kept unchanged; see the class comment. A pool that holds places but rated none
+ * of them answers "none rated yet" with no count attached — the count would be the pool size
+ * restated for no reason, since "none" already says the fraction is zero. Otherwise, an
+ * insufficient sample names both figures as {@code N/M rated} — the COMPACT form, not "N of M
+ * rated": measured against the real card grid at 320/375/640px (plan-matrix-plan.md A27), the full
+ * "of" form overflows the value column for a realistic large pool ("124 of 253 rated", 105.6px
+ * against an 88.3px column at 320px) even at a reduced 10px type (96px), where the compact form
+ * fits at the row's own 10px ({@code .wf-hc-hist-note}, 78px) with margin to spare.
+ *
+ * <p>⚠️ The TOOLTIP is a separate function ({@link spreadTitle}) and deliberately says MORE than
+ * this text below the gate — it restores the pool size and, for a partial sample, the remainder
+ * via {@link unratedPhrase} — so do not assume the two must match verbatim outside the bars-mode
+ * case.
  *
  * @param {object} spread the result of {@link buildSpread}
- * @param {boolean} withinReach whether the phrase may claim reach — {@link poolWithinReach}, read
- *        only for the empty-pool wording
- * @returns {{bars: boolean, text: ?string}} whether to draw bars, and when not, the exact text
- *          every surface must show verbatim — never re-spelled a second time
+ * @returns {{bars: boolean, text: ?string}} whether to draw bars, and when not, the exact text the
+ *          visible row and (via the caller's own suppression rules) the spoken sentence show
  */
-export function spreadRowState(spread, withinReach) {
+export function spreadRowState(spread) {
   const rated = spread?.rated ?? 0;
   const total = spread?.total ?? 0;
-  if (total === 0) return { bars: false, text: withinReach ? 'nothing in reach' : 'nothing to show' };
+  if (total === 0) return { bars: true, text: null };
   if (hasSpreadSample(spread)) return { bars: true, text: null };
-  return { bars: false, text: rated === 0 ? 'none rated yet' : `${rated} of ${total} rated` };
+  return { bars: false, text: rated === 0 ? 'none rated yet' : `${rated}/${total} rated` };
 }
 
 /**
@@ -218,6 +236,10 @@ export function spreadBars(spread) {
  * fully-rated window's histogram at five bars rather than a sixth one pinned to the floor for a
  * true zero.
  *
+ * <p>This is a function of {@code spread} ALONE — it does not know about {@link spreadRowState}'s
+ * gate, and can answer non-null even when the pool is below it (a partial sample with a real
+ * remainder). The RENDER is what must AND this with {@code state.bars}, never this function.
+ *
  * @param {object} spread the result of {@link buildSpread}
  * @returns {?{count: number, heightPx: number}} the bar, or null when {@code unrated === 0}
  */
@@ -227,7 +249,7 @@ export function unratedBar(spread) {
   const max = spreadScaleMax(spread);
   return {
     count: unrated,
-    heightPx: Math.max(SPREAD_BAR_MIN_PX, Math.round((unrated / max) * SPREAD_BAR_MAX_PX)),
+    heightPx: Math.max(SPREAD_UNRATED_BAR_MIN_PX, Math.round((unrated / max) * SPREAD_BAR_MAX_PX)),
   };
 }
 
@@ -283,12 +305,12 @@ export function unratedPhrase(spread, separator = ' · ') {
  * our own data presented as facts about the sky, and "locations within reach" is the statement the
  * lens readout already makes.
  *
- * <p>⚠️ <b>Below the minimum-sample gate ({@link hasSpreadSample}), this returns {@link
- * spreadRowState}'s own text VERBATIM</b> — the same string the visible row and the card's spoken
- * sentence show — rather than composing a longer sentence around it. A tooltip that repeated the
- * pool size ("31 locations within reach — 1 of 31 rated") would say the same figure twice for no
- * reason once the short form already carries it, and any divergence between the two spellings is
- * exactly the "one card, two claims" defect this module's header warns about.
+ * <p>⚠️ <b>Below the minimum-sample gate ({@link hasSpreadSample}), this tooltip says MORE than the
+ * visible row</b> — the row's own text ({@link spreadRowState}) is deliberately short for the
+ * value column's width, but the tooltip has room, so it restores the pool size for both sub-states
+ * and, for a partial sample, the rated count and the remainder (through {@link unratedPhrase}) in
+ * the same "lead — detail" shape bars mode uses. The "none rated" sentence is the ORIGINAL, unchanged
+ * form this function has always returned.
  *
  * @param {object} spread      the result of {@link buildSpread}
  * @param {boolean} withinReach whether the pool's drives are all measured — {@link poolWithinReach}
@@ -306,12 +328,17 @@ export function spreadTitle(spread, withinReach) {
   if (total === 0) {
     return withinReach ? 'Nothing within reach for this one.' : 'Nothing to show for this one.';
   }
-  const state = spreadRowState(spread, withinReach);
-  // Below the gate — nothing rated, or not enough of the pool — the tooltip says exactly what the
-  // row and the spoken sentence say, no more. See the doc comment above for why a longer sentence
-  // here would be the wrong fix rather than a harmless amplification.
-  if (!state.bars) return state.text;
+  const rated = spread?.rated ?? 0;
   const lead = poolPhrase(total, withinReach);
+  // Nothing rated at all is the ORDINARY state on a far-horizon window — T+4 is never evaluated —
+  // so it gets a sentence of its own rather than five zeroes and a remainder clause restating the
+  // whole pool. "RATED", never "scored": plan A10 and M1 task 2 both ban the second word from this
+  // copy in terms, and it is the word the remainder clause below already uses. Unchanged since
+  // before the minimum-sample rule — this sentence never depended on bars being drawn.
+  if (rated === 0) return `${lead} — none rated yet.`;
+  // Below the gate but not zero — a partial sample. Same "lead — detail · remainder" shape as bars
+  // mode, with the detail standing in for a per-band breakdown this sample is too small to trust.
+  if (!hasSpreadSample(spread)) return `${lead} — ${rated} rated${unratedPhrase(spread)}`;
   const bands = SPREAD_STARS
     .map((star, index) => `${spread.counts[index]} at ${star}★`)
     .reverse()

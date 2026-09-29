@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SPREAD_BAR_EMPTY_PX, SPREAD_BAR_MAX_PX, SPREAD_BAR_MIN_PX, SPREAD_MIN_RATED_COUNT, SPREAD_STARS,
+  SPREAD_UNRATED_BAR_MIN_PX,
   buildSpread, hasSpreadSample, poolPhrase, poolWithinReach, spreadBars, spreadRowState,
   spreadTitle, unratedBar, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
@@ -178,32 +179,34 @@ describe('spreadTitle — what the tooltip may claim (bars mode, above the minim
   });
 });
 
-describe('spreadTitle — below the minimum-sample gate, and the two empty-pool sentences', () => {
-  it('says none RATED yet rather than five zeroes and a remainder restating the pool', () => {
+describe('spreadTitle — below the minimum-sample gate: the tooltip says MORE than the row', () => {
+  it('keeps the ORIGINAL "none rated yet" sentence, lead and period included — unchanged by this rule', () => {
     // "rated", never "scored" — A10 and M1 task 2 both ban the second word from this copy in terms.
-    // ⚠️ Bare — no pool-size lead, no period: this is `spreadRowState`'s own text, VERBATIM, the
-    // same string the visible row and the card's spoken sentence show (`spreadTitle`'s own doc
-    // comment on why a longer sentence here would be the wrong fix).
+    // ⚠️ This is the sentence `spreadTitle` returned before the minimum-sample rule existed, and it
+    // stays that shape: the tooltip has room the row does not, so it keeps the pool-size lead and
+    // the period the row's own bare "none rated yet" (`spreadRowState`'s text) does not carry.
     const spread = buildSpread([spot(null), spot(null), spot(null)]);
-    expect(spreadTitle(spread, true)).toBe('none rated yet');
+    expect(spreadTitle(spread, true)).toBe('3 locations within reach — none rated yet.');
   });
 
   it('never says "scored" of an unrated far-horizon pool either', () => {
     expect(spreadTitle(buildSpread([spot(null)]), true)).not.toContain('scored');
   });
 
-  it('names both figures once the sample is short of the gate but not zero', () => {
-    // 2 of 4 — clears neither floor (rated < 5), so the row falls to the short form rather than
-    // the per-band breakdown a real distribution would draw.
+  it('names the pool, the rated count and the remainder for a partial sample — more than the row\'s bare "N/M rated"', () => {
+    // 2 of 4 — clears neither floor (rated < 5) — so this is NOT the per-band breakdown a real
+    // distribution would draw, but it is MORE than the row's own compact text: the pool size leads,
+    // "rated" states the count, and `unratedPhrase` names the remainder, the same "lead — detail ·
+    // remainder" shape bars mode uses.
     const spread = buildSpread([spot(5), spot(3), spot(null), spot(null)]);
-    expect(spreadTitle(spread, true)).toBe('2 of 4 rated');
+    expect(spreadTitle(spread, true)).toBe('4 locations within reach — 2 rated · 2 not yet rated');
   });
 
-  it('singularises a pool of one — below the gate, so bare "N of M rated" rather than a breakdown', () => {
-    // A total of 1 can never reach the gate's absolute floor of 5, so this pool's tooltip is now the
-    // short form. `poolPhrase`'s own singular/plural rule is pinned directly below, not through
-    // this path — see the 'poolPhrase and unratedPhrase' block.
-    expect(spreadTitle(buildSpread([spot(3)]), true)).toBe('1 of 1 rated');
+  it('singularises the lead for a pool of one, below the gate', () => {
+    // A total of 1 can never reach the gate's absolute floor of 5. `poolPhrase`'s own
+    // singular/plural rule is pinned directly below too, not only through this path — see the
+    // 'poolPhrase and unratedPhrase' block.
+    expect(spreadTitle(buildSpread([spot(3)]), true)).toBe('1 location within reach — 1 rated');
   });
 
   it('says nothing is within reach when the pool is empty', () => {
@@ -217,53 +220,75 @@ describe('spreadTitle — below the minimum-sample gate, and the two empty-pool 
     // gated by distance at all (an unknown drive passes every tier, plan §2.5), so an empty pool
     // means this window has no sky-gated slots and "within reach" blames a control that did nothing.
     // §6 clause 7. The caller now answers from the card's own `reachMeasured`, which is the same
-    // field `bestReachLine` reads for its own empty word.
+    // field `bestReachLine` reads for its own empty word. An empty pool is not a minimum-sample gate
+    // failure (see `spreadRowState`), so this pair of sentences is untouched by that rule.
     expect(spreadTitle(buildSpread([]), false)).toBe('Nothing to show for this one.');
   });
 });
 
 describe('hasSpreadSample / spreadRowState — the minimum-sample gate (2026-09-29)', () => {
   it('requires the absolute floor: 4 rated fails even with the whole pool rated', () => {
-    // 4 of 4 clears the coverage floor (4·2 ≥ 4) but not the absolute one.
+    // 4 of 4 clears the coverage floor (4 ≥ 4·0.5) but not the absolute one.
     const spread = buildSpread(ratedPool([5, 5, 5, 5]));
     expect(spread.rated).toBe(SPREAD_MIN_RATED_COUNT - 1);
     expect(hasSpreadSample(spread)).toBe(false);
-    expect(spreadRowState(spread, true)).toEqual({ bars: false, text: '4 of 4 rated' });
+    // Compact "N/M rated", never "N of M rated" — measured too wide for the value column at a
+    // realistic pool size (plan-matrix-plan.md A27); see `WindowFirstHeatStrip.test.jsx` for the
+    // rendered-column measurement this format was chosen against.
+    expect(spreadRowState(spread)).toEqual({ bars: false, text: '4/4 rated' });
   });
 
   it('passes at exactly the absolute floor, with coverage to spare', () => {
     const spread = buildSpread(ratedPool([5, 5, 5, 5, 5]));
     expect(spread.rated).toBe(SPREAD_MIN_RATED_COUNT);
     expect(hasSpreadSample(spread)).toBe(true);
-    expect(spreadRowState(spread, true)).toEqual({ bars: true, text: null });
+    expect(spreadRowState(spread)).toEqual({ bars: true, text: null });
   });
 
   it('requires the coverage floor: 5 of 11 fails just short of half', () => {
     const spread = buildSpread(ratedPool([5, 5, 5, 5, 5], 6));
     expect(spread.total).toBe(11);
     expect(hasSpreadSample(spread)).toBe(false);
-    expect(spreadRowState(spread, true)).toEqual({ bars: false, text: '5 of 11 rated' });
+    expect(spreadRowState(spread)).toEqual({ bars: false, text: '5/11 rated' });
   });
 
   it('passes at EXACTLY half the pool — the boundary is inclusive', () => {
     const spread = buildSpread(ratedPool([5, 5, 5, 5, 5], 5));
     expect(spread.total).toBe(10);
     expect(hasSpreadSample(spread)).toBe(true);
-    expect(spreadRowState(spread, true)).toEqual({ bars: true, text: null });
+    expect(spreadRowState(spread)).toEqual({ bars: true, text: null });
   });
 
   it('answers "none rated yet" for zero rated out of a real, non-empty pool', () => {
     const spread = buildSpread([spot(null), spot(null)]);
-    expect(spreadRowState(spread, true)).toEqual({ bars: false, text: 'none rated yet' });
+    expect(spreadRowState(spread)).toEqual({ bars: false, text: 'none rated yet' });
   });
 
-  it('answers the established empty-pool words for a truly empty pool, keyed on withinReach', () => {
-    // Deliberately NOT "none rated yet" — nowhere to go and somewhere-to-go-that-nobody-rated are
-    // different facts (the class comment on `spreadRowState`), and the wording matches
-    // `bestReachLine`'s own pair for the identical condition on the identical card.
+  it('end-to-end: an unusable rating (4.5) does not count toward the gate, and can push a card below it', () => {
+    // `buildSpread` already refuses a non-integer rating on its own (a separate, pinned rule above);
+    // this proves the CONSEQUENCE reaches the gate — five real stars plus one 4.5 is six pool
+    // entries but still only five COUNTABLE ratings, exactly at the absolute floor with room to
+    // spare on coverage, so the gate still passes; adding a second uncountable entry drops rated
+    // back to five out of seven, still passing — but the moment an uncountable rating REPLACES one
+    // of the five countable ones, the count drops to four and the gate fails.
+    const stillPasses = buildSpread([spot(5), spot(5), spot(5), spot(5), spot(5), spot(4.5)]);
+    expect(stillPasses.rated).toBe(5);
+    expect(hasSpreadSample(stillPasses)).toBe(true);
+
+    const fails = buildSpread([spot(5), spot(5), spot(5), spot(5), spot(4.5)]);
+    expect(fails.rated).toBe(4);
+    expect(hasSpreadSample(fails)).toBe(false);
+    expect(spreadRowState(fails)).toEqual({ bars: false, text: '4/5 rated' });
+  });
+
+  it('⚠️ answers bars: true for a truly EMPTY pool — not a gate failure, the pre-existing treatment', () => {
+    // An empty pool is not a sample too small to trust — there is no sample at all, only nothing to
+    // show, and `spreadBars`/`buildSpread` already draw five hairlines for it unchanged. This was
+    // "bars: false, text: 'nothing in reach'/'nothing to show'" in an earlier cut of this rule,
+    // reverted after review: it put NEW text on the row where none existed before and doubled the
+    // "nothing in reach" the Best row already says right below it.
     const spread = buildSpread([]);
-    expect(spreadRowState(spread, true)).toEqual({ bars: false, text: 'nothing in reach' });
-    expect(spreadRowState(spread, false)).toEqual({ bars: false, text: 'nothing to show' });
+    expect(spreadRowState(spread)).toEqual({ bars: true, text: null });
   });
 });
 
@@ -283,7 +308,9 @@ describe('unratedBar — the sixth, hatched bar', () => {
     expect(spread.max).toBe(4);
     const bar = unratedBar(spread);
     expect(bar.count).toBe(2);
-    expect(bar.heightPx).toBe(Math.round((2 / 4) * SPREAD_BAR_MAX_PX));
+    // 7, not the formula `Math.round((2 / 4) * SPREAD_BAR_MAX_PX))` — a literal so this test cannot
+    // reproduce the same wrong answer the implementation would if its own rounding broke.
+    expect(bar.heightPx).toBe(7);
     expect(bar.heightPx).toBeLessThan(SPREAD_BAR_MAX_PX);
   });
 
@@ -300,15 +327,21 @@ describe('unratedBar — the sixth, hatched bar', () => {
     // 5 of 9 on the SHARED scale, not 5 of 5 on the bands' own — this is what proves the two calls
     // share one scale rather than each computing its own.
     expect(bars[2]).toMatchObject({ star: 3, count: 5 });
-    expect(bars[2].heightPx).toBe(Math.round((5 / 9) * SPREAD_BAR_MAX_PX));
+    // 7, not the formula — see the note on the sibling test above.
+    expect(bars[2].heightPx).toBe(7);
     expect(bars[2].heightPx).toBeLessThan(SPREAD_BAR_MAX_PX);
   });
 
-  it('never lets a small unrated remainder round away to nothing, same floor as a band', () => {
+  it('never lets a small unrated remainder round away to nothing, on its OWN taller floor than a band', () => {
+    // ⚠️ NOT `SPREAD_BAR_MIN_PX` (2px) — the unrated bar has its own, taller floor
+    // (`SPREAD_UNRATED_BAR_MIN_PX`, 4px): a hatch this thin is not reliably recognisable as a hatch
+    // rather than a hairline, where a solid band of the same height still reads as "small but
+    // present" from its colour alone.
     const spread = buildSpread(ratedPool(Array.from({ length: 19 }, () => 3), 1));
     const bar = unratedBar(spread);
     expect(bar.count).toBe(1);
-    expect(bar.heightPx).toBe(SPREAD_BAR_MIN_PX);
+    expect(bar.heightPx).toBe(SPREAD_UNRATED_BAR_MIN_PX);
+    expect(SPREAD_UNRATED_BAR_MIN_PX).toBeGreaterThan(SPREAD_BAR_MIN_PX);
   });
 });
 

@@ -604,9 +604,11 @@ export default function WindowFirstHeatStrip({
       // own empty word, so the tooltip and the visible line agree by construction.
       const withinReach = pool.length === 0 ? Boolean(card.reachMeasured) : poolWithinReach(pool);
       // The ONE decision behind bars-vs-text (plan-matrix §4 row, minimum-sample rule) — the visible
-      // row, the tooltip and the spoken sentence all read `state` rather than testing the thresholds
-      // themselves, so they cannot disagree about which of a card's states this is.
-      const state = spreadRowState(spread, withinReach);
+      // row and the spoken sentence's suppression rules both read `state` rather than testing the
+      // thresholds themselves, so they cannot disagree about which of a card's states this is. An
+      // empty pool answers `bars: true` (the pre-existing five-hairline treatment, unchanged by this
+      // rule), so `state` takes no `withinReach` argument — nothing below the gate needs it either.
+      const state = spreadRowState(spread);
       // The card's tide-fit chip, or null below the gate — `card.tideFit.live` alone, never a
       // second read of the gate's own thresholds (tide-plan-card-plan.md §3 C2 task 2). `isBest` is
       // this card's key against the strip-wide `run.bestKey`, so the emphasis and `best of N` can
@@ -626,9 +628,10 @@ export default function WindowFirstHeatStrip({
         spread,
         state,
         bars: spreadBars(spread),
-        // Only meaningful (non-null) when `state.bars` is true — see the render, which never draws
-        // it otherwise. Computed unconditionally here because it is cheap and keeps this the one
-        // site that reads the pool's shape.
+        // ⚠️ `unratedBar` is a function of `spread` ALONE — it does not know about `state.bars`, and
+        // answers non-null whenever the pool has a real remainder, including a pool BELOW the
+        // minimum-sample gate. The render is what ANDs this with `state.bars` before drawing
+        // anything; do not read a non-null value here as "the bar is drawn".
         unratedBar: unratedBar(spread),
         title: spreadTitle(spread, withinReach),
         withinReach,
@@ -664,9 +667,11 @@ export default function WindowFirstHeatStrip({
   /**
    * Whether ANY card on screen is currently drawing the histogram's hatched, unrated bar — the
    * footer's own note for it (below) shows only while that mark is actually on screen, matching the
-   * unscored-map-plate note's own rule one line above it. Read straight off {@code derived} rather
-   * than recomputed from the pool: `unratedBar` already answers "is the bar drawn", and a second
-   * computation here could disagree with the one the row itself renders from.
+   * unscored-map-plate note's own rule one line above it (independently: the two conditions are
+   * never OR'd into one, so a fixture that fires only one of them never brings up the other's note).
+   * `facts.unratedBar` alone does NOT answer "is the bar drawn" — it is non-null for a below-gate
+   * pool with a real remainder too — so this ANDs it with `facts.state.bars`, the same test the row
+   * itself makes, rather than reading `unratedBar` as sufficient on its own.
    */
   const hatchedSpread = useMemo(
     () => Array.from(derived.values()).some((facts) => facts.state.bars && facts.unratedBar),
@@ -1010,21 +1015,20 @@ export default function WindowFirstHeatStrip({
     const place = { '--c': column, '--r': row };
     const poolTotal = facts.spread.total;
     // ⚠️ `poolPhrase`/`unratedPhrase`/`facts.state`, never a second spelling of any of them. The
-    // tooltip and this sentence describe the SAME set on the same card, and A10's disclosure of the
-    // remainder (`N > Σbars` whenever an unrated spot is in reach) has to reach the reader who
-    // cannot see the bars — the `title` carrying it sits on a span inside an `aria-hidden` subtree
-    // and reaches nobody. `poolTotal === 0` stays silent here exactly as before: `bestReachLine`'s
-    // own "nothing in reach"/"nothing to show" clause already states the identical fact a few lines
-    // below, and saying it twice in one sentence is the defect this file's header comment warns
-    // against elsewhere. Below the minimum-sample gate (`!facts.state.bars`, pool non-empty), the
-    // sentence says exactly what the visible row and the tooltip say — `facts.state.text` — rather
-    // than the pool-phrase-plus-remainder form, which would claim a distribution nothing bars-mode
-    // is currently drawing.
+    // pool count and the reach claim are VISIBLE TEXT nowhere else on the card once bars are not
+    // drawn, so SC 2.5.3 (label in name) requires this sentence to keep saying them — a below-gate
+    // clause that dropped straight to "1 of 4 rated" would read as a claim about the verdict rather
+    // than about the pool, and would say less than the card's own tooltip. `poolTotal === 0` stays
+    // silent here exactly as before: `bestReachLine`'s own "nothing in reach"/"nothing to show"
+    // clause already states the identical fact a few lines below, and saying it twice in one
+    // sentence is the defect this file's header comment warns against elsewhere. Below the gate,
+    // when the window is ALSO `notScored`, the pool phrase is said ALONE — "none rated yet" would
+    // restate what "not scored" (added below) already says about the same window.
     const spokenPool = poolTotal === 0
       ? null
       : (facts.state.bars
         ? `${poolPhrase(poolTotal, facts.withinReach)}${unratedPhrase(facts.spread, ', ')}`
-        : facts.state.text);
+        : `${poolPhrase(poolTotal, facts.withinReach)}${notScored ? '' : `, ${facts.state.text}`}`);
     // Built once per card so the hidden sentence and the visible words cannot be assembled from
     // different values. The comma-separated form is what a screen reader pauses on.
     //
@@ -1040,8 +1044,15 @@ export default function WindowFirstHeatStrip({
       // either, so "not scored" and "best, not scored yet" would be one fact said twice in a
       // sentence that has to stay scannable across six cards. NOT suppressed on an empty pool: the
       // face still says "nothing in reach", and "nothing is scored" is a different claim from
-      // "nothing is reachable".
-      .concat(card.away || (notScored && poolTotal > 0) ? [] : [facts.best.spoken])
+      // "nothing is reachable". ⚠️ Also suppressed whenever the POOL's own rated count is zero
+      // (independent of `notScored`, which answers for the whole window rather than this reach-gated
+      // pool): the spoken pool clause above says "none rated yet" for that state, and repeating "best,
+      // not scored yet" right after it is the same fact twice.
+      .concat(
+        card.away || ((notScored || facts.spread.rated === 0) && poolTotal > 0)
+          ? []
+          : [facts.best.spoken],
+      )
       // The tide chip's clause (tide-plan-card-plan.md §3 C2 task 2) — DOM order: the best-reach
       // row's own tide clause lands just above, and this one sits where the chip itself sits, first
       // in the topics line. Absent whenever the chip is (below the gate, or away), never a separate
@@ -1560,9 +1571,13 @@ export default function WindowFirstHeatStrip({
           <span data-testid="wf-heat-unscored-note">unshaded — not scored</span>
         )}
         {/* The histogram's own hatch (the minimum-sample rule's Part 2) gets the SAME treatment as
-            the map plate's note above, for the same reason: a texture is not vocabulary, a card's
-            own rows have no room for it, and it is conditional and rare enough to survive the
-            phone alongside the map's note rather than being pushed into `.wf-hstrip-sp`. Worded
+            the map plate's note above, for the same reason: a texture is not vocabulary and a
+            card's own rows have no room for it. ⚠️ NOT rare in practice — a catalogue with any
+            sparsely-rated windows shows this on most loads, closer to permanent than occasional —
+            it is still conditional (absent whenever every card on screen either clears the gate
+            with nothing unrated or draws no bars at all) and it renders at EVERY width, not just
+            the phone: `.wf-hstrip-sp`'s own desktop-only restriction is what this note is
+            deliberately NOT subject to, for the same reason the map's note above it is not. Worded
             differently from the map's note on purpose — "unshaded" names the map's mark and
             "hatched bar" names the histogram's, so the two conditional clauses can never be
             mistaken for restating each other when both happen to be on screen at once. */}
