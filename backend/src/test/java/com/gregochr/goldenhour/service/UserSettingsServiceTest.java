@@ -364,18 +364,40 @@ class UserSettingsServiceTest {
         }
 
         @Test
-        @DisplayName("an answer with no valid duration is stored too — it clears, and says zero")
-        void emptyAnswer_isStored() {
+        @DisplayName("a present-but-empty answer (ORS answered, no valid duration anywhere) NEVER "
+                + "advances the stamp either — fails against f74240b1, which called "
+                + "storeIfHomeUnchanged with an empty list, clearing rows AND stamping in one call, "
+                + "recreating the exact stamp-without-rows state V157 repairs")
+        void presentButEmptyAnswer_neverAdvancesTheStamp_nullStamp() {
             durhamHome(null);
             when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
                     .thenReturn(Optional.of(List.of()));
-            when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, List.of(), NOW))
-                    .thenReturn(true);
 
             DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
 
+            // The literal assertions that fail against f74240b1: no writer call at all for a
+            // present-but-empty answer, and the response reports the pre-existing stamp (null
+            // here) rather than now.
+            verifyNoInteractions(driveTimeWriter);
             assertThat(response.locationsUpdated()).isZero();
-            assertThat(response.calculatedAt()).isEqualTo(NOW);
+            assertThat(response.calculatedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("a present-but-empty answer for a user with an existing real stamp reports "
+                + "that stamp back unchanged too — fails against f74240b1 the same way")
+        void presentButEmptyAnswer_neverAdvancesTheStamp_existingStamp() {
+            Instant existingStamp = NOW.minusSeconds(3 * 24 * 3600);
+            AppUserEntity user = durhamHome(existingStamp);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.of(List.of()));
+
+            DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+            verifyNoInteractions(driveTimeWriter);
+            assertThat(response.locationsUpdated()).isZero();
+            assertThat(response.calculatedAt()).isEqualTo(existingStamp);
+            assertThat(user.getDriveTimesCalculatedAt()).isEqualTo(existingStamp);
         }
 
         @Test

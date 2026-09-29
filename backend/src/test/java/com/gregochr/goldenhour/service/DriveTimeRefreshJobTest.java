@@ -292,6 +292,30 @@ class DriveTimeRefreshJobTest {
         }
 
         @Test
+        @DisplayName("A null stamp still measures a user who has no user_drive_time rows at all — "
+                + "needsRefresh has no rows-check of its own, and DOES NOT need one: a null stamp "
+                + "already covers both the never-measured and the postcode-just-changed case")
+        void nullStampMeasures_evenWithNoExistingRows() {
+            // No stubbing of user_drive_time anywhere here — this job never queries that table at
+            // all (DriveTimeRefreshJob has no repository for it beyond the writer), which is the
+            // point: the null STAMP is the only signal this predicate reads, and a user with no
+            // rows and no stamp is exactly the "never measured" shape it is designed to catch.
+            AppUserEntity neverMeasuredNoRows = withHome(1L);
+            when(userRepository.findAll()).thenReturn(List.of(neverMeasuredNoRows));
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.parse("2026-09-01T00:00:00"));
+            // ORS gives no answer either — the user stays unroutable, matching needsRefresh's own
+            // documented consequence: no rows are ever stored, so the stamp stays null, and this
+            // same user is due again on the very next scheduled run.
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.empty());
+
+            job.run(false);
+
+            verify(driveDurationService).measureForUser(1L, 54.97, -1.61);
+            verifyNoInteractions(driveTimeWriter);
+        }
+
+        @Test
         @DisplayName("A stamp present with the roster unchanged skips — no ORS call at all")
         void stampPresentRosterUnchangedSkips() {
             AppUserEntity upToDate = withHome(1L);

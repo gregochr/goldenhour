@@ -50,11 +50,15 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
  *
  * <p><strong>{@code driveTimesCalculatedAt} means "drive times were stored for the roster read at
  * this instant" — nothing less.</strong> {@link #refreshDriveTimes} never advances it for an attempt
- * that stored no rows (ORS gave no answer at all): only {@link #pendingDriveTimeAttempts}, an
- * in-memory tracker, throttles a repeated press after a failure. That map resets on an app restart,
- * which is accepted — it is a rate limit on a single-instance app, not a record anything downstream
- * reads, and the worst a restart can do is let one extra attempt through before the persisted stamp
- * (once a refresh actually succeeds) takes back over.
+ * that stored no rows — no answer from ORS at all, or an answer with no valid duration to any
+ * location (a present but empty list; see the {@code refreshDriveTimes} javadoc, which is where
+ * the two are told apart) — in either case only {@link #pendingDriveTimeAttempts}, an in-memory
+ * tracker, throttles a repeated press after a failure. That map resets on an app restart, which is
+ * accepted — it is a rate limit on a single-instance app, not a record anything downstream reads,
+ * and the worst a restart can do is let one extra attempt through before the persisted stamp (once
+ * a refresh actually succeeds) takes back over. Migration V157 reconciles the one database state
+ * this rule cannot itself repair: a stamp an earlier build left behind with zero rows, from before
+ * this rule covered the present-but-empty case too.
  */
 @Service
 public class UserSettingsService {
@@ -265,13 +269,20 @@ public class UserSettingsService {
      * reader nothing they can lose: the save that moved the home discarded the old drive times and
      * released the cooldown, so pressing again is allowed.
      *
-     * <p><strong>An attempt that stores no rows never advances {@code driveTimesCalculatedAt}.</strong>
-     * When ORS gives no answer at all (unconfigured, rate-limited, or an empty/failed response), the
-     * response reports the user's own unmodified stamp — {@code null} on the realistic sequence that
-     * reaches this (a postcode change, whose save already cleared it, is the only way this button is
+     * <p><strong>An attempt that stores no rows never advances {@code driveTimesCalculatedAt}
+     * — for either of {@link DriveDurationService#measureForUser}'s two kinds of nothing.</strong>
+     * ORS giving no answer at all (unconfigured, rate-limited, or an empty/failed response) and ORS
+     * answering with no valid duration to any location (a present but empty list) are both treated
+     * identically here: no writer call, rows and stamp both left exactly as they were. The response
+     * reports the user's own unmodified stamp — {@code null} on the realistic sequence that reaches
+     * this (a postcode change, whose save already cleared it, is the only way this button is
      * enabled) — rather than {@code now}, so the settings dialog cannot read a fresh timestamp and
      * print "Last calculated: Just now" for a refresh that calculated nothing. See
-     * {@link #pendingDriveTimeAttempts} for how the cooldown still catches a repeated press.
+     * {@link #pendingDriveTimeAttempts} for how the cooldown still catches a repeated press. A
+     * present-but-empty answer used to still call {@link UserDriveTimeWriter#storeIfHomeUnchanged}
+     * with an empty list — which clears the stored rows in the very method that also stamps —
+     * recreating a stamp with zero rows behind it; V157 repairs the state that left in the
+     * database, and this fix is why it cannot recur.
      *
      * @param auth the authenticated user
      * @return the refresh response with count and timestamp
@@ -304,12 +315,21 @@ public class UserSettingsService {
         Optional<List<UserDriveTimeEntity>> measured =
                 driveDurationService.measureForUser(user.getId(), originLat, originLon);
 
-        if (measured.isEmpty()) {
-            // No answer at all. The persisted stamp must not move — see the class and method
-            // javadoc — so no writer method is called here at all; the pending-attempt entry just
-            // recorded above is the only thing throttling a repeated press.
-            LOG.warn("Drive time refresh measured no drive times for user {} — leaving the stored "
-                    + "ones and their calculated-at stamp exactly as they are", user.getId());
+        if (measured.isEmpty() || measured.get().isEmpty()) {
+            // Two different kinds of nothing (see DriveDurationService.measureForUser's own
+            // javadoc), and this path now treats them identically: no answer at all (ORS
+            // unconfigured, rate-limited, or an empty/failed response), or ORS answered but no
+            // destination had a valid duration. Either way nothing is stored, so the persisted
+            // stamp must not move — see the class and method javadoc — and no writer method is
+            // called here; the pending-attempt entry just recorded above is the only thing
+            // throttling a repeated press. This used to differ: a present-but-empty answer still
+            // called storeIfHomeUnchanged with an empty list, which cleared the user's stored rows
+            // AND stamped in the same compare-and-set — recreating exactly the "stamp without
+            // rows" state V157 repairs. DriveTimeRefreshJob.run already treats an empty measurement
+            // (of either origin) as nothing to store; this closes the one route that did not.
+            LOG.warn("Drive time refresh measured no drive times for user {} ({}) — leaving the "
+                    + "stored ones and their calculated-at stamp exactly as they are", user.getId(),
+                    measured.isEmpty() ? "ORS gave no answer" : "ORS answered with no valid duration");
             return new DriveTimeRefreshResponse(0, user.getDriveTimesCalculatedAt());
         }
 

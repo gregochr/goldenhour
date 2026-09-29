@@ -284,6 +284,16 @@ public class DriveTimeRefreshJob {
      * {@code UserSettingsService.saveHome}) and was never set if drive times have not been measured
      * yet — so a null stamp covers both the "postcode changed" and the "never measured" case.
      *
+     * <p><strong>The consequence accepted for this: a user whose home can never be routed to
+     * anywhere gets no rows, ever, so their stamp stays null and every scheduled run measures them
+     * again — one ORS call per night, indefinitely.</strong> That is deliberate, not a defect this
+     * class fails to close: the stamp only ever advances together with at least one stored row (see
+     * {@code UserSettingsService}'s class javadoc and {@link #run}, which stores nothing for an
+     * empty measurement whatever its cause), so there is no other event to move a genuinely
+     * unroutable user off this path. It matches this job's own behaviour from before the
+     * skip-logic change (2026-09-29) — every user was measured every night then, this one still is
+     * — so the cost is not new, only now confined to the users it actually applies to.
+     *
      * @param user                      a candidate user
      * @param newestLocationCreatedAt   the roster's newest {@code created_at}, or {@code null} if
      *                                  the roster is empty

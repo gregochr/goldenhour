@@ -68,3 +68,30 @@ run stores is then a full day clear of it — the common trigger being an admin 
 pressing "Run now" within the hour. The residual is stated rather than hidden: an `INSERT` whose own
 transaction stays open longer than the margin would still be missed, and an admin's "Run now"
 remains the remedy for that case, exactly as for a location's coordinates being corrected in place.
+
+One more P1 (third review of PR #942): the second fix above stopped a NEW stamp-without-rows state
+from being written, but did nothing about one an earlier build had already left in the database.
+`DriveDurationService.measureForUser` documents two different kinds of "nothing": no answer from ORS
+at all (an empty `Optional`), and ORS answering with no valid duration to *any* location (a present
+but empty list) — the javadoc's own words are "ORS answered, and storing it clears the stored ones".
+`UserSettingsService.refreshDriveTimes` only closed the first kind; the second still called
+`UserDriveTimeWriter.storeIfHomeUnchanged` with an empty list, which clears a user's stored rows and
+stamps in the very same compare-and-set — recreating the exact stamp-without-rows state the previous
+fix exists to prevent. Both kinds of nothing are now handled identically on the manual path: no
+writer call, rows and stamp both left exactly as they were, matching what the scheduled job's own
+`run` method has always done for an empty measurement regardless of cause.
+
+A new migration, V157, reconciles the state an earlier build could already have left behind: it
+clears `drive_times_calculated_at` for every user who has a stamp and zero `user_drive_time` rows,
+using `NOT EXISTS` so it is a safe no-op on re-run. Production, checked read-only before this
+migration was written, holds zero affected rows today (4 users, 2 with a home, 2 stamped, none
+stamped without rows) — the migration is precautionary for other environments and the window before
+deploy, not a repair for a live incident. `DriveTimeRefreshJob.needsRefresh`'s javadoc now states the
+one cost this rule accepts on purpose: a user whose home can never be routed to anywhere gets no
+rows, ever, so their stamp stays null and every scheduled run measures them again, one ORS call each
+— exactly this job's pre-skip-logic behaviour, now confined to the users it actually applies to.
+Local H2 dev databases run no migrations at all (see this file's own "no Docker" section), so a
+local database holding a legacy stamp-without-rows row — reachable only by having exercised the old
+buggy code path before pulling this fix — keeps it; no startup repair was added for that case, since
+it is narrow, self-inflicted, and already covered by this project's documented local-reset procedure
+(delete `backend/data/goldenhour.mv.db` and `.lock.db`).
