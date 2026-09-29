@@ -17,8 +17,8 @@ import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingRatingStats;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.PlanRenderLimits;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
@@ -60,7 +60,7 @@ public final class BriefingRollupBuilder {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final TravelDayService travelDayService;
-    private final BriefingEvaluationService briefingEvaluationService;
+    private final EvaluationViewService evaluationViewService;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
     private final AuroraStateCache auroraStateCache;
     private final AuroraRegionSelector auroraRegionSelector;
@@ -71,21 +71,22 @@ public final class BriefingRollupBuilder {
      * @param objectMapper              Jackson mapper for JSON building and parsing
      * @param clock                     UTC clock supplying "now" and (via London) "today"
      * @param travelDayService          excludes travel-day events from the candidate rollup
-     * @param briefingEvaluationService cached Claude evaluation scores from drill-down
+     * @param evaluationViewService     retraction-aware Claude evaluation scores — see
+     *                                  {@link EvaluationViewService#getLiveScoresForEnrichment}
      * @param stabilitySnapshotProvider provides the latest stability summary for region rollup
      * @param auroraStateCache          read-only access to the current aurora alert state
      * @param auroraRegionSelector      derives the best dark-sky region for the aurora event
      */
     public BriefingRollupBuilder(ObjectMapper objectMapper, Clock clock,
             TravelDayService travelDayService,
-            BriefingEvaluationService briefingEvaluationService,
+            EvaluationViewService evaluationViewService,
             StabilitySnapshotProvider stabilitySnapshotProvider,
             AuroraStateCache auroraStateCache,
             AuroraRegionSelector auroraRegionSelector) {
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.travelDayService = travelDayService;
-        this.briefingEvaluationService = briefingEvaluationService;
+        this.evaluationViewService = evaluationViewService;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
         this.auroraStateCache = auroraStateCache;
         this.auroraRegionSelector = auroraRegionSelector;
@@ -113,6 +114,13 @@ public final class BriefingRollupBuilder {
         Set<String> validDayNames = new LinkedHashSet<>();
         Set<String> includedDates = new LinkedHashSet<>();
         Map<String, CandidateCoverage> coverageByKey = new HashMap<>();
+
+        // ONE bulk load for the whole rollup, read by every region/event node below and again by
+        // logCacheCoverage — never a per-region/event call. See loadLiveScores' javadoc: a Codex
+        // review of #940 caught this method looping EvaluationViewService#getLiveScoresForEnrichment
+        // across every region and event (twice each), multiplying a handful of queries into dozens
+        // per rollup.
+        Map<String, Map<String, BriefingEvaluationResult>> liveScores = loadLiveScores(days);
 
         ObjectNode root = objectMapper.createObjectNode();
         root.put("currentTime", now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
@@ -157,7 +165,7 @@ public final class BriefingRollupBuilder {
                 ArrayNode regionsNode = eventNode.putArray("regions");
                 for (BriefingRegion region : es.regions()) {
                     CandidateCoverage coverage = appendRegionNode(
-                            regionsNode, region, day.date(), es.targetType(), daysAhead);
+                            regionsNode, region, day.date(), es.targetType(), daysAhead, liveScores);
                     validRegions.add(region.regionName());
                     coverageByKey.put(BestBetRanker.coverageKey(eventId, region.regionName()), coverage);
                 }
@@ -217,9 +225,55 @@ public final class BriefingRollupBuilder {
         validRegions.forEach(vrArray::add);
         root.set("events", eventsNode);
 
-        logCacheCoverage(days, validEvents);
+        logCacheCoverage(days, validEvents, liveScores);
         return new RollupResult(objectMapper.writeValueAsString(root), validEvents,
                 validRegions, validDayNames, coverageByKey);
+    }
+
+    /**
+     * Loads live Claude scores for the whole span of {@code days} in one call, keyed by
+     * {@code "regionName|date|targetType"} — the input both {@link #computeRegionStats} and
+     * {@link #logCacheCoverage} read from, rather than each calling
+     * {@link EvaluationViewService#getLiveScoresForEnrichment} per region/event.
+     *
+     * <p>⚠️ <b>Measured regression this closes.</b> Production runs roughly six regions; the rollup
+     * covers up to {@link PlanRenderLimits#MAX_VISIBLE_EVENTS} (6) events, each iterating every one
+     * of that event's regions. Before this fix, {@code computeRegionStats} and
+     * {@code logCacheCoverage} each called the single-key retraction-aware read once per
+     * region/event — up to 6 events × 6 regions × 2 call sites = 72 calls, each costing three
+     * queries (the enabled roster, the latest forecast rows, the stability dispositions), for
+     * roughly 216 queries per best-bet rollup where the cache read this replaced (a direct,
+     * in-memory {@code BriefingEvaluationService} lookup) issued none. This method costs the same
+     * small, constant number of queries as {@link EvaluationViewService
+     * #getScoresForEnrichmentBulk} regardless of how many regions or events the window covers.
+     *
+     * @param days the briefing days this rollup covers
+     * @return live scores keyed by region/date/event, empty when {@code days} is empty or carries
+     *         no events
+     */
+    private Map<String, Map<String, BriefingEvaluationResult>> loadLiveScores(List<BriefingDay> days) {
+        if (days.isEmpty()) {
+            return Map.of();
+        }
+        LocalDate start = days.getFirst().date();
+        LocalDate end = days.getLast().date();
+        Set<TargetType> types = days.stream()
+                .flatMap(day -> day.eventSummaries().stream())
+                .map(BriefingEventSummary::targetType)
+                .collect(java.util.stream.Collectors.toCollection(
+                        () -> java.util.EnumSet.noneOf(TargetType.class)));
+        if (types.isEmpty()) {
+            return Map.of();
+        }
+        return evaluationViewService.getLiveScoresForEnrichmentBulk(start, end, types);
+    }
+
+    /**
+     * The {@code "regionName|date|targetType"} key {@link #loadLiveScores}'s map and
+     * {@link EvaluationViewService#getScoresForEnrichmentBulk} agree on.
+     */
+    private static String liveScoreKey(String regionName, LocalDate date, TargetType targetType) {
+        return regionName + "|" + date + "|" + targetType;
     }
 
     /**
@@ -259,20 +313,44 @@ public final class BriefingRollupBuilder {
      * another region still answers under a name no slot claims — and an unmatched name counts as
      * sky. For a wood that is the very defect above, surviving in one narrow case. Reading
      * {@code slot.claudeRating()} instead would close it, and {@code BriefingGlossService} does
-     * exactly that one class away, but the cache read here is a pinned contract
-     * ({@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters}) and not every caller of
-     * {@code advise} hands over enriched days. Left as-is deliberately; it is a roster-hygiene bug
-     * older than this filter, and it inflates the counts today with or without it.
+     * exactly that one class away, but not every caller of {@code advise} hands over enriched days.
+     * Left as-is deliberately; it is a roster-hygiene bug older than this filter, and it inflates the
+     * counts today with or without it. ⚠️ <b>Unchanged by the retraction-aware read below</b> —
+     * {@link EvaluationViewService#getScoresForEnrichment} carries the identical fail-open behaviour
+     * forward for exactly the same reason (its own javadoc: "dropping them here would be an unrelated
+     * behaviour change riding along with the freshness fix"), so this residual is neither fixed nor
+     * worsened by that change.
+     *
+     * <p>⚠️ <b>The map read below is retraction-aware, and that is a second, deliberate widening
+     * beyond retraction.</b> Until this routed through {@link EvaluationViewService}, a location
+     * counted here only when the batch had written a {@code cached_evaluation} entry for it; a
+     * location whose only evidence was a scored or triaged {@code forecast_evaluation} row (no
+     * cache entry at all) was invisible to the advisor. {@link EvaluationViewService
+     * #getLiveScoresForEnrichmentBulk} resolves the same cached-vs-forecast-row precedence every
+     * other serve surface already applies, so such a location is now counted too — and a rating
+     * superseded by either a newer stability skip or a newer triage row is excluded, never averaged
+     * or counted. Both are the point: "every surface must agree" cannot hold while this one alone
+     * reads a narrower source than the Plan payload and the map do.
+     *
+     * <p>⚠️ <b>The lookup is no longer a pinned-parameters contract on a per-call service method —
+     * it is a pinned contract on the ONE bulk load {@link #loadLiveScores} makes per rollup.</b>
+     * {@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters} now pins that the bulk load
+     * runs exactly once per {@code buildRollupJson} call and the single-key
+     * {@code EvaluationViewService#getLiveScoresForEnrichment} never runs at all from here — this
+     * method and {@link #logCacheCoverage} both read the SAME pre-loaded map by key, never calling
+     * the service themselves, which is also why the two can no longer diverge on source the way the
+     * comment on {@code appendRegionNode} used to warn about.
      *
      * @param region     the enriched region
      * @param date       the target date, for stats logging
      * @param targetType the solar event, for stats logging
+     * @param liveScores the whole rollup's pre-loaded live-score map, from {@link #loadLiveScores}
      * @return the coverage and sky-average stats, each null when it has nothing valid
      */
     private RegionStats computeRegionStats(BriefingRegion region, LocalDate date,
-            TargetType targetType) {
-        Map<String, BriefingEvaluationResult> cached =
-                briefingEvaluationService.getCachedScores(region.regionName(), date, targetType);
+            TargetType targetType, Map<String, Map<String, BriefingEvaluationResult>> liveScores) {
+        Map<String, BriefingEvaluationResult> cached = liveScores.getOrDefault(
+                liveScoreKey(region.regionName(), date, targetType), Map.of());
         if (cached.isEmpty()) {
             return new RegionStats(null, null);
         }
@@ -334,8 +412,18 @@ public final class BriefingRollupBuilder {
     /**
      * Logs a per-date summary of how many region/event slots had Claude evaluation
      * scores available versus verdict-only data.
+     *
+     * <p>Reads the same pre-loaded {@code liveScores} map {@link #computeRegionStats} does —
+     * see {@link #loadLiveScores} — rather than a second call per region/event; this log line
+     * and the rollup's own coverage figures are therefore reading identical evidence, not merely
+     * the same rule applied twice.
+     *
+     * @param days        the briefing days this rollup covers
+     * @param validEvents the event ids that survived the travel-day/past-event/cap filters above
+     * @param liveScores  the whole rollup's pre-loaded live-score map, from {@link #loadLiveScores}
      */
-    private void logCacheCoverage(List<BriefingDay> days, Set<String> validEvents) {
+    private void logCacheCoverage(List<BriefingDay> days, Set<String> validEvents,
+            Map<String, Map<String, BriefingEvaluationResult>> liveScores) {
         int totalSlots = 0;
         int slotsWithScores = 0;
         for (BriefingDay day : days) {
@@ -347,9 +435,8 @@ public final class BriefingRollupBuilder {
                 }
                 for (BriefingRegion region : es.regions()) {
                     totalSlots++;
-                    Map<String, BriefingEvaluationResult> cached =
-                            briefingEvaluationService.getCachedScores(
-                                    region.regionName(), day.date(), es.targetType());
+                    Map<String, BriefingEvaluationResult> cached = liveScores.getOrDefault(
+                            liveScoreKey(region.regionName(), day.date(), es.targetType()), Map.of());
                     if (!cached.isEmpty()) {
                         slotsWithScores++;
                     }
@@ -363,7 +450,8 @@ public final class BriefingRollupBuilder {
     }
 
     private CandidateCoverage appendRegionNode(ArrayNode regionsNode, BriefingRegion region,
-            LocalDate date, TargetType targetType, int daysAhead) {
+            LocalDate date, TargetType targetType, int daysAhead,
+            Map<String, Map<String, BriefingEvaluationResult>> liveScores) {
         long goCount = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.GO).count();
         long marginalCount = region.slots().stream()
@@ -454,12 +542,11 @@ public final class BriefingRollupBuilder {
             regionNode.put("scarcity", tideScarcity);
         }
 
-        // Claude evaluation score distribution, off the already-enriched slots. Computed once
-        // and reused for the coverage gate so the two can never disagree. Note this no longer
-        // shares a source with logCacheCoverage below, which still counts raw cache entries: the
-        // two can differ for a cached score whose location has left the enabled roster, and the
-        // log line is the one that over-reports there.
-        RegionStats stats = computeRegionStats(region, date, targetType);
+        // Claude evaluation score distribution, off the same pre-loaded liveScores map
+        // logCacheCoverage reads (see loadLiveScores) — the two can no longer diverge on source,
+        // since both are lookups into one snapshot loaded once per rollup rather than either
+        // calling EvaluationViewService itself.
+        RegionStats stats = computeRegionStats(region, date, targetType, liveScores);
         appendClaudeScores(regionNode, stats);
 
         // Stability rollup: worst-case across grid cells containing this region's locations

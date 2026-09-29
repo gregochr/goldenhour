@@ -16,7 +16,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,7 +56,7 @@ class BriefingRollupBuilderTest {
     private static final String REGION = "North East";
 
     @Mock private TravelDayService travelDayService;
-    @Mock private BriefingEvaluationService briefingEvaluationService;
+    @Mock private EvaluationViewService evaluationViewService;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock private AuroraStateCache auroraStateCache;
     @Mock private AuroraRegionSelector auroraRegionSelector;
@@ -68,7 +69,7 @@ class BriefingRollupBuilderTest {
     void setUp() {
         builder = new BriefingRollupBuilder(mapper,
                 Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
-                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                travelDayService, evaluationViewService, stabilitySnapshotProvider,
                 auroraStateCache, auroraRegionSelector);
     }
 
@@ -105,10 +106,13 @@ class BriefingRollupBuilderTest {
         Arrays.stream(spots).filter(spot -> spot.rating() != null).forEach(spot ->
                 cached.put(spot.name(), new BriefingEvaluationResult(
                         spot.name(), spot.rating(), 60, 60, "Conditions.")));
-        // eq(), not any(): the cache key is the one argument a refactor of this method would get
-        // wrong, and a matcher that accepts anything cannot fail when it does.
-        when(briefingEvaluationService.getCachedScores(eq(REGION), eq(DATE), eq(TargetType.SUNRISE)))
-                .thenReturn(cached);
+        // eq(), not any(): the bulk window and the map key are the arguments a refactor of this
+        // method would get wrong, and a matcher that accepts anything cannot fail when it does.
+        // One bulk call for the whole rollup, never a per-region getLiveScoresForEnrichment —
+        // see BriefingRollupBuilder.loadLiveScores.
+        when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                eq(DATE), eq(DATE), eq(Set.of(TargetType.SUNRISE))))
+                .thenReturn(Map.of(REGION + "|" + DATE + "|" + TargetType.SUNRISE, cached));
     }
 
     /** The region node the advisor is prompted with. */
@@ -274,7 +278,7 @@ class BriefingRollupBuilderTest {
         realCache.evaluate(AlertLevel.STRONG);
         BriefingRollupBuilder realBuilder = new BriefingRollupBuilder(mapper,
                 Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
-                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                travelDayService, evaluationViewService, stabilitySnapshotProvider,
                 realCache, auroraRegionSelector);
 
         RollupResult result = realBuilder.buildRollupJson(days, NOW);
@@ -291,7 +295,7 @@ class BriefingRollupBuilderTest {
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
         BriefingRollupBuilder simBuilder = new BriefingRollupBuilder(mapper,
                 Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
-                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                travelDayService, evaluationViewService, stabilitySnapshotProvider,
                 realCache, auroraRegionSelector);
 
         RollupResult result = simBuilder.buildRollupJson(days, NOW);

@@ -25,6 +25,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -218,6 +219,83 @@ class DispositionWriteIntegrationTest extends IntegrationTestBase {
                 .isEqualTo("Solar horizon low cloud 94% — sun blocked");
         assertThat(triagedRow.getLocationId()).isEqualTo(loc2.getId());
         assertThat(triagedRow.getDaysAhead()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("findLatestStabilitySkipTimestamps: only SKIPPED_STABILITY counts, never CACHED "
+            + "or any other category, for the same slot")
+    void findLatestStabilitySkipTimestamps_onlyCountsStabilityCategory() {
+        // Real Postgres, real SQL: the stale-rating retraction rule (EvaluationViewService
+        // .isRetractedByStabilitySkip) may only ever fire on a nightly Gate 4 stability skip — a
+        // region-level SKIPPED_CACHED ("fresh cache, deliberately reused") is not a decision
+        // against the rating and must never retract it. This is the SQL-level proof; the Java-side
+        // rule is exercised against a mocked repository in EvaluationViewServiceTest.
+        LocalDate date = LocalDate.now().plusDays(2);
+        dispositionService.persist(9001L, List.of(
+                new CandidateDisposition(1L, "Cached Loc", date, TargetType.SUNRISE, 2,
+                        DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation within 6h"),
+                new CandidateDisposition(2L, "Triaged Loc", date, TargetType.SUNRISE, 2,
+                        DispositionCategory.SKIPPED_TRIAGED, "Heavy cloud"),
+                new CandidateDisposition(3L, "Error Loc", date, TargetType.SUNRISE, 2,
+                        DispositionCategory.SKIPPED_ERROR, "Weather fetch failed"),
+                new CandidateDisposition(4L, "Stability Loc", date, TargetType.SUNRISE, 2,
+                        DispositionCategory.SKIPPED_STABILITY, "T+2 UNSETTLED")));
+
+        List<Object[]> rows = dispositionRepository
+                .findLatestStabilitySkipTimestamps(date, date);
+
+        assertThat(rows).hasSize(1);
+        Object[] row = rows.getFirst();
+        assertThat(row[0]).isEqualTo("Stability Loc");
+        assertThat(row[1]).isEqualTo(date);
+        assertThat(row[2]).isEqualTo("SUNRISE");
+        assertThat(row[3]).isInstanceOf(Instant.class);
+    }
+
+    @Test
+    @DisplayName("findLatestStabilitySkipTimestamps: returns the MOST RECENT skip when a slot "
+            + "was stability-skipped on more than one cycle")
+    void findLatestStabilitySkipTimestamps_returnsMostRecentPerSlot() throws InterruptedException {
+        LocalDate date = LocalDate.now().plusDays(2);
+        CandidateDisposition skip = new CandidateDisposition(5L, "Repeat Loc", date,
+                TargetType.SUNSET, 2, DispositionCategory.SKIPPED_STABILITY, "T+2 UNSETTLED");
+
+        // Two separate cycles, two separate job runs, the second strictly after the first.
+        dispositionService.persist(9002L, List.of(skip));
+        Thread.sleep(50);
+        dispositionService.persist(9003L, List.of(skip));
+
+        List<ForecastRunDispositionEntity> firstCycleRows =
+                dispositionRepository.findByJobRunIdOrderByDispositionAscLocationNameAsc(9002L);
+        List<ForecastRunDispositionEntity> secondCycleRows =
+                dispositionRepository.findByJobRunIdOrderByDispositionAscLocationNameAsc(9003L);
+        Instant firstCreatedAt = firstCycleRows.getFirst().getCreatedAt();
+        Instant secondCreatedAt = secondCycleRows.getFirst().getCreatedAt();
+        assertThat(secondCreatedAt).isAfter(firstCreatedAt);
+
+        List<Object[]> rows = dispositionRepository
+                .findLatestStabilitySkipTimestamps(date, date);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.getFirst()[3]).isEqualTo(secondCreatedAt);
+    }
+
+    @Test
+    @DisplayName("findLatestStabilitySkipTimestamps: a skip outside the requested date range is excluded")
+    void findLatestStabilitySkipTimestamps_respectsDateRange() {
+        LocalDate inRange = LocalDate.now().plusDays(1);
+        LocalDate outOfRange = LocalDate.now().plusDays(9);
+        dispositionService.persist(9004L, List.of(
+                new CandidateDisposition(6L, "In Range Loc", inRange, TargetType.SUNRISE, 1,
+                        DispositionCategory.SKIPPED_STABILITY, "T+1 UNSETTLED"),
+                new CandidateDisposition(7L, "Out Of Range Loc", outOfRange, TargetType.SUNRISE, 9,
+                        DispositionCategory.SKIPPED_STABILITY, "T+9 beyond horizon")));
+
+        List<Object[]> rows = dispositionRepository
+                .findLatestStabilitySkipTimestamps(inRange, inRange);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.getFirst()[0]).isEqualTo("In Range Loc");
     }
 
     @Test

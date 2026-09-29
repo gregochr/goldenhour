@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
@@ -38,9 +39,11 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
@@ -569,11 +572,17 @@ public class BriefingService {
         // Group into days → event summaries → regions
         List<BriefingDay> days = hierarchyBuilder.buildDays(allSlots, colourLocations, dates);
 
-        // Enrich slots with cached Claude evaluation scores (from prior batch runs)
-        // The BUILD path's resolver: a per-region lookup. The serve path hands the same
-        // rollup a bulk index instead — one owner, two timings, which is the whole point of
-        // RegionScoreResolver being a parameter rather than a collaborator.
-        days = rollup.enrich(days, evaluationViewService::getScoresForEnrichment);
+        // Enrich slots with cached Claude evaluation scores (from prior batch runs). One
+        // EvaluationViewService#getScoresForEnrichmentBulk load over the whole build window,
+        // rather than a getScoresForEnrichment call per region/date/event — the same shape
+        // ServedBriefingAssembler#reEnrichVerdicts already uses on the serve path, so this build
+        // path's query count stays O(locations) rather than O(regions × events). Until this fix
+        // (Codex review of #940) the per-region lookup and the serve path's bulk load were two
+        // different query shapes reading the SAME data — harmless while getScoresForEnrichment
+        // issued two queries per call, but the stability-skip retraction rule added a third
+        // (loadStabilitySkips) to every one of them, which is what made the multiplication worth
+        // closing here rather than leaving as a pre-existing pattern.
+        days = rollup.enrich(days, bulkScoreResolver(days));
 
         // Enrich GO/MARGINAL regions with Claude-generated one-line gloss
         if (succeeded > 0) {
@@ -683,6 +692,41 @@ public class BriefingService {
             }
             jobRunService.completeRun(jobRun, succeeded, failed, dates);
         }
+    }
+
+    /**
+     * A {@link RegionScoreResolver} backed by one {@link EvaluationViewService
+     * #getScoresForEnrichmentBulk} load over the given days' whole date range and target-type
+     * set, rather than a query per region/date/event.
+     *
+     * <p>Mirrors {@link ServedBriefingAssembler#reEnrichVerdicts}'s own resolver exactly — same
+     * bulk accessor, same {@code "regionName|date|targetType"} key shape, same empty-map default
+     * for an uncovered slot — so the build path and the serve path read scores through the
+     * identical query shape and can never diverge on how many round trips either costs. Returns a
+     * resolver that answers empty for everything when {@code days} is empty or carries no events,
+     * rather than skipping the bulk load's own null-checks inline at the one call site.
+     *
+     * @param days the assembled briefing days for this build
+     * @return a resolver reading from one pre-loaded bulk index
+     */
+    private RegionScoreResolver bulkScoreResolver(List<BriefingDay> days) {
+        if (days.isEmpty()) {
+            return (regionName, date, targetType) -> Map.of();
+        }
+        LocalDate start = days.getFirst().date();
+        LocalDate end = days.getLast().date();
+        Set<TargetType> types = days.stream()
+                .flatMap(day -> day.eventSummaries().stream())
+                .map(BriefingEventSummary::targetType)
+                .collect(java.util.stream.Collectors.toCollection(
+                        () -> EnumSet.noneOf(TargetType.class)));
+        if (types.isEmpty()) {
+            return (regionName, date, targetType) -> Map.of();
+        }
+        Map<String, Map<String, BriefingEvaluationResult>> index =
+                evaluationViewService.getScoresForEnrichmentBulk(start, end, types);
+        return (regionName, date, targetType) ->
+                index.getOrDefault(regionName + "|" + date + "|" + targetType, Map.of());
     }
 
     private String circuitState() {

@@ -16,11 +16,13 @@ import com.gregochr.goldenhour.entity.MarineWaveEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.SolarService;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -44,6 +46,7 @@ public class ForecastDtoMapper {
     private final SeasonalWindow bluebellSeason;
     private final ForecastScoreRepository forecastScoreRepository;
     private final MarineWaveRepository marineWaveRepository;
+    private final EvaluationViewService evaluationViewService;
 
     /**
      * Constructs a {@code ForecastDtoMapper}.
@@ -53,15 +56,20 @@ public class ForecastDtoMapper {
      * @param bluebellSeason          the configured bluebell season window
      * @param forecastScoreRepository source of the Claude BLUEBELL rating (1–5) for the DTO
      * @param marineWaveRepository    source of coastal sea-state (Hs) for the DTO
+     * @param evaluationViewService   source of the stability-skip lookup that retracts a BLUEBELL
+     *                                rating a nightly Gate 4 skip has superseded (see
+     *                                {@code SurvivorSignalReader}'s javadoc for the same rule
+     *                                applied to the hot-topic read path)
      */
     public ForecastDtoMapper(LunarPhaseService lunarPhaseService, SolarService solarService,
             SeasonalWindow bluebellSeason, ForecastScoreRepository forecastScoreRepository,
-            MarineWaveRepository marineWaveRepository) {
+            MarineWaveRepository marineWaveRepository, EvaluationViewService evaluationViewService) {
         this.lunarPhaseService = lunarPhaseService;
         this.solarService = solarService;
         this.bluebellSeason = bluebellSeason;
         this.forecastScoreRepository = forecastScoreRepository;
         this.marineWaveRepository = marineWaveRepository;
+        this.evaluationViewService = evaluationViewService;
     }
 
     /**
@@ -119,11 +127,13 @@ public class ForecastDtoMapper {
             boolean isLiteUser) {
         // Preload the whole window's coastal sea-state in one query (avoids a marine_wave SELECT
         // per coastal row), and memoise the per-date lunar classification (identical for every row
-        // on a given date) instead of recomputing it for all rows.
+        // on a given date) instead of recomputing it for all rows. The stability-skip map is the
+        // same shape of preload, one query for the whole list rather than one per BLUEBELL row.
         Map<String, WaveInfo> waveByKey = preloadWaves(entities);
+        Map<String, Instant> stabilitySkips = preloadStabilitySkips(entities);
         Map<LocalDate, LunarInfo> lunarByDate = new HashMap<>();
         return entities.stream()
-                .map(e -> toDto(e, isLiteUser, waveByKey, lunarByDate))
+                .map(e -> toDto(e, isLiteUser, waveByKey, lunarByDate, stabilitySkips))
                 .toList();
     }
 
@@ -296,6 +306,61 @@ public class ForecastDtoMapper {
     }
 
     /**
+     * Loads the whole window's stability-skip instants in one query, mirroring
+     * {@link #preloadWaves}'s shape — so {@link #toDto} can retract a stale BLUEBELL component with
+     * a map lookup instead of a per-row query, exactly as {@code SurvivorSignalReader} does for the
+     * hot-topic read path (see that class's javadoc for why a component score is evidence like a
+     * rating, and is retracted by the same nightly Gate 4 skip the same way).
+     *
+     * @param entities the entities about to be mapped
+     * @return {@code "locationName|date|targetType"} to that slot's most recent stability-skip instant
+     */
+    private Map<String, Instant> preloadStabilitySkips(List<ForecastEvaluationEntity> entities) {
+        LocalDate min = null;
+        LocalDate max = null;
+        for (ForecastEvaluationEntity e : entities) {
+            LocalDate d = e.getTargetDate();
+            if (d == null) {
+                continue;
+            }
+            if (min == null || d.isBefore(min)) {
+                min = d;
+            }
+            if (max == null || d.isAfter(max)) {
+                max = d;
+            }
+        }
+        if (min == null) {
+            return Map.of();
+        }
+        return evaluationViewService.loadStabilitySkips(min, max);
+    }
+
+    /**
+     * Whether a BLUEBELL component row must be treated as absent because a nightly Gate 4 stability
+     * skip stands against its slot and postdates it — the same rule and the same low-level
+     * primitive ({@code EvaluationViewService.isRetractedByStabilitySkip}) {@code SurvivorSignalReader}
+     * applies to the identical {@code forecast_score} row on the hot-topic read path.
+     *
+     * @param row            the BLUEBELL component row
+     * @param locationName   the row's location name (the skip map's join key)
+     * @param date           the row's evaluation date
+     * @param eventType      the row's event type
+     * @param stabilitySkips the preloaded stability-skip map ({@link #preloadStabilitySkips}, or a
+     *                       single-date load for the single-row path)
+     * @return true if the row predates its slot's most recent stability skip
+     */
+    private static boolean isBluebellRetracted(ForecastScoreEntity row, String locationName,
+            LocalDate date, TargetType eventType, Map<String, Instant> stabilitySkips) {
+        if (stabilitySkips.isEmpty()) {
+            return false;
+        }
+        Instant latestSkip = stabilitySkips.get(
+                EvaluationViewService.stabilitySkipKey(locationName, date, eventType));
+        return EvaluationViewService.isRetractedByStabilitySkip(row.getEvaluatedAt(), latestSkip);
+    }
+
+    /**
      * Maps a single entity to a DTO, selecting scores based on user tier.
      *
      * <p>For LITE users, {@code fierySkyPotential}, {@code goldenHourPotential}, and
@@ -309,12 +374,18 @@ public class ForecastDtoMapper {
      */
     public ForecastEvaluationDto toDto(ForecastEvaluationEntity entity, boolean isLiteUser) {
         // Single-row path: no preloaded wave map (falls back to a per-row query) and a fresh
-        // one-entry lunar memo. The bulk path (toDtoList) shares preloaded/memoised maps.
-        return toDto(entity, isLiteUser, null, new HashMap<>());
+        // one-entry lunar memo. The bulk path (toDtoList) shares preloaded/memoised maps. The
+        // stability-skip load is a single-date query here — this endpoint already pays several
+        // per-row queries (wave, bluebell) for the one row it serves.
+        Map<String, Instant> stabilitySkips = entity.getTargetDate() != null
+                ? evaluationViewService.loadStabilitySkips(entity.getTargetDate(), entity.getTargetDate())
+                : Map.of();
+        return toDto(entity, isLiteUser, null, new HashMap<>(), stabilitySkips);
     }
 
     private ForecastEvaluationDto toDto(ForecastEvaluationEntity entity, boolean isLiteUser,
-            Map<String, WaveInfo> waveByKey, Map<LocalDate, LunarInfo> lunarByDate) {
+            Map<String, WaveInfo> waveByKey, Map<LocalDate, LunarInfo> lunarByDate,
+            Map<String, Instant> stabilitySkips) {
         Integer fierySky;
         Integer goldenHour;
         String summary;
@@ -378,7 +449,12 @@ public class ForecastDtoMapper {
                 ForecastScoreEntity bluebellRow = forecastScoreRepository.findComponent(
                         ForecastType.BLUEBELL, loc.getId(), entity.getTargetDate(),
                         entity.getTargetType()).orElse(null);
-                if (bluebellRow != null) {
+                // A nightly Gate 4 stability skip retracts this component exactly as it retracts a
+                // cached_evaluation/forecast_evaluation rating — see SurvivorSignalReader's javadoc.
+                // bluebellRow's own evaluatedAt, not entity.getForecastRunAt(): the two rows are
+                // written by different passes and can carry different instants for the same slot.
+                if (bluebellRow != null && !isBluebellRetracted(bluebellRow, entity.getLocationName(),
+                        entity.getTargetDate(), entity.getTargetType(), stabilitySkips)) {
                     bluebellScore = bluebellRow.getScore();
                     bluebellSummary = bluebellRow.getSummary();
                 }

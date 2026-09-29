@@ -36,7 +36,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -56,6 +56,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,6 +70,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -84,7 +86,7 @@ class BriefingBestBetAdvisorTest {
     @Mock private ModelSelectionService modelSelectionService;
     @Mock private AuroraStateCache auroraStateCache;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
-    @Mock private BriefingEvaluationService briefingEvaluationService;
+    @Mock private EvaluationViewService evaluationViewService;
     @Mock private TravelDayService travelDayService;
 
     /** Response-token ceiling injected into the advisor under test. */
@@ -105,7 +107,7 @@ class BriefingBestBetAdvisorTest {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache,
-                stabilitySnapshotProvider, briefingEvaluationService, travelDayService,
+                stabilitySnapshotProvider, evaluationViewService, travelDayService,
                 TEST_MAX_TOKENS, CLOCK);
     }
 
@@ -483,7 +485,7 @@ class BriefingBestBetAdvisorTest {
             BriefingBestBetAdvisor custom = new BriefingBestBetAdvisor(
                     anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                     jobRunService, modelSelectionService, auroraStateCache,
-                    stabilitySnapshotProvider, briefingEvaluationService, travelDayService, customMax, CLOCK);
+                    stabilitySnapshotProvider, evaluationViewService, travelDayService, customMax, CLOCK);
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.HAIKU);
             when(anthropicApiClient.createMessage(any()))
@@ -1118,7 +1120,7 @@ class BriefingBestBetAdvisorTest {
         @Test
         @DisplayName("End-to-end advise(): cache coverage flips the inversion through the real path")
         void adviseEndToEndInversionFlips() {
-            // Full path: getCachedScores → buildRollupJson coverage map → gate.
+            // Full path: getLiveScoresForEnrichmentBulk → buildRollupJson coverage map → gate.
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate nearDate = FIXED_TODAY.plusDays(1);
@@ -1127,17 +1129,26 @@ class BriefingBestBetAdvisorTest {
             String farEvent = farDate + "_sunset";
 
             // Far Northumberland: thinly evaluated (2). Near North Yorkshire: well-covered (5).
-            when(briefingEvaluationService.getCachedScores(NORTHUMBERLAND, farDate, TargetType.SUNSET))
+            // ONE bulk call over the whole rollup window (nearDate..farDate), never a per-region
+            // getLiveScoresForEnrichment — see BriefingRollupBuilder.loadLiveScores.
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    nearDate, farDate, Set.of(TargetType.SUNSET)))
                     .thenReturn(Map.of(
-                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good"),
-                            "Dunstanburgh", new BriefingEvaluationResult("Dunstanburgh", 4, 78, 66, "Good")));
-            when(briefingEvaluationService.getCachedScores(NORTH_YORKS, nearDate, TargetType.SUNSET))
-                    .thenReturn(Map.of(
-                            "Whitby", new BriefingEvaluationResult("Whitby", 4, 70, 60, "Good"),
-                            "Sandsend", new BriefingEvaluationResult("Sandsend", 3, 55, 50, "Decent"),
-                            "Saltburn", new BriefingEvaluationResult("Saltburn", 4, 72, 61, "Good"),
-                            "Runswick", new BriefingEvaluationResult("Runswick", 3, 52, 48, "Decent"),
-                            "Staithes", new BriefingEvaluationResult("Staithes", 4, 75, 63, "Good")));
+                            NORTHUMBERLAND + "|" + farDate + "|" + TargetType.SUNSET, Map.of(
+                                    "Bamburgh",
+                                    new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good"),
+                                    "Dunstanburgh",
+                                    new BriefingEvaluationResult("Dunstanburgh", 4, 78, 66, "Good")),
+                            NORTH_YORKS + "|" + nearDate + "|" + TargetType.SUNSET, Map.of(
+                                    "Whitby", new BriefingEvaluationResult("Whitby", 4, 70, 60, "Good"),
+                                    "Sandsend",
+                                    new BriefingEvaluationResult("Sandsend", 3, 55, 50, "Decent"),
+                                    "Saltburn",
+                                    new BriefingEvaluationResult("Saltburn", 4, 72, 61, "Good"),
+                                    "Runswick",
+                                    new BriefingEvaluationResult("Runswick", 3, 52, 48, "Decent"),
+                                    "Staithes",
+                                    new BriefingEvaluationResult("Staithes", 4, 75, 63, "Good"))));
 
             TextBlock textBlock = mock(TextBlock.class);
             when(textBlock.text()).thenReturn(
@@ -1870,9 +1881,10 @@ class BriefingBestBetAdvisorTest {
             // Give the sunset region colour coverage so the honesty gate (dropUnevaluatedPicks)
             // keeps it as the rank-1 anchor. Without coverage it is dropped as zero-evaluation,
             // and the aurora pick — now the sole head — correctly loses its relationship.
-            when(briefingEvaluationService.getCachedScores("Northumberland", today, TargetType.SUNSET))
-                    .thenReturn(Map.of("Bamburgh",
-                            new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good")));
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    today, today, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + today + "|" + TargetType.SUNSET, Map.of(
+                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good"))));
 
             List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of()).picks();
 
@@ -2795,13 +2807,13 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
                                     "Bamburgh", 4, 75, 60, "Good colour"),
                             "Dunstanburgh", new BriefingEvaluationResult(
-                                    "Dunstanburgh", 3, 50, 45, "Moderate")));
+                                    "Dunstanburgh", 3, 50, 45, "Moderate"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2844,15 +2856,15 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
                                     "Bamburgh", 5, 90, 85, "Excellent"),
                             "Kielder", new BriefingEvaluationResult(
                                     "Kielder", null, null, null, null,
                                     com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
-                                    "Heavy cloud")));
+                                    "Heavy cloud"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2874,13 +2886,13 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Kielder", new BriefingEvaluationResult(
                                     "Kielder", null, null, null, null,
                                     com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
-                                    "Heavy cloud")));
+                                    "Heavy cloud"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2894,7 +2906,8 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Cache lookup uses exact region name, date and targetType")
+        @DisplayName("One bulk load for the whole rollup with exact window and types — the "
+                + "single-key retraction-aware read never runs")
         void cacheLookupUsesExactParameters() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
@@ -2907,9 +2920,16 @@ class BriefingBestBetAdvisorTest {
 
             advisor.buildRollupJson(List.of(day), now);
 
-            // Called twice: once in appendClaudeScores, once in logCacheCoverage
-            verify(briefingEvaluationService, times(2)).getCachedScores(
-                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNSET));
+            // Pins the contract a Codex review of #940 caught missing: computeRegionStats and
+            // logCacheCoverage both read one pre-loaded snapshot (BriefingRollupBuilder
+            // #loadLiveScores) rather than each calling EvaluationViewService per region/event, so
+            // the bulk load runs exactly ONCE per rollup — never once per call site, never once
+            // per region — and the single-key getLiveScoresForEnrichment never runs from here at
+            // all, regardless of how many regions or events the rollup covers.
+            verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(
+                    eq(tomorrow), eq(tomorrow), eq(Set.of(TargetType.SUNSET)));
+            verify(evaluationViewService, never())
+                    .getLiveScoresForEnrichment(any(), any(), any());
         }
 
         @Test
@@ -2919,13 +2939,13 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
                                     "Bamburgh", 2, 25, 20, "Poor"),
                             "Dunstanburgh", new BriefingEvaluationResult(
-                                    "Dunstanburgh", 1, 10, 5, "Very poor")));
+                                    "Dunstanburgh", 1, 10, 5, "Very poor"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2948,15 +2968,15 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Loc1", new BriefingEvaluationResult(
                                     "Loc1", 2, 30, 25, "Low"),
                             "Loc2", new BriefingEvaluationResult(
                                     "Loc2", 3, 50, 45, "Moderate"),
                             "Loc3", new BriefingEvaluationResult(
-                                    "Loc3", 4, 75, 70, "Good")));
+                                    "Loc3", 4, 75, 70, "Good"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2980,15 +3000,15 @@ class BriefingBestBetAdvisorTest {
             LocalDateTime now = FIXED_NOW;
 
             // Ratings: 2, 3, 5 → avg 3.333... → rounds to 3.3
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Loc1", new BriefingEvaluationResult(
                                     "Loc1", 2, 30, 25, "Low"),
                             "Loc2", new BriefingEvaluationResult(
                                     "Loc2", 3, 50, 45, "Moderate"),
                             "Loc3", new BriefingEvaluationResult(
-                                    "Loc3", 5, 95, 90, "Excellent")));
+                                    "Loc3", 5, 95, 90, "Excellent"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -3002,22 +3022,23 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Two regions in same event get independent cache lookups")
+        @DisplayName("Two regions in same event resolve independently from one shared bulk snapshot")
         void twoRegions_independentCacheLookups() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
+            // ONE bulk call covers both regions — see BriefingRollupBuilder.loadLiveScores. The
+            // two regions' outputs must still be attributed correctly from the shared snapshot.
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
                     .thenReturn(Map.of(
-                            "Bamburgh", new BriefingEvaluationResult(
-                                    "Bamburgh", 5, 90, 85, "Excellent")));
-            when(briefingEvaluationService.getCachedScores(
-                    "Lake District", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
-                            "Derwentwater", new BriefingEvaluationResult(
-                                    "Derwentwater", 2, 20, 15, "Poor")));
+                            "Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
+                                    "Bamburgh", new BriefingEvaluationResult(
+                                            "Bamburgh", 5, 90, 85, "Excellent")),
+                            "Lake District|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
+                                    "Derwentwater", new BriefingEvaluationResult(
+                                            "Derwentwater", 2, 20, 15, "Poor"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -3032,15 +3053,15 @@ class BriefingBestBetAdvisorTest {
             assertThat(result.json()).contains("\"claudeHighRatedCount\":1");
             assertThat(result.json()).contains("\"claudeHighRatedCount\":0");
 
-            // Verify each region gets its own lookup
-            verify(briefingEvaluationService, times(2)).getCachedScores(
-                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNSET));
-            verify(briefingEvaluationService, times(2)).getCachedScores(
-                    eq("Lake District"), eq(tomorrow), eq(TargetType.SUNSET));
+            // One bulk load serves both regions — never a per-region call.
+            verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(
+                    eq(tomorrow), eq(tomorrow), eq(Set.of(TargetType.SUNSET)));
+            verify(evaluationViewService, never())
+                    .getLiveScoresForEnrichment(any(), any(), any());
         }
 
         @Test
-        @DisplayName("SUNRISE event passes SUNRISE targetType to cache lookup")
+        @DisplayName("SUNRISE event passes SUNRISE targetType to the bulk load")
         void sunriseEvent_passesSunriseTargetType() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
@@ -3053,8 +3074,8 @@ class BriefingBestBetAdvisorTest {
 
             advisor.buildRollupJson(List.of(day), now);
 
-            verify(briefingEvaluationService, times(2)).getCachedScores(
-                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNRISE));
+            verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(
+                    eq(tomorrow), eq(tomorrow), eq(Set.of(TargetType.SUNRISE)));
         }
 
         @Test
@@ -3515,13 +3536,34 @@ class BriefingBestBetAdvisorTest {
     }
 
     /**
+     * Accumulates every {@link #stubCoverage} call in a test into ONE shared index, registered
+     * once against {@code any()} arguments rather than the exact (start, end, types) triple
+     * {@code BriefingRollupBuilder.loadLiveScores} computes from the whole day list — which this
+     * generic helper has no reliable way to predict when a caller stubs several regions, dates or
+     * event types in one test (the actual bulk load spans the union of every day's event types,
+     * not one type per call). Mockito returns the same map reference on every matching
+     * invocation, so a later {@code stubCoverage} call's {@code put} is visible to a bulk load
+     * that already ran earlier in the same test. A caller that needs the exact-arguments
+     * assertion instead (that the bulk load runs once, with precisely this window) stubs
+     * {@code getLiveScoresForEnrichmentBulk} directly, as the {@code ClaudeScoreEnrichmentTests}
+     * nested class does.
+     */
+    private final Map<String, Map<String, BriefingEvaluationResult>> coverageBulkIndex =
+            new HashMap<>();
+    private boolean coverageBulkStubRegistered = false;
+
+    /**
      * Stubs one cached colour rating for a region/event so its candidate has non-zero Claude
      * coverage — otherwise {@code dropUnevaluatedPicks} removes it as an un-evidenced pick.
      */
     private void stubCoverage(String region, LocalDate date, TargetType type) {
-        when(briefingEvaluationService.getCachedScores(region, date, type))
-                .thenReturn(Map.of("Loc",
-                        new BriefingEvaluationResult("Loc", 4, 70, 60, "Good")));
+        coverageBulkIndex.put(region + "|" + date + "|" + type, Map.of("Loc",
+                new BriefingEvaluationResult("Loc", 4, 70, 60, "Good")));
+        if (!coverageBulkStubRegistered) {
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(any(), any(), any()))
+                    .thenReturn(coverageBulkIndex);
+            coverageBulkStubRegistered = true;
+        }
     }
 
     private static BriefingRegion region(String name, Verdict verdict,

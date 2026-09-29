@@ -39,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -205,6 +206,26 @@ public class ForecastController {
         List<com.gregochr.goldenhour.entity.ForecastEvaluationEntity> entities = locationIds.isEmpty()
                 ? List.of()
                 : repository.findLatestRunPerSlotByLocationIds(locationIds, from, horizon);
+        // A nightly Gate 4 stability skip writes no row to this table — the whole reason the slot
+        // can go on reading as "the latest row" long after the pipeline declined to re-look at it.
+        // This is the one serve path that reads forecast_evaluation directly rather than through
+        // EvaluationViewService.mergeToView, so it has to apply the same retraction decision
+        // itself, via the SAME method: this endpoint has no cached_evaluation lookup of its own, so
+        // it calls isSlotRetracted with a null cached side, which correctly means "no live cache
+        // evidence to fall back to" here — a slot is dropped when its only visible row is stale OR
+        // says nothing at all while a skip stands against it, exactly as EvaluationViewService drops
+        // it, so the two never disagree about the same slot. (This intentionally now drops an
+        // otherwise-unscored row too, when a skip is recorded against it — the single case this
+        // changes from a plain "row has nothing to say" filter: an ordinary, never-skipped unscored
+        // row is completely unaffected, since isSlotRetracted returns false immediately whenever no
+        // skip is recorded, which is true for the overwhelming majority of forecast_evaluation's
+        // null-rating rows.)
+        Map<String, Instant> stabilitySkips = evaluationViewService.loadStabilitySkips(from, horizon);
+        entities = entities.stream()
+                .filter(e -> !EvaluationViewService.isSlotRetracted(null, null, e,
+                        stabilitySkips.get(e.getLocationName() + "|" + e.getTargetDate()
+                                + "|" + e.getTargetType())))
+                .toList();
         List<ForecastListDto> dtos = new ArrayList<>(dtoMapper.toListDtoList(entities, lite));
 
         // 2. Cached-only rows — surfaced so the Map date strip shows future dates that the
@@ -220,7 +241,8 @@ public class ForecastController {
         // getForecasts already has its own latest forecast rows, so this skips the per-location
         // forecast_evaluation re-query + merge that forDateRange would do — and reuses `enabled`.
         List<LocationEvaluationView> views = evaluationViewService.cachedOnlyViewsForDateRange(
-                from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET), enabled);
+                from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET), enabled,
+                stabilitySkips);
         for (LocationEvaluationView view : views) {
             if (view.source() != LocationEvaluationView.Source.CACHED_EVALUATION) {
                 continue;

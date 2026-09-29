@@ -15,8 +15,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -26,7 +28,9 @@ import static org.mockito.Mockito.when;
  *
  * <p>Verifies that scores ({@code forecast_score}) and readings ({@code survivor_atmosphere}) are
  * folded by their shared key into one composite, kept in their own correctly-shaped sub-records
- * (never flattened), and that single-surface keys yield the EMPTY sub-record on the absent side.
+ * (never flattened), that single-surface keys yield the EMPTY sub-record on the absent side, and
+ * that a nightly Gate 4 stability skip retracts an INVERSION/BLUEBELL component the same way it
+ * retracts a {@code cached_evaluation}/{@code forecast_evaluation} rating (a Codex review of #940).
  */
 @ExtendWith(MockitoExtension.class)
 class SurvivorSignalReaderTest {
@@ -34,25 +38,37 @@ class SurvivorSignalReaderTest {
     private static final LocalDate FROM = LocalDate.of(2026, 6, 17);
     private static final LocalDate TO = FROM.plusDays(3);
     private static final TargetType SUNSET = TargetType.SUNSET;
+    private static final String LOCATION_NAME = "Cat Bells";
+    private static final Instant T0 = Instant.parse("2026-06-17T18:00:00Z");
+    private static final Instant T1 = Instant.parse("2026-06-17T19:00:00Z");
+    private static final Instant T2 = Instant.parse("2026-06-17T20:00:00Z");
 
     @Mock
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
     private SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    @Mock
+    private EvaluationViewService evaluationViewService;
 
     private SurvivorSignalReader reader() {
-        return new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
+        return new SurvivorSignalReader(
+                forecastScoreRepository, survivorAtmosphereRepository, evaluationViewService);
     }
 
     private static LocationEntity location(long id) {
         LocationEntity l = new LocationEntity();
         l.setId(id);
-        l.setName("Cat Bells");
+        l.setName(LOCATION_NAME);
         return l;
     }
 
     private static ForecastScoreEntity score(ForecastType type, LocationEntity loc, int value,
             String summary) {
+        return score(type, loc, value, summary, T0);
+    }
+
+    private static ForecastScoreEntity score(ForecastType type, LocationEntity loc, int value,
+            String summary, Instant evaluatedAt) {
         ForecastScoreEntity s = new ForecastScoreEntity();
         s.setForecastType(type);
         s.setLocation(loc);
@@ -60,6 +76,7 @@ class SurvivorSignalReaderTest {
         s.setEventType(SUNSET);
         s.setScore(value);
         s.setSummary(summary);
+        s.setEvaluatedAt(evaluatedAt);
         return s;
     }
 
@@ -87,9 +104,21 @@ class SurvivorSignalReaderTest {
         when(survivorAtmosphereRepository.findInDateRange(FROM, TO)).thenReturn(rows);
     }
 
+    /** No stability skip recorded against any slot — the overwhelming majority of calls. */
+    private void stubNoSkips() {
+        when(evaluationViewService.loadStabilitySkips(FROM, TO)).thenReturn(Map.of());
+    }
+
+    /** A stability skip recorded at {@code skippedAt} against the one slot every fixture uses. */
+    private void stubSkip(Instant skippedAt) {
+        String key = EvaluationViewService.stabilitySkipKey(LOCATION_NAME, FROM, SUNSET);
+        when(evaluationViewService.loadStabilitySkips(FROM, TO)).thenReturn(Map.of(key, skippedAt));
+    }
+
     @Test
     @DisplayName("score and reading on the same key fold into ONE composite, both sub-records set")
     void sameKey_mergesIntoOneComposite() {
+        stubNoSkips();
         LocationEntity loc = location(1L);
         stubInversion(List.of(score(ForecastType.INVERSION, loc, 9, "STRONG")));
         stubBluebell(List.of());
@@ -110,6 +139,7 @@ class SurvivorSignalReaderTest {
     @Test
     @DisplayName("the INVERSION row's summary is exposed as the inversion band")
     void inversionRow_summaryBecomesBand() {
+        stubNoSkips();
         // ForecastScoreWriter stores the NONE/MODERATE/STRONG classification in the summary
         // column; the inversion detector labels its fact line from it rather than assuming STRONG.
         LocationEntity loc = location(4L);
@@ -126,6 +156,7 @@ class SurvivorSignalReaderTest {
     @Test
     @DisplayName("an INVERSION row with no summary yields a null band, not an empty composite")
     void inversionRow_nullSummaryYieldsNullBand() {
+        stubNoSkips();
         LocationEntity loc = location(5L);
         stubInversion(List.of(score(ForecastType.INVERSION, loc, 9, null)));
         stubBluebell(List.of());
@@ -140,6 +171,7 @@ class SurvivorSignalReaderTest {
     @Test
     @DisplayName("empty surfaces → empty result")
     void emptySurfaces_emptyResult() {
+        stubNoSkips();
         stubInversion(List.of());
         stubBluebell(List.of());
         stubReadings(List.of());
@@ -150,6 +182,7 @@ class SurvivorSignalReaderTest {
     @Test
     @DisplayName("readings-only key → EMPTY scores, populated readings")
     void readingsOnly_emptyScores() {
+        stubNoSkips();
         LocationEntity loc = location(2L);
         stubInversion(List.of());
         stubBluebell(List.of());
@@ -163,6 +196,7 @@ class SurvivorSignalReaderTest {
     @Test
     @DisplayName("scores-only key → populated scores, EMPTY readings")
     void scoresOnly_emptyReadings() {
+        stubNoSkips();
         LocationEntity loc = location(3L);
         stubInversion(List.of(score(ForecastType.INVERSION, loc, 7, "MODERATE")));
         stubBluebell(List.of());
@@ -176,6 +210,7 @@ class SurvivorSignalReaderTest {
     @Test
     @DisplayName("bluebell score carries score and summary into the composite")
     void bluebell_carriesScoreAndSummary() {
+        stubNoSkips();
         LocationEntity loc = location(4L);
         stubInversion(List.of());
         stubBluebell(List.of(score(ForecastType.BLUEBELL, loc, 4, "Bright still light")));
@@ -184,5 +219,97 @@ class SurvivorSignalReaderTest {
         SurvivorSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.scores().bluebell()).isEqualTo(4);
         assertThat(s.scores().bluebellSummary()).isEqualTo("Bright still light");
+    }
+
+    @Test
+    @DisplayName("bluebell component written before a stability skip is retracted — dropped, not "
+            + "just a null score on an otherwise-present composite (Codex review of #940)")
+    void bluebellWrittenBeforeSkip_retracted() {
+        LocationEntity loc = location(4L);
+        stubInversion(List.of());
+        stubBluebell(List.of(score(ForecastType.BLUEBELL, loc, 4, "Bright still light", T0)));
+        stubReadings(List.of());
+        stubSkip(T1);
+
+        // The whole composite is gone, not merely its bluebell field — nothing else survives for
+        // this slot, so there is nothing left to build a composite around.
+        assertThat(reader().read(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("bluebell component written AFTER the skip that stands against its slot is served")
+    void bluebellWrittenAfterSkip_served() {
+        LocationEntity loc = location(4L);
+        stubInversion(List.of());
+        stubBluebell(List.of(score(ForecastType.BLUEBELL, loc, 4, "Bright still light", T2)));
+        stubReadings(List.of());
+        stubSkip(T1);
+
+        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        assertThat(s.scores().bluebell()).isEqualTo(4);
+        assertThat(s.scores().bluebellSummary()).isEqualTo("Bright still light");
+    }
+
+    @Test
+    @DisplayName("inversion component written before a stability skip is retracted the same way")
+    void inversionWrittenBeforeSkip_retracted() {
+        LocationEntity loc = location(5L);
+        stubInversion(List.of(score(ForecastType.INVERSION, loc, 9, "STRONG", T0)));
+        stubBluebell(List.of());
+        stubReadings(List.of());
+        stubSkip(T1);
+
+        assertThat(reader().read(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a retracted score does not retract a live atmosphere reading on the same slot — "
+            + "survivor_atmosphere is measured input, never a Claude opinion a skip can supersede")
+    void retractedScore_readingsOnSameSlotSurvive() {
+        LocationEntity loc = location(6L);
+        stubInversion(List.of(score(ForecastType.INVERSION, loc, 9, "STRONG", T0)));
+        stubBluebell(List.of());
+        stubReadings(List.of(readings(loc, "60.00")));
+        stubSkip(T1);
+
+        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        assertThat(s.scores()).isSameAs(SurvivorSignals.Scores.EMPTY);
+        assertThat(s.readings().dust()).isEqualByComparingTo("60.00");
+    }
+
+    @Test
+    @DisplayName("withStabilityWindow shares ONE loadStabilitySkips call across several read() calls "
+            + "for the identical window, instead of one per caller")
+    void withStabilityWindow_sharesOneLoadAcrossSeveralReadCalls() {
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of());
+        stubSkip(T1);
+        SurvivorSignalReader reader = reader();
+
+        reader.withStabilityWindow(FROM, TO, () -> {
+            reader.read(FROM, TO);
+            reader.read(FROM, TO);
+            reader.read(FROM, TO);
+            return null;
+        });
+
+        org.mockito.Mockito.verify(evaluationViewService, org.mockito.Mockito.times(1))
+                .loadStabilitySkips(FROM, TO);
+    }
+
+    @Test
+    @DisplayName("a read() call made outside any window still loads its own skip map — unshared, "
+            + "but correct — so a caller like ComingUpConditionsBuilder is unaffected")
+    void readOutsideWindow_loadsOwnCopy() {
+        LocationEntity loc = location(4L);
+        stubInversion(List.of());
+        stubBluebell(List.of(score(ForecastType.BLUEBELL, loc, 4, "Bright still light", T0)));
+        stubReadings(List.of());
+        stubSkip(T1);
+
+        assertThat(reader().read(FROM, TO)).isEmpty();
+        org.mockito.Mockito.verify(evaluationViewService, org.mockito.Mockito.times(1))
+                .loadStabilitySkips(FROM, TO);
     }
 }
