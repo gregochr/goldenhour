@@ -217,10 +217,18 @@ public class PipelineRunPickService {
      * </ul>
      *
      * <p>⚠️ Reads through {@link EvaluationViewService#getLiveScoresForEnrichment}, not the raw
-     * {@code BriefingEvaluationService} cache directly — the same retraction-aware read
-     * {@code BriefingRollupBuilder} uses. A rating superseded by a newer nightly stability skip or a
-     * newer triage row is excluded here exactly as it is from the rollup Claude was shown, so a
-     * cross-run comparison never rests on a number the rest of the product has stopped serving.
+     * {@code BriefingEvaluationService} cache directly — the same retraction-aware precedence
+     * {@code BriefingRollupBuilder} applies. A rating superseded by a newer nightly stability skip
+     * or a newer triage row is excluded here exactly as it is from the rollup Claude was shown, so
+     * a cross-run comparison never rests on a number the rest of the product has stopped serving.
+     *
+     * <p>⚠️ <b>Deliberately the single-key read, not the bulk one.</b> {@code BriefingRollupBuilder}
+     * switched to {@link EvaluationViewService#getLiveScoresForEnrichmentBulk} because it was
+     * calling the single-key read up to 72 times per rollup (a Codex review of #940). This method
+     * is called at most once per pick — {@link #persist} documents "normally 1 or 2 items" — so a
+     * pipeline run costs at most a handful of calls here, never a loop over a window; switching to
+     * the bulk accessor for that would trade a bounded, already-small cost for the same fixed
+     * per-call cost the bulk load itself carries, for no benefit.
      */
     Double lookupAverageRating(BestBet pick, LocalDate eventDate) {
         if (pick.region() == null || eventDate == null || pick.eventType() == null) {

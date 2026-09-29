@@ -2339,6 +2339,52 @@ class BriefingServiceTest {
     @DisplayName("Cached Claude score enrichment")
     class CachedScoreEnrichmentTests {
 
+        /**
+         * Accumulates {@link #stubBulkScores} calls across a test into one shared answer for
+         * {@code EvaluationViewService#getScoresForEnrichmentBulk} — the build path's ONE bulk
+         * load (see {@code BriefingService#bulkScoreResolver}), which replaced the old
+         * per-region-per-event {@code getScoresForEnrichment} calls these tests used to stub with
+         * {@code eq(regionName), any(LocalDate.class), any(TargetType.class)}. Keyed by region
+         * name so two regions stubbed in the same test (bulk has no region argument to
+         * distinguish them by) compose into one answer rather than the second stub silently
+         * replacing the first.
+         */
+        private final Map<String, Map<String, BriefingEvaluationResult>> stubbedRegionRatings =
+                new java.util.HashMap<>();
+        private boolean bulkScoresStubRegistered;
+
+        /**
+         * Stubs the build path's bulk score load to answer {@code ratings} for {@code regionName}
+         * at every date and target type actually requested, for every request made after this
+         * call — the bulk-load equivalent of the old any-date/any-type per-call stub, now that one
+         * call serves the whole window rather than one call per region/event.
+         */
+        private void stubBulkScores(String regionName, Map<String, BriefingEvaluationResult> ratings) {
+            stubbedRegionRatings.put(regionName, ratings);
+            if (bulkScoresStubRegistered) {
+                return;
+            }
+            bulkScoresStubRegistered = true;
+            when(evaluationViewService.getScoresForEnrichmentBulk(any(), any(), any()))
+                    .thenAnswer(invocation -> {
+                        LocalDate start = invocation.getArgument(0);
+                        LocalDate end = invocation.getArgument(1);
+                        @SuppressWarnings("unchecked")
+                        Set<TargetType> types = (Set<TargetType>) invocation.getArgument(2);
+                        Map<String, Map<String, BriefingEvaluationResult>> index =
+                                new java.util.HashMap<>();
+                        for (Map.Entry<String, Map<String, BriefingEvaluationResult>> e
+                                : stubbedRegionRatings.entrySet()) {
+                            for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+                                for (TargetType t : types) {
+                                    index.put(e.getKey() + "|" + d + "|" + t, e.getValue());
+                                }
+                            }
+                        }
+                        return index;
+                    });
+        }
+
         @Test
         @DisplayName("Slot enriched when evaluation cache contains a rated entry")
         void slotEnrichedWhenCacheHit() {
@@ -2347,9 +2393,7 @@ class BriefingServiceTest {
             BriefingEvaluationResult eval = new BriefingEvaluationResult(
                     "Bamburgh", 4, 78, 52,
                     "Dramatic light expected.", null, null);
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", eval));
+            stubBulkScores("North East", Map.of("Bamburgh", eval));
 
             briefingService.refreshBriefing();
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
@@ -2377,10 +2421,8 @@ class BriefingServiceTest {
             // production.
             LocationEntity loc = locationWithRegion("Bamburgh", "North East");
             stubFullRefresh(loc);
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
-                            "Bamburgh", 4, 78, 52, "Dramatic light expected.", null, null)));
+            stubBulkScores("North East", Map.of("Bamburgh", new BriefingEvaluationResult(
+                    "Bamburgh", 4, 78, 52, "Dramatic light expected.", null, null)));
 
             briefingService.refreshBriefing();
 
@@ -2414,9 +2456,7 @@ class BriefingServiceTest {
                 evals.put(loc.getName(), new BriefingEvaluationResult(
                         loc.getName(), 4, 78, 52, "Dramatic light expected.", null, null));
             }
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(evals);
+            stubBulkScores("North East", evals);
 
             briefingService.refreshBriefing();
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
@@ -2452,9 +2492,8 @@ class BriefingServiceTest {
         void slotNotEnrichedWhenCacheEmpty() {
             LocationEntity loc = locationWithRegion("Bamburgh", "North East");
             stubFullRefresh(loc);
-            when(evaluationViewService.getScoresForEnrichment(
-                    any(), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of());
+            // No stubBulkScores call: the bulk load is unstubbed, so Mockito's default answer
+            // (an empty map) is exactly the "nothing cached" case this test exercises.
 
             briefingService.refreshBriefing();
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
@@ -2474,9 +2513,7 @@ class BriefingServiceTest {
             BriefingEvaluationResult triaged = new BriefingEvaluationResult(
                     "Bamburgh", null, null, null, null,
                     com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD, "Heavy overcast");
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", triaged));
+            stubBulkScores("North East", Map.of("Bamburgh", triaged));
 
             briefingService.refreshBriefing();
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
@@ -2486,8 +2523,18 @@ class BriefingServiceTest {
         }
 
         @Test
-        @DisplayName("Cache lookup uses exact regionName, date, and targetType")
+        @DisplayName("Build path issues ONE bulk score load for the whole window, and its "
+                + "region/date/targetType key still resolves the right slot")
         void cacheLookupUsesExactParams() {
+            // Until a Codex review of #940 caught it, the build path called
+            // getScoresForEnrichment once per region/event — this test used to prove exact
+            // arguments on that per-call lookup, including that a SUNRISE-only location's build
+            // never queries SUNSET. Under the bulk load, BriefingService#bulkScoreResolver's
+            // window carries the UNION of every event summary's targetType, including SUNSET
+            // event summaries with no regions in them — the old per-call assertion has no
+            // equivalent to make. What still matters, and what this now pins instead: exactly
+            // ONE bulk call for the whole build, never a per-slot fallback, and the resolver's
+            // "regionName|date|targetType" key still routes the right rating to the right slot.
             LocationEntity loc = LocationEntity.builder()
                     .id(1L).name("Bamburgh").lat(55.0).lon(-1.5)
                     .locationType(Set.of(LocationType.LANDSCAPE))
@@ -2496,19 +2543,16 @@ class BriefingServiceTest {
                     .region(RegionEntity.builder().name("North East").build())
                     .enabled(true).createdAt(LocalDateTime.now()).build();
             stubFullRefresh(loc);
-            when(evaluationViewService.getScoresForEnrichment(
-                    any(), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of());
+            stubBulkScores("North East", Map.of("Bamburgh", new BriefingEvaluationResult(
+                    "Bamburgh", 4, 78, 52, "Dramatic light expected.", null, null)));
 
             briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
 
-            // SUNRISE-only location: only SUNRISE lookups occur (kills targetType swap)
-            verify(evaluationViewService, org.mockito.Mockito.atLeastOnce())
-                    .getScoresForEnrichment(
-                            eq("North East"), any(LocalDate.class), eq(TargetType.SUNRISE));
-            // SUNSET events have empty regions, so no lookups for SUNSET
-            verify(evaluationViewService, never()).getScoresForEnrichment(
-                    any(), any(LocalDate.class), eq(TargetType.SUNSET));
+            verify(evaluationViewService, times(1)).getScoresForEnrichmentBulk(any(), any(), any());
+            verify(evaluationViewService, never()).getScoresForEnrichment(any(), any(), any());
+            BriefingSlot slot = findFirstSlot(cached, "North East", "Bamburgh");
+            assertThat(slot.claudeRating()).isEqualTo(4);
         }
 
         @Test
@@ -2518,9 +2562,7 @@ class BriefingServiceTest {
             stubFullRefresh(loc);
             BriefingEvaluationResult eval = new BriefingEvaluationResult(
                     "Bamburgh", 3, 45, 60, "Average conditions.", null, null);
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", eval));
+            stubBulkScores("North East", Map.of("Bamburgh", eval));
 
             briefingService.refreshBriefing();
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
@@ -2535,8 +2577,14 @@ class BriefingServiceTest {
         }
 
         @Test
-        @DisplayName("Two regions get independent cache lookups with correct names")
+        @DisplayName("Two regions resolve independently from one shared bulk load, never a "
+                + "hardcoded region name")
         void twoRegionsGetIndependentLookups() {
+            // Was a verify on the old per-region getScoresForEnrichment call's exact arguments —
+            // getScoresForEnrichmentBulk takes no region argument at all (one call answers for
+            // every region in the window), so "kills hardcoded region name" is now proven by the
+            // OUTPUT: each region's own slot must carry its own stubbed rating, not the other
+            // region's or none at all.
             LocationEntity loc1 = LocationEntity.builder()
                     .id(1L).name("Bamburgh").lat(55.6).lon(-1.7)
                     .locationType(Set.of(LocationType.LANDSCAPE))
@@ -2557,17 +2605,21 @@ class BriefingServiceTest {
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                     .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
-            when(evaluationViewService.getScoresForEnrichment(
-                    any(), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of());
+            stubBulkScores("North East", Map.of("Bamburgh", new BriefingEvaluationResult(
+                    "Bamburgh", 4, 70, 60, "Good.", null, null)));
+            stubBulkScores("Yorkshire", Map.of("Scarborough", new BriefingEvaluationResult(
+                    "Scarborough", 2, 30, 20, "Poor.", null, null)));
 
             briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
 
-            // Both regions looked up — kills hardcoded region name
-            verify(evaluationViewService, org.mockito.Mockito.atLeastOnce())
-                    .getScoresForEnrichment(eq("North East"), any(LocalDate.class), eq(TargetType.SUNSET));
-            verify(evaluationViewService, org.mockito.Mockito.atLeastOnce())
-                    .getScoresForEnrichment(eq("Yorkshire"), any(LocalDate.class), eq(TargetType.SUNSET));
+            assertThat(findFirstSlot(cached, "North East", "Bamburgh").claudeRating())
+                    .isEqualTo(4);
+            assertThat(findFirstSlot(cached, "Yorkshire", "Scarborough").claudeRating())
+                    .isEqualTo(2);
+            // One shared bulk call serves both regions — never a per-region fallback.
+            verify(evaluationViewService, times(1)).getScoresForEnrichmentBulk(any(), any(), any());
+            verify(evaluationViewService, never()).getScoresForEnrichment(any(), any(), any());
         }
 
         @Test
@@ -2596,9 +2648,7 @@ class BriefingServiceTest {
             // Only Bamburgh in cache, Durham missing
             BriefingEvaluationResult eval = new BriefingEvaluationResult(
                     "Bamburgh", 5, 90, 85, "Spectacular sunset.", null, null);
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", eval));
+            stubBulkScores("North East", Map.of("Bamburgh", eval));
 
             briefingService.refreshBriefing();
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
@@ -2669,15 +2719,13 @@ class BriefingServiceTest {
                     woodlandIn(1L, "Bluebell Wood", rn),
                     skyIn(2L, "Bamburgh", rn),
                     skyIn(3L, "Alnmouth", rn)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(rn), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of(
-                            "Bluebell Wood", new BriefingEvaluationResult(
-                                    "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null),
-                            "Bamburgh", new BriefingEvaluationResult(
-                                    "Bamburgh", 2, 50, 50, "Flat.", null, null),
-                            "Alnmouth", new BriefingEvaluationResult(
-                                    "Alnmouth", 2, 50, 50, "Flat.", null, null)));
+            stubBulkScores(rn, Map.of(
+                    "Bluebell Wood", new BriefingEvaluationResult(
+                            "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null),
+                    "Bamburgh", new BriefingEvaluationResult(
+                            "Bamburgh", 2, 50, 50, "Flat.", null, null),
+                    "Alnmouth", new BriefingEvaluationResult(
+                            "Alnmouth", 2, 50, 50, "Flat.", null, null)));
 
             briefingService.refreshBriefing();
             BriefingRegion region = regionAt(
@@ -2724,10 +2772,8 @@ class BriefingServiceTest {
                     woodlandIn(1L, "Bluebell Wood", rn),
                     skyIn(2L, "Bamburgh", rn),
                     skyIn(3L, "Alnmouth", rn)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(rn), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bluebell Wood", new BriefingEvaluationResult(
-                            "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
+            stubBulkScores(rn, Map.of("Bluebell Wood", new BriefingEvaluationResult(
+                    "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
 
             briefingService.refreshBriefing();
             BriefingRegion region = regionAt(
@@ -2746,9 +2792,8 @@ class BriefingServiceTest {
             // collapsing it onto LOW would state a confidence about a region nothing has looked at.
             String rn = "North East";
             stubFullRefresh(List.of(skyIn(2L, "Bamburgh", rn), skyIn(3L, "Alnmouth", rn)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(rn), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of());
+            // No stubBulkScores call: the bulk load is unstubbed, so Mockito's default answer
+            // (an empty map) is exactly the "nothing rated" case this test exercises.
 
             briefingService.refreshBriefing();
 
@@ -2772,15 +2817,13 @@ class BriefingServiceTest {
                     woodlandIn(1L, "Bluebell Wood", rn),
                     skyIn(2L, "Bamburgh", rn),
                     skyIn(3L, "Alnmouth", rn)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(rn), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of(
-                            "Bluebell Wood", new BriefingEvaluationResult(
-                                    "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null),
-                            "Bamburgh", new BriefingEvaluationResult(
-                                    "Bamburgh", 4, 50, 50, "Breaking up.", null, null),
-                            "Alnmouth", new BriefingEvaluationResult(
-                                    "Alnmouth", 2, 50, 50, "Flat.", null, null)));
+            stubBulkScores(rn, Map.of(
+                    "Bluebell Wood", new BriefingEvaluationResult(
+                            "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null),
+                    "Bamburgh", new BriefingEvaluationResult(
+                            "Bamburgh", 4, 50, 50, "Breaking up.", null, null),
+                    "Alnmouth", new BriefingEvaluationResult(
+                            "Alnmouth", 2, 50, 50, "Flat.", null, null)));
 
             briefingService.refreshBriefing();
             BriefingRegion region = regionAt(
@@ -2808,13 +2851,11 @@ class BriefingServiceTest {
             stubFullRefresh(List.of(
                     woodlandIn(1L, "Bluebell Wood", rn),
                     woodlandIn(2L, "Chopwell Wood", rn)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(rn), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of(
-                            "Bluebell Wood", new BriefingEvaluationResult(
-                                    "Bluebell Wood", 4, 50, 50, "Carpet in full colour.", null, null),
-                            "Chopwell Wood", new BriefingEvaluationResult(
-                                    "Chopwell Wood", 2, 50, 50, "Past its best.", null, null)));
+            stubBulkScores(rn, Map.of(
+                    "Bluebell Wood", new BriefingEvaluationResult(
+                            "Bluebell Wood", 4, 50, 50, "Carpet in full colour.", null, null),
+                    "Chopwell Wood", new BriefingEvaluationResult(
+                            "Chopwell Wood", 2, 50, 50, "Past its best.", null, null)));
 
             briefingService.refreshBriefing();
             BriefingRegion region = regionAt(
@@ -2845,17 +2886,13 @@ class BriefingServiceTest {
                     woodlandIn(1L, "Bluebell Wood", woodRegion),
                     skyIn(2L, "Bamburgh", skyRegion),
                     skyIn(3L, "Alnmouth", skyRegion)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(woodRegion), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bluebell Wood", new BriefingEvaluationResult(
-                            "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(skyRegion), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of(
-                            "Bamburgh", new BriefingEvaluationResult(
-                                    "Bamburgh", 4, 50, 50, "Breaking up.", null, null),
-                            "Alnmouth", new BriefingEvaluationResult(
-                                    "Alnmouth", 2, 50, 50, "Flat.", null, null)));
+            stubBulkScores(woodRegion, Map.of("Bluebell Wood", new BriefingEvaluationResult(
+                    "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
+            stubBulkScores(skyRegion, Map.of(
+                    "Bamburgh", new BriefingEvaluationResult(
+                            "Bamburgh", 4, 50, 50, "Breaking up.", null, null),
+                    "Alnmouth", new BriefingEvaluationResult(
+                            "Alnmouth", 2, 50, 50, "Flat.", null, null)));
 
             briefingService.refreshBriefing();
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
@@ -2883,10 +2920,8 @@ class BriefingServiceTest {
                     woodlandIn(1L, "Bluebell Wood", rn),
                     skyIn(2L, "Bamburgh", rn),
                     skyIn(3L, "Alnmouth", rn)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(rn), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bluebell Wood", new BriefingEvaluationResult(
-                            "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
+            stubBulkScores(rn, Map.of("Bluebell Wood", new BriefingEvaluationResult(
+                    "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
 
             briefingService.refreshBriefing();
             BriefingRegion region = regionAt(
@@ -2900,9 +2935,8 @@ class BriefingServiceTest {
         void bestRatingIsNullWhenTheRegionIsUnscored() {
             String rn = "North East";
             stubFullRefresh(List.of(skyIn(2L, "Bamburgh", rn), skyIn(3L, "Alnmouth", rn)));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq(rn), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of());
+            // No stubBulkScores call: the bulk load is unstubbed, so Mockito's default answer
+            // (an empty map) is exactly the "nothing rated" case this test exercises.
 
             briefingService.refreshBriefing();
 
@@ -3017,33 +3051,71 @@ class BriefingServiceTest {
                     .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         }
 
-        /** Build-time enrichment reads the per-region lookup — stub it with the given rating. */
-        private void stubBuildScores(int rating) {
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
-                            "Bamburgh", rating, 50, 50, "Conditions.", null, null)));
+        /**
+         * Both the build path ({@code BriefingService#bulkScoreResolver}) and the serve path
+         * ({@code ServedBriefingAssembler#reEnrichVerdicts}) now read the SAME
+         * {@code getScoresForEnrichmentBulk} method — the build path used to read a different,
+         * single-key method, so the two could be stubbed independently. They cannot any more:
+         * Mockito cannot tell which call site is asking, only WHICH call this is (the build always
+         * runs first, inside {@code refreshBriefing()}; the serve path runs second, inside
+         * {@code getCachedBriefingForApi()}), so this answers the FIRST invocation from
+         * {@link #buildResults} and every invocation after it from {@link #serveResults} — a null
+         * slot answers empty, matching the old behaviour of an unstubbed mock. Shared by both the
+         * single-rating helpers below (the "Bamburgh"-only fixture) and the two-location
+         * {@code scored()}/{@code triaged()} fixture further down this class, so a test using
+         * either family still gets exactly one registration and the same build-then-serve
+         * sequencing.
+         */
+        private Map<String, BriefingEvaluationResult> buildResults;
+        private Map<String, BriefingEvaluationResult> serveResults;
+        private boolean bulkScoresStubRegistered;
+        private final java.util.concurrent.atomic.AtomicInteger bulkCallCount =
+                new java.util.concurrent.atomic.AtomicInteger();
+
+        private static Map<String, Map<String, BriefingEvaluationResult>> indexFor(
+                LocalDate start, LocalDate end, Map<String, BriefingEvaluationResult> results) {
+            Map<String, Map<String, BriefingEvaluationResult>> index = new java.util.HashMap<>();
+            for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+                index.put("North East|" + d + "|SUNSET", results);
+            }
+            return index;
         }
 
-        /**
-         * Serve-time re-enrichment reads the bulk index — stub it with the given rating for every
-         * date in the requested window, modelling a batch that re-scored the region after build.
-         */
-        private void stubServeScores(int rating) {
+        private void registerBulkScoresStubIfNeeded() {
+            if (bulkScoresStubRegistered) {
+                return;
+            }
+            bulkScoresStubRegistered = true;
             when(evaluationViewService.getScoresForEnrichmentBulk(
                     any(LocalDate.class), any(LocalDate.class), any()))
                     .thenAnswer(inv -> {
                         LocalDate start = inv.getArgument(0);
                         LocalDate end = inv.getArgument(1);
-                        Map<String, Map<String, BriefingEvaluationResult>> index =
-                                new java.util.HashMap<>();
-                        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
-                            index.put("North East|" + d + "|SUNSET", Map.of("Bamburgh",
-                                    new BriefingEvaluationResult("Bamburgh", rating, 50, 50,
-                                            "Conditions.", null, null)));
-                        }
-                        return index;
+                        Map<String, BriefingEvaluationResult> results =
+                                bulkCallCount.getAndIncrement() == 0 ? buildResults : serveResults;
+                        return results == null ? Map.of() : indexFor(start, end, results);
                     });
+        }
+
+        /** Build-time enrichment reads the FIRST bulk call — stub it with the given rating. */
+        private void stubBuildScores(int rating) {
+            stubBuildIndex(Map.of("Bamburgh", new BriefingEvaluationResult(
+                    "Bamburgh", rating, 50, 50, "Conditions.", null, null)));
+        }
+
+        /**
+         * Serve-time re-enrichment reads the SECOND bulk call onward — stub it with the given
+         * rating, modelling a batch that re-scored the region after build.
+         */
+        private void stubServeScores(int rating) {
+            stubServeIndex(Map.of("Bamburgh", new BriefingEvaluationResult(
+                    "Bamburgh", rating, 50, 50, "Conditions.", null, null)));
+        }
+
+        /** Build-time enrichment reads the FIRST bulk call — stub it with the given per-location results. */
+        private void stubBuildIndex(Map<String, BriefingEvaluationResult> results) {
+            buildResults = results;
+            registerBulkScoresStubIfNeeded();
         }
 
         /** Makes the gloss service attach a headline+detail to every region, as it would in prod. */
@@ -3133,20 +3205,15 @@ class BriefingServiceTest {
                     "Low cloud 94% — sun blocked");
         }
 
-        /** Stubs serve-time bulk re-enrichment with the given per-location results. */
+        /**
+         * Stubs serve-time bulk re-enrichment (the SECOND bulk call onward) with the given
+         * per-location results — see {@link #registerBulkScoresStubIfNeeded} above, which this
+         * shares with {@link #stubBuildIndex} so a test stubbing both gets one registration and
+         * the correct build-then-serve call ordering.
+         */
         private void stubServeIndex(Map<String, BriefingEvaluationResult> results) {
-            when(evaluationViewService.getScoresForEnrichmentBulk(
-                    any(LocalDate.class), any(LocalDate.class), any()))
-                    .thenAnswer(inv -> {
-                        LocalDate start = inv.getArgument(0);
-                        LocalDate end = inv.getArgument(1);
-                        Map<String, Map<String, BriefingEvaluationResult>> index =
-                                new java.util.HashMap<>();
-                        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
-                            index.put("North East|" + d + "|SUNSET", results);
-                        }
-                        return index;
-                    });
+            serveResults = results;
+            registerBulkScoresStubIfNeeded();
         }
 
         private BriefingSlot slotNamed(BriefingRegion region, String name) {
@@ -3167,10 +3234,8 @@ class BriefingServiceTest {
             // the published number is the one the band test was applied to. A mean derived from any
             // other population — the max, the first slot, a re-read of the cache — lands elsewhere.
             stubFullRefresh(List.of(bamburgh(), seahouses()));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", scored("Bamburgh", 5),
-                            "Seahouses", scored("Seahouses", 2)));
+            stubBuildIndex(Map.of("Bamburgh", scored("Bamburgh", 5),
+                    "Seahouses", scored("Seahouses", 2)));
             stubServeIndex(Map.of("Bamburgh", scored("Bamburgh", 5),
                     "Seahouses", scored("Seahouses", 2)));
 
@@ -3190,10 +3255,8 @@ class BriefingServiceTest {
             // client only ever reads the served payload. Built at 5 and 2, re-scored at 3 and 2 —
             // so a field frozen at build time reads 5 and the re-enriched one reads 3.
             stubFullRefresh(List.of(bamburgh(), seahouses()));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", scored("Bamburgh", 5),
-                            "Seahouses", scored("Seahouses", 2)));
+            stubBuildIndex(Map.of("Bamburgh", scored("Bamburgh", 5),
+                    "Seahouses", scored("Seahouses", 2)));
             stubServeIndex(Map.of("Bamburgh", scored("Bamburgh", 3),
                     "Seahouses", scored("Seahouses", 2)));
 
@@ -3219,9 +3282,7 @@ class BriefingServiceTest {
             // and only an all-canopy region, which the filter passes through untouched, would ever
             // notice. The API path is asserted too, because both must hold.
             stubFullRefresh(List.of(bamburgh(), seahouses()));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of());
+            stubBuildIndex(Map.of());
             stubServeIndex(Map.of());
 
             briefingService.refreshBriefing();
@@ -3246,10 +3307,8 @@ class BriefingServiceTest {
             // one that would hide whether the retraction itself happened. Seahouses keeps its
             // rating so the region survives to be inspected.
             stubFullRefresh(List.of(bamburgh(), seahouses()));
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", scored("Bamburgh", 4),
-                            "Seahouses", scored("Seahouses", 4)));
+            stubBuildIndex(Map.of("Bamburgh", scored("Bamburgh", 4),
+                    "Seahouses", scored("Seahouses", 4)));
             stubServeIndex(Map.of("Bamburgh", triaged("Bamburgh"),
                     "Seahouses", scored("Seahouses", 4)));
 
@@ -3299,9 +3358,10 @@ class BriefingServiceTest {
             // would otherwise blank every rating the briefing had.
             stubFullRefresh(bamburgh());
             stubBuildScores(4);
-            when(evaluationViewService.getScoresForEnrichmentBulk(
-                    any(LocalDate.class), any(LocalDate.class), any()))
-                    .thenReturn(Map.of());
+            // No stubServeScores call: the SECOND bulk call (serve time) is therefore unstubbed
+            // by this test's own choice — registerBulkScoresStubIfNeeded's answer returns an
+            // empty index for it by default, which is exactly "a region the bulk index does not
+            // cover" / "an ABSENT entry" this test exercises.
 
             briefingService.refreshBriefing();
             BriefingRegion served =
@@ -3495,9 +3555,7 @@ class BriefingServiceTest {
             stubFullRefresh(List.of(bamburgh(), seahouses(), alnmouth));
             // Only Bamburgh is rated, at both build and serve — 1 of 3 scoreable slots, a ratio
             // of 0.33: positive, but below the 0.5 threshold just configured.
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", scored("Bamburgh", 4)));
+            stubBuildIndex(Map.of("Bamburgh", scored("Bamburgh", 4)));
             stubServeIndex(Map.of("Bamburgh", scored("Bamburgh", 4)));
 
             briefingService.refreshBriefing();
@@ -3578,16 +3636,16 @@ class BriefingServiceTest {
                     "Fiery skies at dusk");
         }
 
-        /** Stubs the BUILD path only — for tests that never reach the API accessor. */
+        /**
+         * Stubs the bulk score load with the given results for every date in the requested
+         * window. The build path ({@code BriefingService#bulkScoreResolver}) and the serve path
+         * ({@code ServedBriefingAssembler#reEnrichVerdicts}) now read the SAME
+         * {@code getScoresForEnrichmentBulk} method — this class's tests never stub the two paths
+         * with DIFFERENT ratings, so one unconditional stub correctly answers whichever call
+         * (or calls) actually happen, unlike {@code ServeTimeReEnrichment}'s build-then-serve
+         * pair, which needs the two distinguished.
+         */
         private void stubBuildScores(Map<String, BriefingEvaluationResult> results) {
-            when(evaluationViewService.getScoresForEnrichment(
-                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(results);
-        }
-
-        /** Stubs BOTH enrichment paths with the same ratings, so build and serve agree. */
-        private void stubScores(Map<String, BriefingEvaluationResult> results) {
-            stubBuildScores(results);
             when(evaluationViewService.getScoresForEnrichmentBulk(
                     any(LocalDate.class), any(LocalDate.class), any()))
                     .thenAnswer(inv -> {
@@ -3600,6 +3658,11 @@ class BriefingServiceTest {
                         }
                         return index;
                     });
+        }
+
+        /** Stubs BOTH enrichment paths with the same ratings, so build and serve agree. */
+        private void stubScores(Map<String, BriefingEvaluationResult> results) {
+            stubBuildScores(results);
         }
 
         /** Ratings 5 and 2 — a mean of exactly 3.5. */

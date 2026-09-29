@@ -513,6 +513,35 @@ Two consequences worth stating plainly:
   across cycles) cannot answer and must not be asked to; and `EvaluationViewService`'s own
   `loadCachedEvaluations` (the DB-fallback half of `forDateRange`) feeds `mergeToView` per location,
   which is already retraction-aware, so it was never a naked reader in the first place.
+- ⚠️ **A reader that covers a whole window loads it ONCE — the rule the paragraph above got wrong the
+  first time.** `BriefingRollupBuilder.computeRegionStats` and `logCacheCoverage` originally called
+  `EvaluationViewService.getLiveScoresForEnrichment` per region **and** event — up to
+  `PlanRenderLimits.MAX_VISIBLE_EVENTS` (6) events × the region count × 2 call sites, each call
+  costing three queries (the enabled roster, the latest forecast rows, the stability dispositions):
+  roughly 216 queries per best-bet rollup against production's ~6 regions, where the direct in-memory
+  cache read this whole feature replaced cost none. A second Codex re-review of #940 caught it.
+  `EvaluationViewService.getLiveScoresForEnrichmentBulk(start, end, types)` is the fix — the
+  `getLiveScoresForEnrichment` sibling of `getScoresForEnrichmentBulk`, filtering out retraction
+  markers the identical way — and `BriefingRollupBuilder.loadLiveScores` calls it exactly ONCE per
+  `buildRollupJson`, over the whole rollup's date range and every target type its days carry;
+  `computeRegionStats` and `logCacheCoverage` both read the one pre-loaded map by
+  `"regionName|date|targetType"` key, never calling `EvaluationViewService` themselves. Single-key
+  `getLiveScoresForEnrichment` keeps exactly one caller, `PipelineRunPickService.lookupAverageRating`
+  — at most a handful of calls per pipeline run (`persist` documents "normally 1 or 2" picks), so the
+  single-key cost is the right shape there and a bulk load would trade a small, bounded cost for the
+  same fixed per-call cost the bulk accessor itself carries, for no benefit. The **build path** for
+  the Plan payload itself had the identical shape of bug, one query narrower: `BriefingService`'s
+  `enrichWithCachedScores` call used to hand `BriefingRegionEvaluationRollup.enrich` the single-key
+  `evaluationViewService::getScoresForEnrichment` as its resolver, one call per region/event — 2
+  queries each before the stability-skip retraction feature added a third
+  (`loadStabilitySkips`), which is what turned a pre-existing, tolerated pattern into a fix worth
+  making in the same pass. `BriefingService.bulkScoreResolver` now loads
+  `getScoresForEnrichmentBulk` once per build (the marker-preserving sibling, since
+  `BriefingRegionEvaluationRollup.enrichSlot` still needs to see a retraction marker to clear an
+  embedded rating — see above) and hands `rollup.enrich` a closure over it, the identical shape
+  `ServedBriefingAssembler.reEnrichVerdicts` already used on the serve path. Per-request paths
+  (`GET /api/briefing`, `GET /api/briefing/evaluate/scores`, `GET /api/forecast`) were not touched by
+  either fix and still issue their existing one stability-skip query each.
 
 ---
 

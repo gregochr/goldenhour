@@ -636,14 +636,26 @@ public class EvaluationViewService {
      * stability skip is why it does not any more" — that is what lets
      * {@link BriefingRegionEvaluationRollup#enrichSlot} tell a genuine retraction apart from a slot
      * it was never asked about, and clear the embedded rating rather than leave it. A caller that
-     * only ever wants to know "what does this location's sky look like RIGHT NOW", such as the
-     * best-bet advisor's region rollup or a pipeline-run pick snapshot, has no analogous branch and
-     * no business receiving a marker whose every numeric field is {@code null} except
+     * only ever wants to know "what does this location's sky look like RIGHT NOW" has no analogous
+     * branch and no business receiving a marker whose every numeric field is {@code null} except
      * {@code locationName} — a caller that forgot to check {@code retracted()} would either NPE on a
      * null rating or silently treat the marker as "no opinion", both accidents of what the caller
      * happened to do next rather than a decision anyone made. This method removes that whole class
      * of mistake by construction: what comes back contains only live evidence, exactly as if the
      * retracted location had never been evaluated at all.
+     *
+     * <p>⚠️ <b>One region/date/event per call, three queries each — never loop this over a
+     * window.</b> A caller that needs live scores for MANY slots in one pass — a rollup spanning
+     * several regions, dates or events — must load {@link #getLiveScoresForEnrichmentBulk} once
+     * instead: this method's per-call cost ({@link #getScoresForEnrichment}'s own three queries:
+     * the enabled roster, the latest forecast rows, the stability dispositions) is fine for a
+     * handful of calls and a real multiplication for dozens. {@code
+     * PipelineRunPickService.lookupAverageRating} is the sole remaining caller, at persist time,
+     * for at most the 1–2 picks one pipeline run produces — never a loop over a window, so the
+     * single-key cost here is the right shape for it. {@code BriefingRollupBuilder} used to be a
+     * second caller and is not any more (a Codex review of #940 caught it looping this method
+     * across every region and event in a rollup); it now reads {@link
+     * #getLiveScoresForEnrichmentBulk} once per build instead.
      *
      * @param regionName the region name
      * @param date       the forecast date
@@ -822,6 +834,47 @@ public class EvaluationViewService {
         }
 
         return byKey;
+    }
+
+    /**
+     * {@link #getScoresForEnrichmentBulk}, filtered so a caller covering a whole window — the
+     * best-bet advisor's rollup, in particular — can load that window with ONE bulk query set and
+     * still never receive a retraction marker, exactly as {@link #getLiveScoresForEnrichment}
+     * guarantees for a single region/date/event.
+     *
+     * <p>⚠️ <b>This is the fix for a real query-count regression, not a convenience overload.</b>
+     * A caller that needs live scores for many region/date/event slots in one build — the
+     * best-bet advisor's rollup covers up to {@code MAX_VISIBLE_EVENTS} (6) events across every
+     * region, twice per slot (once to build the prompt, once to log coverage) — must call this
+     * ONCE for the whole window and read the result in memory, never
+     * {@link #getLiveScoresForEnrichment} in a loop: each single-key call costs three queries
+     * (the enabled roster, the latest forecast rows, the stability dispositions), so a loop over
+     * even a modest region count turns a handful of DB round trips into dozens per rollup — the
+     * defect a Codex review of #940 caught in {@code BriefingRollupBuilder}. This method costs the
+     * same small, constant number of queries as {@link #getScoresForEnrichmentBulk} regardless of
+     * how many regions, dates or events the window covers.
+     *
+     * @param start the start date (inclusive)
+     * @param end   the end date (inclusive)
+     * @param types the target types to include
+     * @return map of {@code "regionName|date|targetType"} to a map of locationName → result,
+     *         containing no retraction markers
+     */
+    public Map<String, Map<String, BriefingEvaluationResult>> getLiveScoresForEnrichmentBulk(
+            LocalDate start, LocalDate end, Set<TargetType> types) {
+        Map<String, Map<String, BriefingEvaluationResult>> all =
+                getScoresForEnrichmentBulk(start, end, types);
+        Map<String, Map<String, BriefingEvaluationResult>> live = new HashMap<>();
+        for (Map.Entry<String, Map<String, BriefingEvaluationResult>> entry : all.entrySet()) {
+            Map<String, BriefingEvaluationResult> filtered = new HashMap<>();
+            for (Map.Entry<String, BriefingEvaluationResult> inner : entry.getValue().entrySet()) {
+                if (!inner.getValue().retracted()) {
+                    filtered.put(inner.getKey(), inner.getValue());
+                }
+            }
+            live.put(entry.getKey(), filtered);
+        }
+        return live;
     }
 
     /**

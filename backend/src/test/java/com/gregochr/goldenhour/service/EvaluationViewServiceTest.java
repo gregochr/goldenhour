@@ -2749,12 +2749,14 @@ class EvaluationViewServiceTest {
         }
 
         /**
-         * The advisor's rollup builder ({@code BriefingRollupBuilder.computeRegionStats}) and the
-         * pipeline pick snapshot ({@code PipelineRunPickService.lookupAverageRating}) both call this
-         * method and nothing else to learn a region's scores — see
-         * {@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters} and
-         * {@code PipelineRunPickServiceTest.cached_scores_lookup_uses_pick_coordinates} for the pin
-         * on those call sites. These tests exercise the filtering itself: what the raw
+         * {@code PipelineRunPickService.lookupAverageRating} is the sole remaining caller of this
+         * single-key method — see {@code PipelineRunPickServiceTest
+         * .cached_scores_lookup_uses_pick_coordinates} for the pin on that call site.
+         * {@code BriefingRollupBuilder.computeRegionStats} used to call this once per region/event
+         * and now reads {@link #getLiveScoresForEnrichmentBulk} once per rollup instead — see
+         * {@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters} for that pin, and
+         * {@link LiveScoresBulkAgreesWithSingle} below for proof the two accessors answer
+         * identically for the same slot. These tests exercise the filtering itself: what the raw
          * {@code BriefingEvaluationService} cache would have said, versus what a caller that must
          * never see a retracted rating actually receives.
          */
@@ -2907,6 +2909,114 @@ class EvaluationViewServiceTest {
             assertThat(r.rating()).isNull();
             assertThat(r.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
             assertThat(r.retracted()).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("bulk and single live-score reads agree (Codex re-review of #940 at cbbb1b85)")
+    class LiveScoresBulkAgreesWithSingle {
+
+        private static final Instant CACHED_AT = Instant.parse("2026-04-22T01:00:00Z");
+
+        private static Object[] skipRow(String locationName, LocalDate date, TargetType type,
+                Instant lastSkippedAt) {
+            return new Object[] {locationName, date, type.name(), lastSkippedAt};
+        }
+
+        private static LocationEntity location(long id, String name, RegionEntity region) {
+            LocationEntity loc = new LocationEntity();
+            loc.setId(id);
+            loc.setName(name);
+            loc.setRegion(region);
+            loc.setLat(54.5 + id * 0.1);
+            loc.setLon(-1.0 - id * 0.1);
+            return loc;
+        }
+
+        /**
+         * One region carrying every slot shape the query-count fix (a Codex re-review of #940)
+         * must not have changed the ANSWER for, only the number of round trips: a retracted slot
+         * (a stability skip newer than its cached rating), a triaged slot (a newer triage row
+         * supersedes a cached rating), and a forecast-row-only slot (no cache entry at all, a
+         * scored {@code forecast_evaluation} row). A fourth case — an uncovered region — is
+         * checked with a second pair of calls against a region with no locations at all.
+         * {@link EvaluationViewService#getLiveScoresForEnrichment} and
+         * {@link EvaluationViewService#getLiveScoresForEnrichmentBulk} must return the identical
+         * answer for every one of them, since {@code BriefingRollupBuilder} switched from the
+         * single-key read (once per region/event) to one bulk read per rollup, and the two
+         * accessors sharing a rule is what makes that switch safe.
+         */
+        @Test
+        @DisplayName("bulk and single reads agree for a retracted, a triaged, a "
+                + "forecast-row-only and an uncovered slot")
+        void bulkAndSingleAgreeForEverySlotShape() {
+            RegionEntity region = new RegionEntity();
+            region.setId(REGION_ID);
+            region.setName(REGION_NAME);
+            LocationEntity retractedLoc = location(1, "Retracted", region);
+            LocationEntity triagedLoc = location(2, "Triaged", region);
+            LocationEntity forecastOnlyLoc = location(3, "ForecastOnly", region);
+            when(locationService.findAllEnabled()).thenReturn(
+                    List.of(retractedLoc, triagedLoc, forecastOnlyLoc));
+
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of(
+                            "Retracted", new BriefingEvaluationResult(
+                                    "Retracted", 5, 90, 80, "Fiery"),
+                            "Triaged", new BriefingEvaluationResult(
+                                    "Triaged", 4, 75, 60, "Good")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+
+            LocalDateTime triageRunAt =
+                    CACHED_AT.plusSeconds(3600).atZone(ZoneOffset.UTC).toLocalDateTime();
+            LocalDateTime forecastOnlyRunAt =
+                    CACHED_AT.minusSeconds(3600).atZone(ZoneOffset.UTC).toLocalDateTime();
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(
+                            ForecastEvaluationEntity.builder()
+                                    .location(triagedLoc).targetDate(DATE).targetType(SUNRISE)
+                                    .triage(new TriageDetails(
+                                            TriageReason.HIGH_CLOUD, "88% low cloud"))
+                                    .forecastRunAt(triageRunAt)
+                                    .build(),
+                            ForecastEvaluationEntity.builder()
+                                    .location(forecastOnlyLoc).targetDate(DATE).targetType(SUNRISE)
+                                    .rating(3).fierySkyPotential(50).goldenHourPotential(40)
+                                    .summary("Base forecast only")
+                                    .evaluationModel(EvaluationModel.HAIKU)
+                                    .forecastRunAt(forecastOnlyRunAt)
+                                    .build()));
+
+            Instant skipAt = CACHED_AT.plusSeconds(3600);
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Retracted", DATE, SUNRISE, skipAt)));
+
+            Map<String, BriefingEvaluationResult> single =
+                    service.getLiveScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
+            Map<String, Map<String, BriefingEvaluationResult>> bulk =
+                    service.getLiveScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNRISE));
+            Map<String, BriefingEvaluationResult> bulkForKey =
+                    bulk.getOrDefault(REGION_NAME + "|" + DATE + "|" + SUNRISE, Map.of());
+
+            // Sanity on the single read first, so a failed agreement assertion below points at
+            // the bulk side rather than leaving both suspect.
+            assertThat(single).doesNotContainKey("Retracted");
+            assertThat(single.get("Triaged").rating()).isNull();
+            assertThat(single.get("Triaged").triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+            assertThat(single.get("ForecastOnly").rating()).isEqualTo(3);
+
+            assertThat(bulkForKey).isEqualTo(single);
+
+            // The uncovered region: no locations at all, so both accessors answer empty rather
+            // than one throwing and the other defaulting silently.
+            Map<String, BriefingEvaluationResult> singleUncovered =
+                    service.getLiveScoresForEnrichment("Nonexistent Region", DATE, SUNRISE);
+            Map<String, BriefingEvaluationResult> bulkUncovered = bulk.getOrDefault(
+                    "Nonexistent Region|" + DATE + "|" + SUNRISE, Map.of());
+            assertThat(singleUncovered).isEmpty();
+            assertThat(bulkUncovered).isEmpty();
         }
     }
 }
