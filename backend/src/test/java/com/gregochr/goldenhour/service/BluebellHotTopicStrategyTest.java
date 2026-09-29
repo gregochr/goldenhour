@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.MonthDay;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -465,6 +466,56 @@ class BluebellHotTopicStrategyTest {
         assertThat(BluebellHotTopicStrategy.deriveQualityLabel(3)).isEqualTo("Fair");
         assertThat(BluebellHotTopicStrategy.deriveQualityLabel(2)).isEqualTo("Fair");
         assertThat(BluebellHotTopicStrategy.deriveQualityLabel(1)).isEqualTo("Fair");
+    }
+
+    // ── stability-skip retraction, end to end through a REAL SurvivorSignalReader ───────────
+
+    @Test
+    @DisplayName("a bluebell component written before a stability skip reaches the strategy as no "
+            + "component at all, so it emits no topic — end to end through a real "
+            + "SurvivorSignalReader, not a mocked one (Codex review of #940)")
+    void detect_bluebellRetractedByStabilitySkip_emitsNoTopic() {
+        com.gregochr.goldenhour.repository.ForecastScoreRepository forecastScoreRepository =
+                org.mockito.Mockito.mock(com.gregochr.goldenhour.repository.ForecastScoreRepository.class);
+        com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository survivorAtmosphereRepository =
+                org.mockito.Mockito.mock(
+                        com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository.class);
+        EvaluationViewService evaluationViewService =
+                org.mockito.Mockito.mock(EvaluationViewService.class);
+
+        LocationEntity location = simpleLocation(1L, "Rannerdale Knotts");
+        com.gregochr.goldenhour.entity.ForecastScoreEntity bluebellRow =
+                new com.gregochr.goldenhour.entity.ForecastScoreEntity();
+        bluebellRow.setForecastType(com.gregochr.goldenhour.entity.ForecastType.BLUEBELL);
+        bluebellRow.setLocation(location);
+        bluebellRow.setEvaluationDate(IN_SEASON);
+        bluebellRow.setEventType(TargetType.SUNRISE);
+        bluebellRow.setScore(4);
+        bluebellRow.setSummary("Misty and still");
+        bluebellRow.setEvaluatedAt(java.time.Instant.parse("2026-04-24T18:00:00Z"));
+        when(forecastScoreRepository.findComponentsByType(
+                com.gregochr.goldenhour.entity.ForecastType.BLUEBELL.getId(), IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellRow));
+        when(forecastScoreRepository.findComponentsByType(
+                com.gregochr.goldenhour.entity.ForecastType.INVERSION.getId(), IN_SEASON, IN_SEASON))
+                .thenReturn(List.of());
+        when(survivorAtmosphereRepository.findInDateRange(IN_SEASON, IN_SEASON)).thenReturn(List.of());
+        String skipKey = EvaluationViewService.stabilitySkipKey(
+                "Rannerdale Knotts", IN_SEASON, TargetType.SUNRISE);
+        when(evaluationViewService.loadStabilitySkips(IN_SEASON, IN_SEASON))
+                .thenReturn(Map.of(skipKey, java.time.Instant.parse("2026-04-24T19:00:00Z")));
+
+        SurvivorSignalReader realReader = new SurvivorSignalReader(
+                forecastScoreRepository, survivorAtmosphereRepository, evaluationViewService);
+        BluebellHotTopicStrategy realStrategy = new BluebellHotTopicStrategy(realReader,
+                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"), freshness);
+
+        List<HotTopic> topics = realStrategy.detect(IN_SEASON, IN_SEASON);
+
+        assertThat(topics).isEmpty();
+        // The freshness filter is never reached — the retracted row never survives to be checked,
+        // proving this is the SAME "no component at all" shape as a slot that was never scored.
+        verifyNoInteractions(freshness);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

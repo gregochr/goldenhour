@@ -121,3 +121,45 @@ branching on which prompt to build, so a canopy or bluebell slot can carry a `SK
 disposition exactly like a sky slot, and both mini-batches write their ratings into
 `cached_evaluation` via `mergeWoodlandFromBatch`/`mergeBluebellFromBatch` — the same store the
 resolver already reads, so no rating source is invisible to the new rule.
+
+**Fifth follow-up fix, next day (a third Codex re-review of #940):** the rule above covered two of
+the three stores a rating can live in and stopped short of the one it named but never touched —
+`forecast_score` (V108), the normalised INVERSION/BLUEBELL component rows read by
+`SurvivorSignalReader` (all six survivor-signal hot-topic strategies) and `ForecastDtoMapper` (the
+API DTO's Claude BLUEBELL rating). A component score is evidence exactly like a rating, and a
+nightly Gate 4 stability skip left it exactly as un-retracted as the original bug left
+`cached_evaluation`/`forecast_evaluation`: `forecast_score` UPSERTs only when a Claude call actually
+happens, so a slot the pipeline later declines to re-score leaves its old row standing as "the
+latest" with nothing to mark it stale. A withdrawn Plan-card rating could still carry a bluebell
+hot-topic chip, or a withdrawn map popup could still show the BLUEBELL DTO field, both citing a
+score the pipeline had moved past.
+
+`forecast_score` has no sibling store the way the other two do — a component row is written ONLY on
+an actual Claude call, never a placeholder — so its retraction question is simpler than
+`EvaluationViewService.isSlotRetracted`'s: not "does any live evidence survive across two stores",
+just "is this one row's own `evaluated_at` older than the slot's latest skip". Both readers call the
+existing `EvaluationViewService.isRetractedByStabilitySkip` primitive directly against the
+component's own timestamp — never a second, hand-written condition — keyed by
+`EvaluationViewService.stabilitySkipKey` (now `public`, for exactly this reuse) against a
+`loadStabilitySkips` map each loads itself. `survivor_atmosphere` readings (dust, surge, snow,
+humidity) are untouched: they are measured or forecast atmospheric INPUT, never Claude's opinion, so
+a skip — which retracts an evaluation the pipeline declined to redo — has nothing to say about them.
+
+**Cost.** Six hot-topic strategies each call `SurvivorSignalReader.read()` independently for the
+same window already (18 queries per aggregation, unchanged, a pre-existing shape this fix did not
+touch) — loading the skip map inside `read()` on every call would have added one skip query per
+strategy, which the design explicitly rules out. `SurvivorSignalReader.withStabilityWindow` is the
+fix: `HotTopicAggregator` opens ONE window around its whole strategies pass (a `ThreadLocal`,
+cleared in a `finally` block the instant the pass ends — call-scoped sharing with a hard boundary,
+never a time-based cache with a staleness window of its own), and every `read()` call made from
+inside it shares that one loaded map. Net cost: one additional query per hot-topic aggregation, not
+six. `ForecastDtoMapper` mirrors its own existing `preloadWaves` shape — one `loadStabilitySkips`
+call per `toDtoList` (bulk) and one per single-row `toDto`, each a new query on an endpoint that
+previously issued none, and each already paying several other per-row queries for the one or few
+rows it serves.
+
+**Known, unaddressed, narrower gap.** Unlike `forecast_evaluation`, no fresh `forecast_score` row is
+ever written for a TRIAGE stand-down — only for an actual Claude call — so a component superseded by
+a newer *triage* decision (as opposed to a stability skip) has no mechanism to detect it at all. This
+is not the bug the stability-skip rule fixes and is out of scope here; recorded so it reads as a
+known limit rather than a surprise later.

@@ -10,9 +10,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -20,6 +23,11 @@ import static org.mockito.Mockito.mock;
 
 /**
  * Unit tests for {@link HotTopicAggregator}.
+ *
+ * <p>{@code survivorSignalReader} is stubbed leniently to run the strategies pass straight through
+ * {@code withStabilityWindow}, since most tests here are about collect/filter/sort behaviour, not
+ * the stability-skip window itself — the simulation-enabled tests never touch it at all (the
+ * branch that opens the window is skipped entirely), which is exactly why the stub is lenient.
  */
 @ExtendWith(MockitoExtension.class)
 class HotTopicAggregatorTest {
@@ -30,6 +38,7 @@ class HotTopicAggregatorTest {
     private HotTopicSimulationService simulationService;
     private final TravelDayService travelDayService = mock(TravelDayService.class);
     private final HotTopicEventEnricher eventEnricher = mock(HotTopicEventEnricher.class);
+    private final SurvivorSignalReader survivorSignalReader = mock(SurvivorSignalReader.class);
 
     @BeforeEach
     void setUp() {
@@ -37,13 +46,18 @@ class HotTopicAggregatorTest {
         // Passthrough — the enrichment of event type/time is exercised in its own test; here we
         // assert the aggregator's collect/filter/sort behaviour on the topics unchanged.
         when(eventEnricher.enrich(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        // Passthrough — runs the strategies pass with no shared-window behaviour under test here;
+        // SurvivorSignalReaderTest and HotTopicAggregator's own stability-skip integration test
+        // (below) cover the window's actual sharing.
+        lenient().when(survivorSignalReader.withStabilityWindow(any(), any(), any()))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(2)).get());
     }
 
     @Test
     @DisplayName("empty detector list returns empty topics")
     void getHotTopics_noDetectors_returnsEmpty() {
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(), simulationService, travelDayService, eventEnricher);
+                List.of(), simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -61,8 +75,8 @@ class HotTopicAggregatorTest {
         HotTopicStrategy strategy1 = (from, to) -> List.of(topic1);
         HotTopicStrategy strategy2 = (from, to) -> List.of(topic2);
 
-        HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy1, strategy2), simulationService, travelDayService, eventEnricher);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy1, strategy2),
+                simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -80,8 +94,8 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM)).thenReturn(true);
 
         HotTopicStrategy strategy = (from, to) -> List.of(away, workable);
-        HotTopicAggregator aggregator =
-                new HotTopicAggregator(List.of(strategy), simulationService, travelDayService, eventEnricher);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy),
+                simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -97,7 +111,7 @@ class HotTopicAggregatorTest {
 
         HotTopicStrategy strategy = (from, to) -> List.of(lowPriority, medPriorityLaterDate, highPriority);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy), simulationService, travelDayService, eventEnricher);
+                List.of(strategy), simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -111,7 +125,7 @@ class HotTopicAggregatorTest {
     void getHotTopics_detectorReturnsEmpty_noError() {
         HotTopicStrategy emptyStrategy = (from, to) -> List.of();
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(emptyStrategy), simulationService, travelDayService, eventEnricher);
+                List.of(emptyStrategy), simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -129,7 +143,7 @@ class HotTopicAggregatorTest {
         };
 
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(neverCalledStrategy), simulationService, travelDayService, eventEnricher);
+                List.of(neverCalledStrategy), simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -145,7 +159,7 @@ class HotTopicAggregatorTest {
         HotTopic realTopic = new HotTopic("SPRING_TIDE", "Spring tide", "real", FROM, 1, null, List.of(), null, null);
         HotTopicStrategy strategy = (from, to) -> List.of(realTopic);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy), simulationService, travelDayService, eventEnricher);
+                List.of(strategy), simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -165,8 +179,8 @@ class HotTopicAggregatorTest {
     void getHotTopics_invokesEachStrategyWithExactDates() {
         when(mockStrategy1.detect(FROM, TO)).thenReturn(List.of());
         when(mockStrategy2.detect(FROM, TO)).thenReturn(List.of());
-        HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1, mockStrategy2), simulationService, travelDayService, eventEnricher);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(mockStrategy1, mockStrategy2),
+                simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         aggregator.getHotTopics(FROM, TO);
 
@@ -180,10 +194,41 @@ class HotTopicAggregatorTest {
         simulationService.setEnabled(true);
         simulationService.setTypeActive("BLUEBELL", true);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher);
+                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher, survivorSignalReader);
 
         aggregator.getHotTopics(FROM, TO);
 
         verifyNoInteractions(mockStrategy1);
+    }
+
+    @Test
+    @DisplayName("the whole strategies pass runs inside ONE withStabilityWindow call for the exact "
+            + "requested range — never once per strategy (Codex review of #940)")
+    void getHotTopics_opensOneSharedStabilityWindowForTheWholePass() {
+        when(mockStrategy1.detect(FROM, TO)).thenReturn(List.of());
+        when(mockStrategy2.detect(FROM, TO)).thenReturn(List.of());
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(mockStrategy1, mockStrategy2), simulationService, travelDayService,
+                eventEnricher, survivorSignalReader);
+
+        aggregator.getHotTopics(FROM, TO);
+
+        verify(survivorSignalReader, org.mockito.Mockito.times(1))
+                .withStabilityWindow(org.mockito.ArgumentMatchers.eq(FROM),
+                        org.mockito.ArgumentMatchers.eq(TO), any());
+    }
+
+    @Test
+    @DisplayName("simulation enabled — no stability window is opened at all, since no strategy runs")
+    void getHotTopics_simulationEnabled_noStabilityWindowOpened() {
+        simulationService.setEnabled(true);
+        simulationService.setTypeActive("BLUEBELL", true);
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher,
+                survivorSignalReader);
+
+        aggregator.getHotTopics(FROM, TO);
+
+        verifyNoInteractions(survivorSignalReader);
     }
 }
