@@ -21,3 +21,7 @@ distinction keeps using the existing `Runnable` overload and behaves exactly as 
 both routes.
 
 The manual Settings-dialog refresh button, its cooldown and its 409 behaviour are untouched.
+
+A follow-up migration (V156) corrects the job's admin-facing `scheduler_job_config.description`,
+seeded by V133 with the old "recalculates every user's" wording, to describe the new skip logic and
+say that "Run now" always re-measures everyone.
