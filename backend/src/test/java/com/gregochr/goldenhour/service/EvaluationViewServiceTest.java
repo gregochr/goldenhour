@@ -29,7 +29,7 @@ import org.springframework.data.domain.PageRequest;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -240,8 +240,9 @@ class EvaluationViewServiceTest {
             assertThat(v.triageReason()).isNull();
             assertThat(v.triageMessage()).isNull();
 
-            // evaluatedAt must be the forecastRunAt converted via Europe/London
-            Instant expectedInstant = runAt.atZone(ZoneId.of("Europe/London")).toInstant();
+            // evaluatedAt must be the forecastRunAt read as a naive UTC wall clock — the zone it is
+            // actually stamped in (ForecastService.buildEntity: LocalDateTime.now(ZoneOffset.UTC)).
+            Instant expectedInstant = runAt.toInstant(ZoneOffset.UTC);
             assertThat(v.evaluatedAt()).isEqualTo(expectedInstant);
         }
 
@@ -1190,7 +1191,7 @@ class EvaluationViewServiceTest {
     @DisplayName("Merge freshness gate — a stale cached rating must not outrank a newer triage")
     class MergeFreshness {
 
-        /** A triaged row for Bamburgh, run at the given LONDON-naive local time. */
+        /** A triaged row for Bamburgh, run at the given naive UTC wall-clock time. */
         private void triagedRunAt(LocalDateTime runAt) {
             ForecastEvaluationEntity row = ForecastEvaluationEntity.builder()
                     .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "Low cloud 94% — sun blocked"))
@@ -1239,7 +1240,7 @@ class EvaluationViewServiceTest {
             assertThat(v.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
         }
 
-        /** A Bamburgh row run at the given LONDON-naive time carrying NO rating and NO triage. */
+        /** A Bamburgh row run at the given naive UTC wall-clock time, carrying NO rating and NO triage. */
         private void emptyRowRunAt(LocalDateTime runAt) {
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
@@ -1321,10 +1322,12 @@ class EvaluationViewServiceTest {
         @Test
         @DisplayName("A tie goes to the cache — one batch run writing both halves")
         void tieGoesToTheCache() {
-            // 01:05 London in April is 00:05Z. Same instant, so this is one run writing the
-            // forecast row and the cache together; the cache carries strictly more.
+            // forecast_run_at is a naive UTC wall clock (ForecastService.buildEntity stamps
+            // LocalDateTime.now(ZoneOffset.UTC)), so a naive 00:05 IS 00:05Z — no conversion. Same
+            // instant as the cache, so this is one run writing the forecast row and the cache
+            // together; the cache carries strictly more.
             cachedRatingAt(3, Instant.parse("2026-04-23T00:05:00Z"));
-            triagedRunAt(LocalDateTime.of(2026, 4, 23, 1, 5));
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 0, 5));
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -1332,16 +1335,83 @@ class EvaluationViewServiceTest {
             assertThat(v.rating()).isEqualTo(3);
         }
 
+        /**
+         * ⚠️ {@code forecastRunAt} is a naive UTC wall clock, not London — see {@link
+         * EvaluationViewService#forecastRunInstant}'s javadoc for the production defect (a Codex
+         * review of #940) this class of test now guards against: zoning it as London made every
+         * comparison read one hour off during BST, which could let a cached rating outrank a
+         * genuinely newer triage row (or vice versa) whenever the two landed within an hour of each
+         * other — exactly the gap the nightly cycle produces routinely. Six cases below, at three
+         * gap sizes and in both a BST month and a GMT month, prove the fix holds regardless of
+         * season — a shifted-offset "fix" that merely swapped which direction was wrong would still
+         * fail half of these.
+         */
         @Test
-        @DisplayName("forecast_run_at is LONDON-naive, so BST cannot invert the comparison")
-        void bstDoesNotInvertTheComparison() {
-            // The trap: forecast_run_at is a naive LocalDateTime recorded in Europe/London, and
-            // 04:00 London in April is 03:00Z. The cache here is written at 03:30Z — half an hour
-            // AFTER the forecast ran — so it must win. Compare the two raw and 03:30 reads as
-            // earlier than 04:00, handing it to the triage and losing a live rating. The nightly
-            // cycle writes both halves within the hour routinely, so this is the common case.
-            cachedRatingAt(4, Instant.parse("2026-04-23T03:30:00Z"));
-            triagedRunAt(LocalDateTime.of(2026, 4, 23, 4, 0));
+        @DisplayName("BST: cached 13:30Z loses to a row run at 14:04 (naive UTC wall clock)")
+        void bstCached1330LosesToRowAt1404() {
+            cachedRatingAt(4, Instant.parse("2026-04-23T13:30:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 14, 4));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+            assertThat(v.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        }
+
+        @Test
+        @DisplayName("BST: cached 13:50Z (a 14-minute gap) still loses to a row run at 14:04")
+        void bstCached1350LosesToRowAt1404() {
+            cachedRatingAt(4, Instant.parse("2026-04-23T13:50:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 14, 4));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+        }
+
+        @Test
+        @DisplayName("BST: a genuinely newer cache at 14:10Z still beats a row run at 14:04")
+        void bstCached1410BeatsRowAt1404() {
+            cachedRatingAt(4, Instant.parse("2026-04-23T14:10:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 14, 4));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("GMT: cached 13:30Z loses to a row run at 14:04 — same answer as BST")
+        void gmtCached1330LosesToRowAt1404() {
+            cachedRatingAt(4, Instant.parse("2026-01-23T13:30:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 1, 23, 14, 4));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+        }
+
+        @Test
+        @DisplayName("GMT: cached 13:50Z (a 14-minute gap) still loses to a row run at 14:04")
+        void gmtCached1350LosesToRowAt1404() {
+            cachedRatingAt(4, Instant.parse("2026-01-23T13:50:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 1, 23, 14, 4));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+        }
+
+        @Test
+        @DisplayName("GMT: a genuinely newer cache at 14:10Z still beats a row run at 14:04")
+        void gmtCached1410BeatsRowAt1404() {
+            cachedRatingAt(4, Instant.parse("2026-01-23T14:10:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 1, 23, 14, 4));
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -1383,7 +1453,11 @@ class EvaluationViewServiceTest {
         // overwrite it, and only passing triage produced one. Bamburgh plays the stood-down
         // location here, Sandsend the re-scored one.
         //
-        // 23 April is BST, so a LONDON-naive 15:04 forecast_run_at is 14:04Z.
+        // forecast_run_at is a naive UTC wall clock, so these naive values ARE their own instant —
+        // 15:04 here IS 15:04Z, with no conversion. The margins between these constants and
+        // AFTERNOON_MERGE are all several hours, so none of the tests below that use them turn on
+        // that margin; the one test that needs a genuinely close margin
+        // (aNewerPerLocationStampStillBeatsATriageRow) uses its own dedicated literal instead.
         private static final Instant OVERNIGHT_BATCH = Instant.parse("2026-04-23T01:22:00Z");
         private static final LocalDateTime OVERNIGHT_TRIAGE = LocalDateTime.of(2026, 4, 23, 2, 5);
         private static final LocalDateTime AFTERNOON_TRIAGE = LocalDateTime.of(2026, 4, 23, 15, 4);
@@ -1484,6 +1558,11 @@ class EvaluationViewServiceTest {
             // the opposite direction — older than the row — and the location's own write is newer,
             // so the cache must win. Without this the change could pass every test above by simply
             // preferring the forecast row whenever the two stamps differ.
+            //
+            // A dedicated, close-margin literal rather than AFTERNOON_TRIAGE: the cache (14:09Z) must
+            // be newer than the row by minutes, not hours, or a mutant that always prefers the cache
+            // would pass this test too.
+            LocalDateTime rowRunAt = LocalDateTime.of(2026, 4, 23, 14, 4);
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
                     .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
@@ -1496,7 +1575,7 @@ class EvaluationViewServiceTest {
                             1L, DATE, SUNSET, PageRequest.of(0, 1)))
                     .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "84% low cloud"))
-                            .forecastRunAt(AFTERNOON_TRIAGE)
+                            .forecastRunAt(rowRunAt)
                             .build()));
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
@@ -1641,7 +1720,7 @@ class EvaluationViewServiceTest {
                     .thenReturn(Optional.ofNullable(writtenAt));
         }
 
-        /** A scored Bamburgh row run at the given LONDON-naive local time. */
+        /** A scored Bamburgh row run at the given naive UTC wall-clock time. */
         private void scoredRunAt(int rating, LocalDateTime runAt) {
             when(forecastEvaluationRepository
                     .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
@@ -1720,11 +1799,11 @@ class EvaluationViewServiceTest {
         @Test
         @DisplayName("A tie goes to the cache — one run writing both halves")
         void tieGoesToTheCache() {
-            // 22:29 London on 31 July is 21:29Z (BST). Same instant, so this is one run writing
-            // the forecast row and the cache together. The tie resolves to the cache for
-            // determinism and to match mergeToView, NOT because the row is poorer — a scored row
-            // carries its own summary and headline too.
-            cachedRatingAt(4, Instant.parse("2026-07-31T21:29:00Z"));
+            // forecast_run_at is a naive UTC wall clock, so a naive 22:29 IS 22:29Z — no conversion.
+            // Same instant as the cache, so this is one run writing the forecast row and the cache
+            // together. The tie resolves to the cache for determinism and to match mergeToView, NOT
+            // because the row is poorer — a scored row carries its own summary and headline too.
+            cachedRatingAt(4, Instant.parse("2026-07-31T22:29:00Z"));
             scoredRunAt(2, LocalDateTime.of(2026, 7, 31, 22, 29));
 
             Map<String, BriefingEvaluationResult> result =
@@ -1766,13 +1845,16 @@ class EvaluationViewServiceTest {
         }
 
         @Test
-        @DisplayName("forecast_run_at is LONDON-naive, so BST cannot invert the comparison here either")
-        void bstDoesNotInvertTheComparison() {
-            // 23:00 London on 31 July is 22:00Z. A cache written at 22:30Z is half an hour AFTER
-            // the run and must win; compared raw, 22:30 reads as earlier than 23:00 and a live
-            // rating would be thrown away for a superseded row.
+        @DisplayName("A cache written minutes after the row still wins — no zone conversion involved")
+        void cacheWrittenMinutesAfterTheRowStillWins() {
+            // forecast_run_at is a naive UTC wall clock (see EvaluationViewService
+            // #forecastRunInstant's javadoc for the production defect — a Codex review of #940 —
+            // this class of test used to encode: zoning it as London made a naive 22:30 read as
+            // 21:30Z during BST, which could invert a close-margin comparison like this one). A
+            // cache written at 22:30Z, thirty minutes after a row run at 22:00, must win — compared
+            // with either side wrongly zoned, the relationship would flip.
             cachedRatingAt(4, Instant.parse("2026-07-31T22:30:00Z"));
-            scoredRunAt(2, LocalDateTime.of(2026, 7, 31, 23, 0));
+            scoredRunAt(2, LocalDateTime.of(2026, 7, 31, 22, 0));
 
             Map<String, BriefingEvaluationResult> result =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET);
@@ -2230,7 +2312,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 2, 30, 20, "Grey")));
             when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Optional.of(CACHED_AT));
-            // 2026-04-22 04:00 is BST (UTC+1) — 03:00Z, after the 02:00Z skip.
+            // forecast_run_at is a naive UTC wall clock, so a naive 04:00 IS 04:00Z — after the
+            // 02:00Z skip, with no zone conversion involved.
             ForecastEvaluationEntity later = ForecastEvaluationEntity.builder()
                     .rating(5).fierySkyPotential(90).goldenHourPotential(85)
                     .summary("Clear now").evaluationModel(EvaluationModel.HAIKU)
@@ -2248,6 +2331,63 @@ class EvaluationViewServiceTest {
             assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_SCORED);
             assertThat(v.rating()).isEqualTo(5);
             assertThat(v.summary()).isEqualTo("Clear now");
+        }
+
+        @Test
+        @DisplayName("Codex #940: a forecast row run at 01:30 survives a 01:00Z skip — no cache "
+                + "involved, isolating the row-side retraction")
+        void rowAt0130SurvivesA0100SkipOnItsOwn() {
+            // The literal case a Codex review of #940 raised: forecastRunInstant used to zone this
+            // naive value as Europe/London, reading 01:30 as 00:30Z during BST — BEFORE the skip —
+            // and wrongly withdrawing a row the pipeline had not, in fact, decided against. Naive
+            // UTC means 01:30 IS 01:30Z, after the skip, so the row must survive untouched.
+            Instant skipAt = Instant.parse("2026-04-22T01:00:00Z");
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            ForecastEvaluationEntity row = ForecastEvaluationEntity.builder()
+                    .rating(4).fierySkyPotential(70).goldenHourPotential(60)
+                    .summary("Fiery dawn").evaluationModel(EvaluationModel.HAIKU)
+                    .forecastRunAt(LocalDateTime.of(2026, 4, 22, 1, 30))
+                    .build();
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(row));
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE, skipAt)));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_SCORED);
+            assertThat(v.rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("Codex #940 mirror: a forecast row run at 00:30 IS withdrawn by a 01:00Z skip")
+        void rowAt0030IsWithdrawnByA0100SkipOnItsOwn() {
+            // The mirror of the case above: 00:30Z genuinely predates the 01:00Z skip, so this row
+            // (with no cache to fall back to) must be retracted down to nothing being served.
+            Instant skipAt = Instant.parse("2026-04-22T01:00:00Z");
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            ForecastEvaluationEntity row = ForecastEvaluationEntity.builder()
+                    .rating(4).fierySkyPotential(70).goldenHourPotential(60)
+                    .summary("Fiery dawn").evaluationModel(EvaluationModel.HAIKU)
+                    .forecastRunAt(LocalDateTime.of(2026, 4, 22, 0, 30))
+                    .build();
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(row));
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE, skipAt)));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.NONE);
+            assertThat(v.rating()).isNull();
         }
 
         @Test
