@@ -17,11 +17,13 @@ import java.util.List;
  * <p>When {@link HotTopicSimulationService} is enabled the real strategies are
  * bypassed and simulated topics are returned instead — for admin demos and UI testing.
  *
- * <p>The strategies pass runs inside one {@link SurvivorSignalReader#withStabilityWindow} — see
- * that class's javadoc. Six strategies each call {@code SurvivorSignalReader.read} independently
- * for this same {@code (fromDate, toDate)} window, and without this the nightly Gate 4
- * stability-skip lookup {@link #getHotTopics} added would be issued once per strategy rather than
- * once per aggregation.
+ * <p>⚠️ Until 2026-09-29 this class opened a shared {@code SurvivorSignalReader.withStabilityWindow}
+ * around the whole strategies pass, so a nightly Gate 4 stability skip could retract a
+ * {@code forecast_score} component before a strategy ever saw it. The owner's two-question rule
+ * removed that: hot topics answer "what is happening", not "is it worth going", so a stability skip
+ * or a triage stand-down — both decisions about the RATING — must never silence a topic. See
+ * {@code SurvivorSignalReader}'s own class javadoc. This class therefore has no dependency on the
+ * stability-skip machinery at all any more.
  */
 @Service
 public class HotTopicAggregator {
@@ -30,27 +32,23 @@ public class HotTopicAggregator {
     private final HotTopicSimulationService simulationService;
     private final TravelDayService travelDayService;
     private final HotTopicEventEnricher eventEnricher;
-    private final SurvivorSignalReader survivorSignalReader;
 
     /**
      * Constructs a {@code HotTopicAggregator} with all registered strategies.
      *
-     * @param strategies           all {@link HotTopicStrategy} beans in the application context
-     * @param simulationService    admin simulation override service
-     * @param travelDayService     suppresses topics dated on a travel day (operator is away)
-     * @param eventEnricher        fills in each topic's photographic event type and time
-     * @param survivorSignalReader opens the shared stability-skip window the strategies pass runs in
+     * @param strategies        all {@link HotTopicStrategy} beans in the application context
+     * @param simulationService admin simulation override service
+     * @param travelDayService  suppresses topics dated on a travel day (operator is away)
+     * @param eventEnricher     fills in each topic's photographic event type and time
      */
     public HotTopicAggregator(List<HotTopicStrategy> strategies,
                                HotTopicSimulationService simulationService,
                                TravelDayService travelDayService,
-                               HotTopicEventEnricher eventEnricher,
-                               SurvivorSignalReader survivorSignalReader) {
+                               HotTopicEventEnricher eventEnricher) {
         this.strategies = strategies;
         this.simulationService = simulationService;
         this.travelDayService = travelDayService;
         this.eventEnricher = eventEnricher;
-        this.survivorSignalReader = survivorSignalReader;
     }
 
     /**
@@ -58,8 +56,7 @@ public class HotTopicAggregator {
      *
      * <p>When simulation is active, returns simulated topics from
      * {@link HotTopicSimulationService} without invoking any real strategies.
-     * Otherwise aggregates from all registered strategies sorted by priority, with the whole pass
-     * sharing one stability-skip load (see the class javadoc).
+     * Otherwise aggregates from all registered strategies sorted by priority.
      *
      * @param fromDate start of the forecast window (inclusive)
      * @param toDate   end of the forecast window (inclusive)
@@ -70,13 +67,13 @@ public class HotTopicAggregator {
         if (simulationService.isEnabled()) {
             topics = simulationService.getSimulatedTopics(fromDate, toDate);
         } else {
-            topics = survivorSignalReader.withStabilityWindow(fromDate, toDate, () -> strategies.stream()
+            topics = strategies.stream()
                     .flatMap(s -> s.detect(fromDate, toDate).stream())
                     // Suppress topics dated on a travel day — the operator is away and can't act on
                     // them ("Spring tide today", "Aurora tomorrow night" are noise when in London).
                     .filter(topic -> topic.date() == null || !travelDayService.isTravelDay(topic.date()))
                     .sorted()
-                    .toList());
+                    .toList();
         }
         return eventEnricher.enrich(topics);
     }

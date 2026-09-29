@@ -16,7 +16,6 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
-import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.SurvivorSignalReader;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
@@ -28,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -65,8 +65,6 @@ class ComingUpConditionsBuilderTest {
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
     private SurvivorAtmosphereRepository survivorAtmosphereRepository;
-    @Mock
-    private EvaluationViewService evaluationViewService;
 
     private ComingUpConditionsBuilder builder;
 
@@ -79,15 +77,12 @@ class ComingUpConditionsBuilderTest {
         lenient().when(forecastScoreRepository.findComponentsByType(any(), any(), any()))
                 .thenReturn(List.of());
         lenient().when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
-        // No stability skips — this class's tests are about the almanac condition-scoring logic,
-        // not the stability-skip retraction SurvivorSignalReaderTest already covers on its own.
-        lenient().when(evaluationViewService.loadStabilitySkips(any(), any())).thenReturn(Map.of());
         // No tide history/stats by default — every run scores the cold-start default unless a test
         // stubs otherwise.
         lenient().when(tideRunBuilder.peakRange(anyList(), anyList())).thenReturn(Optional.empty());
 
-        SurvivorSignalReader survivorSignalReader = new SurvivorSignalReader(
-                forecastScoreRepository, survivorAtmosphereRepository, evaluationViewService);
+        SurvivorSignalReader survivorSignalReader =
+                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
         builder = new ComingUpConditionsBuilder(locationRepository, tideRunBuilder, tideRunPeakHistory,
                 tideService, forecastEvaluationRepository, survivorSignalReader, new ComingUpScoringProperties());
     }
@@ -435,8 +430,7 @@ class ComingUpConditionsBuilderTest {
         zeroWindow.setPeakLightWindowMinutes(0);
         ComingUpConditionsBuilder zeroWindowBuilder = new ComingUpConditionsBuilder(locationRepository,
                 tideRunBuilder, tideRunPeakHistory, tideService, forecastEvaluationRepository,
-                new SurvivorSignalReader(
-                        forecastScoreRepository, survivorAtmosphereRepository, evaluationViewService),
+                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository),
                 zeroWindow);
 
         assertThat(zeroWindowBuilder.passesPeakGate(TargetType.SUNRISE)).isFalse();
@@ -521,6 +515,63 @@ class ComingUpConditionsBuilderTest {
                 .isEqualTo(round1(expectedFallback + aboveBits));
         assertThat(inversion.occurrences()).hasSize(6);
         assertThat(inversion.interim()).isTrue();
+    }
+
+    // ── Owner decision (2026-09-29): hot topics / Coming up apply no stability-skip or triage
+    //    retraction at all — SurvivorSignalReader.read() is unfiltered, so every read this class
+    //    makes through it (trailing history AND both forward peaks) is unaffected. This reverses
+    //    the brief window (#940, commit c6e14cc8) in which SurvivorSignalReaderTest and this class
+    //    briefly had a shared stability-skip dependency; see SurvivorSignalReader's class javadoc.
+
+    @Test
+    @DisplayName("the trailing inversion history keeps a strong occurrence however long ago its row "
+            + "was evaluated — a nightly stability skip or a triage stand-down answers a different "
+            + "question (owner decision, 2026-09-29) and this class never asks it")
+    void buildInversion_trailingHistoryKeepsOccurrenceRegardlessOfHowStaleItsEvaluationIs() {
+        LocationEntity fell = LocationEntity.builder().id(7L).name("Old Fell").lat(1.0).lon(1.0).build();
+        LocalDate strongMorning = TODAY.minusDays(10);
+        ForecastScoreEntity row = inversionRow(fell, strongMorning, 9);
+        // An arbitrarily old evaluation instant — under the reverted #940 extension this would have
+        // been retracted by almost any stability skip recorded after it. There is no such lookup any
+        // more, so this must have no bearing on whether the occurrence survives.
+        row.setEvaluatedAt(Instant.parse("2020-01-01T00:00:00Z"));
+        when(forecastScoreRepository.findComponentsByType(any(), any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(1);
+            LocalDate to = invocation.getArgument(2);
+            return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
+                    ? List.of(row) : List.of();
+        });
+
+        ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
+
+        assertThat(inversion.occurrences()).extracting(ComingUpConditionOccurrence::date)
+                .contains(strongMorning);
+    }
+
+    @Test
+    @DisplayName("both forward-peak reads — dust from survivor_atmosphere, inversion from "
+            + "forecast_score — return their occurrence with no regard to when the underlying row "
+            + "was evaluated; neither is filtered by a stability skip or a triage decision")
+    void bothForwardPeaks_unaffectedByStaleEvaluation() {
+        LocationEntity dustyFell = LocationEntity.builder().id(8L).name("Dusty Fell").lat(1.0).lon(1.0).build();
+        LocalDate peakDate = TODAY.plusDays(1);
+        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
+                .thenReturn(List.of(survivorAtmosphere(dustyFell, peakDate, TargetType.SUNRISE, 0.55)));
+        ForecastScoreEntity inversionForwardRow = inversionRow(dustyFell, peakDate, 9);
+        inversionForwardRow.setEvaluatedAt(Instant.parse("2020-01-01T00:00:00Z"));
+        when(forecastScoreRepository.findComponentsByType(any(), any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(1);
+            LocalDate to = invocation.getArgument(2);
+            return !peakDate.isBefore(from) && !peakDate.isAfter(to)
+                    ? List.of(inversionForwardRow) : List.of();
+        });
+
+        List<ComingUpCondition> conditions = builder.build(TODAY, List.of(), List.of());
+
+        assertThat(conditions.get(1).peak()).isNotNull();
+        assertThat(conditions.get(1).peak().valueLabel()).isEqualTo("AOD 0.55");
+        assertThat(conditions.get(2).peak()).isNotNull();
+        assertThat(conditions.get(2).peak().valueLabel()).isEqualTo("9/10");
     }
 
     // ── frequencyPhrase (lunar-eclipse plan §2.9) ────────────────────────
