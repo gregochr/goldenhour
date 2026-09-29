@@ -30,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -482,6 +483,75 @@ class UserSettingsServiceTest {
                     .thenReturn(true);
 
             assertThat(service.refreshDriveTimes(auth).locationsUpdated()).isEqualTo(200);
+        }
+
+        @Test
+        @DisplayName("the stamp names the roster read, not the store — fails against 4c502fd0, "
+                + "which captured the instant only after measureForUser returned")
+        void stampIsTheRosterReadInstant_notThePostMeasurementOne() {
+            Instant rosterReadAt = NOW;
+            // What clock.instant() wrongly returned under 4c502fd0 — captured AFTER
+            // measureForUser, simulating routing taking 45 seconds. A location created in that
+            // gap has a created_at between the two, which the scheduled job's rosterGrewSince
+            // must see as later than the stored stamp — only true if the stamp is rosterReadAt.
+            Instant afterRoutingAt = rosterReadAt.plusSeconds(45);
+            SteppingClock steppingClock = new SteppingClock(rosterReadAt);
+            UserSettingsService raceService = new UserSettingsService(userRepository, postcodesIoClient,
+                    driveDurationService, driveTimeWriter, steppingClock);
+
+            AppUserEntity user = home(DURHAM, DURHAM_LAT, DURHAM_LON); // null stamp — no cooldown
+            stubAuth();
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+            List<UserDriveTimeEntity> measured = rows(5);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenAnswer(invocation -> {
+                        // Time passes — and a location could be created — WHILE this call runs.
+                        steppingClock.advanceTo(afterRoutingAt);
+                        return Optional.of(measured);
+                    });
+            when(driveTimeWriter.storeIfHomeUnchanged(
+                    USER_ID, DURHAM_LAT, DURHAM_LON, measured, rosterReadAt)).thenReturn(true);
+
+            DriveTimeRefreshResponse response = raceService.refreshDriveTimes(auth);
+
+            // The literal assertion that fails against 4c502fd0: both the stored stamp and the
+            // response's own calculatedAt are the roster-READ instant, never the later one the
+            // mock advanced to mid-call.
+            assertThat(response.calculatedAt()).isEqualTo(rosterReadAt);
+            verify(driveTimeWriter)
+                    .storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, rosterReadAt);
+        }
+    }
+
+    /**
+     * A {@link Clock} whose {@link #instant()} can be moved forward mid-test, so a stub's
+     * {@code thenAnswer} can simulate "time passes while this call runs" without a real clock or
+     * a sleep.
+     */
+    private static final class SteppingClock extends Clock {
+        private Instant now;
+
+        SteppingClock(Instant start) {
+            this.now = start;
+        }
+
+        void advanceTo(Instant instant) {
+            this.now = instant;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
         }
     }
 

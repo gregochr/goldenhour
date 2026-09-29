@@ -256,10 +256,15 @@ public class UserSettingsService {
 
         double originLat = user.getHomeLatitude();
         double originLon = user.getHomeLongitude();
+        // Captured BEFORE measureForUser reads the location roster — not once the answer is back.
+        // measureForUser reads the whole location table, then spends seconds routing; a location
+        // created in that gap must have a created_at LATER than this stamp, or the scheduled job's
+        // rosterGrewSince would never see it (see DriveTimeRefreshJob's identical fix and javadoc).
+        // Taking the read-side timestamp costs this cooldown a few seconds of its 30 minutes —
+        // acceptable, since the alternative silently loses a location, possibly indefinitely.
+        Instant calculatedAt = clock.instant();
         Optional<List<UserDriveTimeEntity>> measured =
                 driveDurationService.measureForUser(user.getId(), originLat, originLon);
-        // Taken once the answer is in hand: the stamp says when these drive times were calculated.
-        Instant calculatedAt = clock.instant();
         // No answer at all still stamps the attempt, as this path always has — it is what the
         // response reports and what the cooldown reads — under the same guard.
         boolean stored = measured.isPresent()

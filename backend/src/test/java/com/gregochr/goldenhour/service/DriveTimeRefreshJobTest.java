@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -341,20 +342,25 @@ class DriveTimeRefreshJobTest {
         }
 
         @Test
-        @DisplayName("The exact boundary — a location created AT the stamp — does not measure")
-        void locationCreatedExactlyAtStampDoesNotMeasure() {
+        @DisplayName("The exact boundary — a location created AT the stamp — DOES measure "
+                + "(inclusive on purpose: created_at can tie the stamp when both are roster-read "
+                + "instants taken from equivalent clock reads, and only the inclusive answer can "
+                + "never miss a location)")
+        void locationCreatedExactlyAtStampDoesMeasure() {
             AppUserEntity user = withHome(1L);
             Instant stamp = NOW.minusSeconds(3600);
             user.setDriveTimesCalculatedAt(stamp);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
             when(userRepository.findAll()).thenReturn(List.of(user));
-            // Equal, not later — "later than the stamp" excludes the boundary itself.
+            // Equal, not later — the inclusive boundary treats a tie as "grown", not "unchanged".
             when(locationRepository.findMaxCreatedAt())
                     .thenReturn(LocalDateTime.ofInstant(stamp, ZoneOffset.UTC));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
 
             job.run(false);
 
-            verifyNoInteractions(driveDurationService);
-            verifyNoInteractions(driveTimeWriter);
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
         }
 
         @Test
@@ -444,6 +450,114 @@ class DriveTimeRefreshJobTest {
             job.run(true);
 
             verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+    }
+
+    /**
+     * A {@link Clock} whose {@link #instant()} can be moved forward mid-test, so a stub's
+     * {@code thenAnswer} can simulate "time passes while this call runs" — the only way to make a
+     * mocked {@link DriveDurationService#measureForUser} observably take seconds without a real
+     * clock or a sleep.
+     */
+    private static final class SteppingClock extends Clock {
+        private Instant now;
+
+        SteppingClock(Instant start) {
+            this.now = start;
+        }
+
+        void advanceTo(Instant instant) {
+            this.now = instant;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+    }
+
+    @Nested
+    @DisplayName("The stamp names the roster read, not the store (P1 fix, 2026-09-29)")
+    class RosterReadRace {
+
+        @Test
+        @DisplayName("A location created during routing is measured on the NEXT scheduled run — "
+                + "this fails against 4c502fd0, which stamped after measureForUser returned")
+        void locationCreatedDuringRoutingWindow_isPickedUpByTheNextScheduledRun() {
+            Instant rosterReadAt = Instant.parse("2026-09-29T02:40:00Z");
+            // What clock.instant() wrongly returned under 4c502fd0, captured AFTER
+            // measureForUser — simulating that routing took 45 seconds.
+            Instant afterRoutingAt = rosterReadAt.plusSeconds(45);
+            // The location is created 20 seconds into that routing window: after the roster was
+            // read, but before a post-measurement stamp would have been taken.
+            Instant locationCreatedAt = rosterReadAt.plusSeconds(20);
+
+            SteppingClock clock = new SteppingClock(rosterReadAt);
+            DriveTimeRefreshJob raceJob = new DriveTimeRefreshJob(userRepository, locationRepository,
+                    driveDurationService, driveTimeWriter, dynamicSchedulerService, clock);
+
+            AppUserEntity user = withHome(1L); // null stamp — due on run 1 regardless of roster state
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            // Run 1's roster read (before the new location exists), then run 2's (after it does).
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(rosterReadAt.minusSeconds(3600), ZoneOffset.UTC))
+                    .thenReturn(LocalDateTime.ofInstant(locationCreatedAt, ZoneOffset.UTC));
+
+            List<UserDriveTimeEntity> firstMeasurement = rowsFor(1L, 2);
+            List<UserDriveTimeEntity> secondMeasurement = rowsFor(1L, 3);
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61))
+                    .thenAnswer(invocation -> {
+                        // The location is created, and routing finishes, WHILE this call runs.
+                        clock.advanceTo(afterRoutingAt);
+                        return Optional.of(firstMeasurement);
+                    })
+                    .thenReturn(Optional.of(secondMeasurement));
+            when(driveTimeWriter.storeIfHomeUnchanged(
+                    1L, 54.97, -1.61, firstMeasurement, rosterReadAt)).thenReturn(true);
+            when(driveTimeWriter.storeIfHomeUnchanged(
+                    1L, 54.97, -1.61, secondMeasurement, afterRoutingAt)).thenReturn(true);
+
+            raceJob.run(false);
+
+            // The literal assertion that fails against 4c502fd0: the stored stamp is the
+            // roster-READ instant, never the later one the mock advanced to mid-call.
+            verify(driveTimeWriter)
+                    .storeIfHomeUnchanged(1L, 54.97, -1.61, firstMeasurement, rosterReadAt);
+
+            // Simulate persistence: the next run's findAll() would read this stamp back from the
+            // row storeIfHomeUnchanged just wrote.
+            user.setDriveTimesCalculatedAt(rosterReadAt);
+
+            raceJob.run(false);
+
+            // Picked up on run 2 — reachable only because the stored stamp (rosterReadAt) is
+            // earlier than the location (locationCreatedAt = rosterReadAt + 20s). Under 4c502fd0
+            // the stored stamp would have been afterRoutingAt (+45s), later than the location, so
+            // rosterGrewSince would read this user as already covering it and this verify fails.
+            verify(driveDurationService, times(2)).measureForUser(1L, 54.97, -1.61);
+            verify(driveTimeWriter)
+                    .storeIfHomeUnchanged(1L, 54.97, -1.61, secondMeasurement, afterRoutingAt);
+
+            // A quiet following night — nothing new since run 2's own stamp — makes no further
+            // calls at all, once the roster is actually covered. findMaxCreatedAt() keeps
+            // returning locationCreatedAt (Mockito repeats the last stubbed answer), so this run
+            // sees no growth since the stamp run 2 just set.
+            user.setDriveTimesCalculatedAt(afterRoutingAt);
+
+            raceJob.run(false);
+
+            verify(driveDurationService, times(2)).measureForUser(1L, 54.97, -1.61);
+            verifyNoMoreInteractions(driveTimeWriter);
         }
     }
 }

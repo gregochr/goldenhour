@@ -57,6 +57,18 @@ import java.util.List;
  * so that user is counted as superseded, not failed, and is measured afresh by the next run or by
  * their own press of the button. Until this was guarded, the job stored the old home's drive times
  * over that discard and then saved the whole user row it had read — putting the old home back.
+ *
+ * <p><strong>The stored stamp names when the roster was READ, not when the rows were written.</strong>
+ * {@link DriveDurationService#measureForUser} reads the whole location table, then spends seconds
+ * routing before this class stores the answer. A location created in that gap has a
+ * {@code created_at} later than the moment the roster was read but earlier than a stamp taken only
+ * once storing begins — so {@link #rosterGrewSince} would read that user as already covering it and
+ * never measure it again until something else intervened (a postcode change, another location, or
+ * an admin "Run now"). The instant captured immediately before {@code measureForUser} is what gets
+ * stored, so a location created anywhere in the routing window is correctly newer than the stamp and
+ * due again next time. {@code UserSettingsService.refreshDriveTimes} — the manual path, which writes
+ * and is read by the identical stamp — takes its own instant the same way, immediately before its own
+ * {@code measureForUser} call.
  */
 @Service
 public class DriveTimeRefreshJob {
@@ -141,6 +153,11 @@ public class DriveTimeRefreshJob {
             try {
                 double originLat = user.getHomeLatitude();
                 double originLon = user.getHomeLongitude();
+                // Captured BEFORE the roster read inside measureForUser, and stored as this user's
+                // stamp — never an instant taken after routing. See the class javadoc: a location
+                // created while routing runs must be newer than the stamp, or rosterGrewSince can
+                // never see it.
+                Instant rosterReadAt = clock.instant();
                 List<UserDriveTimeEntity> driveTimes = driveDurationService
                         .measureForUser(user.getId(), originLat, originLon)
                         .orElse(List.of());
@@ -155,7 +172,7 @@ public class DriveTimeRefreshJob {
                     LOG.warn("Drive time refresh measured no drive times for user {} — leaving the "
                             + "stored ones and their calculated-at stamp in place", user.getId());
                 } else if (driveTimeWriter.storeIfHomeUnchanged(
-                        user.getId(), originLat, originLon, driveTimes, clock.instant())) {
+                        user.getId(), originLat, originLon, driveTimes, rosterReadAt)) {
                     refreshed++;
                     locationsWritten += driveTimes.size();
                 } else {
@@ -227,16 +244,29 @@ public class DriveTimeRefreshJob {
      *
      * <p>{@code stamp} is compared as an instant — the wall-clock reading is a UTC one either way,
      * since {@code LocationEntity.createdAt} is written via {@code LocalDateTime.now(ZoneOffset.UTC)}
-     * and {@code driveTimesCalculatedAt} is a zoned {@link Instant}. A location created at exactly
-     * the stamp does not count: only strictly later triggers a refresh, matching "since their last
-     * refresh" rather than "since before their last refresh".
+     * and {@code driveTimesCalculatedAt} is a zoned {@link Instant}.
+     *
+     * <p><strong>The boundary is inclusive, deliberately:</strong> {@code created_at} equal to the
+     * stamp also counts as grown, not just strictly later. Two things make "later" alone the wrong
+     * test. First, {@code LocationEntity.createdAt} is set by the application when the entity is
+     * built, which can read a hair before the {@code INSERT} that makes the row visible to
+     * {@link LocationRepository#findMaxCreatedAt} — so a location whose clock reading happens to tie
+     * the stamp is at least as plausibly "created after" as "created before". Second, {@code stamp}
+     * itself is the roster-READ instant (see the class javadoc), taken from the same kind of clock
+     * read as {@code created_at} — so an exact tie is the one case with no way to know which side of
+     * the boundary is true, and only the inclusive answer can never miss a location: it costs at
+     * most one redundant measurement on the rare tie, where excluding it risks leaving a location
+     * unmeasured indefinitely. A coincidental tie is reachable only when two independent clock reads
+     * — a location's {@code created_at} and a user's roster-read stamp — land on the exact same
+     * instant; even then it self-heals on the user's very next successful measurement, which takes a
+     * fresh stamp a full day later and so cannot tie the same location's {@code created_at} again.
      *
      * @param stamp                    the user's own {@code driveTimesCalculatedAt}, never null here
      * @param newestLocationCreatedAt  the roster's newest {@code created_at}, or {@code null} if the
      *                                 roster is empty
-     * @return {@code true} if a location was added to the roster after the stamp
+     * @return {@code true} if a location was added to (or ties) the roster's state at the stamp
      */
     private boolean rosterGrewSince(Instant stamp, Instant newestLocationCreatedAt) {
-        return newestLocationCreatedAt != null && newestLocationCreatedAt.isAfter(stamp);
+        return newestLocationCreatedAt != null && !newestLocationCreatedAt.isBefore(stamp);
     }
 }

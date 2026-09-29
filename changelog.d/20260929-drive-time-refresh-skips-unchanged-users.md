@@ -25,3 +25,10 @@ The manual Settings-dialog refresh button, its cooldown and its 409 behaviour ar
 A follow-up migration (V156) corrects the job's admin-facing `scheduler_job_config.description`,
 seeded by V133 with the old "recalculates every user's" wording, to describe the new skip logic and
 say that "Run now" always re-measures everyone.
+
+A P1 fix (review of PR #942): both the scheduled job and the manual Settings refresh now stamp
+`driveTimesCalculatedAt` with the instant the location roster was READ, captured immediately before
+`measureForUser`, rather than an instant taken once the answer was back — the earlier version could
+silently leave a location unmeasured indefinitely if it was created while routing was in flight;
+`rosterGrewSince`'s boundary is now inclusive (`created_at` equal to the stamp counts as grown too),
+so a tie can never be missed.
