@@ -470,6 +470,49 @@ Two consequences worth stating plainly:
   is retracted by that cycle's own skip a few minutes later; the rule has no way to except a human's
   deliberate request, and a short admin-run window is preferred to making admin evaluations immune to
   ever being retracted once stale.
+- ⚠️ **The raw `BriefingEvaluationService` cache is a store, never a read surface — every reader that
+  produces something a person or admin sees goes through `EvaluationViewService`'s retraction-aware
+  read instead.** Two callers read `briefingEvaluationService.getCachedScores` directly until a Codex
+  review of #940 caught it: `BriefingRollupBuilder.computeRegionStats` (the best-bet advisor's
+  region-level rollup — its `claudeAverageRating`/coverage figures) and
+  `PipelineRunPickService.lookupAverageRating` (the `pipeline_run_pick.claude_average_rating`
+  cross-run comparison snapshot, read by `PipelineRunsView`'s picks). Both read the cache **before**
+  retraction is applied, so a rating a nightly stability skip had already withdrawn from the Plan
+  card and the map still counted toward the advisor's pick and the run-to-run comparison — the exact
+  "every surface must agree" requirement this whole feature exists for, broken one layer further in.
+  The same gap is older than the stability-skip feature: a rating superseded by a newer **triage**
+  row was equally still in the raw cache, uncounted nowhere else in the product. Both close the same
+  way — `EvaluationViewService.getLiveScoresForEnrichment(regionName, date, targetType)`, a sibling of
+  `getScoresForEnrichment` that applies the identical cached-vs-forecast-row precedence and
+  stability-skip retraction and then, unlike its sibling, **filters out every `retracted()` marker**
+  before returning: `getScoresForEnrichment` has to be able to say "this was here and a skip is why it
+  is not any more" for `BriefingRegionEvaluationRollup.enrichSlot` to clear an embedded rating rather
+  than leave it (above), but a caller with no such branch has no use for a marker whose every numeric
+  field is null — it would either NPE on the rating or silently count the marker as "no opinion",
+  neither a decision anyone made. `getLiveScoresForEnrichment` removes that whole class of mistake by
+  construction: what comes back contains no retracted entries and no superseded ratings, exactly as
+  if the affected location had never been evaluated at all. `BriefingRollupBuilder` and
+  `PipelineRunPickService` now depend on `EvaluationViewService` instead of `BriefingEvaluationService`
+  directly (the latter dependency is gone from both, and from `BriefingBestBetAdvisor`, which only
+  ever held it to construct the rollup builder) — no circular dependency resulted, so neither needed
+  `@Lazy` beyond the one already on `BriefingBestBetAdvisor`'s own `EvaluationViewService` param,
+  matching `BriefingService`'s existing `@Lazy EvaluationViewService`. ⚠️ **A second, deliberate
+  widening rides along, not just retraction.** Before this fix `computeRegionStats` only ever saw a
+  location with a `cached_evaluation` entry; `getScoresForEnrichment` also resolves a location whose
+  *only* evidence is a scored or triaged `forecast_evaluation` row, so such a location is now counted
+  in the advisor's rollup and the pick snapshot too — narrowing the divergence between what the
+  advisor is shown and what the Plan tab and map already serve, not merely retracting stale ratings.
+  ⚠️ **The pre-existing fail-open roster-hygiene residual is unchanged, not fixed, by this move** — a
+  location renamed, disabled or moved to another region since the batch wrote its cache entry still
+  answers under a name no slot claims (`computeRegionStats`'s own javadoc), because
+  `getScoresForEnrichment` carries that same cache-outlives-the-roster entry forward for the identical
+  reason (dropping it would be an unrelated behaviour change). Two write-path readers of the raw cache
+  were checked and correctly left alone: `ForecastResultHandler.hasSkyScoredEntry` asks "did *this same
+  batch cycle* already write a sky-scored entry for this slot" to decide whether to derive tide as a
+  fallback signal — an intra-cycle coordination question the retraction rule (which only ever compares
+  across cycles) cannot answer and must not be asked to; and `EvaluationViewService`'s own
+  `loadCachedEvaluations` (the DB-fallback half of `forDateRange`) feeds `mergeToView` per location,
+  which is already retraction-aware, so it was never a naked reader in the first place.
 
 ---
 

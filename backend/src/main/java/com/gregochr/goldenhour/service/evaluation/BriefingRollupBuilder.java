@@ -17,8 +17,8 @@ import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingRatingStats;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.PlanRenderLimits;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
@@ -60,7 +60,7 @@ public final class BriefingRollupBuilder {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final TravelDayService travelDayService;
-    private final BriefingEvaluationService briefingEvaluationService;
+    private final EvaluationViewService evaluationViewService;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
     private final AuroraStateCache auroraStateCache;
     private final AuroraRegionSelector auroraRegionSelector;
@@ -71,21 +71,22 @@ public final class BriefingRollupBuilder {
      * @param objectMapper              Jackson mapper for JSON building and parsing
      * @param clock                     UTC clock supplying "now" and (via London) "today"
      * @param travelDayService          excludes travel-day events from the candidate rollup
-     * @param briefingEvaluationService cached Claude evaluation scores from drill-down
+     * @param evaluationViewService     retraction-aware Claude evaluation scores — see
+     *                                  {@link EvaluationViewService#getLiveScoresForEnrichment}
      * @param stabilitySnapshotProvider provides the latest stability summary for region rollup
      * @param auroraStateCache          read-only access to the current aurora alert state
      * @param auroraRegionSelector      derives the best dark-sky region for the aurora event
      */
     public BriefingRollupBuilder(ObjectMapper objectMapper, Clock clock,
             TravelDayService travelDayService,
-            BriefingEvaluationService briefingEvaluationService,
+            EvaluationViewService evaluationViewService,
             StabilitySnapshotProvider stabilitySnapshotProvider,
             AuroraStateCache auroraStateCache,
             AuroraRegionSelector auroraRegionSelector) {
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.travelDayService = travelDayService;
-        this.briefingEvaluationService = briefingEvaluationService;
+        this.evaluationViewService = evaluationViewService;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
         this.auroraStateCache = auroraStateCache;
         this.auroraRegionSelector = auroraRegionSelector;
@@ -259,10 +260,30 @@ public final class BriefingRollupBuilder {
      * another region still answers under a name no slot claims — and an unmatched name counts as
      * sky. For a wood that is the very defect above, surviving in one narrow case. Reading
      * {@code slot.claudeRating()} instead would close it, and {@code BriefingGlossService} does
-     * exactly that one class away, but the cache read here is a pinned contract
-     * ({@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters}) and not every caller of
-     * {@code advise} hands over enriched days. Left as-is deliberately; it is a roster-hygiene bug
-     * older than this filter, and it inflates the counts today with or without it.
+     * exactly that one class away, but not every caller of {@code advise} hands over enriched days.
+     * Left as-is deliberately; it is a roster-hygiene bug older than this filter, and it inflates the
+     * counts today with or without it. ⚠️ <b>Unchanged by the retraction-aware read below</b> —
+     * {@link EvaluationViewService#getScoresForEnrichment} carries the identical fail-open behaviour
+     * forward for exactly the same reason (its own javadoc: "dropping them here would be an unrelated
+     * behaviour change riding along with the freshness fix"), so this residual is neither fixed nor
+     * worsened by that change.
+     *
+     * <p>⚠️ <b>The read below is retraction-aware, and that is a second, deliberate widening beyond
+     * retraction.</b> Until this method routed through {@link EvaluationViewService}, a location
+     * counted here only when the batch had written a {@code cached_evaluation} entry for it; a
+     * location whose only evidence was a scored or triaged {@code forecast_evaluation} row (no
+     * cache entry at all) was invisible to the advisor. {@link EvaluationViewService
+     * #getLiveScoresForEnrichment} resolves the same cached-vs-forecast-row precedence every other
+     * serve surface already applies, so such a location is now counted too — and a rating superseded
+     * by either a newer stability skip or a newer triage row is excluded, never averaged or counted.
+     * Both are the point: "every surface must agree" cannot hold while this one alone reads a
+     * narrower source than the Plan payload and the map do.
+     *
+     * <p>⚠️ <b>The lookup is no longer a pinned-parameters contract on {@code BriefingEvaluationService}
+     * directly</b> — {@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters} now pins the
+     * same exact-region/date/targetType contract one layer out, against
+     * {@code evaluationViewService.getLiveScoresForEnrichment}, since that is the call this method
+     * and {@link #logCacheCoverage} both make.
      *
      * @param region     the enriched region
      * @param date       the target date, for stats logging
@@ -271,8 +292,8 @@ public final class BriefingRollupBuilder {
      */
     private RegionStats computeRegionStats(BriefingRegion region, LocalDate date,
             TargetType targetType) {
-        Map<String, BriefingEvaluationResult> cached =
-                briefingEvaluationService.getCachedScores(region.regionName(), date, targetType);
+        Map<String, BriefingEvaluationResult> cached = evaluationViewService
+                .getLiveScoresForEnrichment(region.regionName(), date, targetType);
         if (cached.isEmpty()) {
             return new RegionStats(null, null);
         }
@@ -347,8 +368,8 @@ public final class BriefingRollupBuilder {
                 }
                 for (BriefingRegion region : es.regions()) {
                     totalSlots++;
-                    Map<String, BriefingEvaluationResult> cached =
-                            briefingEvaluationService.getCachedScores(
+                    Map<String, BriefingEvaluationResult> cached = evaluationViewService
+                            .getLiveScoresForEnrichment(
                                     region.regionName(), day.date(), es.targetType());
                     if (!cached.isEmpty()) {
                         slotsWithScores++;

@@ -20,7 +20,7 @@ import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.service.AlsoGoodFloor;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -91,7 +91,7 @@ public class BriefingBestBetAdvisor {
     private final ModelSelectionService modelSelectionService;
     private final AuroraStateCache auroraStateCache;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
-    private final BriefingEvaluationService briefingEvaluationService;
+    private final EvaluationViewService evaluationViewService;
     private final TravelDayService travelDayService;
 
     /**
@@ -121,7 +121,8 @@ public class BriefingBestBetAdvisor {
      * @param modelSelectionService      service for resolving the active Claude model
      * @param auroraStateCache           read-only access to the current aurora alert state
      * @param stabilitySnapshotProvider  provides the latest stability summary for region rollup
-     * @param briefingEvaluationService  cached Claude evaluation scores from drill-down
+     * @param evaluationViewService      retraction-aware Claude evaluation scores — see
+     *                                   {@link EvaluationViewService#getLiveScoresForEnrichment}
      * @param travelDayService           excludes travel-day events from the candidate rollup
      * @param maxTokens                  response-token ceiling for standard best-bet calls
      * @param clock                      UTC clock supplying "now" and (via London) "today"
@@ -132,7 +133,7 @@ public class BriefingBestBetAdvisor {
             ModelSelectionService modelSelectionService,
             AuroraStateCache auroraStateCache,
             StabilitySnapshotProvider stabilitySnapshotProvider,
-            @Lazy BriefingEvaluationService briefingEvaluationService,
+            @Lazy EvaluationViewService evaluationViewService,
             TravelDayService travelDayService,
             @Value("${photocast.best-bet.max-tokens:" + DEFAULT_MAX_TOKENS + "}") int maxTokens,
             java.time.Clock clock) {
@@ -142,13 +143,13 @@ public class BriefingBestBetAdvisor {
         this.modelSelectionService = modelSelectionService;
         this.auroraStateCache = auroraStateCache;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
-        this.briefingEvaluationService = briefingEvaluationService;
+        this.evaluationViewService = evaluationViewService;
         this.travelDayService = travelDayService;
         this.maxTokens = maxTokens;
         this.clock = clock;
         this.auroraRegionSelector = new AuroraRegionSelector(auroraStateCache);
         this.rollupBuilder = new BriefingRollupBuilder(objectMapper, clock, travelDayService,
-                briefingEvaluationService, stabilitySnapshotProvider, auroraStateCache,
+                evaluationViewService, stabilitySnapshotProvider, auroraStateCache,
                 auroraRegionSelector);
         this.enricher = new BestBetEnricher(clock);
     }

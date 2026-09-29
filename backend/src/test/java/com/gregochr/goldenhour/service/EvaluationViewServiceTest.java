@@ -2541,4 +2541,188 @@ class EvaluationViewServiceTest {
             assertThat(result.get("Bamburgh").rating()).isNull();
         }
     }
+
+    @Nested
+    @DisplayName("getLiveScoresForEnrichment — the raw-cache retraction gap (Codex review of #940 "
+            + "at 92c2ad37)")
+    class GetLiveScoresForEnrichment {
+
+        private static final Instant CACHED_AT = Instant.parse("2026-04-22T01:00:00Z");
+
+        private static Object[] skipRow(String locationName, LocalDate date, TargetType type,
+                Instant lastSkippedAt) {
+            return new Object[] {locationName, date, type.name(), lastSkippedAt};
+        }
+
+        private static LocationEntity location(long id, String name, RegionEntity region) {
+            LocationEntity loc = new LocationEntity();
+            loc.setId(id);
+            loc.setName(name);
+            loc.setRegion(region);
+            loc.setLat(54.5 + id * 0.1);
+            loc.setLon(-1.0 - id * 0.1);
+            return loc;
+        }
+
+        /**
+         * The advisor's rollup builder ({@code BriefingRollupBuilder.computeRegionStats}) and the
+         * pipeline pick snapshot ({@code PipelineRunPickService.lookupAverageRating}) both call this
+         * method and nothing else to learn a region's scores — see
+         * {@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters} and
+         * {@code PipelineRunPickServiceTest.cached_scores_lookup_uses_pick_coordinates} for the pin
+         * on those call sites. These tests exercise the filtering itself: what the raw
+         * {@code BriefingEvaluationService} cache would have said, versus what a caller that must
+         * never see a retracted rating actually receives.
+         */
+        @Test
+        @DisplayName("Codex's case: 5 cached ratings, 2 superseded by a newer stability skip — only "
+                + "the 3 live ones survive")
+        void fiveRatingsTwoRetractedByNewerSkip_onlyThreeLiveSurvive() {
+            RegionEntity region = new RegionEntity();
+            region.setId(REGION_ID);
+            region.setName(REGION_NAME);
+            LocationEntity bamburghL = location(1, "Bamburgh", region);
+            LocationEntity sandsendL = location(2, "Sandsend", region);
+            LocationEntity dunstanburghL = location(3, "Dunstanburgh", region);
+            LocationEntity alnmouthL = location(4, "Alnmouth", region);
+            LocationEntity crasterL = location(5, "Craster", region);
+            when(locationService.findAllEnabled()).thenReturn(
+                    List.of(bamburghL, sandsendL, dunstanburghL, alnmouthL, crasterL));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 5, 90, 80, "Fiery"),
+                            "Sandsend", new BriefingEvaluationResult("Sandsend", 4, 80, 70, "Good"),
+                            "Dunstanburgh",
+                            new BriefingEvaluationResult("Dunstanburgh", 3, 60, 50, "Decent"),
+                            "Alnmouth", new BriefingEvaluationResult("Alnmouth", 2, 30, 20, "Poor"),
+                            "Craster", new BriefingEvaluationResult("Craster", 1, 10, 5, "Very poor")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+            // Alnmouth and Craster were skipped AFTER the cache was written; the other three were
+            // not skipped at all (absent from the disposition rows).
+            Instant skipAt = CACHED_AT.plusSeconds(3600);
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            skipRow("Alnmouth", DATE, SUNRISE, skipAt),
+                            skipRow("Craster", DATE, SUNRISE, skipAt)));
+
+            Map<String, BriefingEvaluationResult> live =
+                    service.getLiveScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
+
+            assertThat(live).hasSize(3);
+            assertThat(live.keySet()).containsExactlyInAnyOrder(
+                    "Bamburgh", "Sandsend", "Dunstanburgh");
+            assertThat(live.values()).noneMatch(BriefingEvaluationResult::retracted);
+            assertThat(live.get("Bamburgh").rating()).isEqualTo(5);
+            assertThat(live.get("Sandsend").rating()).isEqualTo(4);
+            assertThat(live.get("Dunstanburgh").rating()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("A skip older than all 5 ratings retracts none of them — all 5 survive")
+        void skipOlderThanAllRatings_allFiveSurvive() {
+            RegionEntity region = new RegionEntity();
+            region.setId(REGION_ID);
+            region.setName(REGION_NAME);
+            LocationEntity bamburghL = location(1, "Bamburgh", region);
+            LocationEntity sandsendL = location(2, "Sandsend", region);
+            LocationEntity dunstanburghL = location(3, "Dunstanburgh", region);
+            LocationEntity alnmouthL = location(4, "Alnmouth", region);
+            LocationEntity crasterL = location(5, "Craster", region);
+            when(locationService.findAllEnabled()).thenReturn(
+                    List.of(bamburghL, sandsendL, dunstanburghL, alnmouthL, crasterL));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 5, 90, 80, "Fiery"),
+                            "Sandsend", new BriefingEvaluationResult("Sandsend", 4, 80, 70, "Good"),
+                            "Dunstanburgh",
+                            new BriefingEvaluationResult("Dunstanburgh", 3, 60, 50, "Decent"),
+                            "Alnmouth", new BriefingEvaluationResult("Alnmouth", 2, 30, 20, "Poor"),
+                            "Craster", new BriefingEvaluationResult("Craster", 1, 10, 5, "Very poor")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+            Instant skipAt = CACHED_AT.minusSeconds(3600);
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            skipRow("Alnmouth", DATE, SUNRISE, skipAt),
+                            skipRow("Craster", DATE, SUNRISE, skipAt)));
+
+            Map<String, BriefingEvaluationResult> live =
+                    service.getLiveScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
+
+            assertThat(live).hasSize(5);
+            assertThat(live.values()).noneMatch(BriefingEvaluationResult::retracted);
+        }
+
+        @Test
+        @DisplayName("Every rating retracted yields the same result as an empty cache")
+        void everyRatingRetracted_matchesEmptyCache() {
+            RegionEntity region = new RegionEntity();
+            region.setId(REGION_ID);
+            region.setName(REGION_NAME);
+            LocationEntity bamburghL = location(1, "Bamburgh", region);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburghL));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 5, 90, 80, "Fiery")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            skipRow("Bamburgh", DATE, SUNRISE, CACHED_AT.plusSeconds(3600))));
+
+            Map<String, BriefingEvaluationResult> live =
+                    service.getLiveScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
+
+            assertThat(live).isEmpty();
+        }
+
+        @Test
+        @DisplayName("A rating superseded by a newer triage row is excluded, and never marked "
+                + "retracted — triage is a different kind of newer evidence")
+        void ratingSupersededByNewerTriage_excludedNotMarkedRetracted() {
+            RegionEntity region = new RegionEntity();
+            region.setId(REGION_ID);
+            region.setName(REGION_NAME);
+            LocationEntity bamburghL = location(1, "Bamburgh", region);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburghL));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky",
+                                    null, null, null, CACHED_AT)));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburghL).targetDate(DATE).targetType(SUNRISE)
+                            .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "91% low cloud"))
+                            .forecastRunAt(CACHED_AT.plusSeconds(3600)
+                                    .atZone(ZoneOffset.UTC).toLocalDateTime())
+                            .build()));
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.of());
+
+            Map<String, BriefingEvaluationResult> live =
+                    service.getLiveScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
+
+            // Present (unlike a stability-skip retraction, which drops the entry entirely from
+            // this method's output), but the stale numeric rating is gone — the rollup would
+            // average over nothing for this location rather than the superseded 4.
+            assertThat(live).containsKey("Bamburgh");
+            BriefingEvaluationResult r = live.get("Bamburgh");
+            assertThat(r.rating()).isNull();
+            assertThat(r.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+            assertThat(r.retracted()).isFalse();
+        }
+    }
 }

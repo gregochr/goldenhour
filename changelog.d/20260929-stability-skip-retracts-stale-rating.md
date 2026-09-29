@@ -39,3 +39,28 @@ the codebase converts `forecast_run_at` to an `Instant`; the two DTO mappers tha
 untouched, and the two direct `LocalDateTime`-to-`LocalDateTime` comparisons in
 `ForecastCalibrationService`/`EvaluationViewService.loadLatestForecasts`, are correct as they stand
 and were left alone.
+
+**Second follow-up fix, same day (Codex re-review of #940):** two readers still went around all of
+the above by reading the raw `BriefingEvaluationService` cache directly instead of through
+`EvaluationViewService` — `BriefingRollupBuilder.computeRegionStats` (the best-bet advisor's
+`claudeAverageRating`/coverage figures) and `PipelineRunPickService.lookupAverageRating` (the
+`pipeline_run_pick.claude_average_rating` cross-run comparison snapshot). Reading before retraction
+meant a rating the Plan card and the map had already stopped showing — because a nightly stability
+skip superseded it — still counted toward the advisor's pick and toward the run-to-run comparison,
+the very "every surface must agree" property this fix exists for, broken one layer further in. The
+same gap is older than the stability-skip feature: a rating superseded by a newer *triage* row was
+equally still in the raw cache and uncounted nowhere else. Both close together, because both are
+instances of one rule: neither caller should ever see a rating the rest of the product has stopped
+serving. New sibling accessor `EvaluationViewService.getLiveScoresForEnrichment` applies the same
+precedence and stability-skip retraction `getScoresForEnrichment` already does, then filters out
+every retraction marker before returning — a caller of this method never has to remember to check
+for one, because it never receives one. `BriefingRollupBuilder` and `PipelineRunPickService` now
+depend on `EvaluationViewService` instead of `BriefingEvaluationService` directly; no circular
+dependency resulted. A deliberate side effect: a location whose only evidence is a scored or triaged
+`forecast_evaluation` row (no cache entry at all) is now counted too, since that is what the
+precedence-aware read already does for every other surface — narrowing an existing divergence
+between what the advisor saw and what the Plan tab and map already served, not only retracting stale
+ratings. The pre-existing fail-open roster-hygiene residual on this lookup (a renamed, disabled or
+moved location still answering under a name no slot claims) is unchanged by this move, not fixed —
+`getScoresForEnrichment` carries the same cache-outlives-the-roster behaviour forward for the
+identical, already-documented reason.

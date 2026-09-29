@@ -16,7 +16,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -55,7 +55,7 @@ class BriefingRollupBuilderTest {
     private static final String REGION = "North East";
 
     @Mock private TravelDayService travelDayService;
-    @Mock private BriefingEvaluationService briefingEvaluationService;
+    @Mock private EvaluationViewService evaluationViewService;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock private AuroraStateCache auroraStateCache;
     @Mock private AuroraRegionSelector auroraRegionSelector;
@@ -68,7 +68,7 @@ class BriefingRollupBuilderTest {
     void setUp() {
         builder = new BriefingRollupBuilder(mapper,
                 Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
-                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                travelDayService, evaluationViewService, stabilitySnapshotProvider,
                 auroraStateCache, auroraRegionSelector);
     }
 
@@ -107,7 +107,8 @@ class BriefingRollupBuilderTest {
                         spot.name(), spot.rating(), 60, 60, "Conditions.")));
         // eq(), not any(): the cache key is the one argument a refactor of this method would get
         // wrong, and a matcher that accepts anything cannot fail when it does.
-        when(briefingEvaluationService.getCachedScores(eq(REGION), eq(DATE), eq(TargetType.SUNRISE)))
+        when(evaluationViewService.getLiveScoresForEnrichment(
+                eq(REGION), eq(DATE), eq(TargetType.SUNRISE)))
                 .thenReturn(cached);
     }
 
@@ -274,7 +275,7 @@ class BriefingRollupBuilderTest {
         realCache.evaluate(AlertLevel.STRONG);
         BriefingRollupBuilder realBuilder = new BriefingRollupBuilder(mapper,
                 Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
-                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                travelDayService, evaluationViewService, stabilitySnapshotProvider,
                 realCache, auroraRegionSelector);
 
         RollupResult result = realBuilder.buildRollupJson(days, NOW);
@@ -291,7 +292,7 @@ class BriefingRollupBuilderTest {
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
         BriefingRollupBuilder simBuilder = new BriefingRollupBuilder(mapper,
                 Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
-                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                travelDayService, evaluationViewService, stabilitySnapshotProvider,
                 realCache, auroraRegionSelector);
 
         RollupResult result = simBuilder.buildRollupJson(days, NOW);
