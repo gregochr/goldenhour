@@ -23,10 +23,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.CONFLICT;
@@ -45,6 +47,14 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
  * lost one of them: a colour save and a home save in two tabs, a home save during the nightly
  * drive-time job, or — the worst of them — a postcode saved while a drive-time refresh was routing
  * from the old one, which put the old home back.
+ *
+ * <p><strong>{@code driveTimesCalculatedAt} means "drive times were stored for the roster read at
+ * this instant" — nothing less.</strong> {@link #refreshDriveTimes} never advances it for an attempt
+ * that stored no rows (ORS gave no answer at all): only {@link #pendingDriveTimeAttempts}, an
+ * in-memory tracker, throttles a repeated press after a failure. That map resets on an app restart,
+ * which is accepted — it is a rate limit on a single-instance app, not a record anything downstream
+ * reads, and the worst a restart can do is let one extra attempt through before the persisted stamp
+ * (once a refresh actually succeeds) takes back over.
  */
 @Service
 public class UserSettingsService {
@@ -72,6 +82,22 @@ public class UserSettingsService {
     private final DriveDurationService driveDurationService;
     private final UserDriveTimeWriter driveTimeWriter;
     private final Clock clock;
+
+    /**
+     * A user's most recent drive-time refresh ATTEMPT (not necessarily a stored one), keyed by user
+     * id — package-private so tests can assert on it directly rather than only through behaviour.
+     *
+     * <p>Exists because the persisted {@code driveTimesCalculatedAt} column can no longer carry a
+     * failed attempt (see the class javadoc), but the 30-minute cooldown must still catch a repeated
+     * press after ORS gives no answer, or the button could be hammered for free. Written just before
+     * the ORS call, so the throttle covers the call in flight too. Bounded three ways: removed the
+     * moment a refresh for that user stores successfully (the persisted stamp then covers it),
+     * removed when the home moves (mirroring the persisted stamp's own clear in {@link #saveHome} —
+     * a stale entry here would re-arm a cooldown the move is documented to release), and expired
+     * lazily on read once older than the cooldown ({@link #isThrottled}), which is what keeps an
+     * entry from lingering forever for a user who fails once and is never throttled by it again.
+     */
+    final Map<Long, Instant> pendingDriveTimeAttempts = new ConcurrentHashMap<>();
 
     /**
      * Constructs a {@code UserSettingsService}.
@@ -190,6 +216,9 @@ public class UserSettingsService {
             // would lock a user who has just moved house out of recalculating for up to
             // REFRESH_COOLDOWN_MINUTES while they are served nothing at all.
             userRepository.clearDriveTimesCalculatedAt(stored.getId());
+            // Same reasoning applies to the in-memory attempt tracker: a failed attempt from before
+            // the move must not go on throttling someone who has just moved house.
+            pendingDriveTimeAttempts.remove(stored.getId());
         }
         LOG.info("User '{}' saved home location: {} ({}, {}){}",
                 stored.getUsername(), request.postcode(), request.latitude(), request.longitude(),
@@ -236,6 +265,14 @@ public class UserSettingsService {
      * reader nothing they can lose: the save that moved the home discarded the old drive times and
      * released the cooldown, so pressing again is allowed.
      *
+     * <p><strong>An attempt that stores no rows never advances {@code driveTimesCalculatedAt}.</strong>
+     * When ORS gives no answer at all (unconfigured, rate-limited, or an empty/failed response), the
+     * response reports the user's own unmodified stamp — {@code null} on the realistic sequence that
+     * reaches this (a postcode change, whose save already cleared it, is the only way this button is
+     * enabled) — rather than {@code now}, so the settings dialog cannot read a fresh timestamp and
+     * print "Last calculated: Just now" for a refresh that calculated nothing. See
+     * {@link #pendingDriveTimeAttempts} for how the cooldown still catches a repeated press.
+     *
      * @param auth the authenticated user
      * @return the refresh response with count and timestamp
      * @throws ResponseStatusException 400 if no home location set, 429 if recently refreshed, 409 if
@@ -247,41 +284,90 @@ public class UserSettingsService {
             throw new ResponseStatusException(BAD_REQUEST,
                     "Set a home location before refreshing drive times");
         }
-        if (user.getDriveTimesCalculatedAt() != null
-                && user.getDriveTimesCalculatedAt()
-                        .isAfter(clock.instant().minus(REFRESH_COOLDOWN_MINUTES, ChronoUnit.MINUTES))) {
+
+        Instant now = clock.instant();
+        if (isThrottled(user, now)) {
             throw new ResponseStatusException(TOO_MANY_REQUESTS,
                     "Drive times were refreshed recently. Please wait before trying again.");
         }
 
         double originLat = user.getHomeLatitude();
         double originLon = user.getHomeLongitude();
-        // Captured BEFORE measureForUser reads the location roster — not once the answer is back.
-        // measureForUser reads the whole location table, then spends seconds routing; a location
-        // created in that gap must have a created_at LATER than this stamp, or the scheduled job's
-        // rosterGrewSince would never see it (see DriveTimeRefreshJob's identical fix and javadoc).
-        // Taking the read-side timestamp costs this cooldown a few seconds of its 30 minutes —
-        // acceptable, since the alternative silently loses a location, possibly indefinitely.
-        Instant calculatedAt = clock.instant();
+        // Recorded BEFORE the ORS call — not after, and not only on success — so this attempt
+        // throttles a same-cooldown retry even if it fails, and so the stamp a SUCCESSFUL attempt
+        // eventually stores below is the roster-READ instant, matching DriveTimeRefreshJob's
+        // identical fix (measureForUser reads the whole location table, then spends seconds
+        // routing; a location created in that gap must have a created_at later than this instant,
+        // or the scheduled job's rosterGrewSince would never see it).
+        pendingDriveTimeAttempts.put(user.getId(), now);
+
         Optional<List<UserDriveTimeEntity>> measured =
                 driveDurationService.measureForUser(user.getId(), originLat, originLon);
-        // No answer at all still stamps the attempt, as this path always has — it is what the
-        // response reports and what the cooldown reads — under the same guard.
-        boolean stored = measured.isPresent()
-                ? driveTimeWriter.storeIfHomeUnchanged(
-                        user.getId(), originLat, originLon, measured.get(), calculatedAt)
-                : driveTimeWriter.stampIfHomeUnchanged(user.getId(), originLat, originLon, calculatedAt);
+
+        if (measured.isEmpty()) {
+            // No answer at all. The persisted stamp must not move — see the class and method
+            // javadoc — so no writer method is called here at all; the pending-attempt entry just
+            // recorded above is the only thing throttling a repeated press.
+            LOG.warn("Drive time refresh measured no drive times for user {} — leaving the stored "
+                    + "ones and their calculated-at stamp exactly as they are", user.getId());
+            return new DriveTimeRefreshResponse(0, user.getDriveTimesCalculatedAt());
+        }
+
+        boolean stored = driveTimeWriter.storeIfHomeUnchanged(
+                user.getId(), originLat, originLon, measured.get(), now);
         if (!stored) {
+            // Belt and braces: saveHome already removes this entry when it moves the home (the
+            // same reasoning it gives for clearing the persisted stamp), so this is normally a
+            // no-op — but a lingering entry here would re-arm a cooldown that move is documented
+            // to release, so it is cleared on this path too rather than assumed.
+            pendingDriveTimeAttempts.remove(user.getId());
             LOG.info("Drive time refresh for user {} discarded — the home moved while it was measured",
                     user.getId());
             throw new ResponseStatusException(CONFLICT, "Your home location changed while drive times "
                     + "were being calculated, so nothing was saved. Refresh again to calculate them "
                     + "from the new home.");
         }
-        int updated = measured.map(List::size).orElse(0);
+        // Stored successfully: the persisted stamp now covers this attempt, so the in-memory entry
+        // is redundant — drop it rather than let it sit until it ages out on its own.
+        pendingDriveTimeAttempts.remove(user.getId());
+        int updated = measured.get().size();
         LOG.info("Drive times refreshed for user '{}': {} locations updated",
                 user.getUsername(), updated);
-        return new DriveTimeRefreshResponse(updated, calculatedAt);
+        return new DriveTimeRefreshResponse(updated, now);
+    }
+
+    /**
+     * Whether a refresh for this user must wait — the later of two clocks. The persisted
+     * {@code driveTimesCalculatedAt} covers an attempt that stored; {@link #pendingDriveTimeAttempts}
+     * covers one that did not, which is otherwise invisible to any persisted column now that a
+     * failed attempt no longer writes a stamp.
+     *
+     * <p>Reading the in-memory entry also expires it: once it is older than the cooldown it is
+     * removed here rather than left in place, which is what keeps the map bounded for a user who
+     * fails once and is never throttled by that failure again.
+     *
+     * @param user the caller, as read at the top of {@link #refreshDriveTimes}
+     * @param now  this call's "now" — the same instant the caller will store if it succeeds
+     * @return {@code true} if a refresh right now must be refused with 429
+     */
+    private boolean isThrottled(AppUserEntity user, Instant now) {
+        Instant cooldownFloor = now.minus(REFRESH_COOLDOWN_MINUTES, ChronoUnit.MINUTES);
+        if (user.getDriveTimesCalculatedAt() != null
+                && user.getDriveTimesCalculatedAt().isAfter(cooldownFloor)) {
+            return true;
+        }
+        Instant pending = pendingDriveTimeAttempts.get(user.getId());
+        if (pending == null) {
+            return false;
+        }
+        // Same boundary as the persisted stamp above (not-after, not strictly-before): an
+        // attempt recorded exactly at the cooldown floor is not throttled, matching
+        // `atOrAfterCooldown_refreshes`'s own exact-1800-seconds case for the persisted path.
+        if (!pending.isAfter(cooldownFloor)) {
+            pendingDriveTimeAttempts.remove(user.getId(), pending);
+            return false;
+        }
+        return true;
     }
 
     /**

@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -35,6 +36,18 @@ import java.util.List;
  *
  * <p>Users with no saved home location are skipped: there is no origin to route from, and their
  * having no drive times is correct rather than stale.
+ *
+ * <p><strong>{@code driveTimesCalculatedAt} means "drive times were stored for the roster read at
+ * this instant" — nothing less, and nothing else proves roster coverage.</strong> This job has
+ * always kept that rule on its own route: the {@code driveTimes.isEmpty()} branch below stores
+ * nothing and leaves the stamp exactly as it was, so a run that measures nothing never claims
+ * coverage it does not have. {@code UserSettingsService.refreshDriveTimes} (the manual Settings
+ * button) did not, until a P1 review of PR #942 found that its no-answer branch advanced the stamp
+ * through a since-deleted {@code UserDriveTimeWriter.stampIfHomeUnchanged} purely to keep its own
+ * 30-minute cooldown honest for a failed attempt — which let a user with a freshly-cleared postcode
+ * and a failed measurement read as "covered" and be skipped by this job forever. Both routes now
+ * follow the identical rule; the manual path tracks a failed attempt separately, in an in-memory
+ * map that never touches this column.
  *
  * <p><strong>A scheduled fire measures only the users who need it — a manual one measures
  * everyone.</strong> OpenRouteService is a free-plan call budget shared across every user, and
@@ -69,6 +82,15 @@ import java.util.List;
  * due again next time. {@code UserSettingsService.refreshDriveTimes} — the manual path, which writes
  * and is read by the identical stamp — takes its own instant the same way, immediately before its own
  * {@code measureForUser} call.
+ *
+ * <p><strong>A location's own {@code created_at} can still be earlier than the roster read that
+ * missed it.</strong> {@code LocationEntity.createdAt} is assigned by the application when the
+ * entity is built, before the row is saved — so there is a gap, however small, between that reading
+ * and the row becoming visible to another connection's query. A roster read landing inside that gap
+ * sees a table one location short, while the row it missed nonetheless carries a {@code created_at}
+ * earlier than the stamp this class goes on to store for that read. See
+ * {@link #ROSTER_VISIBILITY_MARGIN} for how {@link #rosterGrewSince} covers this without a new
+ * schema — a widened comparison, not a guarantee the race is closed.
  */
 @Service
 public class DriveTimeRefreshJob {
@@ -77,6 +99,44 @@ public class DriveTimeRefreshJob {
 
     /** Scheduler key; matches the {@code scheduler_job_config} row seeded by V133. */
     static final String JOB_KEY = "drive_time_refresh";
+
+    /**
+     * How far a location's {@code created_at} may sit BEFORE a user's stamp and still count as
+     * "added after" it — covers the gap from the application assigning that field (the builder in
+     * {@code LocationService.add}, before {@code save()}) to the row becoming visible to
+     * {@link LocationRepository#findMaxCreatedAt} and {@link AppUserRepository#findAll} on another
+     * connection.
+     *
+     * <p><strong>The real window is nowhere near an hour.</strong> {@code LocationService.add} is
+     * not {@code @Transactional}; the only transaction wrapping the {@code INSERT} is
+     * {@code JpaRepository.save()}'s own per-call one, so the row commits as soon as {@code save()}
+     * returns — the gap between the {@code createdAt} assignment and the commit is one JDBC round
+     * trip, not the tide fetch that follows {@code save()} (which runs after the row is already
+     * committed and cannot lengthen this window). A Flyway migration seeding several locations by
+     * raw SQL with {@code NOW()} (V84, V138, V143) runs its whole script in one transaction, so its
+     * rows become visible together when that script commits — bounded by how long the script takes
+     * to execute, which for these seed files is a small fraction of a second. An hour is chosen to
+     * exceed either by a wide, deliberate margin, not because either is measured anywhere near it.
+     *
+     * <p><strong>The cost is bounded and stated precisely: at most one redundant re-measurement,
+     * never a repeat.</strong> Widening the test only newly captures users whose stamp already sits
+     * within this margin AFTER the location's {@code created_at} — a user due under the strict test
+     * stays due regardless. Such a user is measured once more on the next scheduled run and never
+     * again for that location, because the fresh stamp that run stores is then a full day ahead of
+     * the location, clear of the margin. The common trigger is exactly the admin's own tool for this
+     * class of problem: adding a location and pressing "Run now" within the hour — the manual run
+     * measures everyone (correctly, since the row is already visible by then), but every one of
+     * those fresh stamps still sits inside this margin of that same {@code created_at}, so the very
+     * next scheduled run re-measures the whole roster once before settling.
+     *
+     * <p><strong>This narrows the race; it does not close it.</strong> An {@code INSERT} whose own
+     * transaction stays open longer than this margin — a migration far larger than any seeded here,
+     * or some future caller wrapping {@code LocationService.add} in a longer transaction — would
+     * still be missed for as long as that transaction runs. The remedy for that residual case is the
+     * same as for any location whose coordinates or roster membership changed outside this stamp's
+     * reach: an admin's "Run now".
+     */
+    static final Duration ROSTER_VISIBILITY_MARGIN = Duration.ofHours(1);
 
     private final AppUserRepository userRepository;
     private final LocationRepository locationRepository;
@@ -261,12 +321,22 @@ public class DriveTimeRefreshJob {
      * instant; even then it self-heals on the user's very next successful measurement, which takes a
      * fresh stamp a full day later and so cannot tie the same location's {@code created_at} again.
      *
+     * <p><strong>{@link #ROSTER_VISIBILITY_MARGIN} widens the boundary further, the same direction
+     * for the same reason.</strong> The tie above assumes the two clock reads happen to land on the
+     * same instant; the margin instead accepts that a location's {@code created_at} can be earlier
+     * than a stamp — by up to the margin — because the row that reading names was not yet visible
+     * to the roster read that produced that stamp. See the constant's own javadoc for the real size
+     * of that gap, why the margin chosen exceeds it by a wide deliberate multiple, and the bounded
+     * cost of choosing too wide a margin rather than too narrow one.
+     *
      * @param stamp                    the user's own {@code driveTimesCalculatedAt}, never null here
      * @param newestLocationCreatedAt  the roster's newest {@code created_at}, or {@code null} if the
      *                                 roster is empty
-     * @return {@code true} if a location was added to (or ties) the roster's state at the stamp
+     * @return {@code true} if a location was added to (or ties, or falls within the margin before)
+     *         the roster's state at the stamp
      */
     private boolean rosterGrewSince(Instant stamp, Instant newestLocationCreatedAt) {
-        return newestLocationCreatedAt != null && !newestLocationCreatedAt.isBefore(stamp);
+        return newestLocationCreatedAt != null
+                && !newestLocationCreatedAt.isBefore(stamp.minus(ROSTER_VISIBILITY_MARGIN));
     }
 }

@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -297,9 +298,11 @@ class DriveTimeRefreshJobTest {
             Instant stamp = NOW.minusSeconds(3600);
             upToDate.setDriveTimesCalculatedAt(stamp);
             when(userRepository.findAll()).thenReturn(List.of(upToDate));
-            // Nothing in the roster is newer than the stamp.
-            when(locationRepository.findMaxCreatedAt())
-                    .thenReturn(LocalDateTime.ofInstant(stamp.minusSeconds(60), ZoneOffset.UTC));
+            // Nothing in the roster is newer than the stamp — comfortably outside
+            // ROSTER_VISIBILITY_MARGIN (one hour), not merely before the stamp itself.
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    stamp.minus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).minusSeconds(60),
+                    ZoneOffset.UTC));
 
             job.run(false);
 
@@ -326,14 +329,19 @@ class DriveTimeRefreshJobTest {
         }
 
         @Test
-        @DisplayName("A location created before the stamp does not measure")
+        @DisplayName("A location created well before the stamp — outside the visibility margin — "
+                + "does not measure")
         void locationCreatedBeforeStampDoesNotMeasure() {
             AppUserEntity user = withHome(1L);
             Instant stamp = NOW.minusSeconds(3600);
             user.setDriveTimesCalculatedAt(stamp);
             when(userRepository.findAll()).thenReturn(List.of(user));
-            when(locationRepository.findMaxCreatedAt())
-                    .thenReturn(LocalDateTime.ofInstant(stamp.minusSeconds(1), ZoneOffset.UTC));
+            // A mere 1 second before the stamp is now WITHIN ROSTER_VISIBILITY_MARGIN (one hour)
+            // and DOES measure — see VisibilityMargin.locationCreatedShortlyBeforeStamp_*. This
+            // fixture instead tests a location genuinely old news: clear of the margin entirely.
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    stamp.minus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).minusSeconds(1),
+                    ZoneOffset.UTC));
 
             job.run(false);
 
@@ -387,8 +395,11 @@ class DriveTimeRefreshJobTest {
             a.setDriveTimesCalculatedAt(stamp);
             b.setDriveTimesCalculatedAt(stamp);
             when(userRepository.findAll()).thenReturn(List.of(a, b));
-            when(locationRepository.findMaxCreatedAt())
-                    .thenReturn(LocalDateTime.ofInstant(stamp.minusSeconds(1), ZoneOffset.UTC));
+            // Outside ROSTER_VISIBILITY_MARGIN, not merely before the stamp — see the comment on
+            // locationCreatedBeforeStampDoesNotMeasure for why 1 second before is not enough any more.
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    stamp.minus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).minusSeconds(1),
+                    ZoneOffset.UTC));
 
             job.run(false);
 
@@ -403,8 +414,10 @@ class DriveTimeRefreshJobTest {
             Instant newestLocation = NOW.minusSeconds(1800);
             AppUserEntity dueByNullStamp = withHome(1L);
             AppUserEntity upToDate = withHome(2L);
-            // Refreshed AFTER the newest location was added — nothing new to see.
-            upToDate.setDriveTimesCalculatedAt(newestLocation.plusSeconds(100));
+            // Refreshed AFTER the newest location was added, and comfortably outside
+            // ROSTER_VISIBILITY_MARGIN of it too — nothing new to see.
+            upToDate.setDriveTimesCalculatedAt(
+                    newestLocation.plus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN).plusSeconds(100));
             AppUserEntity dueByRosterGrowth = withHome(3L);
             // Refreshed BEFORE the newest location was added — due again.
             dueByRosterGrowth.setDriveTimesCalculatedAt(newestLocation.minusSeconds(100));
@@ -428,6 +441,126 @@ class DriveTimeRefreshJobTest {
             verify(driveDurationService, never()).measureForUser(eq(2L), anyDouble(), anyDouble());
             verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, firstRows, NOW);
             verify(driveTimeWriter).storeIfHomeUnchanged(3L, 54.97, -1.61, thirdRows, NOW);
+            verifyNoMoreInteractions(driveTimeWriter);
+        }
+    }
+
+    @Nested
+    @DisplayName("ROSTER_VISIBILITY_MARGIN — a location's created_at can be earlier than the "
+            + "stamp that missed it (P1-B fix, 2026-09-29)")
+    class VisibilityMargin {
+
+        @Test
+        @DisplayName("A location created 10 minutes BEFORE the stamp still measures — fails "
+                + "against 13f704d0, which had no margin and caught only a tie or a strictly "
+                + "later created_at")
+        void locationCreatedShortlyBeforeStamp_withinMargin_measures() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            // The roster-visibility race the margin exists for: this row committed AFTER the
+            // stamp's roster read even though its own created_at — assigned by the application
+            // before the INSERT — reads ten minutes earlier.
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(stamp.minusSeconds(10 * 60), ZoneOffset.UTC));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+
+        @Test
+        @DisplayName("Exactly ROSTER_VISIBILITY_MARGIN (one hour) before the stamp is still "
+                + "within it — measures")
+        void locationCreatedExactlyAtTheMarginBoundary_measures() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findMaxCreatedAt()).thenReturn(
+                    LocalDateTime.ofInstant(stamp.minus(Duration.ofHours(1)), ZoneOffset.UTC));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
+        }
+
+        @Test
+        @DisplayName("One hour and one second before the stamp is OUTSIDE the margin — does not measure")
+        void locationCreatedJustOutsideTheMargin_doesNotMeasure() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            user.setDriveTimesCalculatedAt(stamp);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findMaxCreatedAt()).thenReturn(LocalDateTime.ofInstant(
+                    stamp.minus(Duration.ofHours(1)).minusSeconds(1), ZoneOffset.UTC));
+
+            job.run(false);
+
+            verifyNoInteractions(driveDurationService);
+            verifyNoInteractions(driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("Three consecutive scheduled nights after a location lands within the "
+                + "margin: measured again on night two (the fresh stamp is still within the "
+                + "margin of that location), zero client calls on night three once the stamp "
+                + "has cleared it")
+        void threeNightsAfterAMarginLocation_settlesOnNightThree() {
+            Instant locationCreatedAt = Instant.parse("2026-09-29T02:00:00Z");
+            // Night one is due for an ordinary reason (a week-stale stamp) — nothing to do with
+            // the margin yet. It leaves a FRESH stamp only 30 minutes after the location was
+            // created: still inside the one-hour ROSTER_VISIBILITY_MARGIN of that created_at.
+            Instant night1 = locationCreatedAt.plusSeconds(30 * 60);
+            Instant night2 = night1.plusSeconds(24 * 3600);
+            Instant night3 = night2.plusSeconds(24 * 3600);
+
+            SteppingClock steppingClock = new SteppingClock(night1);
+            DriveTimeRefreshJob nightsJob = new DriveTimeRefreshJob(userRepository, locationRepository,
+                    driveDurationService, driveTimeWriter, dynamicSchedulerService, steppingClock);
+
+            AppUserEntity user = withHome(1L);
+            user.setDriveTimesCalculatedAt(locationCreatedAt.minusSeconds(7 * 24 * 3600));
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(locationCreatedAt, ZoneOffset.UTC));
+
+            List<UserDriveTimeEntity> night1Rows = rowsFor(1L, 2);
+            List<UserDriveTimeEntity> night2Rows = rowsFor(1L, 3);
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61))
+                    .thenReturn(Optional.of(night1Rows))
+                    .thenReturn(Optional.of(night2Rows));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, night1Rows, night1)).thenReturn(true);
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, night2Rows, night2)).thenReturn(true);
+
+            // Night one: due on the week-old stamp alone.
+            nightsJob.run(false);
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, night1Rows, night1);
+            // Simulate persistence: the next run reads the stamp storeIfHomeUnchanged just wrote.
+            user.setDriveTimesCalculatedAt(night1);
+
+            // Night two: the fresh stamp (30 minutes after the location) is STILL within the
+            // margin of that same location's created_at, so this user is measured ONCE more —
+            // exactly the "admin adds a location and presses Run now within the hour" cost
+            // ROSTER_VISIBILITY_MARGIN's own javadoc names.
+            steppingClock.advanceTo(night2);
+            nightsJob.run(false);
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, night2Rows, night2);
+            user.setDriveTimesCalculatedAt(night2);
+
+            // Night three: the stamp is now a full day clear of the location's created_at —
+            // outside the margin — so this user is skipped, with zero further client calls.
+            steppingClock.advanceTo(night3);
+            nightsJob.run(false);
+
+            verify(driveDurationService, times(2)).measureForUser(1L, 54.97, -1.61);
             verifyNoMoreInteractions(driveTimeWriter);
         }
     }
@@ -547,16 +680,37 @@ class DriveTimeRefreshJobTest {
             verify(driveDurationService, times(2)).measureForUser(1L, 54.97, -1.61);
             verify(driveTimeWriter)
                     .storeIfHomeUnchanged(1L, 54.97, -1.61, secondMeasurement, afterRoutingAt);
-
-            // A quiet following night — nothing new since run 2's own stamp — makes no further
-            // calls at all, once the roster is actually covered. findMaxCreatedAt() keeps
-            // returning locationCreatedAt (Mockito repeats the last stubbed answer), so this run
-            // sees no growth since the stamp run 2 just set.
             user.setDriveTimesCalculatedAt(afterRoutingAt);
+
+            // Run 2's own fresh stamp (afterRoutingAt = rosterReadAt + 45s) is only 25 seconds
+            // past the location (locationCreatedAt = rosterReadAt + 20s) — STILL within
+            // ROSTER_VISIBILITY_MARGIN (one hour) of it. That is the margin's own documented cost
+            // (see its javadoc): one further redundant measurement before settling, not zero. So
+            // run 3 measures once more rather than staying quiet.
+            List<UserDriveTimeEntity> thirdMeasurement = rowsFor(1L, 4);
+            Instant thirdStampAt = afterRoutingAt.plus(DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN)
+                    .plusSeconds(60);
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61))
+                    .thenReturn(Optional.of(thirdMeasurement));
+            clock.advanceTo(thirdStampAt);
+            when(driveTimeWriter.storeIfHomeUnchanged(
+                    1L, 54.97, -1.61, thirdMeasurement, thirdStampAt)).thenReturn(true);
 
             raceJob.run(false);
 
-            verify(driveDurationService, times(2)).measureForUser(1L, 54.97, -1.61);
+            verify(driveDurationService, times(3)).measureForUser(1L, 54.97, -1.61);
+            verify(driveTimeWriter)
+                    .storeIfHomeUnchanged(1L, 54.97, -1.61, thirdMeasurement, thirdStampAt);
+
+            // A quiet following night — the fresh stamp (thirdStampAt) is now comfortably clear
+            // of ROSTER_VISIBILITY_MARGIN from the location — makes no further calls at all.
+            // findMaxCreatedAt() keeps returning locationCreatedAt (Mockito repeats the last
+            // stubbed answer), so this run sees no growth since the stamp run 3 just set.
+            user.setDriveTimesCalculatedAt(thirdStampAt);
+
+            raceJob.run(false);
+
+            verify(driveDurationService, times(3)).measureForUser(1L, 54.97, -1.61);
             verifyNoMoreInteractions(driveTimeWriter);
         }
     }

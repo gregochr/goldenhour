@@ -101,31 +101,6 @@ class UserDriveTimeWriterTest {
         }
     }
 
-    @Nested
-    @DisplayName("stampIfHomeUnchanged")
-    class StampIfHomeUnchanged {
-
-        @Test
-        @DisplayName("stamps through the compare-and-set and leaves the stored rows alone")
-        void homeUnchanged_stampsOnly() {
-            when(userRepository.stampDriveTimesIfHomeIs(USER_ID, LAT, LON, CALCULATED_AT)).thenReturn(1);
-
-            assertThat(writer.stampIfHomeUnchanged(USER_ID, LAT, LON, CALCULATED_AT)).isTrue();
-
-            verifyNoInteractions(userDriveTimeRepository);
-        }
-
-        @Test
-        @DisplayName("reports a moved home as not stamped")
-        void homeMoved_reportsNotStamped() {
-            when(userRepository.stampDriveTimesIfHomeIs(USER_ID, LAT, LON, CALCULATED_AT)).thenReturn(0);
-
-            assertThat(writer.stampIfHomeUnchanged(USER_ID, LAT, LON, CALCULATED_AT)).isFalse();
-
-            verifyNoInteractions(userDriveTimeRepository);
-        }
-    }
-
     @Test
     @DisplayName("clearForUser discards that user's rows and inserts nothing in their place")
     void clearForUser_deletesAllRowsForThatUser() {

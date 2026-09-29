@@ -41,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -378,20 +379,43 @@ class UserSettingsServiceTest {
         }
 
         @Test
-        @DisplayName("no answer at all still stamps the attempt — through the same guard — and keeps "
-                + "the stored rows")
-        void noAnswer_stampsThroughTheGuard() {
+        @DisplayName("no answer at all NEVER advances the stamp — fails against 13f704d0, which "
+                + "called stampIfHomeUnchanged(now) and reported now as calculatedAt")
+        void noAnswer_neverAdvancesTheStamp() {
+            // The realistic sequence this P1 exists for: a postcode change (this button's only
+            // enabling condition) has just cleared the stamp to null — see saveHome.
             durhamHome(null);
             when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
                     .thenReturn(Optional.empty());
-            when(driveTimeWriter.stampIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, NOW)).thenReturn(true);
+
+            DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+            // The literal assertions that fail against 13f704d0: no writer method is called at
+            // all for this branch, and the response reports the user's own unmodified stamp
+            // (null here) rather than `now` — so the settings dialog cannot read a fresh
+            // timestamp and print "Last calculated: Just now" for a refresh that stored nothing.
+            verifyNoInteractions(driveTimeWriter);
+            assertThat(response.locationsUpdated()).isZero();
+            assertThat(response.calculatedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("no answer for a user with an existing real stamp reports that stamp back "
+                + "unchanged — never null, never now")
+        void noAnswer_withExistingStamp_reportsItBackUnchanged() {
+            Instant existingStamp = NOW.minusSeconds(3 * 24 * 3600);
+            AppUserEntity user = durhamHome(existingStamp);
+            // The button can be enabled even with a real stamp: driveTimesPostcode resets to null
+            // on every modal remount, so postcodeChanged reads true on first open regardless.
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.empty());
 
             DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
 
             assertThat(response.locationsUpdated()).isZero();
-            assertThat(response.calculatedAt()).isEqualTo(NOW);
-            verify(driveTimeWriter).stampIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, NOW);
-            verifyNoMoreInteractions(driveTimeWriter);
+            assertThat(response.calculatedAt()).isEqualTo(existingStamp);
+            assertThat(user.getDriveTimesCalculatedAt()).isEqualTo(existingStamp);
+            verifyNoInteractions(driveTimeWriter);
         }
 
         @Test
@@ -415,18 +439,12 @@ class UserSettingsServiceTest {
             verifyNoMoreInteractions(userRepository);
         }
 
-        @Test
-        @DisplayName("409 on the no-answer path too — a stamp after a move would re-arm the cooldown")
-        void homeMovedWithNoAnswer_conflict() {
-            durhamHome(null);
-            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
-                    .thenReturn(Optional.empty());
-            when(driveTimeWriter.stampIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, NOW)).thenReturn(false);
-
-            assertThatThrownBy(() -> service.refreshDriveTimes(auth))
-                    .isInstanceOfSatisfying(ResponseStatusException.class,
-                            e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
-        }
+        // There is no "409 on the no-answer path" test any more: that branch never calls the
+        // writer at all now (see noAnswer_neverAdvancesTheStamp), so there is no compare-and-set
+        // left to lose, and nothing for a concurrent home move to conflict with — the response
+        // reports the user's own stamp back either way. A stray in-memory attempt entry from a
+        // move mid-measurement is covered instead by saveHome's own clear, asserted below in
+        // ManualAttemptCooldown.homeMovingClearsAPendingAttempt_allowsAnImmediateRetry.
 
         @Test
         @DisplayName("400 when no home location is set — and nothing is measured")
@@ -520,6 +538,120 @@ class UserSettingsServiceTest {
             assertThat(response.calculatedAt()).isEqualTo(rosterReadAt);
             verify(driveTimeWriter)
                     .storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, rosterReadAt);
+        }
+
+        @Nested
+        @DisplayName("the in-memory attempt cooldown, for an attempt that stores no rows")
+        class ManualAttemptCooldown {
+
+            @Test
+            @DisplayName("a second attempt inside 30 minutes of a no-answer attempt is throttled — "
+                    + "fails against 13f704d0, which had no attempt tracker to consult at all")
+            void secondAttemptWithin30Minutes_afterNoAnswer_isThrottled() {
+                Instant firstAttempt = NOW;
+                SteppingClock steppingClock = new SteppingClock(firstAttempt);
+                UserSettingsService raceService = new UserSettingsService(userRepository, postcodesIoClient,
+                        driveDurationService, driveTimeWriter, steppingClock);
+                AppUserEntity user = home(DURHAM, DURHAM_LAT, DURHAM_LON); // no persisted stamp
+                stubAuth();
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.empty());
+
+                DriveTimeRefreshResponse first = raceService.refreshDriveTimes(auth);
+                assertThat(first.locationsUpdated()).isZero();
+
+                steppingClock.advanceTo(firstAttempt.plusSeconds(29 * 60));
+
+                assertThatThrownBy(() -> raceService.refreshDriveTimes(auth))
+                        .isInstanceOfSatisfying(ResponseStatusException.class,
+                                e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+                // Only the first attempt ever reached ORS — the throttle refused the second before
+                // it could, which is the whole point of tracking an attempt that stored nothing.
+                verify(driveDurationService, times(1)).measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON);
+            }
+
+            @Test
+            @DisplayName("a second attempt at exactly 30 minutes after a no-answer attempt is allowed")
+            void atThirtyMinutesAfterNoAnswer_isAllowed() {
+                Instant firstAttempt = NOW;
+                SteppingClock steppingClock = new SteppingClock(firstAttempt);
+                UserSettingsService raceService = new UserSettingsService(userRepository, postcodesIoClient,
+                        driveDurationService, driveTimeWriter, steppingClock);
+                AppUserEntity user = home(DURHAM, DURHAM_LAT, DURHAM_LON);
+                stubAuth();
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.empty());
+
+                raceService.refreshDriveTimes(auth);
+
+                Instant secondAttempt = firstAttempt.plusSeconds(30 * 60);
+                steppingClock.advanceTo(secondAttempt);
+                List<UserDriveTimeEntity> measured = rows(5);
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.of(measured));
+                when(driveTimeWriter.storeIfHomeUnchanged(
+                        USER_ID, DURHAM_LAT, DURHAM_LON, measured, secondAttempt)).thenReturn(true);
+
+                DriveTimeRefreshResponse second = raceService.refreshDriveTimes(auth);
+
+                assertThat(second.locationsUpdated()).isEqualTo(5);
+                assertThat(second.calculatedAt()).isEqualTo(secondAttempt);
+            }
+
+            @Test
+            @DisplayName("a 409 clears the pending attempt — an immediate retry is not throttled by it")
+            void conflictClearsThePendingAttempt() {
+                durhamHome(null);
+                List<UserDriveTimeEntity> measured = rows(5);
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.of(measured));
+                when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, NOW))
+                        .thenReturn(false);
+
+                assertThatThrownBy(() -> service.refreshDriveTimes(auth))
+                        .isInstanceOfSatisfying(ResponseStatusException.class,
+                                e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+                assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+            }
+
+            @Test
+            @DisplayName("saveHome moving the home clears a pending attempt, the same way it clears "
+                    + "the persisted stamp — a move must not leave a failed attempt throttling the "
+                    + "refresh it just re-armed")
+            void savingANewHomeClearsAPendingAttempt() {
+                AppUserEntity stored = durhamHome(null);
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.empty());
+                service.refreshDriveTimes(auth);
+                assertThat(service.pendingDriveTimeAttempts).containsKey(USER_ID);
+
+                when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.of(stored));
+                AppUserEntity afterSave = home(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON);
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(afterSave));
+
+                service.saveHome(auth, new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
+
+                assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+            }
+
+            @Test
+            @DisplayName("a successful refresh clears the pending attempt — the persisted stamp "
+                    + "covers the cooldown from here on")
+            void successfulRefreshClearsThePendingAttempt() {
+                durhamHome(null);
+                List<UserDriveTimeEntity> measured = rows(5);
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.of(measured));
+                when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, NOW))
+                        .thenReturn(true);
+
+                service.refreshDriveTimes(auth);
+
+                assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+            }
         }
     }
 

@@ -19,9 +19,19 @@ import java.util.List;
  *
  * <p><strong>Nothing measured is stored unless it was measured from the user's home as it stands
  * when it is stored.</strong> A refresh reads the home, routes from it for seconds, and only then
- * writes, and a save can move the home in that gap. {@link #storeIfHomeUnchanged} and
- * {@link #stampIfHomeUnchanged} both begin with a compare-and-set of the stamp on the coordinates
- * the caller measured from, and write nothing when it matches no row.
+ * writes, and a save can move the home in that gap. {@link #storeIfHomeUnchanged} begins with a
+ * compare-and-set of the stamp on the coordinates the caller measured from, and writes nothing when
+ * it matches no row.
+ *
+ * <p>⚠️ There is deliberately no "stamp only, no rows" method here any more. One existed
+ * ({@code stampIfHomeUnchanged}) for the case where ORS gave no answer at all, so the manual
+ * refresh's 30-minute cooldown still applied to a failed attempt — but advancing
+ * {@code driveTimesCalculatedAt} with no rows stored broke the stamp's own meaning ("drive times
+ * were stored for the roster read at this instant") and, on the one realistic sequence that reaches
+ * it (a postcode change, whose only enabled button is this one, followed by an ORS failure), left
+ * the scheduled job reading a non-null stamp newer than the roster and skipping that user
+ * indefinitely. {@code UserSettingsService.refreshDriveTimes} now tracks a failed ATTEMPT in its own
+ * in-memory map instead, and never calls a writer method at all when there is nothing to store.
  */
 @Component
 public class UserDriveTimeWriter {
@@ -77,28 +87,6 @@ public class UserDriveTimeWriter {
             userDriveTimeRepository.saveAll(driveTimes);
         }
         return true;
-    }
-
-    /**
-     * Stamps a calculation that produced no answer to store, leaving the stored drive times as they
-     * are — only while the home is still the one the attempt was made from.
-     *
-     * <p>The manual refresh's path when ORS gives no answer at all (unconfigured, an empty
-     * response, or no locations): it has always stamped that attempt, which is what its response
-     * reports and what its cooldown reads. Guarded like {@link #storeIfHomeUnchanged}, because a
-     * stamp landing after a move would put the cooldown back on someone who has just moved house and
-     * has no drive times at all.
-     *
-     * @param userId       the user's primary key
-     * @param originLat    the latitude the attempt was made from
-     * @param originLon    the longitude the attempt was made from
-     * @param calculatedAt when the attempt was made
-     * @return {@code true} if stamped; {@code false} if the home has moved since
-     */
-    @Transactional
-    public boolean stampIfHomeUnchanged(Long userId, double originLat, double originLon,
-            Instant calculatedAt) {
-        return userRepository.stampDriveTimesIfHomeIs(userId, originLat, originLon, calculatedAt) == 1;
     }
 
     /**
