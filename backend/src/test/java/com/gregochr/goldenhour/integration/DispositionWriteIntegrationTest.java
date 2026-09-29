@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
@@ -22,6 +23,7 @@ import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.batch.ForecastDispositionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -87,6 +89,9 @@ class DispositionWriteIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private ApiCallLogRepository apiCallLogRepository;
+
+    @Autowired
+    private EvaluationViewService evaluationViewService;
 
     @AfterEach
     void clearDataBetweenTests() {
@@ -296,6 +301,195 @@ class DispositionWriteIntegrationTest extends IntegrationTestBase {
 
         assertThat(rows).hasSize(1);
         assertThat(rows.getFirst()[0]).isEqualTo("In Range Loc");
+    }
+
+    /**
+     * SQL-level proof for {@link ForecastRunDispositionRepository#findLatestEvaluatingDispositions}
+     * — the verdict-minimum-sample rule's force-evaluation exemption (owner decision, 2026-09-29;
+     * {@code docs/engineering/plan-verdict-consolidation-plan.md}, {@code VerdictSampleGate}). These
+     * mirror the {@code findLatestStabilitySkipTimestamps} tests above in shape and in what they
+     * prove against real Postgres: only the two evaluating categories count, {@code MAX(created_at)}
+     * picks the most recent per slot across cycles, and the date range and per-slot keying are
+     * exact.
+     */
+    @Nested
+    @DisplayName("findLatestEvaluatingDispositions")
+    class FindLatestEvaluatingDispositions {
+
+        @Test
+        @DisplayName("names the most recent disposition: FORCE_EVALUATED on night one, EVALUATED "
+                + "on night two → EVALUATED")
+        void namesMostRecent_forceEvaluatedThenEvaluated() throws InterruptedException {
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9101L, List.of(
+                    new CandidateDisposition(10L, "Two Night Loc", date, TargetType.SUNRISE, 2,
+                            DispositionCategory.FORCE_EVALUATED, null)));
+            Thread.sleep(50);
+            dispositionService.persist(9102L, List.of(
+                    new CandidateDisposition(10L, "Two Night Loc", date, TargetType.SUNRISE, 2,
+                            DispositionCategory.EVALUATED, null)));
+
+            List<Object[]> rows = dispositionRepository.findLatestEvaluatingDispositions(date, date);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("Two Night Loc");
+            assertThat(rows.getFirst()[3]).isEqualTo("EVALUATED");
+        }
+
+        @Test
+        @DisplayName("names the most recent disposition in the reverse order too: EVALUATED on "
+                + "night one, FORCE_EVALUATED on night two → FORCE_EVALUATED")
+        void namesMostRecent_evaluatedThenForceEvaluated() throws InterruptedException {
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9103L, List.of(
+                    new CandidateDisposition(11L, "Reverse Order Loc", date, TargetType.SUNSET, 2,
+                            DispositionCategory.EVALUATED, null)));
+            Thread.sleep(50);
+            dispositionService.persist(9104L, List.of(
+                    new CandidateDisposition(11L, "Reverse Order Loc", date, TargetType.SUNSET, 2,
+                            DispositionCategory.FORCE_EVALUATED, null)));
+
+            List<Object[]> rows = dispositionRepository.findLatestEvaluatingDispositions(date, date);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("Reverse Order Loc");
+            assertThat(rows.getFirst()[3]).isEqualTo("FORCE_EVALUATED");
+        }
+
+        @Test
+        @DisplayName("a skip/triage/cache/error disposition never appears in the result, and never "
+                + "displaces an evaluating one for the same slot even when it is newer")
+        void nonEvaluatingCategories_neverAppearAndNeverDisplace() throws InterruptedException {
+            LocalDate date = LocalDate.now().plusDays(2);
+
+            // Four slots whose ONLY disposition is a non-evaluating category — none may appear in
+            // the result at all, the mirror of findLatestStabilitySkipTimestamps only counting
+            // SKIPPED_STABILITY above.
+            dispositionService.persist(9105L, List.of(
+                    new CandidateDisposition(12L, "Stability Only Loc", date, TargetType.SUNRISE, 2,
+                            DispositionCategory.SKIPPED_STABILITY, "T+2 UNSETTLED"),
+                    new CandidateDisposition(13L, "Triaged Only Loc", date, TargetType.SUNRISE, 2,
+                            DispositionCategory.SKIPPED_TRIAGED, "Heavy cloud"),
+                    new CandidateDisposition(14L, "Cached Only Loc", date, TargetType.SUNRISE, 2,
+                            DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation within 6h"),
+                    new CandidateDisposition(15L, "Error Only Loc", date, TargetType.SUNRISE, 2,
+                            DispositionCategory.SKIPPED_ERROR, "Weather fetch failed")));
+
+            // A fifth slot: an OLDER EVALUATED row, then a NEWER SKIPPED_TRIAGED for the SAME slot —
+            // the pipeline looked again and stood it down on triage without a fresh Claude call. The
+            // newer non-evaluating row must not displace the older evaluating one.
+            dispositionService.persist(9106L, List.of(
+                    new CandidateDisposition(16L, "Displacement Loc", date, TargetType.SUNSET, 2,
+                            DispositionCategory.EVALUATED, null)));
+            Thread.sleep(50);
+            dispositionService.persist(9107L, List.of(
+                    new CandidateDisposition(16L, "Displacement Loc", date, TargetType.SUNSET, 2,
+                            DispositionCategory.SKIPPED_TRIAGED, "Heavy cloud since")));
+
+            List<Object[]> rows = dispositionRepository.findLatestEvaluatingDispositions(date, date);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("Displacement Loc");
+            assertThat(rows.getFirst()[3]).isEqualTo("EVALUATED");
+        }
+
+        @Test
+        @DisplayName("a same-instant tie between EVALUATED and FORCE_EVALUATED for one slot: "
+                + "stated plainly, the query CAN return both rows, and EvaluationViewService folds "
+                + "that to NOT forced")
+        void tieBetweenEvaluatedAndForceEvaluated_queryMayReturnBoth_serviceFoldsToNotForced() {
+            // One persist() call is one transaction, and Postgres' CURRENT_TIMESTAMP (the column's
+            // DEFAULT, V101) is the TRANSACTION start time — constant for every row the transaction
+            // writes — so these two rows for the same slot share an identical created_at. Both then
+            // satisfy the repository's own `d.createdAt = (SELECT MAX(...))` predicate, so the query
+            // is free to return one row or both; this asserts what it actually does, rather than
+            // asserting a stronger guarantee the SQL does not make.
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9108L, List.of(
+                    new CandidateDisposition(17L, "Tied Loc", date, TargetType.SUNRISE, 2,
+                            DispositionCategory.FORCE_EVALUATED, null),
+                    new CandidateDisposition(17L, "Tied Loc", date, TargetType.SUNRISE, 2,
+                            DispositionCategory.EVALUATED, null)));
+
+            List<Object[]> rows = dispositionRepository.findLatestEvaluatingDispositions(date, date);
+
+            // Stated plainly: on this tie the query returns BOTH rows for the one slot (the
+            // correlated MAX(created_at) predicate admits every row at the maximum, and two rows
+            // share it here) — this is not asserting a single canonical winner at the SQL level,
+            // because there isn't one.
+            assertThat(rows).hasSize(2);
+            assertThat(rows).extracting(r -> r[0]).containsOnly("Tied Loc");
+            assertThat(rows).extracting(r -> (String) r[3])
+                    .containsExactlyInAnyOrder("EVALUATED", "FORCE_EVALUATED");
+
+            // The safety net is in Java: EvaluationViewService.loadForcedFlags folds a tie to NOT
+            // forced regardless of which order the two rows arrive in (its own javadoc explains the
+            // AND-merge), so the exemption can never be granted by accident off undefined row order.
+            Map<String, Boolean> forcedFlags = evaluationViewService.loadForcedFlags(date, date);
+
+            assertThat(forcedFlags.get("Tied Loc|" + date + "|SUNRISE")).isFalse();
+        }
+
+        @Test
+        @DisplayName("date-range bounds are inclusive at both ends; a slot outside the range is absent")
+        void respectsInclusiveDateRange() {
+            LocalDate startBoundary = LocalDate.now().plusDays(1);
+            LocalDate endBoundary = LocalDate.now().plusDays(3);
+            LocalDate justOutside = LocalDate.now().plusDays(4);
+            dispositionService.persist(9109L, List.of(
+                    new CandidateDisposition(18L, "Start Boundary Loc", startBoundary,
+                            TargetType.SUNRISE, 1, DispositionCategory.EVALUATED, null),
+                    new CandidateDisposition(19L, "End Boundary Loc", endBoundary,
+                            TargetType.SUNRISE, 3, DispositionCategory.FORCE_EVALUATED, null),
+                    new CandidateDisposition(20L, "Just Outside Loc", justOutside,
+                            TargetType.SUNRISE, 4, DispositionCategory.EVALUATED, null)));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestEvaluatingDispositions(startBoundary, endBoundary);
+
+            assertThat(rows).extracting(r -> r[0])
+                    .containsExactlyInAnyOrder("Start Boundary Loc", "End Boundary Loc");
+        }
+
+        @Test
+        @DisplayName("two different locations, and the same location on two dates and two event "
+                + "types, do not bleed into each other")
+        void distinctSlotsDoNotBleedTogether() {
+            LocalDate dateOne = LocalDate.now().plusDays(2);
+            LocalDate dateTwo = LocalDate.now().plusDays(3);
+            dispositionService.persist(9110L, List.of(
+                    // Two different locations, same date and event.
+                    new CandidateDisposition(21L, "Location A", dateOne, TargetType.SUNRISE, 2,
+                            DispositionCategory.EVALUATED, null),
+                    new CandidateDisposition(22L, "Location B", dateOne, TargetType.SUNRISE, 2,
+                            DispositionCategory.FORCE_EVALUATED, null),
+                    // The SAME location as "Location A", but a different date...
+                    new CandidateDisposition(21L, "Location A", dateTwo, TargetType.SUNRISE, 3,
+                            DispositionCategory.FORCE_EVALUATED, null),
+                    // ...and the same location, same first date, but the OTHER event type.
+                    new CandidateDisposition(21L, "Location A", dateOne, TargetType.SUNSET, 2,
+                            DispositionCategory.FORCE_EVALUATED, null)));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestEvaluatingDispositions(dateOne, dateTwo);
+
+            assertThat(rows).hasSize(4);
+            assertThat(rowFor(rows, "Location A", dateOne, "SUNRISE")).isEqualTo("EVALUATED");
+            assertThat(rowFor(rows, "Location B", dateOne, "SUNRISE")).isEqualTo("FORCE_EVALUATED");
+            assertThat(rowFor(rows, "Location A", dateTwo, "SUNRISE")).isEqualTo("FORCE_EVALUATED");
+            assertThat(rowFor(rows, "Location A", dateOne, "SUNSET")).isEqualTo("FORCE_EVALUATED");
+        }
+
+        private String rowFor(List<Object[]> rows, String locationName, LocalDate date,
+                String eventType) {
+            return rows.stream()
+                    .filter(r -> locationName.equals(r[0]) && date.equals(r[1])
+                            && eventType.equals(r[2]))
+                    .map(r -> (String) r[3])
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "No row for " + locationName + "|" + date + "|" + eventType));
+        }
     }
 
     @Test

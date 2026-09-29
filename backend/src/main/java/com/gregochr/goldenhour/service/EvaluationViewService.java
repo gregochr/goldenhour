@@ -183,6 +183,17 @@ public class EvaluationViewService {
      * failure direction is safe (the exemption simply does not apply one cycle too early, rather
      * than applying when it should not).
      *
+     * <p>⚠️ <b>A same-instant tie between an {@code EVALUATED} and a {@code FORCE_EVALUATED} row for
+     * one slot must read as NOT forced, and the query alone cannot guarantee that.</b>
+     * {@link ForecastRunDispositionRepository#findLatestEvaluatingDispositions} can return BOTH rows
+     * for one slot on an exact {@code created_at} tie (documented on that method), in whichever order
+     * the database happens to return them — so folding by "last write to the map wins" would make the
+     * exemption depend on undefined row order. Folded here by logical AND instead: a key's answer
+     * starts at its first sighting and only ever narrows to {@code false} on a disagreeing sighting,
+     * so the two possible row orders for a tie produce the same (non-forced) answer either way, and
+     * two agreeing rows for the same key (the ordinary case — findLatestEvaluatingDispositions
+     * returns one row per slot when there is no tie) are unaffected.
+     *
      * @param start first evaluation date to include (inclusive)
      * @param end   last evaluation date to include (inclusive)
      * @return {@code "locationName|date|targetType"} to whether that slot's most recent evaluating
@@ -198,8 +209,11 @@ public class EvaluationViewService {
                 LocalDate date = (LocalDate) row[1];
                 String eventType = (String) row[2];
                 String disposition = (String) row[3];
-                result.put(stabilitySkipKey(locationName, date, eventType),
-                        "FORCE_EVALUATED".equals(disposition));
+                boolean forced = "FORCE_EVALUATED".equals(disposition);
+                // Logical AND merge, not a plain put — see the javadoc's tie paragraph above. A
+                // second row for a key can only ever pull it toward false, never restore true.
+                result.merge(stabilitySkipKey(locationName, date, eventType), forced,
+                        (existing, incoming) -> existing && incoming);
             }
         } catch (RuntimeException e) {
             LOG.warn("[FORCE-EVAL] Could not load forced-evaluation dispositions for {}..{} — "

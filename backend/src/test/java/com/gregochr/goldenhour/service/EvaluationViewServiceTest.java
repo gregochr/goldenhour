@@ -2694,5 +2694,35 @@ class EvaluationViewServiceTest {
 
             assertThat(bulk.get(key).get("Bamburgh").forced()).isTrue();
         }
+
+        @Test
+        @DisplayName("a tie — both EVALUATED and FORCE_EVALUATED rows for one slot — reads as NOT "
+                + "forced, whichever order the repository returns them in")
+        void tiedRowsForOneSlot_readAsNotForced() {
+            // findLatestEvaluatingDispositions can legitimately return two rows for one slot on an
+            // exact created_at tie (see its own javadoc and ForecastRunDispositionIntegrationTest's
+            // tieBetweenEvaluatedAndForceEvaluated tests, proven against real Postgres). loadForcedFlags
+            // must not let undefined row order decide the answer — proven here in both orders.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+
+            when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED"),
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED")));
+            BriefingEvaluationResult forcedFirst =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+            assertThat(forcedFirst.forced()).isFalse();
+
+            when(forecastRunDispositionRepository.findLatestEvaluatingDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "EVALUATED"),
+                            dispositionRow("Bamburgh", DATE, SUNRISE, "FORCE_EVALUATED")));
+            BriefingEvaluationResult evaluatedFirst =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE).get("Bamburgh");
+            assertThat(evaluatedFirst.forced()).isFalse();
+        }
     }
 }
