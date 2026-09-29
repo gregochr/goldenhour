@@ -18,7 +18,8 @@ import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenc
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
 import {
-  buildSpread, poolPhrase, poolWithinReach, spreadBars, spreadTitle, unratedPhrase,
+  buildSpread, poolPhrase, poolWithinReach, spreadBars, spreadRowState, spreadTitle, unratedBar,
+  unratedPhrase,
 } from '../utils/windowFirstSpread.js';
 import { buildTopicIndex, chipClock, windowTopics } from '../utils/windowFirstTopics.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
@@ -602,6 +603,10 @@ export default function WindowFirstHeatStrip({
       // answers "could the tier have acted", and it is the same field `bestReachLine` reads for its
       // own empty word, so the tooltip and the visible line agree by construction.
       const withinReach = pool.length === 0 ? Boolean(card.reachMeasured) : poolWithinReach(pool);
+      // The ONE decision behind bars-vs-text (plan-matrix §4 row, minimum-sample rule) — the visible
+      // row, the tooltip and the spoken sentence all read `state` rather than testing the thresholds
+      // themselves, so they cannot disagree about which of a card's states this is.
+      const state = spreadRowState(spread, withinReach);
       // The card's tide-fit chip, or null below the gate — `card.tideFit.live` alone, never a
       // second read of the gate's own thresholds (tide-plan-card-plan.md §3 C2 task 2). `isBest` is
       // this card's key against the strip-wide `run.bestKey`, so the emphasis and `best of N` can
@@ -619,7 +624,12 @@ export default function WindowFirstHeatStrip({
       } : null;
       byKey.set(card.key, {
         spread,
+        state,
         bars: spreadBars(spread),
+        // Only meaningful (non-null) when `state.bars` is true — see the render, which never draws
+        // it otherwise. Computed unconditionally here because it is cheap and keeps this the one
+        // site that reads the pool's shape.
+        unratedBar: unratedBar(spread),
         title: spreadTitle(spread, withinReach),
         withinReach,
         best: bestReachLine(card),
@@ -650,6 +660,18 @@ export default function WindowFirstHeatStrip({
     }
     return keys;
   }, [cards]);
+
+  /**
+   * Whether ANY card on screen is currently drawing the histogram's hatched, unrated bar — the
+   * footer's own note for it (below) shows only while that mark is actually on screen, matching the
+   * unscored-map-plate note's own rule one line above it. Read straight off {@code derived} rather
+   * than recomputed from the pool: `unratedBar` already answers "is the bar drawn", and a second
+   * computation here could disagree with the one the row itself renders from.
+   */
+  const hatchedSpread = useMemo(
+    () => Array.from(derived.values()).some((facts) => facts.state.bars && facts.unratedBar),
+    [derived],
+  );
 
   /**
    * Per-card geography for the thumbnail overlay's home marker and area names (field-geography
@@ -987,13 +1009,22 @@ export default function WindowFirstHeatStrip({
     const tint = card.away ? null : verdictTint(card.verdict);
     const place = { '--c': column, '--r': row };
     const poolTotal = facts.spread.total;
-    // ⚠️ `poolPhrase`/`unratedPhrase`, not a second spelling of them. The tooltip and this sentence
-    // describe the SAME set on the same card, and A10's disclosure of the remainder (`N > Σbars`
-    // whenever an unrated spot is in reach) has to reach the reader who cannot see the bars — the
-    // `title` carrying it sits on a span inside an `aria-hidden` subtree and reaches nobody.
+    // ⚠️ `poolPhrase`/`unratedPhrase`/`facts.state`, never a second spelling of any of them. The
+    // tooltip and this sentence describe the SAME set on the same card, and A10's disclosure of the
+    // remainder (`N > Σbars` whenever an unrated spot is in reach) has to reach the reader who
+    // cannot see the bars — the `title` carrying it sits on a span inside an `aria-hidden` subtree
+    // and reaches nobody. `poolTotal === 0` stays silent here exactly as before: `bestReachLine`'s
+    // own "nothing in reach"/"nothing to show" clause already states the identical fact a few lines
+    // below, and saying it twice in one sentence is the defect this file's header comment warns
+    // against elsewhere. Below the minimum-sample gate (`!facts.state.bars`, pool non-empty), the
+    // sentence says exactly what the visible row and the tooltip say — `facts.state.text` — rather
+    // than the pool-phrase-plus-remainder form, which would claim a distribution nothing bars-mode
+    // is currently drawing.
     const spokenPool = poolTotal === 0
       ? null
-      : `${poolPhrase(poolTotal, facts.withinReach)}${unratedPhrase(facts.spread, ', ')}`;
+      : (facts.state.bars
+        ? `${poolPhrase(poolTotal, facts.withinReach)}${unratedPhrase(facts.spread, ', ')}`
+        : facts.state.text);
     // Built once per card so the hidden sentence and the visible words cannot be assembled from
     // different values. The comma-separated form is what a screen reader pauses on.
     //
@@ -1128,32 +1159,54 @@ export default function WindowFirstHeatStrip({
             <>
               <span className="wf-hc-k">Spread</span>
               <span className="wf-hc-pv">
-                {/* `title` carries the per-band breakdown; the pool count itself is in the card's
-                    hidden sentence, so the figure a reader acts on is in the accessibility tree
-                    and only the detail is pointer-only. */}
+                {/* `title` carries the per-band breakdown when bars are drawn (the pool count
+                    itself is in the card's hidden sentence, so the figure a reader acts on is in
+                    the accessibility tree and only the detail is pointer-only); below the
+                    minimum-sample gate it carries the SAME short text the row and the sentence
+                    show, never a longer one (`spreadTitle`'s own doc comment). */}
                 <span
                   data-testid="wf-heat-spread"
-                  className="wf-hc-hist"
+                  className={facts.state.bars ? 'wf-hc-hist' : 'wf-hc-hist-note'}
                   title={facts.title}
                 >
-                  {facts.bars.map((bar) => (
-                    <i
-                      key={bar.star}
-                      data-testid="wf-heat-spread-bar"
-                      data-star={bar.star}
-                      style={{
-                        height: `${bar.heightPx}px`,
-                        // The band's own ramp colour, from the same module the canvas above it is
-                        // painted from — never a second table of five hexes. Full opacity, and the
-                        // empty band lifted to 0.40: both are measured against the histogram's dark
-                        // well rather than against the card, which is what puts every stop over
-                        // SC 1.4.11's 3:1 — see the stylesheet's note for the whole table.
-                        background: bar.filled
-                          ? rgb(rampRgb(bar.star), 1)
-                          : 'rgba(242,231,211,0.40)',
-                      }}
-                    />
-                  ))}
+                  {facts.state.bars ? (
+                    <>
+                      {/* The unrated remainder (Part 2 of the minimum-sample rule) — a SIXTH,
+                          hatched bar to the LEFT of 1★, on the bands' own scale. Hatched, never a
+                          ramp colour: the map's own unscored plate already means "nothing was
+                          scored here" with this exact texture, and 1★ means "scored, and poorly" —
+                          giving the remainder a ramp colour would have this histogram contradict
+                          the map over the same fact. Absent entirely when nothing is unrated. */}
+                      {facts.unratedBar && (
+                        <i
+                          data-testid="wf-heat-spread-bar-unrated"
+                          className="wf-hc-hist-unrated"
+                          style={{ height: `${facts.unratedBar.heightPx}px` }}
+                        />
+                      )}
+                      {facts.bars.map((bar) => (
+                        <i
+                          key={bar.star}
+                          data-testid="wf-heat-spread-bar"
+                          data-star={bar.star}
+                          style={{
+                            height: `${bar.heightPx}px`,
+                            // The band's own ramp colour, from the same module the canvas above it
+                            // is painted from — never a second table of five hexes. Full opacity,
+                            // and the empty band lifted to 0.40: both are measured against the
+                            // histogram's dark well rather than against the card, which is what
+                            // puts every stop over SC 1.4.11's 3:1 — see the stylesheet's note for
+                            // the whole table.
+                            background: bar.filled
+                              ? rgb(rampRgb(bar.star), 1)
+                              : 'rgba(242,231,211,0.40)',
+                          }}
+                        />
+                      ))}
+                    </>
+                  ) : (
+                    <span data-testid="wf-heat-spread-note">{facts.state.text}</span>
+                  )}
                 </span>
               </span>
               {facts.best.rating != null ? (
@@ -1505,6 +1558,16 @@ export default function WindowFirstHeatStrip({
             unscored), and the client cannot tell those apart. */}
         {unscored.size > 0 && (
           <span data-testid="wf-heat-unscored-note">unshaded — not scored</span>
+        )}
+        {/* The histogram's own hatch (the minimum-sample rule's Part 2) gets the SAME treatment as
+            the map plate's note above, for the same reason: a texture is not vocabulary, a card's
+            own rows have no room for it, and it is conditional and rare enough to survive the
+            phone alongside the map's note rather than being pushed into `.wf-hstrip-sp`. Worded
+            differently from the map's note on purpose — "unshaded" names the map's mark and
+            "hatched bar" names the histogram's, so the two conditional clauses can never be
+            mistaken for restating each other when both happen to be on screen at once. */}
+        {hatchedSpread && (
+          <span data-testid="wf-heat-spread-unrated-note">hatched bar — not yet rated</span>
         )}
         {/* Desktop only, as the design has it — the phone bar has no room for a third clause and
             the first two are the ones that decode the picture. */}

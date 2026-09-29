@@ -2031,6 +2031,55 @@ button.wf-hc.on:hover {
   min-height: 1px;
   display: block;
 }
+/* The unrated remainder's own bar (minimum-sample rule Part 2, 2026-09-29) — to the LEFT of 1★, so
+   a tall bar never sits at the reading's right edge (under-reporting is this project's safe
+   direction: a bar that READS as good news at a glance belongs nowhere near "most of this pool is
+   unlooked-at"). `margin-right` stacks on top of `.wf-hc-hist`'s own 2px flex `gap`, giving this one
+   gap 6px total — visibly wider than the 2px between the five bands, which is what marks it as a
+   different KIND of bar rather than a sixth band.
+
+   The hatch is a 45° repeating-linear-gradient in the SAME bone ink the map's unscored plate uses
+   (`HATCH_INK` in `heatField.js`, rgba(242,231,211,·)) and at the SAME angle — it must read as the
+   same convention at a different strength, not a different mark. It cannot be the map's own 0.18
+   alpha: that measures only 1.60:1 against this well (`--color-heat-sea`, #13100e) — not even the
+   3:1 SC 1.4.11 asks for a graphical object, and lower still than the 1.67:1 it measures against
+   the map's OWN land-plate ground (#241d18), which is a lighter surface than this one. 0.45 was
+   chosen instead: measured (sRGB relative-luminance formula, the stripe's own composited pixel
+   colour against the flat well) at 3.91:1, comfortably clearing 3:1 with margin against the
+   anti-aliasing a 45° edge picks up at this size. The 1px line / 2px gap period is tuned for
+   legibility at the bar's actual 5×13px footprint — a period this small still reads as hatching
+   rather than a solid block at that size, unlike the map's own `HATCH_GAP` (7 CSS px, tuned for a
+   whole thumbnail's land plate, not a 5px-wide bar). */
+.wf-hc-hist-unrated {
+  margin-right: 4px;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(242, 231, 211, 0.45) 0,
+    rgba(242, 231, 211, 0.45) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+/* The insufficient-sample state (minimum-sample rule Part 1, 2026-09-29) — no well, no bars, a
+   short disclosure instead ("none rated yet" / "N of M rated"), in the SAME voice as the Best row's
+   own "nothing in reach" / "not scored yet" (`.wf-hc-best.none`, four rules down): same family,
+   same size, same muted ink, same permission to wrap onto a second line (`text-wrap: pretty`) —
+   proven to fit this exact value column at this exact width, since "not scored yet" already ships
+   there today. Deliberately NOT `.wf-hc-best` itself — a shared class would let an unrelated future
+   edit to the Best row silently retint or reweight this one, which is a different row answering a
+   different question. */
+.wf-hc-hist-note {
+  display: block;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.3;
+  text-align: right;
+  text-wrap: pretty;
+  color: var(--color-plex-text-secondary);
+  cursor: help;
+}
 /* The best-in-reach rating takes the LABEL column, captionless, which hands the whole value column
    to the name — the one thing on this card that actually needs the width.
 

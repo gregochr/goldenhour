@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  SPREAD_BAR_EMPTY_PX, SPREAD_BAR_MAX_PX, SPREAD_BAR_MIN_PX, SPREAD_STARS,
-  buildSpread, poolPhrase, poolWithinReach, spreadBars, spreadTitle, unratedPhrase,
+  SPREAD_BAR_EMPTY_PX, SPREAD_BAR_MAX_PX, SPREAD_BAR_MIN_PX, SPREAD_MIN_RATED_COUNT, SPREAD_STARS,
+  buildSpread, hasSpreadSample, poolPhrase, poolWithinReach, spreadBars, spreadRowState,
+  spreadTitle, unratedBar, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
 
 /**
@@ -124,42 +125,85 @@ describe('poolWithinReach — whether the phrase may be used at all', () => {
   });
 });
 
-describe('spreadTitle — what the tooltip may claim', () => {
+/**
+ * A pool big enough to clear the minimum-sample gate ({@link hasSpreadSample}: rated ≥ 5 AND
+ * rated·2 ≥ total), for the tests below that are about the BARS-mode tooltip rather than about the
+ * gate itself. `n` unrated spots appended keep the remainder testable without dropping below the
+ * gate — five rated is already at the absolute floor, so an unrated appendage never has to compete
+ * with it for the coverage floor as long as `n <= 5`.
+ */
+function ratedPool(ratings, unrated = 0) {
+  return [
+    ...ratings.map((rating) => spot(rating)),
+    ...Array.from({ length: unrated }, () => spot(null)),
+  ];
+}
+
+describe('spreadTitle — what the tooltip may claim (bars mode, above the minimum-sample gate)', () => {
   it('leads with the POOL size, not the sum of the bars, and names the remainder', () => {
-    // The rule this whole module exists for. 4 in reach, 2 of them rated: "4 locations" over bars
-    // summing to 2, with the difference stated rather than left as arithmetic the reader has to
-    // notice.
-    const spread = buildSpread([spot(5), spot(3), spot(null), spot(null)]);
+    // The rule this block exists for. 8 in reach, 5 of them rated: "8 locations" over bars summing
+    // to 5, with the difference stated rather than left as arithmetic the reader has to notice.
+    const spread = buildSpread(ratedPool([5, 5, 5, 3, 3], 3));
     expect(spreadTitle(spread, true)).toBe(
-      '4 locations within reach — 1 at 5★, 0 at 4★, 1 at 3★, 0 at 2★, 0 at 1★ · 2 not yet rated',
+      '8 locations within reach — 3 at 5★, 0 at 4★, 2 at 3★, 0 at 2★, 0 at 1★ · 3 not yet rated',
     );
     // Said explicitly, because it is the property the copy exists to disclose.
     expect(spread.total).toBeGreaterThan(spread.counts.reduce((a, b) => a + b, 0));
   });
 
   it('omits the remainder clause when every spot in reach is rated', () => {
-    const spread = buildSpread([spot(5), spot(4)]);
+    const spread = buildSpread(ratedPool([5, 5, 4, 4, 4]));
     expect(spreadTitle(spread, true))
-      .toBe('2 locations within reach — 1 at 5★, 1 at 4★, 0 at 3★, 0 at 2★, 0 at 1★');
+      .toBe('5 locations within reach — 2 at 5★, 3 at 4★, 0 at 3★, 0 at 2★, 0 at 1★');
     expect(spreadTitle(spread, true)).not.toContain('not yet rated');
   });
 
   it('reads the bands highest star first, the direction a reader scans for good news', () => {
-    const title = spreadTitle(buildSpread([spot(1), spot(5)]), true);
+    const title = spreadTitle(buildSpread(ratedPool([1, 1, 1, 1, 1, 5])), true);
     expect(title.indexOf('at 5★')).toBeLessThan(title.indexOf('at 1★'));
   });
 
   it('drops the words "within reach" when a drive in the pool is unknown', () => {
-    const pool = [spot(5, null), spot(4, 20)];
+    const pool = [spot(5, null), spot(4, 20), spot(4, 20), spot(4, 20), spot(4, 20)];
     expect(spreadTitle(buildSpread(pool), poolWithinReach(pool)))
-      .toBe('2 locations — 1 at 5★, 1 at 4★, 0 at 3★, 0 at 2★, 0 at 1★');
+      .toBe('5 locations — 1 at 5★, 4 at 4★, 0 at 3★, 0 at 2★, 0 at 1★');
   });
 
+  it('never says "scored" of the pool count', () => {
+    // Plan §3 rule 5: the count is places to go — the statement the lens readout already makes —
+    // and "N of M scored" would be a count of our own data dressed as a fact about the sky.
+    const title = spreadTitle(buildSpread(ratedPool([5, 5, 5, 5, 5], 1)), true);
+    expect(title).toContain('locations within reach');
+    expect(title).not.toContain('scored');
+  });
+});
+
+describe('spreadTitle — below the minimum-sample gate, and the two empty-pool sentences', () => {
   it('says none RATED yet rather than five zeroes and a remainder restating the pool', () => {
-    // "rated", never "scored" — A10 and M1 task 2 both ban the second word from this copy in terms,
-    // and it is the word the remainder clause already uses ("2 not yet rated").
+    // "rated", never "scored" — A10 and M1 task 2 both ban the second word from this copy in terms.
+    // ⚠️ Bare — no pool-size lead, no period: this is `spreadRowState`'s own text, VERBATIM, the
+    // same string the visible row and the card's spoken sentence show (`spreadTitle`'s own doc
+    // comment on why a longer sentence here would be the wrong fix).
     const spread = buildSpread([spot(null), spot(null), spot(null)]);
-    expect(spreadTitle(spread, true)).toBe('3 locations within reach — none rated yet.');
+    expect(spreadTitle(spread, true)).toBe('none rated yet');
+  });
+
+  it('never says "scored" of an unrated far-horizon pool either', () => {
+    expect(spreadTitle(buildSpread([spot(null)]), true)).not.toContain('scored');
+  });
+
+  it('names both figures once the sample is short of the gate but not zero', () => {
+    // 2 of 4 — clears neither floor (rated < 5), so the row falls to the short form rather than
+    // the per-band breakdown a real distribution would draw.
+    const spread = buildSpread([spot(5), spot(3), spot(null), spot(null)]);
+    expect(spreadTitle(spread, true)).toBe('2 of 4 rated');
+  });
+
+  it('singularises a pool of one — below the gate, so bare "N of M rated" rather than a breakdown', () => {
+    // A total of 1 can never reach the gate's absolute floor of 5, so this pool's tooltip is now the
+    // short form. `poolPhrase`'s own singular/plural rule is pinned directly below, not through
+    // this path — see the 'poolPhrase and unratedPhrase' block.
+    expect(spreadTitle(buildSpread([spot(3)]), true)).toBe('1 of 1 rated');
   });
 
   it('says nothing is within reach when the pool is empty', () => {
@@ -176,20 +220,95 @@ describe('spreadTitle — what the tooltip may claim', () => {
     // field `bestReachLine` reads for its own empty word.
     expect(spreadTitle(buildSpread([]), false)).toBe('Nothing to show for this one.');
   });
+});
 
-  it('singularises a pool of one', () => {
-    expect(spreadTitle(buildSpread([spot(3)]), true))
-      .toBe('1 location within reach — 0 at 5★, 0 at 4★, 1 at 3★, 0 at 2★, 0 at 1★');
+describe('hasSpreadSample / spreadRowState — the minimum-sample gate (2026-09-29)', () => {
+  it('requires the absolute floor: 4 rated fails even with the whole pool rated', () => {
+    // 4 of 4 clears the coverage floor (4·2 ≥ 4) but not the absolute one.
+    const spread = buildSpread(ratedPool([5, 5, 5, 5]));
+    expect(spread.rated).toBe(SPREAD_MIN_RATED_COUNT - 1);
+    expect(hasSpreadSample(spread)).toBe(false);
+    expect(spreadRowState(spread, true)).toEqual({ bars: false, text: '4 of 4 rated' });
   });
 
-  it('never says "scored" of the pool count', () => {
-    // Plan §3 rule 5: the count is places to go — the statement the lens readout already makes —
-    // and "N of M scored" would be a count of our own data dressed as a fact about the sky.
-    const title = spreadTitle(buildSpread([spot(5), spot(null)]), true);
-    expect(title).toContain('locations within reach');
-    expect(title).not.toContain('scored');
-    // And the same for the branch that most wants the word — an unrated far-horizon pool.
-    expect(spreadTitle(buildSpread([spot(null)]), true)).not.toContain('scored');
+  it('passes at exactly the absolute floor, with coverage to spare', () => {
+    const spread = buildSpread(ratedPool([5, 5, 5, 5, 5]));
+    expect(spread.rated).toBe(SPREAD_MIN_RATED_COUNT);
+    expect(hasSpreadSample(spread)).toBe(true);
+    expect(spreadRowState(spread, true)).toEqual({ bars: true, text: null });
+  });
+
+  it('requires the coverage floor: 5 of 11 fails just short of half', () => {
+    const spread = buildSpread(ratedPool([5, 5, 5, 5, 5], 6));
+    expect(spread.total).toBe(11);
+    expect(hasSpreadSample(spread)).toBe(false);
+    expect(spreadRowState(spread, true)).toEqual({ bars: false, text: '5 of 11 rated' });
+  });
+
+  it('passes at EXACTLY half the pool — the boundary is inclusive', () => {
+    const spread = buildSpread(ratedPool([5, 5, 5, 5, 5], 5));
+    expect(spread.total).toBe(10);
+    expect(hasSpreadSample(spread)).toBe(true);
+    expect(spreadRowState(spread, true)).toEqual({ bars: true, text: null });
+  });
+
+  it('answers "none rated yet" for zero rated out of a real, non-empty pool', () => {
+    const spread = buildSpread([spot(null), spot(null)]);
+    expect(spreadRowState(spread, true)).toEqual({ bars: false, text: 'none rated yet' });
+  });
+
+  it('answers the established empty-pool words for a truly empty pool, keyed on withinReach', () => {
+    // Deliberately NOT "none rated yet" — nowhere to go and somewhere-to-go-that-nobody-rated are
+    // different facts (the class comment on `spreadRowState`), and the wording matches
+    // `bestReachLine`'s own pair for the identical condition on the identical card.
+    const spread = buildSpread([]);
+    expect(spreadRowState(spread, true)).toEqual({ bars: false, text: 'nothing in reach' });
+    expect(spreadRowState(spread, false)).toEqual({ bars: false, text: 'nothing to show' });
+  });
+});
+
+describe('unratedBar — the sixth, hatched bar', () => {
+  it('draws nothing when every spot in reach is rated', () => {
+    expect(unratedBar(buildSpread(ratedPool([5, 5, 5, 5, 5])))).toBeNull();
+  });
+
+  it('draws nothing for a spread built from an empty pool', () => {
+    expect(unratedBar(buildSpread([]))).toBeNull();
+  });
+
+  it('scales against the tallest BAND when the unrated count is smaller', () => {
+    // 4★ band holds 4 (the tallest band), 2 are unrated — the bands' own scale wins, so the unrated
+    // bar is smaller than the tallest band rather than sharing its height.
+    const spread = buildSpread(ratedPool([4, 4, 4, 4, 5], 2));
+    expect(spread.max).toBe(4);
+    const bar = unratedBar(spread);
+    expect(bar.count).toBe(2);
+    expect(bar.heightPx).toBe(Math.round((2 / 4) * SPREAD_BAR_MAX_PX));
+    expect(bar.heightPx).toBeLessThan(SPREAD_BAR_MAX_PX);
+  });
+
+  it('⚠️ scales against ITSELF, and the bands shrink to match, when the unrated count is the largest value', () => {
+    // The shared-scale rule this module's header names: 5 rated (all 3★) and 9 unrated — the
+    // unrated count is now the tallest thing on the row, so the SAME scale must shrink the rated
+    // band rather than let it draw at full height against a smaller max of its own.
+    const spread = buildSpread(ratedPool([3, 3, 3, 3, 3], 9));
+    expect(spread.max).toBe(5); // the band's own max, ignoring the unrated count
+    const bar = unratedBar(spread);
+    expect(bar.count).toBe(9);
+    expect(bar.heightPx).toBe(SPREAD_BAR_MAX_PX); // the new scale's own maximum
+    const bars = spreadBars(spread);
+    // 5 of 9 on the SHARED scale, not 5 of 5 on the bands' own — this is what proves the two calls
+    // share one scale rather than each computing its own.
+    expect(bars[2]).toMatchObject({ star: 3, count: 5 });
+    expect(bars[2].heightPx).toBe(Math.round((5 / 9) * SPREAD_BAR_MAX_PX));
+    expect(bars[2].heightPx).toBeLessThan(SPREAD_BAR_MAX_PX);
+  });
+
+  it('never lets a small unrated remainder round away to nothing, same floor as a band', () => {
+    const spread = buildSpread(ratedPool(Array.from({ length: 19 }, () => 3), 1));
+    const bar = unratedBar(spread);
+    expect(bar.count).toBe(1);
+    expect(bar.heightPx).toBe(SPREAD_BAR_MIN_PX);
   });
 });
 
@@ -200,8 +319,11 @@ describe('poolPhrase and unratedPhrase — one spelling for two surfaces', () =>
    * reach" condition a second time in the component, which is two chances for one card to make two
    * claims — and each copy was pinned to its own literal, so neither test could see the drift.
    */
-  it('composes the tooltip\'s own leading clause', () => {
-    const spread = buildSpread([spot(5), spot(null)]);
+  it('composes the tooltip\'s own leading clause, in bars mode', () => {
+    // Below the minimum-sample gate `spreadTitle` returns `spreadRowState`'s bare text with no
+    // lead at all (its own doc comment says why) — so this composition is a BARS-mode property,
+    // and the fixture must clear the gate for the assertion to mean anything.
+    const spread = buildSpread(ratedPool([5, 5, 5, 5, 5], 1));
     const lead = poolPhrase(spread.total, true);
     expect(spreadTitle(spread, true).startsWith(lead)).toBe(true);
   });

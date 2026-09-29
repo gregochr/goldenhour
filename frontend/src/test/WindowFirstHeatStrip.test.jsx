@@ -336,24 +336,48 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     // Plan §3 rule 15: the sentence counts what is actually RENDERED. The histogram draws the pool
     // and the row beneath it names its head, so both are in the name — the pool count verbatim, and
     // the spot's stars spelled out because ★ is an icon rather than a word.
+    //
+    // Five rated (clearing the minimum-sample gate) rather than the original two: below the gate
+    // the pool clause never says "within reach" at all (`spreadRowState`'s own short text), so this
+    // rule can only be demonstrated in bars mode.
     await renderStrip({
-      cards: [ratedCard({ pool: [poolSpot(), poolSpot({ locationId: 2, locationName: 'Blyth', rating: 2 })] })],
+      cards: [ratedCard({
+        pool: [
+          poolSpot(),
+          poolSpot({ locationId: 2, locationName: 'Blyth', rating: 2 }),
+          poolSpot({ locationId: 3, locationName: 'Alnmouth', rating: 3 }),
+          poolSpot({ locationId: 4, locationName: 'Amble', rating: 3 }),
+          poolSpot({ locationId: 5, locationName: 'Seahouses', rating: 5 }),
+        ],
+      })],
     });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 2 locations within reach, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+      name: 'Tonight Sunset, 21:11, Worth it, 5 locations within reach, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
     })).toBeInTheDocument();
   });
 
   it('drops the words "within reach" from the name when a drive in the pool is unknown', async () => {
-    await renderStrip({
-      cards: [ratedCard({ pool: [poolSpot({ driveMinutes: null })] })],
-    });
+    // Below the gate the pool clause carries no "within reach" wording regardless of drive times
+    // (`spreadRowState`'s text never uses it), so this rule can only be demonstrated in bars mode —
+    // a pool that clears the gate, with the one spot the reader will see (the best-reach head)
+    // missing a drive time.
+    const pool = [
+      poolSpot({ driveMinutes: null }),
+      poolSpot({ locationId: 2, locationName: 'Blyth', driveMinutes: 20 }),
+      poolSpot({ locationId: 3, locationName: 'Alnmouth', driveMinutes: 20 }),
+      poolSpot({ locationId: 4, locationName: 'Amble', driveMinutes: 20 }),
+      poolSpot({ locationId: 5, locationName: 'Seahouses', driveMinutes: 20 }),
+    ];
+    await renderStrip({ cards: [ratedCard({ pool })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 1 location, best Bamburgh Beach, 4 stars, Northumberland & Tyneside',
+      name: 'Tonight Sunset, 21:11, Worth it, 5 locations, best Bamburgh Beach, 4 stars, Northumberland & Tyneside',
     })).toBeInTheDocument();
   });
 
   it('names every topic on the night in the accessible name', async () => {
+    // `ratedCard()`'s default pool is one rated spot — below the minimum-sample gate, so the pool
+    // clause reads "1 of 1 rated" rather than "1 location within reach". The topics themselves are
+    // this test's own subject and are unaffected by the gate.
     await renderStrip({
       cards: [ratedCard({
         badges: [
@@ -363,7 +387,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       })],
     });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
+      name: 'Tonight Sunset, 21:11, Worth it, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
     })).toBeInTheDocument();
   });
 
@@ -545,19 +569,21 @@ describe('WindowFirstHeatStrip — what a card says', () => {
   });
 });
 
-describe('WindowFirstHeatStrip — the spread histogram', () => {
+describe('WindowFirstHeatStrip — the spread histogram (bars mode, above the minimum-sample gate)', () => {
   const pool = (...ratings) => ratings.map((rating, index) => poolSpot({
     key: String(index + 1), locationId: index + 1, locationName: `Spot ${index + 1}`, rating,
   }));
 
   it('draws one bar per star band, lowest first, and fills only the bands that hold something', async () => {
-    // Five bars always, so the row reads as a distribution rather than as a variable-length list —
-    // an empty band is a hairline, not an absence.
-    await renderStrip({ cards: [ratedCard({ pool: pool(3, 3, 5) })] });
+    // Six rated, all rated (clears the minimum-sample gate: rated ≥ 5 and rated·2 ≥ total), so the
+    // row reads as a distribution rather than as a variable-length list — an empty band is a
+    // hairline, not an absence. No sixth, unrated bar here: nothing in this pool is unrated.
+    await renderStrip({ cards: [ratedCard({ pool: pool(3, 3, 3, 3, 5, 5) })] });
+    expect(screen.queryByTestId('wf-heat-spread-bar-unrated')).toBeNull();
     const bars = screen.getAllByTestId('wf-heat-spread-bar');
     expect(bars.map((b) => b.getAttribute('data-star'))).toEqual(['1', '2', '3', '4', '5']);
-    // The 3★ band holds two and is the tallest, so it takes the full 13px; the 5★ band holds one
-    // of that two and takes half of it. An empty band is a 1px hairline rather than nothing.
+    // The 3★ band holds four and is the tallest, so it takes the full 13px; the 5★ band holds two
+    // of that four and takes half of it. An empty band is a 1px hairline rather than nothing.
     // (The one-in-twenty case, where the proportion would round away and the floor catches it, is
     // pinned in `windowFirstSpread.test.js`.)
     expect(bars[2]).toHaveStyle({ height: '13px' });
@@ -566,28 +592,22 @@ describe('WindowFirstHeatStrip — the spread histogram', () => {
   });
 
   it('counts the POOL in its tooltip, not the sum of the bars, and names the remainder', async () => {
-    // A10, and the property the copy exists to disclose. Two rated and two not: the bars sum to
-    // two, the count says four, and the difference is stated rather than left to be noticed.
-    await renderStrip({ cards: [ratedCard({ pool: pool(5, 3, null, null) })] });
+    // A10, and the property the copy exists to disclose. Five rated and two not: the bars sum to
+    // five, the count says seven, and the difference is stated rather than left to be noticed.
+    await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 3, 3, 3, null, null) })] });
     expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute(
       'title',
-      '4 locations within reach — 1 at 5★, 0 at 4★, 1 at 3★, 0 at 2★, 0 at 1★ · 2 not yet rated',
+      '7 locations within reach — 2 at 5★, 0 at 4★, 3 at 3★, 0 at 2★, 0 at 1★ · 2 not yet rated',
     );
   });
 
   it('never says "scored" of the pool count', async () => {
     // Plan §3 rule 5: the count is places to go, which is the statement the lens readout already
     // makes — never "N of M scored", a count of our own data dressed as a fact about the sky.
-    await renderStrip({ cards: [ratedCard({ pool: pool(5, null) })] });
+    await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null) })] });
     const title = screen.getByTestId('wf-heat-spread').getAttribute('title');
-    expect(title).toContain('2 locations within reach');
+    expect(title).toContain('6 locations within reach');
     expect(title).not.toMatch(/scored\b(?! yet)/);
-  });
-
-  it('says nothing is within reach for an empty pool', async () => {
-    await renderStrip({ cards: [stripCard()] });
-    expect(screen.getByTestId('wf-heat-spread'))
-      .toHaveAttribute('title', 'Nothing within reach for this one.');
   });
 
   it('draws no histogram at all on an away cell', async () => {
@@ -595,6 +615,179 @@ describe('WindowFirstHeatStrip — the spread histogram', () => {
     // "nothing in reach" would be a claim about a night nobody forecast.
     await renderStrip({ cards: [stripCard({ away: true, verdict: null, verdictLabel: 'Not forecast' })] });
     expect(screen.queryByTestId('wf-heat-spread')).toBeNull();
+  });
+
+  describe('the unrated remainder as a sixth, hatched bar (Part 2 of the minimum-sample rule)', () => {
+    it('draws it to the LEFT of 1★, on the bands\' own scale, and names it in the footer', async () => {
+      await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null, null) })] });
+      const bar = screen.getByTestId('wf-heat-spread-bar-unrated');
+      expect(bar).toHaveClass('wf-hc-hist-unrated');
+      // Left of the five bands, never right — under-reporting is this project's safe direction, and
+      // a tall bar at the reading's right edge would read as good news at a glance.
+      const allBars = screen.getAllByTestId(/^wf-heat-spread-bar/);
+      expect(allBars[0]).toBe(bar);
+      expect(allBars.slice(1).map((b) => b.getAttribute('data-star'))).toEqual(['1', '2', '3', '4', '5']);
+      // 2 unrated against a tallest band of 5 (the 5★ band) — smaller than the tallest band.
+      expect(bar).toHaveStyle({ height: '5px' });
+      // Named in words, because the mark itself is `aria-hidden` and a phone reader has no hover.
+      expect(screen.getByTestId('wf-heat-spread-unrated-note')).toHaveTextContent('hatched bar — not yet rated');
+    });
+
+    it('draws no sixth bar, and no footer note, when nothing in the pool is unrated', async () => {
+      await renderStrip({ cards: [ratedCard({ pool: pool(3, 3, 3, 3, 5, 5) })] });
+      expect(screen.queryByTestId('wf-heat-spread-bar-unrated')).toBeNull();
+      expect(screen.queryByTestId('wf-heat-spread-unrated-note')).toBeNull();
+    });
+
+    it('shares the bands\' own scale rather than a scale of its own, so a big remainder shrinks the bands to match', async () => {
+      // 10 rated, split evenly across two bands (5 apiece, so the tallest BAND is 5) and 8 unrated
+      // — the unrated count is now the tallest thing on the row, so the bands must shrink against
+      // the SAME scale rather than each drawing at their own full height. Coverage still clears the
+      // gate (10·2 = 20 ≥ 18), which an unrated count larger than the total RATED count could not.
+      await renderStrip({
+        cards: [ratedCard({
+          pool: pool(
+            3, 3, 3, 3, 3, 4, 4, 4, 4, 4,
+            null, null, null, null, null, null, null, null,
+          ),
+        })],
+      });
+      const unrated = screen.getByTestId('wf-heat-spread-bar-unrated');
+      const bands = screen.getAllByTestId('wf-heat-spread-bar');
+      expect(unrated).toHaveStyle({ height: '13px' }); // the new scale's own maximum
+      // 5 of 8 on the shared scale (round(5/8*13) = 8px), not 5 of 5 on the bands' own (13px).
+      expect(bands[2]).toHaveStyle({ height: '8px' });
+      expect(bands[3]).toHaveStyle({ height: '8px' });
+    });
+
+    it('the footer note is independent of the map plate\'s own unscored note', async () => {
+      // Two different marks, two different conditional clauses — proven by a fixture that fires
+      // ONE of the two and not the other, so a reader who sees "hatched bar" is not implicitly told
+      // anything about the map plate, and vice versa.
+      await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null) })] });
+      expect(screen.getByTestId('wf-heat-spread-unrated-note')).toBeInTheDocument();
+      expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
+    });
+  });
+});
+
+describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead of bars', () => {
+  const pool = (...ratings) => ratings.map((rating, index) => poolSpot({
+    key: String(index + 1), locationId: index + 1, locationName: `Spot ${index + 1}`, rating,
+  }));
+
+  it('says nothing is within reach for an empty pool', async () => {
+    await renderStrip({ cards: [stripCard()] });
+    expect(screen.getByTestId('wf-heat-spread'))
+      .toHaveAttribute('title', 'Nothing within reach for this one.');
+    expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('nothing in reach');
+    expect(screen.queryByTestId('wf-heat-spread-bar')).toBeNull();
+  });
+
+  it('says "nothing to show", not "nothing in reach", when the tier had nothing to gate on', async () => {
+    await renderStrip({ cards: [stripCard({ pool: [], reachMeasured: false })] });
+    expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('nothing to show');
+  });
+
+  it('says "none rated yet" for a real, non-empty pool with nothing rated in it', async () => {
+    // The ordinary far-horizon state — T+4 is never evaluated — not an edge case.
+    await renderStrip({
+      cards: [ratedCard({ pool: pool(null, null, null, null, null, null, null, null) })],
+    });
+    expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('none rated yet');
+    expect(screen.queryByTestId('wf-heat-spread-bar')).toBeNull();
+    expect(screen.queryByTestId('wf-heat-spread-bar-unrated')).toBeNull();
+  });
+
+  it('names both figures — "N of M rated" — for a real sample too small to trust', async () => {
+    // Production shape this rule exists for: one rated location in a much larger pool.
+    await renderStrip({
+      cards: [ratedCard({ pool: pool(4, null, null, null, null, null, null, null, null, null, null) })],
+    });
+    expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('1 of 11 rated');
+  });
+
+  it('names both figures at the exact boundary — 4 rated of 4, one short of the absolute floor', async () => {
+    await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5) })] });
+    expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('4 of 4 rated');
+  });
+
+  it('draws bars once the fifth rated location clears the absolute floor', async () => {
+    await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5) })] });
+    expect(screen.queryByTestId('wf-heat-spread-note')).toBeNull();
+    expect(screen.getAllByTestId('wf-heat-spread-bar')).toHaveLength(5);
+  });
+
+  it('names both figures at the coverage boundary — 5 of 11, one short of half', async () => {
+    await renderStrip({
+      cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null, null, null, null, null, null) })],
+    });
+    expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('5 of 11 rated');
+  });
+
+  it('draws bars once the pool reaches exactly half rated — the coverage boundary is inclusive', async () => {
+    await renderStrip({
+      cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5, null, null, null, null, null) })],
+    });
+    expect(screen.queryByTestId('wf-heat-spread-note')).toBeNull();
+    expect(screen.getAllByTestId('wf-heat-spread-bar')).toHaveLength(5);
+  });
+
+  /**
+   * The row, the tooltip and the spoken sentence must agree — one fixture per state, checked all
+   * three ways at once, so a future edit that spells one of them a second time cannot drift without
+   * failing here.
+   */
+  describe('the row, the tooltip and the spoken sentence agree', () => {
+    it('in the empty-pool state', async () => {
+      await renderStrip({ cards: [stripCard()] });
+      expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('nothing in reach');
+      expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute('title', 'Nothing within reach for this one.');
+      // The spoken sentence stays silent about the pool here — `bestReachLine`'s own "best, nothing
+      // in reach" clause already states the identical fact, and saying it twice would be the
+      // one-fact-said-twice defect this file's header comment warns against.
+      expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
+        .toBeInTheDocument();
+    });
+
+    it('in the none-rated state', async () => {
+      // `stripCard` directly, NOT `ratedCard` — `ratedCard`'s `bestReach: overrides.bestReach ??
+      // pool[0] ?? null` treats an explicit `null` override as absent (`??` does not distinguish
+      // "not provided" from "provided as null"), so it would still hand `bestReachLine` the pool's
+      // first (unrated) spot. `stripCard`'s own default `bestReach: null` is exactly what this
+      // state needs: a real, non-empty pool with nothing rated in it, and no best spot to name.
+      await renderStrip({
+        cards: [stripCard({ pool: pool(null, null, null, null, null, null) })],
+      });
+      expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('none rated yet');
+      expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute('title', 'none rated yet');
+      expect(screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, none rated yet, best, not scored yet',
+      })).toBeInTheDocument();
+    });
+
+    it('in the partial-sample state', async () => {
+      // The local `pool()` names its spots `Spot N`, not `Bamburgh Beach` — unlike `poolSpot()`'s
+      // own default, used elsewhere in this file.
+      await renderStrip({ cards: [ratedCard({ pool: pool(4, null, null, null) })] });
+      expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('1 of 4 rated');
+      expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute('title', '1 of 4 rated');
+      expect(screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+      })).toBeInTheDocument();
+    });
+
+    it('in the bars-drawn state', async () => {
+      await renderStrip({ cards: [ratedCard({ pool: pool(5, 5, 5, 5, 5) })] });
+      expect(screen.queryByTestId('wf-heat-spread-note')).toBeNull();
+      expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute(
+        'title',
+        '5 locations within reach — 5 at 5★, 0 at 4★, 0 at 3★, 0 at 2★, 0 at 1★',
+      );
+      expect(screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, 5 locations within reach, best Spot 1, 5 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+      })).toBeInTheDocument();
+    });
   });
 });
 
@@ -664,7 +857,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
         'Northumberland & Tyneside · 40 min · leave 20:11 · high water — the water it wants',
       );
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, high water, right here',
       })).toBeInTheDocument();
     });
@@ -681,7 +874,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(glyph).toHaveAttribute('data-wide', 'true');
       expect(glyph.querySelector('text')).toHaveTextContent('M');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, mid tide, right here',
       })).toBeInTheDocument();
     });
@@ -708,7 +901,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(screen.getByTestId('wf-heat-best'))
         .toHaveAttribute('title', 'Northumberland & Tyneside · 40 min · leave 20:11');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11',
       })).toBeInTheDocument();
     });
@@ -897,7 +1090,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         hotTopics: [LUNAR_ECLIPSE_TOPIC],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
+        name: 'Tonight Sunset, 21:11, Worth it, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
       })).toBeInTheDocument();
     });
   });
@@ -1081,7 +1274,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         })],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, 9 on tide',
       })).toBeInTheDocument();
     });
@@ -1205,12 +1398,20 @@ describe('WindowFirstHeatStrip — the tide chip and glyph leave scoring untouch
    */
   function fixture(matches) {
     return ratedCard({
+      // Five rated, clearing the minimum-sample gate, so `wf-heat-spread-bar` actually renders —
+      // below the gate the row draws text instead and this test's own `getAllByTestId` would throw.
+      // The three added spots carry no tide fields at all (inland, no bearing on the chip/glyph
+      // this test is about) and are identical between the `matches`/`!matches` fixtures, so they
+      // add nothing for the byte-identical comparison to catch a difference in.
       pool: [
         poolSpot({ tideState: matches ? 'HIGH' : 'LOW', tideAligned: matches, tideQuality: matches ? 0.9 : null }),
         poolSpot({
           locationId: 2, locationName: 'Blyth', rating: 2,
           tideState: matches ? 'HIGH' : 'LOW', tideAligned: matches, tideQuality: matches ? 0.8 : null,
         }),
+        poolSpot({ locationId: 3, locationName: 'Alnmouth', rating: 3 }),
+        poolSpot({ locationId: 4, locationName: 'Amble', rating: 3 }),
+        poolSpot({ locationId: 5, locationName: 'Seahouses', rating: 5 }),
       ],
       tideFit: matches
         ? { coastal: 14, matched: 9, live: true, meanQuality: 0.85 }
@@ -1609,9 +1810,11 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     await renderStrip({
       cards: [BOTH[0], { ...BOTH[1], pool: [poolSpot({ rating: null })] }],
     });
-    // The remainder rides the sentence too, not the pointer-only tooltip alone — A10 requires the
-    // `N > Σbars` gap to be disclosed wherever the N is, and this is the extreme case of it.
-    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, 1 location within reach, 1 not yet rated' }))
+    // Below the minimum-sample gate (a single-spot pool, rated 0 of it) the spread clause is
+    // `spreadRowState`'s own bare "none rated yet" — a single word standing in for what used to be
+    // the pool-phrase-plus-remainder form, which would have claimed a distribution nothing here is
+    // drawing (the pool holds exactly one place, nowhere near the gate's floor of 5).
+    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, none rated yet' }))
       .toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Poor, best, nothing in reach' }))
       .toBeInTheDocument();
