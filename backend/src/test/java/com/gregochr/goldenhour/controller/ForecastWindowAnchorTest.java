@@ -115,7 +115,7 @@ class ForecastWindowAnchorTest {
         when(repository.findLatestRunPerSlotByLocationIds(eq(List.of(1L)), any(), any()))
                 .thenReturn(List.of());
         when(dtoMapper.toListDtoList(List.of(), true)).thenReturn(List.of());
-        when(evaluationViewService.cachedOnlyViewsForDateRange(any(), any(), any(), any()))
+        when(evaluationViewService.cachedOnlyViewsForDateRange(any(), any(), any(), any(), any()))
                 .thenReturn(List.of());
 
         forecastController.getForecasts(null);

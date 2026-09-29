@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -62,4 +63,39 @@ public interface ForecastRunDispositionRepository
     @Modifying
     @Query("DELETE FROM ForecastRunDispositionEntity d WHERE d.createdAt < :cutoff")
     int deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
+
+    /**
+     * For every (location name, evaluation date, event type) with at least one nightly Gate 4
+     * stability skip in the range, returns the instant of the <em>most recent</em> such skip.
+     *
+     * <p>Backs the stale-rating retraction rule: a cached rating or {@code forecast_evaluation} row
+     * written before this instant is evidence the pipeline has since decided against — the slot
+     * declined a re-look because its grid cell was too unsettled for its horizon — and must not be
+     * served on its own. See {@code EvaluationViewService.isRetractedByStabilitySkip}.
+     *
+     * <p>Filtered to {@code SKIPPED_STABILITY} alone — the nightly Gate 4 skip
+     * ({@link com.gregochr.goldenhour.entity.DispositionCategory#SKIPPED_STABILITY}) — which is the
+     * only category that represents a decision <em>against</em> re-scoring a slot the pipeline could
+     * otherwise reach. Every other category is excluded by construction: a region-level
+     * {@code SKIPPED_CACHED} is a deliberate reuse of a fresh score, not a decision against it; a
+     * past-date, travel-day, error, triage or unknown-location skip says nothing about whether a
+     * rating is stale; and the intraday cycle's {@code SKIPPED_NO_REFRESH_NEEDED} means "a later
+     * look is already guaranteed", the opposite of "declined to look again".
+     *
+     * <p>One bulk query per serve, grouped in the database rather than fetched row-by-row — the
+     * table holds ~2k rows/day (30-day retention), and every caller bounds {@code start}/{@code end}
+     * to its own served window rather than scanning the whole table.
+     *
+     * @param start first evaluation date to include (inclusive)
+     * @param end   last evaluation date to include (inclusive)
+     * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
+     *         (String), lastSkippedAt (Instant)]}, one per slot with at least one stability skip
+     */
+    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, MAX(d.createdAt) "
+            + "FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition = 'SKIPPED_STABILITY' "
+            + "AND d.evaluationDate BETWEEN :start AND :end "
+            + "GROUP BY d.locationName, d.evaluationDate, d.eventType")
+    List<Object[]> findLatestStabilitySkipTimestamps(
+            @Param("start") LocalDate start, @Param("end") LocalDate end);
 }

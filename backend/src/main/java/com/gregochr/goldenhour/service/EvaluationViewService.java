@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.LocationEvaluationView.Source;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -24,6 +25,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,6 +60,17 @@ import java.util.stream.Collectors;
  * <p>⚠️ So precedence is now ONE method — {@link #cachedWins} — and a third reader must call it
  * rather than re-derive any part of it. "Both paths share the gate" was true and was not enough;
  * the useful invariant is that neither path contains a precedence decision of its own.
+ *
+ * <p>⚠️ <b>A nightly Gate 4 stability skip is a second kind of "newer evidence" and is applied
+ * BEFORE precedence, not inside it.</b> {@code cachedWins} only ever compares a cached rating
+ * against a {@code forecast_evaluation} row — it has no way to notice that the pipeline looked at a
+ * slot again and declined to re-score it, because that decision writes no row to either table (see
+ * {@link #retractStaleEvidence}). Every entry point below therefore loads the slot's most recent
+ * {@code SKIPPED_STABILITY} disposition first and nulls out whichever of the cached result and the
+ * forecast row predates it, so a rating the batch has since declined to refresh is served the same
+ * way a never-rated slot is — no star, no verdict, no prose — rather than going on being served
+ * from a run the pipeline itself has moved past. A later real evaluation (eligible or forced)
+ * simply outdates the skip and is unaffected.
  */
 @Service
 public class EvaluationViewService {
@@ -73,6 +86,7 @@ public class EvaluationViewService {
     private final BriefingEvaluationService briefingEvaluationService;
     private final CachedEvaluationRepository cachedEvaluationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final ForecastRunDispositionRepository forecastRunDispositionRepository;
     private final LocationService locationService;
     private final ObjectMapper objectMapper;
     private final SolarService solarService;
@@ -83,6 +97,8 @@ public class EvaluationViewService {
      * @param briefingEvaluationService in-memory cache of batch/SSE evaluation results
      * @param cachedEvaluationRepository repository for durable cached evaluations
      * @param forecastEvaluationRepository repository for forecast evaluation rows
+     * @param forecastRunDispositionRepository repository for per-candidate batch dispositions,
+     *                                          read here for the stale-rating stability-skip rule
      * @param locationService service for retrieving location entities
      * @param objectMapper Jackson mapper for JSON deserialisation
      * @param solarService the sole calculator for the golden/blue hour boundaries
@@ -90,15 +106,161 @@ public class EvaluationViewService {
     public EvaluationViewService(BriefingEvaluationService briefingEvaluationService,
             CachedEvaluationRepository cachedEvaluationRepository,
             ForecastEvaluationRepository forecastEvaluationRepository,
+            ForecastRunDispositionRepository forecastRunDispositionRepository,
             LocationService locationService,
             ObjectMapper objectMapper,
             SolarService solarService) {
         this.briefingEvaluationService = briefingEvaluationService;
         this.cachedEvaluationRepository = cachedEvaluationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
+        this.forecastRunDispositionRepository = forecastRunDispositionRepository;
         this.locationService = locationService;
         this.objectMapper = objectMapper;
         this.solarService = solarService;
+    }
+
+    /**
+     * Bulk-loads, for every slot with at least one nightly Gate 4 stability skip in the range, the
+     * instant of its most recent such skip — see {@link ForecastRunDispositionRepository
+     * #findLatestStabilitySkipTimestamps} for exactly which dispositions count.
+     *
+     * <p>Public so {@code ForecastController} can apply the same retraction to the raw
+     * {@code forecast_evaluation} rows it reads directly for {@code GET /api/forecast} — the one
+     * serve path that does not go through {@link #mergeToView} at all for a slot already covered by
+     * a persisted row, and so cannot pick the rule up merely by calling a method already here.
+     *
+     * <p>One query per call, bounded to the caller's own served window — never called per slot.
+     * Every caller loads it once per request: {@code forDateRange} and {@code
+     * getScoresForEnrichmentBulk} (the two accessors behind {@code GET /api/forecast}, {@code
+     * GET /api/briefing/evaluate/scores} and {@code GET /api/briefing}) each call it exactly once,
+     * outside their own per-location/per-date loops, never inside one.
+     *
+     * <p>⚠️ <b>Known limit — the join is on location NAME, and a rename between the skip and the
+     * serve breaks it.</b> {@code forecast_run_disposition.location_name} is a denormalised snapshot
+     * taken when the disposition was written; renaming a location afterwards (production did this
+     * the day this rule shipped — "Windy Gyll" to "Windy Gyle") means its older stability-skip rows
+     * carry the old name, and this lookup — keyed on the location's CURRENT name, since that is what
+     * {@code cached_evaluation} and this method's other callers key on too — misses them. The
+     * practical effect is narrow and safe-direction: the renamed location's rating survives past the
+     * point it should have been retracted, until its next stability skip or its next real evaluation
+     * is written under the new name. Not fixed here — deliberately left as a known limit rather than
+     * addressed, since a rename is rare and the failure mode is "serves a rating one cycle too long",
+     * the same direction every other unknown-freshness case in this class already fails toward.
+     *
+     * @param start first evaluation date to include (inclusive)
+     * @param end   last evaluation date to include (inclusive)
+     * @return {@code "locationName|date|targetType"} to the instant of that slot's most recent
+     *         stability skip; a slot with none is simply absent, never mapped to {@code null}
+     */
+    public Map<String, Instant> loadStabilitySkips(LocalDate start, LocalDate end) {
+        Map<String, Instant> result = new HashMap<>();
+        for (Object[] row : forecastRunDispositionRepository
+                .findLatestStabilitySkipTimestamps(start, end)) {
+            String locationName = (String) row[0];
+            LocalDate date = (LocalDate) row[1];
+            String eventType = (String) row[2];
+            Instant lastSkippedAt = (Instant) row[3];
+            result.put(stabilitySkipKey(locationName, date, eventType), lastSkippedAt);
+        }
+        return result;
+    }
+
+    /**
+     * The lookup key {@link #loadStabilitySkips} and every caller of {@link #mergeToView} /
+     * {@link #resolveForEnrichment} agree on — location name (never id: the disposition table and
+     * {@code cached_evaluation} are both keyed by name), evaluation date, event type name.
+     *
+     * @param locationName the location name
+     * @param date         the evaluation date
+     * @param targetType   SUNRISE or SUNSET
+     * @return the composite key
+     */
+    private static String stabilitySkipKey(String locationName, LocalDate date,
+            TargetType targetType) {
+        return stabilitySkipKey(locationName, date, targetType.name());
+    }
+
+    /**
+     * Overload for the raw string the JPQL projection returns, so {@link #loadStabilitySkips}
+     * builds its map with the exact same key shape the {@link TargetType}-typed overload produces.
+     */
+    private static String stabilitySkipKey(String locationName, LocalDate date, String eventType) {
+        return locationName + "|" + date + "|" + eventType;
+    }
+
+    /**
+     * Whether evidence written at {@code evidenceWrittenAt} has been superseded by a nightly Gate 4
+     * stability skip decided afterwards, and must therefore not be served on its own.
+     *
+     * <p>A nightly stability skip writes no row to {@code cached_evaluation} or
+     * {@code forecast_evaluation} — the whole reason the defect this guards against exists — so
+     * this is evidence the precedence rule in {@link #cachedWins} cannot see by comparing the two
+     * tables against each other. It has to be checked separately, before precedence, against both
+     * sources independently (a fresher forecast row and a stale cache retract only the cache; both
+     * stale retracts both).
+     *
+     * <p>Either argument {@code null} never retracts: no evidence instant means nothing to compare
+     * (the existing {@code cachedIsAtLeastAsFresh}/{@code cachedWins} null convention — unknown age
+     * keeps today's behaviour), and no stability skip means the pipeline has recorded no decision
+     * against this slot at all.
+     *
+     * <p>⚠️ <b>Accepted trade-off — "newest decision wins" cuts both ways.</b> A hand-started admin
+     * run or a JFDI force-submit made shortly BEFORE the nightly cycle starts is retracted a few
+     * minutes later if that same cycle's Gate 4 policy declines the slot — the evaluation was real
+     * and current when it landed, but the pipeline's own next look is what this rule treats as the
+     * newer word on the subject. This is not a bug to fix: the rule has no way to know a human just
+     * asked for that slot, and treating an admin evaluation as exempt would mean the one path most
+     * likely to be re-checked deliberately (an operator chasing a specific forecast) is also the one
+     * path immune to ever being retracted once stale. The window is short — one nightly cycle — and
+     * a genuinely wanted rating survives it if the slot is still Gate-4-eligible; if it is not, that
+     * is the same policy every other slot answers to.
+     *
+     * @param evidenceWrittenAt   when the cached result or forecast row was written, or
+     *                            {@code null} when unknown
+     * @param latestStabilitySkipAt the slot's most recent {@code SKIPPED_STABILITY} disposition
+     *                              instant, or {@code null} when it has none
+     * @return true when the evidence predates the skip and must be treated as absent
+     */
+    public static boolean isRetractedByStabilitySkip(Instant evidenceWrittenAt,
+            Instant latestStabilitySkipAt) {
+        return evidenceWrittenAt != null && latestStabilitySkipAt != null
+                && latestStabilitySkipAt.isAfter(evidenceWrittenAt);
+    }
+
+    /**
+     * Retracts a cached result if it predates the slot's most recent stability skip.
+     *
+     * @param cachedResult          the cached entry, or null
+     * @param cacheEvaluatedAt      when the cache entry was written — the region stamp, resolved to
+     *                              the per-location write time the same way {@link #cacheWriteTime}
+     *                              does, inside this method
+     * @param latestStabilitySkipAt the slot's most recent stability skip instant, or null
+     * @return {@code cachedResult} unchanged, or {@code null} when it must be treated as absent
+     */
+    private static BriefingEvaluationResult retractStaleEvidence(BriefingEvaluationResult cachedResult,
+            Instant cacheEvaluatedAt, Instant latestStabilitySkipAt) {
+        if (cachedResult == null) {
+            return null;
+        }
+        Instant writtenAt = cacheWriteTime(cachedResult, cacheEvaluatedAt);
+        return isRetractedByStabilitySkip(writtenAt, latestStabilitySkipAt) ? null : cachedResult;
+    }
+
+    /**
+     * Retracts a {@code forecast_evaluation} row if it predates the slot's most recent stability
+     * skip — whether the row carries a rating or only a triage reason. A stale triage row must be
+     * retracted exactly like a stale rating: otherwise a slot the pipeline has since decided not to
+     * re-look at would go on reading as a weather stand-down from a run the pipeline has moved past,
+     * rather than as the never-rated slot it now is.
+     *
+     * @param forecastRow           the row, or null
+     * @param latestStabilitySkipAt the slot's most recent stability skip instant, or null
+     * @return {@code forecastRow} unchanged, or {@code null} when it must be treated as absent
+     */
+    private static ForecastEvaluationEntity retractStaleForecastRow(
+            ForecastEvaluationEntity forecastRow, Instant latestStabilitySkipAt) {
+        return isRetractedByStabilitySkip(forecastRunInstant(forecastRow), latestStabilitySkipAt)
+                ? null : forecastRow;
     }
 
     /**
@@ -122,10 +284,11 @@ public class EvaluationViewService {
         String regionName = regionLocations.getFirst().getRegion().getName();
         Map<String, BriefingEvaluationResult> cached =
                 briefingEvaluationService.getCachedScores(regionName, date, targetType);
+        Map<String, Instant> stabilitySkips = loadStabilitySkips(date, date);
 
         List<LocationEvaluationView> views = new ArrayList<>();
         for (LocationEntity loc : regionLocations) {
-            views.add(buildView(loc, date, targetType, cached.get(loc.getName())));
+            views.add(buildView(loc, date, targetType, cached.get(loc.getName()), stabilitySkips));
         }
         return views;
     }
@@ -155,7 +318,7 @@ public class EvaluationViewService {
                             loc.getRegion().getName(), date, targetType);
             cachedResult = cached.get(loc.getName());
         }
-        return buildView(loc, date, targetType, cachedResult);
+        return buildView(loc, date, targetType, cachedResult, loadStabilitySkips(date, date));
     }
 
     /**
@@ -175,6 +338,7 @@ public class EvaluationViewService {
         Map<String, CachedEntry> cachedByKey = loadCachedEvaluations(start, end, locations);
         Map<String, ForecastEvaluationEntity> latestForecasts =
                 loadLatestForecasts(locations, start, end, types);
+        Map<String, Instant> stabilitySkips = loadStabilitySkips(start, end);
         Map<Long, LocationEntity> byId = locations.stream()
                 .collect(Collectors.toMap(LocationEntity::getId, loc -> loc, (a, b) -> a));
         // ⚠️ The light times are attached HERE and not inside `buildViews`, which is shared with
@@ -184,7 +348,8 @@ public class EvaluationViewService {
         // persisted forecast row. Attaching in the shared method therefore spent three Meeus calls
         // per cached-only row, on every map mount, for a value nothing on that path can read. The
         // fields are serialised by ONE endpoint, so exactly one path pays for them.
-        return buildViews(cachedByKey, latestForecasts, locations, start, end, types).stream()
+        return buildViews(cachedByKey, latestForecasts, locations, start, end, types, stabilitySkips)
+                .stream()
                 .map(view -> withLight(view, byId.get(view.locationId())))
                 .toList();
     }
@@ -209,8 +374,28 @@ public class EvaluationViewService {
      */
     public List<LocationEvaluationView> cachedOnlyViewsForDateRange(LocalDate start, LocalDate end,
             Set<TargetType> types, List<LocationEntity> locations) {
+        return cachedOnlyViewsForDateRange(start, end, types, locations,
+                loadStabilitySkips(start, end));
+    }
+
+    /**
+     * Overload of {@link #cachedOnlyViewsForDateRange} for a caller that has already bulk-loaded
+     * the range's stability skips for its own retraction pass over {@code forecast_evaluation} —
+     * {@code ForecastController.getForecasts} is the one caller today. Saves a second identical
+     * query within the same request; behaviour is otherwise identical.
+     *
+     * @param start          the start date (inclusive)
+     * @param end            the end date (inclusive)
+     * @param types          the target types to include
+     * @param locations      the enabled locations, supplied by the caller to avoid a repeat query
+     * @param stabilitySkips the range's stability skips, keyed as {@link #loadStabilitySkips} keys them
+     * @return the cached-only views, ordered by date then location
+     */
+    public List<LocationEvaluationView> cachedOnlyViewsForDateRange(LocalDate start, LocalDate end,
+            Set<TargetType> types, List<LocationEntity> locations,
+            Map<String, Instant> stabilitySkips) {
         Map<String, CachedEntry> cachedByKey = loadCachedEvaluations(start, end, locations);
-        return buildViews(cachedByKey, Map.of(), locations, start, end, types);
+        return buildViews(cachedByKey, Map.of(), locations, start, end, types, stabilitySkips);
     }
 
     /**
@@ -261,7 +446,8 @@ public class EvaluationViewService {
      */
     private List<LocationEvaluationView> buildViews(Map<String, CachedEntry> cachedByKey,
             Map<String, ForecastEvaluationEntity> latestForecasts, List<LocationEntity> locations,
-            LocalDate start, LocalDate end, Set<TargetType> types) {
+            LocalDate start, LocalDate end, Set<TargetType> types,
+            Map<String, Instant> stabilitySkips) {
         List<LocationEvaluationView> views = new ArrayList<>();
         for (LocationEntity loc : locations) {
             String regionName = loc.getRegion() != null ? loc.getRegion().getName() : null;
@@ -288,7 +474,8 @@ public class EvaluationViewService {
                     // Apply merge rule
                     LocationEvaluationView view = mergeToView(
                             loc.getId(), loc.getName(), regionId, regionName,
-                            date, type, cachedResult, cachedEvaluatedAt, forecastRow);
+                            date, type, cachedResult, cachedEvaluatedAt, forecastRow,
+                            stabilitySkips.get(stabilitySkipKey(loc.getName(), date, type)));
 
                     if (view.source() != Source.NONE) {
                         views.add(view);
@@ -333,12 +520,15 @@ public class EvaluationViewService {
                 .toList();
         Map<String, ForecastEvaluationEntity> latest =
                 loadLatestForecasts(regionLocations, date, date, Set.of(targetType));
+        Map<String, Instant> stabilitySkips = loadStabilitySkips(date, date);
 
         Map<String, BriefingEvaluationResult> result = new HashMap<>();
         for (LocationEntity loc : regionLocations) {
-            BriefingEvaluationResult resolved = resolveForEnrichment(loc.getName(),
+            Instant latestSkipAt =
+                    stabilitySkips.get(stabilitySkipKey(loc.getName(), date, targetType));
+            BriefingEvaluationResult resolved = resolveForEnrichmentRetractionAware(loc.getName(),
                     cached.get(loc.getName()), cachedEvaluatedAt,
-                    latest.get(loc.getId() + "|" + date + "|" + targetType));
+                    latest.get(loc.getId() + "|" + date + "|" + targetType), latestSkipAt);
             if (resolved != null) {
                 result.put(loc.getName(), resolved);
             }
@@ -377,9 +567,21 @@ public class EvaluationViewService {
         // When each key's cache entry was written, so step 2 can gate it against the forecast row.
         Map<String, Instant> cachedEvaluatedAtByKey = new HashMap<>();
         List<LocationEntity> locations = locationService.findAllEnabled();
+        // One bulk load for the whole window — see the class javadoc on why a stability skip is
+        // applied before precedence rather than inside it.
+        Map<String, Instant> stabilitySkips = loadStabilitySkips(start, end);
+        // Locations retracted by either step, per key — a location can be retracted in step 1
+        // (its cache entry) and then found to have no surviving forecast row in step 2 either, or
+        // vice versa. Recorded rather than resolved inline because step 1 cannot yet see step 2's
+        // forecast rows: nulling out the cache there is not enough to know whether the OUTCOME for
+        // this slot is "retracted" or "never had anything cached at all" until step 2 has also run.
+        // See the class javadoc's note on why retraction must be distinguishable from absence.
+        Map<String, Set<String>> retractedLocationsByKey = new HashMap<>();
 
         // 1. In-memory cached scores first — no DB round trip. (Both stores carry a headline, so
-        //    that is no longer what separates them; only freshness is.)
+        //    that is no longer what separates them; only freshness is.) Each location's own entry
+        //    is retracted independently — one stale location in an otherwise-fresh region must not
+        //    survive on the strength of its neighbours.
         Set<String> regionNames = locations.stream()
                 .filter(loc -> loc.getRegion() != null)
                 .map(loc -> loc.getRegion().getName())
@@ -389,11 +591,27 @@ public class EvaluationViewService {
                 for (TargetType type : types) {
                     Map<String, BriefingEvaluationResult> cached =
                             briefingEvaluationService.getCachedScores(regionName, date, type);
-                    if (!cached.isEmpty()) {
-                        String key = regionName + "|" + date + "|" + type;
-                        byKey.put(key, new HashMap<>(cached));
-                        briefingEvaluationService.getCachedEvaluatedAt(regionName, date, type)
-                                .ifPresent(at -> cachedEvaluatedAtByKey.put(key, at));
+                    if (cached.isEmpty()) {
+                        continue;
+                    }
+                    String key = regionName + "|" + date + "|" + type;
+                    Instant regionEvaluatedAt = briefingEvaluationService
+                            .getCachedEvaluatedAt(regionName, date, type).orElse(null);
+                    Map<String, BriefingEvaluationResult> retained = new HashMap<>();
+                    for (Map.Entry<String, BriefingEvaluationResult> e : cached.entrySet()) {
+                        Instant skipAt = stabilitySkips.get(
+                                stabilitySkipKey(e.getKey(), date, type));
+                        if (isRetractedByStabilitySkip(
+                                cacheWriteTime(e.getValue(), regionEvaluatedAt), skipAt)) {
+                            retractedLocationsByKey.computeIfAbsent(key, k -> new HashSet<>())
+                                    .add(e.getKey());
+                            continue;
+                        }
+                        retained.put(e.getKey(), e.getValue());
+                    }
+                    byKey.put(key, retained);
+                    if (regionEvaluatedAt != null) {
+                        cachedEvaluatedAtByKey.put(key, regionEvaluatedAt);
                     }
                 }
             }
@@ -440,15 +658,74 @@ public class EvaluationViewService {
                 String key = regionName + "|" + row.getTargetDate() + "|" + row.getTargetType();
                 Map<String, BriefingEvaluationResult> regionMap =
                         byKey.computeIfAbsent(key, k -> new HashMap<>());
+                Instant skipAt = stabilitySkips.get(stabilitySkipKey(
+                        loc.getName(), row.getTargetDate(), row.getTargetType()));
+                ForecastEvaluationEntity retainedRow = row;
+                if (isRetractedByStabilitySkip(forecastRunInstant(row), skipAt)) {
+                    retractedLocationsByKey.computeIfAbsent(key, k -> new HashSet<>())
+                            .add(loc.getName());
+                    retainedRow = null;
+                }
                 BriefingEvaluationResult resolved = resolveForEnrichment(loc.getName(),
-                        regionMap.get(loc.getName()), cachedEvaluatedAtByKey.get(key), row);
+                        regionMap.get(loc.getName()), cachedEvaluatedAtByKey.get(key), retainedRow);
                 if (resolved != null) {
                     regionMap.put(loc.getName(), resolved);
                 }
             }
         }
 
+        // A location recorded as retracted by either step above ends up here only if nothing else
+        // — a fresher cache entry, a fresher forecast row — already resolved a value for it: the
+        // marker must never displace a later real evaluation. This is also where a location whose
+        // ONLY evidence was a (now-retracted) cache entry and which carries no forecast_evaluation
+        // row at all gets its outcome at all, since step 2 never visits a location with no row.
+        for (Map.Entry<String, Set<String>> entry : retractedLocationsByKey.entrySet()) {
+            Map<String, BriefingEvaluationResult> regionMap =
+                    byKey.computeIfAbsent(entry.getKey(), k -> new HashMap<>());
+            for (String locationName : entry.getValue()) {
+                regionMap.putIfAbsent(locationName, BriefingEvaluationResult.retracted(locationName));
+            }
+        }
+
         return byKey;
+    }
+
+    /**
+     * {@link #resolveForEnrichment}, but returning {@link BriefingEvaluationResult#retracted} —
+     * rather than {@code null} — when nothing survived BECAUSE a stability skip retracted it.
+     *
+     * <p><b>Why the distinction matters here and not on the view path.</b>
+     * {@code BriefingRegionEvaluationRollup.enrichSlot} treats a {@code null} map entry as "nothing
+     * new to say" and leaves the slot's own fields — including any {@code claudeRating} embedded
+     * in it from the LAST briefing build — untouched. A genuinely uncovered slot (never enriched,
+     * outside this resolver's window) and a slot whose one-time rating has since been retracted
+     * both currently resolve to {@code null} here, and the rollup cannot act on one without acting
+     * on the other unless the two are told apart at the source. {@link #mergeToView} has no
+     * equivalent trap — a fresh {@code LocationEvaluationView} is built on every call regardless,
+     * so {@code Source.NONE} already means "nothing" correctly there and needs no third state.
+     *
+     * @param locationName          the location this result is about
+     * @param cachedResult          the cached entry for it, or null when the cache does not cover it
+     * @param cachedEvaluatedAt     when the cache entry was written, or null when unknown
+     * @param forecastRow           that location's latest forecast row for the slot, or null
+     * @param latestStabilitySkipAt the slot's most recent stability skip instant, or null
+     * @return the winning result, {@link BriefingEvaluationResult#retracted} when a skip is why
+     *         nothing survived, or {@code null} when there was genuinely nothing to resolve
+     */
+    private static BriefingEvaluationResult resolveForEnrichmentRetractionAware(
+            String locationName, BriefingEvaluationResult cachedResult, Instant cachedEvaluatedAt,
+            ForecastEvaluationEntity forecastRow, Instant latestStabilitySkipAt) {
+        boolean cacheStale = cachedResult != null && isRetractedByStabilitySkip(
+                cacheWriteTime(cachedResult, cachedEvaluatedAt), latestStabilitySkipAt);
+        boolean forecastStale = isRetractedByStabilitySkip(
+                forecastRunInstant(forecastRow), latestStabilitySkipAt);
+        BriefingEvaluationResult resolved = resolveForEnrichment(locationName,
+                cacheStale ? null : cachedResult, cachedEvaluatedAt,
+                forecastStale ? null : forecastRow);
+        if (resolved == null && (cacheStale || forecastStale)) {
+            return BriefingEvaluationResult.retracted(locationName);
+        }
+        return resolved;
     }
 
     /**
@@ -566,10 +843,19 @@ public class EvaluationViewService {
      * <p>The condition under which {@link #toEnrichmentResult} returns non-null and under which
      * {@link #mergeToView}'s branches 2 and 3 fire, named once so the three cannot drift.
      *
+     * <p>Public so {@code ForecastController} can gate its own stability-skip retraction on the
+     * same predicate: a row with neither a rating nor a triage reason was never itself an opinion
+     * a reader could see as "the rating", so a stability skip predating it has nothing to retract
+     * — exactly the reasoning that already lets {@link #cachedWins}'s clause 2 leave such a row
+     * alone. Dropping such a row anyway would not restore any "never-rated" behaviour, because one
+     * cannot occur for a SUNRISE/SUNSET slot on the path {@code ForecastTaskCollector} writes: the
+     * only rows the batch collector persists without a rating are triage rows, which always carry
+     * a reason.
+     *
      * @param row the row, or null
      * @return true when the row says something a reader could act on
      */
-    private static boolean hasSomethingToSay(ForecastEvaluationEntity row) {
+    public static boolean hasSomethingToSay(ForecastEvaluationEntity row) {
         return row != null
                 && (row.getRating() != null
                     || (row.getTriage() != null && row.getTriage().getReason() != null));
@@ -608,7 +894,8 @@ public class EvaluationViewService {
      * Builds a view for a single location, applying the merge precedence rule.
      */
     private LocationEvaluationView buildView(LocationEntity loc, LocalDate date,
-            TargetType targetType, BriefingEvaluationResult cachedResult) {
+            TargetType targetType, BriefingEvaluationResult cachedResult,
+            Map<String, Instant> stabilitySkips) {
         // Check forecast_evaluation as fallback
         ForecastEvaluationEntity forecastRow = forecastEvaluationRepository
                 .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
@@ -622,8 +909,11 @@ public class EvaluationViewService {
                 ? briefingEvaluationService.getCachedEvaluatedAt(regionName, date, targetType)
                         .orElse(null)
                 : null;
+        Instant latestStabilitySkipAt =
+                stabilitySkips.get(stabilitySkipKey(loc.getName(), date, targetType));
         return withLight(mergeToView(loc.getId(), loc.getName(), regionId, regionName, date,
-                targetType, cachedResult, cachedEvaluatedAt, forecastRow), loc);
+                targetType, cachedResult, cachedEvaluatedAt, forecastRow, latestStabilitySkipAt),
+                loc);
     }
 
     /**
@@ -713,11 +1003,21 @@ public class EvaluationViewService {
      * current row triaged {@code HIGH_CLOUD} on 87–99% low cloud at the solar horizon, while every
      * cached rating that was fresher than its forecast row scored ≤2. The stale rating was being
      * served to the Plan grid and the map as the live verdict.
+     *
+     * @param latestStabilitySkipAt the slot's most recent {@code SKIPPED_STABILITY} disposition
+     *                              instant, or {@code null} when it has none — see
+     *                              {@link #retractStaleEvidence}
      */
     private LocationEvaluationView mergeToView(Long locationId, String locationName,
             Long regionId, String regionName, LocalDate date, TargetType targetType,
             BriefingEvaluationResult cachedResult, Instant cachedEvaluatedAt,
-            ForecastEvaluationEntity forecastRow) {
+            ForecastEvaluationEntity forecastRow, Instant latestStabilitySkipAt) {
+
+        // A nightly stability skip decided after this evidence was written outdates it, applied to
+        // both sources independently before any precedence rule below sees them — see the class
+        // javadoc's note on why this runs before, not inside, `cachedWins`.
+        cachedResult = retractStaleEvidence(cachedResult, cachedEvaluatedAt, latestStabilitySkipAt);
+        forecastRow = retractStaleForecastRow(forecastRow, latestStabilitySkipAt);
 
         // 1. Cached evaluation, under the SHARED precedence rule — see `cachedWins`.
         if (cachedWins(cachedResult, cachedEvaluatedAt, forecastRow)) {
@@ -836,10 +1136,15 @@ public class EvaluationViewService {
      * invert the verdict on any pair written within an hour of each other, which the nightly
      * cycle produces routinely.
      *
+     * <p>Public so {@code ForecastController} can apply {@link #isRetractedByStabilitySkip} to the
+     * raw rows it reads directly from {@code forecast_evaluation} for {@code GET /api/forecast} —
+     * the one serve path that bypasses {@link #mergeToView} for a slot a persisted row already
+     * covers — using the exact same zoning this class applies everywhere else.
+     *
      * @param forecastRow the row, or null
      * @return the instant the forecast ran, or null
      */
-    private static Instant forecastRunInstant(ForecastEvaluationEntity forecastRow) {
+    public static Instant forecastRunInstant(ForecastEvaluationEntity forecastRow) {
         if (forecastRow == null || forecastRow.getForecastRunAt() == null) {
             return null;
         }

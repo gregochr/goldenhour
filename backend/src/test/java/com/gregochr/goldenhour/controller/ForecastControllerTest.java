@@ -120,7 +120,7 @@ class ForecastControllerTest extends AbstractControllerTest {
                 null, null, null, null, DisplayVerdict.WORTH_IT,
                 null, null, null, null);
         when(evaluationViewService.cachedOnlyViewsForDateRange(
-                any(LocalDate.class), any(LocalDate.class), any(), any()))
+                any(LocalDate.class), any(LocalDate.class), any(), any(), any()))
                 .thenReturn(List.of(cachedView));
         when(dtoMapper.toSparseListDto(eq(cachedView), eq(DURHAM), anyBoolean()))
                 .thenReturn(buildListDto("Durham UK", 72, 80));
@@ -131,6 +131,108 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].fierySkyPotential").value(72));
 
         verify(dtoMapper).toSparseListDto(eq(cachedView), eq(DURHAM), anyBoolean());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast retracts a forecast_evaluation row superseded by a newer "
+            + "nightly stability skip for its slot")
+    void getForecasts_retractsRowSupersededByNewerStabilitySkip() throws Exception {
+        // A RATED row — a stability skip retracts an opinion; see hasSomethingToSayRowsNeverRetracted
+        // below for why a row with neither a rating nor a triage reason must never be dropped this
+        // way. buildEntity's forecastRunAt is 2026-02-20T12:00 (winter — GMT, so 12:00Z).
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        entity.setRating(4);
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(entity));
+        // A later nightly cycle looked at this exact slot again and declined to re-score it — the
+        // skip landed strictly after the row this test seeded, so the row is stale evidence and
+        // must not reach the client, exactly as EvaluationViewService retracts it elsewhere.
+        when(evaluationViewService.loadStabilitySkips(any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(java.util.Map.of("Durham UK|2026-02-20|SUNSET",
+                        Instant.parse("2026-02-20T13:00:00Z")));
+        when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
+        when(evaluationViewService.cachedOnlyViewsForDateRange(
+                any(LocalDate.class), any(LocalDate.class), any(), any(), any()))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ForecastEvaluationEntity>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(dtoMapper).toListDtoList(captor.capture(), anyBoolean());
+        assertThat(captor.getValue())
+                .as("the stale row must not reach the DTO mapper at all")
+                .isEmpty();
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast keeps a forecast_evaluation row written AFTER its slot's most "
+            + "recent stability skip")
+    void getForecasts_keepsRowNewerThanStabilitySkip() throws Exception {
+        // Same slot, same skip — but this time the row postdates it (a later real evaluation).
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        entity.setRating(4);
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(entity));
+        when(evaluationViewService.loadStabilitySkips(any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(java.util.Map.of("Durham UK|2026-02-20|SUNSET",
+                        Instant.parse("2026-02-20T11:00:00Z")));
+        when(dtoMapper.toListDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildListDto("Durham UK", 72, 80)));
+        when(evaluationViewService.cachedOnlyViewsForDateRange(
+                any(LocalDate.class), any(LocalDate.class), any(), any(), any()))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].locationName").value("Durham UK"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ForecastEvaluationEntity>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(dtoMapper).toListDtoList(captor.capture(), anyBoolean());
+        assertThat(captor.getValue()).containsExactly(entity);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast never retracts a row with neither a rating nor a triage reason, "
+            + "however stale — it was never an opinion for the skip to supersede")
+    void hasSomethingToSayRowsNeverRetracted() throws Exception {
+        // buildEntity's fixture carries no rating and no triage — exactly the "nothing to say"
+        // shape hasSomethingToSay exists to name. A stale-but-opinionless row must survive even
+        // when a skip postdates it, mirroring EvaluationViewService.cachedWins' own clause 2 (a row
+        // that says nothing cannot be evidence against a rating, and equally is not itself an
+        // opinion this rule may retract).
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(entity));
+        when(evaluationViewService.loadStabilitySkips(any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(java.util.Map.of("Durham UK|2026-02-20|SUNSET",
+                        Instant.parse("2026-02-20T13:00:00Z")));
+        when(dtoMapper.toListDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildListDto("Durham UK", 72, 80)));
+        when(evaluationViewService.cachedOnlyViewsForDateRange(
+                any(LocalDate.class), any(LocalDate.class), any(), any(), any()))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].locationName").value("Durham UK"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ForecastEvaluationEntity>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(dtoMapper).toListDtoList(captor.capture(), anyBoolean());
+        assertThat(captor.getValue()).containsExactly(entity);
     }
 
     @Test
@@ -187,7 +289,7 @@ class ForecastControllerTest extends AbstractControllerTest {
                 3, "stale", 50, 60, null, null, null, null, DisplayVerdict.MAYBE,
                 null, null, null, null);
         when(evaluationViewService.cachedOnlyViewsForDateRange(
-                any(LocalDate.class), any(LocalDate.class), any(), any()))
+                any(LocalDate.class), any(LocalDate.class), any(), any(), any()))
                 .thenReturn(List.of(duplicateView));
 
         mockMvc.perform(get("/api/forecast"))

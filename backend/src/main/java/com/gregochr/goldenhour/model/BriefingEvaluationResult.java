@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.Instant;
@@ -39,6 +40,20 @@ import java.time.Instant;
  *                            and for rows persisted before this field existed. Added with the
  *                            tide gate lift (2026-09-18, {@code
  *                            docs/engineering/tide-window-plan.md} §6 Q1)
+ * @param retracted           true when a nightly Gate 4 stability skip has superseded evidence
+ *                            that would otherwise have spoken for this location — see {@code
+ *                            EvaluationViewService#isRetractedByStabilitySkip}. Never {@code true}
+ *                            on anything actually persisted to {@code cached_evaluation}:
+ *                            retraction is computed at serve time, inside {@code
+ *                            EvaluationViewService}'s enrichment path, over a result already read
+ *                            back out of the cache — so this field exists purely to let {@link
+ *                            com.gregochr.goldenhour.service.BriefingRegionEvaluationRollup
+ *                            #enrichSlot} tell "retracted" apart from "the map has no entry for
+ *                            this location at all", which must NOT clear a slot's embedded rating
+ *                            (see that method's own javadoc). {@code @JsonIgnore}d so it never
+ *                            round-trips through {@code results_json} and a legacy row missing it
+ *                            always deserialises to {@code false} — the one value it may ever hold
+ *                            on a real evaluation result
  */
 public record BriefingEvaluationResult(
         String locationName,
@@ -50,7 +65,8 @@ public record BriefingEvaluationResult(
         @JsonInclude(JsonInclude.Include.NON_NULL) String triageMessage,
         @JsonInclude(JsonInclude.Include.NON_NULL) String headline,
         @JsonInclude(JsonInclude.Include.NON_NULL) Instant evaluatedAt,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating,
+        @JsonIgnore boolean retracted
 ) {
 
     /**
@@ -74,7 +90,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, null, null);
+                triageReason, triageMessage, headline, null, null, false);
     }
 
     /**
@@ -99,7 +115,54 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, null);
+                triageReason, triageMessage, headline, evaluatedAt, null, false);
+    }
+
+    /**
+     * Convenience constructor for the pre-{@code retracted} shape, every field up to and
+     * including {@code skyRating} included.
+     *
+     * <p>Retained so every construction site that predates the stale-rating stability-skip
+     * retraction rule keeps compiling unchanged. A result built this way is never itself a
+     * retraction marker — use {@link #retracted(String)} for that — so defaulting {@code false}
+     * here is correct for every one of those ~120 existing sites.
+     *
+     * @param locationName        the location that was evaluated
+     * @param rating              1-5 star rating, or null
+     * @param fierySkyPotential   fiery sky score 0-100, or null
+     * @param goldenHourPotential golden hour score 0-100, or null
+     * @param summary             Claude's explanation, or null
+     * @param triageReason        categorised stand-down reason, or null
+     * @param triageMessage       formatted stand-down explanation, or null
+     * @param headline            Claude-authored card header, or null
+     * @param evaluatedAt         when this location's result was written, or null
+     * @param skyRating           the sky visitor's own component score, or null
+     */
+    public BriefingEvaluationResult(String locationName, Integer rating,
+            Integer fierySkyPotential, Integer goldenHourPotential, String summary,
+            TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt,
+            Integer skyRating) {
+        this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
+                triageReason, triageMessage, headline, evaluatedAt, skyRating, false);
+    }
+
+    /**
+     * Builds the marker a resolver returns when a nightly stability skip has superseded whatever
+     * evidence used to speak for this location, and nothing newer has replaced it.
+     *
+     * <p>Carries no rating, no triage fields and no prose — {@link
+     * com.gregochr.goldenhour.service.BriefingRegionEvaluationRollup#enrichSlot} reads only {@link
+     * #retracted()} off it and clears a slot's Claude fields directly, never by inspecting
+     * {@code rating} or {@code triageReason} here (which would make this indistinguishable from a
+     * genuine empty or triaged result to any other reader that has not been updated to check the
+     * flag first).
+     *
+     * @param locationName the location the marker is about
+     * @return a retraction marker for that location
+     */
+    public static BriefingEvaluationResult retracted(String locationName) {
+        return new BriefingEvaluationResult(locationName, null, null, null, null,
+                null, null, null, null, null, true);
     }
 
     /**
@@ -147,7 +210,7 @@ public record BriefingEvaluationResult(
     public BriefingEvaluationResult withRating(Integer newRating) {
         return new BriefingEvaluationResult(locationName, newRating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
-                newRating == null ? null : skyRating);
+                newRating == null ? null : skyRating, retracted);
     }
 
     /**
@@ -163,6 +226,6 @@ public record BriefingEvaluationResult(
     public BriefingEvaluationResult withEvaluatedAt(Instant writtenAt) {
         return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, writtenAt,
-                skyRating);
+                skyRating, retracted);
     }
 }

@@ -277,13 +277,32 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
      * re-enrichment moves its verdict.
      *
      * <p>An absent entry still leaves the slot untouched: not being in the map is an absence, and
-     * only a resolved triage is evidence.
+     * only a resolved triage — or a resolved retraction, below — is evidence.
+     *
+     * <p>⚠️ <b>A resolved retraction clears the rating too, and is checked FIRST, ahead of the
+     * triage branch below.</b> {@code EvaluationViewService} returns {@link
+     * BriefingEvaluationResult#retracted} rather than a plain absent map entry when a nightly Gate
+     * 4 stability skip has superseded whatever used to speak for this location — exactly so this
+     * method can tell "retracted" apart from "the resolver has nothing new to say", which a plain
+     * {@code null} cannot do (see that method's own javadoc on why the distinction has to be made
+     * at the source). Without it, a slot's {@code claudeRating} — embedded in the persisted
+     * {@code BriefingDay} tree from whichever build last rated it — would survive on the served
+     * payload indefinitely once the pipeline moved past it: the exact defect the map and {@code
+     * GET /api/briefing/evaluate/scores} do not have, because they build a fresh view every call
+     * rather than starting from one already carrying a rating. Cleared the same way the triage
+     * branch already clears a stale rating — {@code withClaudeScores(null, …)}, never by setting a
+     * triage reason — so the slot's {@code displayVerdict} is recomputed from {@code (null,
+     * verdict)} and reads exactly as a never-rated slot at the SAME weather triage verdict, not as
+     * a weather stand-down.
      */
     private BriefingSlot enrichSlot(BriefingSlot slot,
             Map<String, BriefingEvaluationResult> cached) {
         BriefingEvaluationResult eval = cached.get(slot.locationName());
         if (eval == null) {
             return slot;
+        }
+        if (eval.retracted()) {
+            return slot.withClaudeScores(null, null, null, null, null);
         }
         if (eval.rating() != null) {
             return slot.withClaudeScores(eval.rating(), eval.skyRating(), eval.fierySkyPotential(),

@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.LocationEvaluationView.Source;
 import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -63,6 +64,8 @@ class EvaluationViewServiceTest {
     @Mock
     private ForecastEvaluationRepository forecastEvaluationRepository;
     @Mock
+    private ForecastRunDispositionRepository forecastRunDispositionRepository;
+    @Mock
     private LocationService locationService;
 
     private EvaluationViewService service;
@@ -87,7 +90,7 @@ class EvaluationViewServiceTest {
         // fixed times would make every one of those assertions a statement about the mock.
         service = new EvaluationViewService(
                 briefingEvaluationService, cachedEvaluationRepository,
-                forecastEvaluationRepository, locationService,
+                forecastEvaluationRepository, forecastRunDispositionRepository, locationService,
                 new ObjectMapper(), new SolarService());
 
         region = new RegionEntity();
@@ -2060,7 +2063,7 @@ class EvaluationViewServiceTest {
                             LocalDateTime.of(DATE, java.time.LocalTime.of(5, 35))));
             EvaluationViewService polar = new EvaluationViewService(
                     briefingEvaluationService, cachedEvaluationRepository,
-                    forecastEvaluationRepository, locationService,
+                    forecastEvaluationRepository, forecastRunDispositionRepository, locationService,
                     new ObjectMapper(), sentinel);
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
@@ -2091,7 +2094,7 @@ class EvaluationViewServiceTest {
                     .thenThrow(new IllegalStateException("no sunrise at this latitude"));
             EvaluationViewService degraded = new EvaluationViewService(
                     briefingEvaluationService, cachedEvaluationRepository,
-                    forecastEvaluationRepository, locationService,
+                    forecastEvaluationRepository, forecastRunDispositionRepository, locationService,
                     new ObjectMapper(), throwing);
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
@@ -2138,6 +2141,264 @@ class EvaluationViewServiceTest {
             assertThat(v.goldenHourEnd()).isNull();
             assertThat(v.blueHourStart()).isNull();
             assertThat(v.blueHourEnd()).isNull();
+        }
+    }
+
+    /**
+     * A nightly Gate 4 stability skip is evidence that outdates a cached rating or a
+     * {@code forecast_evaluation} row exactly like a newer row would — except it writes no row to
+     * either table, so it has to be checked separately (see the class javadoc on
+     * {@link EvaluationViewService#retractStaleEvidence}). These tests drive that rule through the
+     * real public entry points, mocking only {@link ForecastRunDispositionRepository
+     * #findLatestStabilitySkipTimestamps}, which is exactly what production's bulk query returns.
+     */
+    @Nested
+    @DisplayName("stability-skip retraction")
+    class StabilitySkipRetraction {
+
+        private static final Instant CACHED_AT = Instant.parse("2026-04-22T01:00:00Z");
+
+        /**
+         * Builds one row of what {@link ForecastRunDispositionRepository
+         * #findLatestStabilitySkipTimestamps} returns: locationName, evaluationDate, eventType
+         * name, and the instant of that slot's most recent {@code SKIPPED_STABILITY} disposition.
+         */
+        private static Object[] skipRow(String locationName, LocalDate date, TargetType type,
+                Instant lastSkippedAt) {
+            return new Object[] {locationName, date, type.name(), lastSkippedAt};
+        }
+
+        @Test
+        @DisplayName("a skip newer than the cached rating retracts it — served as never-rated")
+        void skipNewerThanRatingRetracts() {
+            Instant skipAt = CACHED_AT.plusSeconds(3600);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE, skipAt)));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.NONE);
+            assertThat(v.rating()).isNull();
+            assertThat(v.summary()).isNull();
+            assertThat(v.triageReason()).isNull();
+            assertThat(v.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        }
+
+        @Test
+        @DisplayName("a skip older than the cached rating keeps it")
+        void skipOlderThanRatingKeeps() {
+            Instant skipAt = CACHED_AT.minusSeconds(3600);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE, skipAt)));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("a later real evaluation after the skip restores a rating")
+        void laterEvaluationAfterSkipRestores() {
+            // The cached rating predates the skip (stale, retracted), but a later run — visible
+            // here as a forecast_evaluation row whose run instant is AFTER the skip — is a decision
+            // the pipeline made about this slot since, and must win normally.
+            Instant skipAt = CACHED_AT.plusSeconds(3600);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 2, 30, 20, "Grey")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            // 2026-04-22 04:00 is BST (UTC+1) — 03:00Z, after the 02:00Z skip.
+            ForecastEvaluationEntity later = ForecastEvaluationEntity.builder()
+                    .rating(5).fierySkyPotential(90).goldenHourPotential(85)
+                    .summary("Clear now").evaluationModel(EvaluationModel.HAIKU)
+                    .forecastRunAt(LocalDateTime.of(2026, 4, 22, 4, 0))
+                    .build();
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(later));
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE, skipAt)));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_SCORED);
+            assertThat(v.rating()).isEqualTo(5);
+            assertThat(v.summary()).isEqualTo("Clear now");
+        }
+
+        @Test
+        @DisplayName("a legacy entry with no known write time keeps serving despite a skip")
+        void legacyNullEvaluatedAtKeeps() {
+            // Neither the per-location evaluatedAt nor the region stamp is known — the same
+            // "unknown age keeps the cache" convention cachedIsAtLeastAsFresh already applies.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.empty());
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE,
+                            Instant.parse("2026-04-23T09:00:00Z"))));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("a region-level CACHED skip carries no stability-skip signal, so it never retracts")
+        void cachedSkipNeverRetracts() {
+            // BriefingCandidateCollector's region-level "fresh cache, deliberately reused" skip is
+            // not SKIPPED_STABILITY, so production's findLatestStabilitySkipTimestamps (filtered to
+            // that one category — see ForecastRunDispositionRepositoryTest for the SQL-level proof)
+            // never returns a row for it; simulated here by the repository legitimately returning
+            // nothing for this slot.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.of());
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("a retracted slot reads exactly like a genuinely never-rated slot")
+        void retractedSlotMatchesNeverRatedSlot() {
+            Instant skipAt = CACHED_AT.plusSeconds(3600);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, sandsend));
+            // Bamburgh has a rating that will be retracted; Sandsend has never been evaluated.
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            2L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE, skipAt)));
+
+            List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
+            LocationEvaluationView retracted = views.stream()
+                    .filter(v -> v.locationName().equals("Bamburgh")).findFirst().orElseThrow();
+            LocationEvaluationView neverRated = views.stream()
+                    .filter(v -> v.locationName().equals("Sandsend")).findFirst().orElseThrow();
+
+            assertThat(retracted.source()).isEqualTo(neverRated.source()).isEqualTo(Source.NONE);
+            assertThat(retracted.displayVerdict()).isEqualTo(neverRated.displayVerdict())
+                    .isEqualTo(DisplayVerdict.AWAITING);
+            assertThat(retracted.rating()).isEqualTo(neverRated.rating());
+            assertThat(retracted.summary()).isEqualTo(neverRated.summary());
+            assertThat(retracted.triageReason()).isEqualTo(neverRated.triageReason());
+            assertThat(retracted.triageMessage()).isEqualTo(neverRated.triageMessage());
+        }
+
+        @Test
+        @DisplayName("the Plan payload and the scores view agree: both retract the same stale rating")
+        void planPayloadAndScoresViewAgree() {
+            Instant skipAt = CACHED_AT.plusSeconds(3600);
+            LocalDate start = DATE;
+            LocalDate end = DATE;
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(start))
+                    .thenReturn(List.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(List.of(1L), start, end))
+                    .thenReturn(List.of());
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(start, end))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE, skipAt)));
+
+            // Plan tab side — BriefingRegionEvaluationRollup.enrich resolves through this map. The
+            // entry is the RETRACTED MARKER, not an absent key — enrichSlot must be able to tell
+            // "this slot's rating is retracted" apart from "the resolver never covered this slot",
+            // because the persisted BriefingSlot may already carry an embedded claudeRating from an
+            // earlier build that an absent entry would leave untouched. See
+            // BriefingRegionEvaluationRollupTest for that half of the fix.
+            Map<String, Map<String, BriefingEvaluationResult>> planIndex =
+                    service.getScoresForEnrichmentBulk(start, end, Set.of(SUNRISE));
+            String key = REGION_NAME + "|" + DATE + "|" + SUNRISE;
+            BriefingEvaluationResult planResult =
+                    planIndex.getOrDefault(key, Map.of()).get("Bamburgh");
+
+            // /api/briefing/evaluate/scores and the map DTO path — both read forDateRange.
+            List<LocationEvaluationView> scoresViews = service.forDateRange(
+                    start, end, Set.of(SUNRISE));
+
+            assertThat(planResult).isNotNull();
+            assertThat(planResult.retracted()).isTrue();
+            assertThat(planResult.rating()).isNull();
+            assertThat(scoresViews).isEmpty();
+        }
+
+        @Test
+        @DisplayName("getScoresForEnrichment returns the retracted marker, not a bare absent entry")
+        void getScoresForEnrichmentReturnsRetractedMarker() {
+            Instant skipAt = CACHED_AT.plusSeconds(3600);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(CACHED_AT));
+            when(forecastRunDispositionRepository.findLatestStabilitySkipTimestamps(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(skipRow("Bamburgh", DATE, SUNRISE, skipAt)));
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
+
+            assertThat(result).containsKey("Bamburgh");
+            assertThat(result.get("Bamburgh").retracted()).isTrue();
+            assertThat(result.get("Bamburgh").rating()).isNull();
         }
     }
 }

@@ -437,6 +437,39 @@ Two consequences worth stating plainly:
   `actual_outcome`; with ratings landing one day in fourteen it has almost nothing to score, before
   even reaching the fact that `actual_outcome` has no rows. Not broken — starved. Worth knowing
   before anyone cites it as evidence of forecast accuracy.
+- ⚠️ **A nightly Gate 4 stability skip writes no row to either store, so it retracts at serve time
+  instead.** When `NightlyEligibilityPolicy` declines to re-score a slot (`SKIPPED_STABILITY`), the
+  collector writes neither a `cached_evaluation` entry nor a `forecast_evaluation` row for that
+  cycle — so an earlier, more eligible run's rating would otherwise go on being served forever, read
+  as a live verdict long after the pipeline moved past it. `EvaluationViewService` bulk-loads each
+  slot's most recent `SKIPPED_STABILITY` disposition from `forecast_run_disposition` (30-day
+  retention comfortably covers the served horizon; one query per serve, never per slot) and, before
+  any precedence rule runs, retracts whichever of the cached result and the `forecast_evaluation` row
+  predates it — a stale rating and a stale triage row alike, so the slot reads as never-rated rather
+  than as a weather stand-down. One rule, `EvaluationViewService.isRetractedByStabilitySkip`, reused
+  by `mergeToView` (the map's `GET /api/forecast` and `GET /api/briefing/evaluate/scores`) and
+  `getScoresForEnrichment`/`getScoresForEnrichmentBulk` (the Plan payload), so the two cannot
+  disagree. A later real evaluation (eligible or forced) simply outdates the skip. Excluded by
+  construction: a region-level `SKIPPED_CACHED` reuse, a past-date/travel-day/error/triage skip, a
+  row with neither a rating nor a triage reason (`hasSomethingToSay`, the same rule `cachedWins`
+  already applied), and the intraday cycle's `SKIPPED_NO_REFRESH_NEEDED` ("a later look is already
+  guaranteed") — none of these is a decision against the rating. No migration; no new column.
+  ⚠️ **The Plan payload needed a second piece, because it starts from a persisted tree rather than
+  building one fresh.** A `BriefingSlot` read out of `daily_briefing_cache` already carries whatever
+  rating the last build gave it, and `BriefingRegionEvaluationRollup.enrichSlot` correctly leaves a
+  slot untouched when the resolver has nothing new to say for it (an uncovered date, an all-canopy
+  region) — so a bare absent map entry cannot ALSO mean "retracted" without blanking those legitimate
+  cases too. `EvaluationViewService` therefore returns `BriefingEvaluationResult.retracted(name)` — a
+  `@JsonIgnore`d marker, never persisted — exactly when retraction is why nothing survived, and
+  `enrichSlot` checks it before its own triage-clears-a-rating branch, clearing the slot's rating,
+  sky rating, both potentials, summary and headline the same way, never by setting a triage reason.
+  ⚠️ **Two accepted limits, not gaps.** The join is on location NAME (`forecast_run_disposition`'s
+  denormalised snapshot), so a location renamed between its last skip and the serve misses its own
+  history and keeps serving one cycle too long — safe-direction, not fixed. And "newest decision
+  wins" means a hand-started or force-submitted admin evaluation made shortly before a nightly cycle
+  is retracted by that cycle's own skip a few minutes later; the rule has no way to except a human's
+  deliberate request, and a short admin-run window is preferred to making admin evaluations immune to
+  ever being retracted once stale.
 
 ---
 
