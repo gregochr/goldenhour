@@ -6,8 +6,8 @@ import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.DiffersBy;
 import com.gregochr.goldenhour.repository.PipelineRunPickRepository;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingRatingStats;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -68,21 +68,22 @@ public class PipelineRunPickService {
     private static final int DIFFERS_BY_MAX_LENGTH = 50;
 
     private final PipelineRunPickRepository repository;
-    private final BriefingEvaluationService briefingEvaluationService;
+    private final EvaluationViewService evaluationViewService;
     private final Clock clock;
 
     /**
      * Constructs the service.
      *
-     * @param repository                pick repository
-     * @param briefingEvaluationService source of the cached Claude scores used to
-     *                                  snapshot the pick's numeric rating
-     * @param clock                     injectable clock for deterministic tests
+     * @param repository             pick repository
+     * @param evaluationViewService  retraction-aware Claude evaluation scores used to snapshot
+     *                               the pick's numeric rating — see
+     *                               {@link EvaluationViewService#getLiveScoresForEnrichment}
+     * @param clock                  injectable clock for deterministic tests
      */
     public PipelineRunPickService(PipelineRunPickRepository repository,
-            BriefingEvaluationService briefingEvaluationService, Clock clock) {
+            EvaluationViewService evaluationViewService, Clock clock) {
         this.repository = repository;
-        this.briefingEvaluationService = briefingEvaluationService;
+        this.evaluationViewService = evaluationViewService;
         this.clock = clock;
     }
 
@@ -212,8 +213,14 @@ public class PipelineRunPickService {
      *   <li>The pick has no parseable event date.</li>
      *   <li>The pick's event type is not SUNRISE or SUNSET (notably aurora
      *       picks, which don't have a region-level per-event Claude score).</li>
-     *   <li>No cached scores exist for the (region, date, event_type) slot.</li>
+     *   <li>No live scores exist for the (region, date, event_type) slot.</li>
      * </ul>
+     *
+     * <p>⚠️ Reads through {@link EvaluationViewService#getLiveScoresForEnrichment}, not the raw
+     * {@code BriefingEvaluationService} cache directly — the same retraction-aware read
+     * {@code BriefingRollupBuilder} uses. A rating superseded by a newer nightly stability skip or a
+     * newer triage row is excluded here exactly as it is from the rollup Claude was shown, so a
+     * cross-run comparison never rests on a number the rest of the product has stopped serving.
      */
     Double lookupAverageRating(BestBet pick, LocalDate eventDate) {
         if (pick.region() == null || eventDate == null || pick.eventType() == null) {
@@ -223,8 +230,8 @@ public class PipelineRunPickService {
         if (targetType == null) {
             return null;
         }
-        Map<String, BriefingEvaluationResult> cached =
-                briefingEvaluationService.getCachedScores(pick.region(), eventDate, targetType);
+        Map<String, BriefingEvaluationResult> cached = evaluationViewService
+                .getLiveScoresForEnrichment(pick.region(), eventDate, targetType);
         if (cached.isEmpty()) {
             return null;
         }

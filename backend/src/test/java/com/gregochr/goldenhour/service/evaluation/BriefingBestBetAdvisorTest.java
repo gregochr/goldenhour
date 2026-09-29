@@ -36,7 +36,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -84,7 +84,7 @@ class BriefingBestBetAdvisorTest {
     @Mock private ModelSelectionService modelSelectionService;
     @Mock private AuroraStateCache auroraStateCache;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
-    @Mock private BriefingEvaluationService briefingEvaluationService;
+    @Mock private EvaluationViewService evaluationViewService;
     @Mock private TravelDayService travelDayService;
 
     /** Response-token ceiling injected into the advisor under test. */
@@ -105,7 +105,7 @@ class BriefingBestBetAdvisorTest {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache,
-                stabilitySnapshotProvider, briefingEvaluationService, travelDayService,
+                stabilitySnapshotProvider, evaluationViewService, travelDayService,
                 TEST_MAX_TOKENS, CLOCK);
     }
 
@@ -483,7 +483,7 @@ class BriefingBestBetAdvisorTest {
             BriefingBestBetAdvisor custom = new BriefingBestBetAdvisor(
                     anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                     jobRunService, modelSelectionService, auroraStateCache,
-                    stabilitySnapshotProvider, briefingEvaluationService, travelDayService, customMax, CLOCK);
+                    stabilitySnapshotProvider, evaluationViewService, travelDayService, customMax, CLOCK);
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.HAIKU);
             when(anthropicApiClient.createMessage(any()))
@@ -1118,7 +1118,7 @@ class BriefingBestBetAdvisorTest {
         @Test
         @DisplayName("End-to-end advise(): cache coverage flips the inversion through the real path")
         void adviseEndToEndInversionFlips() {
-            // Full path: getCachedScores → buildRollupJson coverage map → gate.
+            // Full path: getLiveScoresForEnrichment → buildRollupJson coverage map → gate.
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate nearDate = FIXED_TODAY.plusDays(1);
@@ -1127,11 +1127,11 @@ class BriefingBestBetAdvisorTest {
             String farEvent = farDate + "_sunset";
 
             // Far Northumberland: thinly evaluated (2). Near North Yorkshire: well-covered (5).
-            when(briefingEvaluationService.getCachedScores(NORTHUMBERLAND, farDate, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(NORTHUMBERLAND, farDate, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Bamburgh", new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good"),
                             "Dunstanburgh", new BriefingEvaluationResult("Dunstanburgh", 4, 78, 66, "Good")));
-            when(briefingEvaluationService.getCachedScores(NORTH_YORKS, nearDate, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(NORTH_YORKS, nearDate, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Whitby", new BriefingEvaluationResult("Whitby", 4, 70, 60, "Good"),
                             "Sandsend", new BriefingEvaluationResult("Sandsend", 3, 55, 50, "Decent"),
@@ -1870,7 +1870,7 @@ class BriefingBestBetAdvisorTest {
             // Give the sunset region colour coverage so the honesty gate (dropUnevaluatedPicks)
             // keeps it as the rank-1 anchor. Without coverage it is dropped as zero-evaluation,
             // and the aurora pick — now the sole head — correctly loses its relationship.
-            when(briefingEvaluationService.getCachedScores("Northumberland", today, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment("Northumberland", today, TargetType.SUNSET))
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good")));
 
@@ -2795,7 +2795,7 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getLiveScoresForEnrichment(
                     "Northumberland", tomorrow, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
@@ -2844,7 +2844,7 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getLiveScoresForEnrichment(
                     "Northumberland", tomorrow, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
@@ -2874,7 +2874,7 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getLiveScoresForEnrichment(
                     "Northumberland", tomorrow, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Kielder", new BriefingEvaluationResult(
@@ -2894,7 +2894,7 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Cache lookup uses exact region name, date and targetType")
+        @DisplayName("Retraction-aware lookup uses exact region name, date and targetType")
         void cacheLookupUsesExactParameters() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
@@ -2907,8 +2907,13 @@ class BriefingBestBetAdvisorTest {
 
             advisor.buildRollupJson(List.of(day), now);
 
-            // Called twice: once in appendClaudeScores, once in logCacheCoverage
-            verify(briefingEvaluationService, times(2)).getCachedScores(
+            // Called twice: once in appendClaudeScores (via computeRegionStats), once in
+            // logCacheCoverage. Pins the contract one layer out from BriefingEvaluationService's
+            // raw cache: both call sites must read through EvaluationViewService's
+            // retraction-aware getLiveScoresForEnrichment, never the raw cache directly, so a
+            // rating superseded by a stability skip or a newer triage row is excluded from both
+            // the advisor's rollup and its coverage log with the exact same arguments.
+            verify(evaluationViewService, times(2)).getLiveScoresForEnrichment(
                     eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNSET));
         }
 
@@ -2919,7 +2924,7 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getLiveScoresForEnrichment(
                     "Northumberland", tomorrow, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
@@ -2948,7 +2953,7 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getLiveScoresForEnrichment(
                     "Northumberland", tomorrow, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Loc1", new BriefingEvaluationResult(
@@ -2980,7 +2985,7 @@ class BriefingBestBetAdvisorTest {
             LocalDateTime now = FIXED_NOW;
 
             // Ratings: 2, 3, 5 → avg 3.333... → rounds to 3.3
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getLiveScoresForEnrichment(
                     "Northumberland", tomorrow, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Loc1", new BriefingEvaluationResult(
@@ -3008,12 +3013,12 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getLiveScoresForEnrichment(
                     "Northumberland", tomorrow, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
                                     "Bamburgh", 5, 90, 85, "Excellent")));
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getLiveScoresForEnrichment(
                     "Lake District", tomorrow, TargetType.SUNSET))
                     .thenReturn(Map.of(
                             "Derwentwater", new BriefingEvaluationResult(
@@ -3033,9 +3038,9 @@ class BriefingBestBetAdvisorTest {
             assertThat(result.json()).contains("\"claudeHighRatedCount\":0");
 
             // Verify each region gets its own lookup
-            verify(briefingEvaluationService, times(2)).getCachedScores(
+            verify(evaluationViewService, times(2)).getLiveScoresForEnrichment(
                     eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNSET));
-            verify(briefingEvaluationService, times(2)).getCachedScores(
+            verify(evaluationViewService, times(2)).getLiveScoresForEnrichment(
                     eq("Lake District"), eq(tomorrow), eq(TargetType.SUNSET));
         }
 
@@ -3053,7 +3058,7 @@ class BriefingBestBetAdvisorTest {
 
             advisor.buildRollupJson(List.of(day), now);
 
-            verify(briefingEvaluationService, times(2)).getCachedScores(
+            verify(evaluationViewService, times(2)).getLiveScoresForEnrichment(
                     eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNRISE));
         }
 
@@ -3519,7 +3524,7 @@ class BriefingBestBetAdvisorTest {
      * coverage — otherwise {@code dropUnevaluatedPicks} removes it as an un-evidenced pick.
      */
     private void stubCoverage(String region, LocalDate date, TargetType type) {
-        when(briefingEvaluationService.getCachedScores(region, date, type))
+        when(evaluationViewService.getLiveScoresForEnrichment(region, date, type))
                 .thenReturn(Map.of("Loc",
                         new BriefingEvaluationResult("Loc", 4, 70, 60, "Good")));
     }

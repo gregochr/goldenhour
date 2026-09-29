@@ -627,6 +627,46 @@ public class EvaluationViewService {
     }
 
     /**
+     * {@link #getScoresForEnrichment}, filtered so a caller that has no branch for
+     * {@link BriefingEvaluationResult#retracted} cannot accidentally treat a retraction marker as a
+     * rating, or accidentally average, count or rank a rating the rest of the product no longer
+     * shows.
+     *
+     * <p>{@code getScoresForEnrichment} has to be able to say "this location HAD something, and a
+     * stability skip is why it does not any more" — that is what lets
+     * {@link BriefingRegionEvaluationRollup#enrichSlot} tell a genuine retraction apart from a slot
+     * it was never asked about, and clear the embedded rating rather than leave it. A caller that
+     * only ever wants to know "what does this location's sky look like RIGHT NOW", such as the
+     * best-bet advisor's region rollup or a pipeline-run pick snapshot, has no analogous branch and
+     * no business receiving a marker whose every numeric field is {@code null} except
+     * {@code locationName} — a caller that forgot to check {@code retracted()} would either NPE on a
+     * null rating or silently treat the marker as "no opinion", both accidents of what the caller
+     * happened to do next rather than a decision anyone made. This method removes that whole class
+     * of mistake by construction: what comes back contains only live evidence, exactly as if the
+     * retracted location had never been evaluated at all.
+     *
+     * @param regionName the region name
+     * @param date       the forecast date
+     * @param targetType SUNRISE or SUNSET
+     * @return map of locationName to evaluation result, containing no retraction markers
+     */
+    public Map<String, BriefingEvaluationResult> getLiveScoresForEnrichment(
+            String regionName, LocalDate date, TargetType targetType) {
+        Map<String, BriefingEvaluationResult> all =
+                getScoresForEnrichment(regionName, date, targetType);
+        if (all.isEmpty()) {
+            return all;
+        }
+        Map<String, BriefingEvaluationResult> live = new HashMap<>();
+        for (Map.Entry<String, BriefingEvaluationResult> entry : all.entrySet()) {
+            if (!entry.getValue().retracted()) {
+                live.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return live;
+    }
+
+    /**
      * Bulk equivalent of {@link #getScoresForEnrichment} across a whole date range, keyed by
      * {@code "regionName|date|targetType"}.
      *

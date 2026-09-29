@@ -8,7 +8,7 @@ import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DiffersBy;
 import com.gregochr.goldenhour.model.Relationship;
 import com.gregochr.goldenhour.repository.PipelineRunPickRepository;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -67,13 +67,13 @@ class PipelineRunPickServiceTest {
     private PipelineRunPickRepository repository;
 
     @Mock
-    private BriefingEvaluationService briefingEvaluationService;
+    private EvaluationViewService evaluationViewService;
 
     private PipelineRunPickService service;
 
     @BeforeEach
     void setUp() {
-        service = new PipelineRunPickService(repository, briefingEvaluationService,
+        service = new PipelineRunPickService(repository, evaluationViewService,
                 Clock.fixed(T0, ZoneOffset.UTC));
     }
 
@@ -97,7 +97,7 @@ class PipelineRunPickServiceTest {
         @DisplayName("rank 1 pick persists with parsed date, captured confidence, recorded_at")
         void rank1_canonical_mapping() {
             BestBet pick = sunsetPick(1, null, List.of());
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
 
             service.persist(RUN_ID, List.of(pick));
@@ -124,7 +124,7 @@ class PipelineRunPickServiceTest {
         @DisplayName("rank 2 SAME_SLOT pick stores relationship, empty differsBy stays null")
         void rank2_same_slot() {
             BestBet pick = sunsetPick(2, Relationship.SAME_SLOT, List.of());
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
 
             service.persist(RUN_ID, List.of(pick));
@@ -141,7 +141,7 @@ class PipelineRunPickServiceTest {
         void rank2_different_slot_differsby() {
             BestBet pick = sunsetPick(2, Relationship.DIFFERENT_SLOT,
                     List.of(DiffersBy.DATE, DiffersBy.EVENT));
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
 
             service.persist(RUN_ID, List.of(pick));
@@ -158,7 +158,7 @@ class PipelineRunPickServiceTest {
         void two_picks_saved() {
             BestBet rank1 = sunsetPick(1, null, List.of());
             BestBet rank2 = sunsetPick(2, Relationship.SAME_SLOT, List.of());
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
 
             service.persist(RUN_ID, List.of(rank1, rank2));
@@ -178,7 +178,7 @@ class PipelineRunPickServiceTest {
             BestBet pick = sunsetPick(1, null, List.of());
             when(repository.findByPipelineRunIdAndPickRank(RUN_ID, 1))
                     .thenReturn(Optional.empty());
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
 
             service.persist(RUN_ID, List.of(pick));
@@ -202,7 +202,7 @@ class PipelineRunPickServiceTest {
             existing.setHeadline("stale headline from the pre-crash attempt");
             when(repository.findByPipelineRunIdAndPickRank(RUN_ID, 1))
                     .thenReturn(Optional.of(existing));
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
 
             service.persist(RUN_ID, List.of(pick));
@@ -228,7 +228,7 @@ class PipelineRunPickServiceTest {
                     List.of());
             when(repository.findByPipelineRunIdAndPickRank(RUN_ID, 1)).thenReturn(Optional.empty());
             when(repository.findByPipelineRunIdAndPickRank(RUN_ID, 2)).thenReturn(Optional.empty());
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
 
             service.persist(RUN_ID, List.of(rank1, rank2));
@@ -250,7 +250,7 @@ class PipelineRunPickServiceTest {
             cached.put("A", scored("A", 4));
             cached.put("B", scored("B", 5));
             cached.put("C", scored("C", 3));
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(cached);
 
             service.persist(RUN_ID, List.of(sunsetPick(1, null, List.of())));
@@ -264,7 +264,7 @@ class PipelineRunPickServiceTest {
         @Test
         @DisplayName("no cached scores → null rating (graceful degrade to confidence-only)")
         void no_cached_scores_null_rating() {
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
 
             service.persist(RUN_ID, List.of(sunsetPick(1, null, List.of())));
@@ -284,9 +284,9 @@ class PipelineRunPickServiceTest {
 
             service.persist(RUN_ID, List.of(aurora));
 
-            // No lookup against briefingEvaluationService — aurora picks have no
+            // No lookup against evaluationViewService — aurora picks have no
             // region-level (region, date, SUNRISE|SUNSET) cached rating.
-            verifyNoInteractions(briefingEvaluationService);
+            verifyNoInteractions(evaluationViewService);
             ArgumentCaptor<PipelineRunPickEntity> captor =
                     ArgumentCaptor.forClass(PipelineRunPickEntity.class);
             verify(repository).save(captor.capture());
@@ -305,7 +305,7 @@ class PipelineRunPickServiceTest {
 
             service.persist(RUN_ID, List.of(stayHome));
 
-            verifyNoInteractions(briefingEvaluationService);
+            verifyNoInteractions(evaluationViewService);
             ArgumentCaptor<PipelineRunPickEntity> captor =
                     ArgumentCaptor.forClass(PipelineRunPickEntity.class);
             verify(repository).save(captor.capture());
@@ -326,7 +326,7 @@ class PipelineRunPickServiceTest {
             service.persist(null, List.of(sunsetPick(1, null, List.of())));
 
             verifyNoInteractions(repository);
-            verifyNoInteractions(briefingEvaluationService);
+            verifyNoInteractions(evaluationViewService);
         }
 
         @Test
@@ -335,7 +335,7 @@ class PipelineRunPickServiceTest {
             service.persist(RUN_ID, null);
 
             verifyNoInteractions(repository);
-            verifyNoInteractions(briefingEvaluationService);
+            verifyNoInteractions(evaluationViewService);
         }
 
         @Test
@@ -351,7 +351,7 @@ class PipelineRunPickServiceTest {
         void one_pick_db_failure_does_not_abort() {
             BestBet rank1 = sunsetPick(1, null, List.of());
             BestBet rank2 = sunsetPick(2, Relationship.SAME_SLOT, List.of());
-            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+            when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                     .thenReturn(Map.of());
             // First save throws; second must still be attempted.
             when(repository.save(any(PipelineRunPickEntity.class)))
@@ -418,7 +418,7 @@ class PipelineRunPickServiceTest {
     @DisplayName("repository.save called with the constructed entity (not a wholesale mock match)")
     void save_arg_is_the_entity_we_built() {
         BestBet pick = sunsetPick(1, null, List.of());
-        when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+        when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                 .thenReturn(Map.of());
 
         service.persist(RUN_ID, List.of(pick));
@@ -430,18 +430,18 @@ class PipelineRunPickServiceTest {
     }
 
     @Test
-    @DisplayName("briefingEvaluationService is called with the exact (region, date, targetType) "
+    @DisplayName("evaluationViewService is called with the exact (region, date, targetType) "
             + "the advisor would see")
     void cached_scores_lookup_uses_pick_coordinates() {
         BestBet pick = sunsetPick(1, null, List.of());
-        when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+        when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
                 .thenReturn(Map.of());
 
         service.persist(RUN_ID, List.of(pick));
 
         // Specific (region, date, targetType) — not any() — so a regression that
         // passes the wrong arguments is loud.
-        verify(briefingEvaluationService).getCachedScores(
+        verify(evaluationViewService).getLiveScoresForEnrichment(
                 eq(REGION), eq(EVENT_DATE), eq(TargetType.SUNSET));
     }
 }

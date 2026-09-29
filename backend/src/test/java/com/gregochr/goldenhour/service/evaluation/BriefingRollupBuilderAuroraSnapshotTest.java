@@ -10,7 +10,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.RollupResult;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -53,7 +53,7 @@ class BriefingRollupBuilderAuroraSnapshotTest {
     private static final LocalDateTime NOW = LocalDateTime.of(DATE, LocalTime.of(3, 0));
 
     @Mock private TravelDayService travelDayService;
-    @Mock private BriefingEvaluationService briefingEvaluationService;
+    @Mock private EvaluationViewService evaluationViewService;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -65,7 +65,7 @@ class BriefingRollupBuilderAuroraSnapshotTest {
         auroraStateCache = new AuroraStateCache();
         builder = new BriefingRollupBuilder(mapper,
                 Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
-                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                travelDayService, evaluationViewService, stabilitySnapshotProvider,
                 auroraStateCache, new AuroraRegionSelector(auroraStateCache));
     }
 
