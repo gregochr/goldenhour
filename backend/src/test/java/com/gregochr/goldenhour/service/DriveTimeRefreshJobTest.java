@@ -210,6 +210,31 @@ class DriveTimeRefreshJobTest {
         }
 
         @Test
+        @DisplayName("Confirmed unreachable (ORS answered, no valid duration anywhere) does NOT "
+                + "clear an existing user's rows or stamp on the scheduled route — the deliberate "
+                + "asymmetry with the manual path's UserDriveTimeWriter.clearIfHomeUnchanged, "
+                + "because nobody is watching an overnight run (see this class's own javadoc)")
+        void confirmedUnreachable_doesNotClearOnScheduledRoute() {
+            AppUserEntity user = withHome(1L);
+            Instant stamp = NOW.minusSeconds(3600);
+            // Simulates a user who already has rows and a stamp from a previous, successful run.
+            user.setDriveTimesCalculatedAt(stamp);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            // Due because the roster grew since the stamp (a location was added) — not because
+            // the stamp is null, so this user already has rows to lose if the job cleared them.
+            when(locationRepository.findMaxCreatedAt())
+                    .thenReturn(LocalDateTime.ofInstant(stamp.plusSeconds(1), ZoneOffset.UTC));
+            // ORS answered, but confirmed no valid duration to any location.
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(List.of()));
+
+            job.run(false);
+
+            // The asymmetry: no writer call of any kind — not storeIfHomeUnchanged, and no
+            // clearIfHomeUnchanged either. Rows and stamp are both left exactly as they were.
+            verifyNoInteractions(driveTimeWriter);
+        }
+
+        @Test
         @DisplayName("A home that moved while it was measured is stored nothing, and the run goes on")
         void homeMovedMidRun_storesNothingAndContinues() {
             List<UserDriveTimeEntity> movedAway = rowsFor(1L, 6);
@@ -313,6 +338,28 @@ class DriveTimeRefreshJobTest {
 
             verify(driveDurationService).measureForUser(1L, 54.97, -1.61);
             verifyNoInteractions(driveTimeWriter);
+        }
+
+        @Test
+        @DisplayName("A stamp left null by a manual confirmed-unreachable clear is measured by the "
+                + "next scheduled run — UserDriveTimeWriter.clearIfHomeUnchanged leaves the exact "
+                + "same null-stamp state a postcode change does, so this job needs no special case "
+                + "for it: the null stamp alone is enough")
+        void stampClearedByManualConfirmedUnreachable_isMeasuredNextScheduledRun() {
+            AppUserEntity user = withHome(1L);
+            // Simulates the row UserSettingsService.refreshDriveTimes leaves behind after a manual
+            // confirmed-unreachable refresh: no rows (this test cannot see that directly, since
+            // driveTimeWriter is mocked — see UserDriveTimeWriterTest for the row deletion itself)
+            // and a null stamp, which is the one thing this job's own predicate reads.
+            user.setDriveTimesCalculatedAt(null);
+            List<UserDriveTimeEntity> measured = rowsFor(1L, 3);
+            when(userRepository.findAll()).thenReturn(List.of(user));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(measured));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW)).thenReturn(true);
+
+            job.run(false);
+
+            verify(driveTimeWriter).storeIfHomeUnchanged(1L, 54.97, -1.61, measured, NOW);
         }
 
         @Test

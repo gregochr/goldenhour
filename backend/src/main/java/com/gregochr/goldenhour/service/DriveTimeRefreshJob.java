@@ -45,9 +45,19 @@ import java.util.List;
  * button) did not, until a P1 review of PR #942 found that its no-answer branch advanced the stamp
  * through a since-deleted {@code UserDriveTimeWriter.stampIfHomeUnchanged} purely to keep its own
  * 30-minute cooldown honest for a failed attempt — which let a user with a freshly-cleared postcode
- * and a failed measurement read as "covered" and be skipped by this job forever. Both routes now
- * follow the identical rule; the manual path tracks a failed attempt separately, in an in-memory
- * map that never touches this column.
+ * and a failed measurement read as "covered" and be skipped by this job forever.
+ *
+ * <p>⚠️ **This job's own {@code isEmpty()} branch below deliberately does NOT distinguish the two
+ * kinds of empty measurement the manual path does** — see {@link UserDriveTimeWriter}'s class
+ * javadoc for the full outcome table across both routes. {@code DriveDurationService.measureForUser}
+ * separates "no answer at all" from "ORS answered, confirmed no destination has a valid duration",
+ * and the manual path clears a user's stored rows outright on the second kind, because a person
+ * pressed the button and is looking at the result. This job runs unattended, overnight; a transient
+ * ORS wobble that returns zero valid durations for one location's neighbourhood must not silently
+ * wipe every enabled user's drive times before anyone notices — so BOTH kinds of empty are treated
+ * identically here, as a failure that stores nothing and leaves the stamp exactly as it was. This is
+ * a deliberate asymmetry between the two routes, not an oversight the manual-path fix should have
+ * carried here too.
  *
  * <p><strong>A scheduled fire measures only the users who need it — a manual one measures
  * everyone.</strong> OpenRouteService is a free-plan call budget shared across every user, and
@@ -223,9 +233,13 @@ public class DriveTimeRefreshJob {
                         .orElse(List.of());
                 if (driveTimes.isEmpty()) {
                     // Zero is not an exception — ORS unconfigured, rate-limited, an empty response,
-                    // or no valid duration. Count it as a failure so the log distinguishes it from
-                    // success, and store nothing, so the UI keeps showing the last real refresh.
-                    // Their calculated-at stamp is untouched and stays null if it already was, so a
+                    // OR a confirmed no-valid-duration answer are all treated identically here,
+                    // deliberately NOT split the way the manual path splits them (see this class's
+                    // own javadoc and UserDriveTimeWriter's outcome table): this job runs with
+                    // nobody watching, so a transient ORS wobble must not clear a user's drive times
+                    // overnight. Count it as a failure so the log distinguishes it from success, and
+                    // store nothing, so the UI keeps showing the last real refresh. Their
+                    // calculated-at stamp is untouched and stays null if it already was, so a
                     // never-measured user whose measurement keeps failing is retried on every
                     // scheduled run — acceptable, since nothing else would ever pick them up.
                     failed++;

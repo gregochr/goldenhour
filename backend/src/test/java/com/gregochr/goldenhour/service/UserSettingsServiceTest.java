@@ -364,40 +364,58 @@ class UserSettingsServiceTest {
         }
 
         @Test
-        @DisplayName("a present-but-empty answer (ORS answered, no valid duration anywhere) NEVER "
-                + "advances the stamp either — fails against f74240b1, which called "
-                + "storeIfHomeUnchanged with an empty list, clearing rows AND stamping in one call, "
-                + "recreating the exact stamp-without-rows state V157 repairs")
-        void presentButEmptyAnswer_neverAdvancesTheStamp_nullStamp() {
-            durhamHome(null);
+        @DisplayName("a present-but-empty answer (ORS answered, confirmed no valid duration "
+                + "anywhere) CLEARS the user's rows and stamp — fails against fe8ee278, which "
+                + "merged this into the no-answer-at-all case and left the stale rows in place")
+        void confirmedUnreachable_clearsRowsAndStamp_existingStampAndRows() {
+            Instant existingStamp = NOW.minusSeconds(3 * 24 * 3600);
+            durhamHome(existingStamp);
             when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
                     .thenReturn(Optional.of(List.of()));
+            when(driveTimeWriter.clearIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON)).thenReturn(true);
 
             DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
 
-            // The literal assertions that fail against f74240b1: no writer call at all for a
-            // present-but-empty answer, and the response reports the pre-existing stamp (null
-            // here) rather than now.
-            verifyNoInteractions(driveTimeWriter);
+            // The literal assertions that fail against fe8ee278: the guarded clear IS called (that
+            // commit called nothing at all here), and the response reports null — the same state a
+            // home move already produces — never the pre-existing stamp.
+            verify(driveTimeWriter).clearIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON);
+            verifyNoMoreInteractions(driveTimeWriter);
             assertThat(response.locationsUpdated()).isZero();
             assertThat(response.calculatedAt()).isNull();
         }
 
         @Test
-        @DisplayName("a present-but-empty answer for a user with an existing real stamp reports "
-                + "that stamp back unchanged too — fails against f74240b1 the same way")
-        void presentButEmptyAnswer_neverAdvancesTheStamp_existingStamp() {
-            Instant existingStamp = NOW.minusSeconds(3 * 24 * 3600);
-            AppUserEntity user = durhamHome(existingStamp);
+        @DisplayName("a present-but-empty answer for a user with no rows and no stamp still calls "
+                + "the guarded clear and still reports null — the outcome does not depend on what "
+                + "was there before")
+        void confirmedUnreachable_clearsRowsAndStamp_noExistingStampOrRows() {
+            durhamHome(null);
             when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
                     .thenReturn(Optional.of(List.of()));
+            when(driveTimeWriter.clearIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON)).thenReturn(true);
 
             DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
 
-            verifyNoInteractions(driveTimeWriter);
+            verify(driveTimeWriter).clearIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON);
             assertThat(response.locationsUpdated()).isZero();
-            assertThat(response.calculatedAt()).isEqualTo(existingStamp);
-            assertThat(user.getDriveTimesCalculatedAt()).isEqualTo(existingStamp);
+            assertThat(response.calculatedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("confirmed unreachable, but the home moved while it was being measured: "
+                + "nothing written, 409 — exactly as the stored path answers on the same race")
+        void confirmedUnreachable_homeMovedDuringMeasurement_conflict() {
+            durhamHome(null);
+            when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                    .thenReturn(Optional.of(List.of()));
+            when(driveTimeWriter.clearIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON)).thenReturn(false);
+
+            assertThatThrownBy(() -> service.refreshDriveTimes(auth))
+                    .isInstanceOfSatisfying(ResponseStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+            assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
         }
 
         @Test
@@ -671,6 +689,73 @@ class UserSettingsServiceTest {
                         .thenReturn(true);
 
                 service.refreshDriveTimes(auth);
+
+                assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+            }
+
+            @Test
+            @DisplayName("a confirmed-unreachable attempt leaves the pending entry in place — the "
+                    + "persisted stamp it left behind is null, so the in-memory entry is the ONLY "
+                    + "thing that can still enforce the 30-minute cooldown")
+            void confirmedUnreachable_leavesThePendingAttemptInPlace() {
+                durhamHome(null);
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.of(List.of()));
+                when(driveTimeWriter.clearIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(true);
+
+                service.refreshDriveTimes(auth);
+
+                assertThat(service.pendingDriveTimeAttempts).containsEntry(USER_ID, NOW);
+            }
+
+            @Test
+            @DisplayName("a second manual attempt inside 30 minutes of a confirmed-unreachable one "
+                    + "is throttled — the persisted stamp is null, so only the pending entry can "
+                    + "refuse it")
+            void secondAttemptWithin30Minutes_afterConfirmedUnreachable_isThrottled() {
+                Instant firstAttempt = NOW;
+                SteppingClock steppingClock = new SteppingClock(firstAttempt);
+                UserSettingsService raceService = new UserSettingsService(userRepository, postcodesIoClient,
+                        driveDurationService, driveTimeWriter, steppingClock);
+                AppUserEntity user = home(DURHAM, DURHAM_LAT, DURHAM_LON); // no persisted stamp
+                stubAuth();
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.of(List.of()));
+                when(driveTimeWriter.clearIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(true);
+
+                DriveTimeRefreshResponse first = raceService.refreshDriveTimes(auth);
+                assertThat(first.calculatedAt()).isNull();
+
+                steppingClock.advanceTo(firstAttempt.plusSeconds(29 * 60));
+
+                assertThatThrownBy(() -> raceService.refreshDriveTimes(auth))
+                        .isInstanceOfSatisfying(ResponseStatusException.class,
+                                e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+                // Only the first attempt ever reached ORS — the null persisted stamp alone could
+                // not have refused the second; the pending entry left in place is what did.
+                verify(driveDurationService, times(1)).measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON);
+            }
+
+            @Test
+            @DisplayName("a home move after a confirmed-unreachable attempt clears the pending "
+                    + "entry too, releasing the cooldown for an immediate retry from the new home")
+            void homeMoveAfterConfirmedUnreachable_clearsThePendingAttempt() {
+                AppUserEntity stored = durhamHome(null);
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.of(List.of()));
+                when(driveTimeWriter.clearIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(true);
+                service.refreshDriveTimes(auth);
+                assertThat(service.pendingDriveTimeAttempts).containsKey(USER_ID);
+
+                when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.of(stored));
+                AppUserEntity afterSave = home(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON);
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(afterSave));
+
+                service.saveHome(auth, new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
 
                 assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
             }

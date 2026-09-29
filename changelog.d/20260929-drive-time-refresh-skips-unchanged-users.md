@@ -95,3 +95,51 @@ local database holding a legacy stamp-without-rows row — reachable only by hav
 buggy code path before pulling this fix — keeps it; no startup repair was added for that case, since
 it is narrow, self-inflicted, and already covered by this project's documented local-reset procedure
 (delete `backend/data/goldenhour.mv.db` and `.lock.db`).
+
+One more P1 (fourth review of PR #942), against the previous fix's own decision: merging the two
+kinds of nothing on the manual path went too far. `DriveDurationService.measureForUser`'s
+confirmed-unreachable answer (ORS answered; no destination has a valid duration) is not "nothing
+learned" — ORS has just told us the stored drive times are stale, and the previous fix's merge left
+them in place, so the reach lens and a leave-by time went on using journeys ORS had just
+invalidated. The decision: a confirmed-unreachable manual refresh CLEARS the user's rows and sets
+the stamp to `null` together — a new guarded `UserDriveTimeWriter.clearIfHomeUnchanged`, reusing
+`storeIfHomeUnchanged`'s own compare-and-set (`AppUserRepository.stampDriveTimesIfHomeIs`, called
+with a `null` instant, which the query writes as an ordinary `SET ... = NULL`) and `clearForUser`'s
+row delete — no third way to delete rows, and no new repository method. That leaves the EXACT state
+a home move already produces (rows gone, stamp `null`), which the rest of the product already
+handles honestly: no "Last calculated" line, the reach lens reads the location as unknown, and the
+scheduled job measures the user again on its very next run because the stamp is null. The no-answer
+case (ORS gave no answer at all) is unchanged from the previous fix: rows and stamp both left
+exactly as they were.
+
+The scheduled job's own behaviour is unchanged and now stated as a deliberate decision, not merely
+inherited: it treats both kinds of nothing identically, as a failure that stores nothing, because it
+runs unattended overnight and a transient ORS wobble returning zero valid durations must not
+silently wipe a user's drive times before anyone is looking. `UserDriveTimeWriter`'s class javadoc
+now carries the full outcome table — {rows stored, no answer, confirmed unreachable, home moved} ×
+{manual, scheduled} — as the single source of truth for which route does what to the rows and the
+stamp on each outcome.
+
+The 30-minute manual-refresh cooldown for a confirmed-unreachable attempt is enforced entirely by
+the in-memory `pendingDriveTimeAttempts` map now, deliberately left in place (not cleared) after a
+successful clear: the persisted stamp that attempt leaves behind is `null`, so unlike a successful
+store it cannot cover the cooldown on its own. A home move during a confirmed-unreachable
+measurement still answers 409 with nothing written, clearing the pending-attempt entry exactly as
+the stored path's 409 already did, and `saveHome` moving the home clears a confirmed-unreachable
+attempt's pending entry too, releasing the cooldown for an immediate retry from the new home.
+
+V157 is unaffected: the invariant it repairs — no non-null stamp with zero rows — still holds after
+this change, since `clearIfHomeUnchanged` sets rows and stamp together, atomically, guarded by the
+same compare-and-set `storeIfHomeUnchanged` uses.
+
+A CI failure surfaced a defect in `ClearDriveTimeStampWithoutRowsMigrationTest`'s own seeding,
+unrelated to V157 itself: the test hard-coded primary keys (`app_user.id = 1`, `locations.id = 1`)
+that collided with rows Flyway migrations seed on every fresh database (V10's admin user, V84's
+bluebell locations) — a defect the local gate cannot catch, since local dev runs no migrations and
+this class only runs in CI. Fixed by reading every id back via `INSERT ... RETURNING id` instead of
+assuming one, and by reusing a location Flyway had already seeded rather than inserting a new one.
+Every assertion now selects by the ids the test itself created, so the seeded admin row (no stamp,
+no rows) cannot affect a result even incidentally. The container field was already non-static
+(a fresh container, and therefore a fresh schema, per test method), so the two test methods were
+never able to see each other's rows regardless of run order — the collision was each method against
+Flyway's own seed data, not the two methods against each other.

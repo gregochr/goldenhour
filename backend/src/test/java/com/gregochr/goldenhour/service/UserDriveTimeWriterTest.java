@@ -101,6 +101,40 @@ class UserDriveTimeWriterTest {
         }
     }
 
+    @Nested
+    @DisplayName("clearIfHomeUnchanged")
+    class ClearIfHomeUnchanged {
+
+        @Test
+        @DisplayName("stamps null first, then clears the rows — reusing the same guard "
+                + "storeIfHomeUnchanged uses and the same row delete clearForUser uses")
+        void homeUnchanged_stampsNullThenClears() {
+            when(userRepository.stampDriveTimesIfHomeIs(USER_ID, LAT, LON, null)).thenReturn(1);
+
+            boolean cleared = writer.clearIfHomeUnchanged(USER_ID, LAT, LON);
+
+            assertThat(cleared).isTrue();
+            // Same order, same reasoning as storeIfHomeUnchanged: the guard runs before anything
+            // is written, and the user row's lock is taken before the drive-time rows.
+            InOrder order = inOrder(userRepository, userDriveTimeRepository);
+            order.verify(userRepository).stampDriveTimesIfHomeIs(USER_ID, LAT, LON, null);
+            order.verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
+            verifyNoMoreInteractions(userRepository, userDriveTimeRepository);
+        }
+
+        @Test
+        @DisplayName("when the home has moved since measuring, writes nothing and says so — "
+                + "exactly as storeIfHomeUnchanged does on the same race")
+        void homeMoved_writesNothing() {
+            when(userRepository.stampDriveTimesIfHomeIs(USER_ID, LAT, LON, null)).thenReturn(0);
+
+            boolean cleared = writer.clearIfHomeUnchanged(USER_ID, LAT, LON);
+
+            assertThat(cleared).isFalse();
+            verifyNoInteractions(userDriveTimeRepository);
+        }
+    }
+
     @Test
     @DisplayName("clearForUser discards that user's rows and inserts nothing in their place")
     void clearForUser_deletesAllRowsForThatUser() {
