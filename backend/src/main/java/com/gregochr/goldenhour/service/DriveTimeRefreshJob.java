@@ -3,12 +3,16 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 /**
@@ -32,6 +36,19 @@ import java.util.List;
  * <p>Users with no saved home location are skipped: there is no origin to route from, and their
  * having no drive times is correct rather than stale.
  *
+ * <p><strong>A scheduled fire measures only the users who need it — a manual one measures
+ * everyone.</strong> OpenRouteService is a free-plan call budget shared across every user, and
+ * re-measuring an unchanged home against an unchanged roster every night spends it for no reason:
+ * most nights every answer is identical to the one before. A user is due a refresh when their
+ * {@code driveTimesCalculatedAt} stamp is {@code null} — which is exactly what a saved or moved
+ * postcode leaves behind, see {@code UserSettingsService.saveHome} — or when the location roster
+ * has grown since that stamp (so a location added after everyone's last refresh does not stay
+ * unmeasured forever; see {@link #rosterGrewSince}). Every other user is skipped with no ORS call
+ * at all, decided from one query for the roster's newest {@code created_at} rather than one query
+ * per user. {@link DynamicSchedulerService#triggerNow} — the admin "Run now" button — measures
+ * every enabled user with a home regardless, because it is the deliberate tool for the one thing
+ * the stamp cannot detect on its own: a location's coordinates being corrected in place.
+ *
  * <p><strong>A home can move under the run.</strong> The roster is read once, and each user is
  * then routed for seconds from the home as it was read, so a user who saves a new postcode tonight
  * can be measured from the old one. What was measured is stored through
@@ -50,6 +67,7 @@ public class DriveTimeRefreshJob {
     static final String JOB_KEY = "drive_time_refresh";
 
     private final AppUserRepository userRepository;
+    private final LocationRepository locationRepository;
     private final DriveDurationService driveDurationService;
     private final UserDriveTimeWriter driveTimeWriter;
     private final DynamicSchedulerService dynamicSchedulerService;
@@ -59,17 +77,21 @@ public class DriveTimeRefreshJob {
      * Creates the job.
      *
      * @param userRepository          source of users with a saved home location
+     * @param locationRepository      supplies the roster's newest {@code created_at}, to decide
+     *                                which users a scheduled fire needs to re-measure
      * @param driveDurationService    measures a user's drive times via ORS
      * @param driveTimeWriter         stores them, only while the home is still the one measured from
      * @param dynamicSchedulerService the DB-backed scheduler this job registers with
      * @param clock                   supplies the calculated-at stamp
      */
     public DriveTimeRefreshJob(AppUserRepository userRepository,
+            LocationRepository locationRepository,
             DriveDurationService driveDurationService,
             UserDriveTimeWriter driveTimeWriter,
             DynamicSchedulerService dynamicSchedulerService,
             Clock clock) {
         this.userRepository = userRepository;
+        this.locationRepository = locationRepository;
         this.driveDurationService = driveDurationService;
         this.driveTimeWriter = driveTimeWriter;
         this.dynamicSchedulerService = dynamicSchedulerService;
@@ -79,28 +101,34 @@ public class DriveTimeRefreshJob {
     /** Registers the nightly refresh with the dynamic scheduler. */
     @PostConstruct
     void registerJob() {
-        dynamicSchedulerService.registerJobTarget(JOB_KEY, this::runScheduled);
+        dynamicSchedulerService.registerJobTarget(JOB_KEY, this::run);
     }
 
     /**
-     * Refreshes drive times for every enabled user with a saved home location.
+     * Entry point the dynamic scheduler invokes — {@code true} from a manual "Run now" trigger,
+     * {@code false} from the nightly cron fire. See the class javadoc for what each measures.
      *
-     * <p>Each user is refreshed independently and a failure is logged and stepped over rather than
-     * abandoning the run: one user's ORS failure must not deny everyone else their refresh. Only a
-     * measurement with at least one drive time is stored, and the per-user
-     * {@code driveTimesCalculatedAt} stamp moves only with it — so a silently-empty ORS answer, or
-     * one with no valid duration, leaves the stored drive times and the stamp showing the last real
-     * refresh rather than claiming a fresh one. The same distinction the cloud-verification backfill
-     * draws between "ran" and "achieved something".
+     * @param manual whether this run was triggered manually rather than by the schedule
      */
-    void runScheduled() {
+    void run(boolean manual) {
         List<AppUserEntity> users = userRepository.findAll().stream()
                 .filter(AppUserEntity::isEnabled)
                 .filter(u -> u.getHomeLatitude() != null && u.getHomeLongitude() != null)
                 .toList();
 
         if (users.isEmpty()) {
-            LOG.info("Drive time refresh: no enabled users with a home location — nothing to do");
+            LOG.info("Drive time refresh ({}): no enabled users with a home location — nothing "
+                    + "to do", routeName(manual));
+            return;
+        }
+
+        List<AppUserEntity> due = manual ? users : usersNeedingRefresh(users);
+        int skippedUnchanged = users.size() - due.size();
+
+        if (due.isEmpty()) {
+            LOG.info("Drive time refresh ({}) complete — 0 refreshed, 0 superseded, 0 failed, "
+                    + "{} skipped as unchanged, {} considered — no OpenRouteService calls made",
+                    routeName(manual), skippedUnchanged, users.size());
             return;
         }
 
@@ -109,7 +137,7 @@ public class DriveTimeRefreshJob {
         int failed = 0;
         int locationsWritten = 0;
 
-        for (AppUserEntity user : users) {
+        for (AppUserEntity user : due) {
             try {
                 double originLat = user.getHomeLatitude();
                 double originLon = user.getHomeLongitude();
@@ -120,6 +148,9 @@ public class DriveTimeRefreshJob {
                     // Zero is not an exception — ORS unconfigured, rate-limited, an empty response,
                     // or no valid duration. Count it as a failure so the log distinguishes it from
                     // success, and store nothing, so the UI keeps showing the last real refresh.
+                    // Their calculated-at stamp is untouched and stays null if it already was, so a
+                    // never-measured user whose measurement keeps failing is retried on every
+                    // scheduled run — acceptable, since nothing else would ever pick them up.
                     failed++;
                     LOG.warn("Drive time refresh measured no drive times for user {} — leaving the "
                             + "stored ones and their calculated-at stamp in place", user.getId());
@@ -139,8 +170,72 @@ public class DriveTimeRefreshJob {
             }
         }
 
-        LOG.info("Drive time refresh complete — {} user(s) refreshed ({} location rows), "
-                + "{} superseded by a home move, {} failed, {} considered",
-                refreshed, locationsWritten, superseded, failed, users.size());
+        LOG.info("Drive time refresh ({}) complete — {} user(s) refreshed ({} location rows), "
+                + "{} superseded by a home move, {} failed, {} skipped as unchanged, {} considered",
+                routeName(manual), refreshed, locationsWritten, superseded, failed,
+                skippedUnchanged, users.size());
+    }
+
+    private static String routeName(boolean manual) {
+        return manual ? "manual" : "scheduled";
+    }
+
+    /**
+     * Narrows the roster to users a scheduled fire actually needs to re-measure.
+     *
+     * <p>Reads the roster's newest {@code created_at} once — never per user — so a quiet night,
+     * where nobody's postcode moved and nothing was added, costs one query and zero ORS calls.
+     *
+     * @param users enabled users with a saved home
+     * @return the subset {@link #needsRefresh} accepts
+     */
+    private List<AppUserEntity> usersNeedingRefresh(List<AppUserEntity> users) {
+        LocalDateTime newestCreatedAtUtc = locationRepository.findMaxCreatedAt();
+        Instant newestLocationCreatedAt = newestCreatedAtUtc != null
+                ? newestCreatedAtUtc.toInstant(ZoneOffset.UTC)
+                : null;
+        return users.stream()
+                .filter(u -> needsRefresh(u, newestLocationCreatedAt))
+                .toList();
+    }
+
+    /**
+     * The owner's literal instruction: a user is due a refresh only when their postcode has
+     * changed. {@code driveTimesCalculatedAt} is {@code null} exactly when that is true — it is
+     * cleared the moment a home is saved or moved (see {@code UserSettingsService.saveHome}) and
+     * was never set if drive times have not been measured yet — so a null stamp covers both the
+     * "postcode changed" and the "never measured" case.
+     *
+     * @param user                      a candidate user
+     * @param newestLocationCreatedAt   the roster's newest {@code created_at}, or {@code null} if
+     *                                  the roster is empty
+     * @return {@code true} if this user should be re-measured tonight
+     */
+    private boolean needsRefresh(AppUserEntity user, Instant newestLocationCreatedAt) {
+        return user.getDriveTimesCalculatedAt() == null
+                || rosterGrewSince(user.getDriveTimesCalculatedAt(), newestLocationCreatedAt);
+    }
+
+    /**
+     * The orchestrator's addition to the owner's literal instruction above — not something the
+     * owner asked for. Without it, a location added after a user's last refresh would never gain a
+     * drive time for that user again: a location with no drive time passes every reach tier, so it
+     * would render, unfiltered, forever. Kept as its own predicate, deliberately separate from
+     * {@link #needsRefresh}, precisely so it can be deleted in one small edit if the owner decides
+     * the literal "only on a postcode change" reading is what they actually want.
+     *
+     * <p>{@code stamp} is compared as an instant — the wall-clock reading is a UTC one either way,
+     * since {@code LocationEntity.createdAt} is written via {@code LocalDateTime.now(ZoneOffset.UTC)}
+     * and {@code driveTimesCalculatedAt} is a zoned {@link Instant}. A location created at exactly
+     * the stamp does not count: only strictly later triggers a refresh, matching "since their last
+     * refresh" rather than "since before their last refresh".
+     *
+     * @param stamp                    the user's own {@code driveTimesCalculatedAt}, never null here
+     * @param newestLocationCreatedAt  the roster's newest {@code created_at}, or {@code null} if the
+     *                                 roster is empty
+     * @return {@code true} if a location was added to the roster after the stamp
+     */
+    private boolean rosterGrewSince(Instant stamp, Instant newestLocationCreatedAt) {
+        return newestLocationCreatedAt != null && newestLocationCreatedAt.isAfter(stamp);
     }
 }

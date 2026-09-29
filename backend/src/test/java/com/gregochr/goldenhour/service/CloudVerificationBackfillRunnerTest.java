@@ -229,7 +229,7 @@ class CloudVerificationBackfillRunnerTest {
         runner.registerJob();
 
         verify(dynamicSchedulerService)
-                .registerJobTarget(eq("cloud_verification_backfill"), any());
+                .registerJobTarget(eq("cloud_verification_backfill"), any(Runnable.class));
     }
 
     @Test

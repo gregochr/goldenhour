@@ -317,6 +317,60 @@ class DynamicSchedulerServiceTest {
     }
 
     @Test
+    @DisplayName("a manual-aware target is told true from triggerNow and false from a scheduled fire")
+    void manualAwareTarget_toldWhichRouteFiredIt() {
+        SchedulerJobConfigEntity config = cronJob("tide_refresh", "0 0 2 * * MON",
+                SchedulerJobStatus.ACTIVE);
+        when(repository.findByJobKey("tide_refresh")).thenReturn(Optional.of(config));
+        when(taskScheduler.schedule(any(Runnable.class), any(CronTrigger.class)))
+                .thenReturn(mock(ScheduledFuture.class));
+        java.util.List<Boolean> seen = new java.util.ArrayList<>();
+        service.registerJobTarget("tide_refresh", (java.util.function.Consumer<Boolean>) seen::add);
+
+        // A scheduled fire.
+        service.scheduleJob(config);
+        ArgumentCaptor<Runnable> scheduledCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskScheduler).schedule(scheduledCaptor.capture(), any(CronTrigger.class));
+        scheduledCaptor.getValue().run();
+
+        // A manual trigger.
+        service.triggerNow("tide_refresh");
+        ArgumentCaptor<Runnable> manualCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskScheduler).schedule(manualCaptor.capture(), any(Instant.class));
+        manualCaptor.getValue().run();
+
+        assertThat(seen).containsExactly(false, true);
+    }
+
+    @Test
+    @DisplayName("a job registered the plain (Runnable) way behaves identically whether it fires "
+            + "on the schedule or through triggerNow — every other job is unaffected by the "
+            + "manual/scheduled distinction")
+    void plainRunnableTarget_behavesTheSameOnBothRoutes() {
+        SchedulerJobConfigEntity config = cronJob("run_progress_cleanup", "0 0 * * * *",
+                SchedulerJobStatus.ACTIVE);
+        when(repository.findByJobKey("run_progress_cleanup")).thenReturn(Optional.of(config));
+        when(taskScheduler.schedule(any(Runnable.class), any(CronTrigger.class)))
+                .thenReturn(mock(ScheduledFuture.class));
+        java.util.concurrent.atomic.AtomicInteger runs = new java.util.concurrent.atomic.AtomicInteger();
+        service.registerJobTarget("run_progress_cleanup", runs::incrementAndGet);
+
+        service.scheduleJob(config);
+        ArgumentCaptor<Runnable> scheduledCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskScheduler).schedule(scheduledCaptor.capture(), any(CronTrigger.class));
+        scheduledCaptor.getValue().run();
+
+        service.triggerNow("run_progress_cleanup");
+        ArgumentCaptor<Runnable> manualCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskScheduler).schedule(manualCaptor.capture(), any(Instant.class));
+        manualCaptor.getValue().run();
+
+        // Ran exactly once per invocation, on both routes — the Runnable overload never learns,
+        // and never needs to learn, which one fired it.
+        assertThat(runs.get()).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("triggerNow rejects DISABLED_BY_CONFIG jobs")
     void triggerNow_rejectsDisabledByConfig() {
         SchedulerJobConfigEntity config = fixedDelayJob("aurora_polling", 300000L,

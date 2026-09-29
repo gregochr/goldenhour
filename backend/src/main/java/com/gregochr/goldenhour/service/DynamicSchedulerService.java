@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /**
  * Orchestrates dynamic scheduling of jobs based on persisted {@link SchedulerJobConfigEntity} rows.
@@ -46,7 +47,7 @@ public class DynamicSchedulerService {
     private final TaskScheduler taskScheduler;
     private final AuroraProperties auroraProperties;
 
-    private final ConcurrentHashMap<String, Runnable> jobTargets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Consumer<Boolean>> jobTargets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ScheduledFuture<?>> scheduledFutures =
             new ConcurrentHashMap<>();
     private final ReentrantLock scheduleLock = new ReentrantLock();
@@ -69,12 +70,30 @@ public class DynamicSchedulerService {
     /**
      * Registers a job target runnable for a given job key.
      *
-     * <p>Called by owning services during {@code @PostConstruct}.
+     * <p>Called by owning services during {@code @PostConstruct}. The target never learns whether
+     * it was fired by the schedule or by {@link #triggerNow} — use
+     * {@link #registerJobTarget(String, Consumer)} for a job that needs to tell the two apart.
      *
      * @param jobKey the unique job key matching a row in scheduler_job_config
      * @param target the runnable to execute when the job fires
      */
     public void registerJobTarget(String jobKey, Runnable target) {
+        registerJobTarget(jobKey, manual -> target.run());
+    }
+
+    /**
+     * Registers a job target that is told whether it was fired manually.
+     *
+     * <p>The one hook a job needs to behave differently on the two routes without either route
+     * changing for anyone else: {@link #triggerNow} (the admin "Run now" button) invokes it with
+     * {@code true}, and an ordinary schedule firing invokes it with {@code false}. A job that
+     * ignores the flag behaves exactly as {@link #registerJobTarget(String, Runnable)} always has.
+     *
+     * @param jobKey the unique job key matching a row in scheduler_job_config
+     * @param target the target; receives {@code true} for a manual trigger, {@code false} for a
+     *               scheduled fire
+     */
+    public void registerJobTarget(String jobKey, Consumer<Boolean> target) {
         jobTargets.put(jobKey, target);
         LOG.debug("Registered job target for key: {}", jobKey);
     }
@@ -202,12 +221,12 @@ public class DynamicSchedulerService {
         SchedulerJobConfigEntity config = repository.findByJobKey(jobKey).orElseThrow();
         rejectIfDisabledByConfig(config);
 
-        Runnable target = jobTargets.get(jobKey);
+        Consumer<Boolean> target = jobTargets.get(jobKey);
         if (target == null) {
             throw new IllegalStateException("No registered target for job: " + jobKey);
         }
 
-        taskScheduler.schedule(wrapTarget(jobKey, target), Instant.now());
+        taskScheduler.schedule(wrapTarget(jobKey, target, true), Instant.now());
         LOG.info("Triggered immediate run for job '{}'", LogSanitizer.sanitize(jobKey));
     }
 
@@ -253,14 +272,14 @@ public class DynamicSchedulerService {
      * @param config the job config with schedule details
      */
     void scheduleJob(SchedulerJobConfigEntity config) {
-        Runnable target = jobTargets.get(config.getJobKey());
+        Consumer<Boolean> target = jobTargets.get(config.getJobKey());
         if (target == null) {
             LOG.warn("No registered target for job '{}' — skipping schedule",
                     LogSanitizer.sanitize(config.getJobKey()));
             return;
         }
 
-        Runnable wrapped = wrapTarget(config.getJobKey(), target);
+        Runnable wrapped = wrapTarget(config.getJobKey(), target, false);
         scheduleLock.lock();
         try {
             cancelJob(config.getJobKey());
@@ -289,7 +308,7 @@ public class DynamicSchedulerService {
         }
     }
 
-    private Runnable wrapTarget(String jobKey, Runnable target) {
+    private Runnable wrapTarget(String jobKey, Consumer<Boolean> target, boolean manual) {
         return () -> {
             Instant fireTime = Instant.now();
             try {
@@ -297,7 +316,7 @@ public class DynamicSchedulerService {
                     config.setLastFireTime(fireTime);
                     repository.save(config);
                 });
-                target.run();
+                target.accept(manual);
             } finally {
                 repository.findByJobKey(jobKey).ifPresent(config -> {
                     config.setLastCompletionTime(Instant.now());

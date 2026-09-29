@@ -233,8 +233,11 @@ class UserSettingsRaceSequenceTest {
     @DisplayName("a home saved while the nightly job routes is kept, that user is stored nothing, "
             + "and the run still refreshes everyone else")
     void homeSavedWhileTheNightlyJobRoutes() {
-        Long mover = durhamReader("night-mover", NOW.minusSeconds(86_400));
-        Long stayer = durhamReader("night-stayer", NOW.minusSeconds(86_400));
+        // Never measured — a null stamp — so a scheduled fire is due to measure both of them
+        // regardless of the location roster; the race this test exists to pin is orthogonal to
+        // that skip logic.
+        Long mover = durhamReader("night-mover", null);
+        Long stayer = durhamReader("night-stayer", null);
         Authentication moverAuth = signedInAs("night-mover");
         when(driveDurationService.measureForUser(mover, DURHAM_LAT, DURHAM_LON)).thenAnswer(routing -> {
             settingsService.saveHome(moverAuth,
@@ -244,7 +247,7 @@ class UserSettingsRaceSequenceTest {
         when(driveDurationService.measureForUser(stayer, DURHAM_LAT, DURHAM_LON))
                 .thenReturn(Optional.of(measuredFrom(stayer, 960, 1860)));
 
-        job.runScheduled();
+        job.run(false);
 
         assertThat(row(mover).get("home_postcode")).isEqualTo(NEWCASTLE);
         assertThat(row(mover).get("home_latitude")).isEqualTo(NEWCASTLE_LAT);

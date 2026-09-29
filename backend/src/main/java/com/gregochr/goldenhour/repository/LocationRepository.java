@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -107,4 +108,21 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      */
     @Query("SELECT DISTINCT l FROM LocationEntity l JOIN l.tideType tt WHERE l.enabled = true")
     List<LocationEntity> findCoastalLocations();
+
+    /**
+     * Returns the most recent {@code created_at} across the whole location roster.
+     *
+     * <p>One query, so a caller deciding "has anything been added" never needs to page through
+     * locations or query per candidate. Scoped to every location, not just enabled ones, to match
+     * the roster {@code DriveDurationService.measureForUser} actually measures against — that
+     * method calls {@link #findAll()} with no {@code enabled} filter.
+     *
+     * <p>The column is a UTC wall-clock value ({@code LocationEntity.createdAt} is written via
+     * {@code LocalDateTime.now(ZoneOffset.UTC)}), stored without a time zone — the caller is
+     * responsible for reattaching {@code ZoneOffset.UTC} before comparing it to a zoned instant.
+     *
+     * @return the newest creation timestamp, or {@code null} if the roster is empty
+     */
+    @Query("SELECT MAX(l.createdAt) FROM LocationEntity l")
+    LocalDateTime findMaxCreatedAt();
 }
