@@ -167,29 +167,41 @@ export function hasSpreadSample(spread) {
  * <p>An EMPTY pool answers {@code bars: true} — there is no sample to distrust, only nothing to
  * show, and the pre-existing treatment (five hairlines, the old two tooltip sentences in {@link
  * spreadTitle}) is kept unchanged; see the class comment. A pool that holds places but rated none
- * of them answers "none rated yet" with no count attached — the count would be the pool size
- * restated for no reason, since "none" already says the fraction is zero. Otherwise, an
- * insufficient sample names both figures as {@code N/M rated} — the COMPACT form, not "N of M
- * rated": measured against the real card grid at 320/375/640px (plan-matrix-plan.md A27), the full
- * "of" form overflows the value column for a realistic large pool ("124 of 253 rated", 105.6px
- * against an 88.3px column at 320px) even at a reduced 10px type (96px), where the compact form
- * fits at the row's own 10px ({@code .wf-hc-hist-note}, 78px) with margin to spare.
+ * of them answers "none rated yet" for BOTH {@code text} and {@code spoken} — the count would be
+ * the pool size restated for no reason, since "none" already says the fraction is zero, and the
+ * word needs no re-voicing either way. Otherwise, an insufficient sample names both figures, but
+ * as TWO DIFFERENT STRINGS: {@code text} is the COMPACT {@code N/M rated} the visible row shows
+ * (measured against the real card grid at 320/375/640px, plan-matrix-plan.md A27 — the full "of"
+ * form overflows the value column for a realistic large pool, "124 of 253 rated" at 105.6px
+ * against an 88.3px column at 320px, even at a reduced 10px type, 96px, where the compact form
+ * fits at 78px with margin to spare), and {@code spoken} is the WORDED {@code N of M rated} the
+ * accessible sentence uses instead — a screen reader voices a fraction-shaped string as a number
+ * ("one quarter") or a date-like read, never as the two counts it visually is, so the compact form
+ * that fixed the row's width must never reach the accessible name. One decision, two strings for
+ * the one state that needs them to differ — not two decisions.
  *
  * <p>⚠️ The TOOLTIP is a separate function ({@link spreadTitle}) and deliberately says MORE than
- * this text below the gate — it restores the pool size and, for a partial sample, the remainder
- * via {@link unratedPhrase} — so do not assume the two must match verbatim outside the bars-mode
- * case.
+ * either string below the gate — it restores the pool size and, for a partial sample, the
+ * remainder via {@link unratedPhrase} — so do not assume it must match either verbatim outside the
+ * bars-mode case.
  *
  * @param {object} spread the result of {@link buildSpread}
- * @returns {{bars: boolean, text: ?string}} whether to draw bars, and when not, the exact text the
- *          visible row and (via the caller's own suppression rules) the spoken sentence show
+ * @returns {{bars: boolean, text: ?string, spoken: ?string}} whether to draw bars; when not, the
+ *          exact VISIBLE text the row shows ({@code text}) and the exact WORDED text the card's
+ *          spoken sentence must use instead ({@code spoken}) — identical for "none rated yet",
+ *          deliberately different (`N/M rated` vs `N of M rated`) for a partial sample
  */
 export function spreadRowState(spread) {
   const rated = spread?.rated ?? 0;
   const total = spread?.total ?? 0;
-  if (total === 0) return { bars: true, text: null };
-  if (hasSpreadSample(spread)) return { bars: true, text: null };
-  return { bars: false, text: rated === 0 ? 'none rated yet' : `${rated}/${total} rated` };
+  if (total === 0) return { bars: true, text: null, spoken: null };
+  if (hasSpreadSample(spread)) return { bars: true, text: null, spoken: null };
+  if (rated === 0) return { bars: false, text: 'none rated yet', spoken: 'none rated yet' };
+  return {
+    bars: false,
+    text: `${rated}/${total} rated`,
+    spoken: `${rated} of ${total} rated`,
+  };
 }
 
 /**

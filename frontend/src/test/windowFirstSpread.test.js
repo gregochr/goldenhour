@@ -232,36 +232,39 @@ describe('hasSpreadSample / spreadRowState — the minimum-sample gate (2026-09-
     const spread = buildSpread(ratedPool([5, 5, 5, 5]));
     expect(spread.rated).toBe(SPREAD_MIN_RATED_COUNT - 1);
     expect(hasSpreadSample(spread)).toBe(false);
-    // Compact "N/M rated", never "N of M rated" — measured too wide for the value column at a
-    // realistic pool size (plan-matrix-plan.md A27); see `WindowFirstHeatStrip.test.jsx` for the
-    // rendered-column measurement this format was chosen against.
-    expect(spreadRowState(spread)).toEqual({ bars: false, text: '4/4 rated' });
+    // Compact "N/M rated" for the VISIBLE row (never "N of M rated" — measured too wide for the
+    // value column at a realistic pool size, plan-matrix-plan.md A27), but WORDED "N of M rated"
+    // for `spoken` — a screen reader would voice a fraction-shaped "4/4" as a number, not as two
+    // counts, so the compact form that fixed the row's width must never reach the accessible name.
+    expect(spreadRowState(spread)).toEqual({ bars: false, text: '4/4 rated', spoken: '4 of 4 rated' });
   });
 
   it('passes at exactly the absolute floor, with coverage to spare', () => {
     const spread = buildSpread(ratedPool([5, 5, 5, 5, 5]));
     expect(spread.rated).toBe(SPREAD_MIN_RATED_COUNT);
     expect(hasSpreadSample(spread)).toBe(true);
-    expect(spreadRowState(spread)).toEqual({ bars: true, text: null });
+    expect(spreadRowState(spread)).toEqual({ bars: true, text: null, spoken: null });
   });
 
   it('requires the coverage floor: 5 of 11 fails just short of half', () => {
     const spread = buildSpread(ratedPool([5, 5, 5, 5, 5], 6));
     expect(spread.total).toBe(11);
     expect(hasSpreadSample(spread)).toBe(false);
-    expect(spreadRowState(spread)).toEqual({ bars: false, text: '5/11 rated' });
+    expect(spreadRowState(spread)).toEqual({ bars: false, text: '5/11 rated', spoken: '5 of 11 rated' });
   });
 
   it('passes at EXACTLY half the pool — the boundary is inclusive', () => {
     const spread = buildSpread(ratedPool([5, 5, 5, 5, 5], 5));
     expect(spread.total).toBe(10);
     expect(hasSpreadSample(spread)).toBe(true);
-    expect(spreadRowState(spread)).toEqual({ bars: true, text: null });
+    expect(spreadRowState(spread)).toEqual({ bars: true, text: null, spoken: null });
   });
 
-  it('answers "none rated yet" for zero rated out of a real, non-empty pool', () => {
+  it('answers "none rated yet" for zero rated out of a real, non-empty pool — text and spoken agree', () => {
+    // The one partial state where the two strings do NOT diverge: "none" carries no count to
+    // mis-voice, so there is nothing for `spoken` to re-word.
     const spread = buildSpread([spot(null), spot(null)]);
-    expect(spreadRowState(spread)).toEqual({ bars: false, text: 'none rated yet' });
+    expect(spreadRowState(spread)).toEqual({ bars: false, text: 'none rated yet', spoken: 'none rated yet' });
   });
 
   it('end-to-end: an unusable rating (4.5) does not count toward the gate, and can push a card below it', () => {
@@ -278,7 +281,7 @@ describe('hasSpreadSample / spreadRowState — the minimum-sample gate (2026-09-
     const fails = buildSpread([spot(5), spot(5), spot(5), spot(5), spot(4.5)]);
     expect(fails.rated).toBe(4);
     expect(hasSpreadSample(fails)).toBe(false);
-    expect(spreadRowState(fails)).toEqual({ bars: false, text: '4/5 rated' });
+    expect(spreadRowState(fails)).toEqual({ bars: false, text: '4/5 rated', spoken: '4 of 5 rated' });
   });
 
   it('⚠️ answers bars: true for a truly EMPTY pool — not a gate failure, the pre-existing treatment', () => {
@@ -288,7 +291,17 @@ describe('hasSpreadSample / spreadRowState — the minimum-sample gate (2026-09-
     // reverted after review: it put NEW text on the row where none existed before and doubled the
     // "nothing in reach" the Best row already says right below it.
     const spread = buildSpread([]);
-    expect(spreadRowState(spread)).toEqual({ bars: true, text: null });
+    expect(spreadRowState(spread)).toEqual({ bars: true, text: null, spoken: null });
+  });
+
+  it('never lets the compact "/" reach the spoken form — asserted directly on spreadRowState', () => {
+    // The defect this whole fix round is for: `spoken` must never contain the row's own "/"
+    // separator, however the compact form is spelled.
+    const spread = buildSpread([spot(5), spot(3), spot(null), spot(null)]);
+    const state = spreadRowState(spread);
+    expect(state.text).toContain('/');
+    expect(state.spoken).not.toContain('/');
+    expect(state.spoken).toBe('2 of 4 rated');
   });
 });
 

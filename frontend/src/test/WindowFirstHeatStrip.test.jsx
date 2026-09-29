@@ -388,7 +388,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       })],
     });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1/1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
+      name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
     })).toBeInTheDocument();
   });
 
@@ -866,9 +866,18 @@ describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead o
       expect(screen.getByTestId('wf-heat-spread-note').textContent).toBe('1/4 rated');
       expect(screen.getByTestId('wf-heat-spread'))
         .toHaveAttribute('title', '4 locations within reach — 1 rated · 3 not yet rated');
-      expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 4 locations within reach, 1/4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
-      })).toBeInTheDocument();
+      const button = screen.getByRole('button', {
+        name: 'Tonight Sunset, 21:11, Worth it, 4 locations within reach, 1 of 4 rated, best Spot 1, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+      });
+      expect(button).toBeInTheDocument();
+      // ⚠️ The defect this exact fixture was found with: the accessible name must never contain the
+      // row's own "/" separator — a screen reader voices "1/4" as a fraction or a date, never as
+      // the two counts it visually is. Read the name off the `aria-labelledby` target directly
+      // (the `sr-only` sentence) rather than trusting the exact-match above alone, so a future edit
+      // that reintroduces `facts.state.text` into the spoken sentence fails here even if some other
+      // clause happened to make the exact-match pass.
+      const nameId = button.getAttribute('aria-labelledby');
+      expect(document.getElementById(nameId).textContent).not.toContain('/');
     });
 
     it('in the bars-drawn state — unchanged by this rule', async () => {
@@ -951,7 +960,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
         'Northumberland & Tyneside · 40 min · leave 20:11 · high water — the water it wants',
       );
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1/1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, high water, right here',
       })).toBeInTheDocument();
     });
@@ -968,7 +977,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(glyph).toHaveAttribute('data-wide', 'true');
       expect(glyph.querySelector('text')).toHaveTextContent('M');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1/1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, mid tide, right here',
       })).toBeInTheDocument();
     });
@@ -995,7 +1004,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       expect(screen.getByTestId('wf-heat-best'))
         .toHaveAttribute('title', 'Northumberland & Tyneside · 40 min · leave 20:11');
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1/1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11',
       })).toBeInTheDocument();
     });
@@ -1184,7 +1193,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         hotTopics: [LUNAR_ECLIPSE_TOPIC],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1/1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1 of 1 rated, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Lunar eclipse at 05:13',
       })).toBeInTheDocument();
     });
   });
@@ -1368,7 +1377,7 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
         })],
       });
       expect(screen.getByRole('button', {
-        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1/1 rated, best Bamburgh Beach, 4 stars, '
+        name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, 9 on tide',
       })).toBeInTheDocument();
     });

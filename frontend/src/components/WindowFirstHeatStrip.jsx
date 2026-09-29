@@ -1024,11 +1024,17 @@ export default function WindowFirstHeatStrip({
     // sentence is the defect this file's header comment warns against elsewhere. Below the gate,
     // when the window is ALSO `notScored`, the pool phrase is said ALONE — "none rated yet" would
     // restate what "not scored" (added below) already says about the same window.
+    //
+    // ⚠️ `facts.state.spoken`, NEVER `facts.state.text` — the row's own compact "1/4 rated" is a
+    // VISUAL space saving (`spreadRowState`'s own doc comment), and a screen reader voices a
+    // fraction-shaped string as a number or a date, not as two counts. `spoken` is the same fact in
+    // words ("1 of 4 rated"); the two strings agree for "none rated yet", where there is no count to
+    // mis-voice.
     const spokenPool = poolTotal === 0
       ? null
       : (facts.state.bars
         ? `${poolPhrase(poolTotal, facts.withinReach)}${unratedPhrase(facts.spread, ', ')}`
-        : `${poolPhrase(poolTotal, facts.withinReach)}${notScored ? '' : `, ${facts.state.text}`}`);
+        : `${poolPhrase(poolTotal, facts.withinReach)}${notScored ? '' : `, ${facts.state.spoken}`}`);
     // Built once per card so the hidden sentence and the visible words cannot be assembled from
     // different values. The comma-separated form is what a screen reader pauses on.
     //

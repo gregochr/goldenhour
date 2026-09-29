@@ -43,14 +43,19 @@ in `utils/windowFirstSpread.js` gate on `rated >= 5` **and** `rated >= total · 
 31-place pool once drew a full-height bar and read as "this sunrise looks good" over a sunrise
 almost entirely unlooked-at. An empty pool is not a gate failure and keeps its pre-existing
 five-hairline picture unchanged. Below the gate the row prints `none rated yet` or the compact
-`N/M rated` — never "N of M rated", which measured too wide for the value column at a realistic
-pool size — the one narrow, dated exception to plan §3 rule 5's ban on "N of M scored", because here
-the count discloses that the picture is missing rather than standing in for one. Once bars ARE
-drawn, the unrated remainder is a sixth, hatched bar (never a ramp colour — the map's own
-unscored-plate hatch already means "nothing was scored here") sharing the five bands' own scale, to
-the left of 1★ with a wider gap than the 2px between bands. The tooltip and the row read one shared
-decision function, and the tooltip deliberately says MORE than the row below the gate (the pool size
-and, for a partial sample, the rated count), never the row's text verbatim.
+`N/M rated` — never "N of M rated": "124 of 253 rated" measured 96px at a 10px type against an
+88.3px value column at 320px, still too wide, where the compact form fits at 78px — the one
+narrow, dated exception to plan §3 rule 5's ban on "N of M scored", because here the count
+discloses that the picture is missing rather than standing in for one. ⚠️ **The accessible sentence
+never uses the compact form** — a screen reader voices "1/4" as a fraction or a date, not as two
+counts, so `spreadRowState` returns a separate `spoken` string in words ("1 of 4 rated") for the
+card's own spoken sentence, identical to `text` only for "none rated yet", which carries no count
+to mis-voice. Once bars ARE drawn, the unrated remainder is a sixth, hatched bar (never a ramp
+colour — the map's own unscored-plate hatch already means "nothing was scored here") sharing the
+five bands' own scale, to the left of 1★ with a wider gap than the 2px between bands. The tooltip
+and the row read one shared decision function, and the tooltip deliberately says MORE than the row
+below the gate (the pool size and, for a partial sample, the rated count), never the row's text
+verbatim.
 Clicking a card opens **one popup** (`WindowSheetDialog`) holding everything the deleted accordion
 held — big field with greedily-placed location chips, region rail, an always-rendered prose slot,
 topic rows, the tide row, the ranked spot strip. The origin control, the search trigger and the light

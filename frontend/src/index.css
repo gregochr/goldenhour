@@ -2081,11 +2081,13 @@ button.wf-hc.on:hover {
   );
 }
 /* The insufficient-sample state (minimum-sample rule Part 1, 2026-09-29) — no well, no bars, a
-   short disclosure instead ("none rated yet" / "N of M rated"), in the SAME voice as the Best row's
-   own "nothing in reach" / "not scored yet" (`.wf-hc-best.none`, four rules down): same family,
-   same size, same muted ink. Deliberately NOT `.wf-hc-best` itself — a shared class would let an
-   unrelated future edit to the Best row silently retint or reweight this one, which is a different
-   row answering a different question.
+   short disclosure instead ("none rated yet" / the COMPACT "N/M rated" — never the worded "N of M
+   rated", which is `spreadRowState`'s `spoken` string for the accessible sentence alone, not
+   visible text; see the font-size note below for why the row cannot carry the worded form), in the
+   SAME voice as the Best row's own "nothing in reach" / "not scored yet" (`.wf-hc-best.none`, four
+   rules down): same family, same size, same muted ink. Deliberately NOT `.wf-hc-best` itself — a
+   shared class would let an unrelated future edit to the Best row silently retint or reweight this
+   one, which is a different row answering a different question.
 
    ⚠️ `white-space: nowrap`, never a wrap. The row reserves `min-height: 20px`
    (`.wf-hc-pls > span`) for ONE line — unlike `.wf-hc-best`'s own `text-wrap: pretty`, which lives
