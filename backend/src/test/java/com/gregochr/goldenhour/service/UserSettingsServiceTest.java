@@ -728,7 +728,8 @@ class UserSettingsServiceTest {
 
                 service.refreshDriveTimes(auth);
 
-                assertThat(service.pendingDriveTimeAttempts).containsEntry(USER_ID, NOW);
+                assertThat(service.pendingDriveTimeAttempts).containsEntry(USER_ID,
+                        new UserSettingsService.PendingAttempt(NOW, DURHAM_LAT, DURHAM_LON));
             }
 
             @Test
@@ -780,6 +781,150 @@ class UserSettingsServiceTest {
                 service.saveHome(auth, new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
 
                 assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+            }
+
+            @Test
+            @DisplayName("Codex's interleaving: a refresh reads home A, loses the race to a save "
+                    + "that moves the home to B (whose own removal finds no entry yet to remove), "
+                    + "then records its attempt against A and gets no answer — an immediate refresh "
+                    + "reading the new home B is ALLOWED, not throttled by an entry that was never "
+                    + "about B. Fails against d6daff63, whose map carried no origin at all, so "
+                    + "whatever landed next throttled any later home, not just the one it was "
+                    + "measured from")
+            void homeMovesWhileAnInFlightRefreshRecordsNoAnswer_doesNotBlockTheNewOrigin() {
+                AppUserEntity stored = durhamHome(null);
+
+                // The move lands first — nothing is pending yet, so its removal is a no-op. This is
+                // the exact gap Codex's interleaving exploits.
+                when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.of(stored));
+                AppUserEntity atNewcastle = home(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON);
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(atNewcastle));
+                service.saveHome(auth, new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
+                assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+
+                // The in-flight refresh's OWN read still sees home A — it started before the move
+                // committed — and ORS gives no answer, so it records an attempt against A.
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(stored));
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.empty());
+                service.refreshDriveTimes(auth);
+                assertThat(service.pendingDriveTimeAttempts).containsKey(USER_ID);
+
+                // The reader is now on the new home. An immediate refresh from Newcastle must be
+                // ALLOWED — the entry above belongs to Durham, not here.
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(atNewcastle));
+                List<UserDriveTimeEntity> measured = rows(5);
+                when(driveDurationService.measureForUser(USER_ID, NEWCASTLE_LAT, NEWCASTLE_LON))
+                        .thenReturn(Optional.of(measured));
+                when(driveTimeWriter.storeIfHomeUnchanged(
+                        USER_ID, NEWCASTLE_LAT, NEWCASTLE_LON, measured, NOW)).thenReturn(true);
+
+                DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+                assertThat(response.locationsUpdated()).isEqualTo(5);
+            }
+
+            @Test
+            @DisplayName("the same interleaving when ORS THROWS instead of answering — the "
+                    + "exception still leaves an entry, but scoped to the origin it was measured "
+                    + "from, so it does not block the new home either")
+            void homeMovesWhileAnInFlightRefreshThrows_doesNotBlockTheNewOrigin() {
+                AppUserEntity stored = durhamHome(null);
+
+                when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.of(stored));
+                AppUserEntity atNewcastle = home(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON);
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(atNewcastle));
+                service.saveHome(auth, new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
+                assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(stored));
+                RuntimeException orsFailure = new RuntimeException("ORS unavailable");
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenThrow(orsFailure);
+
+                assertThatThrownBy(() -> service.refreshDriveTimes(auth)).isSameAs(orsFailure);
+                // The exception left an entry — but scoped to Durham, the origin it was measured
+                // from, not to the user in general.
+                assertThat(service.pendingDriveTimeAttempts).containsEntry(USER_ID,
+                        new UserSettingsService.PendingAttempt(NOW, DURHAM_LAT, DURHAM_LON));
+
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(atNewcastle));
+                List<UserDriveTimeEntity> measured = rows(5);
+                when(driveDurationService.measureForUser(USER_ID, NEWCASTLE_LAT, NEWCASTLE_LON))
+                        .thenReturn(Optional.of(measured));
+                when(driveTimeWriter.storeIfHomeUnchanged(
+                        USER_ID, NEWCASTLE_LAT, NEWCASTLE_LON, measured, NOW)).thenReturn(true);
+
+                DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+                assertThat(response.locationsUpdated()).isEqualTo(5);
+            }
+
+            @Test
+            @DisplayName("a second attempt from the SAME origin within 30 minutes after ORS threw "
+                    + "is still throttled — an exception must not release the cooldown for the "
+                    + "home the failed attempt was actually measured from")
+            void secondAttemptWithin30Minutes_afterOrsException_isThrottledForTheSameOrigin() {
+                Instant firstAttempt = NOW;
+                SteppingClock steppingClock = new SteppingClock(firstAttempt);
+                UserSettingsService raceService = new UserSettingsService(userRepository, postcodesIoClient,
+                        driveDurationService, driveTimeWriter, steppingClock);
+                AppUserEntity user = home(DURHAM, DURHAM_LAT, DURHAM_LON); // no persisted stamp
+                stubAuth();
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenThrow(new RuntimeException("ORS unavailable"));
+
+                assertThatThrownBy(() -> raceService.refreshDriveTimes(auth))
+                        .isInstanceOf(RuntimeException.class);
+
+                steppingClock.advanceTo(firstAttempt.plusSeconds(29 * 60));
+
+                assertThatThrownBy(() -> raceService.refreshDriveTimes(auth))
+                        .isInstanceOfSatisfying(ResponseStatusException.class,
+                                e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+                // Only the first attempt ever reached ORS — the second was refused before it could.
+                verify(driveDurationService, times(1)).measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON);
+            }
+
+            @Test
+            @DisplayName("home moves A to B and back to A within the cooldown after a failed "
+                    + "attempt from A: the pending entry does not survive ANY move — including the "
+                    + "one back to A — so a refresh from A immediately after is ALLOWED. Consistent "
+                    + "with the persisted stamp and rows, which saveHome clears on EVERY move and "
+                    + "never restores merely because the coordinates recur")
+            void homeMovesAwayAndBackWithinCooldown_doesNotResurrectTheOldAttempt() {
+                AppUserEntity stored = durhamHome(null);
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.empty());
+                service.refreshDriveTimes(auth);
+                assertThat(service.pendingDriveTimeAttempts).containsKey(USER_ID);
+
+                // A -> B
+                when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.of(stored));
+                AppUserEntity atNewcastle = home(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON);
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(atNewcastle));
+                service.saveHome(auth, new SaveHomeRequest(NEWCASTLE, NEWCASTLE_LAT, NEWCASTLE_LON, null));
+                assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+
+                // B -> A, still well inside the cooldown
+                when(userRepository.findByUsernameForUpdate(USERNAME)).thenReturn(Optional.of(atNewcastle));
+                AppUserEntity backAtDurham = home(DURHAM, DURHAM_LAT, DURHAM_LON);
+                when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(backAtDurham));
+                service.saveHome(auth, new SaveHomeRequest(DURHAM, DURHAM_LAT, DURHAM_LON, null));
+                assertThat(service.pendingDriveTimeAttempts).doesNotContainKey(USER_ID);
+
+                // An immediate refresh from A must be allowed — nothing throttles it, because the
+                // entry the earlier failed attempt left behind did not survive the trip through B.
+                List<UserDriveTimeEntity> measured = rows(3);
+                when(driveDurationService.measureForUser(USER_ID, DURHAM_LAT, DURHAM_LON))
+                        .thenReturn(Optional.of(measured));
+                when(driveTimeWriter.storeIfHomeUnchanged(USER_ID, DURHAM_LAT, DURHAM_LON, measured, NOW))
+                        .thenReturn(true);
+
+                DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+                assertThat(response.locationsUpdated()).isEqualTo(3);
             }
         }
     }

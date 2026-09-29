@@ -98,14 +98,71 @@ public class UserSettingsService {
      * <p>Exists because the persisted {@code driveTimesCalculatedAt} column can no longer carry a
      * failed attempt (see the class javadoc), but the 30-minute cooldown must still catch a repeated
      * press after ORS gives no answer, or the button could be hammered for free. Written just before
-     * the ORS call, so the throttle covers the call in flight too. Bounded three ways: removed the
-     * moment a refresh for that user stores successfully (the persisted stamp then covers it),
-     * removed when the home moves (mirroring the persisted stamp's own clear in {@link #saveHome} —
-     * a stale entry here would re-arm a cooldown the move is documented to release), and expired
-     * lazily on read once older than the cooldown ({@link #isThrottled}), which is what keeps an
-     * entry from lingering forever for a user who fails once and is never throttled by it again.
+     * the ORS call, so the throttle covers the call in flight too — including one that THROWS:
+     * nothing downstream catches it, so the entry recorded a moment earlier survives an exception
+     * exactly as it survives a no-answer response, and {@link #isThrottled} treats both the same way.
+     *
+     * <p><strong>Each entry belongs to the home it was measured from, not merely to the user.</strong>
+     * A refresh reads the user's home once, at the top of {@link #refreshDriveTimes}, and records
+     * that read alongside the attempt ({@link PendingAttempt}). {@link #isThrottled} only honours an
+     * entry whose recorded origin equals the CALLER'S CURRENT home — read fresh at the start of that
+     * same refresh — and otherwise ignores it exactly as if it were absent; {@link #refreshDriveTimes}
+     * then unconditionally overwrites whatever was there with a fresh entry for the origin it just
+     * read, so an ignored entry never lingers ("ignored and replaced", not merely ignored). This is
+     * what closes the interleaving a home move can otherwise produce: a refresh reads home A, loses
+     * a race to a save that moves the home to B (whose own removal below finds nothing yet to
+     * remove, because this attempt has not been recorded yet), then records its attempt anyway — a
+     * map keyed only by user id let that A-recorded entry throttle a later refresh reading the new
+     * home B, for up to 30 minutes, even though a home move is documented to release the cooldown.
+     * Origin comparison is exact {@code ==} on both coordinates ({@link PendingAttempt#matchesOrigin}),
+     * matching {@link AppUserRepository#stampDriveTimesIfHomeIs}'s JPQL equality on the same
+     * {@code DOUBLE PRECISION} columns — no tolerance is introduced that comparison does not already
+     * have.
+     *
+     * <p>Bounded the same three ways as before: removed the moment a refresh for that user stores
+     * successfully (the persisted stamp then covers it), removed on the 409 path (the home moved
+     * mid-measurement, so the attempt describes nothing any longer), and expired lazily on read once
+     * older than the cooldown ({@link #isThrottled}). All three removals use the map's
+     * value-conditional {@code remove(key, value)} rather than a bare {@code remove(key)}, so a
+     * concurrent refresh's own fresh entry for this user is never clobbered by a stale one finishing
+     * late. {@link #saveHome} also removes the entry on every move, unconditionally — see its own
+     * comment for why that is now a tidy-up rather than the thing correctness depends on. That map
+     * resets on an app restart, which is accepted — it is a rate limit on a single-instance app, not
+     * a record anything downstream reads, and the worst a restart can do is let one extra attempt
+     * through before the persisted stamp (once a refresh actually stores rows) takes back over.
+     * Migration V157 reconciles the one database state this rule cannot itself repair: a stamp an
+     * earlier, pre-fix build left behind with zero rows.
      */
-    final Map<Long, Instant> pendingDriveTimeAttempts = new ConcurrentHashMap<>();
+    final Map<Long, PendingAttempt> pendingDriveTimeAttempts = new ConcurrentHashMap<>();
+
+    /**
+     * One recorded drive-time refresh attempt that did not (yet, or ever) result in a stored stamp:
+     * when it was recorded, and the home coordinates {@link #refreshDriveTimes} read at the moment
+     * it recorded it.
+     *
+     * <p>Package-private, like {@link #pendingDriveTimeAttempts} itself, so a test can construct one
+     * to assert against directly.
+     *
+     * @param attemptedAt the instant the attempt was recorded
+     * @param originLat   the home latitude the refresh read when it recorded this attempt
+     * @param originLon   the home longitude the refresh read when it recorded this attempt
+     */
+    record PendingAttempt(Instant attemptedAt, double originLat, double originLon) {
+
+        /**
+         * Whether this attempt was measured from the given coordinates — exact {@code ==} on both,
+         * matching {@link AppUserRepository#stampDriveTimesIfHomeIs}'s JPQL equality on the same
+         * {@code DOUBLE PRECISION} columns. No tolerance is introduced that the persisted
+         * compare-and-set does not already have.
+         *
+         * @param latitude  the CURRENT home latitude to compare against
+         * @param longitude the CURRENT home longitude to compare against
+         * @return {@code true} if this attempt was measured from exactly these coordinates
+         */
+        boolean matchesOrigin(double latitude, double longitude) {
+            return originLat == latitude && originLon == longitude;
+        }
+    }
 
     /**
      * Constructs a {@code UserSettingsService}.
@@ -225,7 +282,15 @@ public class UserSettingsService {
             // REFRESH_COOLDOWN_MINUTES while they are served nothing at all.
             userRepository.clearDriveTimesCalculatedAt(stored.getId());
             // Same reasoning applies to the in-memory attempt tracker: a failed attempt from before
-            // the move must not go on throttling someone who has just moved house.
+            // the move must not go on throttling someone who has just moved house. This removal is
+            // now a TIDY-UP, not the thing correctness depends on: pendingDriveTimeAttempts' own
+            // origin comparison (see its javadoc) already ignores an entry recorded against a home
+            // other than the one a later refresh reads, so even where this line races a refresh's
+            // own put() and finds nothing yet to remove — the interleaving that motivated the
+            // origin check — the stale entry left behind is still ignored, never honoured, the next
+            // time anyone checks it. Kept anyway: it is one line, it keeps the map from carrying
+            // dead weight between moves, and removing unconditionally is correct here regardless —
+            // a move genuinely invalidates whatever was pending, whichever origin it names.
             pendingDriveTimeAttempts.remove(stored.getId());
         }
         LOG.info("User '{}' saved home location: {} ({}, {}){}",
@@ -315,12 +380,17 @@ public class UserSettingsService {
         double originLat = user.getHomeLatitude();
         double originLon = user.getHomeLongitude();
         // Recorded BEFORE the ORS call — not after, and not only on success — so this attempt
-        // throttles a same-cooldown retry even if it fails, and so the stamp a SUCCESSFUL attempt
-        // eventually stores below is the roster-READ instant, matching DriveTimeRefreshJob's
-        // identical fix (measureForUser reads the whole location table, then spends seconds
-        // routing; a location created in that gap must have a created_at later than this instant,
-        // or the scheduled job's rosterGrewSince would never see it).
-        pendingDriveTimeAttempts.put(user.getId(), now);
+        // throttles a same-cooldown retry even if it fails, including one that THROWS: nothing
+        // below catches it, so this entry survives an exception exactly as it survives a no-answer
+        // response. And so the stamp a SUCCESSFUL attempt eventually stores below is the
+        // roster-READ instant, matching DriveTimeRefreshJob's identical fix (measureForUser reads
+        // the whole location table, then spends seconds routing; a location created in that gap
+        // must have a created_at later than this instant, or the scheduled job's rosterGrewSince
+        // would never see it). Scoped to the origin just read, not merely to the user — see the
+        // field's javadoc — and an unconditional put() regardless of what (if anything) was there
+        // before: a stale entry for a different origin is exactly what this is meant to replace.
+        PendingAttempt attempt = new PendingAttempt(now, originLat, originLon);
+        pendingDriveTimeAttempts.put(user.getId(), attempt);
 
         Optional<List<UserDriveTimeEntity>> measured =
                 driveDurationService.measureForUser(user.getId(), originLat, originLon);
@@ -348,7 +418,9 @@ public class UserSettingsService {
             // See the class javadoc's outcome table for why the scheduled job does NOT do this.
             boolean cleared = driveTimeWriter.clearIfHomeUnchanged(user.getId(), originLat, originLon);
             if (!cleared) {
-                pendingDriveTimeAttempts.remove(user.getId());
+                // Value-conditional: removes this attempt only if nothing has overwritten it since
+                // — a concurrent refresh's own fresh entry for this user must not be lost here.
+                pendingDriveTimeAttempts.remove(user.getId(), attempt);
                 LOG.info("Drive time refresh for user {} discarded — the home moved while it was "
                         + "measured", user.getId());
                 throw new ResponseStatusException(CONFLICT, "Your home location changed while drive "
@@ -372,8 +444,10 @@ public class UserSettingsService {
             // Belt and braces: saveHome already removes this entry when it moves the home (the
             // same reasoning it gives for clearing the persisted stamp), so this is normally a
             // no-op — but a lingering entry here would re-arm a cooldown that move is documented
-            // to release, so it is cleared on this path too rather than assumed.
-            pendingDriveTimeAttempts.remove(user.getId());
+            // to release, so it is cleared on this path too rather than assumed. Value-conditional
+            // for the same reason as the confirmed-unreachable branch above: a concurrent refresh's
+            // own fresh entry for this user must not be lost to this cleanup.
+            pendingDriveTimeAttempts.remove(user.getId(), attempt);
             LOG.info("Drive time refresh for user {} discarded — the home moved while it was measured",
                     user.getId());
             throw new ResponseStatusException(CONFLICT, "Your home location changed while drive times "
@@ -382,7 +456,8 @@ public class UserSettingsService {
         }
         // Stored successfully: the persisted stamp now covers this attempt, so the in-memory entry
         // is redundant — drop it rather than let it sit until it ages out on its own.
-        pendingDriveTimeAttempts.remove(user.getId());
+        // Value-conditional, same reasoning as above.
+        pendingDriveTimeAttempts.remove(user.getId(), attempt);
         int updated = measured.get().size();
         LOG.info("Drive times refreshed for user '{}': {} locations updated",
                 user.getUsername(), updated);
@@ -395,8 +470,16 @@ public class UserSettingsService {
      * covers one that did not, which is otherwise invisible to any persisted column now that a
      * failed attempt no longer writes a stamp.
      *
-     * <p>Reading the in-memory entry also expires it: once it is older than the cooldown it is
-     * removed here rather than left in place, which is what keeps the map bounded for a user who
+     * <p>A pending entry only counts when it was recorded against the SAME home this call just read
+     * ({@link PendingAttempt#matchesOrigin}) — see the field's javadoc for why. A mismatched entry
+     * is ignored here rather than removed: {@link #refreshDriveTimes} always overwrites it with a
+     * fresh entry for the current origin the moment this method returns {@code false}, so removing
+     * it here too would only race that overwrite for no benefit, and could drop a DIFFERENT
+     * concurrent refresh's own fresh entry if one for this user is mid-flight.
+     *
+     * <p>Reading a matching entry also expires it: once it is older than the cooldown it is removed
+     * here rather than left in place — value-conditionally, so a concurrent refresh's own fresh
+     * write cannot be lost to this cleanup — which is what keeps the map bounded for a user who
      * fails once and is never throttled by that failure again.
      *
      * @param user the caller, as read at the top of {@link #refreshDriveTimes}
@@ -409,14 +492,15 @@ public class UserSettingsService {
                 && user.getDriveTimesCalculatedAt().isAfter(cooldownFloor)) {
             return true;
         }
-        Instant pending = pendingDriveTimeAttempts.get(user.getId());
-        if (pending == null) {
+        PendingAttempt pending = pendingDriveTimeAttempts.get(user.getId());
+        if (pending == null
+                || !pending.matchesOrigin(user.getHomeLatitude(), user.getHomeLongitude())) {
             return false;
         }
         // Same boundary as the persisted stamp above (not-after, not strictly-before): an
         // attempt recorded exactly at the cooldown floor is not throttled, matching
         // `atOrAfterCooldown_refreshes`'s own exact-1800-seconds case for the persisted path.
-        if (!pending.isAfter(cooldownFloor)) {
+        if (!pending.attemptedAt().isAfter(cooldownFloor)) {
             pendingDriveTimeAttempts.remove(user.getId(), pending);
             return false;
         }

@@ -178,3 +178,52 @@ as a decision taken in review, dated 2026-09-29, and the scheduled route logs on
 (never one per user) naming every location a successful measurement omitted that run, so an
 unroutable location is visible to an operator the first night it appears — a manual "Run now" skips
 this query and its WARN, since it already hands its result straight to the admin who pressed it.
+
+One more P1 (sixth review of PR #942), on the in-memory `pendingDriveTimeAttempts` map itself:
+it was keyed only by user id, so it could throttle a refresh reading a DIFFERENT home from the one
+the pending entry was actually about. Sequence: a manual refresh reads home A; before it records
+its attempt, `saveHome` commits a move to home B and removes that user's pending entry — finding
+nothing, since the refresh has not recorded it yet; the refresh then records its attempt (still
+against A, the home it read) and ORS gives no answer or throws. The entry left behind carried no
+origin, so an immediate refresh reading the new home B was refused with 429 for up to 30 minutes,
+even though a home move is documented to release the cooldown.
+
+Each entry now carries the home coordinates the refresh read alongside the attempt instant
+(`UserSettingsService.PendingAttempt`, a package-private record: `attemptedAt`, `originLat`,
+`originLon`). The 30-minute cooldown only counts a pending entry when its origin matches the
+caller's CURRENT home, read fresh at the top of the same refresh; a mismatched entry is ignored
+exactly as if it were absent, and `refreshDriveTimes` unconditionally overwrites whatever was there
+with a fresh entry for the origin it just read — "ignored and replaced," never merely ignored.
+Origin comparison is exact `==` on both coordinates, the same equality
+`AppUserRepository.stampDriveTimesIfHomeIs`'s JPQL already uses on the same `DOUBLE PRECISION`
+columns — no tolerance introduced that the persisted compare-and-set does not already have.
+
+An attempt that THROWS is handled by the same rule, not a separate one: nothing in
+`refreshDriveTimes` catches `measureForUser`'s exception, so the entry recorded a moment earlier
+(against the origin that call was reading) survives it exactly as it survives a no-answer response.
+A retry from that SAME origin within the cooldown is still throttled; a retry from a DIFFERENT
+origin is not, for the identical reason a no-answer entry releases on a different origin.
+
+`saveHome`'s own removal of the pending entry is kept, unconditionally, on every move — but it is
+now a tidy-up rather than the thing correctness depends on, since the origin check already makes a
+stale entry harmless even where this removal's own race finds nothing yet to remove. A move away
+and back to the same coordinates within the cooldown (A to B and back to A) does not resurrect the
+earlier A-scoped entry: `saveHome` clears the pending entry on EVERY move, including the one back to
+A, with no memory of what the home used to be — consistent with the persisted stamp and rows, which
+`saveHome` also clears unconditionally on every move and never restores merely because the
+coordinates recur.
+
+Every read-then-write on the map that removes an entry it wrote itself now uses the value-conditional
+`remove(key, value)` rather than a bare `remove(key)` — after a successful store, on the 409 path,
+and on the confirmed-unreachable-but-home-moved 409 — so a concurrent refresh for the same user
+cannot have its own fresh entry clobbered by a stale one finishing late. Two simultaneous refreshes
+for the same user and the same origin: the second is refused with 429 if its own throttle check runs
+after the first has recorded its attempt (the ordinary case, since the entry is written before the
+ORS call); a genuine race where both read the map before either writes is unchanged from before this
+fix and remains out of scope here, as it was before.
+
+New tests in `UserSettingsServiceTest`'s `ManualAttemptCooldown` nested class reproduce Codex's
+exact interleaving for both a no-answer attempt and one where ORS throws — both fail against the
+prior commit, whose map carried no origin at all — plus a same-origin-after-exception throttle test
+and an A-to-B-and-back-to-A test pinning that a move-away-and-back does not resurrect an earlier
+attempt.
