@@ -1553,6 +1553,98 @@ class PlanWindowProjectorTest {
         }
     }
 
+    /**
+     * The verdict-minimum-sample rule's effect on THIS class's own logic — ranking and pick
+     * eligibility — with {@code sampleSufficient}/{@code forcedSample} set explicitly on each
+     * fixture rather than through {@link #regionWithSlots}'s sufficient-by-default helper. The
+     * rule's own arithmetic (rated count, examined coverage) is {@code VerdictSampleGateTest}'s and
+     * the sample-to-flag derivation is {@code BriefingRegionEvaluationRollupTest}'s; this class only
+     * has to prove it reads the two flags correctly once they are on the region.
+     */
+    @Nested
+    @DisplayName("verdict-minimum-sample eligibility")
+    class SampleEligibility {
+
+        @Test
+        @DisplayName("a sufficient region with a LOWER average outranks an insufficient region "
+                + "with a higher one")
+        void sufficientRegionOutranksInsufficientDespiteLowerAverage() {
+            BriefingRegion sufficientButLower = region("Sufficient", 3, 3, 3)
+                    .withSampleSufficient(true);
+            BriefingRegion insufficientButHigher = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(insufficientButHigher, sufficientButLower);
+
+            assertThat(w.pick().regionName()).isEqualTo("Sufficient");
+        }
+
+        @Test
+        @DisplayName("an insufficient, non-exempt region cannot be a pick candidate")
+        void insufficientRegionCannotBeAPick() {
+            BriefingRegion insufficient = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(insufficient);
+
+            assertThat(w.pick()).isNull();
+        }
+
+        @Test
+        @DisplayName("a forced-exempt region (insufficient by the raw test) CAN be a pick "
+                + "candidate and outranks a plain insufficient region")
+        void forcedExemptRegionCanBeAPick() {
+            BriefingRegion forcedExempt = region("Forced", 4, 4, 4)
+                    .withSampleSufficient(false).withForcedSample(true);
+            BriefingRegion plainInsufficient = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false).withForcedSample(false);
+
+            BriefingWindow w = projectOne(plainInsufficient, forcedExempt);
+
+            assertThat(w.pick()).isNotNull();
+            assertThat(w.pick().regionName()).isEqualTo("Forced");
+        }
+
+        @Test
+        @DisplayName("a legacy region with null sampleSufficient/forcedSample cannot be a pick — "
+                + "unknown reads as ineligible, never as sufficient")
+        void legacyNullFlags_cannotBeAPick() {
+            // regionWithSlots's default is deliberately NOT used here: this fixture models a
+            // payload cached before the verdict-minimum-sample rule existed, where the flags
+            // genuinely deserialise to null rather than to an explicit false.
+            BriefingRegion legacy = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
+                    ratedSlots(4, 4, 4), 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
+                    DisplayVerdict.WORTH_IT, 3, null, false, null);
+
+            assertThat(legacy.sampleSufficient()).isNull();
+            assertThat(legacy.forcedSample()).isNull();
+
+            BriefingWindow w = projectOne(legacy);
+
+            assertThat(w.pick()).isNull();
+        }
+
+        @Test
+        @DisplayName("among two insufficient regions, the existing average/coverage/name "
+                + "tie-breaks still decide the ranking")
+        void insufficientRegions_stillOrderedByExistingTieBreaks() {
+            // Neither region is pick-eligible (both insufficient), so neither can produce a
+            // candidate — the ranking is instead read off the window's verdict, which is always
+            // the TOP region's own displayVerdict regardless of pick eligibility. Dales averages
+            // 3.0 (MAYBE) and Northumberland 4.0 (WORTH_IT); if the pre-existing average tie-break
+            // still runs inside the insufficient tier, Northumberland ranks top and the window
+            // reads WORTH_IT — the same answer production gave before this rule existed.
+            BriefingRegion dales = region("Dales", 3, 3, 3).withSampleSufficient(false);
+            BriefingRegion northumberland = region("Northumberland", 4, 4, 4)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(dales, northumberland);
+
+            assertThat(w.pick()).isNull();
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+    }
+
     @Test
     void aNullResponsePassesThrough() {
         assertThat(PlanWindowProjector.apply(null, NOW, Map.of())).isNull();
