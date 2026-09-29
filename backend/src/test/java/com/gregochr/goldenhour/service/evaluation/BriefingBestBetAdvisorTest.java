@@ -975,7 +975,9 @@ class BriefingBestBetAdvisorTest {
         }
 
         private CandidateCoverage cov(int rated, int daysAhead) {
-            return new CandidateCoverage(rated, daysAhead, 4.0);
+            // verdictEligible is irrelevant here — applyCoverageAwareRanking never reads it,
+            // only dropIneligiblePicks does (round 10, P1-B) — true is a neutral default.
+            return new CandidateCoverage(rated, daysAhead, 4.0, true);
         }
 
         @Test
@@ -1722,6 +1724,154 @@ class BriefingBestBetAdvisorTest {
             verify(anthropicApiClient).createMessage(captor.capture());
             assertThat(captor.getValue().model().toString())
                     .isEqualTo(EvaluationModel.HAIKU.getModelId());
+        }
+    }
+
+    // ── advise — verdict-minimum-sample eligibility (round 10, P1-B) ──
+
+    @Nested
+    @DisplayName("advise drops picks naming a verdict-ineligible region")
+    class AdviseVerdictEligibilityTests {
+
+        /** Builds a region whose {@code sampleSufficient}/{@code forcedSample} are set explicitly,
+         * the way {@code BriefingRegionEvaluationRollup.enrich()} leaves them on every region before
+         * the advisor ever sees it — {@link #region} alone (via the legacy 11-arg constructor)
+         * always leaves both null, i.e. not eligible. */
+        private static BriefingRegion regionWithEligibility(String name, Verdict verdict,
+                int go, int marginal, int standdown, boolean sampleSufficient, boolean forcedSample) {
+            return region(name, verdict, go, marginal, standdown)
+                    .withSampleSufficient(sampleSufficient)
+                    .withForcedSample(forcedSample);
+        }
+
+        private void stubClaudeNames(String eventId, String regionName) {
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":[{\"rank\":1,\"headline\":\"Go shoot\",\"detail\":\"Clear skies.\","
+                    + "\"event\":\"" + eventId + "\",\"region\":\"" + regionName + "\","
+                    + "\"confidence\":\"high\"}]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+        }
+
+        @Test
+        @DisplayName("region with one rating in a 50-voting-roster, not sample-sufficient and "
+                + "not forced, is NOT in bestBets even though Claude names it")
+        void insufficientNonExemptRegionIsDropped() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+
+            // 50 voting slots, only one of which carries a Claude rating (via stubCoverage above)
+            // — a real VerdictSampleGate would compute sampleSufficient=false for this roster, and
+            // BriefingRegionEvaluationRollup would never set forcedSample true without an actual
+            // force-evaluation exemption. Setting both explicitly here isolates the advisor's own
+            // consultation of the flag from the (separately tested) VerdictSampleGate arithmetic.
+            BriefingRegion insufficient = regionWithEligibility(
+                    "Northumberland", Verdict.GO, 50, 0, 0, false, false);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(insufficient), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.picks()).isEmpty();
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("the same region with a force-evaluation exemption IS allowed")
+        void forcedSampleRegionIsAllowed() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+
+            BriefingRegion forced = regionWithEligibility(
+                    "Northumberland", Verdict.GO, 50, 0, 0, false, true);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(forced), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.picks()).hasSize(1);
+            assertThat(result.picks().get(0).region()).isEqualTo("Northumberland");
+        }
+
+        @Test
+        @DisplayName("a sample-sufficient region IS allowed")
+        void sufficientRegionIsAllowed() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+
+            BriefingRegion sufficient = regionWithEligibility(
+                    "Northumberland", Verdict.GO, 5, 0, 0, true, false);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(sufficient), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.picks()).hasSize(1);
+            assertThat(result.picks().get(0).region()).isEqualTo("Northumberland");
+        }
+
+        @Test
+        @DisplayName("legacy region with both eligibility fields null is NOT eligible")
+        void legacyNullFieldsAreNotEligible() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+
+            // The legacy 11-arg constructor, called directly (bypassing the region() helper's
+            // round-10 sampleSufficient=true default), leaves sampleSufficient and forcedSample
+            // both null — the pre-round-9 cached payload shape.
+            BriefingRegion legacy = new BriefingRegion("Northumberland", Verdict.GO, "Summary",
+                    List.of(), List.of(slot("Loc0", Verdict.GO, null), slot("Loc1", Verdict.GO, null),
+                            slot("Loc2", Verdict.GO, null), slot("Loc3", Verdict.GO, null),
+                            slot("Loc4", Verdict.GO, null)),
+                    null, null, null, null, null, null);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(legacy), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.picks()).isEmpty();
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("when every returned pick is dropped as ineligible, the outcome is the same "
+                + "SUCCESS_NO_PICKS the zero-coverage drop already uses")
+        void allPicksDroppedMatchesExistingNoPicksOutcome() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            // No BriefingDay/region at all — mirrors the existing zero-coverage
+            // "claudeThrowsReturnsEmpty"-style expectation that an empty roster with a Claude
+            // response naming an unknown region parses to SUCCESS_NO_PICKS after validation drops
+            // it; here the roster exists but is ineligible, and the two failure modes must produce
+            // an identical, indistinguishable status so nothing downstream needs to special-case it.
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+            BriefingRegion insufficient = regionWithEligibility(
+                    "Northumberland", Verdict.GO, 50, 0, 0, false, false);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(insufficient), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.status()).isEqualTo(BestBetResult.noPicks().status());
         }
     }
 
@@ -3566,6 +3716,17 @@ class BriefingBestBetAdvisorTest {
         }
     }
 
+    /**
+     * Builds a fixture region for a happy-path advisor test. Defaults {@code sampleSufficient} to
+     * {@code true} (round 10, P1-B) — every test built against this helper before the
+     * verdict-minimum-sample rule existed implicitly assumed a healthy, normal region with real
+     * coverage behind it, never the insufficient-sample case, so defaulting the flag preserves
+     * every pre-existing expectation. A test that needs to exercise ineligibility explicitly
+     * overrides with {@code .withSampleSufficient(false)}/{@code .withForcedSample(...)}, or (for
+     * the true legacy-payload case, both fields null) constructs a {@link BriefingRegion} directly
+     * via its 11-arg convenience constructor instead of this helper — see
+     * {@code AdviseVerdictEligibilityTests.legacyNullFieldsAreNotEligible}.
+     */
     private static BriefingRegion region(String name, Verdict verdict,
             int go, int marginal, int standdown) {
         List<BriefingSlot> slots = new java.util.ArrayList<>();
@@ -3579,9 +3740,11 @@ class BriefingBestBetAdvisorTest {
             slots.add(slot("S" + i, Verdict.STANDDOWN, null));
         }
         return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null)
+                .withSampleSufficient(true);
     }
 
+    /** Same defaulting rationale as {@link #region}. */
     private static BriefingRegion regionWithTime(String name, Verdict verdict,
             int go, int marginal, int standdown, LocalDateTime time) {
         List<BriefingSlot> slots = new java.util.ArrayList<>();
@@ -3595,7 +3758,8 @@ class BriefingBestBetAdvisorTest {
             slots.add(slot("S" + i, Verdict.STANDDOWN, time));
         }
         return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null)
+                .withSampleSufficient(true);
     }
 
     private static BriefingSlot slot(String name, Verdict verdict, LocalDateTime time) {

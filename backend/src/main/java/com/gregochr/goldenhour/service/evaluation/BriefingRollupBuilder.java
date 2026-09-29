@@ -553,11 +553,15 @@ public final class BriefingRollupBuilder {
         appendStabilityToRegion(regionNode, region);
 
         // Built from the same two numbers the JSON node carries, in the same order, so
-        // reconstructRollup's replay of a stored rollup reproduces this exactly.
+        // reconstructRollup's replay of a stored rollup reproduces this exactly — plus the
+        // region's own verdictEligible() (round 10, P1-B), read straight off the BriefingRegion
+        // already enriched by BriefingRegionEvaluationRollup before this method ever runs, never
+        // serialized into regionNode itself.
         return new CandidateCoverage(
                 stats.coverage() == null ? 0 : stats.coverage().count(),
                 daysAhead,
-                stats.sky() == null ? 0.0 : stats.sky().averageRating());
+                stats.sky() == null ? 0.0 : stats.sky().averageRating(),
+                region.verdictEligible());
     }
 
     /**
@@ -762,8 +766,14 @@ public final class BriefingRollupBuilder {
                     }
                     int ratedCount = region.path("claudeRatedCount").asInt(0);
                     double avgRating = region.path("claudeAverageRating").asDouble(0.0);
+                    // verdictEligible is never captured in the stored rollup JSON (it is an
+                    // internal fact about the region, never sent to Claude), and neither
+                    // replayWithPrompt nor the model-comparison path calls dropIneligiblePicks —
+                    // both stop at applyCoverageAwareRanking, which never reads this field. false
+                    // is therefore a placeholder that is provably never consulted on this path,
+                    // not a silent "ineligible" verdict on replayed picks (round 10, P1-B).
                     coverageByKey.put(BestBetRanker.coverageKey(eventId, name),
-                            new CandidateCoverage(ratedCount, 0, avgRating));
+                            new CandidateCoverage(ratedCount, 0, avgRating, false));
                 }
             }
         }

@@ -569,6 +569,78 @@ class BriefingEvaluationServiceTest {
                     .skyRating()).isNull();
         }
 
+        // ── forced provenance survives recombination (round 10, P1-A) ──
+
+        @Test
+        @DisplayName("forced sky + forced bluebell, same cycle → combined result is forced")
+        void recombineBluebell_forcedSkyAndForcedBluebell_combinedIsForced() {
+            // A same-cycle OPEN_FELL pair: both tasks share ForecastTaskCollector's one loop-local
+            // `forced` boolean, so both sides carry true here.
+            BriefingEvaluationResult forcedSky =
+                    new BriefingEvaluationResult("X", 4, 70, 65, "sky").withForced(true);
+            BriefingEvaluationResult forcedBluebell =
+                    new BriefingEvaluationResult("X", 5, null, null, "bb", null, null, null)
+                            .withForced(true);
+            assertThat(service.recombineBluebell(forcedSky, forcedBluebell, BluebellExposure.OPEN_FELL)
+                    .forced()).isTrue();
+        }
+
+        @Test
+        @DisplayName("forced bluebell + ordinary sky (bluebell-then-sky arrival order at the "
+                + "combiner) → combined result is forced")
+        void recombineBluebell_forcedBluebellOrdinarySky_combinedIsForced() {
+            BriefingEvaluationResult ordinarySky =
+                    new BriefingEvaluationResult("X", 3, 60, 55, "sky");
+            BriefingEvaluationResult forcedBluebell =
+                    new BriefingEvaluationResult("X", 5, null, null, "bb", null, null, null)
+                            .withForced(true);
+            assertThat(service.recombineBluebell(ordinarySky, forcedBluebell, BluebellExposure.OPEN_FELL)
+                    .forced()).isTrue();
+        }
+
+        @Test
+        @DisplayName("ordinary sky + ordinary bluebell → combined result is not forced")
+        void recombineBluebell_ordinaryBoth_combinedIsNotForced() {
+            BriefingEvaluationResult ordinarySky =
+                    new BriefingEvaluationResult("X", 3, 60, 55, "sky");
+            BriefingEvaluationResult ordinaryBluebell =
+                    new BriefingEvaluationResult("X", 4, null, null, "bb", null, null, null);
+            assertThat(service.recombineBluebell(ordinarySky, ordinaryBluebell, BluebellExposure.OPEN_FELL)
+                    .forced()).isFalse();
+        }
+
+        @Test
+        @DisplayName("forced sky from cycle N + ordinary bluebell arriving in cycle N+1 → the "
+                + "later ordinary write ENDS the exemption")
+        void recombineBluebell_forcedSkyCycleN_ordinaryBluebellCycleNPlus1_exemptionEnds() {
+            // existing = the cache's prior sky entry, forced when it was written in an earlier
+            // cycle; bluebell = the just-arrived, ordinary result from a LATER cycle. The newer
+            // write's mark must win — an ordinary evaluation now exists for this candidate, so the
+            // force-evaluation exemption (a stand-in for evidence Gate 4 would otherwise have
+            // starved THIS cycle) no longer applies.
+            BriefingEvaluationResult forcedSkyFromEarlierCycle =
+                    new BriefingEvaluationResult("X", 3, 60, 55, "sky").withForced(true);
+            BriefingEvaluationResult ordinaryBluebellThisCycle =
+                    new BriefingEvaluationResult("X", 4, null, null, "bb", null, null, null);
+            assertThat(service.recombineBluebell(
+                    forcedSkyFromEarlierCycle, ordinaryBluebellThisCycle, BluebellExposure.OPEN_FELL)
+                    .forced()).isFalse();
+        }
+
+        @Test
+        @DisplayName("ordinary sky from cycle N + forced bluebell arriving in cycle N+1 → the "
+                + "later forced write carries the combination")
+        void recombineBluebell_ordinarySkyCycleN_forcedBluebellCycleNPlus1_combinedIsForced() {
+            BriefingEvaluationResult ordinarySkyFromEarlierCycle =
+                    new BriefingEvaluationResult("X", 3, 60, 55, "sky");
+            BriefingEvaluationResult forcedBluebellThisCycle =
+                    new BriefingEvaluationResult("X", 4, null, null, "bb", null, null, null)
+                            .withForced(true);
+            assertThat(service.recombineBluebell(
+                    ordinarySkyFromEarlierCycle, forcedBluebellThisCycle, BluebellExposure.OPEN_FELL)
+                    .forced()).isTrue();
+        }
+
         @Test
         @DisplayName("OPEN_FELL keeps the SKY entry's write time — it is mostly the sky entry")
         void openFell_keepsThePriorSkyWriteTime() {

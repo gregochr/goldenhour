@@ -297,7 +297,7 @@ class ServedBriefingAssembler {
         if (response == null || response.bestBetStatus() != BestBetStatus.FAILED) {
             return response;
         }
-        List<BestBet> fallback = bestBetFallbackService.findFreshFallback();
+        List<BestBet> fallback = bestBetFallbackService.findFreshFallback(response.days());
         if (fallback.isEmpty()) {
             return response;
         }

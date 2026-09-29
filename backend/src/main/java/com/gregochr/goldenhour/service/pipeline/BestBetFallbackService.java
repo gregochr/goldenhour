@@ -1,7 +1,11 @@
 package com.gregochr.goldenhour.service.pipeline;
 
 import com.gregochr.goldenhour.entity.PipelineRunPickEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DiffersBy;
 import com.gregochr.goldenhour.repository.PipelineRunPickRepository;
@@ -30,7 +34,15 @@ import java.util.Locale;
  *   <li>an event that has already passed is excluded — at day granularity, since the pick row
  *       persists {@code event_date} but not the event's time of day;</li>
  *   <li>a pick older than {@code photocast.best-bet.fallback-max-age-hours} is excluded — beyond
- *       the ceiling the API falls through to the honest empty state instead.</li>
+ *       the ceiling the API falls through to the honest empty state instead;</li>
+ *   <li><b>a pick naming a region the CURRENT briefing no longer trusts is excluded</b> (round 10,
+ *       P1-B) — {@link #isNowIneligible} re-checks each stored pick's region against the verdict-
+ *       minimum-sample rule as it stands NOW, not as it stood when the pick was persisted. A stored
+ *       pick's own region was eligible when it was crowned (the live path already enforces that);
+ *       what can change between then and a later FAILED cycle serving this fallback is the region
+ *       ITSELF — a re-enrichment can move a region from sufficient to insufficient (a location
+ *       dropped out, a force-evaluation exemption expired) without ever repersisting the pick row,
+ *       so resurrecting it blind would show a bet the current data no longer backs.</li>
  * </ul>
  *
  * <p>Pick rows exist only for {@code SUCCESS_WITH_PICKS} runs (the orchestrator's persist gate),
@@ -69,9 +81,14 @@ public class BestBetFallbackService {
      * stale fallback, or an empty list if none qualifies (caller then shows the honest empty
      * state).
      *
-     * @return the fallback picks (rank-ordered), or empty if no fresh-enough prior pick exists
+     * @param currentDays the CURRENT briefing's days — already re-enriched with today's
+     *                    {@code sampleSufficient}/{@code forcedSample} — used to re-validate each
+     *                    stored pick's region against the verdict-minimum-sample rule as it stands
+     *                    now (round 10, P1-B); see the class javadoc
+     * @return the fallback picks (rank-ordered), or empty if no fresh-enough, still-eligible prior
+     *         pick exists
      */
-    public List<BestBet> findFreshFallback() {
+    public List<BestBet> findFreshFallback(List<BriefingDay> currentDays) {
         Instant now = clock.instant();
         LocalDate today = LocalDate.ofInstant(now, LONDON);
         Instant minRecordedAt = now.minus(Duration.ofHours(maxAgeHours));
@@ -92,11 +109,65 @@ public class BestBetFallbackService {
             if (!runId.equals(row.getPipelineRunId())) {
                 break;
             }
+            if (isNowIneligible(row, currentDays)) {
+                LOG.info("[BEST-BET FALLBACK] Dropping stale pick region='{}' event='{}' — no "
+                        + "longer verdict-eligible in the current briefing", row.getRegion(),
+                        row.getEventId());
+                continue;
+            }
             picks.add(toBestBet(row, today));
+        }
+        if (picks.isEmpty()) {
+            LOG.info("[BEST-BET FALLBACK] Every pick from run {} is now verdict-ineligible — "
+                    + "serving honest empty state instead of a stale resurrection", runId);
+            return List.of();
         }
         LOG.info("[BEST-BET FALLBACK] Serving {} stale pick(s) from run {} (recorded {})",
                 picks.size(), runId, candidates.get(0).getRecordedAt());
         return List.copyOf(picks);
+    }
+
+    /**
+     * Whether a stored pick's region has since become verdict-ineligible in the CURRENT briefing
+     * — the {@link BriefingRegion#verdictEligible()} test the live advisor path already applies at
+     * crowning time (round 10, P1-B; see {@code BestBetRanker#dropIneligiblePicks}).
+     *
+     * <p>A stay-home pick ({@code region == null}) or an aurora pick (no {@link TargetType} the
+     * briefing's per-event-type structure recognises) carries no region-level sky sample to be
+     * insufficient, so both are always eligible here — the same exemption {@code
+     * BestBetRanker#isColourExempt} grants on the live path. A region/date/event combination that
+     * no longer appears anywhere in {@code currentDays} (rolled off the render window, or the day's
+     * shape changed since the pick was recorded) is treated as eligible too: that is a genuinely
+     * unknown state, not a stated ineligibility, and the existing freshness bound (event-not-passed,
+     * {@code fallback-max-age-hours}) is what retires a pick whose data has moved on, not this check.
+     *
+     * @param row         the stored pick row being considered for the fallback
+     * @param currentDays the current briefing's days to check the region against
+     * @return true only when the region is FOUND in the current briefing and is NOT verdict-eligible
+     */
+    private boolean isNowIneligible(PipelineRunPickEntity row, List<BriefingDay> currentDays) {
+        String region = row.getRegion();
+        LocalDate eventDate = row.getEventDate();
+        TargetType targetType = PipelineRunPickService.parseTargetType(row.getEventType());
+        if (region == null || eventDate == null || targetType == null || currentDays == null) {
+            return false;
+        }
+        for (BriefingDay day : currentDays) {
+            if (!eventDate.equals(day.date())) {
+                continue;
+            }
+            for (BriefingEventSummary summary : day.eventSummaries()) {
+                if (summary.targetType() != targetType) {
+                    continue;
+                }
+                for (BriefingRegion candidate : summary.regions()) {
+                    if (region.equals(candidate.regionName())) {
+                        return !candidate.verdictEligible();
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**

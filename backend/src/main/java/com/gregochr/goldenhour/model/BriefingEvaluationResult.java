@@ -294,4 +294,51 @@ public record BriefingEvaluationResult(
                 goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
                 skyRating, retracted, newForced);
     }
+
+    /**
+     * Returns a copy of this result carrying the forced mark a REBUILD-OR-COMBINE site must apply
+     * when it folds a newly-arrived evaluation into (or in place of) an earlier one — the single
+     * combination rule referenced by every such site (round 10, P1-B). Call it on the freshly-built
+     * combined/rebuilt result, passing the side that just arrived.
+     *
+     * <p><b>The rule: the combined result carries the newly-arrived side's own {@link #forced}
+     * mark, full stop</b> — not an OR of the two sides' flags. That single formula is provably
+     * correct for both cases a combination can face:
+     * <ul>
+     *   <li><b>Within one cycle's pair</b> (e.g. an OPEN_FELL candidate's sky task and its paired
+     *       bluebell task) — either forced makes the combination forced. {@code
+     *       ForecastTaskCollector} submits both tasks from the SAME loop iteration reading the SAME
+     *       {@code forced} local variable, so a same-cycle pair's two sides always carry an
+     *       IDENTICAL flag by construction. Reading either side's flag therefore already equals
+     *       "OR of both" — there is nothing for an explicit OR to add.</li>
+     *   <li><b>Across cycles</b> (a forced sky rating from cycle N recombined with an ordinary
+     *       bluebell rating that arrives in cycle N+1, or the reverse) — the newer write's mark
+     *       must win, because a later ORDINARY evaluation ending the exemption is the whole point:
+     *       an exemption is for a candidate Gate 4 would otherwise have starved of evidence THIS
+     *       cycle, not a standing grant that survives every future rating. The side passed to this
+     *       method is, by construction of every call site, the side that was just produced — so
+     *       reading its flag alone IS "the newer write's mark wins".</li>
+     * </ul>
+     *
+     * <p><b>The code cannot tell a same-cycle pair from a cross-cycle recombination apart, and does
+     * not need to</b> — neither {@code BriefingEvaluationResult} nor {@code
+     * BriefingEvaluationService#recombineBluebell} carries a cycle identifier to compare. The single
+     * formula above is deliberately the same formula for both cases; it does not branch on which
+     * case it is in because the two cases were shown above to always agree.
+     *
+     * <p><b>Safety direction if the shared-flag invariant is ever violated</b> (e.g. a future change
+     * lets a same-cycle pair's two tasks disagree on {@code forced}): this method still reads only
+     * the newly-arrived side, so a same-cycle sky task wrongly marked forced while its paired
+     * bluebell task is not would lose the exemption on combination — under-exempt, the same safe
+     * default {@link #forced}'s own field javadoc documents for every other unknown case.
+     *
+     * @param newlyArrived the side of the combination that was just produced — the bluebell result
+     *                      in {@code recombineBluebell}, or the equivalent "just arrived" side at
+     *                      any future rebuild-or-combine site
+     * @return a copy of this result carrying {@code newlyArrived}'s forced mark, or this result
+     *         unchanged when it carries no rating (mirrors {@link #withForced})
+     */
+    public BriefingEvaluationResult withForcedFromCombination(BriefingEvaluationResult newlyArrived) {
+        return withForced(newlyArrived != null && newlyArrived.forced());
+    }
 }

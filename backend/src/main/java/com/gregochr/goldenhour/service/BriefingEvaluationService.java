@@ -399,7 +399,7 @@ public class BriefingEvaluationService {
             return bluebell;
         }
         int averaged = Math.round((existing.rating() + bluebell.rating()) / 2.0f);
-        return new BriefingEvaluationResult(
+        BriefingEvaluationResult combined = new BriefingEvaluationResult(
                 existing.locationName(), averaged,
                 existing.fierySkyPotential(), existing.goldenHourPotential(),
                 existing.summary(), existing.triageReason(), existing.triageMessage(),
@@ -419,6 +419,12 @@ public class BriefingEvaluationService {
                 // own arithmetic it can no longer explain, which is the same "unknown, not wrong"
                 // convention the field already uses for a pre-field cache row.
                 null);
+        // Round 10 (P1-B): the 10-arg constructor above defaults forced=false unconditionally,
+        // silently dropping a force-evaluation exemption either source may have carried. The
+        // combination rule is defined once, on the record itself — see
+        // BriefingEvaluationResult#withForcedFromCombination for why "the newly-arrived side's own
+        // mark" is correct for both a same-cycle OPEN_FELL pair and a cross-cycle recombination.
+        return combined.withForcedFromCombination(bluebell);
     }
 
     /**

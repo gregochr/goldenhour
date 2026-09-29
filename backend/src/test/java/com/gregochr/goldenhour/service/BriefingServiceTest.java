@@ -603,7 +603,7 @@ class BriefingServiceTest {
         @DisplayName("FAILED status + fresh fallback → API substitutes the stale picks")
         void failedWithFallback_substitutesStalePicks() {
             refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
-            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(fallbackPick()));
+            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(fallbackPick()));
 
             DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
 
@@ -627,7 +627,7 @@ class BriefingServiceTest {
             // filter blanks it — the same state the withdrawal exists for.
             refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed(),
                     location("Bamburgh", "Northumberland"));
-            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(
+            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(
                     new BestBet(1, "Last good pick", "From earlier.",
                             FIXED_TODAY + "_sunset", "Northumberland",
                             Confidence.HIGH, null, "Today", "sunset", null)));
@@ -642,7 +642,7 @@ class BriefingServiceTest {
         @DisplayName("FAILED status + no fresh fallback → honest empty state preserved")
         void failedWithoutFallback_keepsEmpty() {
             refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
-            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of());
+            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of());
 
             DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
 
@@ -672,7 +672,7 @@ class BriefingServiceTest {
             when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
                     new AuroraTonightSummary(null, 5.0, 3, 7, List.of(),
                             420.0, "Waxing Gibbous", 62.0, true, "GOOD", "21:10", "04:55"));
-            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(fallbackPick()));
+            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(fallbackPick()));
 
             DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
 
@@ -695,7 +695,7 @@ class BriefingServiceTest {
             assertThat(api.bestBetStatus())
                     .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS);
             assertThat(api.bestBets()).isEmpty();
-            verify(bestBetFallbackService, never()).findFreshFallback();
+            verify(bestBetFallbackService, never()).findFreshFallback(any());
         }
     }
 

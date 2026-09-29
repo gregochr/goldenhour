@@ -172,6 +172,61 @@ public final class BestBetRanker {
         return rerankWithRecomputedRelationships(kept);
     }
 
+    /**
+     * Drops picks naming a region the verdict-minimum-sample rule does not trust — insufficient
+     * rating coverage and no force-evaluation exemption ({@link
+     * com.gregochr.goldenhour.model.BriefingRegion#verdictEligible()}). {@link
+     * #dropUnevaluatedPicks} already refuses a pick with <em>zero</em> Claude coverage; this closes
+     * the gap a Codex review found in round 10 (P1-B) one rating short of zero — a region that
+     * cleared {@code ratedCount() &gt; 0} but never reached the sample size (or examined-coverage
+     * fraction) the Plan tab requires before it will show a verdict at all could still be named in
+     * {@code DailyBriefingResponse.bestBets}, because the advisor never consulted the eligibility
+     * flag {@code BriefingRegionEvaluationRollup} had already computed for it.
+     *
+     * <p>Deliberately a second, independent gate rather than a replacement for {@link
+     * #dropUnevaluatedPicks}: the two ask different questions (does a rating exist at all, versus
+     * is the sample behind it large enough to trust) and a region can fail either one without the
+     * other. Stay-home and aurora picks are {@link #isColourExempt exempt}, matching every other
+     * coverage rule in this class — neither carries a region-level sky sample to be insufficient.
+     * A pick whose {@code event|region} key is absent from {@code coverage} is dropped: the rollup
+     * only omits a key for a region it did not send to Claude at all, so there is no eligibility to
+     * have found sufficient.
+     *
+     * <p>Survivors are renumbered so the highest remaining pick holds rank 1, the same shape {@link
+     * #dropUnevaluatedPicks} uses; an empty result is handled identically by the caller (maps to
+     * {@code SUCCESS_NO_PICKS}, never {@code FAILED}).
+     *
+     * @param picks    validated, colour-evidenced picks in ranked order
+     * @param coverage per-{@code event|region} Claude coverage from the rollup, including each
+     *                 region's {@link CandidateCoverage#verdictEligible()} at build time
+     * @return the picks whose region is verdict-eligible, renumbered; possibly empty
+     */
+    public static List<BestBet> dropIneligiblePicks(List<BestBet> picks,
+            Map<String, CandidateCoverage> coverage) {
+        List<BestBet> kept = new ArrayList<>();
+        for (BestBet p : picks) {
+            if (isColourExempt(p) || isVerdictEligible(p, coverage)) {
+                kept.add(p);
+            } else {
+                LOG.info("Best-bet: dropped ineligible pick region='{}' event='{}' — sample too "
+                        + "thin for a trusted verdict and no force-evaluation exemption",
+                        p.region(), p.event());
+            }
+        }
+        if (kept.isEmpty() || kept.size() == picks.size()) {
+            return kept;
+        }
+        return rerankWithRecomputedRelationships(kept);
+    }
+
+    private static boolean isVerdictEligible(BestBet pick, Map<String, CandidateCoverage> coverage) {
+        if (pick.event() == null || pick.region() == null) {
+            return false;
+        }
+        CandidateCoverage c = coverage.get(coverageKey(pick.event(), pick.region()));
+        return c != null && c.verdictEligible();
+    }
+
     private static int ratedCount(BestBet pick, Map<String, CandidateCoverage> coverage) {
         if (pick.event() == null || pick.region() == null) {
             return 0;
