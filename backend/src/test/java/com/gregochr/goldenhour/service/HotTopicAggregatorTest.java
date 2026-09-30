@@ -240,6 +240,9 @@ class HotTopicAggregatorTest {
         strongInversion.setEvaluationDate(FROM);
         strongInversion.setEventType(TargetType.SUNRISE);
         strongInversion.setInversionScore(9.0);
+        // V158 round 4: a fresh row must be marked scored, or effectiveInversionScore() reads it
+        // as pre-column and falls back to the (here, absent) forecast_score echo instead.
+        strongInversion.setInversionScored(true);
         strongInversion.setEvaluatedAt(Instant.parse("2026-04-25T05:00:00Z"));
         lenient().when(forecastScoreRepository.findComponentsByType(
                         ForecastType.INVERSION.getId(), FROM, TO))

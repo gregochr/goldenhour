@@ -15,7 +15,11 @@ Claude evaluation. Migration `V158__add_survivor_inversion_score.sql` adds a nul
 `inversion_score DOUBLE PRECISION` column to `survivor_atmosphere`; `SurvivorAtmosphereWriter.write`
 now sets it from `data.inversionScore()` at the same collection-time seam as every other reading on
 that row, so it is populated (or left null for an ineligible location) whatever the triage verdict
-or Gate 4 decision that follows.
+or Gate 4 decision that follows. ⚠️ **V158 gained a second column, `inversion_scored`, in round 4**
+(`changelog.d/20260930-inversion-trailing-history-fallback.md`) — a null `inversion_score` turned
+out to be ambiguous between "not scored yet" and "scored, nothing to report", and that entry has the
+fix; this one is left describing the single-column shape it originally shipped for historical
+accuracy.
 
 `SurvivorSignals.Readings` gains `inversionScore` (kept in `Readings`, a derived input, not
 `Scores`, which is Claude's judgement) and `SurvivorSignalReader` carries the new column through

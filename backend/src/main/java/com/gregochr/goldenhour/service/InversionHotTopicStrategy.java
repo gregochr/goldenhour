@@ -48,6 +48,25 @@ import java.util.Locale;
  * same 0–10 scale with the same STRONG cut, so this can never make the topic fire on a slot the
  * calculator itself would have refused.
  *
+ * <p>⚠️ <b>Round 4: "the calculator has not reached this slot yet" and "the calculator reached it
+ * and found nothing to report" are different facts, and only {@code inversion_scored} tells them
+ * apart.</b> {@link SurvivorSignals#effectiveInversionScore()} used to read a null
+ * {@link SurvivorSignals.Readings#inversionScore()} as reason enough to fall back to Claude's echo
+ * — but a null reading is also exactly what a FRESH write produces: {@code
+ * InversionScoreCalculator.calculate} itself returns null for an eligible location when the
+ * required weather inputs (dew point, surface temperature) are missing, and {@code
+ * ForecastDataAugmentor.augmentWithInversionScore} returns the base {@code AtmosphericData}
+ * unchanged — the score staying null — for that case AND for an ineligible location alike. Since
+ * {@code ForecastScoreWriter} only ever upserts the INVERSION component when the current
+ * evaluation carries a non-null score, any earlier {@code forecast_score} row is left in place
+ * forever whenever a later cycle scores nothing — so falling back on every null reading could
+ * revive a STRONG rating from days ago that the current data no longer supports. V158's second
+ * column, {@code inversion_scored}, fixes this: {@code SurvivorAtmosphereWriter} sets it {@code
+ * true} on every write it makes, with a score or with a null one alike, so a row from a writer
+ * that ran this cycle is authoritative — null included — and only a PRE-COLUMN row (written before
+ * this flag existed, defaulting {@code false}) or an entirely absent key still falls back to the
+ * echo.
+ *
  * <p>⚠️ <b>Two surfaces, two questions, and they may disagree — deliberately.</b> The map popup's
  * inversion badge ({@code ForecastDtoMapper} → {@code forecast_evaluation.inversion_score}) stays
  * on Claude's echo alone and is unaffected by this change: it answers "is this place worth going

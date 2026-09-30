@@ -480,6 +480,8 @@ class ComingUpConditionsBuilderTest {
     // calculator-only" from "trailing = falls back" — every fixture from here on mixes readings
     // and forecast_score rows freely, and the SAME assertions apply to both windows.
 
+    /** A SCORED survivor_atmosphere row carrying a real calculator reading — the shape a fresh
+     * write produces when the calculator found something to report. */
     private static SurvivorAtmosphereEntity inversionReading(LocationEntity location, LocalDate date,
             double score) {
         SurvivorAtmosphereEntity entity = new SurvivorAtmosphereEntity();
@@ -487,6 +489,31 @@ class ComingUpConditionsBuilderTest {
         entity.setEvaluationDate(date);
         entity.setEventType(TargetType.SUNRISE);
         entity.setInversionScore(score);
+        entity.setInversionScored(true);
+        return entity;
+    }
+
+    /** A FRESH survivor_atmosphere row whose calculator legitimately found nothing to report —
+     * scored=true, but the reading itself is null (an ineligible location, or an eligible one
+     * missing weather inputs). V158 round 4: this null is authoritative and must not fall back to
+     * a stale forecast_score echo. */
+    private static SurvivorAtmosphereEntity scoredNullReading(LocationEntity location, LocalDate date) {
+        SurvivorAtmosphereEntity entity = new SurvivorAtmosphereEntity();
+        entity.setLocation(location);
+        entity.setEvaluationDate(date);
+        entity.setEventType(TargetType.SUNRISE);
+        entity.setInversionScored(true);
+        return entity;
+    }
+
+    /** A PRE-COLUMN survivor_atmosphere row — written before V158 round 4 added
+     * {@code inversion_scored} (default {@code false}), so its null reading carries no
+     * information and {@code effectiveInversionScore()} correctly falls back to Claude's echo. */
+    private static SurvivorAtmosphereEntity preColumnReading(LocationEntity location, LocalDate date) {
+        SurvivorAtmosphereEntity entity = new SurvivorAtmosphereEntity();
+        entity.setLocation(location);
+        entity.setEvaluationDate(date);
+        entity.setEventType(TargetType.SUNRISE);
         return entity;
     }
 
@@ -586,6 +613,7 @@ class ComingUpConditionsBuilderTest {
         // reader's per-key accumulator silently drop one of them.
         SurvivorAtmosphereEntity row = survivorAtmosphere(dustyFell, peakDate, TargetType.SUNRISE, 0.55);
         row.setInversionScore(9.0);
+        row.setInversionScored(true);
         row.setEvaluatedAt(Instant.parse("2020-01-01T00:00:00Z"));
         when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
                 .thenReturn(List.of(row));
@@ -598,21 +626,21 @@ class ComingUpConditionsBuilderTest {
         assertThat(conditions.get(2).peak().valueLabel()).isEqualTo("9/10");
     }
 
-    // ── Effective inversion score: ONE rule for both windows (PR #948, rounds 2 and 3) ────────
+    // ── Effective inversion score: ONE rule for both windows (PR #948, rounds 2, 3 and 4) ──────
+    //
+    // Round 4 (a further Codex P1) distinguishes a PRE-COLUMN row (scored=false, written before
+    // V158 round 4 added inversion_scored — falls back to the echo) from a FRESH row whose
+    // calculator legitimately found nothing (scored=true, null reading — the null is
+    // authoritative and must NOT fall back). Both shapes are exercised for BOTH windows below.
 
     @Test
-    @DisplayName("a past date with a null survivor_atmosphere reading and a strong forecast_score "
-            + "component IS listed, showing the component's score — must fail against 3e688862, "
-            + "which read readings().inversionScore() alone and reported no history at all")
-    void buildInversion_nullReadingWithStrongEcho_isListedWithEchoScore() {
+    @DisplayName("a PRE-COLUMN row (scored=false) with a strong forecast_score component IS "
+            + "listed, showing the component's score — must fail against 3e688862, which read "
+            + "readings().inversionScore() alone and reported no history at all")
+    void buildInversion_preColumnRowWithStrongEcho_isListedWithEchoScore() {
         LocationEntity fell = LocationEntity.builder().id(10L).name("Echo Fell").lat(1.0).lon(1.0).build();
         LocalDate strongMorning = TODAY.minusDays(10);
-        // A pre-migration row: written before V158, so inversion_score is null forever — the exact
-        // shape every survivor_atmosphere row had before this migration.
-        SurvivorAtmosphereEntity nullReading = new SurvivorAtmosphereEntity();
-        nullReading.setLocation(fell);
-        nullReading.setEvaluationDate(strongMorning);
-        nullReading.setEventType(TargetType.SUNRISE);
+        SurvivorAtmosphereEntity nullReading = preColumnReading(fell, strongMorning);
         when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
@@ -632,6 +660,34 @@ class ComingUpConditionsBuilderTest {
         assertThat(inversion.occurrences()).hasSize(1);
         assertThat(inversion.occurrences().getFirst().date()).isEqualTo(strongMorning);
         assertThat(inversion.occurrences().getFirst().valueLabel()).isEqualTo("9/10");
+    }
+
+    @Test
+    @DisplayName("REVERSES buildInversion_preColumnRowWithStrongEcho_isListedWithEchoScore for a "
+            + "FRESH row: scored=true with a null reading and a strong echo is NOT listed — the "
+            + "null is authoritative (round 4, a Codex P1 against round 3's own fix), so it must "
+            + "not fall back to a stale echo a later cycle never overwrote")
+    void buildInversion_freshNullReadingWithStrongEcho_notListed() {
+        LocationEntity fell = LocationEntity.builder().id(15L).name("Fresh Null Fell").lat(1.0).lon(1.0).build();
+        LocalDate strongMorning = TODAY.minusDays(10);
+        SurvivorAtmosphereEntity freshNullReading = scoredNullReading(fell, strongMorning);
+        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(0);
+            LocalDate to = invocation.getArgument(1);
+            return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
+                    ? List.of(freshNullReading) : List.of();
+        });
+        when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
+                .thenAnswer(invocation -> {
+                    LocalDate from = invocation.getArgument(1);
+                    LocalDate to = invocation.getArgument(2);
+                    return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
+                            ? List.of(inversionEcho(fell, strongMorning, 9)) : List.of();
+                });
+
+        ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
+
+        assertThat(inversion.occurrences()).isEmpty();
     }
 
     @Test
@@ -664,14 +720,12 @@ class ComingUpConditionsBuilderTest {
     }
 
     @Test
-    @DisplayName("a date with a null reading and an echo BELOW the strong threshold is not listed")
-    void buildInversion_nullReadingWithWeakEcho_notListed() {
+    @DisplayName("a PRE-COLUMN row (scored=false) and an echo BELOW the strong threshold is not "
+            + "listed — below-threshold either way, so scored/unscored makes no difference here")
+    void buildInversion_preColumnRowWithWeakEcho_notListed() {
         LocationEntity fell = LocationEntity.builder().id(12L).name("Weak Fell").lat(1.0).lon(1.0).build();
         LocalDate weakMorning = TODAY.minusDays(10);
-        SurvivorAtmosphereEntity nullReading = new SurvivorAtmosphereEntity();
-        nullReading.setLocation(fell);
-        nullReading.setEvaluationDate(weakMorning);
-        nullReading.setEventType(TargetType.SUNRISE);
+        SurvivorAtmosphereEntity nullReading = preColumnReading(fell, weakMorning);
         when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
@@ -694,16 +748,14 @@ class ComingUpConditionsBuilderTest {
 
     @Test
     @DisplayName("REVERSES the round-2 (78ff787c) expectation: the forward-peak cell is NOT "
-            + "calculator-only any more — a null reading with a strong echo IS shown as the peak, "
-            + "because BriefingCandidateCollector's SKIPPED_CACHED gate can leave a forward slot's "
-            + "calculator reading null for up to 36h while Claude's own echo already exists for it")
-    void buildInversion_forwardPeak_nullReadingWithStrongEcho_isShown() {
+            + "calculator-only any more — a PRE-COLUMN row (scored=false) with a strong echo IS "
+            + "shown as the peak, because BriefingCandidateCollector's SKIPPED_CACHED gate can "
+            + "leave a forward slot's calculator reading unrecorded for up to 36h while Claude's "
+            + "own echo already exists for it")
+    void buildInversion_forwardPeak_preColumnRowWithStrongEcho_isShown() {
         LocationEntity fell = LocationEntity.builder().id(13L).name("Forward Fell").lat(1.0).lon(1.0).build();
         LocalDate peakDate = TODAY.plusDays(1);
-        SurvivorAtmosphereEntity nullReading = new SurvivorAtmosphereEntity();
-        nullReading.setLocation(fell);
-        nullReading.setEvaluationDate(peakDate);
-        nullReading.setEventType(TargetType.SUNRISE);
+        SurvivorAtmosphereEntity nullReading = preColumnReading(fell, peakDate);
         when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
                 .thenReturn(List.of(nullReading));
         when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
@@ -718,6 +770,31 @@ class ComingUpConditionsBuilderTest {
 
         assertThat(inversion.peak()).isNotNull();
         assertThat(inversion.peak().valueLabel()).isEqualTo("9/10");
+    }
+
+    @Test
+    @DisplayName("REVERSES buildInversion_forwardPeak_preColumnRowWithStrongEcho_isShown for a "
+            + "FRESH row: scored=true with a null reading and a strong echo shows NO peak at all — "
+            + "the null is authoritative (round 4, a Codex P1 against round 3's own fix), so the "
+            + "forward window must not fall back to a stale echo either")
+    void buildInversion_forwardPeak_freshNullReadingWithStrongEcho_noPeak() {
+        LocationEntity fell = LocationEntity.builder().id(16L).name("Forward Fresh Null Fell")
+                .lat(1.0).lon(1.0).build();
+        LocalDate peakDate = TODAY.plusDays(1);
+        SurvivorAtmosphereEntity freshNullReading = scoredNullReading(fell, peakDate);
+        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
+                .thenReturn(List.of(freshNullReading));
+        when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
+                .thenAnswer(invocation -> {
+                    LocalDate from = invocation.getArgument(1);
+                    LocalDate to = invocation.getArgument(2);
+                    return !peakDate.isBefore(from) && !peakDate.isAfter(to)
+                            ? List.of(inversionEcho(fell, peakDate, 9)) : List.of();
+                });
+
+        ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
+
+        assertThat(inversion.peak()).isNull();
     }
 
     @Test

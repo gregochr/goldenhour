@@ -178,6 +178,35 @@ class SurvivorAtmosphereWriterTest {
     }
 
     @Test
+    @DisplayName("V158 round 4: inversionScored is set true on a write WITH a score — the writer "
+            + "always ran the eligibility check this cycle, whatever it found")
+    void inversionScored_trueWhenScorePresent() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+        AtmosphericData eligible = inlandData().withInversionScore(9.0);
+
+        writer(true).write(location(), DATE, SUNSET, eligible);
+
+        assertThat(captureSave().isInversionScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V158 round 4: inversionScored is ALSO set true on a write whose score is null — "
+            + "a fresh null (ineligible location, or the calculator found no weather inputs to "
+            + "score) is an authoritative answer, never an absent one, and must be marked as such "
+            + "or a reader falls back to a stale forecast_score echo the writer never touches")
+    void inversionScored_trueEvenWhenScoreNull() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+
+        writer(true).write(location(), DATE, SUNSET, inlandData());
+
+        SurvivorAtmosphereEntity saved = captureSave();
+        assertThat(saved.getInversionScore()).isNull();
+        assertThat(saved.isInversionScored()).isTrue();
+    }
+
+    @Test
     @DisplayName("upsert: an existing row for the key is updated in place (latest submission wins)")
     void upsert_updatesExistingRow() {
         SurvivorAtmosphereEntity existing = new SurvivorAtmosphereEntity();

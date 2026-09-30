@@ -27,20 +27,25 @@ import static org.mockito.Mockito.when;
  * <p>Round 3 of Phase 2 "record conditions for every place" (owner decision 2026-09-30, a Codex P1
  * against PR #948's second cut) moved this detector onto
  * {@link SurvivorSignals#effectiveInversionScore()} — the ONE shared rule: the calculator's
- * {@link SurvivorSignals.Readings#inversionScore()} when present, else Claude's
- * {@link SurvivorSignals.Scores#inversion()} echo. This REVERSES the second cut's own
- * {@code detect_silentWhenReadingNull_evenIfScoresInversionIsTen} test (a null reading with a
- * strong echo used to be silent; it now fires — see
- * {@code detect_nullReadingWithStrongEcho_fires} below, and {@code effectiveInversionScore}'s own
- * javadoc for why: a forward slot is NOT guaranteed to have a fresh calculator reading every
- * cycle, since {@code BriefingCandidateCollector} can skip it on a fresh cache for up to 36 hours
- * before the calculator ever runs). The detector fires only at the STRONG band (score &ge;
- * {@code STRONG_SCORE_INCLUSIVE} = 9), the reading always wins over a disagreeing echo when both
- * are present, and the band label is DERIVED from the effective score via
- * {@code PromptBuilder.InversionPotential.fromScore} rather than read off a stored classification,
- * since the calculator produces no such string. Expired mornings are dropped via
- * {@link SolarEventFreshness} (mocked here), and every remaining strong-inversion morning is
- * enumerated in the pill.
+ * {@link SurvivorSignals.Readings#inversionScore()} when {@link SurvivorSignals.Readings#inversionScored()}
+ * is true, else Claude's {@link SurvivorSignals.Scores#inversion()} echo.
+ *
+ * <p>⚠️ <b>Round 4 (a further Codex P1) REVERSES round 3's own flip a second time, for a narrower
+ * case.</b> Round 3 made a null reading with a strong echo fire — correct for a genuinely UNSCORED
+ * row (one written before the {@code inversion_scored} column existed), but round 3's fixtures
+ * could not distinguish that from a FRESH row whose calculator legitimately found nothing (an
+ * ineligible location, or missing weather inputs) and correctly wrote a null. This class's
+ * fixtures now set {@code scored} explicitly and independently of the reading value:
+ * {@code detect_freshNullWithStrongEcho_silent} is the new, narrower case (scored=true, reading
+ * null, echo strong → silent, reversing round 3's own
+ * {@code detect_nullReadingWithStrongEcho_fires}), and
+ * {@code detect_preColumnRowWithStrongEcho_fires} keeps round 3's original intent alive under an
+ * accurate name (scored=false, reading null, echo strong → fires). The reading always wins
+ * whenever {@code scored} is true, whatever its value including null; the band label is DERIVED
+ * from the effective score via {@code PromptBuilder.InversionPotential.fromScore} rather than read
+ * off a stored classification, since the calculator produces no such string. Expired mornings are
+ * dropped via {@link SolarEventFreshness} (mocked here), and every remaining strong-inversion
+ * morning is enumerated in the pill.
  */
 @ExtendWith(MockitoExtension.class)
 class InversionHotTopicStrategyTest {
@@ -84,7 +89,8 @@ class InversionHotTopicStrategyTest {
         return signalAt(date, regionName, inversionScore, TargetType.SUNRISE);
     }
 
-    /** A survivor composite for a specific solar event, carrying an inversion score in Readings. */
+    /** A survivor composite for a specific solar event, carrying a SCORED inversion reading —
+     * the shape a fresh write produces when the calculator found something to report. */
     private static SurvivorSignals signalAt(LocalDate date, String regionName,
             double inversionScore, TargetType eventType) {
         LocationEntity location = new LocationEntity();
@@ -94,27 +100,31 @@ class InversionHotTopicStrategyTest {
             location.setRegion(region);
         }
         SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, null, null, null, null, null, null, null, null, inversionScore);
+                null, null, null, null, null, null, null, null, null, null, null,
+                inversionScore, true);
         return new SurvivorSignals(location, date, eventType, SurvivorSignals.Scores.EMPTY, readings);
     }
 
-    /** A SUNRISE row whose ONLY inversion evidence is Claude's {@code Scores} echo — Readings is
-     * EMPTY. Exercises {@code effectiveInversionScore()}'s fallback arm. */
+    /** A SUNRISE row from BEFORE the {@code inversion_scored} column existed — {@code scored} is
+     * false, so its only inversion evidence is Claude's {@code Scores} echo. Exercises
+     * {@code effectiveInversionScore()}'s fallback arm. */
     private static SurvivorSignals signalScoresOnly(LocalDate date, String regionName,
             int scoresInversion) {
-        return signalBoth(date, regionName, null, scoresInversion);
+        return signalBoth(date, regionName, false, null, scoresInversion);
     }
 
     /**
-     * A SUNRISE row carrying BOTH a calculator reading and Claude's echo, independently — lets a
-     * test prove the reading wins even when it disagrees with (including when it is LOWER than)
-     * the echo.
+     * A SUNRISE row carrying a calculator reading and Claude's echo, independently, with
+     * {@code scored} set explicitly rather than inferred from the reading — the reading and
+     * "the calculator looked at this slot" are two separate facts since round 4 (a fresh row can
+     * legitimately carry a null reading and still be {@code scored}).
      *
+     * @param scored       {@link SurvivorSignals.Readings#inversionScored()}
      * @param readingScore the calculator's {@code Readings.inversionScore()}, or null
      * @param echoScore    Claude's {@code Scores.inversion()} echo, or null
      */
     private static SurvivorSignals signalBoth(LocalDate date, String regionName,
-            Double readingScore, Integer echoScore) {
+            boolean scored, Double readingScore, Integer echoScore) {
         LocationEntity location = new LocationEntity();
         if (regionName != null) {
             RegionEntity region = new RegionEntity();
@@ -124,10 +134,9 @@ class InversionHotTopicStrategyTest {
         SurvivorSignals.Scores scores = echoScore == null
                 ? SurvivorSignals.Scores.EMPTY
                 : new SurvivorSignals.Scores(echoScore, "STRONG", null, null);
-        SurvivorSignals.Readings readings = readingScore == null
-                ? SurvivorSignals.Readings.EMPTY
-                : new SurvivorSignals.Readings(
-                        null, null, null, null, null, null, null, null, null, null, null, readingScore);
+        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
+                null, null, null, null, null, null, null, null, null, null, null,
+                readingScore, scored);
         return new SurvivorSignals(location, date, TargetType.SUNRISE, scores, readings);
     }
 
@@ -208,12 +217,12 @@ class InversionHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("REVERSES the old (3e688862) expectation: a null calculator reading with a strong "
-            + "Claude echo (10) now FIRES — a forward slot is not guaranteed to have a fresh "
-            + "reading every cycle (BriefingCandidateCollector's SKIPPED_CACHED gate can hold one "
-            + "back up to 36h before the calculator ever runs), so the echo is read as a stand-in "
-            + "for a slot the calculator has not reached yet, not ignored")
-    void detect_nullReadingWithStrongEcho_fires() {
+    @DisplayName("a PRE-COLUMN row (scored=false) with a null reading and a strong Claude echo "
+            + "(10) FIRES — this row predates the inversion_scored column, so its null reading "
+            + "carries no information and the echo is read as a stand-in for a slot the "
+            + "calculator has never reached (round 3's original intent, kept under an accurate "
+            + "name in round 4)")
+    void detect_preColumnRowWithStrongEcho_fires() {
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signalScoresOnly(FROM, "The Lake District", 10)));
         stubAhead(FROM);
@@ -225,12 +234,25 @@ class InversionHotTopicStrategyTest {
     }
 
     @Test
+    @DisplayName("REVERSES round 3's detect_nullReadingWithStrongEcho_fires: a FRESH row "
+            + "(scored=true) with a null reading and a strong Claude echo (10) is SILENT — the "
+            + "null is authoritative (an ineligible location, or the calculator found no weather "
+            + "inputs to score), so it must not fall back to a stale echo a later evaluation "
+            + "never overwrote (round 4, a Codex P1 against round 3's own fix)")
+    void detect_freshNullWithStrongEcho_silent() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalBoth(FROM, "The Lake District", true, null, 10)));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
     @DisplayName("a LOWER calculator reading (8, MODERATE) beats a HIGHER Claude echo (10) — the "
             + "reading wins whenever the calculator has scored the slot, even when disagreeing "
             + "downward, so this stays silent")
     void detect_readingBelowThreshold_beatsStrongEcho_silent() {
         when(survivorSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signalBoth(FROM, "The Lake District", 8.0, 10)));
+                .thenReturn(List.of(signalBoth(FROM, "The Lake District", true, 8.0, 10)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
@@ -240,7 +262,7 @@ class InversionHotTopicStrategyTest {
             + "already-covered case, named explicitly for the effective-score contract")
     void detect_readingPresentEchoNull_fires() {
         when(survivorSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signalBoth(FROM, "The Lake District", 10.0, null)));
+                .thenReturn(List.of(signalBoth(FROM, "The Lake District", true, 10.0, null)));
         stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
@@ -250,11 +272,10 @@ class InversionHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("both the reading and the echo null (a slot with no inversion evidence at all) is "
-            + "silent")
+    @DisplayName("an unscored row with no echo either (no inversion evidence at all) is silent")
     void detect_bothNull_silent() {
         when(survivorSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signalBoth(FROM, "The Lake District", null, null)));
+                .thenReturn(List.of(signalBoth(FROM, "The Lake District", false, null, null)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }

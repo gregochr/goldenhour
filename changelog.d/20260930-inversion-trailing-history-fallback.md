@@ -1,4 +1,4 @@
-### Fixed — the inversion signal needed one shared fallback rule, not a forward/trailing split
+### Fixed — the inversion signal needed one shared fallback rule, not a forward/trailing split, and then a way to tell an authoritative null from an absent one
 
 **Round 2** — A Codex review of PR #948 (against commit `3e688862`, the first V158 cut) found a P1:
 after V158 added `survivor_atmosphere.inversion_score`, every row written before that migration
@@ -80,3 +80,72 @@ silent; a reading with no echo still fires (named explicitly); both null stays s
 `buildInversion_forwardPeak_nullReadingWithStrongEcho_isShown`) and adds a forward-peak
 reading-wins-over-disagreeing-echo case, mirroring the trailing-history one already there;
 `inversionRarityNeverUpgrades` and the round-2 trailing-history tests are unaffected and still pass.
+
+**Round 4 — a further Codex P1 found `effectiveInversionScore()` itself still wrong: it treated
+EVERY null `Readings.inversionScore()` as "the calculator has not reached this slot yet", but a
+null reading is also exactly what a FRESH write produces.** Two causes, both legitimate: (1)
+`InversionScoreCalculator.calculate` returns null for an otherwise-ELIGIBLE location when required
+weather inputs (a null dew point or surface temperature) are missing; (2) `ForecastDataAugmentor
+.augmentWithInversionScore` returns the base `AtmosphericData` unchanged — the score staying null —
+for an INELIGIBLE location. Both leave `survivor_atmosphere.inversion_score` null on a row written
+THIS cycle, indistinguishable from a row the calculator simply has not reached at all. Since
+`ForecastScoreWriter.write` only upserts the `forecast_score` INVERSION component when
+`eval.inversionScore() != null`, any earlier component for that slot is left in place indefinitely
+whenever a later evaluation scores nothing — so round 3's blanket "null reading → fall back to the
+echo" rule could revive a STRONG rating from a stale evaluation days after the calculator itself
+had legitimately found nothing to report, on the exact slot the deterministic scoring was meant to
+correct.
+
+**The fix distinguishes an authoritative null from an absent one with data, not with timestamps.**
+`V158__add_survivor_inversion_score.sql` (amended in place — this PR was never merged, confirmed by
+an empty `git log origin/main -- backend/src/main/resources/db/migration/V158*`) gains a second
+column, `inversion_scored BOOLEAN NOT NULL DEFAULT FALSE`. `SurvivorAtmosphereWriter.write` now sets
+`inversionScored = true` on every write it makes — with a real score or with a null one alike —
+because a fresh write always ran the calculator's own eligibility check this cycle, whatever it
+found. `SurvivorSignals.Readings` gains the thirteenth component `inversionScored` (`false` in
+`EMPTY`), mapped by `SurvivorSignalReader` straight off the entity's own flag.
+`effectiveInversionScore()` now checks `readings.inversionScored()` FIRST: when `true`, it returns
+`readings.inversionScore()` exactly as stored, null included, and never consults the echo at all;
+only when `false` — a row written before this column existed — does it fall back to Claude's echo,
+or null if neither surface has anything to say. The calculator still decides whenever it has
+scored a slot, full stop; this round narrows *what counts as* the calculator having scored a slot,
+it does not touch the precedence rule itself.
+
+**The permanent fallback population shrinks by exactly the case this round fixes.** Round 3 named
+three populations that only ever have the echo; the "any forward slot a `SKIPPED_CACHED` gate has
+not yet let the calculator re-score this cycle" population is now split in two by this round: a
+slot with NO `survivor_atmosphere` row at all for that key still falls back (nothing to mark
+scored), but a slot the calculator DID score this cycle — even to a null result — no longer does.
+The two populations that remain permanent are unchanged in kind: every pre-round-4
+`survivor_atmosphere` row (`inversion_scored = false` by the migration's default, and a past date is
+never re-evaluated so the flag is never retroactively set) and any `forecast_score` INVERSION row
+with no matching `survivor_atmosphere` row at all. **Still no backfill migration** — the read-time
+flag already tells the two cases apart; a backfill could not populate `inversion_scored` for a
+historical row with any confidence it reflects that row's own cycle.
+
+Tests: `SurvivorSignalsTest.effectiveInversionScore` gains the scored/unscored cross product —
+scored=true with a null reading and a strong echo (10) now returns null (silent), reversing round
+3's own `detect_nullReadingWithStrongEcho_fires`-shaped expectation at the helper level; scored=true
+with a real reading (9) returns 9 regardless of the echo; scored=false with an echo (10) returns 10
+(the pre-column shape, unchanged); scored=false with no echo returns null.
+`SurvivorAtmosphereWriterTest` gains two cases: a write with a calculator score sets
+`inversionScored = true`, and a write with a null score sets it `true` too.
+`SurvivorSignalReaderTest` gains a mapping test (scored=true, with and without a reading survives
+the join) and confirms `Readings.EMPTY.inversionScored()` is `false`. `InversionHotTopicStrategyTest`
+renames `detect_nullReadingWithStrongEcho_fires` to `detect_preColumnRowWithStrongEcho_fires`
+(unchanged assertion — a pre-column row still fires) and adds
+`detect_freshNullWithStrongEcho_silent`, its direct reversal for a scored row. Every remaining
+signal-carrying fixture across `DustFactsBuilderTest`, `DustHotTopicStrategyTest`,
+`SnowFreshHotTopicStrategyTest`, `StormSurgeFactsBuilderTest`, `StormSurgeHotTopicStrategyTest`,
+`SnowTopsHotTopicStrategyTest`, `HotTopicAggregatorTest` and
+`RecordConditionsForEveryPlaceIntegrationTest` was audited and given an explicit `scored` value
+(`false` where the fixture is unrelated to inversion; `true` where an existing fixture asserts on a
+real inversion reading, since leaving it at the record's default `false` would have silently
+switched that fixture onto the echo path instead of the reading it was written to test).
+`ComingUpConditionsBuilderTest` renames its own `buildInversion_nullReadingWithStrongEcho
+_isListedWithEchoScore`/`buildInversion_forwardPeak_nullReadingWithStrongEcho_isShown` to
+`_preColumnRowWithStrongEcho_*` (unchanged assertions) and adds their direct reversals,
+`buildInversion_freshNullReadingWithStrongEcho_notListed` and
+`buildInversion_forwardPeak_freshNullReadingWithStrongEcho_noPeak`, using two new helpers
+(`scoredNullReading`, `preColumnReading`) that make each fixture's intent explicit rather than
+relying on a bare `new SurvivorAtmosphereEntity()`'s default field values.

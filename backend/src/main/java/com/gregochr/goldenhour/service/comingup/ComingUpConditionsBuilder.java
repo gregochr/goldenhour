@@ -568,6 +568,16 @@ public class ComingUpConditionsBuilder {
     // that class's own javadoc for why this condition and the map's Claude-echoed badge are
     // allowed to disagree). The RARITY term stays on the config fallback either way (unchanged by
     // this — see the class javadoc's own note on that).
+    //
+    // Round 4 (a further Codex P1 against effectiveInversionScore() itself): a null reading is not
+    // always "the calculator has not reached this slot yet" — it is also what a FRESH write
+    // produces when InversionScoreCalculator.calculate returns null for missing weather inputs, or
+    // for an ineligible location. V158's second column, inversion_scored, tells the two apart: a
+    // fresh null (inversion_scored = true) is an answer and stays silent in both loops below;
+    // only a PRE-COLUMN row (inversion_scored = false, written before this flag existed) or an
+    // absent key still falls back to Claude's echo. See SurvivorSignals.effectiveInversionScore's
+    // own javadoc for the full reasoning and why this still never lets the echo overrule a
+    // calculator reading that exists.
 
     private ComingUpCondition buildInversion(LocalDate builtFor) {
         int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();

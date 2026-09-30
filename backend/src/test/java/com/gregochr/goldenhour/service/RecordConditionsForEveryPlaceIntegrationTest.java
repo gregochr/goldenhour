@@ -179,6 +179,9 @@ class RecordConditionsForEveryPlaceIntegrationTest {
         reading.setEventType(TargetType.SUNRISE);
         reading.setDust(new BigDecimal("55.00"));
         reading.setInversionScore(9.0);
+        // V158 round 4: a fresh row must be marked scored, or effectiveInversionScore() treats
+        // it as pre-column and falls back to Claude's (here, disagreeing) echo instead.
+        reading.setInversionScored(true);
 
         when(forecastScoreRepository.findComponentsByType(
                 ForecastType.INVERSION.getId(), DATE, WINDOW_END)).thenReturn(List.of(score));

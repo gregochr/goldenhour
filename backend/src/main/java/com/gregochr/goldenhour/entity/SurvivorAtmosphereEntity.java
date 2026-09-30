@@ -104,18 +104,39 @@ public class SurvivorAtmosphereEntity {
     private Double temperatureCelsius;
 
     /**
-     * Cloud inversion likelihood score (0–10, {@code InversionScoreCalculator}), or null when the
-     * location was not inversion-eligible (elevation &lt; 200 m, or does not overlook water). V158
+     * Cloud inversion likelihood score (0–10, {@code InversionScoreCalculator}), or null when
+     * either the location was not inversion-eligible (elevation &lt; 200 m, or does not overlook
+     * water) or the calculator itself returned null for an eligible location (missing dew point or
+     * surface temperature — see {@code InversionScoreCalculator.calculate}'s own null guards). V158
      * (Phase 2 of "record conditions for every place", owner decision 2026-09-30): the deterministic
      * calculator's own score, captured at the same collection-time seam as every other reading on
      * this row — unlike the Claude-echoed {@code forecast_score} INVERSION component, this is
-     * populated for a triaged-out or Gate-4-stood-down candidate too, since the calculator runs
-     * before both checks. Feeds {@code InversionHotTopicStrategy} and the Coming up "Valley
-     * inversions" condition; the map popup's inversion badge stays on Claude's echo
-     * ({@code forecast_evaluation.inversion_score}) and does not read this column.
+     * populated (or set null) for a triaged-out or Gate-4-stood-down candidate too, since the
+     * calculator runs before both checks. Feeds {@code InversionHotTopicStrategy} and the Coming up
+     * "Valley inversions" condition, always paired with {@link #inversionScored} — a null reading
+     * alone does not mean "unscored"; see that field's own javadoc. The map popup's inversion badge
+     * stays on Claude's echo ({@code forecast_evaluation.inversion_score}) and does not read this
+     * column.
      */
     @Column(name = "inversion_score")
     private Double inversionScore;
+
+    /**
+     * True when THIS row was produced by a writer that ran {@code InversionScoreCalculator}'s
+     * eligibility check this cycle, whatever the result — false only for a row written before V158
+     * added this column (default {@code FALSE} on the migration). V158 round 4 (a Codex P1 against
+     * round 3's own unify-onto-one-rule fix, owner decision 2026-09-30): a fresh {@link
+     * #inversionScore} of null is
+     * a genuine, authoritative answer — an ineligible location, or an eligible one the calculator
+     * could not score this cycle for want of weather inputs — and must NOT fall back to Claude's
+     * {@code forecast_score} echo the way an absent (pre-column, {@code scored = false}) row does,
+     * or a stale STRONG rating from a previous cycle would be revived after the current data no
+     * longer supports it (Claude's echo is left in place indefinitely by {@code ForecastScoreWriter}
+     * whenever a later evaluation carries no score of its own). {@code SurvivorAtmosphereWriter}
+     * sets this {@code true} on every write, with a score or with a null one alike.
+     */
+    @Column(name = "inversion_scored", nullable = false)
+    private boolean inversionScored;
 
     /** Total storm surge in metres (pressure + wind), or null. Feeds the STORM_SURGE facts line. */
     @Column(name = "surge_total_m")
