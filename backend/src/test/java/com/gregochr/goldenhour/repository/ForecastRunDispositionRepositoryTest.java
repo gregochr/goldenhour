@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -17,7 +18,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Repository slice test for the round-14 disposition allow-list queries,
  * {@link ForecastRunDispositionRepository#findSupersedingDispositions} and
- * {@link ForecastRunDispositionRepository#existsSupersedingDisposition}. Runs on H2 (schema
+ * {@link ForecastRunDispositionRepository#existsSupersedingDisposition}, and for the
+ * "examined" evidence read {@link ForecastRunDispositionRepository#findLatestNonCachedDispositions}
+ * (its semantics were pinned only in the CI-only {@code DispositionWriteIntegrationTest} until the
+ * 2026-09-30 rewrite from a correlated {@code MAX} subquery to a {@code NOT EXISTS} anti-join —
+ * a query shape change deserves a proof that runs locally too). Runs on H2 (schema
  * generated from entity annotations via {@code ddl-auto: create-drop}, no Flyway, no Docker) per
  * this project's {@code @DataJpaTest} pattern.
  *
@@ -183,5 +188,120 @@ class ForecastRunDispositionRepositoryTest {
 
         assertThat(repository.existsSupersedingDisposition(
                 "X", DATE, SUNSET, boundary)).isFalse();
+    }
+
+    /**
+     * {@link ForecastRunDispositionRepository#findLatestNonCachedDispositions}, after its rewrite
+     * from {@code created_at = (SELECT MAX(...))} to a {@code NOT EXISTS} anti-join. Every case
+     * here states a fact the old shape already answered the same way; the point is that the new
+     * shape answers it identically, on a database that is not the one the CI-only integration
+     * test runs on.
+     */
+    @Nested
+    @DisplayName("findLatestNonCachedDispositions — the anti-join keeps the MAX subquery's answers")
+    class FindLatestNonCachedDispositions {
+
+        private static final Instant NIGHT_ONE = Instant.parse("2026-09-28T01:05:00Z");
+        private static final Instant NIGHT_TWO = Instant.parse("2026-09-29T01:05:00Z");
+
+        @Test
+        @DisplayName("the most recent non-cached row wins: triaged night one, stability-skipped "
+                + "night two → SKIPPED_STABILITY, one row")
+        void latestWins_triagedThenStability() {
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_TRIAGED", NIGHT_ONE);
+            insertDisposition(2L, "X", DATE, SUNSET, "SKIPPED_STABILITY", NIGHT_TWO);
+
+            List<Object[]> rows = repository.findLatestNonCachedDispositions(DATE, DATE);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("X");
+            assertThat(rows.getFirst()[3]).isEqualTo("SKIPPED_STABILITY");
+            assertThat(rows.getFirst()[4]).isEqualTo(NIGHT_TWO);
+        }
+
+        @Test
+        @DisplayName("and in the reverse order: stability-skipped night one, triaged night two → "
+                + "SKIPPED_TRIAGED")
+        void latestWins_stabilityThenTriaged() {
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_STABILITY", NIGHT_ONE);
+            insertDisposition(2L, "X", DATE, SUNSET, "SKIPPED_TRIAGED", NIGHT_TWO);
+
+            List<Object[]> rows = repository.findLatestNonCachedDispositions(DATE, DATE);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[3]).isEqualTo("SKIPPED_TRIAGED");
+        }
+
+        @Test
+        @DisplayName("SKIPPED_CACHED is excluded on BOTH sides: a cached reuse on top of last "
+                + "night's triage neither hides it nor is named itself")
+        void cachedExcludedFromBothSides() {
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_TRIAGED", NIGHT_ONE);
+            insertDisposition(2L, "X", DATE, SUNSET, "SKIPPED_CACHED", NIGHT_TWO);
+
+            List<Object[]> rows = repository.findLatestNonCachedDispositions(DATE, DATE);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[3]).isEqualTo("SKIPPED_TRIAGED");
+        }
+
+        @Test
+        @DisplayName("a slot that only ever reads SKIPPED_CACHED is absent, not named as cached")
+        void cachedOnlySlot_absent() {
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_CACHED", NIGHT_ONE);
+            insertDisposition(2L, "X", DATE, SUNSET, "SKIPPED_CACHED", NIGHT_TWO);
+
+            assertThat(repository.findLatestNonCachedDispositions(DATE, DATE)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("SUBMISSION_FAILED is a real, newer decision and supersedes an older triage — "
+                + "the shape the 2026-09-29 incident depends on")
+        void submissionFailedSupersedesOlderTriage() {
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_TRIAGED", NIGHT_ONE);
+            insertDisposition(2L, "X", DATE, SUNSET, "SUBMISSION_FAILED", NIGHT_TWO);
+
+            List<Object[]> rows = repository.findLatestNonCachedDispositions(DATE, DATE);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[3]).isEqualTo("SUBMISSION_FAILED");
+        }
+
+        @Test
+        @DisplayName("a tie at the same instant returns BOTH rows — no strictly-later row exists "
+                + "for either, exactly as both matched the old MAX")
+        void tieAtSameInstant_returnsBothRows() {
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_TRIAGED", NIGHT_TWO);
+            insertDisposition(2L, "X", DATE, SUNSET, "EVALUATED", NIGHT_TWO);
+
+            List<Object[]> rows = repository.findLatestNonCachedDispositions(DATE, DATE);
+
+            assertThat(rows).hasSize(2);
+            assertThat(rows).extracting(r -> (String) r[3])
+                    .containsExactlyInAnyOrder("SKIPPED_TRIAGED", "EVALUATED");
+        }
+
+        @Test
+        @DisplayName("slots are independent: each (location, date, event) names its own latest, "
+                + "and a date outside the range is not returned")
+        void slotsIndependent_andRangeBounded() {
+            LocalDate later = DATE.plusDays(1);
+            LocalDate outside = DATE.plusDays(6);
+            insertDisposition(1L, "X", DATE, SUNSET, "SKIPPED_TRIAGED", NIGHT_ONE);
+            insertDisposition(1L, "X", DATE, "SUNRISE", "EVALUATED", NIGHT_ONE);
+            insertDisposition(1L, "Y", later, SUNSET, "SKIPPED_STABILITY", NIGHT_ONE);
+            insertDisposition(2L, "Y", later, SUNSET, "SKIPPED_TRIAGED", NIGHT_TWO);
+            insertDisposition(2L, "Z", outside, SUNSET, "SKIPPED_TRIAGED", NIGHT_TWO);
+
+            List<Object[]> rows = repository.findLatestNonCachedDispositions(DATE, later);
+
+            assertThat(rows).hasSize(3);
+            assertThat(rows)
+                    .extracting(r -> r[0] + "|" + r[1] + "|" + r[2] + "|" + r[3])
+                    .containsExactlyInAnyOrder(
+                            "X|" + DATE + "|SUNSET|SKIPPED_TRIAGED",
+                            "X|" + DATE + "|SUNRISE|EVALUATED",
+                            "Y|" + later + "|SUNSET|SKIPPED_TRIAGED");
+        }
     }
 }

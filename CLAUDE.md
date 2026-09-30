@@ -766,7 +766,17 @@ Two consequences worth stating plainly:
   .getTriagedByBatchLocationNames`/`getTriagedByBatchLocationNamesBulk` are the fix: they read the
   same `loadTriagedByBatch` disposition-sourced set as before, but return it as a location-name set
   keyed identically to `getScoresForEnrichmentBulk`'s own map — `findAllEnabled` + `loadTriagedByBatch`,
-  **2** queries — handed to `BriefingRegionEvaluationRollup.enrich` through a brand-new, genuinely
+  **2** queries — ⚠️ **and the second is written as a `NOT EXISTS` anti-join, never as
+  `created_at = (SELECT MAX(...))` (2026-09-30).** As shipped in #943 it was the correlated `MAX`
+  form, and `forecast_run_disposition` had no index by slot (V101 indexes `job_run_id` and
+  `(disposition, created_at)` only), so Postgres — which cannot decorrelate a scalar subquery in
+  `WHERE` — ran a full scan of the 30-day retention window once per outer row: **36 s per
+  `GET /api/briefing`** on production-sized data, which is why on 2026-09-30 the Plan tab drew
+  nothing and the map no heat field (the briefing never arrived before Cloudflare's 100 s limit;
+  the chips kept their stars because `/evaluate/scores` never runs this query). The anti-join
+  returns the identical rows in ~34 ms with no index; V160's slot-keyed index is belt and braces
+  for any future per-slot "latest" read on this table, whichever shape it takes. The pair is
+  handed to `BriefingRegionEvaluationRollup.enrich` through a brand-new, genuinely
   SEPARATE `TriagedByBatchResolver` parameter (`BriefingScoreEnricher`'s abstract method grew a third
   argument; a default 2-arg overload keeps every pre-existing caller and test compiling with an
   empty, safely-under-counting triaged set). The rollup then unions that disposition-sourced set
