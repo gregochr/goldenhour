@@ -8,17 +8,35 @@ freezing level, humidity, storm surge) was called only for a candidate that surv
 *and* the Gate 4 stability policy, so a place forecast to be cloudy or stability-gated had no dust,
 snow or surge chip at all, even when the condition was genuinely there.
 
-The write now happens in `ForecastTaskCollector` immediately after `fetchWeatherAndTriage` returns
-— before the triage verdict and before the Gate 4 decision — so a `SKIPPED_TRIAGED` or
-`SKIPPED_STABILITY` candidate now carries a reading exactly like an `EVALUATED` one. A candidate
-that never had its weather fetched this cycle (`SKIPPED_PAST_DATE`, `SKIPPED_CACHED`,
-`SKIPPED_TRAVEL_DAY`, `SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_HARD_CONSTRAINT` — all decided before
-the candidate loop from an earlier cycle's own cached verdict — or a `SKIPPED_ERROR` where the
-fetch itself failed) still writes nothing, since there is no reading to record. The two hand-started
-admin paths that bypass every gate (`ForceSubmitBatchService`'s JFDI and force-submit) now make the
-same write, so a bypass run is no sparser on this surface than a scheduled cycle. No feature switch
-— every place is recorded from the first deploy, matching the existing
-`photocast.survivor-atmosphere.write` all-or-nothing flag.
+The write happens immediately after `fetchWeatherAndTriage` assembles the atmospheric data — before
+the triage verdict and before the Gate 4 decision — so a `SKIPPED_TRIAGED` or `SKIPPED_STABILITY`
+candidate now carries a reading exactly like an `EVALUATED` one. A candidate that never had its
+weather fetched this cycle (`SKIPPED_PAST_DATE`, `SKIPPED_CACHED`, `SKIPPED_TRAVEL_DAY`,
+`SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_HARD_CONSTRAINT` — all decided before the candidate loop from
+an earlier cycle's own cached verdict — or a `SKIPPED_ERROR` where the fetch itself failed) still
+writes nothing, since there is no reading to record. No feature switch — every place is recorded
+from the first deploy, matching the existing `photocast.survivor-atmosphere.write` all-or-nothing
+flag.
+
+**Round 2: the write moved to a single seam, after a Codex review of the first cut found two more
+gaps.** The first cut of this change (commit 9c01491f) put the write directly at three call
+sites — `ForecastTaskCollector`'s scheduled batch path, and both of `ForceSubmitBatchService`'s
+entry points (JFDI and admin force-submit). A Codex review of the resulting PR found this missed
+two OTHER real callers of `ForecastService.fetchWeatherAndTriage`: the batch collector's own admin
+`collectRegionFilteredBatches`, and the synchronous engine's `ForecastCommandExecutor
+.runTriagePhase` — both fetch weather and triage/Gate-4-skip candidates exactly like the scheduled
+path, but neither had a write at all, so a triaged-out slot on an admin region-filtered run or a
+hand-started `/api/forecast/run*` call still had no reading recorded. Rather than add two more call
+sites, the write moved inside `ForecastService.fetchWeatherAndTriage` itself — the one place every
+caller already shares, and the same method that CLAUDE.md already documents as saving a
+`forecast_evaluation` row as a side effect. This covers all six current callers (the two batch
+collector paths, both `ForceSubmitBatchService` entry points, `BatchRetryService`'s failed-request
+reconstruction, and the synchronous engine) and any future one, with exactly one write per fetch.
+The three call-site writes added in the first cut, and `evaluateAndPersist`'s own write (which a
+triaged candidate never reached anyway, since its caller discards triaged results before calling
+it), were removed — a caller that already writes would otherwise write the same fetch twice.
+`ForecastTaskCollector` and `ForceSubmitBatchService` no longer depend on `SurvivorAtmosphereWriter`
+at all, since neither calls it directly any more.
 
 **Bluebell stays the named exception.** It and cloud inversion read `forecast_score`, not
 `survivor_atmosphere` — a genuinely Claude-scored component, unaffected by this change, since it is

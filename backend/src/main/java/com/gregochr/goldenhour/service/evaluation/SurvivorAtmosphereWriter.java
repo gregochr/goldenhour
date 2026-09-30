@@ -25,15 +25,26 @@ import java.time.LocalDate;
  * knowing there is dust, snow or a storm surge at a place is interesting on its own terms (the "what
  * is happening" question hot topics and the Coming up feed answer), independent of whether the same
  * place is forecast to be blocked (the separate "where is worth going" question stars and verdicts
- * answer). {@link #write} is now called for every candidate a batch cycle, a hand-started admin run,
- * or the synchronous engine fetched weather for — triaged-out and Gate-4-stood-down candidates
- * included — so "survivor" no longer describes this table's population. See
- * {@code ForecastTaskCollector}'s call site for exactly which dispositions now carry a row and which
- * still do not (a candidate that never had its weather fetched this cycle — past date, unknown
- * location, travel day, a collection-time error — still writes nothing, because there is no reading
- * to record). Renaming the table and every class named after it needs its own migration and is
- * deliberately out of scope for this change — see the changelog entry for the file list a rename
- * would touch.
+ * answer). So "survivor" no longer describes this table's population.
+ *
+ * <p>⚠️ <b>{@link #write} is called from exactly ONE place: inside
+ * {@link com.gregochr.goldenhour.service.ForecastService#fetchWeatherAndTriage
+ * ForecastService.fetchWeatherAndTriage} itself</b> — immediately after the atmospheric data is
+ * assembled and before that method's own triage checks. The first cut of this phase (commit
+ * 9c01491f) instead called this writer from three separate call sites (the batch collector's
+ * scheduled path, and both of {@code ForceSubmitBatchService}'s entry points); a Codex review
+ * found two OTHER real callers of {@code fetchWeatherAndTriage} — the batch collector's own
+ * {@code collectRegionFilteredBatches} and the synchronous engine's
+ * {@code ForecastCommandExecutor.runTriagePhase} — reached it and got no write at all. Moving the
+ * call inside {@code fetchWeatherAndTriage} covers every present and future caller with one seam:
+ * the scheduled batch collector, its admin region-filtered sibling, {@code ForceSubmitBatchService}
+ * (JFDI and admin force-submit), {@code BatchRetryService}'s failed-request reconstruction, and the
+ * synchronous engine, all in one place. See that method's own javadoc for exactly which
+ * dispositions now carry a row and which still do not (a candidate that never had its weather
+ * fetched this cycle — past date, unknown location, travel day, a collection-time error — still
+ * writes nothing, because there is no reading to record). Renaming the table and every class named
+ * after it needs its own migration and is deliberately out of scope for this change — see the
+ * changelog entry for the file list a rename would touch.
  *
  * <p><b>Why submission time, not result time.</b> The atmospheric readings (aerosol, surge,
  * snow, humidity) live on the {@link AtmosphericData} computed at collection/submission and are
@@ -50,8 +61,9 @@ import java.time.LocalDate;
  * own rule.
  *
  * <p><b>Failure isolation.</b> Runs in its own {@link Propagation#REQUIRES_NEW} transaction so a
- * write failure rolls back only this write — never the caller's submission/evaluation. Callers
- * additionally wrap the call so a thrown exception is logged and the pipeline proceeds.
+ * write failure rolls back only this write — never the fetch/triage in progress. The one call site
+ * additionally wraps the call so a thrown exception is logged and {@code fetchWeatherAndTriage}
+ * proceeds to its triage checks regardless.
  *
  * <p><b>Feature flag.</b> {@code photocast.survivor-atmosphere.write} (default {@code true}).
  * Flag off = no rows written; the additive-table rollback path, no redeploy. There is deliberately

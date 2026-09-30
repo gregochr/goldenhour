@@ -26,7 +26,6 @@ import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
-import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,7 +103,6 @@ public class ForecastTaskCollector {
     private final SolarService solarService;
     private final FreshnessResolver freshnessResolver;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
-    private final SurvivorAtmosphereWriter survivorAtmosphereWriter;
     private final TravelDayService travelDayService;
 
     /** Minimum ratio of successful weather pre-fetches to proceed (scheduled path only). */
@@ -140,7 +138,6 @@ public class ForecastTaskCollector {
      * @param solarService              solar azimuth and event time helpers
      * @param freshnessResolver         per-stability cache freshness thresholds
      * @param stabilitySnapshotProvider provides the latest stability snapshot
-     * @param survivorAtmosphereWriter  captures survivor atmospheric readings at submission time
      * @param travelDayService          gates out candidates whose target date is a travel day
      * @param minPrefetchSuccessRatio   minimum prefetch ratio to proceed (scheduled path)
      * @param forceEvalCap              max force-evaluated headline candidates per cycle
@@ -159,7 +156,6 @@ public class ForecastTaskCollector {
             SolarService solarService,
             FreshnessResolver freshnessResolver,
             StabilitySnapshotProvider stabilitySnapshotProvider,
-            SurvivorAtmosphereWriter survivorAtmosphereWriter,
             TravelDayService travelDayService,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio,
@@ -177,7 +173,6 @@ public class ForecastTaskCollector {
         this.solarService = solarService;
         this.freshnessResolver = freshnessResolver;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
-        this.survivorAtmosphereWriter = survivorAtmosphereWriter;
         this.travelDayService = travelDayService;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         this.forceEvalCap = forceEvalCap;
@@ -384,29 +379,15 @@ public class ForecastTaskCollector {
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), nearTermModel, false, null,
                         prefetchedWeather, cloudCache);
-
-                // Record conditions for every place this cycle fetched weather for — the
-                // "what is happening" question (hot topics, Coming up) must be answerable for
-                // every candidate the pipeline looked at, not only the ones that go on to a
-                // stars verdict (owner decision 2026-09-29, "record conditions for every place
-                // each run", Phase 1). This runs BEFORE the triage verdict and the Gate 4
-                // stability decision below — both of which retract a RATING but must never
-                // silence a hot topic (the two-question rule; see SurvivorSignalReader's class
-                // javadoc). It used to sit after both gates, keyed to "past triage + gating" —
-                // which is exactly the old product rule this phase reverses: a place stood down
-                // for cloud used to have no dust/snow/surge reading at all, even when the
-                // condition was there. `preEval.atmosphericData()` is populated whether or not
-                // the candidate triages or gates out (the triage branches below return it
-                // unchanged), so this is the earliest point after weather is actually in hand.
-                // Isolated so a carrier write failure never aborts collection for this candidate.
-                try {
-                    survivorAtmosphereWriter.write(candidate.location(), candidate.date(),
-                            candidate.targetType(), preEval.atmosphericData());
-                } catch (Exception e) {
-                    LOG.error("survivor_atmosphere write FAILED for {} {} {}; collection proceeds: {}",
-                            candidate.location().getName(), candidate.date(),
-                            candidate.targetType(), e.getMessage(), e);
-                }
+                // Record conditions for every place this cycle fetched weather for — no longer a
+                // call made here. `ForecastService.fetchWeatherAndTriage` above now makes this
+                // write itself, immediately after assembling the atmospheric data and before its
+                // own triage checks, so it covers this call site and every other caller of that
+                // method (collectRegionFilteredBatches below, ForceSubmitBatchService,
+                // BatchRetryService, and the synchronous engine's runTriagePhase) with the one
+                // seam — see that method's own javadoc for the full reasoning (owner decision
+                // 2026-09-29 "record conditions for every place", Phase 1, and the P1 fix that
+                // moved the write off this collector's own three call sites and into the seam).
 
                 // Season is tested DIRECTLY against the configured window. It used to be
                 // inferred from a non-null bluebell condition score, which is a three-way
@@ -831,6 +812,9 @@ public class ForecastTaskCollector {
                 if (candidate.location().isWoodlandOnly()) {
                     continue;
                 }
+                // fetchWeatherAndTriage records this candidate's atmospheric readings itself
+                // (the one seam every caller shares — see its own javadoc), including a slot
+                // this admin path is about to triage or Gate-4-skip below.
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), model, false, null,

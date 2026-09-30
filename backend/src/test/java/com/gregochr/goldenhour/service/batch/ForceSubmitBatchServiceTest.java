@@ -29,7 +29,6 @@ import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceSubmit
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
-import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -95,8 +94,6 @@ class ForceSubmitBatchServiceTest {
     private ModelSelectionService modelSelectionService;
     @Mock
     private EvaluationService evaluationService;
-    @Mock
-    private SurvivorAtmosphereWriter survivorAtmosphereWriter;
 
     private ForceSubmitBatchService service;
 
@@ -104,8 +101,7 @@ class ForceSubmitBatchServiceTest {
     void setUp() {
         service = new ForceSubmitBatchService(
                 anthropicClient, regionRepository, locationService,
-                forecastService, modelSelectionService, evaluationService, CLOCK,
-                survivorAtmosphereWriter);
+                forecastService, modelSelectionService, evaluationService, CLOCK);
     }
 
     /** Production's clock, so the existing cases keep exercising the real calendar. */
@@ -194,64 +190,15 @@ class ForceSubmitBatchServiceTest {
                 .isEqualTo(EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
     }
 
-    @Test
-    @DisplayName("record conditions for every place: forceSubmit records the candidate's "
-            + "atmospheric readings even though this path bypasses every gate")
-    void forceSubmit_recordsAtmosphericReadings() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, loc,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_force001", 1));
-
-        service.forceSubmit(7L, LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        verify(survivorAtmosphereWriter).write(
-                loc, LocalDate.of(2026, 4, 16), TargetType.SUNSET, data);
-    }
-
-    @Test
-    @DisplayName("record conditions for every place: a failing readings write does not stop "
-            + "forceSubmit from submitting the task")
-    void forceSubmit_readingsWriteFails_submissionStillProceeds() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, loc,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
-        org.mockito.Mockito.doThrow(new RuntimeException("DB unavailable"))
-                .when(survivorAtmosphereWriter).write(any(), any(), any(), any());
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_force001", 1));
-
-        ForceSubmitResult result = service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        assertThat(result.batchId()).isEqualTo("msgbatch_force001");
-        verify(evaluationService).submit(anyList(), eq(BatchTriggerSource.FORCE));
-    }
+    // ── Record conditions for every place (Phase 1, owner decision 2026-09-30) ────────────────
+    // The write moved to a single seam inside ForecastService.fetchWeatherAndTriage (a Codex P1
+    // finding: the first cut of this phase put a write directly in this service's two entry
+    // points and in ForecastTaskCollector, while collectRegionFilteredBatches and the
+    // synchronous engine's runTriagePhase got none). forecastService is mocked in this test
+    // class, so fetchWeatherAndTriage's real body — which now does the write — never runs here;
+    // the seam itself is pinned in ForecastServiceTest, and this class keeps only the tests
+    // below verifying forceSubmit/submitJfdiBatch call fetchWeatherAndTriage with the right
+    // candidates, which is what makes the seam reachable from this service at all.
 
     @Test
     @DisplayName("forceSubmit returns null batchId when all data assembly fails")
@@ -523,51 +470,6 @@ class ForceSubmitBatchServiceTest {
                 .allMatch(t -> t.model() == EvaluationModel.HAIKU);
     }
 
-    @Test
-    @DisplayName("record conditions for every place: submitJfdiBatch records atmospheric "
-            + "readings for every location x date x event it fetched weather for")
-    void submitJfdiBatch_recordsAtmosphericReadingsForEveryCandidate() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        loc.setLocationType(Set.of(com.gregochr.goldenhour.entity.LocationType.LANDSCAPE));
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, loc,
-                LocalDate.now(), TargetType.SUNSET,
-                LocalDateTime.now(), 270, 1,
-                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_jfdi", 8));
-
-        service.submitJfdiBatch(List.of(7L));
-
-        // 1 location x 4 dates (T+0..T+3) x 2 events = 8 reads written, one per candidate. The
-        // exact dates are whatever ForecastHorizon.today(clock) resolves to at test run time (the
-        // service's own UK-civil-calendar range), not asserted here — captured instead of
-        // recomputed with LocalDate.now(), which resolves on the JVM default zone and could
-        // disagree with the service's Europe/London anchor near a UK midnight.
-        org.mockito.ArgumentCaptor<LocalDate> dateCaptor =
-                org.mockito.ArgumentCaptor.forClass(LocalDate.class);
-        org.mockito.ArgumentCaptor<TargetType> eventCaptor =
-                org.mockito.ArgumentCaptor.forClass(TargetType.class);
-        verify(survivorAtmosphereWriter, org.mockito.Mockito.times(8)).write(
-                eq(loc), dateCaptor.capture(), eventCaptor.capture(), eq(data));
-        assertThat(dateCaptor.getAllValues()).hasSize(8);
-        assertThat(java.util.Set.copyOf(dateCaptor.getAllValues())).hasSize(4);
-        assertThat(eventCaptor.getAllValues())
-                .containsOnly(TargetType.SUNRISE, TargetType.SUNSET);
-        assertThat(eventCaptor.getAllValues().stream()
-                .filter(e -> e == TargetType.SUNRISE).count()).isEqualTo(4);
-        assertThat(eventCaptor.getAllValues().stream()
-                .filter(e -> e == TargetType.SUNSET).count()).isEqualTo(4);
-    }
-
     /**
      * The JFDI range is anchored on the UK civil date, because {@code ForecastService} measures the
      * horizon of every date it is handed on that calendar — and persists it. Pinned at the one
@@ -593,8 +495,7 @@ class ForceSubmitBatchServiceTest {
 
         ForceSubmitBatchService pinned = new ForceSubmitBatchService(
                 anthropicClient, regionRepository, locationService,
-                forecastService, modelSelectionService, evaluationService, lateBstEvening,
-                survivorAtmosphereWriter);
+                forecastService, modelSelectionService, evaluationService, lateBstEvening);
 
         RegionEntity region = buildRegion(7L, "Northumberland");
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);

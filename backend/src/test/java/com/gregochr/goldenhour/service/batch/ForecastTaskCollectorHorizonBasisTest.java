@@ -33,7 +33,6 @@ import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
-import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -138,8 +137,6 @@ class ForecastTaskCollectorHorizonBasisTest {
     @Mock
     private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock
-    private SurvivorAtmosphereWriter survivorAtmosphereWriter;
-    @Mock
     private TravelDayService travelDayService;
 
     private ForecastTaskCollector collector;
@@ -150,7 +147,7 @@ class ForecastTaskCollectorHorizonBasisTest {
                 locationService, briefingService, briefingEvaluationService,
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
-                stabilitySnapshotProvider, survivorAtmosphereWriter, travelDayService,
+                stabilitySnapshotProvider, travelDayService,
                 MIN_PREFETCH_RATIO, 0, BST_PRE_MIDNIGHT,
                 BLUEBELL_SEASON);
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
