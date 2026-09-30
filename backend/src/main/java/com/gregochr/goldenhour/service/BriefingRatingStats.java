@@ -140,6 +140,16 @@ public final class BriefingRatingStats {
      * STAND_DOWN. When no location is scored, the triage {@code verdict} is
      * mapped through {@link DisplayVerdict#resolve(Integer, Verdict)}.
      *
+     * <p>⚠️ <b>This method knows nothing about sample size, and that is deliberate — the gate is
+     * the caller's job.</b> {@link com.gregochr.goldenhour.service.BriefingRegionEvaluationRollup}
+     * only calls this when the region's rated sample clears {@link VerdictSampleGate} (or carries a
+     * force-evaluation exemption); otherwise it calls {@link DisplayVerdict#resolve(Integer, Verdict)
+     * DisplayVerdict.resolve(null, triageFallback)} directly — the SAME fallback branch this method
+     * takes when {@code stats} is empty, reused rather than duplicated. A single rated location used
+     * to be enough to drive the average branch below, which is how six force-evaluated ratings in a
+     * 253-location catalogue crowned a window "Worth it" (2026-09-29 production evidence, the rule's
+     * own javadoc has the full account).
+     *
      * @param stats           aggregate stats (may be empty)
      * @param triageFallback  triage verdict to use when stats are empty; may be null
      * @return the region display verdict (never null)

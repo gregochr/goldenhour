@@ -48,6 +48,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -93,6 +94,8 @@ class ForecastResultHandlerTest {
     private ForecastScoreWriter forecastScoreWriter;
     @Mock
     private ForecastEvaluationRepository forecastEvaluationRepository;
+    @Mock
+    private SupersedingDispositionService supersedingDispositionService;
 
     private ForecastResultHandler handler;
 
@@ -105,7 +108,7 @@ class ForecastResultHandlerTest {
                         new SkyVisitor(), new TideVisitor(), new BluebellVisitor(),
                         new WoodlandVisitor())),
                 forecastDataAugmentor, forecastScoreWriter, parser,
-                forecastEvaluationRepository);
+                forecastEvaluationRepository, supersedingDispositionService);
     }
 
     @Test
@@ -314,6 +317,137 @@ class ForecastResultHandlerTest {
         assertThat(result).isPresent();
         assertThat(result.get().result().rating()).isEqualTo(4);
         verify(forecastEvaluationRepository, never()).save(any());
+    }
+
+    // ── Force-evaluation provenance (verdict-minimum-sample rule) ──────────────
+    //
+    // ⚠️ These are the regression tests for the P1 Codex found against 26044705: the exemption
+    // used to be decided at SERVE time by comparing a forecast_run_disposition row's created_at
+    // against the winning result's own evaluation instant, which let an entirely unrelated,
+    // later-landing rating (a hand-started synchronous admin run, in the reported case) satisfy
+    // the comparison and be wrongly exempted. `forced` is now provenance recorded HERE, once, from
+    // the task/identity's own flag — there is no timestamp comparison left to race at all, so these
+    // tests prove that structurally rather than by re-checking specific instants.
+
+    @Test
+    @DisplayName("a batch response whose identity carries forced=true stamps the result forced, "
+            + "with no dependency on any timestamp")
+    void parseBatchResponse_identityForced_stampsResultForced() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 777L, true);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r777-f",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        when(forecastEvaluationRepository.findById(777L)).thenReturn(Optional.of(
+                ForecastEvaluationEntity.builder().id(777L).batchState(BatchState.PENDING)
+                        .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0)).build()));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().rating()).isEqualTo(4);
+        assertThat(result.get().result().forced()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a batch response whose identity carries forced=false (the ordinary case) never "
+            + "stamps the result forced")
+    void parseBatchResponse_identityNotForced_resultNeverForced() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().forced()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the sync engine (an ordinary hand-started admin run) never produces a forced "
+            + "result — Codex's #943 P1-B/round-9 scenario: an unrelated rating landing AFTER a "
+            + "forced batch's own disposition must not be exempted, and now cannot be, because "
+            + "this task's own forced field is false and nothing here compares timestamps at all")
+    void handleSyncResult_ordinaryAdminRun_neverForced() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        // The exact shape ForecastService#evaluateAndPersist builds: the six-arg convenience
+        // constructor, which defaults forced to false — the sync engine has no concept of
+        // ForceEvalHeadlineSelector at all.
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        assertThat(task.forced()).isFalse();
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
+                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU, 8500);
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
+
+        handler.handleSyncResult(task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
+
+        ArgumentCaptor<List<BriefingEvaluationResult>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).mergeFromBatch(
+                eq("Lake District|2026-04-16|SUNRISE"), captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        assertThat(captor.getValue().getFirst().forced()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a bluebell batch response whose identity carries forced=true (a WOODLAND-"
+            + "exposure or OPEN_FELL candidate the collector force-evaluated) stamps the result "
+            + "forced")
+    void parseBluebellBatchResponse_identityForced_stampsResultForced() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null, true);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE-f",
+                "{\"rating\":4,\"summary\":\"Blooming\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(4, "Blooming", null));
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().forced()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a woodland batch response whose identity carries forced=true stamps the result "
+            + "forced")
+    void parseWoodlandBatchResponse_identityForced_stampsResultForced() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null, true);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "wd-53-2026-04-16-SUNRISE-f",
+                "{\"rating\":3,\"summary\":\"Misty\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new WoodlandEvaluation(3, "Misty", null));
+
+        Optional<BatchSuccess> result = handler.parseWoodlandBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().forced()).isTrue();
     }
 
     @Test
@@ -755,6 +889,100 @@ class ForecastResultHandlerTest {
         } finally {
             logger.detachAppender(appender);
         }
+    }
+
+    // ── round 14, "correction 3": forecast_score is gated per-response ──────────
+
+    @Test
+    @DisplayName("round 14: a response reported superseded writes NO forecast_score row, still "
+            + "scores its PENDING row, and still writes its api_call_log row")
+    void parseBatchResponse_reportedSuperseded_noForecastScoreWrite_stillScoresRowAndLogs() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 777L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r777",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(777L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 1, 5))
+                .batchState(BatchState.PENDING)
+                .build();
+        when(forecastEvaluationRepository.findById(777L)).thenReturn(Optional.of(pendingRow));
+        Instant submittedAt = Instant.parse("2026-04-16T01:05:00Z");
+        when(supersedingDispositionService.isSuperseded(
+                "Castlerigg", DATE, SUNRISE, submittedAt)).thenReturn(true);
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome, ResultContext.forBatch(
+                        99L, "msgbatch_x", null, submittedAt, BatchTriggerSource.SCHEDULED));
+
+        // The parsed result is still returned (the cache-level check runs later, at merge time) —
+        // this test is specifically about the forecast_score write, not the cache write.
+        assertThat(result).isPresent();
+        // No forecast_score write reaches the writer at all.
+        verify(forecastScoreWriter, never()).write(any(), any(), any(), any(), anyList(), any());
+        // The PENDING row is still scored unconditionally — safe per BriefingEvaluationService's
+        // own javadoc: forecast_run_at is stamped at collection time, so a genuinely later cycle's
+        // own row always wins the per-slot MAX comparison regardless.
+        verify(forecastEvaluationRepository).save(any(ForecastEvaluationEntity.class));
+        // api_call_log is written unconditionally too, so cost accounting stays complete even
+        // though this response's rating reaches no sink.
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE-r777"),
+                eq(true), eq("SUCCESS"), eq(null), eq(null),
+                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
+                eq(DATE), eq(SUNRISE), eq(outcome.rawText()));
+    }
+
+    @Test
+    @DisplayName("round 14: a response NOT reported superseded writes forecast_score normally")
+    void parseBatchResponse_notReportedSuperseded_writesForecastScoreNormally() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        Instant submittedAt = Instant.parse("2026-04-16T01:05:00Z");
+        when(supersedingDispositionService.isSuperseded(
+                "Castlerigg", DATE, SUNRISE, submittedAt)).thenReturn(false);
+
+        handler.parseBatchResponse(location, identity, outcome, ResultContext.forBatch(
+                99L, "msgbatch_x", null, submittedAt, BatchTriggerSource.SCHEDULED));
+
+        verify(forecastScoreWriter).write(any(), any(), any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("round 14: the synchronous path checks supersession too — a hand-started result "
+            + "superseded by a later cycle's stand-down writes no forecast_score row")
+    void handleSyncResult_reportedSuperseded_noForecastScoreWrite() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
+                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU, 8500);
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
+        Instant submittedAt = Instant.parse("2026-04-16T09:00:00Z");
+        when(supersedingDispositionService.isSuperseded(
+                "Castlerigg", DATE, SUNRISE, submittedAt)).thenReturn(true);
+
+        handler.handleSyncResult(task, outcome,
+                ResultContext.forSync(99L, submittedAt, BatchTriggerSource.ADMIN));
+
+        verify(forecastScoreWriter, never()).write(any(), any(), any(), any(), anyList(), any());
     }
 
     @Test

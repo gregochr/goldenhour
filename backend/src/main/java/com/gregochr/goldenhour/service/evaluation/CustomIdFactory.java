@@ -18,21 +18,45 @@ import java.util.regex.Pattern;
  *   <li>Forecast (scheduled): {@code fc-{locationId}-{date}-{targetType}}, optionally with a
  *       trailing {@code -r{evalRowId}} segment (prompted-row persistence plan, R3) carrying the
  *       primary key of the {@code PENDING} {@code forecast_evaluation} row this submission is
- *       the carrier for</li>
- *   <li>Bluebell (scheduled): {@code bb-{locationId}-{date}-{targetType}}</li>
+ *       the carrier for, and optionally a further trailing {@code -f} segment marking the task
+ *       as a {@code ForceEvalHeadlineSelector} force-evaluation (verdict-minimum-sample rule's
+ *       force-evaluation exemption — see {@link EvaluationTask.Forecast#forced}'s javadoc)</li>
+ *   <li>Bluebell (scheduled): {@code bb-{locationId}-{date}-{targetType}}, optionally with the
+ *       same trailing {@code -f} marker — a WOODLAND-exposure or OPEN_FELL-paired bluebell
+ *       candidate can be force-evaluated exactly like a sky one, since {@code
+ *       ForecastTaskCollector} decides eligibility before it routes to a lane</li>
+ *   <li>Woodland (scheduled): {@code wd-{locationId}-{date}-{targetType}}, optionally with the
+ *       same trailing {@code -f} marker, for the identical reason</li>
  *   <li>JFDI: {@code jfdi-{locationId}-{date}-{targetType}}</li>
  *   <li>Force-submit: {@code force-{sanitisedRegion}-{locationId}-{date}-{targetType}}</li>
  *   <li>Aurora: {@code au-{alertLevel}-{date}}</li>
  * </ul>
  *
- * <p>The optional forecast {@code -r{evalRowId}} suffix is stripped BEFORE the shared
- * {@code -{date}-{targetType}} tail parser runs (that parser takes the segment after the last
- * hyphen as the target type — a naïve append would misparse the row id as one). Backward
- * compatibility is mandatory: batches submitted by the previous binary are in flight at deploy,
- * so an id with no suffix is not an error — it parses with a {@code null} {@code evalRowId}. An
- * id WITH a suffix that fails to match {@code -r\d+$} (non-digit, empty) is not silently treated
- * as suffix-less either — it falls through to the tail parser unstripped, where the malformed
- * segment fails {@code TargetType} resolution and the whole id is rejected as malformed.
+ * <p>The optional forecast {@code -f} and {@code -r{evalRowId}} suffixes are stripped BEFORE the
+ * shared {@code -{date}-{targetType}} tail parser runs (that parser takes the segment after the
+ * last hyphen as the target type — a naïve append would misparse either suffix as one), in that
+ * order: {@code -f} (outermost, since it is appended last by {@link #forForecast(Long, LocalDate,
+ * TargetType, Long, boolean)}) THEN {@code -r{evalRowId}}. Backward compatibility is mandatory:
+ * batches submitted by the previous binary are in flight at deploy — the Anthropic Batch API can
+ * take up to 24 hours to complete — so an id with neither suffix is not an error; it parses with a
+ * {@code null} {@code evalRowId} and {@code forced = false}, identically to before either suffix
+ * existed. A malformed {@code -r} suffix (non-digit, empty) is not silently treated as absent
+ * either — it falls through to the tail parser unstripped, where the malformed segment fails
+ * {@code TargetType} resolution and the whole id is rejected as malformed.
+ *
+ * <p>⚠️ <b>The reverse direction is NOT safe, and is not fixed here.</b> If a deploy that submits
+ * {@code -f}-suffixed ids is rolled back while one of those batches is still in flight, the
+ * PREVIOUS binary's parser (identical to this class's {@code parseForecast} minus the {@code -f}
+ * handling) strips only a trailing {@code -r\d+}, leaving a batch's {@code -f} suffix attached; its
+ * tail parser then reads {@code "f"} as the segment after the last hyphen and calls {@code
+ * TargetType.valueOf("f")}, which throws — {@code BatchResultProcessor} logs {@code "malformed
+ * customId"} and counts the response as errored. A rolled-back deploy therefore loses (never
+ * corrupts) the results of any in-flight force-evaluated task, at the cost of one wasted Claude
+ * call per such task — the same fail-safe direction every other malformed-id case in this class
+ * already takes. This is a narrow, low-probability window (only the capped handful of force-
+ * evaluated tasks a cycle submits, and only during the hours a rollback overlaps their batch still
+ * being in flight) and is accepted rather than patched, because patching would mean shipping a fix
+ * to a binary that is, by definition, already superseded.
  *
  * <p>Parsing dispatches by prefix rather than hyphen count — the previous implementation
  * in {@code BatchResultProcessor} counted parts after {@code split("-")} (fc/jfdi = 6,
@@ -53,6 +77,13 @@ public final class CustomIdFactory {
 
     /** Trailing {@code -r{evalRowId}} suffix on a forecast custom ID (R3). */
     private static final Pattern ROW_ID_SUFFIX = Pattern.compile("-r(\\d+)$");
+
+    /**
+     * Trailing {@code -f} suffix marking a forecast custom ID as a
+     * {@code ForceEvalHeadlineSelector} force-evaluation. Stripped before {@link #ROW_ID_SUFFIX}
+     * — see the class javadoc for the exact order.
+     */
+    private static final Pattern FORCED_SUFFIX = Pattern.compile("-f$");
 
     private static final String PREFIX_FORECAST = "fc-";
     private static final String PREFIX_BLUEBELL = "bb-";
@@ -78,7 +109,7 @@ public final class CustomIdFactory {
      *                                  limit or contains invalid characters
      */
     public static String forForecast(Long locationId, LocalDate date, TargetType targetType) {
-        return forForecast(locationId, date, targetType, null);
+        return forForecast(locationId, date, targetType, null, false);
     }
 
     /**
@@ -97,11 +128,41 @@ public final class CustomIdFactory {
      */
     public static String forForecast(Long locationId, LocalDate date, TargetType targetType,
             Long evalRowId) {
+        return forForecast(locationId, date, targetType, evalRowId, false);
+    }
+
+    /**
+     * Builds a forecast custom ID for the scheduled batch path, carrying both the optional
+     * pending-row primary key (R3) and whether this task is a {@code ForceEvalHeadlineSelector}
+     * force-evaluation — the verdict-minimum-sample rule's force-evaluation exemption fact,
+     * carried across the async Batch API round trip because neither {@code forecast_evaluation}
+     * nor a disposition row can otherwise tell the result side which specific submission
+     * produced the eventual rating (see {@link EvaluationTask.Forecast#forced}'s javadoc).
+     *
+     * @param locationId database ID of the location
+     * @param date       forecast date
+     * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @param evalRowId  primary key of the pending row, or {@code null} to omit the {@code -r}
+     *                   segment
+     * @param forced     whether to append the {@code -f} force-evaluation marker
+     * @return an ID of the form
+     *         {@code "fc-{locationId}-{date}-{targetType}[-r{evalRowId}][-f]"}
+     * @throws IllegalArgumentException if the resulting ID exceeds the Anthropic 64-char
+     *                                  limit or contains invalid characters
+     */
+    public static String forForecast(Long locationId, LocalDate date, TargetType targetType,
+            Long evalRowId, boolean forced) {
         Objects.requireNonNull(locationId, "locationId");
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(targetType, "targetType");
         String base = PREFIX_FORECAST + locationId + "-" + date + "-" + targetType.name();
-        return validate(evalRowId != null ? base + "-r" + evalRowId : base);
+        if (evalRowId != null) {
+            base += "-r" + evalRowId;
+        }
+        if (forced) {
+            base += "-f";
+        }
+        return validate(base);
     }
 
     /**
@@ -119,10 +180,31 @@ public final class CustomIdFactory {
      *                                  limit or contains invalid characters
      */
     public static String forBluebell(Long locationId, LocalDate date, TargetType targetType) {
+        return forBluebell(locationId, date, targetType, false);
+    }
+
+    /**
+     * Builds a bluebell custom ID, optionally carrying the {@code ForceEvalHeadlineSelector}
+     * force-evaluation marker — a bluebell-only (WOODLAND exposure) or OPEN_FELL-paired candidate
+     * can be force-evaluated exactly like a sky one, since {@code ForecastTaskCollector} decides
+     * eligibility before it routes to a lane (see {@code EvaluationTask.Forecast#forced}'s
+     * javadoc).
+     *
+     * @param locationId database ID of the location
+     * @param date       forecast date
+     * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @param forced     whether to append the {@code -f} force-evaluation marker
+     * @return an ID of the form {@code "bb-{locationId}-{date}-{targetType}[-f]"}
+     * @throws IllegalArgumentException if the resulting ID exceeds the Anthropic 64-char
+     *                                  limit or contains invalid characters
+     */
+    public static String forBluebell(Long locationId, LocalDate date, TargetType targetType,
+            boolean forced) {
         Objects.requireNonNull(locationId, "locationId");
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(targetType, "targetType");
-        return validate(PREFIX_BLUEBELL + locationId + "-" + date + "-" + targetType.name());
+        String base = PREFIX_BLUEBELL + locationId + "-" + date + "-" + targetType.name();
+        return validate(forced ? base + "-f" : base);
     }
 
     /**
@@ -139,10 +221,29 @@ public final class CustomIdFactory {
      *                                  limit or contains invalid characters
      */
     public static String forWoodland(Long locationId, LocalDate date, TargetType targetType) {
+        return forWoodland(locationId, date, targetType, false);
+    }
+
+    /**
+     * Builds a woodland custom ID, optionally carrying the {@code ForceEvalHeadlineSelector}
+     * force-evaluation marker — see {@link #forBluebell(Long, LocalDate, TargetType, boolean)}'s
+     * javadoc for why a canopy candidate needs the identical treatment.
+     *
+     * @param locationId database ID of the location
+     * @param date       forecast date
+     * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @param forced     whether to append the {@code -f} force-evaluation marker
+     * @return an ID of the form {@code "wd-{locationId}-{date}-{targetType}[-f]"}
+     * @throws IllegalArgumentException if the resulting ID exceeds the Anthropic 64-char
+     *                                  limit or contains invalid characters
+     */
+    public static String forWoodland(Long locationId, LocalDate date, TargetType targetType,
+            boolean forced) {
         Objects.requireNonNull(locationId, "locationId");
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(targetType, "targetType");
-        return validate(PREFIX_WOODLAND + locationId + "-" + date + "-" + targetType.name());
+        String base = PREFIX_WOODLAND + locationId + "-" + date + "-" + targetType.name();
+        return validate(forced ? base + "-f" : base);
     }
 
     /**
@@ -249,16 +350,23 @@ public final class CustomIdFactory {
     }
 
     private static ParsedCustomId.Forecast parseForecast(String customId) {
-        Long evalRowId = null;
         String body = customId;
-        Matcher rowIdMatch = ROW_ID_SUFFIX.matcher(customId);
+        boolean forced = false;
+        Matcher forcedMatch = FORCED_SUFFIX.matcher(body);
+        if (forcedMatch.find()) {
+            forced = true;
+            body = body.substring(0, forcedMatch.start());
+        }
+        Long evalRowId = null;
+        Matcher rowIdMatch = ROW_ID_SUFFIX.matcher(body);
         if (rowIdMatch.find()) {
             evalRowId = parseEvalRowId(rowIdMatch.group(1), customId);
-            body = customId.substring(0, rowIdMatch.start());
+            body = body.substring(0, rowIdMatch.start());
         }
         TailParts tail = extractDateAndTarget(body, PREFIX_FORECAST);
         Long locationId = parseLocationId(tail.before(), body);
-        return new ParsedCustomId.Forecast(locationId, tail.date(), tail.targetType(), evalRowId);
+        return new ParsedCustomId.Forecast(
+                locationId, tail.date(), tail.targetType(), evalRowId, forced);
     }
 
     /**
@@ -279,15 +387,29 @@ public final class CustomIdFactory {
     }
 
     private static ParsedCustomId.Woodland parseWoodland(String customId) {
-        TailParts tail = extractDateAndTarget(customId, PREFIX_WOODLAND);
-        Long locationId = parseLocationId(tail.before(), customId);
-        return new ParsedCustomId.Woodland(locationId, tail.date(), tail.targetType());
+        String body = customId;
+        boolean forced = false;
+        Matcher forcedMatch = FORCED_SUFFIX.matcher(body);
+        if (forcedMatch.find()) {
+            forced = true;
+            body = body.substring(0, forcedMatch.start());
+        }
+        TailParts tail = extractDateAndTarget(body, PREFIX_WOODLAND);
+        Long locationId = parseLocationId(tail.before(), body);
+        return new ParsedCustomId.Woodland(locationId, tail.date(), tail.targetType(), forced);
     }
 
     private static ParsedCustomId.Bluebell parseBluebell(String customId) {
-        TailParts tail = extractDateAndTarget(customId, PREFIX_BLUEBELL);
-        Long locationId = parseLocationId(tail.before(), customId);
-        return new ParsedCustomId.Bluebell(locationId, tail.date(), tail.targetType());
+        String body = customId;
+        boolean forced = false;
+        Matcher forcedMatch = FORCED_SUFFIX.matcher(body);
+        if (forcedMatch.find()) {
+            forced = true;
+            body = body.substring(0, forcedMatch.start());
+        }
+        TailParts tail = extractDateAndTarget(body, PREFIX_BLUEBELL);
+        Long locationId = parseLocationId(tail.before(), body);
+        return new ParsedCustomId.Bluebell(locationId, tail.date(), tail.targetType(), forced);
     }
 
     private static ParsedCustomId.Jfdi parseJfdi(String customId) {

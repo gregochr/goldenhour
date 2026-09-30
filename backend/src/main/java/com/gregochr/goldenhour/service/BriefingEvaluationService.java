@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
+import com.gregochr.goldenhour.service.evaluation.SupersedingDispositionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -33,6 +34,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -51,6 +53,76 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>The cache is intentionally retained across briefing refreshes — Claude scores are
  * expensive and remain directionally useful after a weather refresh; new batch results
  * replace prior entries on the same key.
+ *
+ * <p>⚠️ <b>Round 12: every write compares SUBMISSION order, never ARRIVAL order.</b> {@link
+ * #mergeFromBatch}, {@link #mergeWoodlandFromBatch} and {@link #recombineBluebell} (via {@link
+ * #mergeBluebellFromBatch}) each look up the currently-stored result for the incoming location
+ * before writing, and reject the incoming result as STALE — writing or combining nothing — when
+ * its {@link BriefingEvaluationResult#submittedAt} is strictly before the stored result's. This
+ * closes a class of bug a round-10/11 review found one instance of and asked whether it was
+ * general: {@code BatchPollingService} polls every still-{@code SUBMITTED} batch independently,
+ * and the Anthropic Batch API allows up to 24h, so a batch can outlive its pipeline's internal
+ * safety timeout and complete AFTER a newer cycle's batch for the same slot already wrote it —
+ * arrival order (which {@code evaluatedAt} records) is then the OPPOSITE of evaluation order, and
+ * the older, delayed result would otherwise silently overwrite (or, for an OPEN_FELL pair, wrongly
+ * combine with) the newer one. The {@code forced} exemption mark was the first casualty found, but
+ * the RATING itself — the verdict, the pick, the whole served figure — was equally exposed; fixing
+ * the general rule protects both, and {@link BriefingEvaluationResult#forced} needs no write-order
+ * reasoning of its own any more (see its own field javadoc).
+ *
+ * <p><b>The staleness rule, once, used by all three:</b> {@code null} on either side (an unknown
+ * submission instant — every legacy row written before this field existed, or a result built
+ * through a context with none to report) is never stale, matching this codebase's "unknown is
+ * safe" convention elsewhere; only a submission instant strictly BEFORE the stored one is
+ * rejected. A rejected write changes nothing — the stored result stands, logged once at INFO with
+ * the slot and both instants — never throws, since a stale arrival is an ordinary, expected race,
+ * not a failure.
+ *
+ * <p><b>OPEN_FELL recombination additionally requires the SAME cycle, not merely "not stale."</b>
+ * {@link #recombineBluebell} only averages a bluebell result onto a prior sky entry when the two
+ * share an EQUAL {@code submittedAt} — sky and bluebell are submitted as separate Anthropic
+ * batches ({@code ScheduledBatchEvaluationService.submitBuckets} calls {@code
+ * BatchSubmissionService.submit} once per lane), so their own {@code
+ * ForecastBatchEntity.submittedAt} values almost never coincide even within one cycle. The equality
+ * holds anyway because {@code BatchResultProcessor} stamps every batch result with its
+ * orchestrated cycle's shared {@code PipelineRunEntity.triggerTime} rather than the individual
+ * batch's own timestamp — see {@code BriefingEvaluationResult#submittedAt}'s javadoc. A bluebell
+ * result that is newer than the stored sky entry but from a DIFFERENT cycle is not stale (it is
+ * written) but is not combined either — it stands alone, exactly the existing "sky hasn't arrived
+ * yet this cycle" race the class already tolerated, until its own cycle's sky result also lands.
+ *
+ * <p>⚠️ <b>"Gap 1": a result can also be superseded by a DECISION with no competing result at
+ * all.</b> Round 12's staleness rule only ever compares an incoming result against whatever is
+ * currently STORED in the cache — but a later cycle's Gate 4 stability skip or triage stand-down
+ * writes no {@code cached_evaluation} entry to compare against; it writes only a
+ * {@code forecast_run_disposition} row. A Codex review of round 12 found the consequence: a batch
+ * delayed past a later cycle's own {@code SKIPPED_STABILITY}/{@code SKIPPED_TRIAGED} decision for
+ * the same slot has nothing stored to lose a staleness comparison against, so it wrote its
+ * (chronologically stale) rating straight into the cache — restoring the arrival-order bug for
+ * exactly the case the pre-existing serve-time stability-skip retraction (see
+ * {@code EvaluationViewService}) was built for, and reaching the {@code forecast_score} table too.
+ * {@link #supersededByLaterRun} is the fix: before {@link #mergeFromBatch},
+ * {@link #mergeWoodlandFromBatch} or {@link #mergeBluebellFromBatch} write or combine a location,
+ * they check whether a later pipeline run has already recorded a POSITIVE DECISION AGAINST that
+ * exact slot — see {@link SupersedingDispositionService}'s class javadoc for the full rule, its
+ * explicit two-value disposition allow-list, and the query-cost breakdown. This does not touch the
+ * PENDING {@code forecast_evaluation} row scoring seam ({@code ForecastResultHandler
+ * #scoreEvaluationRow}) at all — that row is scored by primary key regardless, and a stale row
+ * scored late cannot become the slot's "latest" row because {@code forecast_run_at} is stamped at
+ * collection time, not score time, so a genuinely later cycle's own row (with its own later
+ * {@code forecast_run_at}) already wins {@code EvaluationViewService#loadLatestForecasts}' per-slot
+ * MAX comparison regardless of when the older cycle's Claude result happens to arrive.
+ *
+ * <p>⚠️ <b>An earlier cut of this rule (round 13) was itself wrong, tested against production and
+ * corrected in the following round — see {@link SupersedingDispositionService}'s class javadoc for
+ * the full account.</b> In short: it joined through {@code forecast_batch} to find a disposition's
+ * "owning cycle", which is invisible for a cycle whose every batch submission failed (a real
+ * production shape — {@code ScheduledBatchEvaluationService} calls it a "disposition-only anchor
+ * run"); and it treated {@code EVALUATED}/{@code FORCE_EVALUATED} as decisions against a slot, when
+ * they record only that a candidate was included for submission, not that a result was ever
+ * produced. {@link SupersedingDispositionService} replaced the join with a rule needing no
+ * {@code forecast_batch} row at all, and narrowed the disposition test to an explicit two-value
+ * allow-list, {@code SKIPPED_STABILITY} and {@code SKIPPED_TRIAGED} alone.
  */
 @Service
 public class BriefingEvaluationService {
@@ -84,6 +156,7 @@ public class BriefingEvaluationService {
     private final ObjectMapper objectMapper;
     private final FreshnessResolver freshnessResolver;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
+    private final SupersedingDispositionService supersedingDispositionService;
 
     /** Outer key: "regionName|date|targetType", value: cached entry with results + timestamp. */
     private final ConcurrentHashMap<String, CachedEvaluation> cache = new ConcurrentHashMap<>();
@@ -121,17 +194,22 @@ public class BriefingEvaluationService {
      * @param objectMapper               Jackson mapper for JSON serialisation
      * @param freshnessResolver          resolves per-stability cache freshness thresholds
      * @param stabilitySnapshotProvider  provides the latest stability snapshot for delta logging
+     * @param supersedingDispositionService round 14: answers "has a later pipeline run already
+     *                                       decided against this slot" — see its own class javadoc
+     *                                       for the full rule (replaces round 13's design in full)
      */
     public BriefingEvaluationService(CachedEvaluationRepository cachedEvaluationRepository,
             EvaluationDeltaLogRepository deltaLogRepository,
             ObjectMapper objectMapper,
             FreshnessResolver freshnessResolver,
-            StabilitySnapshotProvider stabilitySnapshotProvider) {
+            StabilitySnapshotProvider stabilitySnapshotProvider,
+            SupersedingDispositionService supersedingDispositionService) {
         this.cachedEvaluationRepository = cachedEvaluationRepository;
         this.deltaLogRepository = deltaLogRepository;
         this.objectMapper = objectMapper;
         this.freshnessResolver = freshnessResolver;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
+        this.supersedingDispositionService = supersedingDispositionService;
     }
 
     /**
@@ -259,18 +337,103 @@ public class BriefingEvaluationService {
         }
         int priorSize = merged.size();
         Instant now = Instant.now();
+        CacheKeyFactory.CacheKey parsedKey = CacheKeyFactory.parse(cacheKey);
+        Set<String> superseded = supersededByLaterRun(
+                results, parsedKey.date(), parsedKey.targetType());
         // Only the recovered locations are stamped; the prior entries keep their own earlier
         // stamps, which is the whole point — a merge touches a subset of the region.
-        results.forEach(r -> merged.put(r.locationName(), r.withEvaluatedAt(now)));
+        // Deltas reflect only the merged-in (recovered) locations that actually WROTE; a location
+        // rejected as stale below did not change this write and must not appear in either.
+        ConcurrentHashMap<String, BriefingEvaluationResult> recovered = new ConcurrentHashMap<>();
+        for (BriefingEvaluationResult r : results) {
+            if (superseded.contains(r.locationName())) {
+                logSupersededRejection(cacheKey, r);
+                continue;
+            }
+            BriefingEvaluationResult existing = merged.get(r.locationName());
+            if (isStale(r, existing)) {
+                logStaleRejection(cacheKey, r, existing);
+                continue;
+            }
+            BriefingEvaluationResult stamped = r.withEvaluatedAt(now);
+            merged.put(r.locationName(), stamped);
+            recovered.put(r.locationName(), stamped);
+        }
         cache.put(cacheKey, new CachedEvaluation(merged, now));
         persistToDb(cacheKey, merged, "BATCH");
-        // Deltas reflect only the merged-in (recovered) locations; the untouched
-        // locations did not change this write.
-        ConcurrentHashMap<String, BriefingEvaluationResult> recovered = new ConcurrentHashMap<>();
-        results.forEach(r -> recovered.put(r.locationName(), r.withEvaluatedAt(now)));
         logEvaluationDeltas(cacheKey, prior, recovered, now);
         LOG.info("RETRY_FAILED merge for key {}: {} prior + {} recovered = {} total",
-                cacheKey, priorSize, results.size(), merged.size());
+                cacheKey, priorSize, recovered.size(), merged.size());
+    }
+
+    /**
+     * Whether {@code incoming} is stale relative to {@code stored} for the same location — the
+     * one comparison every {@code cached_evaluation} write makes before writing or combining
+     * (round 12). See the class javadoc for the full rule and why arrival order cannot be trusted.
+     *
+     * @param incoming the result about to be written
+     * @param stored   the result currently sitting in the cache for this location, or {@code null}
+     *                 if none
+     * @return {@code true} only when both submission instants are known and {@code incoming}'s is
+     *         strictly before {@code stored}'s
+     */
+    private static boolean isStale(BriefingEvaluationResult incoming, BriefingEvaluationResult stored) {
+        if (stored == null || stored.submittedAt() == null || incoming.submittedAt() == null) {
+            return false;
+        }
+        return incoming.submittedAt().isBefore(stored.submittedAt());
+    }
+
+    /**
+     * Logs a rejected stale write once, at INFO — an expected, ordinary race (a slow batch losing
+     * to a faster later one), never a failure.
+     */
+    private static void logStaleRejection(String cacheKey, BriefingEvaluationResult incoming,
+            BriefingEvaluationResult stored) {
+        LOG.info("[STALE RESULT] Rejected incoming result for '{}' in {}: incoming "
+                        + "submittedAt={} is older than the stored result's submittedAt={} — "
+                        + "keeping the stored result",
+                incoming.locationName(), cacheKey, incoming.submittedAt(), stored.submittedAt());
+    }
+
+    /**
+     * Locations among {@code results} for which a genuinely LATER pipeline run than the one that
+     * submitted them has already recorded a positive decision AGAINST the exact same slot — see
+     * {@link SupersedingDispositionService}'s class javadoc for the full rule, the two-value
+     * disposition allow-list, and the query-cost breakdown. Superseded here means "written to no
+     * sink at all", a stronger outcome than {@link #isStale}: staleness compares against whatever
+     * the cache currently holds, but a stability skip or a triage stand-down writes no
+     * {@code cached_evaluation} entry to compare against, only a {@code forecast_run_disposition}
+     * row.
+     *
+     * <p>A result with no {@code submittedAt} of its own is never superseded by this check — the
+     * same "unknown is safe" convention {@link #isStale} already applies. Ad hoc and synchronous
+     * results are covered uniformly, not merely orchestrated batch ones: both {@link #mergeFromBatch}
+     * and the synchronous path route through it (see {@code ForecastResultHandler#handleSyncResult}).
+     *
+     * @param results   the incoming results, all for the same date and event type
+     * @param date      the slots' evaluation date
+     * @param eventType the slots' event type
+     * @return the subset of {@code results}' location names that must be written to no sink
+     */
+    private Set<String> supersededByLaterRun(List<BriefingEvaluationResult> results,
+            LocalDate date, TargetType eventType) {
+        List<SupersedingDispositionService.LocatedSubmission> submissions = results.stream()
+                .map(r -> new SupersedingDispositionService.LocatedSubmission(
+                        r.locationName(), r.submittedAt()))
+                .toList();
+        return supersedingDispositionService.supersededLocations(submissions, date, eventType);
+    }
+
+    /**
+     * Logs a rejected-as-superseded write once, at INFO — an expected, ordinary race (a batch
+     * delayed past a later cycle's own decision about the same slot), never a failure.
+     */
+    private static void logSupersededRejection(String cacheKey, BriefingEvaluationResult incoming) {
+        LOG.info("[SUPERSEDED RESULT] Rejected incoming result for '{}' in {}: a later pipeline "
+                        + "run than the one that submitted it (submittedAt={}) has already recorded "
+                        + "a decision about this slot — writing to no sink",
+                incoming.locationName(), cacheKey, incoming.submittedAt());
     }
 
     /**
@@ -328,7 +491,14 @@ public class BriefingEvaluationService {
             merged.putAll(loadResultsFromDb(cacheKey));
         }
         Instant now = Instant.now();
+        CacheKeyFactory.CacheKey parsedKey = CacheKeyFactory.parse(cacheKey);
+        Set<String> superseded = supersededByLaterRun(
+                bluebellResults, parsedKey.date(), parsedKey.targetType());
         for (BriefingEvaluationResult bluebell : bluebellResults) {
+            if (superseded.contains(bluebell.locationName())) {
+                logSupersededRejection(cacheKey, bluebell);
+                continue;
+            }
             BriefingEvaluationResult existing = merged.get(bluebell.locationName());
             BluebellExposure exposure = exposureByLocation.get(bluebell.locationName());
             BriefingEvaluationResult combined = recombineBluebell(existing, bluebell, exposure);
@@ -370,16 +540,32 @@ public class BriefingEvaluationService {
             merged.putAll(loadResultsFromDb(cacheKey));
         }
         Instant now = Instant.now();
-        woodlandResults.forEach(r -> merged.put(r.locationName(), r.withEvaluatedAt(now)));
+        CacheKeyFactory.CacheKey parsedKey = CacheKeyFactory.parse(cacheKey);
+        Set<String> superseded = supersededByLaterRun(
+                woodlandResults, parsedKey.date(), parsedKey.targetType());
+        for (BriefingEvaluationResult r : woodlandResults) {
+            if (superseded.contains(r.locationName())) {
+                logSupersededRejection(cacheKey, r);
+                continue;
+            }
+            BriefingEvaluationResult existing = merged.get(r.locationName());
+            if (isStale(r, existing)) {
+                logStaleRejection(cacheKey, r, existing);
+                continue;
+            }
+            merged.put(r.locationName(), r.withEvaluatedAt(now));
+        }
         cache.put(cacheKey, new CachedEvaluation(merged, now));
         persistToDb(cacheKey, merged, "BATCH");
     }
 
     /**
      * Recombines a bluebell result with a prior cache entry: averages the rating onto the sky
-     * narrative when the location's own {@code bluebellExposure} is not WOODLAND and a prior
-     * sky-scored entry exists, or returns the bluebell result unchanged otherwise (WOODLAND, or
-     * no prior sky entry to average with). Package-private for direct unit testing.
+     * narrative when the location's own {@code bluebellExposure} is not WOODLAND, a prior
+     * sky-scored entry exists, AND the two belong to the SAME cycle (round 12); otherwise returns
+     * the bluebell result unchanged (WOODLAND, no prior sky entry, or a cycle mismatch) — or,
+     * ahead of any of that, rejects the incoming bluebell outright as stale and returns the stored
+     * entry untouched. Package-private for direct unit testing.
      *
      * <p>{@code exposure} is the location's actual {@code BluebellExposure} — never inferred from
      * whether the prior cache entry looks sky-scored. Inferring it from {@code existing} alone
@@ -389,17 +575,55 @@ public class BriefingEvaluationService {
      * gets sky-scored off-season) — the same "averaged across the wrong axis" defect class as the
      * OPEN_FELL tide double-count this mirrors. {@code null} (unresolved or unset exposure) is
      * treated as not-WOODLAND, matching {@code RatingCombiner.selectRatingPeers}'s own default.
+     *
+     * <p>⚠️ <b>Round 12, two gates in order — see the class javadoc for the full rule:</b>
+     * <ol>
+     *   <li>{@link #isStale}: if the incoming {@code bluebell} result is from an older submission
+     *       than whatever is already stored for this location — sky, bluebell, or woodland alike —
+     *       it is rejected outright, combined or not, and the stored result stands unchanged. This
+     *       is the general per-location staleness rule every {@code cached_evaluation} write makes,
+     *       and it alone resolves both cross-cycle cases a review named: a forced bluebell
+     *       submitted before a since-arrived ordinary sky result is rejected (the sky stands alone,
+     *       unforced), and an ordinary bluebell submitted before a since-arrived forced sky result
+     *       is equally rejected (the forced sky stands alone, still exempt).</li>
+     *   <li>Not stale, but is it the SAME cycle as {@code existing}? Combination additionally
+     *       requires an EQUAL {@code submittedAt} — not merely "not older." A bluebell that is
+     *       genuinely newer than a stored sky entry but from a DIFFERENT cycle is written (it is
+     *       not stale) but stands ALONE rather than being averaged in, exactly the pre-existing
+     *       "sky has not arrived yet this cycle" race this class already tolerated — the next
+     *       cycle's own sky result, once it lands, recombines normally.</li>
+     * </ol>
+     *
+     * @param existing the result currently stored for this location, or {@code null}
+     * @param bluebell the incoming bluebell result
+     * @param exposure the location's actual {@code BluebellExposure}
+     * @return the stored result unchanged (stale rejection), the bluebell result unchanged
+     *         (WOODLAND, no sky peer, or a cycle mismatch), or the averaged combination
      */
     BriefingEvaluationResult recombineBluebell(BriefingEvaluationResult existing,
             BriefingEvaluationResult bluebell, BluebellExposure exposure) {
+        if (isStale(bluebell, existing)) {
+            logStaleRejection("<bluebell recombination>", bluebell, existing);
+            return existing;
+        }
+        // A same-cycle pair's submittedAt values are EQUAL by construction (both are stamped from
+        // the one orchestrated cycle's shared PipelineRunEntity.triggerTime — see the class
+        // javadoc), even though sky and bluebell travel in separate Anthropic batches. Either side
+        // unknown (a legacy row, or a context with no submission instant) is treated as "no
+        // mismatch established" — the pre-round-12 behaviour — rather than refusing combination on
+        // an absence of evidence.
+        boolean cycleMismatch = existing != null
+                && existing.submittedAt() != null && bluebell.submittedAt() != null
+                && !existing.submittedAt().equals(bluebell.submittedAt());
         boolean averageWithSky = existing != null && existing.fierySkyPotential() != null
                 && existing.rating() != null && bluebell.rating() != null
-                && exposure != BluebellExposure.WOODLAND;
+                && exposure != BluebellExposure.WOODLAND
+                && !cycleMismatch;
         if (!averageWithSky) {
             return bluebell;
         }
         int averaged = Math.round((existing.rating() + bluebell.rating()) / 2.0f);
-        return new BriefingEvaluationResult(
+        BriefingEvaluationResult combined = new BriefingEvaluationResult(
                 existing.locationName(), averaged,
                 existing.fierySkyPotential(), existing.goldenHourPotential(),
                 existing.summary(), existing.triageReason(), existing.triageMessage(),
@@ -419,6 +643,15 @@ public class BriefingEvaluationService {
                 // own arithmetic it can no longer explain, which is the same "unknown, not wrong"
                 // convention the field already uses for a pre-field cache row.
                 null);
+        // Round 10 (P1-A), corrected in round 12: the 10-arg constructor above defaults
+        // forced=false unconditionally. Since this branch is only ever reached for a CONFIRMED
+        // same-cycle pair (the cycleMismatch guard above), the combined result is simply forced
+        // when EITHER source is — a plain OR of both, not "read one side alone"; see
+        // BriefingEvaluationResult#withForcedFromCombination's own javadoc for why the earlier
+        // single-argument shape was wrong in general even though it agreed with this OR in
+        // every case production could actually produce.
+        return combined.withForcedFromCombination(existing, bluebell)
+                .withSubmittedAtFromCombination(existing, bluebell);
     }
 
     /**

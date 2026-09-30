@@ -506,13 +506,28 @@ class BriefingServiceTest {
             // 20:10 local — an hour later than the UTC axis solarEventTime lives on — which pushes
             // the wall-clock reading 10 minutes PAST the 20:00 cutoff. A window that has not even
             // happened yet must not be excluded from the pick pool.
+            // Five rated locations, not one: the verdict-minimum-sample rule (VerdictSampleGate)
+            // requires at least five rated voting slots before a region's ratings may set its
+            // verdict or crown a pick, and this test's real BriefingRegionEvaluationRollup
+            // re-derives that fresh from the slots on every serve — a single-slot region here
+            // would read as an insufficient sample and never be picked, for a reason unrelated to
+            // the BST clock offset this test actually exercises. All five share the same solar
+            // event time so the window's earliest-slot-time computation is unaffected.
+            LocalDateTime sunsetTime = LocalDateTime.of(BST_DAY, LocalTime.of(19, 30));
+            List<BriefingSlot> fiveRatedSlots = new ArrayList<>();
+            fiveRatedSlots.add(new BriefingSlot("Bamburgh", sunsetTime,
+                            Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                    .withClaudeScores(4, 60, 55, "summary"));
+            for (int i = 1; i <= 4; i++) {
+                fiveRatedSlots.add(new BriefingSlot("Coastal " + i, sunsetTime,
+                                Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                        .withClaudeScores(4, 60, 55, "summary"));
+            }
             BriefingRegion region = new BriefingRegion(
                     "North East", Verdict.GO, "summary", List.of(),
-                    List.of(new BriefingSlot("Bamburgh", LocalDateTime.of(BST_DAY, LocalTime.of(19, 30)),
-                                    Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
-                            .withClaudeScores(4, 60, 55, "summary")),
+                    fiveRatedSlots,
                     14.0, 13.0, 4.5, 3, "Breaking clear at dusk", "Low cloud clears from the west.",
-                    DisplayVerdict.WORTH_IT, 1, null, false, Confidence.HIGH);
+                    DisplayVerdict.WORTH_IT, 5, null, false, Confidence.HIGH);
             DailyBriefingResponse persisted = new DailyBriefingResponse(
                     LocalDateTime.of(BST_DAY, LocalTime.NOON), "headline",
                     List.of(new BriefingDay(BST_DAY, List.of(
@@ -588,7 +603,7 @@ class BriefingServiceTest {
         @DisplayName("FAILED status + fresh fallback → API substitutes the stale picks")
         void failedWithFallback_substitutesStalePicks() {
             refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
-            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(fallbackPick()));
+            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(fallbackPick()));
 
             DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
 
@@ -612,7 +627,7 @@ class BriefingServiceTest {
             // filter blanks it — the same state the withdrawal exists for.
             refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed(),
                     location("Bamburgh", "Northumberland"));
-            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(
+            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(
                     new BestBet(1, "Last good pick", "From earlier.",
                             FIXED_TODAY + "_sunset", "Northumberland",
                             Confidence.HIGH, null, "Today", "sunset", null)));
@@ -627,7 +642,7 @@ class BriefingServiceTest {
         @DisplayName("FAILED status + no fresh fallback → honest empty state preserved")
         void failedWithoutFallback_keepsEmpty() {
             refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
-            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of());
+            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of());
 
             DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
 
@@ -657,7 +672,7 @@ class BriefingServiceTest {
             when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
                     new AuroraTonightSummary(null, 5.0, 3, 7, List.of(),
                             420.0, "Waxing Gibbous", 62.0, true, "GOOD", "21:10", "04:55"));
-            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(fallbackPick()));
+            when(bestBetFallbackService.findFreshFallback(any())).thenReturn(List.of(fallbackPick()));
 
             DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
 
@@ -680,7 +695,7 @@ class BriefingServiceTest {
             assertThat(api.bestBetStatus())
                     .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS);
             assertThat(api.bestBets()).isEmpty();
-            verify(bestBetFallbackService, never()).findFreshFallback();
+            verify(bestBetFallbackService, never()).findFreshFallback(any());
         }
     }
 

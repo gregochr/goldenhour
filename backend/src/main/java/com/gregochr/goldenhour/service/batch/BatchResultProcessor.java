@@ -14,11 +14,13 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler;
@@ -72,6 +74,7 @@ public class BatchResultProcessor {
     private final ForecastResultHandler forecastResultHandler;
     private final AuroraResultHandler auroraResultHandler;
     private final EvaluationAbandonmentService evaluationAbandonmentService;
+    private final PipelineRunRepository pipelineRunRepository;
 
     /**
      * Constructs the batch result processor.
@@ -88,6 +91,11 @@ public class BatchResultProcessor {
      * @param evaluationAbandonmentService R7(a) event-driven sweep: stamps ABANDONED every
      *                               still-PENDING {@code forecast_evaluation} row this
      *                               forecast batch's requests never scored
+     * @param pipelineRunRepository  round 12: resolves a forecast batch's orchestrated cycle's own
+     *                               {@code triggerTime} — the submission instant stamped onto
+     *                               every result this batch produces, shared identically by every
+     *                               batch (including a retry) the same cycle submits. See {@link
+     *                               #resolveSubmissionInstant}
      */
     public BatchResultProcessor(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -96,7 +104,8 @@ public class BatchResultProcessor {
             CostCalculator costCalculator,
             ForecastResultHandler forecastResultHandler,
             AuroraResultHandler auroraResultHandler,
-            EvaluationAbandonmentService evaluationAbandonmentService) {
+            EvaluationAbandonmentService evaluationAbandonmentService,
+            PipelineRunRepository pipelineRunRepository) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.locationRepository = locationRepository;
@@ -105,6 +114,7 @@ public class BatchResultProcessor {
         this.forecastResultHandler = forecastResultHandler;
         this.auroraResultHandler = auroraResultHandler;
         this.evaluationAbandonmentService = evaluationAbandonmentService;
+        this.pipelineRunRepository = pipelineRunRepository;
     }
 
     /**
@@ -162,7 +172,7 @@ public class BatchResultProcessor {
 
         ResultContext context = ResultContext.forBatch(
                 batch.getJobRunId(), batch.getAnthropicBatchId(),
-                batch.getPipelineRunId(), null);
+                batch.getPipelineRunId(), resolveSubmissionInstant(batch), null);
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -261,15 +271,16 @@ public class BatchResultProcessor {
                 switch (parsed) {
                     case ParsedCustomId.Forecast f ->
                         identity = new ForecastIdentity(
-                                f.locationId(), f.date(), f.targetType(), f.evalRowId());
+                                f.locationId(), f.date(), f.targetType(), f.evalRowId(),
+                                f.forced());
                     case ParsedCustomId.Bluebell b -> {
                         identity = new ForecastIdentity(
-                                b.locationId(), b.date(), b.targetType(), null);
+                                b.locationId(), b.date(), b.targetType(), null, b.forced());
                         isBluebell = true;
                     }
                     case ParsedCustomId.Woodland w -> {
                         identity = new ForecastIdentity(
-                                w.locationId(), w.date(), w.targetType(), null);
+                                w.locationId(), w.date(), w.targetType(), null, w.forced());
                         isWoodland = true;
                     }
                     case ParsedCustomId.Jfdi j ->
@@ -528,6 +539,42 @@ public class BatchResultProcessor {
                     handlerResult.scoredCount(), 0,
                     toMicroDollars(batch.getEstimatedCostUsd()));
         }
+    }
+
+    /**
+     * Resolves the submission instant to stamp onto every {@link BriefingEvaluationResult} this
+     * batch produces (round 12) — {@code BriefingEvaluationResult#submittedAt}'s own javadoc has
+     * the full rule this backs; here only how the instant is FOUND.
+     *
+     * <p>For a batch belonging to an orchestrated cycle, that is the cycle's own {@code
+     * PipelineRunEntity#getTriggerTime()} — set once, at cycle start, and never updated — rather
+     * than this batch's own {@link ForecastBatchEntity#getSubmittedAt()}. The two differ in
+     * practice: {@code submitBuckets} submits the near/far, coastal/inland, bluebell and woodland
+     * lanes as up to six SEPARATE Anthropic batch-create calls, each stamping its own {@code
+     * submittedAt} at its own {@code Instant.now()}, seconds or more apart — so an OPEN_FELL
+     * candidate's sky and bluebell batches would almost never carry an equal {@code submittedAt}
+     * even though both belong to the same cycle. Reading the shared pipeline-run instant instead
+     * makes every batch of one cycle — including a {@code is_retry} batch, which carries the SAME
+     * {@code pipelineRunId} as the precursor it retries — agree on ONE instant by construction, so
+     * {@code BriefingEvaluationService.recombineBluebell}'s same-cycle test can be a plain equality
+     * check rather than a tolerance window.
+     *
+     * <p>Falls back to the batch's own {@code submittedAt} when {@code pipelineRunId} is null (an
+     * ad-hoc submission outside any cycle — a region-filtered admin batch, JFDI, force-submit) or
+     * when the pipeline run row is somehow missing (defensive; should not happen in practice, since
+     * the row is created before any batch that references it).
+     *
+     * @param batch the ended batch being processed
+     * @return the submission instant to stamp on this batch's results
+     */
+    private Instant resolveSubmissionInstant(ForecastBatchEntity batch) {
+        Long pipelineRunId = batch.getPipelineRunId();
+        if (pipelineRunId == null) {
+            return batch.getSubmittedAt();
+        }
+        return pipelineRunRepository.findById(pipelineRunId)
+                .map(PipelineRunEntity::getTriggerTime)
+                .orElse(batch.getSubmittedAt());
     }
 
     /**

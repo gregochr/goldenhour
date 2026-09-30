@@ -27,6 +27,50 @@ import java.util.Set;
  * <p>Instance-scoped seam extracted from {@code ForecastTaskCollector}. The
  * {@code forceEvalCap} bounds the per-cycle force-eval cost; a zero cap disables
  * the feature entirely.
+ *
+ * <p>⚠️ <b>Interaction with the verdict-minimum-sample rule
+ * ({@code docs/engineering/plan-verdict-consolidation-plan.md}, {@code VerdictSampleGate}) —
+ * owner decision, 2026-09-29.</b> That rule withholds a region's own verdict, pick eligibility and
+ * ranking-by-average until at least {@code VerdictSampleGate.MIN_RATED} of its voting slots are
+ * rated and roughly half the voting roster has been examined. A handful of forced ratings can never
+ * reach that bar on their own — this selector's {@code forceEvalCap} is a "targeted, not blanket"
+ * cost bound, by design far short of a sample the gate would trust — so WITHOUT an exemption every
+ * forced call this class buys would spend real Claude cost for stars nobody's verdict could use.
+ * The exemption: a region with at least one CURRENTLY rated voting slot whose stored result carries
+ * {@code BriefingEvaluationResult#forced} bypasses the sample gate outright — its verdict, pick
+ * eligibility and ranking follow the rated average exactly as they did before the minimum-sample
+ * rule existed, and its confidence takes no extra floor from it. That exemption is why this class
+ * keeps its original purpose rather than being retired or repurposed by the sample rule. The
+ * interaction with the PARENT stability-skip retraction (see CLAUDE.md's "Where a rating lives"
+ * table) is also deliberate: a forced rating is withdrawn the next time a nightly cycle
+ * stability-skips that slot again, so the exemption lasts at most until the next nightly run
+ * unless the slot is forced or evaluated again that night.
+ *
+ * <p>⚠️ <b>The marker travels with the TASK, not with a disposition timestamp — a second Codex
+ * review of #943 found the timestamp comparison this paragraph used to describe provably wrong.</b>
+ * This selector's own cap writes its {@code FORCE_EVALUATED} disposition at SUBMISSION time, before
+ * Claude's answer lands, AND {@code ScheduledBatchEvaluationService.persistCycleDispositions}
+ * anchors every disposition in a cycle to the cycle's FIRST submitted bucket's job run — not the
+ * specific far-term bucket that actually carries this selector's own force-evaluated candidates.
+ * The first fix (comparing the disposition's {@code created_at} against the winning result's own
+ * evaluation instant) still let an OLDER, unrelated rating — a hand-started synchronous admin run
+ * for the same slot, in the reported case — satisfy the comparison merely by landing after the
+ * disposition's timestamp, exempting a region on the strength of a rating that never came from this
+ * selector's own spend at all. The actual fix carries {@code forced} on {@code
+ * EvaluationTask.Forecast} itself, embeds it in the Anthropic batch custom id (alongside the
+ * pending-row id, {@code CustomIdFactory#forForecast}) so it survives the async round trip, and
+ * {@code ForecastResultHandler#buildResult} stamps {@code BriefingEvaluationResult#forced} from
+ * that embedded fact — the ONE place the flag is ever set, never re-derived at serve time. See
+ * {@code BriefingEvaluationResult#forced}'s own javadoc for the full history.
+ *
+ * <p>⚠️ <b>This selector's own force-evaluation is a DIFFERENT thing from the sample gate's
+ * "examined" count.</b> {@code VerdictSampleGate#examinedCount} (P1-A, the same review) counts a
+ * voting slot as examined only when the BATCH's own latest non-{@code SKIPPED_CACHED} disposition
+ * was {@code SKIPPED_TRIAGED} — never a slot this class force-evaluated (that counts via the
+ * ordinary rated path instead, once the instant check above confirms it), and never the briefing's
+ * own weather-triage {@code Verdict}, which this selector does read ({@code
+ * ForceEvalHeadlineSelector}'s own candidate scoring) but which is a different question from "did
+ * the batch examine this slot this cycle".
  */
 public final class ForceEvalHeadlineSelector {
 

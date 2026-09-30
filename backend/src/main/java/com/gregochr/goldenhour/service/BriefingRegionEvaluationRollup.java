@@ -15,8 +15,10 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Turns a weather/triage region hierarchy into a <em>scored</em> one: it walks the
@@ -76,7 +78,8 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
      * enrichment is actually computed. See {@code docs/engineering/served-briefing-assembler-plan.md}.
      */
     @Override
-    public List<BriefingDay> enrich(List<BriefingDay> days, RegionScoreResolver resolver) {
+    public List<BriefingDay> enrich(List<BriefingDay> days, RegionScoreResolver resolver,
+            TriagedByBatchResolver triagedResolver) {
         // Request-time "today" so the confidence horizon stays fresh when a briefing built
         // yesterday is served today (this method runs on both the build and the serve paths).
         LocalDate today = LocalDate.now(clock.withZone(LONDON));
@@ -112,11 +115,11 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                             .toList();
                     BriefingRatingStats.Stats coverageStats = BriefingRatingStats.compute(
                             coverageEntries, region.regionName(), day.date(), es.targetType());
-                    List<BriefingRatingStats.Entry> votingEntries =
-                            BriefingSlot.votingSlots(enrichedSlots).stream()
-                                    .map(s -> new BriefingRatingStats.Entry(
-                                            s.locationName(), s.claudeRating()))
-                                    .toList();
+                    List<BriefingSlot> votingSlotList = BriefingSlot.votingSlots(enrichedSlots);
+                    List<BriefingRatingStats.Entry> votingEntries = votingSlotList.stream()
+                            .map(s -> new BriefingRatingStats.Entry(
+                                    s.locationName(), s.claudeRating()))
+                            .toList();
                     BriefingRatingStats.Stats votingStats = BriefingRatingStats.compute(
                             votingEntries, region.regionName(), day.date(), es.targetType());
                     // Only warn about zero coverage where coverage was actually expected. An
@@ -135,8 +138,89 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                                 region.regionName(), day.date(), es.targetType(),
                                 region.verdict());
                     }
-                    DisplayVerdict freshVerdict = BriefingRatingStats
-                            .resolveRegionDisplayVerdict(votingStats, region.verdict());
+                    // Verdict-minimum-sample rule (docs/engineering/plan-verdict-consolidation-plan.md,
+                    // VerdictSampleGate): a region's ratings may set its own verdict, crown a pick
+                    // and outrank a region only once the sample is large enough to mean something.
+                    // Before this gate a single rated location — however it got that rating — was
+                    // enough, which let six force-evaluated 4-star ratings in a 253-location
+                    // catalogue crown a window "Worth it" and take ALSO GOOD (2026-09-29 production
+                    // evidence). Roster and examined coverage are both over the VOTING slots, the
+                    // same population the verdict and mean already read.
+                    ConfidenceDeriver.RegionRoster roster = rosterOf(enrichedSlots);
+                    // "Examined" is real evidence the pipeline looked at a slot and stood it down
+                    // on weather — never this slot's own independently-computed weather-triage
+                    // Verdict, which is computed once across the whole horizon and can disagree
+                    // with, or simply never have been asked about, what actually happened this
+                    // cycle (a Codex review of #943, P1-A). Two INDEPENDENT sources are unioned,
+                    // because neither alone covers every path that can triage a slot:
+                    //
+                    //   (a) triagedResolver — the batch's own disposition table, resolved for this
+                    //   exact region/date/event by EvaluationViewService#getTriagedByBatchLocationNames
+                    //   (single-key) / #getTriagedByBatchLocationNamesBulk (bulk). Reaches the
+                    //   rollup for EVERY such slot regardless of what `cached` resolves to for it
+                    //   — a genuine triage result, nothing, or a retraction marker — because it is
+                    //   queried independently rather than filtered out of `cached` (a second Codex
+                    //   review of #943, P1-A round 2: production always writes a real
+                    //   forecast_evaluation triage row alongside SKIPPED_TRIAGED, so a synthetic
+                    //   marker stamped only into the "resolver had nothing else" branch of `cached`
+                    //   almost never fired, and examinedCount silently collapsed to rated-only on
+                    //   the very production shape this gate exists to protect: a 50-slot region
+                    //   with 35 batch-triaged, 15 rated read 15-of-50, under half, INSUFFICIENT).
+                    //
+                    //   (b) `cached` itself — a resolved triageReason, whatever produced it. A
+                    //   hand-started synchronous-engine run can triage a slot (ForecastService#
+                    //   fetchWeatherAndTriage writes a real forecast_evaluation triage row) WITHOUT
+                    //   ever writing a forecast_run_disposition row, so (a) alone would miss it;
+                    //   the evidence that the pipeline stood it down lives only on that
+                    //   forecast_evaluation row, which `cached` already resolved.
+                    //
+                    // A stability-skipped slot (Gate 4 declined to re-look this cycle) is excluded
+                    // from BOTH: (a) because its latest disposition is SKIPPED_STABILITY, not
+                    // SKIPPED_TRIAGED, and (b) because a recorded stability skip retracts whatever
+                    // `cached` would otherwise resolve to a `retracted()` marker with a null
+                    // triageReason — so neither channel can be fooled by a stale, superseded
+                    // triage. VerdictSampleGate.examinedCount's own claudeRating()==null guard
+                    // still prevents double-counting a slot that is both rated and carries an
+                    // older triage decision.
+                    Set<String> triagedLocationNames = new HashSet<>(
+                            triagedResolver.resolve(region.regionName(), day.date(), es.targetType()));
+                    cached.values().stream()
+                            .filter(eval -> eval.triageReason() != null)
+                            .map(BriefingEvaluationResult::locationName)
+                            .forEach(triagedLocationNames::add);
+                    int examined = VerdictSampleGate.examinedCount(
+                            votingSlotList, votingStats.count(), triagedLocationNames);
+                    boolean rawSufficient = VerdictSampleGate.isSufficient(
+                            votingStats.count(), examined, roster.voting());
+                    // Force-evaluation exemption (owner decision, 2026-09-29). ForceEvalHeadlineSelector
+                    // force-evaluates up to a handful of far-out headline candidates a night
+                    // specifically so a clear far-out day can be crowned with real Claude evidence —
+                    // a minimum-sample rule with no exemption would leave that spend buying stars
+                    // nobody's verdict could use. A region with at least one CURRENTLY forced-rated
+                    // voting slot is therefore exempt from the sample test outright: its verdict,
+                    // pick eligibility, ranking and confidence follow the rated average exactly as
+                    // they did before this gate existed. "Currently" is read straight off each
+                    // slot's own resolved BriefingEvaluationResult#forced — provenance stamped ONCE
+                    // by ForecastResultHandler#buildResult from the task that actually produced the
+                    // rating, never re-derived here from a disposition timestamp (that inference was
+                    // tried and found provably wrong — see BriefingEvaluationResult#forced's own
+                    // javadoc). Any later write for the slot (an ordinary evaluation, a stability
+                    // skip's retraction, a sync/force-submit run) replaces the stored result and
+                    // clears the flag automatically, so the exemption lasts at most until the next
+                    // write. A slot the resolver has nothing new to say for (cached.get returns null
+                    // — the slot kept its previously persisted rating unchanged) is never counted as
+                    // forced: unknown must never grant the exemption.
+                    boolean forcedSample = votingSlotList.stream()
+                            .filter(s -> s.claudeRating() != null)
+                            .anyMatch(s -> {
+                                BriefingEvaluationResult eval = cached.get(s.locationName());
+                                return eval != null && eval.forced();
+                            });
+                    boolean sufficientForVerdict = rawSufficient || forcedSample;
+                    DisplayVerdict freshVerdict = sufficientForVerdict
+                            ? BriefingRatingStats.resolveRegionDisplayVerdict(
+                                    votingStats, region.verdict())
+                            : DisplayVerdict.resolve(null, region.verdict());
                     // A gloss is Claude prose written against the verdict that held when the
                     // briefing was built. When read-time re-enrichment moves the verdict —
                     // a batch re-scored the region after build — that prose can now contradict
@@ -176,10 +260,21 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                     //
                     // Null is still right where NOTHING is scored — the documented zero-coverage
                     // case — and `coverageStats` is what tells the two apart.
-                    Confidence confidence = votingStats.isEmpty() && !coverageStats.isEmpty()
-                            ? Confidence.LOW
-                            : ConfidenceDeriver.derive(
-                                    daysAhead, votingStats, rosterOf(enrichedSlots));
+                    //
+                    // A third LOW floor, added alongside the verdict-minimum-sample rule: something
+                    // IS rated (votingStats non-empty) but the sample is not large enough to trust
+                    // AND no force-evaluation exemption applies. Skipped for an exempt region —
+                    // "its confidence follows today's rules with no extra floor from this change"
+                    // (owner decision, 2026-09-29) — because the exemption exists precisely so a
+                    // forced rating can be believed at face value.
+                    Confidence confidence;
+                    if (votingStats.isEmpty() && !coverageStats.isEmpty()) {
+                        confidence = Confidence.LOW;
+                    } else if (!votingStats.isEmpty() && !sufficientForVerdict) {
+                        confidence = Confidence.LOW;
+                    } else {
+                        confidence = ConfidenceDeriver.derive(daysAhead, votingStats, roster);
+                    }
                     enrichedRegions.add(new BriefingRegion(
                             region.regionName(), region.verdict(), region.summary(),
                             region.tideHighlights(), enrichedSlots,
@@ -212,7 +307,14 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                             // different statements, and BriefingRatingStats.Stats.empty() reports
                             // maxRating 0 for the same reason its averageRating is 0.0.
                             .withBestRating(
-                                    votingStats.isEmpty() ? null : votingStats.maxRating()));
+                                    votingStats.isEmpty() ? null : votingStats.maxRating())
+                            // The verdict-minimum-sample rule's own two facts, served so a client
+                            // can tell "crowned on a sufficient sample" apart from "crowned on
+                            // forced headline ratings" — see VerdictSampleGate and the two fields'
+                            // own javadoc on BriefingRegion. Computed fresh here on both the build
+                            // and serve paths, exactly like confidence/meanRating/bestRating above.
+                            .withSampleSufficient(rawSufficient)
+                            .withForcedSample(forcedSample));
                 }
                 enrichedEvents.add(es.withRegions(enrichedRegions));
             }

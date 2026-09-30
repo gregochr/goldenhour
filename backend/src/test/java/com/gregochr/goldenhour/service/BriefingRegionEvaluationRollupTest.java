@@ -6,10 +6,13 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -18,8 +21,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,9 +75,23 @@ class BriefingRegionEvaluationRollupTest {
     }
 
     private List<BriefingDay> daysWith(BriefingSlot slot) {
-        BriefingRegion region = new BriefingRegion("Tyne and Wear", Verdict.GO, "Clear skies",
-                List.of(), List.of(slot), 12.0, 11.0, 3.0, 0, null, null,
-                DisplayVerdict.WORTH_IT, 1);
+        return daysWith(List.of(slot));
+    }
+
+    private List<BriefingDay> daysWith(List<BriefingSlot> slots) {
+        return daysWith(slots, Verdict.GO);
+    }
+
+    /**
+     * As {@link #daysWith(List)}, with the region's own triage {@code verdict} — the fallback the
+     * verdict-minimum-sample rule resolves to when the sample is insufficient — supplied
+     * explicitly, so a test can pick a fallback value distinguishable from whatever the rated
+     * average would otherwise produce.
+     */
+    private List<BriefingDay> daysWith(List<BriefingSlot> slots, Verdict triageFallback) {
+        BriefingRegion region = new BriefingRegion("Tyne and Wear", triageFallback, "Clear skies",
+                List.of(), slots, 12.0, 11.0, 3.0, 0, null, null,
+                DisplayVerdict.resolve(null, triageFallback), 1);
         BriefingEventSummary summary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
         return List.of(new BriefingDay(DATE, List.of(summary)));
@@ -80,6 +101,30 @@ class BriefingRegionEvaluationRollupTest {
         List<BriefingDay> enriched = rollup.enrich(daysWith(slot), resolver);
         return enriched.getFirst().eventSummaries().getFirst().regions().getFirst().slots()
                 .getFirst();
+    }
+
+    /** Enriches a whole roster of slots and returns the resulting region. */
+    private BriefingRegion enrichedRegion(List<BriefingSlot> slots, RegionScoreResolver resolver) {
+        return enrichedRegion(slots, Verdict.GO, resolver);
+    }
+
+    /** As above, with the region's own triage fallback verdict supplied explicitly. */
+    private BriefingRegion enrichedRegion(List<BriefingSlot> slots, Verdict triageFallback,
+            RegionScoreResolver resolver) {
+        List<BriefingDay> enriched = rollup.enrich(daysWith(slots, triageFallback), resolver);
+        return enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+    }
+
+    /**
+     * As above, but ALSO supplying a {@link TriagedByBatchResolver} — the verdict-minimum-sample
+     * rule's disposition-sourced "examined" evidence, read independently of whatever {@code
+     * resolver} returns for the same region/date/event (a Codex review of #943, P1-A, round 2).
+     */
+    private BriefingRegion enrichedRegion(List<BriefingSlot> slots, Verdict triageFallback,
+            RegionScoreResolver resolver, TriagedByBatchResolver triagedResolver) {
+        List<BriefingDay> enriched = rollup.enrich(
+                daysWith(slots, triageFallback), resolver, triagedResolver);
+        return enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
     }
 
     @Test
@@ -167,5 +212,520 @@ class BriefingRegionEvaluationRollupTest {
         assertThat(result.claudeRating()).isEqualTo(5);
         assertThat(result.claudeSummary()).isEqualTo("Even better now");
         assertThat(result.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+    }
+
+    /**
+     * The verdict-minimum-sample rule end to end ({@code docs/engineering/plan-verdict-consolidation-plan.md},
+     * {@link VerdictSampleGate}, owner decision 2026-09-29 for the force-evaluation exemption).
+     * These drive the real {@link BriefingRegionEvaluationRollup#enrich} over a whole roster of
+     * slots — not a single one, as the rest of this file does — because the rule is a claim about
+     * the REGION's sample, not about any one slot.
+     */
+    @Nested
+    @DisplayName("verdict-minimum-sample rule")
+    class VerdictMinimumSample {
+
+        /** A rated, non-canopy voting slot — GO triage, a Claude rating already embedded. */
+        private BriefingSlot rated(String name, int rating) {
+            return new BriefingSlot(name, EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null)
+                    .withClaudeScores(rating, 75, 60, "summary");
+        }
+
+        /**
+         * A slot the weather triage stood down. Carries the STANDDOWN verdict a real triaged slot
+         * would — but since a Codex review of #943 (P1-A), that verdict is no longer what makes a
+         * slot count as "examined" by {@link VerdictSampleGate#examinedCount}. A caller must ALSO
+         * route the slot's name through {@link #triagedResolver} (the disposition channel) or a
+         * resolver returning a real triage {@link BriefingEvaluationResult} (the resolved-evidence
+         * channel — see {@link #resolvedTriageResolver}), mirroring what {@code
+         * EvaluationViewService#getTriagedByBatchLocationNames}/{@code getTriagedByBatchLocationNamesBulk}
+         * or a genuinely resolved triage result would report.
+         */
+        private BriefingSlot triaged(String name) {
+            return new BriefingSlot(name, EVENT_TIME, Verdict.STANDDOWN, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), "Grey ceiling");
+        }
+
+        /**
+         * A {@link TriagedByBatchResolver} reporting the given names — the disposition channel of
+         * "examined" evidence, exactly the shape {@code EvaluationViewService
+         * #getTriagedByBatchLocationNames}/{@code getTriagedByBatchLocationNamesBulk} return for a
+         * region/date/event whose batch disposition table names these locations' latest decision as
+         * {@code SKIPPED_TRIAGED}. Independent of whatever the SCORE resolver (see {@link
+         * #noOpResolver}/{@link #resolvedTriageResolver}) returns for the same slots — a second
+         * Codex review of #943 (P1-A, round 2) found the first cut of this fix could only reach a
+         * slot the score resolver had NOTHING to say for, which production essentially never does
+         * (a batch triage always ALSO writes a real {@code forecast_evaluation} triage row).
+         */
+        private TriagedByBatchResolver triagedResolver(List<String> triagedNames) {
+            Set<String> names = new HashSet<>(triagedNames);
+            return (regionName, date, targetType) -> names;
+        }
+
+        /** A {@link TriagedByBatchResolver} reporting nothing — no batch disposition evidence. */
+        private TriagedByBatchResolver noTriagedResolver() {
+            return (regionName, date, targetType) -> Set.of();
+        }
+
+        /**
+         * A {@link RegionScoreResolver} reporting a REAL, resolved triage result for the given
+         * names — the resolved-evidence channel of "examined", the shape {@code
+         * EvaluationViewService#getScoresForEnrichment}/{@code Bulk} actually return for a batch- OR
+         * hand-started/synchronous-engine-triaged slot (both write a real {@code
+         * forecast_evaluation} triage row via {@code ForecastService#fetchWeatherAndTriage}), as
+         * opposed to the synthetic marker the FIRST cut of this fix wrongly relied on.
+         */
+        private RegionScoreResolver resolvedTriageResolver(List<String> triagedNames) {
+            Map<String, BriefingEvaluationResult> results = new HashMap<>();
+            for (String name : triagedNames) {
+                results.put(name, new BriefingEvaluationResult(name, null, null, null, null,
+                        TriageReason.GENERIC, "Grey ceiling"));
+            }
+            return (regionName, date, targetType) -> results;
+        }
+
+        /** A voting slot nobody has looked at this cycle — beyond Gate 4's horizon, unforced. */
+        private BriefingSlot untouched(String name) {
+            return new BriefingSlot(name, EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null);
+        }
+
+        /** {@code count} untouched slots, named {@code prefix0..count-1}. */
+        private List<BriefingSlot> untouchedSlots(String prefix, int count) {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                slots.add(untouched(prefix + i));
+            }
+            return slots;
+        }
+
+        /** A resolver that reports nothing new for any slot — the embedded ratings stand as is. */
+        private RegionScoreResolver noOpResolver() {
+            return (regionName, date, targetType) -> Map.of();
+        }
+
+        /**
+         * A resolver that marks specific locations' CURRENT rating as force-evaluated, reporting
+         * nothing for every other name (so their embedded ratings are read as unforced — the
+         * resolver "has nothing new to say" for them, which must never grant the exemption).
+         */
+        private RegionScoreResolver forcedResolver(Map<String, Integer> forcedNameToRating) {
+            Map<String, BriefingEvaluationResult> results = new HashMap<>();
+            forcedNameToRating.forEach((name, rating) -> results.put(name,
+                    new BriefingEvaluationResult(name, rating, 75, 60, "summary",
+                            null, null, null, Instant.now(), null).withForced(true)));
+            return (regionName, date, targetType) -> results;
+        }
+
+        @Test
+        @DisplayName("4 rated of 5 voting (1 untouched) — full coverage, but below MIN_RATED: "
+                + "insufficient, falls back to the triage verdict")
+        void fourRatedOfFive_belowMinRated_fallsBackToTriage() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                slots.add(rated("R" + i, 5));
+            }
+            slots.add(untouched("Untouched"));
+
+            // Triage fallback deliberately different from what the 5-star average would say
+            // (WORTH_IT), so a pass-through bug cannot hide behind an accidentally matching value.
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver());
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.forcedSample()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(region.confidence()).isEqualTo(Confidence.LOW);
+            // Stars are never touched by the sample gate.
+            assertThat(region.meanRating()).isEqualTo(5.0);
+            assertThat(region.bestRating()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("5 rated of 5 voting — meets MIN_RATED with full coverage: sufficient, the "
+                + "rated average sets the verdict")
+        void fiveRatedOfFive_sufficient() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(rated("R" + i, 5));
+            }
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver());
+
+            assertThat(region.sampleSufficient()).isTrue();
+            assertThat(region.forcedSample()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(region.meanRating()).isEqualTo(5.0);
+            assertThat(region.bestRating()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("the poor-weather near window: 35 BATCH-triaged + 15 rated of 50 voting keeps "
+                + "today's verdict — the region HAS been examined in full")
+        void poorWeatherNearWindow_thirtyFiveTriagedFifteenRated_keepsVerdict() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            List<String> triagedNames = new ArrayList<>();
+            for (int i = 0; i < 35; i++) {
+                String name = "Triaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
+            }
+            for (int i = 0; i < 15; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.STANDDOWN, noOpResolver(),
+                    triagedResolver(triagedNames));
+
+            assertThat(region.sampleSufficient()).isTrue();
+            assertThat(region.forcedSample()).isFalse();
+            // 15 locations all rated 4 -> mean 4.0 -> WORTH_IT, exactly as it would read before
+            // this gate existed. The gate must not touch a region that has been looked at in full.
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(region.meanRating()).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("the identical 35-triaged/15-rated near-window shape but with REAL triage "
+                + "forecast_evaluation rows resolved (not the disposition channel at all) — "
+                + "sufficient. Must FAIL against 72e7b612: that commit's synthetic marker only ever "
+                + "attached in the branch where the resolver returned nothing, so a resolver "
+                + "returning genuine triage results (what production actually writes) left "
+                + "examinedCount seeing none of them as triaged")
+        void poorWeatherNearWindow_realTriageForecastRowsResolved_keepsVerdict() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            List<String> triagedNames = new ArrayList<>();
+            for (int i = 0; i < 35; i++) {
+                String name = "Triaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
+            }
+            for (int i = 0; i < 15; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+
+            // The disposition channel (triagedResolver) reports NOTHING here — this proves the
+            // RESOLVED-EVIDENCE channel alone (a real forecast_evaluation triage row, exactly what
+            // ForecastService#fetchWeatherAndTriage actually writes) is sufficient on its own.
+            BriefingRegion region = enrichedRegion(slots, Verdict.STANDDOWN,
+                    resolvedTriageResolver(triagedNames), noTriagedResolver());
+
+            assertThat(region.sampleSufficient()).isTrue();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(region.meanRating()).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("far window: 5 rated + 25 STANDDOWN-verdict slots the batch itself "
+                + "SKIPPED_STABILITY (never SKIPPED_TRIAGED) — insufficient. Regression test for "
+                + "#943 P1-A: must FAIL if examinedCount reads slot.verdict() instead of the "
+                + "batch's own disposition")
+        void farWindow_standdownVerdictButBatchStabilitySkipped_insufficient() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+            // These 25 carry the SAME STANDDOWN verdict + stand-down reason a real triaged slot
+            // would — the old bug read exactly that field to decide "examined". The batch's own
+            // disposition for each was SKIPPED_STABILITY, never SKIPPED_TRIAGED, so NONE of their
+            // names are handed to the resolver — noOpResolver() reports nothing for them, exactly
+            // what EvaluationViewService#loadTriagedByBatch would report for a slot whose latest
+            // disposition is not SKIPPED_TRIAGED.
+            for (int i = 0; i < 25; i++) {
+                slots.add(triaged("StabilitySkipped" + i));
+            }
+            slots.addAll(untouchedSlots("Untouched", 20));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver());
+
+            // examined = 5 rated + 0 (none of the 25 or 20 count) = 5 of 50 = 10% < 50%.
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("the same far window, but the 25 slots' latest batch decision IS "
+                + "SKIPPED_TRIAGED: sufficient")
+        void farWindow_sameRosterButBatchTriaged_sufficient() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+            List<String> triagedNames = new ArrayList<>();
+            for (int i = 0; i < 25; i++) {
+                String name = "Triaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
+            }
+            slots.addAll(untouchedSlots("Untouched", 20));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver(),
+                    triagedResolver(triagedNames));
+
+            // examined = 5 rated + 25 batch-triaged = 30 of 50 = 60% >= 50%, rated 5 >= MIN_RATED.
+            assertThat(region.sampleSufficient()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a slot whose BRIEFING verdict is GO still counts as examined once the "
+                + "resolver reports it batch-triaged — the two axes are independent")
+        void goVerdictSlot_countsAsExaminedViaBatchDisposition() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+            // A GO-verdict slot (never STANDDOWN) the batch nonetheless decided SKIPPED_TRIAGED
+            // for — a stale briefing verdict computed before the batch's own, independent pass.
+            BriefingSlot goButTriaged = new BriefingSlot("GoButTriaged", EVENT_TIME, Verdict.GO,
+                    WEATHER, BriefingSlot.TideInfo.NONE, List.of(), null);
+            slots.add(goButTriaged);
+            // 19 more triaged (via the resolver) to clear the 50% coverage line alongside it.
+            List<String> triagedNames = new ArrayList<>(List.of("GoButTriaged"));
+            for (int i = 0; i < 19; i++) {
+                String name = "AlsoTriaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
+            }
+            slots.addAll(untouchedSlots("Untouched", 25));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver(),
+                    triagedResolver(triagedNames));
+
+            // examined = 5 rated + 20 batch-triaged (including the GO one) = 25 of 50 = 50%.
+            assertThat(region.sampleSufficient()).isTrue();
+        }
+
+        @Test
+        @DisplayName("one ORDINARY (non-forced) 4-star rating in a voting roster of fifty falls "
+                + "back to the triage verdict and is not sufficient")
+        void oneOrdinaryRatingInFifty_fallsBackToTriage() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            slots.add(rated("Solo", 4));
+            slots.addAll(untouchedSlots("Untouched", 49));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver());
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.forcedSample()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            // The star is unaffected: the one rated location still reports its own 4.
+            assertThat(region.meanRating()).isEqualTo(4.0);
+            assertThat(region.bestRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("six force-evaluated 4-star ratings in a voting roster of fifty are exempt: "
+                + "WORTH_IT stands and the region remains pick-eligible")
+        void sixForcedRatingsInFifty_exempt() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            Map<String, Integer> forced = new HashMap<>();
+            for (int i = 0; i < 6; i++) {
+                String name = "Forced" + i;
+                slots.add(rated(name, 4));
+                forced.put(name, 4);
+            }
+            slots.addAll(untouchedSlots("Untouched", 44));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, forcedResolver(forced));
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.forcedSample()).isTrue();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(region.meanRating()).isEqualTo(4.0);
+            assertThat(region.bestRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("the same six ratings with EVALUATED (not forced) dispositions fall back to "
+                + "the triage verdict")
+        void sixOrdinaryRatingsInFifty_notExempt_fallsBackToTriage() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                slots.add(rated("Ordinary" + i, 4));
+            }
+            slots.addAll(untouchedSlots("Untouched", 44));
+
+            // noOpResolver: the resolver reports nothing new (as an ordinary EVALUATED disposition
+            // that merely reaffirms an already-embedded rating would), so none of the six reads
+            // forced.
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver());
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.forcedSample()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("one forced rating among four ordinary ones (5 rated, thin coverage) exempts "
+                + "the whole region")
+        void oneForcedAmongFourOrdinary_exemptsRegion() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            slots.add(rated("Forced", 4));
+            for (int i = 0; i < 4; i++) {
+                slots.add(rated("Ordinary" + i, 4));
+            }
+            // 45 more untouched so coverage (5 of 50) is thin — the raw gate would refuse this
+            // region even though MIN_RATED (5) is met, isolating the exemption's own effect.
+            slots.addAll(untouchedSlots("Untouched", 45));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL,
+                    forcedResolver(Map.of("Forced", 4)));
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.forcedSample()).isTrue();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+
+        @Test
+        @DisplayName("a resolver reporting nothing for a rated slot never grants the exemption — "
+                + "unknown reads as not forced")
+        void resolverReportsNothing_neverGrantsExemption() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                slots.add(rated("R" + i, 4));
+            }
+            slots.addAll(untouchedSlots("Untouched", 44));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver());
+
+            assertThat(region.forcedSample()).isFalse();
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("the all-canopy fallback roster votes as one, and the sample gate reads its "
+                + "own (fallback) roster size — five rated woods are sufficient")
+        void allCanopyFallbackRoster_gateReadsFallbackRoster() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(BriefingSlot.canopySlot("Wood" + i, EVENT_TIME, Verdict.GO, WEATHER,
+                                List.of(), null)
+                        .withClaudeScores(4, 75, 60, "summary"));
+            }
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver());
+
+            // All-canopy: BriefingSlot.votingSlots falls back to the full (woodland) list, so the
+            // gate's roster is 5, not 0 — five rated woods clear MIN_RATED and full coverage.
+            assertThat(region.sampleSufficient()).isTrue();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(region.meanRating()).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("a region with zero rated voting slots behaves exactly as before this rule — "
+                + "the triage fallback, and null confidence (nothing at all is scored)")
+        void zeroRated_behavesAsBefore() {
+            BriefingRegion region = enrichedRegion(untouchedSlots("Untouched", 10),
+                    Verdict.GO, noOpResolver());
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.forcedSample()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(region.confidence()).isNull();
+            assertThat(region.meanRating()).isNull();
+            assertThat(region.bestRating()).isNull();
+        }
+
+        @Test
+        @DisplayName("build path and serve path agree for one fixture — the same resolver output "
+                + "yields the same region either way")
+        void buildAndServePathsAgree() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                slots.add(rated("R" + i, 5));
+            }
+            slots.add(untouched("Untouched"));
+
+            // What this actually proves, and what it does not. Since c7f31e5d both the build path
+            // (BriefingService#bulkScoreResolver) and the serve path (ServedBriefingAssembler
+            // #reEnrichVerdicts) call the SAME EvaluationViewService#getScoresForEnrichmentBulk,
+            // which loads forcedFlags via the one loadForcedFlags/stampForced pair — so real
+            // build/serve agreement on sampleSufficient/forcedSample is now a property of
+            // EvaluationViewService (pinned directly by EvaluationViewServiceTest's
+            // ForcedEvaluationFlag tests), not something this test can independently demonstrate by
+            // wiring two resolver lambdas. What THIS test pins is a different, still load-bearing
+            // property one level up: BriefingRegionEvaluationRollup.enrich/enrichSlot must not care
+            // where its RegionScoreResolver's map came from — a per-region resolver and a
+            // bulk-backed one are handed to it as the identical functional-interface shape, and it
+            // must produce identical regions for identical resolver output regardless of the
+            // resolver's own backing store. Two structurally-identical no-op lambdas are sufficient
+            // for that: the rollup receives no signal at all that would let it tell them apart, so
+            // proving it treats them alike is a legitimate (if narrow) determinism check, not a
+            // tautology — a rollup that closed over resolver identity, call count or a static field
+            // would fail this test while a real build-vs-serve fixture might still pass by chance.
+            RegionScoreResolver buildPathResolver = noOpResolver();
+            RegionScoreResolver servePathResolver = noOpResolver();
+
+            BriefingRegion fromBuildPath = enrichedRegion(slots, Verdict.MARGINAL, buildPathResolver);
+            BriefingRegion fromServePath = enrichedRegion(slots, Verdict.MARGINAL, servePathResolver);
+
+            assertThat(fromBuildPath.sampleSufficient()).isEqualTo(fromServePath.sampleSufficient());
+            assertThat(fromBuildPath.forcedSample()).isEqualTo(fromServePath.forcedSample());
+            assertThat(fromBuildPath.displayVerdict()).isEqualTo(fromServePath.displayVerdict());
+            assertThat(fromBuildPath.confidence()).isEqualTo(fromServePath.confidence());
+            assertThat(fromBuildPath.meanRating()).isEqualTo(fromServePath.meanRating());
+        }
+
+        @Test
+        @DisplayName("channel B: a resolved triage result with NO matching batch disposition at "
+                + "all (a hand-started/synchronous-engine run, which writes a forecast_evaluation "
+                + "triage row but no forecast_run_disposition row) still counts as examined")
+        void resolvedTriageWithNoDisposition_stillCountsAsExamined() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                slots.add(rated("Rated" + i, 4));
+            }
+            List<String> handStartedNames = new ArrayList<>();
+            // Deliberately GO-verdict, untouched-shaped slots (never triaged()'s STANDDOWN) — the
+            // point is that NEITHER the slot's own verdict NOR a disposition says anything here;
+            // only the resolved forecast_evaluation row (resolvedTriageResolver) carries the
+            // evidence, exactly as a hand-started run's own triage would.
+            for (int i = 0; i < 25; i++) {
+                String name = "HandStarted" + i;
+                slots.add(untouched(name));
+                handStartedNames.add(name);
+            }
+            slots.addAll(untouchedSlots("Untouched", 20));
+
+            // The disposition channel is EMPTY — no forecast_run_disposition row exists for any of
+            // these, simulating a run that never wrote one.
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL,
+                    resolvedTriageResolver(handStartedNames), noTriagedResolver());
+
+            // examined = 5 rated + 25 resolved-triage (channel B alone) = 30 of 50 = 60% >= 50%.
+            assertThat(region.sampleSufficient()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a slot that is BOTH currently rated AND named in the disposition channel's "
+                + "triaged set (e.g. triaged last night, rated tonight, and the caller's own union "
+                + "still carries the stale name) is counted ONCE, through its rating")
+        void ratedSlotAlsoInDispositionTriagedSet_countedOnceViaRating() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            // "Flippy" is rated AND (implausibly, but exactly the case to guard) also named by the
+            // disposition resolver — proving VerdictSampleGate#examinedCount's own
+            // claudeRating()==null guard is actually wired through from the rollup, not merely
+            // true in isolation at the VerdictSampleGateTest level.
+            slots.add(rated("Flippy", 4));
+            for (int i = 0; i < 4; i++) {
+                slots.add(rated("R" + i, 4));
+            }
+            // A roster of 12 voting slots: threshold = 12 * 0.5 = 6. Correct examined = 5 (rated
+            // count alone, Flippy excluded from the triaged addition) < 6 -> INSUFFICIENT. A
+            // double-counting bug would read examined = 6 (5 rated + Flippy counted again) -> right
+            // AT the threshold -> SUFFICIENT — so this genuinely distinguishes the two behaviours,
+            // unlike a roster where either count clears (or misses) the line the same way.
+            slots.addAll(untouchedSlots("Untouched", 7));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver(),
+                    triagedResolver(List.of("Flippy")));
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            // The star is unaffected either way.
+            assertThat(region.meanRating()).isEqualTo(4.0);
+        }
     }
 }

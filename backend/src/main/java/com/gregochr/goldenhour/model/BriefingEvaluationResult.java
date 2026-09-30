@@ -54,6 +54,117 @@ import java.time.Instant;
  *                            round-trips through {@code results_json} and a legacy row missing it
  *                            always deserialises to {@code false} — the one value it may ever hold
  *                            on a real evaluation result
+ * @param forced              true when this location's rating was produced by a task that carried
+ *                            the {@code ForceEvalHeadlineSelector} force-evaluation marker —
+ *                            decoded from the Anthropic batch custom id (or, on the sync path,
+ *                            from the {@code EvaluationTask.Forecast} itself) and stamped ONCE, at
+ *                            the single point in {@code ForecastResultHandler#buildResult} where a
+ *                            result is built from a Claude response. Backs the verdict-minimum-
+ *                            sample rule's force-evaluation exemption ({@code
+ *                            BriefingRegion#forcedSample}): {@code BriefingRegionEvaluationRollup}
+ *                            reads this off the winning result for each rated voting slot to decide
+ *                            whether the region as a whole is exempt from the sample-size gate.
+ *                            {@code false} whenever {@link #rating} is null — a field with no
+ *                            rating behind it cannot be a forced <em>rating</em> — and for a result
+ *                            built from a {@code forecast_evaluation} row rather than the cache
+ *                            (that entity carries no forced marker of its own, so a winning source
+ *                            that is a bare forecast row is never forced, unknown-is-safe).
+ *                            {@code @JsonInclude(NON_DEFAULT)}, unlike {@link #retracted}: this
+ *                            field IS persisted into {@code cached_evaluation.results_json} — it
+ *                            has to survive the write/read round trip so a later serve can read
+ *                            back exactly what the writing task decided, rather than re-inferring
+ *                            it from timestamps (see the class-level history below). {@code false}
+ *                            is omitted from the JSON (a non-forced result is byte-identical to one
+ *                            written before this field existed), so a legacy row missing it
+ *                            deserialises to {@code false} — "not forced", the correct default.
+ *                            ⚠️ Any LATER write for the same slot — an ordinary batch evaluation, a
+ *                            synchronous admin run, a force-submit, an intraday refresh — replaces
+ *                            the stored result wholesale and none of those writers ever pass
+ *                            {@code forced = true}, so the flag is cleared automatically the moment
+ *                            anything but the forced task's own result speaks for the slot again.
+ *                            ⚠️ <b>This field used to be computed at SERVE time, by comparing a
+ *                            {@code forecast_run_disposition} row's {@code created_at} against the
+ *                            winning result's own evaluation instant</b> (owner decision,
+ *                            2026-09-29 — see {@code EvaluationViewService}'s former {@code
+ *                            loadForceEvaluatedAt}/{@code isCurrentlyForced}). A second review found
+ *                            that inference provably wrong: {@code FORCE_EVALUATED} dispositions are
+ *                            written at submission, before any Claude result lands, and are anchored
+ *                            to the CYCLE's first job run rather than the specific bucket that
+ *                            actually force-evaluated a slot — so an unrelated, ordinary rating
+ *                            (from a hand-started synchronous admin run, in the reported case) that
+ *                            merely landed AFTER the disposition's timestamp satisfied the same
+ *                            comparison and was wrongly granted the exemption. Provenance recorded
+ *                            at write time, by the task that actually produced the rating, closes
+ *                            that gap by construction rather than narrowing the inference further.
+ *                            ⚠️ <b>Round 12: recording {@code forced} at write time was not enough
+ *                            on its own, because WRITE ORDER is not EVALUATION order.</b> A batch
+ *                            can outlive its pipeline's safety timeout (Anthropic allows up to
+ *                            24h), so an older, forced batch can complete and merge AFTER a newer,
+ *                            ordinary batch already wrote the same slot — copying the older batch's
+ *                            {@code forced = true} onto a rating a newer, ordinary evaluation
+ *                            should have ended the exemption for. {@link #submittedAt} (below) is
+ *                            the fix: every cache write now compares submission instants before
+ *                            writing or combining, so an out-of-order arrival cannot land at all,
+ *                            and {@code forced} needs no write-order reasoning of its own any
+ *                            more — see {@code BriefingEvaluationService}'s class javadoc for the
+ *                            general rule.
+ * @param submittedAt          round 12: the instant this result's EVALUATION was SUBMITTED — for a
+ *                            batch result, the orchestrated cycle's own {@code
+ *                            PipelineRunEntity.triggerTime} when the batch belongs to one (shared
+ *                            identically by every batch the cycle submits, including a retry —
+ *                            recoverable without a schema migration via {@code
+ *                            ForecastBatchEntity#pipelineRunId}), or that batch's own {@code
+ *                            submittedAt} for an ad-hoc submission outside any cycle; for a
+ *                            synchronous/admin result, the instant the evaluation call started.
+ *                            {@code null} for a result built before this field existed, for one
+ *                            built through a context with no submission instant to report, and for
+ *                            a result built purely for display ({@code
+ *                            EvaluationViewService#toEnrichmentResult}, never a cache write).
+ *                            <b>Deliberately NOT the same thing as {@link #evaluatedAt}</b> (which
+ *                            is arrival/write time) — arrival order is exactly what cannot be
+ *                            trusted to decide whether an incoming result should replace or combine
+ *                            with a stored one, because {@code BatchPollingService} polls every
+ *                            still-{@code SUBMITTED} batch independently and a slower, OLDER batch
+ *                            can finish after a faster, NEWER one. {@code
+ *                            BriefingEvaluationService}'s every cache-write method compares this
+ *                            field, never {@code evaluatedAt}, before writing or combining: an
+ *                            incoming result whose {@code submittedAt} is strictly BEFORE the
+ *                            stored result's is stale and is neither written nor combined; a
+ *                            {@code null} on either side (an unknown instant, including every
+ *                            legacy row written before this field existed) is never stale — read
+ *                            as "unrelated, no comparison possible," the same convention {@link
+ *                            #forced} and {@link #skyRating} already use for their own unknowns.
+ *                            {@code @JsonInclude(NON_NULL)}: it rides {@code
+ *                            cached_evaluation.results_json} so a later serve or restart can still
+ *                            compare against it, and a {@code null} value is omitted so a result
+ *                            with no submission instant round-trips byte-identical to one written
+ *                            before this field existed.
+ *                            ⚠️ <b>Comparing against a STORED result is not the whole story
+ *                            either — a result can be superseded by a DECISION with no competing
+ *                            result to compare against at all.</b> A later cycle's Gate 4 stability
+ *                            skip or triage stand-down writes no {@code cached_evaluation} entry —
+ *                            only a {@code forecast_run_disposition} row — so a batch delayed past
+ *                            that decision had nothing stored to lose a staleness comparison
+ *                            against. {@code BriefingEvaluationService.supersededByLaterRun}
+ *                            (delegating to {@code SupersedingDispositionService}) is the second
+ *                            check every merge method runs, before the staleness comparison this
+ *                            field drives. ⚠️ <b>Round 14 corrected round 13's own first cut of this
+ *                            rule, tested against production and found wrong on two fronts</b> — see
+ *                            {@code SupersedingDispositionService}'s class javadoc for the full
+ *                            account, including the 2026-09-29 production evidence (pipeline run
+ *                            249, every batch submission failed, 510 {@code EVALUATED} dispositions
+ *                            anchored to a job run with no {@code forecast_batch} row at all). In
+ *                            short: the join through {@code ForecastBatchEntity} round 13 used to
+ *                            find a disposition's "owning cycle" is invisible for exactly that
+ *                            shape, and {@code EVALUATED}/{@code FORCE_EVALUATED} record only that a
+ *                            candidate was included for submission, never that a result was ever
+ *                            produced. The rule now needs no {@code forecast_batch} row at all — a
+ *                            disposition supersedes a result when its {@code created_at} is at or
+ *                            after the trigger time of the FIRST {@code pipeline_run} triggered
+ *                            after this field's own value — and only two disposition categories,
+ *                            {@code SKIPPED_STABILITY} and {@code SKIPPED_TRIAGED}, are on the
+ *                            explicit allow-list that can ever supersede. Arrival order still
+ *                            decides nothing.
  */
 public record BriefingEvaluationResult(
         String locationName,
@@ -66,7 +177,9 @@ public record BriefingEvaluationResult(
         @JsonInclude(JsonInclude.Include.NON_NULL) String headline,
         @JsonInclude(JsonInclude.Include.NON_NULL) Instant evaluatedAt,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating,
-        @JsonIgnore boolean retracted
+        @JsonIgnore boolean retracted,
+        @JsonInclude(JsonInclude.Include.NON_DEFAULT) boolean forced,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Instant submittedAt
 ) {
 
     /**
@@ -90,7 +203,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, null, null, false);
+                triageReason, triageMessage, headline, null, null, false, false, null);
     }
 
     /**
@@ -115,7 +228,7 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary,
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, null, false);
+                triageReason, triageMessage, headline, evaluatedAt, null, false, false, null);
     }
 
     /**
@@ -143,7 +256,7 @@ public record BriefingEvaluationResult(
             TriageReason triageReason, String triageMessage, String headline, Instant evaluatedAt,
             Integer skyRating) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
-                triageReason, triageMessage, headline, evaluatedAt, skyRating, false);
+                triageReason, triageMessage, headline, evaluatedAt, skyRating, false, false, null);
     }
 
     /**
@@ -162,7 +275,7 @@ public record BriefingEvaluationResult(
      */
     public static BriefingEvaluationResult retracted(String locationName) {
         return new BriefingEvaluationResult(locationName, null, null, null, null,
-                null, null, null, null, null, true);
+                null, null, null, null, null, true, false, null);
     }
 
     /**
@@ -210,7 +323,8 @@ public record BriefingEvaluationResult(
     public BriefingEvaluationResult withRating(Integer newRating) {
         return new BriefingEvaluationResult(locationName, newRating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
-                newRating == null ? null : skyRating, retracted);
+                newRating == null ? null : skyRating, retracted,
+                newRating == null ? false : forced, submittedAt);
     }
 
     /**
@@ -226,6 +340,100 @@ public record BriefingEvaluationResult(
     public BriefingEvaluationResult withEvaluatedAt(Instant writtenAt) {
         return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
                 goldenHourPotential, summary, triageReason, triageMessage, headline, writtenAt,
-                skyRating, retracted);
+                skyRating, retracted, forced, submittedAt);
+    }
+
+    /**
+     * Returns a copy of this result stamped as forced (or not), for the force-evaluation sample
+     * exemption — see {@link #forced}.
+     *
+     * <p>Applied exactly once, by {@code ForecastResultHandler#buildResult}, from the task's own
+     * {@code forced} field (decoded from the batch custom id, or read directly off the sync-path
+     * {@code EvaluationTask.Forecast}) — never re-derived at serve time. A no-op when
+     * {@link #rating} is null: an unrated result cannot carry a forced <em>rating</em>.
+     *
+     * @param newForced whether the task that produced this result carried the force-evaluation
+     *                  marker
+     * @return a copy carrying the flag, or this result unchanged when there is no rating to flag
+     */
+    public BriefingEvaluationResult withForced(boolean newForced) {
+        if (rating == null) {
+            return this;
+        }
+        return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
+                goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
+                skyRating, retracted, newForced, submittedAt);
+    }
+
+    /**
+     * Returns a copy of this result stamped with the submission instant of the evaluation that
+     * produced it — see {@link #submittedAt}. Applied once, by {@code ForecastResultHandler}'s
+     * three {@code buildXxx} methods, from the {@code ResultContext} the batch/sync call carried —
+     * never re-derived later. Unlike {@link #withForced}, this is NOT guarded on {@link #rating}
+     * being non-null: a triage or sky-not-forecast result is still a real write this evaluation's
+     * submission produced, and {@code BriefingEvaluationService}'s staleness comparison needs its
+     * instant regardless of whether it carries a rating.
+     *
+     * @param instant the instant this result's evaluation was submitted, or {@code null} to mark
+     *                it unknown
+     * @return a copy of this result carrying that submission instant
+     */
+    public BriefingEvaluationResult withSubmittedAt(Instant instant) {
+        return new BriefingEvaluationResult(locationName, rating, fierySkyPotential,
+                goldenHourPotential, summary, triageReason, triageMessage, headline, evaluatedAt,
+                skyRating, retracted, forced, instant);
+    }
+
+    /**
+     * Returns a copy of this result carrying the forced mark a same-cycle REBUILD-OR-COMBINE site
+     * must apply when it folds two evaluations together — the single combination rule referenced
+     * by every such site (round 10, P1-A; corrected and simplified in round 12). Call it on the
+     * freshly-built combined result, passing BOTH sources that were combined.
+     *
+     * <p><b>The rule: the combined result of a same-cycle pair is forced if EITHER half is
+     * forced</b> — a genuine, commutative OR of {@code a.forced()} and {@code b.forced()}, in
+     * either order. Round 10's first cut took a single "newly-arrived" argument and read only
+     * that side's flag, reasoning that a same-cycle OPEN_FELL pair's two tasks always carry an
+     * IDENTICAL {@code forced} flag by construction ({@code ForecastTaskCollector} submits both
+     * from the SAME loop iteration reading the SAME local variable) — true in production, but not
+     * a guarantee the method itself enforced; a synthetic same-cycle pair with the two flags
+     * genuinely differing exposed exactly that gap (a round-12 test caught it). Round 12 also
+     * removed the reason the old shape existed at all: {@code
+     * BriefingEvaluationService.recombineBluebell} now only ever reaches this method for a pair
+     * confirmed, by {@link #submittedAt}, to belong to the SAME cycle — a cross-cycle pair is
+     * rejected as stale, or stands alone unmixed, before combination is even considered (see that
+     * method's own javadoc) — so there is no arrival-order question left for this method to reason
+     * about, and a plain two-argument OR is both simpler and strictly safer.
+     *
+     * @param a one source of the combination (e.g. the prior stored result)
+     * @param b the other source of the combination (e.g. the newly-arrived result)
+     * @return a copy of this result forced if either {@code a} or {@code b} is, or this result
+     *         unchanged when it carries no rating (mirrors {@link #withForced})
+     */
+    public BriefingEvaluationResult withForcedFromCombination(BriefingEvaluationResult a,
+            BriefingEvaluationResult b) {
+        boolean either = (a != null && a.forced()) || (b != null && b.forced());
+        return withForced(either);
+    }
+
+    /**
+     * Returns a copy of this result carrying the submission instant a same-cycle REBUILD-OR-COMBINE
+     * site must apply, mirroring {@link #withForcedFromCombination} exactly (round 12). Within the
+     * one case that ever reaches this — a confirmed same-cycle pair — {@code a} and {@code b}'s own
+     * {@link #submittedAt} are equal whenever both are known, so which one is read makes no
+     * difference; {@code b} (conventionally the newly-arrived side) is preferred, falling back to
+     * {@code a} so a combination with one leg's instant unknown still stamps the other's, rather
+     * than silently reverting to {@code null}.
+     *
+     * @param a one source of the combination (e.g. the prior stored result)
+     * @param b the other source of the combination (e.g. the newly-arrived result), preferred when
+     *          both carry a known instant
+     * @return a copy of this result carrying the resolved submission instant
+     */
+    public BriefingEvaluationResult withSubmittedAtFromCombination(BriefingEvaluationResult a,
+            BriefingEvaluationResult b) {
+        Instant chosen = b != null && b.submittedAt() != null
+                ? b.submittedAt() : (a != null ? a.submittedAt() : null);
+        return withSubmittedAt(chosen);
     }
 }

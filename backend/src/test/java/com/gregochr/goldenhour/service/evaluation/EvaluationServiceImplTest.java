@@ -30,7 +30,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,6 +67,8 @@ class EvaluationServiceImplTest {
     private static final AtmosphericData ATMOSPHERIC = TestAtmosphericData.defaults();
     private static final SpaceWeatherData SPACE_WEATHER = new SpaceWeatherData(
             List.of(), List.of(), null, List.of(), List.of());
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-04-16T09:00:00Z"), ZoneOffset.UTC);
 
     @Mock
     private BatchSubmissionService batchSubmissionService;
@@ -91,7 +96,7 @@ class EvaluationServiceImplTest {
         service = new EvaluationServiceImpl(
                 batchSubmissionService, batchRequestFactory, anthropicApiClient,
                 claudeAuroraInterpreter, jobRunService,
-                List.of(forecastResultHandler, auroraResultHandler));
+                List.of(forecastResultHandler, auroraResultHandler), FIXED_CLOCK);
     }
 
     // ── submit() ─────────────────────────────────────────────────────────────
@@ -475,7 +480,7 @@ class EvaluationServiceImplTest {
         EvaluationServiceImpl noForecastHandler = new EvaluationServiceImpl(
                 batchSubmissionService, batchRequestFactory, anthropicApiClient,
                 claudeAuroraInterpreter, jobRunService,
-                List.of(auroraResultHandler));
+                List.of(auroraResultHandler), FIXED_CLOCK);
         EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
 
         org.assertj.core.api.Assertions.assertThatIllegalStateException()
@@ -489,7 +494,7 @@ class EvaluationServiceImplTest {
         EvaluationServiceImpl noAuroraHandler = new EvaluationServiceImpl(
                 batchSubmissionService, batchRequestFactory, anthropicApiClient,
                 claudeAuroraInterpreter, jobRunService,
-                List.of(forecastResultHandler));
+                List.of(forecastResultHandler), FIXED_CLOCK);
         EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
 
         org.assertj.core.api.Assertions.assertThatIllegalStateException()

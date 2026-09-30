@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -98,4 +99,142 @@ public interface ForecastRunDispositionRepository
             + "GROUP BY d.locationName, d.evaluationDate, d.eventType")
     List<Object[]> findLatestStabilitySkipTimestamps(
             @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    /**
+     * For every (location name, evaluation date, event type) with at least one disposition in the
+     * range OTHER THAN {@code SKIPPED_CACHED}, returns the disposition AND {@code created_at} of
+     * the <em>most recent</em> such row.
+     *
+     * <p>Backs the verdict-minimum-sample rule's "examined" evidence ({@code
+     * VerdictSampleGate#examinedCount}, Codex review of #943, P1-A): a voting slot counts as
+     * examined only when the BATCH's own most recent decision for it was {@code SKIPPED_TRIAGED}
+     * — never the briefing's own weather-triage {@code Verdict}, which is computed independently
+     * across the whole horizon and can disagree with what the batch actually looked at (or never
+     * looked at at all, for a slot Gate 4 stability-skipped before the batch ever fetched fresh
+     * weather for it).
+     *
+     * <p>⚠️ <b>{@code SKIPPED_CACHED} is deliberately excluded from BOTH sides of the correlated
+     * subquery, not merely filtered from the outer result.</b> A region-level cache reuse
+     * ({@code SKIPPED_CACHED}) is not a decision about any one slot — it means "this region's
+     * existing ratings were judged fresh and reused" — so a slot triaged last night and then
+     * reported {@code SKIPPED_CACHED} tonight must still read as examined via last night's triage,
+     * not as un-examined because a newer, slot-blind row now sits on top of it. Excluding the
+     * category from the inner {@code MAX(created_at)} scope too (not just the outer filter) is
+     * what makes the triaged decision "the latest" again rather than merely visible-but-superseded.
+     *
+     * <p>One bulk query per serve, grouped in the database rather than fetched row-by-row, bounded
+     * to the caller's own served window — never called per region or per slot. Same table, same
+     * 30-day retention as {@link #findLatestStabilitySkipTimestamps} covers the served horizon.
+     *
+     * <p>⚠️ A tie at the same {@code created_at} between two different non-cached categories for
+     * one slot returns both rows; {@code EvaluationViewService.loadTriagedByBatch} folds a tie to
+     * "not examined" (only counts a slot where every row at the max instant agrees it is
+     * {@code SKIPPED_TRIAGED}), the same safe-under-ambiguity direction every other tie fold in
+     * this repository's callers takes.
+     *
+     * @param start first evaluation date to include (inclusive)
+     * @param end   last evaluation date to include (inclusive)
+     * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
+     *         (String), disposition (String), createdAt (Instant)]}, one per slot with at least one
+     *         non-{@code SKIPPED_CACHED} disposition — the disposition and instant of whichever
+     *         such row is most recent for that slot
+     */
+    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition, d.createdAt "
+            + "FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition <> 'SKIPPED_CACHED' "
+            + "AND d.evaluationDate BETWEEN :start AND :end "
+            + "AND d.createdAt = ("
+            + "    SELECT MAX(d2.createdAt) FROM ForecastRunDispositionEntity d2 "
+            + "    WHERE d2.locationName = d.locationName "
+            + "    AND d2.evaluationDate = d.evaluationDate "
+            + "    AND d2.eventType = d.eventType "
+            + "    AND d2.disposition <> 'SKIPPED_CACHED'"
+            + ")")
+    List<Object[]> findLatestNonCachedDispositions(
+            @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    /**
+     * For the given slots (one date, one event type, a set of location names), returns
+     * {@code [locationName, createdAt]} for every disposition recorded on or after
+     * {@code minCreatedAt} whose category is a genuine decision AGAINST the slot —
+     * {@code SKIPPED_STABILITY} or {@code SKIPPED_TRIAGED}, the explicit two-value allow-list
+     * {@code SupersedingDispositionService} enumerates in full.
+     *
+     * <p>⚠️ <b>Round 14 replaces round 13's design entirely — it does NOT join
+     * {@code forecast_batch}, and it does NOT accept {@code EVALUATED}/{@code FORCE_EVALUATED}.</b>
+     * Both were found wrong against production on 2026-09-29 (pipeline run 249): every one of that
+     * intraday cycle's three Anthropic batch submissions failed (HTTP 500), so
+     * {@code ScheduledBatchEvaluationService#persistCycleDispositions} anchored its 589 dispositions
+     * — 510 {@code EVALUATED}, 76 {@code SKIPPED_TRIAGED}, 3 {@code SKIPPED_UNKNOWN_LOCATION} — to a
+     * disposition-only "anchor run" job_run with NO {@code forecast_batch} row at all. Two
+     * consequences: (1) a three-entity join through {@code forecast_batch} cannot see any
+     * disposition from an anchor run — invisible to the OLD query, whichever direction the bug ran;
+     * (2) {@code EVALUATED} records only that a candidate was INCLUDED for submission, never that a
+     * result exists or ever will — the 510 {@code EVALUATED} rows on that failed cycle produced
+     * exactly zero results. Treating {@code EVALUATED}/{@code FORCE_EVALUATED} as superseding (the
+     * OLD design) would have rejected a perfectly good older rating in favour of nothing, leaving
+     * the slot unrated where, before this whole feature, the stale rating would have kept serving.
+     *
+     * <p><b>The caller resolves the correct threshold without any join at all</b> — see
+     * {@code SupersedingDispositionService}'s class javadoc for the full "first pipeline run
+     * triggered after the result's own {@code submittedAt}" rule and why it cannot misclassify a
+     * same-cycle disposition. This query only ever receives the already-resolved instant and filters
+     * on {@code created_at}, this table's own native, indexed timestamp — no cross-table timing
+     * inference happens here.
+     *
+     * <p>One bulk query, covering every location the caller passes in one round trip — never one
+     * per location.
+     *
+     * @param date          the slots' evaluation date
+     * @param eventType     the slots' stored event type string (e.g. {@code "SUNRISE"})
+     * @param locationNames the candidate location names to check
+     * @param minCreatedAt  only a disposition created at or after this instant counts (the caller's
+     *                      already-resolved "first later trigger" boundary — the smallest such
+     *                      boundary among the results it is checking, when they differ)
+     * @return {@code [locationName, createdAt]} pairs, one per qualifying disposition row (a
+     *         location may appear more than once — the caller takes the latest)
+     */
+    @Query("SELECT d.locationName, d.createdAt FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition IN ('SKIPPED_STABILITY', 'SKIPPED_TRIAGED') "
+            + "AND d.evaluationDate = :date "
+            + "AND d.eventType = :eventType "
+            + "AND d.locationName IN (:locationNames) "
+            + "AND d.createdAt >= :minCreatedAt")
+    List<Object[]> findSupersedingDispositions(
+            @Param("date") LocalDate date,
+            @Param("eventType") String eventType,
+            @Param("locationNames") Collection<String> locationNames,
+            @Param("minCreatedAt") Instant minCreatedAt);
+
+    /**
+     * Single-location existence check backing {@code SupersedingDispositionService#isSuperseded} —
+     * the per-response fallback gate in front of the {@code forecast_score} dual write (round 14,
+     * "correction 3"). A true hoist (deciding supersession for a whole Anthropic batch before any of
+     * its responses are parsed) is not possible with the streaming Batch API result reader, which
+     * only learns a batch's location set as it consumes the stream — see
+     * {@code ForecastResultHandler}'s class javadoc for why the merge-level bulk check
+     * ({@link #findSupersedingDispositions}) is kept as the primary mechanism and this single-row
+     * check is the accepted, explained fallback for the one sink (`forecast_score`) that writes
+     * per-response rather than per-merge-call.
+     *
+     * <p>Same two-value allow-list as {@link #findSupersedingDispositions} — see that method's own
+     * javadoc for why {@code EVALUATED}/{@code FORCE_EVALUATED} must never appear here.
+     *
+     * @param locationName the slot's location name
+     * @param date         the slot's evaluation date
+     * @param eventType    the slot's stored event type string
+     * @param minCreatedAt only a disposition created at or after this instant counts
+     * @return {@code true} if a qualifying disposition exists for this exact slot
+     */
+    @Query("SELECT COUNT(d) > 0 FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition IN ('SKIPPED_STABILITY', 'SKIPPED_TRIAGED') "
+            + "AND d.locationName = :locationName "
+            + "AND d.evaluationDate = :date "
+            + "AND d.eventType = :eventType "
+            + "AND d.createdAt >= :minCreatedAt")
+    boolean existsSupersedingDisposition(
+            @Param("locationName") String locationName,
+            @Param("date") LocalDate date,
+            @Param("eventType") String eventType,
+            @Param("minCreatedAt") Instant minCreatedAt);
 }

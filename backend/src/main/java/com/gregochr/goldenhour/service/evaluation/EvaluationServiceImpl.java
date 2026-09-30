@@ -20,6 +20,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +53,7 @@ public class EvaluationServiceImpl implements EvaluationService {
     private final AnthropicApiClient anthropicApiClient;
     private final ClaudeAuroraInterpreter claudeAuroraInterpreter;
     private final JobRunService jobRunService;
+    private final Clock clock;
     private final Map<Class<? extends EvaluationTask>, ResultHandler<?>> handlersByType;
 
     /**
@@ -63,18 +66,23 @@ public class EvaluationServiceImpl implements EvaluationService {
      * @param jobRunService              creates job runs for the sync path
      * @param resultHandlers             all available {@link ResultHandler} beans;
      *                                   indexed by {@link ResultHandler#taskType}
+     * @param clock                      round 12: injectable clock for the submission instant
+     *                                   stamped on a synchronous forecast result — see {@link
+     *                                   #evaluateNowForecast}
      */
     public EvaluationServiceImpl(BatchSubmissionService batchSubmissionService,
             BatchRequestFactory batchRequestFactory,
             AnthropicApiClient anthropicApiClient,
             ClaudeAuroraInterpreter claudeAuroraInterpreter,
             JobRunService jobRunService,
-            List<ResultHandler<?>> resultHandlers) {
+            List<ResultHandler<?>> resultHandlers,
+            Clock clock) {
         this.batchSubmissionService = batchSubmissionService;
         this.batchRequestFactory = batchRequestFactory;
         this.anthropicApiClient = anthropicApiClient;
         this.claudeAuroraInterpreter = claudeAuroraInterpreter;
         this.jobRunService = jobRunService;
+        this.clock = clock;
         this.handlersByType = new java.util.HashMap<>();
         for (ResultHandler<?> handler : resultHandlers) {
             handlersByType.put(handler.taskType(), handler);
@@ -142,14 +150,16 @@ public class EvaluationServiceImpl implements EvaluationService {
             Long locationId = task.location().getId();
             switch (task.promptKind()) {
                 case BLUEBELL -> requests.add(batchRequestFactory.buildBluebellRequest(
-                        CustomIdFactory.forBluebell(locationId, task.date(), task.targetType()),
+                        CustomIdFactory.forBluebell(locationId, task.date(), task.targetType(),
+                                task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
                 case WOODLAND -> requests.add(batchRequestFactory.buildWoodlandRequest(
-                        CustomIdFactory.forWoodland(locationId, task.date(), task.targetType()),
+                        CustomIdFactory.forWoodland(locationId, task.date(), task.targetType(),
+                                task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
                 case SKY -> requests.add(batchRequestFactory.buildForecastRequest(
-                        CustomIdFactory.forForecast(
-                                locationId, task.date(), task.targetType(), task.evalRowId()),
+                        CustomIdFactory.forForecast(locationId, task.date(), task.targetType(),
+                                task.evalRowId(), task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
             }
         }
@@ -202,8 +212,13 @@ public class EvaluationServiceImpl implements EvaluationService {
             throw new IllegalStateException("No ForecastResultHandler registered");
         }
         JobRunEntity jobRun = startSyncJobRun(RunType.SHORT_TERM, task.model());
+        // Round 12: the instant THIS evaluation call started — BriefingEvaluationResult's
+        // staleness rule compares this against a stored result's own submission instant, so it
+        // must be captured before the Claude call, not after (a slow or retried call must not
+        // read as "submitted later" than it actually was).
+        Instant submissionInstant = Instant.now(clock);
         ResultContext context = ResultContext.forSync(
-                jobRun != null ? jobRun.getId() : null, trigger);
+                jobRun != null ? jobRun.getId() : null, submissionInstant, trigger);
 
         long start = System.currentTimeMillis();
         ClaudeSyncOutcome outcome;

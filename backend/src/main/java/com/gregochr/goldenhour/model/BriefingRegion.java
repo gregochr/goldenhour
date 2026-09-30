@@ -21,9 +21,11 @@ import java.util.List;
  *                                    mean Claude rating across its <em>voting</em> slots
  *                                    ({@link BriefingSlot#votingSlots} — non-canopy, falling back
  *                                    to all of them for an all-canopy region), or from the triage
- *                                    {@code verdict} when none of those is scored; never null. A
- *                                    woodland verdict runs on inverted polarity, so a rated wood
- *                                    does not set a sky band
+ *                                    {@code verdict} when none of those is scored, or when the
+ *                                    scored sample is not large enough to mean anything (see
+ *                                    {@link #sampleSufficient}); never null. A woodland verdict
+ *                                    runs on inverted polarity, so a rated wood does not set a sky
+ *                                    band
  * @param scoredLocationCount         how many locations in this region carry a valid Claude
  *                                    rating — a <b>coverage</b> figure over every slot, canopy
  *                                    included, and deliberately NOT the population
@@ -72,6 +74,12 @@ import java.util.List;
  *                                     lifetimes, one cell. See
  *                                     {@code docs/engineering/plan-verdict-consolidation-plan.md}
  *                                     §1 D2.
+ *
+ *                                     <p><b>Unaffected by {@link #sampleSufficient}.</b> The minimum
+ *                                     sample rule only ever changes {@code displayVerdict}, pick
+ *                                     eligibility and ranking — the star reported here is always the
+ *                                     rated mean, whatever the sample size, so a client reading this
+ *                                     field alone cannot re-derive the verdict the rule withheld.
  *
  *                                     <p>Equal by construction to {@code BriefingWindow.Pick
  *                                     .averageRating} for the same region, which is derived from the
@@ -171,6 +179,63 @@ import java.util.List;
  *                                     can never acquire a delta. Nullable, {@code NON_NULL}, no
  *                                     migration: the {@code confidence} precedent, and legacy
  *                                     cached payloads deserialise to null.
+ * @param sampleSufficient             whether this region's Claude ratings are a large enough
+ *                                     sample to set {@code displayVerdict} and qualify as a BEST BET
+ *                                     / ALSO GOOD pick — see {@code VerdictSampleGate}. {@code true}
+ *                                     when its voting-roster rated count and examined coverage both
+ *                                     clear the gate's thresholds; {@code false} otherwise, including
+ *                                     when nothing at all is rated. Computed fresh on both the build
+ *                                     and serve paths by {@code BriefingRegionEvaluationRollup}, so
+ *                                     it always describes the CURRENT rating population rather than
+ *                                     whatever a stale persisted value once said.
+ *
+ *                                     <p><b>Independent of {@link #forcedSample}.</b> A region can be
+ *                                     insufficient by this raw test and still set its verdict, because
+ *                                     the force-evaluation exemption (below) is a separate signal —
+ *                                     the two fields let a client tell "crowned on a large enough
+ *                                     sample" apart from "crowned on forced headline ratings" rather
+ *                                     than collapsing both into one boolean.
+ *
+ *                                     <p>Nullable, {@code NON_NULL}, no migration — the
+ *                                     {@code confidence} precedent. {@code null} on a payload cached
+ *                                     before this field existed, and it must read as <b>unknown</b>,
+ *                                     never as sufficient — the safe direction, the same reasoning
+ *                                     {@code ConfidenceDeriver}'s null case already uses.
+ * @param forcedSample                 whether at least one of this region's CURRENTLY rated voting
+ *                                     slots carries a rating written by a force evaluation — see
+ *                                     {@code ForceEvalHeadlineSelector} and
+ *                                     {@code BriefingEvaluationResult#forced}. A region with
+ *                                     this {@code true} is exempt from the {@link #sampleSufficient}
+ *                                     gate outright: its verdict, pick eligibility and ranking follow
+ *                                     the rated average exactly as they did before the minimum-sample
+ *                                     rule existed, and its confidence takes no extra floor from that
+ *                                     rule. Owner decision, 2026-09-29: force-evaluation exists to
+ *                                     crown a far-out day with real Claude evidence, and a
+ *                                     minimum-sample rule with no exemption would have left it
+ *                                     spending calls for stars alone, since a handful of forced
+ *                                     ratings can never reach the sample gate on its own.
+ *
+ *                                     <p>"Currently" matters: each slot's {@code forced} flag is
+ *                                     provenance stamped ONCE, at write time, by {@code
+ *                                     ForecastResultHandler#buildResult} — from the task that
+ *                                     actually produced the rating, never inferred from a
+ *                                     disposition's timestamp (that approach was tried and found
+ *                                     provably wrong, since a slot's dispositions are anchored to
+ *                                     the CYCLE's first job run rather than the specific bucket that
+ *                                     force-evaluated it — see {@code
+ *                                     BriefingEvaluationResult#forced}'s own javadoc for the full
+ *                                     history). So a later ordinary evaluation ends the exemption for
+ *                                     that slot simply by overwriting the stored result with one that
+ *                                     carries no forced marker, and the parent stability-skip
+ *                                     retraction (see the "Where a rating lives" table in CLAUDE.md)
+ *                                     clears a forced rating outright the next time a nightly cycle
+ *                                     declines to re-look at it — so the exemption lasts at most
+ *                                     until the next nightly run unless the slot is forced or
+ *                                     evaluated again.
+ *
+ *                                     <p>Nullable, {@code NON_NULL}, no migration — the
+ *                                     {@code confidence} precedent; {@code null} on a legacy payload
+ *                                     reads as unknown, never as exempt.
  */
 public record BriefingRegion(
         String regionName,
@@ -191,11 +256,55 @@ public record BriefingRegion(
         Confidence confidence,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRating,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer bestRating,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRatingDelta) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRatingDelta,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean sampleSufficient,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean forcedSample) {
 
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);
         slots = List.copyOf(slots);
+    }
+
+    /**
+     * Backwards-compatible convenience constructor matching the pre-{@code sampleSufficient}/
+     * {@code forcedSample} canonical signature (the shape that carried {@code meanRatingDelta} as
+     * its last component). Defaults both new fields to {@code null} ("unknown", never "sufficient"
+     * or "exempt") so every existing 19-arg call site keeps compiling unchanged; the enrichment
+     * path attaches derived values via {@link #withSampleSufficient} and {@link #withForcedSample}.
+     *
+     * @param regionName                       display name
+     * @param verdict                          triage verdict
+     * @param summary                          one-line summary
+     * @param tideHighlights                   tide summary lines
+     * @param slots                            per-location assessments
+     * @param regionTemperatureCelsius         representative temperature
+     * @param regionApparentTemperatureCelsius feels-like temperature
+     * @param regionWindSpeedMs                representative wind speed
+     * @param regionWeatherCode                WMO weather code
+     * @param glossHeadline                    Claude gloss headline
+     * @param glossDetail                      Claude gloss detail
+     * @param displayVerdict                   unified colour/label signal
+     * @param scoredLocationCount              how many locations contributed a rating
+     * @param verdictLabel                     pill-label override
+     * @param lightlyEvaluated                 thin-coverage flag
+     * @param confidence                       derived confidence, or null
+     * @param meanRating                       the 1dp voting mean, or null
+     * @param bestRating                       the voting max, or null
+     * @param meanRatingDelta                  the 1dp movement since the last build, or null
+     */
+    public BriefingRegion(String regionName, Verdict verdict, String summary,
+            List<String> tideHighlights, List<BriefingSlot> slots,
+            Double regionTemperatureCelsius, Double regionApparentTemperatureCelsius,
+            Double regionWindSpeedMs, Integer regionWeatherCode,
+            String glossHeadline, String glossDetail,
+            DisplayVerdict displayVerdict, int scoredLocationCount,
+            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            Double meanRating, Integer bestRating, Double meanRatingDelta) {
+        this(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius,
+                regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
+                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
+                confidence, meanRating, bestRating, meanRatingDelta, null, null);
     }
 
     /**
@@ -298,7 +407,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, newMeanRating,
-                bestRating, meanRatingDelta);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample);
     }
 
     /**
@@ -316,7 +425,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                newBestRating, meanRatingDelta);
+                newBestRating, meanRatingDelta, sampleSufficient, forcedSample);
     }
 
     /**
@@ -334,7 +443,73 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating, newMeanRatingDelta);
+                bestRating, newMeanRatingDelta, sampleSufficient, forcedSample);
+    }
+
+    /**
+     * Returns a copy of this region carrying whether its rated sample is large enough to set its
+     * verdict and qualify as a pick — see the {@link #sampleSufficient} field javadoc.
+     *
+     * <p>A wither for the same reason as {@link #withMeanRating}: {@code
+     * BriefingRegionEvaluationRollup} computes it from statistics it already holds, on both the
+     * build and serve paths, and rebuilding the record positionally there is how a later-added
+     * component gets silently defaulted away.
+     *
+     * @param newSampleSufficient whether the raw sample-size test passed, or null when unknown
+     * @return a copy carrying the flag
+     */
+    public BriefingRegion withSampleSufficient(Boolean newSampleSufficient) {
+        return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
+                regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
+                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                bestRating, meanRatingDelta, newSampleSufficient, forcedSample);
+    }
+
+    /**
+     * Returns a copy of this region carrying whether it is exempt from {@link #sampleSufficient}
+     * because at least one of its currently rated voting slots was force-evaluated — see the
+     * {@link #forcedSample} field javadoc.
+     *
+     * <p>A wither for the same reason as {@link #withSampleSufficient}.
+     *
+     * @param newForcedSample whether the force-evaluation exemption applies, or null when unknown
+     * @return a copy carrying the flag
+     */
+    public BriefingRegion withForcedSample(Boolean newForcedSample) {
+        return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
+                regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
+                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                bestRating, meanRatingDelta, sampleSufficient, newForcedSample);
+    }
+
+    /**
+     * Whether this region's ratings are trusted enough to set its own verdict, crown a pick, be
+     * named in {@code bestBets}, or outrank another region on their raw averages — the verdict-
+     * minimum-sample rule ({@code VerdictSampleGate}) plus its force-evaluation exemption, both
+     * already resolved onto the region by {@code BriefingRegionEvaluationRollup} at enrichment
+     * time.
+     *
+     * <p><b>The ONE shared test — round 10 (P1-B).</b> Originally private to {@code
+     * PlanWindowProjector} (the Plan tab's own ranking), a Codex review found {@code
+     * BriefingBestBetAdvisor}'s {@code BriefingRollupBuilder}/{@code BestBetRanker} recomputed
+     * rating coverage independently and never consulted this test at all, so an insufficient,
+     * non-exempt region — one the Plan tab correctly withholds a rating-derived verdict from —
+     * could still be named in {@code DailyBriefingResponse.bestBets}, {@code pipeline_run_pick}
+     * and (via the advisor's own model-comparison surfaces) get treated as though its average
+     * meant something. Moved here, onto the record both call sites already hold a reference to,
+     * so there is exactly one method to call and no second copy of the condition to drift from
+     * this one.
+     *
+     * <p>{@code null} on either field — a payload cached before this rule existed — reads as
+     * <b>not</b> eligible, the safe direction: the same convention {@link #sampleSufficient} and
+     * {@link #forcedSample}'s own field javadoc document.
+     *
+     * @return true when the region is either a sufficient sample or force-evaluation exempt
+     */
+    public boolean verdictEligible() {
+        return Boolean.TRUE.equals(sampleSufficient) || Boolean.TRUE.equals(forcedSample);
     }
 
     /**
@@ -390,7 +565,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, true, confidence, meanRating, bestRating,
-                meanRatingDelta);
+                meanRatingDelta, sampleSufficient, forcedSample);
     }
 
     /**
@@ -406,7 +581,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, newConfidence, meanRating,
-                bestRating, meanRatingDelta);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample);
     }
 
     /**
@@ -424,7 +599,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, newGlossHeadline, newGlossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating, meanRatingDelta);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample);
     }
 
     /**
@@ -444,7 +619,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating, meanRatingDelta);
+                bestRating, meanRatingDelta, sampleSufficient, forcedSample);
     }
 
     /**

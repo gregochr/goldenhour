@@ -50,6 +50,21 @@ import java.util.stream.Collectors;
  * <p>Input is region-level rollup data only (not per-location slot data), keeping the prompt
  * small (~1–2 KB). Any failure is caught and returns an empty list — the briefing always
  * loads and falls back to the mechanical headline.
+ *
+ * <p><b>Every returned pick is validated against evidence the model was never asked to reason
+ * about.</b> {@code advise()} runs Claude's response through THREE independent gates before it can
+ * be crowned, in order: {@link #validateAndFilterPicks} (does the pick even name a real
+ * event/region/day from this rollup), {@link #dropUnevaluatedPicks} (does the region carry ANY
+ * Claude colour rating at all), and — since round 10, P1-B — {@link #dropIneligiblePicks} (is the
+ * region's sample large enough for the verdict-minimum-sample rule to trust it, or does it carry a
+ * force-evaluation exemption). The third gate closes a specific hole the second one leaves open: a
+ * region can clear "at least one rating exists" while still being far short of the sample the Plan
+ * tab itself requires before it will show that region a verdict at all — {@link
+ * com.gregochr.goldenhour.model.BriefingRegion#verdictEligible()} is the ONE shared test both
+ * surfaces read, so the advisor can never crown a region the Plan tab would refuse to speak for.
+ * All three gates are model-output validation, never prompt shaping — the rollup JSON sent to
+ * Claude is unchanged by any of them, which keeps every fixture {@code
+ * BestBetAuroraPromptRegressionTest} pins untouched.
  */
 @Component
 public class BriefingBestBetAdvisor {
@@ -262,7 +277,19 @@ public class BriefingBestBetAdvisor {
                         + "no-picks (jobRunId={})", jobRunId);
                 return BestBetResult.noPicks();
             }
-            List<BestBet> covered = applyCoverageAwareRanking(evidenced, rollup.coverageByKey());
+            // Round 10 (P1-B): a pick can carry SOME colour coverage and still name a region the
+            // verdict-minimum-sample rule does not trust — the gap dropUnevaluatedPicks alone
+            // leaves open, one rating short of zero. Validate Claude's own response against the
+            // identical eligibility test the Plan tab already applies (BriefingRegion#verdictEligible,
+            // moved there for exactly this reuse) before any pick is allowed to be crowned.
+            List<BestBet> eligible = dropIneligiblePicks(evidenced, rollup.coverageByKey());
+            if (eligible.isEmpty()) {
+                LOG.info("Best-bet advisor: every pick named a region below the verdict-minimum "
+                        + "sample with no force-evaluation exemption — declining with no-picks "
+                        + "(jobRunId={})", jobRunId);
+                return BestBetResult.noPicks();
+            }
+            List<BestBet> covered = applyCoverageAwareRanking(eligible, rollup.coverageByKey());
             List<BestBet> enriched = enricher.enrichWithEventData(covered, days);
             if (enriched.isEmpty()) {
                 // Picks parsed but none survived enrichment — nothing usable came back.
@@ -460,6 +487,21 @@ public class BriefingBestBetAdvisor {
     List<BestBet> dropUnevaluatedPicks(List<BestBet> picks,
             Map<String, CandidateCoverage> coverage) {
         return BestBetRanker.dropUnevaluatedPicks(picks, coverage);
+    }
+
+    /**
+     * Drops picks naming a region the verdict-minimum-sample rule does not trust (round 10, P1-B).
+     * Thin delegator to {@link BestBetRanker#dropIneligiblePicks}, kept as a package-private wrapper
+     * so tests can exercise it directly the same way they already do {@link #dropUnevaluatedPicks}
+     * and {@link #applyCoverageAwareRanking}.
+     *
+     * @param picks    colour-evidenced picks in ranked order
+     * @param coverage per-{@code event|region} Claude coverage from the rollup
+     * @return the picks whose region is verdict-eligible, renumbered; possibly empty
+     */
+    List<BestBet> dropIneligiblePicks(List<BestBet> picks,
+            Map<String, CandidateCoverage> coverage) {
+        return BestBetRanker.dropIneligiblePicks(picks, coverage);
     }
 
     /**

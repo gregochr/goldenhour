@@ -214,7 +214,7 @@ class BriefingRollupBuilderTest {
 
         JsonNode region = regionNode();
 
-        assertThat(coverage()).isEqualTo(new CandidateCoverage(3, 0, 2.0));
+        assertThat(coverage()).isEqualTo(new CandidateCoverage(3, 0, 2.0, false));
         assertThat(coverage().claudeRatedCount()).isEqualTo(region.get("claudeRatedCount").asInt());
         assertThat(coverage().claudeAverageRating())
                 .isEqualTo(region.get("claudeAverageRating").asDouble());
@@ -229,7 +229,7 @@ class BriefingRollupBuilderTest {
         // clear a floor.
         given(wood("Bluebell Wood", 5), sky("Bamburgh", null));
 
-        assertThat(coverage()).isEqualTo(new CandidateCoverage(1, 0, 0.0));
+        assertThat(coverage()).isEqualTo(new CandidateCoverage(1, 0, 0.0, false));
     }
 
     @Test

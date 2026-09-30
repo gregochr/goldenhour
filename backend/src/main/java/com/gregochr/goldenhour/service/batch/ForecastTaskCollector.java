@@ -505,7 +505,7 @@ public class ForecastTaskCollector {
                 if (woodlandTask) {
                     // Canopy site out of bluebell season: ONE woodland task, no sky task. Its own
                     // homogeneous bucket, so the woodland system prompt caches across the batch.
-                    woodland.add(woodlandTaskFor(candidate, decision, preEval));
+                    woodland.add(woodlandTaskFor(candidate, decision, preEval, forced));
                     includedWoodland++;
                     agg.recordIncluded(daysAhead, stability);
                     if (forced) {
@@ -522,7 +522,7 @@ public class ForecastTaskCollector {
                 if (bluebellWoodInSeason) {
                     // Bluebell-only: ONE bluebell task, no sky task, no colour bucket (the OQ3
                     // exposure rule makes the bluebell score the rating for woodland).
-                    bluebell.add(bluebellTaskFor(candidate, decision, preEval));
+                    bluebell.add(bluebellTaskFor(candidate, decision, preEval, forced));
                     includedBluebell++;
                     agg.recordIncluded(daysAhead, stability);
                     if (forced) {
@@ -540,11 +540,15 @@ public class ForecastTaskCollector {
                 // this preEval's snapshot, and its id rides the batch custom_id (R3) so the
                 // result side can score it in place (R5).
                 Long evalRowId = forecastService.persistPendingEvaluation(preEval);
+                // `forced` rides the canonical nine-arg constructor so the fact reaches the batch
+                // custom id (CustomIdFactory) and survives to result time — see
+                // EvaluationTask.Forecast#forced's own javadoc for why a timestamp comparison at
+                // serve time could not be trusted instead.
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         decision.model(), preEval.atmosphericData(),
                         EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
-                        EvaluationTask.Forecast.PromptKind.SKY, evalRowId);
+                        EvaluationTask.Forecast.PromptKind.SKY, evalRowId, forced);
                 boolean isCoastal = preEval.atmosphericData().tide() != null;
                 String locationType = isCoastal ? "coastal" : "inland";
 
@@ -588,7 +592,7 @@ public class ForecastTaskCollector {
                         && candidate.location().getBluebellExposure()
                                 == BluebellExposure.OPEN_FELL;
                 if (openFellPaired) {
-                    bluebell.add(bluebellTaskFor(candidate, decision, preEval));
+                    bluebell.add(bluebellTaskFor(candidate, decision, preEval, forced));
                     includedBluebell++;
                 }
 
@@ -657,14 +661,23 @@ public class ForecastTaskCollector {
      * Builds a {@link EvaluationTask.Forecast.PromptKind#BLUEBELL} task for an in-season bluebell
      * candidate, reusing the same atmospheric data (which already carries the bluebell condition
      * score) and the eligibility decision's model as the sky path.
+     *
+     * @param forced whether the eligibility decision for this exact candidate was a {@code
+     *               ForceEvalHeadlineSelector} rescue — the routing to bluebell (WOODLAND exposure,
+     *               or the OPEN_FELL pairing) happens AFTER that decision, so a force-evaluated
+     *               candidate can land here exactly as it can land in the sky lane, and the fact
+     *               must travel with this task the same way (no {@code evalRowId}: R8 scopes
+     *               pending rows to the sky lane alone, but the batch custom id still carries the
+     *               {@code -f} marker via {@link CustomIdFactory#forBluebell(Long, LocalDate,
+     *               TargetType, boolean)})
      */
     private static EvaluationTask.Forecast bluebellTaskFor(ForecastCandidate candidate,
-            EligibilityDecision decision, ForecastPreEvalResult preEval) {
+            EligibilityDecision decision, ForecastPreEvalResult preEval, boolean forced) {
         return new EvaluationTask.Forecast(
                 candidate.location(), candidate.date(), candidate.targetType(),
                 decision.model(), preEval.atmosphericData(),
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
-                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+                EvaluationTask.Forecast.PromptKind.BLUEBELL, null, forced);
     }
 
     /**
@@ -672,14 +685,18 @@ public class ForecastTaskCollector {
      * of bluebell season, reusing the same atmospheric data and eligibility model as the sky path.
      * Needs no augmentor precondition — the woodland builder derives its deterministic hint from
      * the atmospheric data it is handed.
+     *
+     * @param forced whether the eligibility decision for this exact candidate was a {@code
+     *               ForceEvalHeadlineSelector} rescue — see {@link #bluebellTaskFor}'s own javadoc
+     *               for why the woodland lane needs the identical treatment
      */
     private static EvaluationTask.Forecast woodlandTaskFor(ForecastCandidate candidate,
-            EligibilityDecision decision, ForecastPreEvalResult preEval) {
+            EligibilityDecision decision, ForecastPreEvalResult preEval, boolean forced) {
         return new EvaluationTask.Forecast(
                 candidate.location(), candidate.date(), candidate.targetType(),
                 decision.model(), preEval.atmosphericData(),
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
-                EvaluationTask.Forecast.PromptKind.WOODLAND);
+                EvaluationTask.Forecast.PromptKind.WOODLAND, null, forced);
     }
 
     /** Builds the EVALUATED / FORCE_EVALUATED disposition for an included candidate. */

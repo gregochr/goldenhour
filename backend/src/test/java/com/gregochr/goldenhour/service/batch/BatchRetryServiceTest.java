@@ -126,6 +126,31 @@ class BatchRetryServiceTest {
     }
 
     @Test
+    @DisplayName("a failed custom id carrying the -f force-evaluation marker selects with "
+            + "forced=true; an ordinary one selects with forced=false")
+    void selectFailures_parsesForcedMarkerFromCustomId() {
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
+                .thenReturn(List.of(precursor("msgbatch_A")));
+        String forcedId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 555L, true);
+        String ordinaryId = CustomIdFactory.forForecast(43L, DATE, TargetType.SUNSET);
+        when(apiCallLogRepository.findFailedBatchCalls(List.of("msgbatch_A")))
+                .thenReturn(List.of(
+                        failedCall(forcedId, "msgbatch_A", "parse_error"),
+                        failedCall(ordinaryId, "msgbatch_A", "parse_error")));
+
+        RetrySelection selection = service().selectFailures(RUN_ID);
+
+        assertThat(selection.failures())
+                .filteredOn(f -> f.customId().equals(forcedId))
+                .singleElement()
+                .satisfies(f -> assertThat(f.forced()).isTrue());
+        assertThat(selection.failures())
+                .filteredOn(f -> f.customId().equals(ordinaryId))
+                .singleElement()
+                .satisfies(f -> assertThat(f.forced()).isFalse());
+    }
+
+    @Test
     @DisplayName("no precursor batches → NONE (no api_call_log query)")
     void noPrecursorBatchesIsNoOp() {
         when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
@@ -275,6 +300,39 @@ class BatchRetryServiceTest {
                 });
         // R6: the precursor is stamped ABANDONED by id, not re-derived from the slot.
         verify(forecastService).markAbandoned(555L);
+    }
+
+    @Test
+    @DisplayName("submitRetry carries the precursor's own forced marker onto the reconstructed "
+            + "task — a retry of a force-evaluated slot's failed request is still that same "
+            + "slot's force-evaluation attempt, not a fresh ordinary one")
+    void submitRetry_precursorWasForced_reconstructedTaskIsForcedToo() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                any(), any(), eq(false), isNull()))
+                .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.RETRY), eq(RUN_ID), eq(true)))
+                .thenReturn(new EvaluationHandle(5L, "msgbatch_retry", 1));
+        when(forecastService.persistPendingEvaluation(any())).thenReturn(999L);
+
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 555L, true);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(
+                        customId, 42L, DATE, TargetType.SUNRISE, 555L, true)),
+                CAP);
+
+        service().submitRetry(RUN_ID, selection);
+
+        ArgumentCaptor<List<EvaluationTask>> captor = ArgumentCaptor.forClass(List.class);
+        verify(evaluationService).submit(captor.capture(),
+                eq(BatchTriggerSource.RETRY), eq(RUN_ID), eq(true));
+        assertThat(captor.getValue()).singleElement()
+                .isInstanceOfSatisfying(EvaluationTask.Forecast.class,
+                        t -> assertThat(t.forced()).isTrue());
     }
 
     // ── R6: retry pending-row lifecycle ──────────────────────────────────────

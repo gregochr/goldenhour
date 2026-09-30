@@ -7,15 +7,18 @@ import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler;
@@ -89,6 +92,8 @@ class BatchResultProcessorTest {
     @Mock
     private com.gregochr.goldenhour.service.evaluation.EvaluationAbandonmentService
             evaluationAbandonmentService;
+    @Mock
+    private PipelineRunRepository pipelineRunRepository;
 
     private BatchResultProcessor processor;
 
@@ -97,7 +102,8 @@ class BatchResultProcessorTest {
         processor = new BatchResultProcessor(
                 anthropicClient, batchRepository, locationRepository,
                 jobRunService, costCalculator,
-                forecastResultHandler, auroraResultHandler, evaluationAbandonmentService);
+                forecastResultHandler, auroraResultHandler, evaluationAbandonmentService,
+                pipelineRunRepository);
     }
 
     private void stubBatchService() {
@@ -196,6 +202,126 @@ class BatchResultProcessorTest {
         // R7(a): the event-driven abandonment sweep must run at the end of every forecast
         // batch's normal completion, not just on the failure path.
         verify(evaluationAbandonmentService).abandonPendingForBatch("msgbatch_fail");
+    }
+
+    @Test
+    @DisplayName("round 12: a batch belonging to an orchestrated cycle stamps its results with "
+            + "the cycle's PipelineRunEntity.triggerTime, not the batch's own submittedAt")
+    void forecast_pipelineRunBatch_stampsResultContextWithCycleTriggerTime() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        batch.setPipelineRunId(7L);
+        LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        Instant cycleTriggerTime = Instant.parse("2026-03-30T01:05:00Z");
+        PipelineRunEntity pipelineRun = new PipelineRunEntity(CycleType.NIGHTLY, cycleTriggerTime);
+        when(pipelineRunRepository.findById(7L)).thenReturn(Optional.of(pipelineRun));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}");
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        BriefingEvaluationResult parsed = new BriefingEvaluationResult(
+                "Castlerigg", 4, 70, 65, "X");
+        when(forecastResultHandler.parseBatchResponse(
+                eq(location), any(ForecastIdentity.class),
+                any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(Optional.of(new BatchSuccess(
+                        "Lake District|2026-04-07|SUNRISE", parsed)));
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
+        verify(forecastResultHandler).parseBatchResponse(
+                eq(location), any(ForecastIdentity.class), any(ClaudeBatchOutcome.class),
+                contextCaptor.capture());
+        // The cycle's OWN trigger time — NOT batch.getSubmittedAt(), which ForecastBatchEntity's
+        // own field default would otherwise stamp with a fresh Instant.now() at construction.
+        assertThat(contextCaptor.getValue().submissionInstant()).isEqualTo(cycleTriggerTime);
+        assertThat(contextCaptor.getValue().submissionInstant())
+                .isNotEqualTo(batch.getSubmittedAt());
+    }
+
+    @Test
+    @DisplayName("round 12: a RETRY batch sharing its precursor's pipelineRunId resolves to the "
+            + "SAME submission instant as the precursor — the retry's own (later) submittedAt is "
+            + "never used")
+    void forecast_retryBatch_resolvesToSameCycleTriggerTimeAsPrecursor() {
+        stubBatchService();
+        // The retry batch's OWN submittedAt is deliberately later than the cycle's trigger time —
+        // BatchRetryService submits it only after the precursor's failures are known, minutes or
+        // more after the cycle started — proving the lookup ignores it entirely.
+        ForecastBatchEntity retryBatch = new ForecastBatchEntity(
+                "msgbatch_retry", BatchType.FORECAST, 1, Instant.now().plusSeconds(86400));
+        retryBatch.setPipelineRunId(7L);
+        retryBatch.setRetry(true);
+        LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        Instant cycleTriggerTime = Instant.parse("2026-03-30T01:05:00Z");
+        PipelineRunEntity pipelineRun = new PipelineRunEntity(CycleType.NIGHTLY, cycleTriggerTime);
+        when(pipelineRunRepository.findById(7L)).thenReturn(Optional.of(pipelineRun));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}");
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_retry")).thenReturn(streamResp);
+
+        BriefingEvaluationResult parsed = new BriefingEvaluationResult(
+                "Castlerigg", 4, 70, 65, "X");
+        when(forecastResultHandler.parseBatchResponse(
+                eq(location), any(ForecastIdentity.class),
+                any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(Optional.of(new BatchSuccess(
+                        "Lake District|2026-04-07|SUNRISE", parsed)));
+
+        processor.processResults(retryBatch);
+
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
+        verify(forecastResultHandler).parseBatchResponse(
+                eq(location), any(ForecastIdentity.class), any(ClaudeBatchOutcome.class),
+                contextCaptor.capture());
+        assertThat(contextCaptor.getValue().submissionInstant()).isEqualTo(cycleTriggerTime);
+        assertThat(retryBatch.getSubmittedAt()).isAfter(cycleTriggerTime);
+    }
+
+    @Test
+    @DisplayName("round 12: an ad-hoc batch with no pipelineRunId falls back to its own submittedAt")
+    void forecast_adHocBatch_fallsBackToOwnSubmittedAt() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST); // pipelineRunId stays null
+        LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}");
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        BriefingEvaluationResult parsed = new BriefingEvaluationResult(
+                "Castlerigg", 4, 70, 65, "X");
+        when(forecastResultHandler.parseBatchResponse(
+                eq(location), any(ForecastIdentity.class),
+                any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(Optional.of(new BatchSuccess(
+                        "Lake District|2026-04-07|SUNRISE", parsed)));
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
+        verify(forecastResultHandler).parseBatchResponse(
+                eq(location), any(ForecastIdentity.class), any(ClaudeBatchOutcome.class),
+                contextCaptor.capture());
+        assertThat(contextCaptor.getValue().submissionInstant()).isEqualTo(batch.getSubmittedAt());
+        verifyNoInteractions(pipelineRunRepository);
     }
 
     @Test

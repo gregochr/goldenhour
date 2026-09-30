@@ -630,7 +630,8 @@ class PlanWindowProjectorTest {
             // copy out of the recommendation slot.
             BriefingRegion r = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
                     ratedSlots(4), 14.0, 13.0, 4.5, 3, HEADLINE, null,
-                    DisplayVerdict.WORTH_IT, 1, null, false, null);
+                    DisplayVerdict.WORTH_IT, 1, null, false, null)
+                    .withSampleSufficient(true);
 
             assertThat(projectOne(r).pick().headline()).isEqualTo(HEADLINE);
             assertThat(projectOne(r).pick().detail()).isNull();
@@ -773,7 +774,8 @@ class PlanWindowProjectorTest {
                             BriefingSlot.TideInfo.NONE, List.of(), null)
                             .withClaudeScores(4, 60, 55, "s")),
                     14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                    DisplayVerdict.WORTH_IT, 1, null, false, null);
+                    DisplayVerdict.WORTH_IT, 1, null, false, null)
+                    .withSampleSufficient(true);
 
             DailyBriefingResponse out = projectAt(List.of(dayOf(TODAY, timeless)), List.of(),
                     LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
@@ -1469,7 +1471,8 @@ class PlanWindowProjectorTest {
                 "North East", Verdict.GO, "summary", List.of(),
                 List.of(unratedSlot("Bamburgh"), unratedSlot("Alnmouth")),
                 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                DisplayVerdict.WORTH_IT, 0, null, false, Confidence.HIGH);
+                DisplayVerdict.WORTH_IT, 0, null, false, Confidence.HIGH)
+                .withSampleSufficient(true);
         DailyBriefingResponse raw = response(
                 List.of(new BriefingDay(TODAY, List.of(
                         new BriefingEventSummary(TargetType.SUNSET, List.of(zeroCoverage),
@@ -1547,6 +1550,98 @@ class PlanWindowProjectorTest {
                     BriefingWindowTide.Direction.FALLING, nearestType, nearestTime,
                     "1h43 before sunset", "4.9 m", "1.2 m above an average tide", null,
                     List.of(0.0, 0.5, 1.0), 0.88, 0.42);
+        }
+    }
+
+    /**
+     * The verdict-minimum-sample rule's effect on THIS class's own logic — ranking and pick
+     * eligibility — with {@code sampleSufficient}/{@code forcedSample} set explicitly on each
+     * fixture rather than through {@link #regionWithSlots}'s sufficient-by-default helper. The
+     * rule's own arithmetic (rated count, examined coverage) is {@code VerdictSampleGateTest}'s and
+     * the sample-to-flag derivation is {@code BriefingRegionEvaluationRollupTest}'s; this class only
+     * has to prove it reads the two flags correctly once they are on the region.
+     */
+    @Nested
+    @DisplayName("verdict-minimum-sample eligibility")
+    class SampleEligibility {
+
+        @Test
+        @DisplayName("a sufficient region with a LOWER average outranks an insufficient region "
+                + "with a higher one")
+        void sufficientRegionOutranksInsufficientDespiteLowerAverage() {
+            BriefingRegion sufficientButLower = region("Sufficient", 3, 3, 3)
+                    .withSampleSufficient(true);
+            BriefingRegion insufficientButHigher = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(insufficientButHigher, sufficientButLower);
+
+            assertThat(w.pick().regionName()).isEqualTo("Sufficient");
+        }
+
+        @Test
+        @DisplayName("an insufficient, non-exempt region cannot be a pick candidate")
+        void insufficientRegionCannotBeAPick() {
+            BriefingRegion insufficient = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(insufficient);
+
+            assertThat(w.pick()).isNull();
+        }
+
+        @Test
+        @DisplayName("a forced-exempt region (insufficient by the raw test) CAN be a pick "
+                + "candidate and outranks a plain insufficient region")
+        void forcedExemptRegionCanBeAPick() {
+            BriefingRegion forcedExempt = region("Forced", 4, 4, 4)
+                    .withSampleSufficient(false).withForcedSample(true);
+            BriefingRegion plainInsufficient = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false).withForcedSample(false);
+
+            BriefingWindow w = projectOne(plainInsufficient, forcedExempt);
+
+            assertThat(w.pick()).isNotNull();
+            assertThat(w.pick().regionName()).isEqualTo("Forced");
+        }
+
+        @Test
+        @DisplayName("a legacy region with null sampleSufficient/forcedSample cannot be a pick — "
+                + "unknown reads as ineligible, never as sufficient")
+        void legacyNullFlags_cannotBeAPick() {
+            // regionWithSlots's default is deliberately NOT used here: this fixture models a
+            // payload cached before the verdict-minimum-sample rule existed, where the flags
+            // genuinely deserialise to null rather than to an explicit false.
+            BriefingRegion legacy = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
+                    ratedSlots(4, 4, 4), 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
+                    DisplayVerdict.WORTH_IT, 3, null, false, null);
+
+            assertThat(legacy.sampleSufficient()).isNull();
+            assertThat(legacy.forcedSample()).isNull();
+
+            BriefingWindow w = projectOne(legacy);
+
+            assertThat(w.pick()).isNull();
+        }
+
+        @Test
+        @DisplayName("among two insufficient regions, the existing average/coverage/name "
+                + "tie-breaks still decide the ranking")
+        void insufficientRegions_stillOrderedByExistingTieBreaks() {
+            // Neither region is pick-eligible (both insufficient), so neither can produce a
+            // candidate — the ranking is instead read off the window's verdict, which is always
+            // the TOP region's own displayVerdict regardless of pick eligibility. Dales averages
+            // 3.0 (MAYBE) and Northumberland 4.0 (WORTH_IT); if the pre-existing average tie-break
+            // still runs inside the insufficient tier, Northumberland ranks top and the window
+            // reads WORTH_IT — the same answer production gave before this rule existed.
+            BriefingRegion dales = region("Dales", 3, 3, 3).withSampleSufficient(false);
+            BriefingRegion northumberland = region("Northumberland", 4, 4, 4)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(dales, northumberland);
+
+            assertThat(w.pick()).isNull();
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
         }
     }
 
@@ -1692,7 +1787,9 @@ class PlanWindowProjectorTest {
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
                         r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
-                        .withBestRating(r.bestRating()))
+                        .withBestRating(r.bestRating())
+                        .withSampleSufficient(r.sampleSufficient())
+                        .withForcedSample(r.forcedSample()))
                 .toList();
     }
 
@@ -1706,7 +1803,9 @@ class PlanWindowProjectorTest {
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
                         r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
-                        .withBestRating(r.bestRating()))
+                        .withBestRating(r.bestRating())
+                        .withSampleSufficient(r.sampleSufficient())
+                        .withForcedSample(r.forcedSample()))
                 .toList();
     }
 
@@ -1774,9 +1873,19 @@ class PlanWindowProjectorTest {
 
     private static BriefingRegion regionWithSlots(String name, List<BriefingSlot> slots,
             DisplayVerdict dv, Confidence confidence, String headline) {
+        // sampleSufficient defaults to true here, not to the fixture's own rated count: this class
+        // tests PlanWindowProjector in isolation from BriefingRegionEvaluationRollup, which is
+        // where the verdict-minimum-sample rule (VerdictSampleGate) actually lives — exactly the
+        // same reason displayVerdict/confidence are pre-set arguments rather than derived from a
+        // roster here. A fixture representing "the rollup already judged this sample sufficient"
+        // is what every test in this file not specifically about the eligibility gate needs; the
+        // gate's own effect on ranking and pick eligibility is covered by the dedicated
+        // SampleEligibility nested class below, which builds sampleSufficient(false)/forcedSample
+        // fixtures explicitly.
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), slots,
                 14.0, 13.0, 4.5, 3, headline, headline == null ? null : DETAIL,
-                dv, slots.size(), null, false, confidence);
+                dv, slots.size(), null, false, confidence)
+                .withSampleSufficient(true);
     }
 
     private static List<BriefingSlot> ratedSlots(int... ratings) {
