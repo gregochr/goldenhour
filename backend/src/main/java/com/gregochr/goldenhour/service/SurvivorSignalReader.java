@@ -27,9 +27,30 @@ import java.util.Map;
  * {@code SurvivorAtmosphereWriter}'s own javadoc). {@code forecast_score} (the scores half —
  * inversion, bluebell) is UNCHANGED by that phase and remains genuinely survivor-only: it is written
  * only from a completed Claude evaluation, so a triaged or stability-skipped slot never has one
- * (bluebell stays scored-only by design — no deterministic substitute for the Claude rating exists;
- * cloud inversion's own deterministic substitute is planned, separately, as Phase 2, with its own
- * migration). A composite built from a readings-only key therefore has {@link SurvivorSignals.Scores}
+ * (bluebell stays scored-only by design — no deterministic substitute for the Claude rating exists).
+ * ⚠️ <b>Cloud inversion's own deterministic substitute shipped as Phase 2 (V158, owner decision
+ * 2026-09-30)</b> — {@link SurvivorSignals.Readings#inversionScore()} carries
+ * {@code InversionScoreCalculator}'s own score for every inversion-eligible candidate, on
+ * {@code survivor_atmosphere}, populated whatever the triage verdict or Gate 4 decision.
+ * {@link SurvivorSignals.Scores#inversion()} (Claude's echo, from {@code forecast_score}) still
+ * exists and is still returned unchanged — it is NOT dead code, because
+ * {@link SurvivorSignals#effectiveInversionScore()} falls back to it whenever
+ * {@link SurvivorSignals.Readings#inversionScored()} is false. ⚠️ <b>One rule, used for both
+ * windows (round 3, a Codex P1 against PR #948's second cut)</b> — an earlier design kept the
+ * forward peak calculator-only on the assumption a forward slot is upserted every cycle; that
+ * assumption is false ({@code BriefingCandidateCollector} can skip a region on a fresh cache for up
+ * to 36 hours before {@code fetchWeatherAndTriage} ever runs), so both the inversion hot topic and
+ * the Coming up "Valley inversions" condition's forward peak AND trailing history now read
+ * {@code effectiveInversionScore()}. ⚠️ <b>A further Codex P1 (round 4) then found the fallback
+ * itself too eager</b> — {@code InversionScoreCalculator.calculate} can return null for an
+ * ELIGIBLE location (missing weather inputs), so a fresh row's null {@code inversionScore} is not
+ * always "the calculator hasn't reached this slot"; {@link SurvivorSignals.Readings#inversionScored()}
+ * (V158's second column, true on every row a post-round-4 write produces) is what lets the helper
+ * tell a fresh, authoritative null apart from an absent one — see that method's own javadoc for the
+ * full history and why "the calculator decides when it has scored a slot" survives intact. See
+ * {@code InversionHotTopicStrategy}'s own javadoc for why the map's separately-echoed badge is
+ * still allowed to disagree with this composite's effective score.
+ * A composite built from a readings-only key therefore has {@link SurvivorSignals.Scores}
  * {@code EMPTY} and populated {@link SurvivorSignals.Readings} — never a zero score and never an
  * exception — exactly like any other single-surface key (see {@link #read}'s own javadoc and this
  * class's test suite).
@@ -174,7 +195,8 @@ public class SurvivorSignalReader {
                             readings.getSnowDepthMetres(), readings.getFreezingLevelMetres(),
                             readings.getHumidity(), readings.getSurgeTotalMetres(),
                             readings.getSurgeWindSpeedMs(), readings.getSurgeWindDirectionDegrees(),
-                            readings.getTemperatureCelsius());
+                            readings.getTemperatureCelsius(), readings.getInversionScore(),
+                            readings.isInversionScored());
             return new SurvivorSignals(location, date, eventType, scores, r);
         }
     }
