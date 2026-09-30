@@ -51,7 +51,7 @@ class SlotAtmosphereWriterTest {
     private SlotAtmosphereRepository repository;
 
     private SlotAtmosphereWriter writer(boolean enabled) {
-        return new SlotAtmosphereWriter(repository, CLOCK, null, enabled);
+        return new SlotAtmosphereWriter(repository, CLOCK, enabled);
     }
 
     private static LocationEntity location() {
@@ -85,40 +85,18 @@ class SlotAtmosphereWriterTest {
     }
 
     @Test
-    @DisplayName("flag off → writes nothing (additive-table rollback path)")
-    void flagOff_writesNothing() {
+    @DisplayName("photocast.slot-atmosphere.write alone gates the write, both ways "
+            + "(off = the additive-table rollback path, on = an ordinary upsert)")
+    void writeEnabledKey_gatesWriteBothWays() {
         writer(false).write(location(), DATE, SUNSET, inlandData());
         verifyNoInteractions(repository);
-    }
 
-    @Test
-    @DisplayName("legacy photocast.survivor-atmosphere.write key wins over the renamed "
-            + "photocast.slot-atmosphere.write key when a deployment's config still sets it")
-    void legacyKey_whenSet_overridesRenamedKey() {
-        SlotAtmosphereWriter legacyOffNewOn = new SlotAtmosphereWriter(repository, CLOCK, false, true);
-        legacyOffNewOn.write(location(), DATE, SUNSET, inlandData());
-        verifyNoInteractions(repository);
-    }
-
-    @Test
-    @DisplayName("legacy key unset (null) → the renamed key alone decides")
-    void legacyKeyUnset_renamedKeyDecides() {
-        SlotAtmosphereWriter legacyUnsetNewOff = new SlotAtmosphereWriter(repository, CLOCK, null, false);
-        legacyUnsetNewOff.write(location(), DATE, SUNSET, inlandData());
-        verifyNoInteractions(repository);
-    }
-
-    @Test
-    @DisplayName("legacy key true wins over a renamed key of false — old config keeps writing")
-    void legacyKeyTrue_winsOverRenamedKeyFalse() {
         when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
                 .thenReturn(Optional.empty());
-        SlotAtmosphereWriter legacyOnNewOff = new SlotAtmosphereWriter(repository, CLOCK, true, false);
 
-        legacyOnNewOff.write(location(), DATE, SUNSET, inlandData());
+        writer(true).write(location(), DATE, SUNSET, inlandData());
 
-        SlotAtmosphereEntity saved = captureSave();
-        assertThat(saved.getLocation().getId()).isEqualTo(LOCATION_ID);
+        assertThat(captureSave().getLocation().getId()).isEqualTo(LOCATION_ID);
     }
 
     @Test

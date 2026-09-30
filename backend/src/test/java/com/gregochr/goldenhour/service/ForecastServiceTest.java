@@ -631,7 +631,7 @@ class ForecastServiceTest {
                         com.gregochr.goldenhour.repository.SlotAtmosphereRepository.class);
         com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter flagOffWriter =
                 new com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter(
-                        realRepo, clock, null, false);
+                        realRepo, clock, false);
         ForecastService serviceWithFlagOff = new ForecastService(
                 solarService, openMeteoService, augmentor, evaluationService,
                 engineEvaluationService, repository, notificationDispatcher, eventPublisher,

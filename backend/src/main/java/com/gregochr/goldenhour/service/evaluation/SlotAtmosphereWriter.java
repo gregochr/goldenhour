@@ -71,12 +71,10 @@ import java.time.LocalDate;
  * Flag off = no rows written; the additive-table rollback path, no redeploy. There is deliberately
  * no separate flag gating "every candidate" vs "survivors only" — owner decision 2026-09-30 is that
  * every place is recorded from the first deploy, with no staged rollout. ⚠️ <b>The key itself was
- * renamed from {@code photocast.survivor-atmosphere.write} in V159 (2026-09-30), the same commit
- * that renamed this class.</b> Production's {@code application.yml} is not in this repository and
- * may still set the OLD key, so both are bound here and the OLD key wins when it is set — a
- * deploy that has not yet picked up the new key name must not silently start writing (or silently
- * stop) because the key it set no longer means anything. Once every deployment's config is updated
- * to the new key, the legacy parameter and this note can be deleted.
+ * renamed from {@code photocast.survivor-atmosphere.write} in V159 (2026-09-30).</b> For the rest
+ * of that day the old key was also read as a legacy alias, winning when a deployment's config still
+ * set it; production carries no config file or environment variable for either key, so that alias
+ * is dropped from this change on — {@code photocast.slot-atmosphere.write} is read alone.
  */
 @Component
 public class SlotAtmosphereWriter {
@@ -88,22 +86,16 @@ public class SlotAtmosphereWriter {
     /**
      * Constructs the writer.
      *
-     * @param repository          the slot-atmosphere repository (V115)
-     * @param clock               injectable clock for {@code evaluated_at = now()}
-     * @param legacyWriteEnabled  the OLD {@code photocast.survivor-atmosphere.write} key, unbound
-     *                            ({@code null}) unless a deployment's config still sets it; wins
-     *                            over {@code writeEnabled} when set — see the class javadoc's
-     *                            "Feature flag" note
-     * @param writeEnabled        {@code photocast.slot-atmosphere.write} (default true); when
-     *                            false (and the legacy key is unset) the writer is a no-op, the
-     *                            additive-table rollback
+     * @param repository   the slot-atmosphere repository (V115)
+     * @param clock        injectable clock for {@code evaluated_at = now()}
+     * @param writeEnabled {@code photocast.slot-atmosphere.write} (default true); when false the
+     *                     writer is a no-op, the additive-table rollback
      */
     public SlotAtmosphereWriter(SlotAtmosphereRepository repository, Clock clock,
-            @Value("${photocast.survivor-atmosphere.write:#{null}}") Boolean legacyWriteEnabled,
             @Value("${photocast.slot-atmosphere.write:true}") boolean writeEnabled) {
         this.repository = repository;
         this.clock = clock;
-        this.writeEnabled = legacyWriteEnabled != null ? legacyWriteEnabled : writeEnabled;
+        this.writeEnabled = writeEnabled;
     }
 
     /**

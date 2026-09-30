@@ -65,7 +65,7 @@ class RecordConditionsForEveryPlaceIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        writer = new SlotAtmosphereWriter(slotAtmosphereRepository, CLOCK, null, true);
+        writer = new SlotAtmosphereWriter(slotAtmosphereRepository, CLOCK, true);
         reader = new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
     }
 
