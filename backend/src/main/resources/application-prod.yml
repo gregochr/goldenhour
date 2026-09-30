@@ -153,6 +153,10 @@ notifications:
     enabled: false
   macos-toast:
     enabled: false
+  admin-alerts:
+    # Emails every enabled ADMIN account when a pipeline run is marked DEGRADED — the one
+    # operational alert this app sends in production (see AdminAlertService).
+    enabled: true
 
 jwt:
   secret: ${JWT_SECRET}

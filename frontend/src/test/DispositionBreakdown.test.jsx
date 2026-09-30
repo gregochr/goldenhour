@@ -181,6 +181,54 @@ describe('DispositionBreakdown — per-category rows', () => {
     expect(screen.queryByTestId('disposition-row-SKIPPED_HARD_CONSTRAINT')).not.toBeInTheDocument();
     expect(screen.queryByText('Triaged')).not.toBeInTheDocument();
   });
+
+  it('shows SUBMISSION_FAILED with its count, human label, and detail — right after '
+    + 'EVALUATED and BEFORE a SKIPPED_* row, since it means a request this cycle meant to send '
+    + 'never reached Claude, closer kin to EVALUATED than to a triage skip',
+  async () => {
+    getDispositionBreakdown.mockResolvedValue({ data: {
+      jobRunId: 249, totalCount: 512,
+      countsByDisposition: { EVALUATED: 1, SUBMISSION_FAILED: 510, SKIPPED_TRIAGED: 1 },
+      entries: [
+        {
+          locationId: 42, locationName: 'Durham UK',
+          evaluationDate: '2026-09-29', eventType: 'SUNRISE',
+          daysAhead: 0, disposition: 'EVALUATED', detail: null,
+        },
+        {
+          locationId: 43, locationName: 'Newcastle',
+          evaluationDate: '2026-09-29', eventType: 'SUNRISE',
+          daysAhead: 0, disposition: 'SUBMISSION_FAILED',
+          detail: 'near-term inland batch submission failed',
+        },
+        {
+          locationId: 44, locationName: 'Whitby',
+          evaluationDate: '2026-09-29', eventType: 'SUNRISE',
+          daysAhead: 0, disposition: 'SKIPPED_TRIAGED', detail: 'Heavy cloud',
+        },
+      ],
+    }});
+    render(<DispositionBreakdown jobRunId={249} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('disposition-row-SUBMISSION_FAILED')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('disposition-row-SUBMISSION_FAILED')).toHaveTextContent('510');
+    expect(screen.getByText('Submission failed')).toBeInTheDocument();
+
+    // Row order: EVALUATED, then SUBMISSION_FAILED, THEN the SKIPPED_* row — proven against a
+    // fixture that actually has a SKIPPED_* row, not merely asserted in prose.
+    const rows = screen.getAllByTestId(/^disposition-row-/);
+    expect(rows.map((r) => r.getAttribute('data-testid'))).toEqual([
+      'disposition-row-EVALUATED',
+      'disposition-row-SUBMISSION_FAILED',
+      'disposition-row-SKIPPED_TRIAGED',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: /Submission failed/ }));
+    const entriesPanel = screen.getByTestId('disposition-entries-SUBMISSION_FAILED');
+    expect(entriesPanel).toHaveTextContent('Newcastle');
+    expect(entriesPanel).toHaveTextContent('near-term inland batch submission failed');
+  });
 });
 
 describe('DispositionBreakdown — drill-down expansion', () => {

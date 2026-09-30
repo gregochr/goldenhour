@@ -199,18 +199,20 @@ public class BatchRetryService {
      *
      * @param pipelineRunId the orchestrated cycle id
      * @param selection     a {@link RetrySelection.Decision#RETRY} selection
-     * @return number of requests actually submitted in the retry batch (0 if the
-     *         selection was not RETRY, a retry already existed, or nothing could be
-     *         reconstructed)
+     * @return {@link RetrySubmitResult#none()} if the selection was not RETRY, a retry batch
+     *         already existed for the cycle, or nothing could be reconstructed; otherwise the
+     *         real submitted count, task count and batch id — see {@link
+     *         RetrySubmitResult#submissionFailed()} for how the caller tells "nothing to retry"
+     *         apart from "tried and failed"
      */
-    public int submitRetry(Long pipelineRunId, RetrySelection selection) {
+    public RetrySubmitResult submitRetry(Long pipelineRunId, RetrySelection selection) {
         if (selection.decision() != RetrySelection.Decision.RETRY) {
-            return 0;
+            return RetrySubmitResult.none();
         }
         if (!forecastBatchRepository.findByPipelineRunIdAndRetryTrue(pipelineRunId).isEmpty()) {
             LOG.info("RETRY_FAILED: a retry batch already exists for pipelineRunId={} "
                     + "— skipping submission (idempotent re-entry)", pipelineRunId);
-            return 0;
+            return RetrySubmitResult.none();
         }
 
         List<EvaluationTask.Forecast> tasks = new ArrayList<>();
@@ -223,14 +225,25 @@ public class BatchRetryService {
         if (tasks.isEmpty()) {
             LOG.warn("RETRY_FAILED: no requests could be reconstructed for pipelineRunId={} "
                     + "— no retry batch submitted", pipelineRunId);
-            return 0;
+            return RetrySubmitResult.none();
         }
 
         EvaluationHandle handle = evaluationService.submit(
                 tasks, BatchTriggerSource.RETRY, pipelineRunId, true);
-        LOG.info("RETRY_FAILED: submitted retry batch for pipelineRunId={} — {} request(s), "
-                + "batchId={}", pipelineRunId, handle.submittedCount(), handle.batchId());
-        return handle.submittedCount();
+        RetrySubmitResult result =
+                new RetrySubmitResult(handle.submittedCount(), tasks.size(), handle.batchId());
+        if (result.submissionFailed()) {
+            // ERROR, not INFO — a real, reconstructed retry batch failed to reach Anthropic at
+            // all, which is what makes it visible to the orchestrator's DEGRADED decision (see
+            // RetrySubmitResult's own javadoc for why "nothing to retry" must not read the same).
+            LOG.error("RETRY_FAILED: retry batch submission FAILED for pipelineRunId={} — {} "
+                    + "request(s) reconstructed but none reached Anthropic", pipelineRunId,
+                    tasks.size());
+        } else {
+            LOG.info("RETRY_FAILED: submitted retry batch for pipelineRunId={} — {} request(s), "
+                    + "batchId={}", pipelineRunId, handle.submittedCount(), handle.batchId());
+        }
+        return result;
     }
 
     /**

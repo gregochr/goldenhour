@@ -41,6 +41,8 @@ notifications:
     enabled: false
   macos-toast:
     enabled: false
+  admin-alerts:
+    enabled: false
 forecast:
   schedule:
     sonnet:

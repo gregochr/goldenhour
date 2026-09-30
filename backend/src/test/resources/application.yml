@@ -28,6 +28,8 @@ notifications:
     user-key: test
   macos-toast:
     enabled: false
+  admin-alerts:
+    enabled: false
 
 forecast:
   locations:

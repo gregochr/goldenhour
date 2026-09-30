@@ -35,6 +35,11 @@ const STATUS_PILL_CLASSES = {
   RUNNING: 'bg-amber-900/30 text-amber-400',
   COMPLETED: 'bg-green-900/30 text-green-400',
   FAILED: 'bg-red-900/30 text-red-400',
+  // The cycle finished and briefed — WAIT and BRIEFING both ran — but one or more forecast
+  // batch submissions failed, so some served ratings predate this cycle. Deliberately its OWN
+  // colour (orange), not RUNNING's amber: a finished DEGRADED run sitting in a list next to a
+  // live RUNNING one must read as visually distinct at a glance, not as "still in progress".
+  DEGRADED: 'bg-orange-900/30 text-orange-400',
 };
 
 const PHASE_STATUS_PILL_CLASSES = {
@@ -175,7 +180,7 @@ export default function PipelineRunsView({ activeRunId, onSelectRun, onCloseDeta
             <tbody>
               {runs.map((r) => {
                 const detailText =
-                  r.status === 'FAILED' && r.failureReason
+                  (r.status === 'FAILED' || r.status === 'DEGRADED') && r.failureReason
                     ? r.failureReason
                     : r.waitingOn || '—';
                 return (
@@ -471,6 +476,14 @@ function PipelineRunDetail({ runId, onClose }) {
             data-testid="pipeline-run-detail-failure"
           >
             Failure: {run.failureReason}
+          </p>
+        )}
+        {run.status === 'DEGRADED' && run.failureReason && (
+          <p
+            className="text-xs text-orange-400"
+            data-testid="pipeline-run-detail-degraded"
+          >
+            Degraded: {run.failureReason}
           </p>
         )}
       </div>

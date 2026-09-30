@@ -532,10 +532,13 @@ it. ⚠️ **The disposition allow-list is now explicit and exactly two values**
 `disposition IN ('SKIPPED_STABILITY', 'SKIPPED_TRIAGED')`, never "everything except." Every other
 `DispositionCategory` value — `EVALUATED`, `FORCE_EVALUATED`, `SKIPPED_HARD_CONSTRAINT`,
 `SKIPPED_NO_PROMPT`, `SKIPPED_CACHED`, `SKIPPED_PAST_DATE`, `SKIPPED_TRAVEL_DAY`,
-`SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_ERROR`, `SKIPPED_NO_REFRESH_NEEDED` — is excluded by
-construction (see `SupersedingDispositionService`'s class javadoc for why each one is out, one at a
-time; `SKIPPED_HARD_CONSTRAINT` is arguably a candidate for a future round since it IS a genuine
-stand-down decision, but was not added here). Query cost: one cheap query in the common case (no
+`SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_ERROR`, `SKIPPED_NO_REFRESH_NEEDED`, `SUBMISSION_FAILED`
+(added after the 2026-09-29 incident itself — a candidate whose bucket failed to submit is even
+less a decision against the slot than a bare `EVALUATED` row, since strictly nothing reached
+Claude for it) — is excluded by construction (see `SupersedingDispositionService`'s class javadoc
+for why each one is out, one at a time; `SKIPPED_HARD_CONSTRAINT` is arguably a candidate for a
+future round since it IS a genuine stand-down decision, but was not added here). Query cost: one
+cheap query in the common case (no
 cycle has started since the earliest submission being checked — the ordinary, non-delayed case,
 since a fresh result's `submittedAt` is recent), two when a later cycle exists at all (the same
 call, plus one bulk disposition query). Results in one merge call may carry different `submittedAt`

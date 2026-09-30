@@ -5,7 +5,9 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.PipelinePhase;
+import com.gregochr.goldenhour.entity.PipelinePhaseStatus;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.entity.PipelineRunPhaseEntity;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
@@ -13,6 +15,8 @@ import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
+import com.gregochr.goldenhour.service.batch.ForecastBatchSubmissionOutcome;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.BatchRetryService;
@@ -20,7 +24,9 @@ import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ReclassSummary;
 import com.gregochr.goldenhour.service.batch.RetrySelection;
+import com.gregochr.goldenhour.service.batch.RetrySubmitResult;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
+import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -86,6 +92,9 @@ class PipelineOrchestratorTest {
     @Mock
     private BatchRetryService batchRetryService;
 
+    @Mock
+    private AdminAlertService adminAlertService;
+
     private PipelineOrchestrator orchestrator;
 
     /** Direct executor — runs the wait/brief tail on the calling thread. */
@@ -108,22 +117,29 @@ class PipelineOrchestratorTest {
                 Duration.ofSeconds(10),
                 null,
                 pipelineRunPickService,
-                batchRetryService);
+                batchRetryService,
+                adminAlertService);
         // Default: clean cycle (no transient failures), so RETRY_FAILED is a silent
         // no-op and the existing sequence assertions are unaffected. Lenient because
         // the pre-submission-failure and timeout tests never reach the retry phase.
         lenient().when(batchRetryService.selectFailures(any()))
                 .thenReturn(RetrySelection.none(5));
-        // Default: the submission guard is free, so submission succeeds — this is
-        // the overwhelmingly common case and every test not specifically exercising
-        // the dropped-submission path relies on it. Lenient + wide matchers because
-        // most tests never stub this call at all; without this default a Mockito
-        // mock would return false (the boolean default), which would make every
-        // one of those tests silently exercise the dropped-submission path instead
-        // of the sequence it actually means to test.
+        // Default: whenever a test's own selectFailures stub DOES reach RETRY (most don't — the
+        // default above is NONE), the retry submission itself succeeds. Lenient + wide matchers
+        // because most tests never call submitRetry at all; without this default a Mockito mock
+        // would return null (the object default), which would NPE retryFailedPhase's own
+        // retryResult.submissionFailed() check rather than silently exercising the wrong path.
+        lenient().when(batchRetryService.submitRetry(any(), any()))
+                .thenReturn(RetrySubmitResult.none());
+        // Default: the submission guard is free and every bucket reaches Anthropic — this is
+        // the overwhelmingly common case and every test not specifically exercising the
+        // dropped-submission or degraded-submission paths relies on it. Lenient + wide matchers
+        // because most tests never stub this call at all; without this default a Mockito mock
+        // would return null (the object default), which would NPE every one of those tests
+        // rather than silently exercising the wrong path.
         lenient().when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
                 any(), any(), any(), anyBoolean(), any()))
-                .thenReturn(true);
+                .thenReturn(ForecastBatchSubmissionOutcome.ran(BatchSubmissionSummary.allEmpty()));
     }
 
     private PipelineRunEntity newRun() {
@@ -309,7 +325,8 @@ class PipelineOrchestratorTest {
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
                     null,
                     pipelineRunPickService,
-                    batchRetryService);
+                    batchRetryService,
+                    adminAlertService);
 
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
@@ -404,7 +421,7 @@ class PipelineOrchestratorTest {
                     eq(NightlyEligibilityPolicy.INSTANCE),
                     eq(false),
                     any()))
-                    .thenReturn(false);
+                    .thenReturn(ForecastBatchSubmissionOutcome.dropped());
 
             orchestrator.runNightlyCycle();
 
@@ -435,6 +452,197 @@ class PipelineOrchestratorTest {
     }
 
     @Nested
+    @DisplayName("Degraded run — one or more forecast batch submissions failed")
+    class DegradedRun {
+
+        private final BatchSubmissionSummary failingSummary = new BatchSubmissionSummary(
+                3, 0, List.of(
+                        new BatchSubmissionSummary.FailedBucket("near-term inland", 400),
+                        new BatchSubmissionSummary.FailedBucket("near-term coastal", 80),
+                        new BatchSubmissionSummary.FailedBucket("far-term inland", 30)));
+
+        @Test
+        @DisplayName("the cycle still WAITs and BRIEFs, then is marked DEGRADED (never "
+                + "COMPLETED) with the phase's own failure detail as the reason, and the admin "
+                + "alert fires exactly once with the run's own id/cycleType/triggerTime/reason")
+        void submissionFailure_marksRunDegraded_andAlertsAdminsExactlyOnce() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    any()))
+                    .thenReturn(ForecastBatchSubmissionOutcome.ran(failingSummary));
+            PipelineRunPhaseEntity failedSubmitPhase = new PipelineRunPhaseEntity(
+                    RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 1, T0);
+            failedSubmitPhase.setStatus(PipelinePhaseStatus.FAILED);
+            failedSubmitPhase.setDetail(failingSummary.detail());
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT))
+                    .thenReturn(Optional.of(failedSubmitPhase));
+
+            orchestrator.runNightlyCycle();
+
+            // The phase itself is FAILED (with the per-bucket detail), never COMPLETED — visible
+            // in the phase timeline even though the run goes on.
+            verify(pipelineRunService).failPhase(eq(RUN_ID),
+                    eq(PipelinePhase.FORECAST_BATCH_SUBMIT), eq(failingSummary.detail()));
+            verify(pipelineRunService, never()).completePhase(
+                    eq(RUN_ID), eq(PipelinePhase.FORECAST_BATCH_SUBMIT), any());
+            // WAIT and BRIEFING still ran — the fallback-to-cache behaviour is unchanged.
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completePhase(
+                    eq(RUN_ID), eq(PipelinePhase.BRIEFING), isNull());
+            // Terminal status is DEGRADED, never COMPLETED, never FAILED.
+            verify(pipelineRunService).degradeRun(RUN_ID, failingSummary.detail());
+            verify(pipelineRunService, never()).completeRun(RUN_ID);
+            verify(pipelineRunService, never()).failRun(eq(RUN_ID), any());
+            // The admin alert fires exactly once, with this run's own identity and the same
+            // reason string that was persisted as the failureReason.
+            verify(adminAlertService, times(1)).sendPipelineDegradedAlert(
+                    RUN_ID, CycleType.NIGHTLY, T0, failingSummary.detail());
+        }
+
+        @Test
+        @DisplayName("a clean cycle (every bucket submitted) is COMPLETED, never DEGRADED, and "
+                + "never triggers the admin alert")
+        void cleanCycle_completesNormally_neverAlertsAdmins() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            PipelineRunPhaseEntity completedSubmitPhase = new PipelineRunPhaseEntity(
+                    RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 1, T0);
+            completedSubmitPhase.setStatus(PipelinePhaseStatus.COMPLETED);
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT))
+                    .thenReturn(Optional.of(completedSubmitPhase));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).completeRun(RUN_ID);
+            verify(pipelineRunService, never()).degradeRun(any(), any());
+            verifyNoInteractions(adminAlertService);
+        }
+
+        @Test
+        @DisplayName("a run that FAILS for an unrelated reason (the submit phase itself throwing) "
+                + "is never DEGRADED and never triggers the admin alert — FAILED outranks DEGRADED "
+                + "by construction, since that path returns before finishRun is ever reached")
+        void failedRunForUnrelatedReason_neverDegraded_neverAlertsAdmins() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            doThrow(new RuntimeException("anthropic 5xx"))
+                    .when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                            eq(RUN_ID),
+                            eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                            eq(NightlyEligibilityPolicy.INSTANCE),
+                            eq(false),
+                            any());
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).failRun(RUN_ID, "Submit phase failed: anthropic 5xx");
+            verify(pipelineRunService, never()).degradeRun(any(), any());
+            verify(pipelineRunService, never()).completeRun(RUN_ID);
+            verify(pipelineRunService, never()).findLatestPhase(any(), any());
+            verifyNoInteractions(adminAlertService);
+        }
+
+        @Test
+        @DisplayName("a null AdminAlertService (tests that skip alerting via the package-private "
+                + "constructor) does not prevent the run from being marked DEGRADED")
+        void nullAdminAlertService_stillDegradesRun_withoutThrowing() {
+            PipelineOrchestrator noAlertOrchestrator = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
+                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
+                    null, pipelineRunPickService, batchRetryService, null);
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    any()))
+                    .thenReturn(ForecastBatchSubmissionOutcome.ran(failingSummary));
+            PipelineRunPhaseEntity failedSubmitPhase = new PipelineRunPhaseEntity(
+                    RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 1, T0);
+            failedSubmitPhase.setStatus(PipelinePhaseStatus.FAILED);
+            failedSubmitPhase.setDetail(failingSummary.detail());
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT))
+                    .thenReturn(Optional.of(failedSubmitPhase));
+
+            noAlertOrchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).degradeRun(RUN_ID, failingSummary.detail());
+        }
+
+        @Test
+        @DisplayName("FAILED outranks DEGRADED — a cycle whose buckets failed AND whose WAIT "
+                + "safety timeout then fires ends FAILED, never DEGRADED, and never alerts admins: "
+                + "the safety-timeout catch block in waitAndBriefPhase calls failRun and returns "
+                + "without ever reaching finishRun")
+        void bucketsFailedAndSafetyTimeoutFires_endsFailedNeverDegraded() {
+            // A moving clock so the safety deadline check fires on its first read — the same
+            // shape SafetyTimeout.timeout_fails_run_without_briefing uses. A FIXED clock would
+            // never trigger the timeout at all, since clock.instant() would never move past its
+            // own deadline.
+            Instant past = T0.minus(Duration.ofHours(2));
+            Clock movingClock = new Clock() {
+                private final Iterator<Instant> instants =
+                        List.of(past, T0.plusSeconds(10_000)).iterator();
+
+                @Override
+                public ZoneOffset getZone() {
+                    return ZoneOffset.UTC;
+                }
+
+                @Override
+                public Clock withZone(java.time.ZoneId zone) {
+                    return this;
+                }
+
+                @Override
+                public Instant instant() {
+                    return instants.hasNext() ? instants.next() : T0.plusSeconds(10_000);
+                }
+            };
+            PipelineOrchestrator orch = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, movingClock,
+                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
+                    null, pipelineRunPickService, batchRetryService, adminAlertService);
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            // The buckets themselves failed to submit...
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    any()))
+                    .thenReturn(ForecastBatchSubmissionOutcome.ran(failingSummary));
+            // ...but submission still "ran" (submitted()=true), so the cycle proceeds to WAIT —
+            // where the batch set never reaches terminal, so the safety timeout fires.
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(
+                    batch(BatchStatus.SUBMITTED)));
+
+            orch.runNightlyCycle();
+
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.contains("Safety timeout"));
+            verify(pipelineRunService, never()).degradeRun(any(), any());
+            verify(pipelineRunService, never()).completeRun(RUN_ID);
+            verify(pipelineRunService, never()).findLatestPhase(any(), any());
+            verify(briefingService, never()).refreshBriefing();
+            verifyNoInteractions(adminAlertService);
+        }
+    }
+
+    @Nested
     @DisplayName("Restart durability")
     class RestartResume {
 
@@ -457,6 +665,36 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.BRIEFING);
             verify(briefingService).refreshBriefing();
             verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a RUNNING run mid-WAIT, whose FORECAST_BATCH_SUBMIT row was already left "
+                + "FAILED before the restart (a real fact from the durable phase row, not "
+                + "anything carried in memory — the process that ran submitPhase is gone), ends "
+                + "DEGRADED rather than COMPLETED once resume reaches the end of the tail")
+        void resumesMidWait_submitAlreadyFailedBeforeRestart_endsDegraded() {
+            PipelineRunEntity midWait = runInPhase(PipelinePhase.FORECAST_BATCH_WAIT);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midWait));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midWait));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            PipelineRunPhaseEntity failedSubmitPhase = new PipelineRunPhaseEntity(
+                    RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 1, T0);
+            failedSubmitPhase.setStatus(PipelinePhaseStatus.FAILED);
+            failedSubmitPhase.setDetail("1 of 1 forecast batch submissions failed "
+                    + "(120 requests not submitted — near-term inland)");
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT))
+                    .thenReturn(Optional.of(failedSubmitPhase));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(pipelineRunService, never())
+                    .startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).degradeRun(RUN_ID, failedSubmitPhase.getDetail());
+            verify(pipelineRunService, never()).completeRun(RUN_ID);
+            verify(adminAlertService).sendPipelineDegradedAlert(
+                    RUN_ID, CycleType.NIGHTLY, T0, failedSubmitPhase.getDetail());
         }
 
         @Test
@@ -719,7 +957,8 @@ class PipelineOrchestratorTest {
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
                     scheduler,
                     pipelineRunPickService,
-                    batchRetryService);
+                    batchRetryService,
+                    adminAlertService);
 
             wired.registerJobTarget();
 
@@ -793,7 +1032,7 @@ class PipelineOrchestratorTest {
                 @SuppressWarnings("unchecked")
                 java.util.function.Consumer<ReclassSummary> hook = inv.getArgument(4);
                 hook.accept(new ReclassSummary(3, 1, 2));
-                return true;
+                return ForecastBatchSubmissionOutcome.ran(BatchSubmissionSummary.allEmpty());
             }).when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
                     eq(RUN_ID), any(), any(), eq(true), any());
 
@@ -811,6 +1050,50 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT);
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.FORECAST_BATCH_SUBMIT), isNull());
+        }
+
+        @Test
+        @DisplayName("intraday: when the hook-opened FORECAST_BATCH_SUBMIT phase's own submission "
+                + "has failed buckets, that phase is FAILED (never completed) with the summary's "
+                + "detail — the exact same rule as nightly's own submitPhase, proven here for the "
+                + "intraday path where the phase is opened by the between-steps hook rather than "
+                + "by submitPhase itself")
+        void intraday_submitPhaseFailedAfterHookOpensIt_marksFailedNotCompleted() {
+            when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(briefingService.getCachedBriefing()).thenReturn(null);
+            BatchSubmissionSummary failingSummary = new BatchSubmissionSummary(
+                    1, 0, List.of(
+                            new BatchSubmissionSummary.FailedBucket("near-term inland", 40)));
+            // Simulate the real batch service: the hook fires (closing RECLASSIFY, opening
+            // SUBMIT) BEFORE the submission itself is known to have failed — the same order
+            // production code follows (collect → hook → submit).
+            doAnswer(inv -> {
+                @SuppressWarnings("unchecked")
+                java.util.function.Consumer<ReclassSummary> hook = inv.getArgument(4);
+                hook.accept(new ReclassSummary(1, 0, 1));
+                return ForecastBatchSubmissionOutcome.ran(failingSummary);
+            }).when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                    eq(RUN_ID), any(), any(), eq(true), any());
+            PipelineRunPhaseEntity failedSubmitPhase = new PipelineRunPhaseEntity(
+                    RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 2, T0);
+            failedSubmitPhase.setStatus(PipelinePhaseStatus.FAILED);
+            failedSubmitPhase.setDetail(failingSummary.detail());
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT))
+                    .thenReturn(Optional.of(failedSubmitPhase));
+
+            orchestrator.runIntradayCycle();
+
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT);
+            verify(pipelineRunService).failPhase(
+                    RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, failingSummary.detail());
+            verify(pipelineRunService, never()).completePhase(
+                    eq(RUN_ID), eq(PipelinePhase.FORECAST_BATCH_SUBMIT), any());
+            // The cycle still WAITs and BRIEFs, then ends DEGRADED — the intraday path shares
+            // finishRun with nightly.
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).degradeRun(RUN_ID, failingSummary.detail());
         }
 
         @Test

@@ -410,6 +410,57 @@ class DispositionWriteIntegrationTest extends IntegrationTestBase {
         }
 
         @Test
+        @DisplayName("SUBMISSION_FAILED is NOT excluded, unlike SKIPPED_CACHED: triaged last "
+                + "night, a later cycle re-includes the slot (tonight's own triage passed it) but "
+                + "its bucket fails to submit — SUBMISSION_FAILED correctly becomes the latest "
+                + "decision, shadowing the older SKIPPED_TRIAGED row rather than letting it "
+                + "resurface as \"examined\"")
+        void submissionFailedIsLatest_shadowsAnOlderTriage()
+                throws InterruptedException {
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9211L, List.of(
+                    new CandidateDisposition(50L, "Submission Failed Tonight Loc", date,
+                            TargetType.SUNRISE, 2, DispositionCategory.SKIPPED_TRIAGED,
+                            "Heavy cloud")));
+            Thread.sleep(50);
+            // Tonight's cycle re-included this slot — its own fresh-weather triage PASSED it,
+            // which is why it reached submission at all — but the bucket carrying it failed to
+            // reach Anthropic. This is a real, newer, slot-specific fact (tonight's triage
+            // disagreed with last night's), unlike a region-level SKIPPED_CACHED reuse, so it must
+            // win "latest" rather than let the older SKIPPED_TRIAGED row stand.
+            dispositionService.persist(9212L, List.of(
+                    new CandidateDisposition(50L, "Submission Failed Tonight Loc", date,
+                            TargetType.SUNRISE, 2, DispositionCategory.SUBMISSION_FAILED,
+                            "near-term inland batch submission failed")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(date, date);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("Submission Failed Tonight Loc");
+            assertThat(rows.getFirst()[3]).isEqualTo("SUBMISSION_FAILED");
+        }
+
+        @Test
+        @DisplayName("a SUBMISSION_FAILED-only slot (its own fresh triage passed it, but the "
+                + "bucket failed) DOES appear, named SUBMISSION_FAILED, unlike a SKIPPED_CACHED-"
+                + "only slot which never appears at all")
+        void submissionFailedOnlySlot_appearsAsSubmissionFailed() {
+            LocalDate date = LocalDate.now().plusDays(2);
+            dispositionService.persist(9213L, List.of(
+                    new CandidateDisposition(51L, "Submission Failed Only Loc", date,
+                            TargetType.SUNRISE, 2, DispositionCategory.SUBMISSION_FAILED,
+                            "near-term inland batch submission failed")));
+
+            List<Object[]> rows = dispositionRepository
+                    .findLatestNonCachedDispositions(date, date);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.getFirst()[0]).isEqualTo("Submission Failed Only Loc");
+            assertThat(rows.getFirst()[3]).isEqualTo("SUBMISSION_FAILED");
+        }
+
+        @Test
         @DisplayName("a same-instant tie between two different non-cached categories for one "
                 + "slot: the query CAN return both rows, and EvaluationViewService folds that to "
                 + "NOT examined")

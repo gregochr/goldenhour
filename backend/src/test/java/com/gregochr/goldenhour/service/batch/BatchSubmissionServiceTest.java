@@ -289,6 +289,45 @@ class BatchSubmissionServiceTest {
         inOrder.verify(jobRunService).startBatchRun(anyInt(), anyString());
     }
 
+    @Test
+    @DisplayName("submit: job-run bookkeeping THROWING (a transient job_run insert failure) still "
+            + "returns a real, non-null result — the batch genuinely reached Anthropic and its "
+            + "tracking row is already saved and pollable, so this must not read as a failed "
+            + "submission (SUBMISSION_FAILED / DEGRADED / a false admin alert)")
+    void submit_jobRunBookkeepingThrows_stillReturnsRealResultWithNullJobRunId() {
+        stubBatchCreate("msgbatch_jobrun_throws");
+        stubSaveEchoes();
+        when(jobRunService.startBatchRun(anyInt(), anyString()))
+                .thenThrow(new RuntimeException("job_run insert failed"));
+
+        BatchSubmitResult result = service.submit(List.of(aRequest()), BatchType.FORECAST,
+                BatchTriggerSource.SCHEDULED, "Test jobrun throws");
+
+        assertThat(result).isNotNull();
+        assertThat(result.batchId()).isEqualTo("msgbatch_jobrun_throws");
+        assertThat(result.requestCount()).isEqualTo(1);
+        assertThat(result.jobRunId()).isNull();
+        verify(batchRepository).save(any(ForecastBatchEntity.class));
+        verify(batchRepository, never()).linkJobRun(any(), any());
+
+        // Two lines: the best-effort WARN for the bookkeeping failure, and the ordinary trailing
+        // INFO "submitted" line the success path always logs (jobRunId=null in it, since none
+        // was created) — the submission itself is NOT an error, only the bookkeeping was.
+        assertThat(logAppender.list).hasSize(2);
+        assertThat(logAppender.list)
+                .filteredOn(e -> e.getLevel() == Level.WARN)
+                .extracting(ILoggingEvent::getFormattedMessage)
+                .containsExactly("Test jobrun throws batchId=msgbatch_jobrun_throws: job-run "
+                        + "bookkeeping failed (best-effort, batch is still submitted and "
+                        + "pollable) — job_run insert failed");
+        assertThat(logAppender.list)
+                .filteredOn(e -> e.getLevel() == Level.INFO)
+                .extracting(ILoggingEvent::getFormattedMessage)
+                .allSatisfy(message -> assertThat(message)
+                        .startsWith("Test jobrun throws submitted: batchId=msgbatch_jobrun_throws")
+                        .contains("jobRunId=null, pipelineRunId=null, trigger=SCHEDULED"));
+    }
+
     private static BatchCreateParams.Request aRequest() {
         return BatchCreateParams.Request.builder()
                 .customId("fc-1-2026-04-16-SUNRISE")

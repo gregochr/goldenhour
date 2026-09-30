@@ -122,6 +122,23 @@ public interface ForecastRunDispositionRepository
      * category from the inner {@code MAX(created_at)} scope too (not just the outer filter) is
      * what makes the triaged decision "the latest" again rather than merely visible-but-superseded.
      *
+     * <p>⚠️ <b>{@code SUBMISSION_FAILED} is deliberately NOT excluded — it is the opposite shape
+     * of problem from {@code SKIPPED_CACHED}, not a sibling of it.</b> A {@code SUBMISSION_FAILED}
+     * row exists only for a slot whose task reached submission at all — meaning tonight's own
+     * fresh-weather triage looked at it and PASSED it (it started life as {@code EVALUATED}/
+     * {@code FORCE_EVALUATED} and was rewritten after the batch failed to reach Anthropic; see
+     * {@code ScheduledBatchEvaluationService#applySubmissionFailures}). That is a real, newer,
+     * slot-specific fact — tonight's triage disagreed with an older {@code SKIPPED_TRIAGED} row —
+     * and it must be read exactly like a bare {@code EVALUATED} row: the latest decision for the
+     * slot, and NOT triaged. The first cut of this method excluded {@code SUBMISSION_FAILED} on
+     * the mistaken belief that "infrastructure failed it" meant "not a decision" the same way a
+     * region-level cache reuse is — but {@code SKIPPED_CACHED} never overwrites another category's
+     * disposition for a specific slot, while {@code SUBMISSION_FAILED} always replaces that exact
+     * slot's own {@code EVALUATED}/{@code FORCE_EVALUATED} row. Excluding it let an earlier
+     * {@code SKIPPED_TRIAGED} row — up to the 30-day retention window old — resurface as "examined"
+     * for a slot tonight's triage had just contradicted; in the 2026-09-29 incident this would have
+     * flipped all 510 affected slots back to "examined" on stale evidence.
+     *
      * <p>One bulk query per serve, grouped in the database rather than fetched row-by-row, bounded
      * to the caller's own served window — never called per region or per slot. Same table, same
      * 30-day retention as {@link #findLatestStabilitySkipTimestamps} covers the served horizon.

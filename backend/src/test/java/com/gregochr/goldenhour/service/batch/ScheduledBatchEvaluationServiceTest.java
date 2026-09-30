@@ -43,9 +43,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import static java.time.LocalDate.now;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -79,6 +81,15 @@ class ScheduledBatchEvaluationServiceTest {
 
     private static final LocalDate TEST_DATE = now();
     private static final LocalDateTime TEST_EVENT_TIME = TEST_DATE.atTime(5, 30);
+
+    /**
+     * The real production detail string {@code ForecastTaskCollector#includeDisposition} writes
+     * for every FORCE_EVALUATED disposition — never null, unlike a plain EVALUATED row's. Fixtures
+     * use this rather than {@code null} so a rewrite test can prove the force-eval reason is
+     * preserved (both-failed: kept as-is inside the SUBMISSION_FAILED detail; partial: appended
+     * to, never replacing it).
+     */
+    private static final String FORCE_EVAL_DETAIL = "Force-evaluated best-bet headline candidate";
 
     @Mock
     private ModelSelectionService modelSelectionService;
@@ -323,12 +334,16 @@ class ScheduledBatchEvaluationServiceTest {
 
     @Test
     @DisplayName("submitForecastBatch: buckets submitted but all handles return null "
-            + "jobRunId → anchor run created so dispositions still land")
+            + "jobRunId → anchor run created so dispositions still land, rewritten "
+            + "SUBMISSION_FAILED since the one bucket carrying them failed")
     void submitForecastBatch_bucketsSubmittedButNullJobRunIds_anchorsDispositions() {
         // Defensive: if every bucket's submit() returns EvaluationHandle.empty()
         // (Anthropic submission failed after the collector produced work), there
         // is no batch job_run to anchor to — but the dispositions are still real
-        // and must not be dropped. An anchor run catches them.
+        // and must not be dropped. An anchor run catches them. And because the
+        // ONLY bucket carrying this candidate's task failed, its EVALUATED
+        // disposition is rewritten to SUBMISSION_FAILED before persistence — see
+        // applySubmissionFailures_* below for the full rewrite-rule coverage.
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
@@ -353,7 +368,386 @@ class ScheduledBatchEvaluationServiceTest {
         service.submitForecastBatch();
 
         verify(jobRunService).startDispositionAnchorRun(1);
-        verify(dispositionService).persist(eq(999L), eq(List.of(dispo)));
+        CandidateDisposition expected = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SUBMISSION_FAILED,
+                "near-term inland batch submission failed");
+        verify(dispositionService).persist(eq(999L), eq(List.of(expected)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: an OPEN_FELL candidate whose sky AND bluebell buckets "
+            + "BOTH fail is rewritten to SUBMISSION_FAILED naming both buckets — no request of "
+            + "either kind reached Claude for it")
+    void submitForecastBatch_pairedCandidateBothBucketsFail_rewritesSubmissionFailed() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(skyTask), List.of(), List.of(), List.of(),
+                        List.of(bluebellTask), List.of(),
+                        List.of(dispo)));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(EvaluationHandle.empty())
+                .thenReturn(EvaluationHandle.empty());
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(999L);
+
+        service.submitForecastBatch();
+
+        CandidateDisposition expected = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SUBMISSION_FAILED,
+                "near-term inland+bluebell batch submission failed");
+        verify(dispositionService).persist(eq(999L), eq(List.of(expected)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: an OPEN_FELL candidate whose sky bucket succeeds but "
+            + "bluebell bucket fails stays EVALUATED (a real request DID reach Claude) with the "
+            + "partial loss annotated in detail")
+    void submitForecastBatch_pairedCandidatePartialFailure_staysEvaluatedWithAnnotation() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(skyTask), List.of(), List.of(), List.of(),
+                        List.of(bluebellTask), List.of(),
+                        List.of(dispo)));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(7L, "msgbatch_sky_ok", 1))
+                .thenReturn(EvaluationHandle.empty());
+
+        service.submitForecastBatch();
+
+        CandidateDisposition expected = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED,
+                "bluebell batch submission failed for part of this candidate's pairing — "
+                        + "the rest was evaluated normally");
+        verify(dispositionService).persist(eq(7L), eq(List.of(expected)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: a FORCE_EVALUATED OPEN_FELL candidate with a partial "
+            + "pairing failure APPENDS the partial-loss note to the existing force-eval detail — "
+            + "never replacing ForecastTaskCollector's own reason")
+    void submitForecastBatch_forceEvaluatedPairedCandidatePartialFailure_appendsToExistingDetail() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 5,
+                DispositionCategory.FORCE_EVALUATED, FORCE_EVAL_DETAIL);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(skyTask), List.of(), List.of(), List.of(),
+                        List.of(bluebellTask), List.of(),
+                        List.of(dispo)));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(7L, "msgbatch_sky_ok", 1))
+                .thenReturn(EvaluationHandle.empty());
+
+        service.submitForecastBatch();
+
+        CandidateDisposition expected = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 5,
+                DispositionCategory.FORCE_EVALUATED,
+                FORCE_EVAL_DETAIL + "; bluebell batch submission failed for part of this "
+                        + "candidate's pairing — the rest was evaluated normally");
+        verify(dispositionService).persist(eq(7L), eq(List.of(expected)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: a FORCE_EVALUATED candidate whose only bucket fails is "
+            + "rewritten to SUBMISSION_FAILED with the forced fact preserved in detail")
+    void submitForecastBatch_forceEvaluatedCandidateBucketFails_rewritesWithForcedNote() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 5,
+                DispositionCategory.FORCE_EVALUATED, FORCE_EVAL_DETAIL);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(farInlandTask), List.of(),
+                        List.of(), List.of(),
+                        List.of(dispo)));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(EvaluationHandle.empty());
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(999L);
+
+        service.submitForecastBatch();
+
+        CandidateDisposition expected = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 5,
+                DispositionCategory.SUBMISSION_FAILED,
+                "far-term inland batch submission failed (forced)");
+        verify(dispositionService).persist(eq(999L), eq(List.of(expected)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: a SKIPPED_TRIAGED disposition is never rewritten, even "
+            + "when another candidate's bucket fails in the same cycle")
+    void submitForecastBatch_skippedDispositionUntouchedByBucketFailure() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        CandidateDisposition evaluatedDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        CandidateDisposition triagedDispo = new CandidateDisposition(
+                43L, "Newcastle", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "cloud");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(), List.of(), List.of(),
+                        List.of(), List.of(),
+                        List.of(evaluatedDispo, triagedDispo)));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(EvaluationHandle.empty());
+        when(jobRunService.startDispositionAnchorRun(2)).thenReturn(999L);
+
+        service.submitForecastBatch();
+
+        CandidateDisposition expectedEvaluated = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SUBMISSION_FAILED,
+                "near-term inland batch submission failed");
+        verify(dispositionService).persist(eq(999L),
+                eq(List.of(expectedEvaluated, triagedDispo)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: a plain RuntimeException from one bucket's submit (e.g. "
+            + "request building failing, outside BatchSubmissionService's own try/catch) is "
+            + "treated as a failed bucket and the cycle CONTINUES — the next bucket still submits "
+            + "and the whole cycle's dispositions are still persisted, rather than the exception "
+            + "aborting submitBuckets before persistCycleDispositions ever runs")
+    void submitForecastBatch_bucketThrowsPlainException_treatedAsFailedAndCycleContinues() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        CandidateDisposition inlandDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        CandidateDisposition coastalDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNSET, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(nearCoastalTask), List.of(), List.of(),
+                        List.of(), List.of(),
+                        List.of(inlandDispo, coastalDispo)));
+        // near-term inland (first bucket attempted) throws building its request; near-term
+        // coastal (second) succeeds normally.
+        when(evaluationService.submit(eq(List.of(nearInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenThrow(new IllegalStateException("request building failed"));
+        when(evaluationService.submit(eq(List.of(nearCoastalTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(13L, "msgbatch_coastal_ok", 1));
+
+        service.submitForecastBatch();
+
+        CandidateDisposition expectedInland = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SUBMISSION_FAILED,
+                "near-term inland batch submission failed");
+        // The coastal bucket succeeded, so its own disposition is untouched, and the cycle's
+        // dispositions anchor to ITS real job_run rather than an anchor run — proving the
+        // second bucket really was attempted after the first one threw.
+        verify(dispositionService).persist(eq(13L), eq(List.of(expectedInland, coastalDispo)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: an OrphanedBatchException from one bucket persists the "
+            + "cycle's dispositions collected so far — with the orphaned bucket's OWN candidate "
+            + "left EVALUATED, since a real request reached Claude for it — then rethrows so the "
+            + "run still fails; a bucket after the orphaned one is never attempted")
+    void submitForecastBatch_orphanedBatchException_persistsThenRethrows() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        CandidateDisposition inlandDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        CandidateDisposition coastalDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNSET, 0,
+                DispositionCategory.FORCE_EVALUATED, FORCE_EVAL_DETAIL);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(nearCoastalTask), List.of(), List.of(),
+                        List.of(), List.of(),
+                        List.of(inlandDispo, coastalDispo)));
+        // near-term inland (first bucket attempted) succeeds for real; near-term coastal
+        // (second) is accepted by Anthropic but its tracking row fails to persist.
+        when(evaluationService.submit(eq(List.of(nearInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(21L, "msgbatch_inland_ok", 1));
+        OrphanedBatchException orphaned = new OrphanedBatchException(
+                "msgbatch_coastal_orphan", new RuntimeException("row persist failed"));
+        when(evaluationService.submit(eq(List.of(nearCoastalTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenThrow(orphaned);
+
+        assertThatThrownBy(() -> service.submitForecastBatch())
+                .isSameAs(orphaned);
+
+        // Both candidates stay exactly as the collector wrote them: the inland one because its
+        // bucket genuinely succeeded, the coastal one because a real request reached Claude for
+        // it even though the tracking row was lost — and the cycle anchors to the inland bucket's
+        // own real job_run, which was already known before the orphan was thrown.
+        verify(dispositionService).persist(eq(21L), eq(List.of(inlandDispo, coastalDispo)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: an OrphanedBatchException in the FIRST of three non-empty "
+            + "buckets rewrites BOTH later, never-attempted buckets' candidates to "
+            + "SUBMISSION_FAILED — not just left as the misleading EVALUATED/FORCE_EVALUATED the "
+            + "collector wrote, which was the review-found gap in the first cut of this feature "
+            + "(2026-09-30): a bucket queued after the orphaned one never reaches "
+            + "evaluationService.submit at all, so its candidates had no matching outcome for "
+            + "applySubmissionFailures to rewrite and were persisted as though a request had "
+            + "reached Claude for them")
+    void submitForecastBatch_orphanInFirstOfThreeBuckets_laterUnattemptedBucketsBecomeSubmissionFailed() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE.plusDays(1), TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        // Bucket 1 (near-term inland) is the one that orphans — its own candidate stays
+        // EVALUATED, since a real request DID reach Claude for it.
+        CandidateDisposition inlandDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        // Bucket 2 (near-term coastal) — an ordinary EVALUATED candidate, never attempted at all.
+        CandidateDisposition coastalDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNSET, 0,
+                DispositionCategory.EVALUATED, null);
+        // Bucket 3 (far-term inland) — a FORCE_EVALUATED candidate, never attempted at all; its
+        // force-eval provenance must survive as the " (forced)" suffix, the same convention item
+        // B's ordinary both-failed branch already uses.
+        CandidateDisposition farInlandDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE.plusDays(1), TargetType.SUNRISE, 1,
+                DispositionCategory.FORCE_EVALUATED, FORCE_EVAL_DETAIL);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(nearCoastalTask), List.of(farInlandTask),
+                        List.of(), List.of(), List.of(),
+                        List.of(inlandDispo, coastalDispo, farInlandDispo)));
+        OrphanedBatchException orphaned = new OrphanedBatchException(
+                "msgbatch_inland_orphan", new RuntimeException("row persist failed"));
+        when(evaluationService.submit(eq(List.of(nearInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenThrow(orphaned);
+        // No stub for the near-coastal or far-inland buckets at all — submitBuckets must never
+        // call evaluationService.submit for them, since the orphan aborts the cycle before their
+        // turn. The orphan is on the FIRST bucket, so no earlier bucket set cycleJobRunId; the
+        // cycle falls back to a disposition-only anchor run.
+        when(jobRunService.startDispositionAnchorRun(3)).thenReturn(777L);
+
+        assertThatThrownBy(() -> service.submitForecastBatch())
+                .isSameAs(orphaned);
+
+        CandidateDisposition expectedCoastalFailed = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNSET, 0,
+                DispositionCategory.SUBMISSION_FAILED,
+                "near-term coastal batch not submitted: an earlier bucket's batch was orphaned");
+        CandidateDisposition expectedFarInlandFailed = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE.plusDays(1), TargetType.SUNRISE, 1,
+                DispositionCategory.SUBMISSION_FAILED,
+                "far-term inland batch not submitted: an earlier bucket's batch was orphaned "
+                        + "(forced)");
+        verify(dispositionService).persist(eq(777L),
+                eq(List.of(inlandDispo, expectedCoastalFailed, expectedFarInlandFailed)));
+        verifyNoMoreInteractions(dispositionService);
+
+        // Proves the later buckets were never attempted at all — not attempted-and-failed.
+        verify(evaluationService).submit(eq(List.of(nearInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull());
+        verifyNoMoreInteractions(evaluationService);
     }
 
     @Test
@@ -840,6 +1234,154 @@ class ScheduledBatchEvaluationServiceTest {
                         NightlyCandidateCollectionStrategy.INSTANCE,
                         NightlyEligibilityPolicy.INSTANCE,
                         false);
+    }
+
+    // ── BatchSubmissionSummary — end to end via the 5-arg orchestrator entry point ─────────────
+
+    @Test
+    @DisplayName("submitForecastBatchForPipelineRun (5-arg, the orchestrator's own entry point) "
+            + "returns a BatchSubmissionSummary whose bucketsAttempted/bucketsSubmitted/"
+            + "failedBuckets/detail()/lostRequestCount()/allSucceeded() all match a real 3-bucket, "
+            + "2-failure cycle — proven on the returned object itself, not only via the trailing "
+            + "log line other tests already cover")
+    void submitForecastBatchForPipelineRun_returnsAccurateBatchSubmissionSummary() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTaskA = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast nearInlandTaskB = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE.plusDays(1), TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE.plusDays(2), TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        List<EvaluationTask.Forecast> nearInlandBucket = List.of(nearInlandTaskA, nearInlandTaskB);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        nearInlandBucket, List.of(nearCoastalTask), List.of(farInlandTask),
+                        List.of(), List.of(), List.of(), List.of()));
+        when(evaluationService.submit(eq(nearInlandBucket), eq(BatchTriggerSource.SCHEDULED),
+                eq(99L)))
+                .thenReturn(new EvaluationHandle(11L, "msgbatch_near_inland_ok", 2));
+        when(evaluationService.submit(eq(List.of(nearCoastalTask)),
+                eq(BatchTriggerSource.SCHEDULED), eq(99L)))
+                .thenReturn(EvaluationHandle.empty());
+        when(evaluationService.submit(eq(List.of(farInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), eq(99L)))
+                .thenReturn(EvaluationHandle.empty());
+        Consumer<ReclassSummary> noOpHook = s -> { };
+
+        ForecastBatchSubmissionOutcome outcome = service.submitForecastBatchForPipelineRun(
+                99L, NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE,
+                false, noOpHook);
+
+        assertThat(outcome.submitted()).isTrue();
+        BatchSubmissionSummary summary = outcome.summary();
+        assertThat(summary.bucketsAttempted()).isEqualTo(3);
+        assertThat(summary.bucketsSubmitted()).isEqualTo(1);
+        assertThat(summary.allSucceeded()).isFalse();
+        assertThat(summary.lostRequestCount()).isEqualTo(2);
+        assertThat(summary.failedBuckets()).containsExactlyInAnyOrder(
+                new BatchSubmissionSummary.FailedBucket("near-term coastal", 1),
+                new BatchSubmissionSummary.FailedBucket("far-term inland", 1));
+        assertThat(summary.detail()).isEqualTo(
+                "2 of 3 forecast batch submissions failed (2 requests not submitted — "
+                        + "near-term coastal, far-term inland)");
+    }
+
+    @Test
+    @DisplayName("submitForecastBatchForPipelineRun: a clean cycle (every bucket submitted) "
+            + "returns a summary with an empty failedBuckets list, allSucceeded() true, "
+            + "lostRequestCount() zero, and detail() null")
+    void submitForecastBatchForPipelineRun_cleanCycle_summaryReportsAllSucceeded() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of()));
+        when(evaluationService.submit(eq(List.of(nearInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), eq(100L)))
+                .thenReturn(new EvaluationHandle(12L, "msgbatch_clean_ok", 1));
+
+        ForecastBatchSubmissionOutcome outcome = service.submitForecastBatchForPipelineRun(
+                100L, NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false, s -> { });
+
+        assertThat(outcome.submitted()).isTrue();
+        BatchSubmissionSummary summary = outcome.summary();
+        assertThat(summary.bucketsAttempted()).isEqualTo(1);
+        assertThat(summary.bucketsSubmitted()).isEqualTo(1);
+        assertThat(summary.failedBuckets()).isEmpty();
+        assertThat(summary.allSucceeded()).isTrue();
+        assertThat(summary.lostRequestCount()).isZero();
+        assertThat(summary.detail()).isNull();
+    }
+
+    // ── Same-cycle mix: one successful candidate, one failed candidate, same location ──────────
+
+    @Test
+    @DisplayName("a cycle with an EVALUATED candidate in a successful bucket (Durham SUNRISE, "
+            + "near-term inland) next to a DIFFERENT EVALUATED candidate for the SAME location in "
+            + "a failed bucket (Durham SUNSET, far-term inland) rewrites only the failed one — "
+            + "proving the rewrite keys on the full (location, date, event) slot identity, not "
+            + "merely on location")
+    void submitForecastBatch_mixedSuccessAndFailureSameLocation_rewritesOnlyTheFailedSlot() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE.plusDays(3), TargetType.SUNSET,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        CandidateDisposition okDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        CandidateDisposition failDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE.plusDays(3), TargetType.SUNSET, 3,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(), List.of(farInlandTask), List.of(),
+                        List.of(), List.of(),
+                        List.of(okDispo, failDispo)));
+        when(evaluationService.submit(eq(List.of(nearInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(15L, "msgbatch_mixed_ok", 1));
+        when(evaluationService.submit(eq(List.of(farInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenReturn(EvaluationHandle.empty());
+
+        service.submitForecastBatch();
+
+        CandidateDisposition expectedFail = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE.plusDays(3), TargetType.SUNSET, 3,
+                DispositionCategory.SUBMISSION_FAILED,
+                "far-term inland batch submission failed");
+        // Anchored to the SUCCESSFUL bucket's real job_run — proving the failed bucket did not
+        // prevent the successful one from being attempted or from anchoring the cycle.
+        verify(dispositionService).persist(eq(15L), eq(List.of(okDispo, expectedFail)));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

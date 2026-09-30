@@ -40,6 +40,11 @@ notifications:
     user-key: YOUR_PUSHOVER_USER_KEY
   macos-toast:
     enabled: true
+  admin-alerts:
+    # Emails every enabled ADMIN account when a pipeline run is marked DEGRADED (see
+    # AdminAlertService). Default is false when this key is absent at all — set explicitly per
+    # profile so intent is never ambiguous.
+    enabled: true
 
 cost:
   # Token-based pricing (USD per million tokens) — matches Anthropic published rates

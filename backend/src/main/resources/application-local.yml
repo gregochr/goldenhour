@@ -49,6 +49,11 @@ notifications:
     user-key: dev
   macos-toast:
     enabled: false
+  admin-alerts:
+    # Deliberately false here: application-local.yml's spring.mail block above points at a real
+    # SMTP server (smtp.livemail.co.uk), so a local run with MAIL_PASSWORD set would otherwise
+    # email every ADMIN account in the local DB whenever a run is degraded.
+    enabled: false
 
 logging:
   level:

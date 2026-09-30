@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import PipelineRunsView from '../components/PipelineRunsView.jsx';
 
 vi.mock('../api/pipelineRunApi', () => ({
@@ -57,6 +57,18 @@ const MOCK_RUNS = [
     durationSeconds: 5400,
     failureReason: 'Safety timeout: Batch set did not reach terminal status within PT90M',
   },
+  {
+    id: 249,
+    cycleType: 'INTRADAY',
+    status: 'DEGRADED',
+    currentPhase: null,
+    waitingOn: null,
+    triggerTime: T,
+    completedAt: '2026-05-26T01:20:00Z',
+    durationSeconds: 1200,
+    failureReason: '3 of 3 forecast batch submissions failed (510 requests not submitted — '
+      + 'near-term inland, near-term coastal, far-term inland)',
+  },
 ];
 
 const MOCK_DETAIL = {
@@ -105,6 +117,44 @@ const MOCK_DETAIL = {
   ],
 };
 
+// A realistic DEGRADED detail: the FORECAST_BATCH_SUBMIT phase row is itself FAILED (its detail
+// matching the run's own failureReason), while WAIT and BRIEFING both still ran to COMPLETED —
+// the phase timeline a real degraded cycle produces, not MOCK_DETAIL's all-COMPLETED phases with
+// only the run swapped out.
+const MOCK_DEGRADED_DETAIL = {
+  run: MOCK_RUNS[3],
+  phases: [
+    {
+      phase: 'FORECAST_BATCH_SUBMIT',
+      sequenceOrder: 1,
+      status: 'FAILED',
+      startedAt: T,
+      completedAt: '2026-05-26T01:00:30Z',
+      durationSeconds: 30,
+      detail: MOCK_RUNS[3].failureReason,
+    },
+    {
+      phase: 'FORECAST_BATCH_WAIT',
+      sequenceOrder: 2,
+      status: 'COMPLETED',
+      startedAt: '2026-05-26T01:00:30Z',
+      completedAt: '2026-05-26T01:05:00Z',
+      durationSeconds: 270,
+      detail: 'no batches submitted',
+    },
+    {
+      phase: 'BRIEFING',
+      sequenceOrder: 3,
+      status: 'COMPLETED',
+      startedAt: '2026-05-26T01:05:00Z',
+      completedAt: '2026-05-26T01:20:00Z',
+      durationSeconds: 900,
+      detail: null,
+    },
+  ],
+  batches: [],
+};
+
 describe('PipelineRunsView', () => {
   beforeEach(() => {
     fetchPipelineRuns.mockReset();
@@ -137,6 +187,32 @@ describe('PipelineRunsView', () => {
     expect(
       screen.getByText(/Safety timeout: Batch set did not reach/),
     ).toBeInTheDocument();
+  });
+
+  it('shows a DEGRADED pill and its failureReason in the list row, exactly as a FAILED '
+    + 'row shows its own', async () => {
+    fetchPipelineRuns.mockResolvedValue(MOCK_RUNS);
+
+    render(
+      <PipelineRunsView
+        activeRunId={null}
+        onSelectRun={() => {}}
+        onCloseDetail={() => {}}
+      />,
+    );
+
+    const row = await screen.findByTestId('pipeline-run-row-249');
+    const pill = within(row).getByTestId('status-pill-DEGRADED');
+    expect(pill).toBeInTheDocument();
+    // A distinct colour from RUNNING's amber — a finished DEGRADED run must not read as "still
+    // running" in the list. Asserting the class itself (not merely that the pill exists) fails
+    // if STATUS_PILL_CLASSES.DEGRADED is ever deleted and the component falls back to its own
+    // generic zinc default, which would also render a status-pill-DEGRADED testid.
+    expect(pill.className).toContain('orange');
+    expect(pill.className).not.toContain('amber');
+    expect(row).toHaveTextContent(
+      '3 of 3 forecast batch submissions failed (510 requests not submitted',
+    );
   });
 
   it('shows empty state when there are no runs', async () => {
@@ -300,6 +376,58 @@ describe('PipelineRunsView', () => {
     expect(
       screen.getByText(/Failure: Safety timeout: Batch set did not reach/),
     ).toBeInTheDocument();
+  });
+
+  it('surfaces the failureReason on a DEGRADED detail panel, under its own "Degraded:" '
+    + 'label distinct from a FAILED run\'s "Failure:", with the phase timeline showing '
+    + 'FORECAST_BATCH_SUBMIT itself FAILED while WAIT and BRIEFING both completed', async () => {
+    fetchPipelineRunDetail.mockResolvedValue(MOCK_DEGRADED_DETAIL);
+
+    render(
+      <PipelineRunsView
+        activeRunId={249}
+        onSelectRun={() => {}}
+        onCloseDetail={() => {}}
+      />,
+    );
+
+    await screen.findByTestId('pipeline-run-detail-degraded');
+    expect(
+      screen.getByText(/Degraded: 3 of 3 forecast batch submissions failed/),
+    ).toBeInTheDocument();
+    // The DEGRADED pill itself is orange, distinct from RUNNING's amber.
+    const pill = screen.getByTestId('status-pill-DEGRADED');
+    expect(pill.className).toContain('orange');
+    // The FAILED-only block must not also render for a DEGRADED run.
+    expect(screen.queryByTestId('pipeline-run-detail-failure')).not.toBeInTheDocument();
+
+    // The phase timeline itself reflects the real shape: SUBMIT failed, WAIT and BRIEFING
+    // still completed — proving the cycle really did carry on rather than aborting.
+    const submitRow = screen.getByTestId('pipeline-phase-row-FORECAST_BATCH_SUBMIT');
+    expect(within(submitRow).getByTestId('status-pill-FAILED')).toBeInTheDocument();
+    const waitRow = screen.getByTestId('pipeline-phase-row-FORECAST_BATCH_WAIT');
+    expect(within(waitRow).getByTestId('status-pill-COMPLETED')).toBeInTheDocument();
+    const briefingRow = screen.getByTestId('pipeline-phase-row-BRIEFING');
+    expect(within(briefingRow).getByTestId('status-pill-COMPLETED')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['FAILED', MOCK_RUNS[2], 41],
+    ['RUNNING', MOCK_RUNS[0], 43],
+    ['COMPLETED', MOCK_RUNS[1], 42],
+  ])('a %s detail panel never renders the DEGRADED-only block', async (status, run, runId) => {
+    fetchPipelineRunDetail.mockResolvedValue({ ...MOCK_DETAIL, run });
+
+    render(
+      <PipelineRunsView
+        activeRunId={runId}
+        onSelectRun={() => {}}
+        onCloseDetail={() => {}}
+      />,
+    );
+
+    await screen.findByTestId(`pipeline-run-detail-${runId}`);
+    expect(screen.queryByTestId('pipeline-run-detail-degraded')).not.toBeInTheDocument();
   });
 
   it('does NOT render the cross-run comparison when comparison is absent (nightly)', async () => {

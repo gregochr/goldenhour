@@ -2843,6 +2843,25 @@ class EvaluationViewServiceTest {
         }
 
         @Test
+        @DisplayName("a slot whose latest non-cached disposition is SUBMISSION_FAILED is absent — "
+                + "unlike SKIPPED_CACHED, SUBMISSION_FAILED is NOT excluded by the repository "
+                + "query (see its own javadoc: a SUBMISSION_FAILED row means tonight's OWN triage "
+                + "passed the candidate, which is a real, newer, slot-specific fact, unlike a "
+                + "region-level cache reuse), so it legitimately becomes \"the latest\" here and "
+                + "correctly reads as not examined — this pins the corrected behaviour after an "
+                + "earlier cut of this method wrongly special-cased SUBMISSION_FAILED as excluded")
+        void latestSubmissionFailed_isAbsent() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SUBMISSION_FAILED",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
+
+            Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
+
+            assertThat(triaged).isEmpty();
+        }
+
+        @Test
         @DisplayName("a tie between SKIPPED_TRIAGED and a different category at the same instant "
                 + "folds to NOT examined")
         void tieBetweenTriagedAndAnotherCategory_foldsToNotExamined() {

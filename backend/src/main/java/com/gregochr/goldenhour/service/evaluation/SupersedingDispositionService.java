@@ -48,9 +48,9 @@ import java.util.Set;
  *
  * <h2>The disposition allow-list — explicit, not "everything except"</h2>
  *
- * <p>Exactly two of the twelve {@link com.gregochr.goldenhour.entity.DispositionCategory} values
- * supersede a result. Enumerated in full, because a category added later must be individually
- * argued onto this list, never fall onto it by omission:
+ * <p>Exactly two of the thirteen {@link com.gregochr.goldenhour.entity.DispositionCategory}
+ * values supersede a result. Enumerated in full, because a category added later must be
+ * individually argued onto this list, never fall onto it by omission:
  * <ul>
  *   <li>{@code SKIPPED_STABILITY} — <b>IN.</b> The nightly Gate 4 skip: a positive decision that the
  *       pipeline declined to re-score this slot at all. The original #940 retraction category.</li>
@@ -80,6 +80,11 @@ import java.util.Set;
  *   <li>{@code SKIPPED_ERROR} — <b>OUT.</b> An exception during data assembly, not a decision.</li>
  *   <li>{@code SKIPPED_NO_REFRESH_NEEDED} — <b>OUT.</b> "A later look is already guaranteed" — the
  *       opposite of a decision against the slot.</li>
+ *   <li>{@code SUBMISSION_FAILED} — <b>OUT.</b> The same reasoning as {@code EVALUATED}/
+ *       {@code FORCE_EVALUATED}, a fortiori: it records that a candidate was included for
+ *       submission and infrastructure then failed to send it, so strictly LESS happened than an
+ *       ordinary {@code EVALUATED} row — no request reached Claude at all. It is not a decision
+ *       about the slot's existing rating and must never supersede one.</li>
  * </ul>
  *
  * <h2>Same-cycle safety</h2>

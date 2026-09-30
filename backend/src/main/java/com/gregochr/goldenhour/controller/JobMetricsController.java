@@ -155,9 +155,10 @@ public class JobMetricsController {
      * the data behind the Job Run detail UI's "Disposition Breakdown" section.
      *
      * <p>For a given {@code jobRunId}, returns the total count, per-disposition
-     * counts, and every recorded disposition row (EVALUATED + every SKIPPED_*).
-     * Empty but well-formed when the run has no disposition rows (the cycle's
-     * non-primary bucket job runs and all non-batch job runs).
+     * counts, and every recorded disposition row (EVALUATED, FORCE_EVALUATED,
+     * SUBMISSION_FAILED, and every SKIPPED_*). Empty but well-formed when the
+     * run has no disposition rows (the cycle's non-primary bucket job runs and
+     * all non-batch job runs).
      *
      * @param jobRunId the job run id to query
      * @return breakdown response (always 200, possibly with zero counts)
