@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * The unified survivor read surface's composite, for one {@code (location, date, event_type)}.
+ * The unified hot-topic read surface's composite, for one {@code (location, date, event_type)}.
  *
  * <p>This is the return shape of {@code SurvivorSignalReader} — the ONE read model the survivor-
  * signal hot-topic detectors consult. It deliberately carries scores and readings as their own
@@ -15,11 +15,16 @@ import java.time.LocalDate;
  * one homogeneous row: a flat row would be the single-physical-table sprawl that V107/V108 deleted,
  * wearing a read-model hat. Unified <em>access</em>, correctly-shaped <em>data</em>.
  *
- * <p>Backed by two survivor-only tables — {@code forecast_score} (scores) and
- * {@code survivor_atmosphere} (readings) — so any composite the reader returns is, by construction,
- * a survivor. A detector reading through this model cannot sample the triaged rejects.
+ * <p>⚠️ <b>"Survivor" is historical for the readings half.</b> Backed by two tables —
+ * {@code forecast_score} (scores) and {@code survivor_atmosphere} (readings). {@code forecast_score}
+ * remains genuinely survivor-only: it is written only from a completed Claude evaluation.
+ * {@code survivor_atmosphere} is not, since the "record conditions for every place" change (Phase 1,
+ * owner decision 2026-09-30) — it now holds a row for every candidate whose weather was fetched,
+ * triaged-out and Gate-4-stood-down candidates included. A composite with populated
+ * {@link Readings} and {@code EMPTY} {@link Scores} is therefore an ordinary, expected shape, not a
+ * survivor by construction.
  *
- * @param location  the survivor location (region fetched, for grouping)
+ * @param location  the candidate's location (region fetched, for grouping)
  * @param date      the forecast date
  * @param eventType SUNRISE or SUNSET
  * @param scores    the score-shaped survivor signals (inversion, bluebell), never null

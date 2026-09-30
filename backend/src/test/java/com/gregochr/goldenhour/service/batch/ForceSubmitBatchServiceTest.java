@@ -190,6 +190,16 @@ class ForceSubmitBatchServiceTest {
                 .isEqualTo(EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
     }
 
+    // ── Record conditions for every place (Phase 1, owner decision 2026-09-30) ────────────────
+    // The write moved to a single seam inside ForecastService.fetchWeatherAndTriage (a Codex P1
+    // finding: the first cut of this phase put a write directly in this service's two entry
+    // points and in ForecastTaskCollector, while collectRegionFilteredBatches and the
+    // synchronous engine's runTriagePhase got none). forecastService is mocked in this test
+    // class, so fetchWeatherAndTriage's real body — which now does the write — never runs here;
+    // the seam itself is pinned in ForecastServiceTest, and this class keeps only the tests
+    // below verifying forceSubmit/submitJfdiBatch call fetchWeatherAndTriage with the right
+    // candidates, which is what makes the seam reachable from this service at all.
+
     @Test
     @DisplayName("forceSubmit returns null batchId when all data assembly fails")
     void forceSubmit_allDataFails_returnsNullBatchId() {
