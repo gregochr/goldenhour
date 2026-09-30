@@ -38,6 +38,21 @@ it), were removed — a caller that already writes would otherwise write the sam
 `ForecastTaskCollector` and `ForceSubmitBatchService` no longer depend on `SurvivorAtmosphereWriter`
 at all, since neither calls it directly any more.
 
+**Round 3: a woodland-only candidate on the admin region-filtered path was still excluded BEFORE
+reaching the seam, because it never went through the collector's canopy check at all until this
+round.** A Codex review of PR #947 (round 3, against commit 1f637d56) found
+`ForecastTaskCollector.collectRegionFilteredBatches` tested `candidate.location().isWoodlandOnly()`
+and skipped the candidate before ever calling `fetchWeatherAndTriage` — so a wood-only location on
+an admin region-filtered run fetched weather (the batch prefetch upstream already covers every
+candidate) but never reached the one seam that records it, while the scheduled path
+(`collectScheduledBatches`), which decides its own woodland lane strictly AFTER the identical call,
+recorded it correctly. The canopy check moved to after the call, matching the scheduled loop's
+shape exactly: every candidate on this path now reaches `fetchWeatherAndTriage` unconditionally, and
+a canopy candidate is excluded from the inland/coastal buckets afterward, regardless of what colour
+triage said about it — this path has no woodland bucket of its own to route a canopy candidate
+into (unlike the scheduled loop's `woodland` list), so the two paths agree on the one thing that
+matters here: a canopy site never lands in the sky lane, and its reading is recorded either way.
+
 **Bluebell stays the named exception.** It and cloud inversion read `forecast_score`, not
 `survivor_atmosphere` — a genuinely Claude-scored component, unaffected by this change, since it is
 written only from a completed evaluation. Bluebell has no deterministic substitute for the display

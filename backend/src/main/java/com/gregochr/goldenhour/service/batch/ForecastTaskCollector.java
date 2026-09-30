@@ -751,6 +751,20 @@ public class ForecastTaskCollector {
      * region-filtered admin path tolerates partial-prefetch degradation
      * (no ratio threshold) — mirroring legacy behaviour.
      *
+     * <p>⚠️ <b>A canopy candidate reaches {@link ForecastService#fetchWeatherAndTriage} exactly
+     * like every other candidate here, and is excluded only AFTER that call, exactly matching
+     * {@link #collectScheduledBatches} — a Codex review of PR #947 (round 2, against commit
+     * 1f637d56) found this loop used to test {@code isWoodlandOnly()} BEFORE the call, so a
+     * canopy candidate never reached the seam that records its atmospheric readings at all, even
+     * though the scheduled loop (which decides its own woodland lane strictly after the
+     * identical call) did. The exclusion below is unconditional — it does not consult
+     * {@code preEval.triaged()} first — because the scheduled loop's own woodland lane ignores
+     * the sky triage verdict entirely for the same kind of site (a wood wants exactly the
+     * overcast, misty conditions sky triage stands a slot down for); this path has no woodland
+     * bucket to route a canopy candidate to (unlike the scheduled loop's own {@code woodland}
+     * list), so the two paths agree by both excluding it from the sky lane, one into its own
+     * bucket and the other into none.
+     *
      * @param regionIds region IDs to include — null or empty means all regions
      * @return inland/coastal tasks (possibly all-empty)
      */
@@ -807,18 +821,34 @@ public class ForecastTaskCollector {
 
         for (ForecastCandidate candidate : candidates) {
             try {
-                // Canopy sites never belong in the sky lane. Unconditional here, unlike the
-                // scheduled loop's guard: this path has no bluebell bucket to route them to.
-                if (candidate.location().isWoodlandOnly()) {
-                    continue;
-                }
                 // fetchWeatherAndTriage records this candidate's atmospheric readings itself
                 // (the one seam every caller shares — see its own javadoc), including a slot
-                // this admin path is about to triage or Gate-4-skip below.
+                // this admin path is about to triage, Gate-4-skip, or route away below. A
+                // canopy candidate must reach this call too, exactly like the scheduled loop
+                // (collectScheduledBatches above) — excluding it BEFORE this call, as this
+                // method used to, fetches its weather (the prefetch above already covers it)
+                // and then records nothing for it, while the scheduled loop, which decides the
+                // woodland lane strictly AFTER this same call, does.
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), model, false, null,
                         prefetchedWeather, cloudCache);
+
+                // Canopy sites never belong in the sky lane, and this path has no woodland
+                // bucket to route them to (unlike the scheduled loop's own `woodland` list) —
+                // so a canopy candidate is now recorded (above) and then excluded here, the
+                // same outcome as before, just after the fetch instead of before it. This
+                // exclusion is UNCONDITIONAL — it must not consult `preEval.triaged()` first.
+                // The scheduled loop's own woodland lane ignores the sky triage verdict
+                // entirely (`woodlandTask` is one of the exemptions on its `preEval.triaged()`
+                // check), because a wood wants exactly the overcast, misty conditions sky
+                // triage stands a slot down for; treating a canopy site's own triage verdict
+                // as meaningful here — e.g. by testing `preEval.triaged()` before this check —
+                // would silently make this path agree with the sky triage the scheduled loop
+                // deliberately disregards for the same kind of site.
+                if (candidate.location().isWoodlandOnly()) {
+                    continue;
+                }
                 if (preEval.triaged()) {
                     continue;
                 }

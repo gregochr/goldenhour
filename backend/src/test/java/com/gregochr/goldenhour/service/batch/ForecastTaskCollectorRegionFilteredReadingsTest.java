@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -131,6 +132,19 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         return location;
     }
 
+    /**
+     * A canopy-only location (WOODLAND, no open-sky type), matching
+     * {@link ForecastTaskCollectorTest#buildWoodlandLocation}'s shape — {@code isWoodlandOnly()}
+     * is true and this path has no woodland bucket to route it to (unlike the scheduled loop's
+     * own {@code woodland} list), so it must be excluded after the seam records its reading,
+     * never before.
+     */
+    private static LocationEntity buildWoodlandLocation(String name) {
+        LocationEntity location = buildLocation(name);
+        location.setLocationType(Set.of(LocationType.WOODLAND));
+        return location;
+    }
+
     private DailyBriefingResponse briefingWithSlot(LocalDate date, String locationName) {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
@@ -252,5 +266,55 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         assertThat(result.coastal()).isEmpty();
         verify(survivorAtmosphereWriter, times(1))
                 .write(location, farOut, TargetType.SUNRISE, sharedWeatherData);
+    }
+
+    @Test
+    @DisplayName("a woodland-only candidate in collectRegionFilteredBatches still gets its "
+            + "atmospheric readings written, and is never routed to the sky bucket")
+    void woodlandOnlyCandidate_stillRecordsReadings_neverRoutedToSkyBucket() {
+        // Before the fix, isWoodlandOnly() was checked BEFORE fetchWeatherAndTriage and the
+        // candidate never reached the seam at all — the exact gap the scheduled path (which
+        // decides the woodland lane strictly AFTER that same call) does not have.
+        LocationEntity location = buildWoodlandLocation("Houghall Woods");
+        LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
+        when(briefingService.getCachedBriefing())
+                .thenReturn(briefingWithSlot(today, "Houghall Woods"));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        // Clear day — colour triage would pass this candidate through if it were ever asked.
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
+
+        // This path has no woodland bucket of its own (unlike collectScheduledBatches) — the
+        // invariant it must still uphold is that a canopy site never lands in the sky bucket.
+        assertThat(result.inland()).as("no sky task for a canopy site").isEmpty();
+        assertThat(result.coastal()).isEmpty();
+        verify(survivorAtmosphereWriter, times(1))
+                .write(location, today, TargetType.SUNRISE, sharedWeatherData);
+    }
+
+    @Test
+    @DisplayName("a woodland-only candidate stood down by the colour triage is handled the same "
+            + "way as an untriaged one on this path, exactly as collectScheduledBatches ignores "
+            + "the triage verdict for its own woodland lane")
+    void woodlandOnlyCandidateTriaged_stillRecordsReadings_neverRoutedToSkyBucket() {
+        LocationEntity location = buildWoodlandLocation("Houghall Woods");
+        LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
+        when(briefingService.getCachedBriefing())
+                .thenReturn(briefingWithSlot(today, "Houghall Woods"));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        // Overcast — the colour triage stands this down. The scheduled loop's own woodland lane
+        // ignores this verdict entirely (a wood wants exactly this weather); this path must
+        // reach the identical outcome: excluded from the sky bucket regardless of what colour
+        // triage says, never BECAUSE of what it says.
+        when(weatherTriageEvaluator.evaluate(any()))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+
+        RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
+
+        assertThat(result.inland()).isEmpty();
+        assertThat(result.coastal()).isEmpty();
+        verify(survivorAtmosphereWriter, times(1))
+                .write(location, today, TargetType.SUNRISE, sharedWeatherData);
     }
 }
