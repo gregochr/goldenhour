@@ -199,7 +199,7 @@ if [[ -z "$VERSION" ]]; then
         printf "  2) %-9s patch (default)\n" "$PATCH_V"
         printf "  3) %-9s minor\n" "$MINOR_V"
     fi
-    read -p "Choose 1-3, Enter for ${PATCH_V:-?}, or type a version (Ctrl-C to stop): " VERSION
+    read -r -p "Choose 1-3, Enter for ${PATCH_V:-?}, or type a version (Ctrl-C to stop): " VERSION
     case "$VERSION" in
         1) VERSION="$MAJOR_V" ;;
         2|"") VERSION="$PATCH_V" ;;
@@ -219,7 +219,7 @@ fi
 
 # 7. Tag-already-exists check
 if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-    echo "Error: tag v$VERSION already exists at $(git rev-parse --short v$VERSION)"
+    echo "Error: tag v$VERSION already exists at $(git rev-parse --short "v$VERSION")"
     echo "Delete it first if you really mean to retag:"
     echo "  git tag -d v$VERSION && git push origin :refs/tags/v$VERSION"
     exit 1
@@ -516,7 +516,7 @@ if [[ -n "$UNRELEASED_BODY" || -n "$PENDING_AT_TARGET" ]]; then
         echo ""
         echo "Warning: main gained $((EXTRA - 1)) commit(s) besides the promotion while waiting:"
         git log --oneline --reverse "$MAIN_HEAD".."$TARGET_SHA"
-        read -p "Tag v$VERSION including these? (y/N): " CONFIRM_EXTRA
+        read -r -p "Tag v$VERSION including these? (y/N): " CONFIRM_EXTRA
         if [[ "$CONFIRM_EXTRA" != "y" && "$CONFIRM_EXTRA" != "Y" ]]; then
             echo "Cancelled — the notes are promoted on main; re-run ./release.sh $VERSION to tag."
             exit 1

@@ -231,6 +231,11 @@ jobs:
   # the broken file and would have caught nothing. Verified both ways against the
   # pre-fix version before adding this.
   #
+  # release.sh is linted here too, alongside scripts/*.sh: it is the release path —
+  # the one script that tags and pushes a production deploy — and it sat outside
+  # this job, unchecked, until a silently-swallowed `git fetch` failure in it went
+  # unnoticed for exactly the reason this job exists to prevent.
+  #
   # Step-level `if:` guards, matching every other job here: a job-level `if:` or a
   # paths filter reports "skipped", and a skipped required check blocks a merge
   # under branch protection rather than passing it.
@@ -250,7 +255,7 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: |
           docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 \
-            -o check-unassigned-uppercase scripts/*.sh
+            -o check-unassigned-uppercase scripts/*.sh release.sh
 
       - name: Documentation-only change — suite skipped
         if: needs.changes.outputs.docs_only == 'true'

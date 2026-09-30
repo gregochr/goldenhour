@@ -17,3 +17,7 @@ tag — with a notice naming the tag, the old local commit and the new one from 
 tag origin doesn't have is left untouched. The plain fetch is re-run afterwards to pick up everything
 else and to catch any other failure that might have been hiding behind the clobber. A clean fetch is
 unchanged: silent, exit 0.
+
+CI's ShellCheck job now lints `release.sh` alongside `scripts/*.sh` (previously unchecked), which
+also caught and fixed three pre-existing findings in it: two `read -p` calls without `-r` (SC2162)
+and one unquoted tag ref in a `git rev-parse --short` call (SC2086).
