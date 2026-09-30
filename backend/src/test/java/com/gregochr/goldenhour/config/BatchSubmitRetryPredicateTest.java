@@ -47,9 +47,11 @@ class BatchSubmitRetryPredicateTest {
     }
 
     @Test
-    @DisplayName("Returns false for 429 rate limit — the SDK's own Retry-After handling owns this")
-    void test_429_returnsFalse() {
-        assertThat(predicate.test(serviceException(429))).isFalse();
+    @DisplayName("Returns true for 429 rate limit — the ONE 4xx retried here, because "
+            + "AnthropicBatchClient disables the SDK's own transport-level 429 retry for the "
+            + "no-idempotency-risk create()/list() calls this predicate governs (P1-B)")
+    void test_429_returnsTrue() {
+        assertThat(predicate.test(serviceException(429))).isTrue();
     }
 
     @Test
@@ -60,6 +62,14 @@ class BatchSubmitRetryPredicateTest {
         assertThat(predicate.test(serviceException(403))).isFalse();
         assertThat(predicate.test(serviceException(404))).isFalse();
         assertThat(predicate.test(serviceException(413))).isFalse();
+    }
+
+    @Test
+    @DisplayName("Returns false for 408/409 — nominally transient, but not a realistic response "
+            + "to batch creation, and never added here (P1-B explicitly scoped 429 alone)")
+    void test_408_409_returnFalse() {
+        assertThat(predicate.test(serviceException(408))).isFalse();
+        assertThat(predicate.test(serviceException(409))).isFalse();
     }
 
     @Test

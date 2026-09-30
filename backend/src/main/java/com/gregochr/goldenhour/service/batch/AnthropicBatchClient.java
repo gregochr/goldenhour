@@ -5,6 +5,7 @@ import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.BatchListParams;
 import com.anthropic.models.messages.batches.MessageBatch;
 import com.anthropic.models.messages.batches.MessageBatchRequestCounts;
+import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
 import org.slf4j.Logger;
@@ -12,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -60,6 +60,52 @@ import java.util.concurrent.atomic.AtomicInteger;
  * BatchSubmissionService} already treats as serious. {@link #findAdoptableBatch} runs before
  * every retry attempt (never the first) and, when it finds a batch Anthropic already created
  * for this same request, adopts it instead of creating a duplicate.
+ *
+ * <p><b>Why the guard also needs to exclude TRACKED batches and refuse an ambiguous match
+ * (round 2, a Codex review of #949, P1-A).</b> The first cut's match test — {@code createdAt} at
+ * or after the first attempt's start (with a small negative clock-skew tolerance) and the same
+ * total request count — is not enough on its own: a SIBLING bucket of the SAME size, submitted
+ * moments earlier in the same cycle, satisfies both conditions just as well as this attempt's own
+ * orphan would. {@link BatchSubmissionService#submit} persists a bucket's {@code forecast_batch}
+ * row immediately after {@code create()} returns and BEFORE the next bucket is even built, so by
+ * construction every genuinely-succeeded sibling is already tracked by the time a later bucket's
+ * retry runs this check — {@link #findAdoptableBatch} excludes any candidate {@link
+ * ForecastBatchRepository#existsByAnthropicBatchId} already knows about. Once siblings are
+ * excluded, at most one untracked candidate is the common case and is adopted as before; if MORE
+ * THAN ONE untracked candidate still matches, there is no further evidence to break the tie (the
+ * list API exposes no request contents to fingerprint against), so guessing risks attaching the
+ * WRONG batch id to this bucket's tasks — worse than the attempt simply failing. That case logs
+ * every candidate id at ERROR as a possible orphan for manual recovery and throws {@link
+ * AmbiguousBatchAdoptionException} rather than adopting OR creating another batch.
+ *
+ * <p><b>Clock-skew tolerance was dropped, not narrowed (round 2, P1-A).</b> The first cut allowed
+ * a candidate created up to 5 seconds BEFORE the first attempt's own start, to absorb clock skew
+ * between this JVM and Anthropic's reported {@code createdAt}. Once tracked siblings are excluded,
+ * that tolerance's only remaining job is absorbing genuine clock skew — but it also reopens the
+ * exact risk it was meant to guard against, in miniature: an unrelated, untracked (e.g. genuinely
+ * orphaned) batch of the same size created moments earlier can still fall inside the window and
+ * either be wrongly adopted (if it is the only one) or manufacture a false ambiguity (if this
+ * attempt's own orphan is also present). Client and server clocks here are both NTP-synced cloud
+ * hosts, so sub-second skew is the realistic case, and the cutoff is now exactly {@code
+ * firstAttemptStart} with no tolerance in either direction — the boundary is inclusive
+ * ({@code createdAt >= firstAttemptStart}). The residual cost of dropping it is narrow and already
+ * has a safety net: if Anthropic's clock is measurably behind this JVM's, a genuine orphan from
+ * THIS attempt could be missed and a further duplicate created on the next attempt — which is the
+ * same "ORPHANED BATCH" shape {@link BatchSubmissionService} already surfaces loudly for manual
+ * recovery, not a silent data-corruption risk the way adopting the wrong id would be.
+ *
+ * <p><b>Why {@code create()} and {@code list()} run on a SEPARATE, transport-retry-disabled
+ * client (round 2, P1-B).</b> The shared {@code AnthropicClient} injected here still retries
+ * 408/409/429/5xx internally by default — so a single attempt THIS class's own retry loop counts
+ * as one could, via a slow response after Anthropic already accepted the batch, fire up to three
+ * non-idempotent {@code create()} calls at the transport layer before this class's own duplicate-
+ * batch guard ever runs on the NEXT outer attempt. {@link #batchClient} is derived once, in the
+ * constructor — {@code anthropicClient.withOptions(o -> o.maxRetries(0))} — and used for every
+ * {@code create()} and {@code list()} call this class makes, so every actual HTTP attempt is one
+ * this class's own guard sees and can react to. A consequence: with the transport layer no longer
+ * retrying 429 for this call, {@link com.gregochr.goldenhour.config.BatchSubmitRetryPredicate} now
+ * retries 429 itself (the one exception to "never a 4xx" — see its own javadoc for why that is
+ * safe here specifically).
  */
 @Service
 public class AnthropicBatchClient {
@@ -77,30 +123,37 @@ public class AnthropicBatchClient {
     private static final long RECENT_BATCH_LIST_LIMIT = 20L;
 
     /**
-     * Tolerance for clock skew between this JVM and Anthropic's reported {@code createdAt} when
-     * deciding whether a listed batch could be the one a failed-looking attempt actually created.
+     * The shared client with transport-level retries disabled ({@code maxRetries = 0}), derived
+     * once in the constructor. See the class javadoc's P1-B section for why every {@code create()}
+     * and {@code list()} call in this class must go through this client rather than the raw one.
      */
-    private static final Duration CLOCK_SKEW_TOLERANCE = Duration.ofSeconds(5);
+    private final AnthropicClient batchClient;
 
-    private final AnthropicClient anthropicClient;
     private final RetryRegistry retryRegistry;
     private final Clock clock;
+    private final ForecastBatchRepository forecastBatchRepository;
 
     /**
      * Constructs the client.
      *
-     * @param anthropicClient raw Anthropic SDK client
-     * @param retryRegistry   Resilience4j registry holding the declaratively-configured
-     *                        {@value #RETRY_INSTANCE_NAME} retry instance (predicate from {@link
-     *                        com.gregochr.goldenhour.config.BatchSubmitRetryPredicate}, numbers
-     *                        from {@code application-*.yml})
-     * @param clock           injectable clock — the first attempt's start instant anchors the
-     *                        duplicate-batch adoption check
+     * @param anthropicClient        raw Anthropic SDK client — used only to derive {@link
+     *                               #batchClient} once, here; every call this class makes goes
+     *                               through the derived client instead
+     * @param retryRegistry          Resilience4j registry holding the declaratively-configured
+     *                               {@value #RETRY_INSTANCE_NAME} retry instance (predicate from
+     *                               {@link com.gregochr.goldenhour.config.BatchSubmitRetryPredicate},
+     *                               numbers from {@code application-*.yml})
+     * @param clock                  injectable clock — the first attempt's start instant anchors
+     *                               the duplicate-batch adoption check
+     * @param forecastBatchRepository used to exclude an already-tracked batch (most importantly, an
+     *                               earlier bucket of the same cycle) from the adoption candidates
      */
-    public AnthropicBatchClient(AnthropicClient anthropicClient, RetryRegistry retryRegistry, Clock clock) {
-        this.anthropicClient = anthropicClient;
+    public AnthropicBatchClient(AnthropicClient anthropicClient, RetryRegistry retryRegistry, Clock clock,
+            ForecastBatchRepository forecastBatchRepository) {
+        this.batchClient = anthropicClient.withOptions(options -> options.maxRetries(0));
         this.retryRegistry = retryRegistry;
         this.clock = clock;
+        this.forecastBatchRepository = forecastBatchRepository;
     }
 
     /**
@@ -112,7 +165,10 @@ public class AnthropicBatchClient {
      * @param params the batch creation parameters
      * @return the created (or adopted) batch
      * @throws BatchRetryExhaustedException if every attempt failed — wraps the last failure and
-     *                                       records how many attempts were made
+     *                                       records how many attempts were made. The wrapped cause
+     *                                       is {@link AmbiguousBatchAdoptionException} when the
+     *                                       failure was an unresolvable adoption ambiguity rather
+     *                                       than an Anthropic-side error.
      */
     public MessageBatch createBatch(BatchCreateParams params) {
         Instant firstAttemptStart = Instant.now(clock);
@@ -135,33 +191,35 @@ public class AnthropicBatchClient {
                 return adopted.get();
             }
         }
-        return anthropicClient.messages().batches().create(params);
+        return batchClient.messages().batches().create(params);
     }
 
     /**
-     * Looks for a recently-created batch that matches the request this attempt is about to
-     * (re)submit, so a retry after a failure that actually succeeded remotely adopts the existing
-     * batch instead of creating a paid duplicate.
+     * Looks for a recently-created, UNTRACKED batch that matches the request this attempt is
+     * about to (re)submit, so a retry after a failure that actually succeeded remotely adopts the
+     * existing batch instead of creating a paid duplicate.
      *
-     * <p>A match is a batch whose {@code createdAt} is at or after {@code firstAttemptStart}
-     * (minus {@link #CLOCK_SKEW_TOLERANCE}) and whose total request count (processing +
-     * succeeded + errored + canceled + expired) equals {@code params.requests().size()}. Exactly
-     * one match is adopted directly; more than one adopts the newest and logs every candidate id,
-     * since two genuinely distinct same-size batches created seconds apart is the one shape this
-     * id-free evidence cannot fully disambiguate. The list call itself is best-effort: if it
-     * fails, this returns empty so the caller proceeds to create a batch rather than blocking a
-     * retry on a diagnostic-only check.
+     * <p>A candidate is a batch whose {@code createdAt} is at or after {@code firstAttemptStart}
+     * (no tolerance — see the class javadoc's P1-A section), whose total request count
+     * (processing + succeeded + errored + canceled + expired) equals {@code
+     * params.requests().size()}, and whose id {@link ForecastBatchRepository} does not already
+     * know about (excludes a genuinely-succeeded sibling bucket, which is tracked by the time this
+     * runs). Exactly one such candidate is adopted directly. Two or more is refused outright — see
+     * {@link AmbiguousBatchAdoptionException}. The list call itself is best-effort: if it fails,
+     * this returns empty so the caller proceeds to create a batch rather than blocking a retry on
+     * a diagnostic-only check.
      *
      * @param params            the batch creation parameters for the attempt about to run
      * @param firstAttemptStart the original attempt's start instant
      * @param attemptNumber     the current attempt number, for logging only
      * @return the batch to adopt, or empty if none was found (or the check itself failed)
+     * @throws AmbiguousBatchAdoptionException if more than one untracked candidate matches
      */
     private Optional<MessageBatch> findAdoptableBatch(BatchCreateParams params,
             Instant firstAttemptStart, int attemptNumber) {
         List<MessageBatch> recent;
         try {
-            recent = anthropicClient.messages().batches()
+            recent = batchClient.messages().batches()
                     .list(BatchListParams.builder().limit(RECENT_BATCH_LIST_LIMIT).build())
                     .items();
         } catch (RuntimeException e) {
@@ -172,30 +230,33 @@ public class AnthropicBatchClient {
         }
 
         int expectedRequestCount = params.requests().size();
-        Instant cutoff = firstAttemptStart.minus(CLOCK_SKEW_TOLERANCE);
-        List<MessageBatch> matches = recent.stream()
-                .filter(b -> !b.createdAt().toInstant().isBefore(cutoff))
+        List<MessageBatch> untrackedMatches = recent.stream()
+                .filter(b -> !b.createdAt().toInstant().isBefore(firstAttemptStart))
                 .filter(b -> totalRequestCount(b) == expectedRequestCount)
+                .filter(b -> !forecastBatchRepository.existsByAnthropicBatchId(b.id()))
                 .sorted(Comparator.comparing((MessageBatch b) -> b.createdAt().toInstant()).reversed())
                 .toList();
 
-        if (matches.isEmpty()) {
+        if (untrackedMatches.isEmpty()) {
             return Optional.empty();
         }
-        MessageBatch newest = matches.get(0);
-        if (matches.size() > 1) {
-            LOG.warn("Batch-adoption check on retry attempt {} found {} candidate batches created "
-                    + "at or after {} with {} total request(s) — adopting the newest, {}. All "
-                    + "candidates: {}", attemptNumber, matches.size(), firstAttemptStart,
-                    expectedRequestCount, newest.id(),
-                    matches.stream().map(MessageBatch::id).toList());
-        } else {
-            LOG.warn("Adopted batch {} (created {}) instead of creating a duplicate — a previous "
-                    + "attempt that looked like it failed had already created it at Anthropic with "
-                    + "the same {} request(s) (retry attempt {})",
-                    newest.id(), newest.createdAt(), expectedRequestCount, attemptNumber);
+        if (untrackedMatches.size() > 1) {
+            List<String> candidateIds = untrackedMatches.stream().map(MessageBatch::id).toList();
+            LOG.error("Batch-adoption check on retry attempt {} found {} UNTRACKED candidate "
+                    + "batches created at or after {} with {} total request(s), and cannot safely "
+                    + "tell them apart — refusing to adopt any of them or create another. Possible "
+                    + "orphans needing manual recovery: {}", attemptNumber, untrackedMatches.size(),
+                    firstAttemptStart, expectedRequestCount, candidateIds);
+            throw new AmbiguousBatchAdoptionException(
+                    "Ambiguous batch adoption on retry attempt " + attemptNumber + ": "
+                            + untrackedMatches.size() + " untracked candidates " + candidateIds);
         }
-        return Optional.of(newest);
+        MessageBatch adopted = untrackedMatches.get(0);
+        LOG.warn("Adopted batch {} (created {}) instead of creating a duplicate — a previous "
+                + "attempt that looked like it failed had already created it at Anthropic with "
+                + "the same {} request(s) (retry attempt {})",
+                adopted.id(), adopted.createdAt(), expectedRequestCount, attemptNumber);
+        return Optional.of(adopted);
     }
 
     private static long totalRequestCount(MessageBatch batch) {
