@@ -486,7 +486,8 @@ class PipelineOrchestratorTest {
             // WAIT and BRIEFING still ran — the fallback-to-cache behaviour is unchanged.
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
             verify(briefingService).refreshBriefing();
-            verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.BRIEFING), any());
+            verify(pipelineRunService).completePhase(
+                    eq(RUN_ID), eq(PipelinePhase.BRIEFING), isNull());
             // Terminal status is DEGRADED, never COMPLETED, never FAILED.
             verify(pipelineRunService).degradeRun(RUN_ID, failingSummary.detail());
             verify(pipelineRunService, never()).completeRun(RUN_ID);
@@ -533,7 +534,7 @@ class PipelineOrchestratorTest {
 
             orchestrator.runNightlyCycle();
 
-            verify(pipelineRunService).failRun(eq(RUN_ID), any());
+            verify(pipelineRunService).failRun(RUN_ID, "Submit phase failed: anthropic 5xx");
             verify(pipelineRunService, never()).degradeRun(any(), any());
             verify(pipelineRunService, never()).completeRun(RUN_ID);
             verify(pipelineRunService, never()).findLatestPhase(any(), any());

@@ -87,7 +87,8 @@ class AdminAlertServiceTest {
 
         service.sendPipelineDegradedAlert(249L, CycleType.INTRADAY, TRIGGER, DETAIL);
 
-        verify(mailSender, times(2)).send(any(MimeMessage.class));
+        verify(mailSender).send(aliceMessage);
+        verify(mailSender).send(bobMessage);
 
         assertThat(aliceMessage.getSubject()).isEqualTo(
                 "PhotoCast: pipeline run 249 degraded — 3 of 3 forecast batch submissions failed");
@@ -112,12 +113,13 @@ class AdminAlertServiceTest {
                 admin("alice", "alice@example.com", true),
                 admin("noemail", "", true),
                 admin("nullemail", null, true)));
-        when(mailSender.createMimeMessage()).thenReturn(newMimeMessage());
+        MimeMessage aliceMessage = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(aliceMessage);
         AdminAlertService service = new AdminAlertService(mailSender, appUserRepository);
 
         service.sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
 
-        verify(mailSender, times(1)).send(any(MimeMessage.class));
+        verify(mailSender, times(1)).send(aliceMessage);
     }
 
     @Test
