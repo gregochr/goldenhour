@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -12,28 +13,40 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Detects cloud inversion hot topics by reading the survivor surface ({@code forecast_score}).
+ * Detects cloud inversion hot topics by reading the survivor surface's readings half
+ * ({@code survivor_atmosphere}).
  *
  * <p>A temperature inversion traps cloud below elevated viewpoints, creating a "sea of
- * clouds" at dawn. The nightly pipeline's dual-write records the Claude-evaluated inversion
- * score (0–10) as an {@link ForecastType#INVERSION} component for every scored survivor at
- * an inversion-eligible (elevated / overlooks-water) location. This detector fires when any
- * such row in the window reaches the STRONG band — score &ge; {@value #STRONG_SCORE_INCLUSIVE},
- * mirroring {@code PromptBuilder.InversionPotential.fromScore} (9–10 = STRONG).
+ * clouds" at dawn. {@code InversionScoreCalculator} runs a deterministic 0–10 likelihood score
+ * for every inversion-eligible (elevated / overlooks-water) candidate, inside
+ * {@code ForecastService.fetchWeatherAndTriage} before either triage check — so
+ * {@code SurvivorAtmosphereWriter} records it for every such candidate whose weather was fetched
+ * this cycle, whatever the triage verdict or Gate 4 decision that follows. This detector fires
+ * when any such row in the window reaches the STRONG band — score &ge;
+ * {@value #STRONG_SCORE_INCLUSIVE}, mirroring
+ * {@link PromptBuilder.InversionPotential#fromScore(int)} (9–10 = STRONG).
  *
- * <p>Reads through the {@link SurvivorSignalReader} (the unified read surface, backed by
- * {@code forecast_score}), NOT {@code forecast_evaluation}: nightly the latter holds only the
- * triaged-out rejects, so the legacy {@code inversion_potential} read was inert in production
- * (the evaluated slots route here). Makes no external API calls.
+ * <p>⚠️ <b>Phase 2 of "record conditions for every place" (owner decision 2026-09-30): this
+ * detector moved off Claude's echo onto the calculator's own score.</b> Through 2026-09-30 this
+ * class read {@link SurvivorSignals.Scores#inversion()} — the {@code forecast_score} INVERSION
+ * component, written only from a completed Claude evaluation — so it was silent for a triaged-out
+ * or Gate-4-stood-down location exactly like the two-question rule (2026-09-29) says a hot topic
+ * must not be. It now reads {@link SurvivorSignals.Readings#inversionScore()} instead — the
+ * deterministic calculator's own score, from {@code survivor_atmosphere} (V158) — so a stood-down
+ * location still shows its inversion likelihood. {@code Scores#inversion()} is left entirely
+ * unread here now; it is still read by {@code ComingUpConditionsBuilder}'s trailing-history
+ * display and by {@code TopicDailyLogJob} (both documented on their own classes).
  *
- * <p>⚠️ <b>Unaffected by the "record conditions for every place" change (Phase 1, owner decision
- * 2026-09-30).</b> That change made {@code survivor_atmosphere} readings (dust, snow, surge)
- * available for every candidate whose weather was fetched, but this detector reads
- * {@code forecast_score}, which is written only from a completed Claude evaluation — a triaged or
- * Gate-4-stood-down slot still has no INVERSION component and this detector still does not fire
- * for it. Moving cloud inversion onto the calculator's deterministic score for every place,
- * without Claude, is planned separately as Phase 2, with its own migration — deliberately not
- * built here.
+ * <p>⚠️ <b>Two surfaces, two questions, and they may disagree — deliberately.</b> The map popup's
+ * inversion badge ({@code ForecastDtoMapper} → {@code forecast_evaluation.inversion_score}) stays
+ * on Claude's echo and is unaffected by this change: it answers "is this place worth going to",
+ * exactly the second question the two-question rule reserves for a completed evaluation, and
+ * Claude has narrow discretion to disagree with the calculator on the measured reversal. This hot
+ * topic answers "what is happening" and always follows the calculator. So a location can show a
+ * strong-inversion chip here while its own map badge reads a different band, or vice versa on a
+ * location Claude never evaluated at all — that is the intended split, not a bug to reconcile.
+ *
+ * <p>Makes no external API calls.
  *
  * <p><b>Advance notice, every morning.</b> An inversion "sea of clouds" is a dawn phenomenon —
  * it is only useful as night-before planning, because once sunrise has passed you can no longer
@@ -41,8 +54,8 @@ import java.util.Locale;
  * ({@link SolarEventFreshness}) and lists <em>every</em> remaining strong-inversion morning in
  * the window, so a multi-day setup is surfaced in full rather than collapsed to the earliest day.
  *
- * <p><b>Sunrise rows only.</b> The nightly dual-write records an inversion score for whichever
- * event a location was evaluated for — including SUNSET, since the augmentor gates only on
+ * <p><b>Sunrise rows only.</b> The writer records an inversion score for whichever event a
+ * location was fetched for — including SUNSET, since the calculator gates only on
  * elevation/overlooks-water, not event type. But a sea of clouds is a dawn event, so a SUNSET
  * inversion row is physically meaningless <em>and</em> harmful: its freshness is judged against
  * the (still-future) sunset, so this morning's already-burned-off inversion would linger on the
@@ -61,14 +74,11 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     private static final int PRIORITY = 2;
 
     /**
-     * Inclusive lower bound of the STRONG inversion band on the stored 0–10 score. Matches
-     * {@code PromptBuilder.InversionPotential.fromScore} (score &ge; 9 = STRONG); MODERATE
+     * Inclusive lower bound of the STRONG inversion band on the calculator's 0–10 score. Matches
+     * {@link PromptBuilder.InversionPotential#fromScore(int)} (score &ge; 9 = STRONG); MODERATE
      * (7–8) and below never fire the topic.
      */
     public static final int STRONG_SCORE_INCLUSIVE = 9;
-
-    /** Band label used when a row carries no stored classification (see {@code bandLabel}). */
-    private static final String DEFAULT_BAND_LABEL = "strong";
 
     /** The italic "how to use it" cue on the enriched fact line. */
     private static final String INVERSION_NOTE =
@@ -101,8 +111,8 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
         List<SurvivorSignals> strong = survivorSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> s.eventType() == TargetType.SUNRISE)
-                .filter(s -> s.scores().inversion() != null
-                        && s.scores().inversion() >= STRONG_SCORE_INCLUSIVE)
+                .filter(s -> s.readings().inversionScore() != null
+                        && s.readings().inversionScore() >= STRONG_SCORE_INCLUSIVE)
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .sorted(Comparator.comparing(SurvivorSignals::date))
                 .toList();
@@ -123,12 +133,13 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     /**
      * Attaches the inversion fact line — the likelihood score and band of the strongest of the
      * day's qualifying rows. The inversion-layer <em>altitude</em> is deliberately omitted: the
-     * pipeline scores inversion likelihood (0–10) but never computes a layer height, so a metres
-     * figure would be fabricated. The score band is the honest headline.
+     * calculator scores inversion likelihood (0–10) but never computes a layer height, so a
+     * metres figure would be fabricated. The score band is the honest headline.
      *
-     * <p>The band is read from the row, not assumed. It used to be the hardcoded literal
-     * {@code "strong"}, which made the fact line unfalsifiable — the strip could not render any
-     * other word, so a reader had no way to tell a genuine STRONG from a mislabelled one.
+     * <p>The band is derived from the score, not read off a stored classification — the
+     * calculator gives no NONE/MODERATE/STRONG string of its own, unlike Claude's echo. It uses
+     * the SAME mapping {@link PromptBuilder.InversionPotential#fromScore(int)} applies, so the
+     * fact line can never disagree with the threshold that gated it firing at all.
      *
      * @param topic   the day's base topic
      * @param dayRows that day's strong-inversion rows
@@ -136,32 +147,31 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      */
     private HotTopic attachFacts(HotTopic topic, List<SurvivorSignals> dayRows) {
         SurvivorSignals top = dayRows.stream()
-                .filter(s -> s.scores().inversion() != null)
-                .max(Comparator.comparingInt((SurvivorSignals s) -> s.scores().inversion()))
+                .filter(s -> s.readings().inversionScore() != null)
+                .max(Comparator.comparingDouble((SurvivorSignals s) -> s.readings().inversionScore()))
                 .orElse(null);
         if (top == null) {
             return topic;
         }
-        String value = top.scores().inversion() + "/10 · " + bandLabel(top.scores().inversionBand());
+        // Round, never truncate — see PromptBuilder's own comment on the same conversion. The
+        // calculator's components are all whole-number doubles (or exact 6.0/8.0 gate ceilings),
+        // so this never actually changes a value; it exists so the display rule can't drift from
+        // the one the prompt already applies.
+        int reported = (int) Math.round(top.readings().inversionScore());
+        String value = reported + "/10 · " + bandLabel(reported);
         return topic.withScience(
                 List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE);
     }
 
     /**
-     * Renders the stored band for the fact line, lower-cased to sit inside the running text.
+     * Derives the band label for the fact line from the score, lower-cased to sit inside the
+     * running text — the same NONE/MODERATE/STRONG mapping the prompt uses, so this fact line and
+     * Claude's own inversion forecast can never assign different words to the identical score.
      *
-     * <p>Falls back to {@value #DEFAULT_BAND_LABEL} when the row carries no band: rows written
-     * before the classification was plumbed through the survivor surface have a null summary, and
-     * the detector only admits scores at or above {@link #STRONG_SCORE_INCLUSIVE} — which is the
-     * strong band — so that is the honest default rather than a guess.
-     *
-     * @param storedBand the row's stored classification, or null
-     * @return the lower-cased band label
+     * @param score the calculator's rounded 0–10 score
+     * @return the lower-cased band label (e.g. {@code "strong"})
      */
-    private static String bandLabel(String storedBand) {
-        if (storedBand == null || storedBand.isBlank()) {
-            return DEFAULT_BAND_LABEL;
-        }
-        return storedBand.trim().toLowerCase(Locale.ROOT);
+    static String bandLabel(int score) {
+        return PromptBuilder.InversionPotential.fromScore(score).name().toLowerCase(Locale.ROOT);
     }
 }

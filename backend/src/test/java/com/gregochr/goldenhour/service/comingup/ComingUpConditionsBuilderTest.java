@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service.comingup;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
-import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -466,31 +465,39 @@ class ComingUpConditionsBuilderTest {
     }
 
     // ── Inversion: rarity never upgrades ─────────────────────────────────
+    //
+    // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158) moved this
+    // condition's occurrence list and forward peak off forecast_score's Claude-echoed INVERSION
+    // component onto survivor_atmosphere.inversion_score (the deterministic calculator's own
+    // score) — the same population InversionHotTopicStrategy now reads. These fixtures stub
+    // survivorAtmosphereRepository accordingly; forecastScoreRepository is no longer consulted for
+    // inversion at all (see ComingUpConditionsBuilder.buildInversion's own comment).
 
-    private static ForecastScoreEntity inversionRow(LocationEntity location, LocalDate date, int score) {
-        ForecastScoreEntity entity = new ForecastScoreEntity();
+    private static SurvivorAtmosphereEntity inversionReading(LocationEntity location, LocalDate date,
+            double score) {
+        SurvivorAtmosphereEntity entity = new SurvivorAtmosphereEntity();
         entity.setLocation(location);
         entity.setEvaluationDate(date);
         entity.setEventType(TargetType.SUNRISE);
-        entity.setScore(score);
+        entity.setInversionScore(score);
         return entity;
     }
 
     @Test
     @DisplayName("inversion rarity stays on the config fallback no matter how many strong mornings "
-            + "the (survivor-biased) window shows")
+            + "the (complete-population) window shows")
     void inversionRarityNeverUpgrades() {
         LocationEntity fell = LocationEntity.builder().id(3L).name("Fell").lat(1.0).lon(1.0).build();
-        List<ForecastScoreEntity> rows = List.of(
-                inversionRow(fell, TODAY.minusDays(50), 9), inversionRow(fell, TODAY.minusDays(40), 9),
-                inversionRow(fell, TODAY.minusDays(30), 9), inversionRow(fell, TODAY.minusDays(20), 9),
-                inversionRow(fell, TODAY.minusDays(10), 9), inversionRow(fell, TODAY.minusDays(5), 9));
+        List<SurvivorAtmosphereEntity> rows = List.of(
+                inversionReading(fell, TODAY.minusDays(50), 9.0), inversionReading(fell, TODAY.minusDays(40), 9.0),
+                inversionReading(fell, TODAY.minusDays(30), 9.0), inversionReading(fell, TODAY.minusDays(20), 9.0),
+                inversionReading(fell, TODAY.minusDays(10), 9.0), inversionReading(fell, TODAY.minusDays(5), 9.0));
         // Answers by actual date range rather than a blanket any(): the builder makes two calls
         // (the trailing 60-day historical read, and the forward T+0..T+3 peak read), and a
         // date-blind stub would let a historical row leak into the forward peak.
-        when(forecastScoreRepository.findComponentsByType(any(), any(), any())).thenAnswer(invocation -> {
-            LocalDate from = invocation.getArgument(1);
-            LocalDate to = invocation.getArgument(2);
+        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(0);
+            LocalDate to = invocation.getArgument(1);
             return rows.stream()
                     .filter(r -> !r.getEvaluationDate().isBefore(from) && !r.getEvaluationDate().isAfter(to))
                     .toList();
@@ -530,14 +537,14 @@ class ComingUpConditionsBuilderTest {
     void buildInversion_trailingHistoryKeepsOccurrenceRegardlessOfHowStaleItsEvaluationIs() {
         LocationEntity fell = LocationEntity.builder().id(7L).name("Old Fell").lat(1.0).lon(1.0).build();
         LocalDate strongMorning = TODAY.minusDays(10);
-        ForecastScoreEntity row = inversionRow(fell, strongMorning, 9);
+        SurvivorAtmosphereEntity row = inversionReading(fell, strongMorning, 9.0);
         // An arbitrarily old evaluation instant — under the reverted #940 extension this would have
         // been retracted by almost any stability skip recorded after it. There is no such lookup any
         // more, so this must have no bearing on whether the occurrence survives.
         row.setEvaluatedAt(Instant.parse("2020-01-01T00:00:00Z"));
-        when(forecastScoreRepository.findComponentsByType(any(), any(), any())).thenAnswer(invocation -> {
-            LocalDate from = invocation.getArgument(1);
-            LocalDate to = invocation.getArgument(2);
+        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(0);
+            LocalDate to = invocation.getArgument(1);
             return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
                     ? List.of(row) : List.of();
         });
@@ -549,22 +556,21 @@ class ComingUpConditionsBuilderTest {
     }
 
     @Test
-    @DisplayName("both forward-peak reads — dust from survivor_atmosphere, inversion from "
-            + "forecast_score — return their occurrence with no regard to when the underlying row "
-            + "was evaluated; neither is filtered by a stability skip or a triage decision")
+    @DisplayName("both forward-peak reads — dust's AOD and inversion's score, both from the SAME "
+            + "survivor_atmosphere row — return their occurrence with no regard to when the "
+            + "underlying row was evaluated; neither is filtered by a stability skip or a triage "
+            + "decision")
     void bothForwardPeaks_unaffectedByStaleEvaluation() {
         LocationEntity dustyFell = LocationEntity.builder().id(8L).name("Dusty Fell").lat(1.0).lon(1.0).build();
         LocalDate peakDate = TODAY.plusDays(1);
+        // One row carries both readings, exactly as survivor_atmosphere's grain (location, date,
+        // event_type) does in production — two separate rows for the same key would make the
+        // reader's per-key accumulator silently drop one of them.
+        SurvivorAtmosphereEntity row = survivorAtmosphere(dustyFell, peakDate, TargetType.SUNRISE, 0.55);
+        row.setInversionScore(9.0);
+        row.setEvaluatedAt(Instant.parse("2020-01-01T00:00:00Z"));
         when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
-                .thenReturn(List.of(survivorAtmosphere(dustyFell, peakDate, TargetType.SUNRISE, 0.55)));
-        ForecastScoreEntity inversionForwardRow = inversionRow(dustyFell, peakDate, 9);
-        inversionForwardRow.setEvaluatedAt(Instant.parse("2020-01-01T00:00:00Z"));
-        when(forecastScoreRepository.findComponentsByType(any(), any(), any())).thenAnswer(invocation -> {
-            LocalDate from = invocation.getArgument(1);
-            LocalDate to = invocation.getArgument(2);
-            return !peakDate.isBefore(from) && !peakDate.isAfter(to)
-                    ? List.of(inversionForwardRow) : List.of();
-        });
+                .thenReturn(List.of(row));
 
         List<ComingUpCondition> conditions = builder.build(TODAY, List.of(), List.of());
 

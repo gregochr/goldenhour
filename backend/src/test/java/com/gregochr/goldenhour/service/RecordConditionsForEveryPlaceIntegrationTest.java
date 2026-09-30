@@ -157,17 +157,20 @@ class RecordConditionsForEveryPlaceIntegrationTest {
 
     @Test
     @DisplayName("readings and a component on the SAME key both survive the reader's join — "
-            + "inversion still fires off its own score, proving the join does not let one "
-            + "sub-record crowd out the other")
+            + "inversion fires off the READINGS score (Phase 2, V158), proving the join does not "
+            + "let one sub-record crowd out the other even though Claude's Scores echo differs")
     void readingsAndComponent_sameKey_bothSurviveTheJoin() {
         LocationEntity loc = location(3L, "Great Gable");
+        // Claude's own echo (Scores.inversion) — deliberately a DIFFERENT value from the
+        // calculator's reading below, to prove the strategy reads the readings side and the two
+        // sub-records are never confused with each other.
         ForecastScoreEntity score = new ForecastScoreEntity();
         score.setForecastType(ForecastType.INVERSION);
         score.setLocation(loc);
         score.setEvaluationDate(DATE);
         score.setEventType(TargetType.SUNRISE);
-        score.setScore(9);
-        score.setSummary("STRONG");
+        score.setScore(7);
+        score.setSummary("MODERATE");
         score.setEvaluatedAt(Instant.now(CLOCK));
 
         SurvivorAtmosphereEntity reading = new SurvivorAtmosphereEntity();
@@ -175,6 +178,7 @@ class RecordConditionsForEveryPlaceIntegrationTest {
         reading.setEvaluationDate(DATE);
         reading.setEventType(TargetType.SUNRISE);
         reading.setDust(new BigDecimal("55.00"));
+        reading.setInversionScore(9.0);
 
         when(forecastScoreRepository.findComponentsByType(
                 ForecastType.INVERSION.getId(), DATE, WINDOW_END)).thenReturn(List.of(score));
@@ -185,9 +189,11 @@ class RecordConditionsForEveryPlaceIntegrationTest {
         when(freshness.isAhead(any(), any(), any())).thenReturn(true);
 
         // Sanity: the reader itself folds both surfaces into ONE composite for this key, with
-        // both sub-records populated (never one crowding out the other).
+        // both sub-records populated (never one crowding out the other) — Scores carries Claude's
+        // MODERATE echo, Readings carries the calculator's STRONG score, and both survive intact.
         assertThat(reader.read(DATE, WINDOW_END)).hasSize(1);
-        assertThat(reader.read(DATE, WINDOW_END).get(0).scores().inversion()).isEqualTo(9);
+        assertThat(reader.read(DATE, WINDOW_END).get(0).scores().inversion()).isEqualTo(7);
+        assertThat(reader.read(DATE, WINDOW_END).get(0).readings().inversionScore()).isEqualTo(9.0);
         assertThat(reader.read(DATE, WINDOW_END).get(0).readings().dust())
                 .isEqualByComparingTo("55.00");
 
@@ -195,6 +201,8 @@ class RecordConditionsForEveryPlaceIntegrationTest {
 
         List<HotTopic> topics = strategy.detect(DATE, WINDOW_END);
 
+        // Fires off the READINGS score (9), never the Scores echo (7) — Phase 2 moved this
+        // detector off Claude's echo entirely.
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).facts()).anySatisfy(
                 fact -> assertThat(fact.value()).contains("9/10"));

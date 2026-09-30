@@ -1,8 +1,8 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
@@ -232,21 +232,23 @@ class HotTopicAggregatorTest {
         LocationEntity fell = new LocationEntity();
         fell.setId(1L);
         fell.setName("Great Gable");
-        ForecastScoreEntity strongInversion = new ForecastScoreEntity();
-        strongInversion.setForecastType(ForecastType.INVERSION);
+        // Phase 2 (V158, owner decision 2026-09-30): InversionHotTopicStrategy now fires off the
+        // calculator's own survivor_atmosphere reading, not the forecast_score Claude echo — so
+        // the strong-inversion row this test needs to make the strategy fire lives here.
+        SurvivorAtmosphereEntity strongInversion = new SurvivorAtmosphereEntity();
         strongInversion.setLocation(fell);
         strongInversion.setEvaluationDate(FROM);
         strongInversion.setEventType(TargetType.SUNRISE);
-        strongInversion.setScore(9);
-        strongInversion.setSummary("STRONG");
+        strongInversion.setInversionScore(9.0);
         strongInversion.setEvaluatedAt(Instant.parse("2026-04-25T05:00:00Z"));
         lenient().when(forecastScoreRepository.findComponentsByType(
                         ForecastType.INVERSION.getId(), FROM, TO))
-                .thenReturn(List.of(strongInversion));
+                .thenReturn(List.of());
         lenient().when(forecastScoreRepository.findComponentsByType(
                         ForecastType.BLUEBELL.getId(), FROM, TO))
                 .thenReturn(List.of());
-        lenient().when(survivorAtmosphereRepository.findInDateRange(FROM, TO)).thenReturn(List.of());
+        lenient().when(survivorAtmosphereRepository.findInDateRange(FROM, TO))
+                .thenReturn(List.of(strongInversion));
 
         SolarEventFreshness freshness = mock(SolarEventFreshness.class);
         lenient().when(freshness.isAhead(fell, FROM, TargetType.SUNRISE)).thenReturn(true);

@@ -41,7 +41,15 @@ public record SurvivorSignals(
      * Score-shaped survivor signals from {@code forecast_score} — each nullable when that score was
      * not written for the key (ineligible location, out of season, or eval not yet returned).
      *
-     * @param inversion       cloud inversion score 0–10, or null
+     * <p>⚠️ <b>{@link #inversion()} is Claude's echo, not the read path the inversion hot topic or
+     * the Coming up "Valley inversions" condition use any more (Phase 2, owner decision
+     * 2026-09-30).</b> Both now read {@link Readings#inversionScore()} — the deterministic
+     * calculator's own score, populated for every inversion-eligible candidate regardless of triage
+     * or Gate 4. This field survives only for {@code ComingUpConditionsBuilder}'s trailing-history
+     * display and {@code TopicDailyLogJob}'s future-population log, both of which still read
+     * {@code forecast_score} on purpose — see those classes' own javadoc.
+     *
+     * @param inversion       cloud inversion score 0–10 (Claude's echo), or null
      * @param inversionBand   the inversion row's stored classification (NONE/MODERATE/STRONG), or
      *                        null — rides the INVERSION row's {@code summary} column, so rows
      *                        written before it was plumbed through read as null
@@ -71,6 +79,14 @@ public record SurvivorSignals(
      * @param surgeWindDirectionDegrees surge-time wind direction (degrees FROM), or null
      * @param temperatureCelsius        2 m air temperature in °C, or null; gates the SNOW_MIST
      *                                  freezing-fog / hoar-frost facts
+     * @param inversionScore            cloud inversion likelihood score (0–10,
+     *                                  {@code InversionScoreCalculator}), or null when the location
+     *                                  was not inversion-eligible. V158 (Phase 2 of "record
+     *                                  conditions for every place", owner decision 2026-09-30) — the
+     *                                  deterministic calculator's own score, populated for every
+     *                                  inversion-eligible candidate whatever the triage verdict or
+     *                                  Gate 4 decision, unlike {@link Scores#inversion()} which is
+     *                                  Claude's echo and only exists for a completed evaluation
      */
     public record Readings(
             BigDecimal aerosolOpticalDepth,
@@ -83,10 +99,11 @@ public record SurvivorSignals(
             Double surgeTotalMetres,
             Double surgeWindSpeedMs,
             Double surgeWindDirectionDegrees,
-            Double temperatureCelsius) {
+            Double temperatureCelsius,
+            Double inversionScore) {
 
         /** The all-absent readings, used for a key that has only scores. */
-        public static final Readings EMPTY =
-                new Readings(null, null, null, null, null, null, null, null, null, null, null);
+        public static final Readings EMPTY = new Readings(
+                null, null, null, null, null, null, null, null, null, null, null, null);
     }
 }

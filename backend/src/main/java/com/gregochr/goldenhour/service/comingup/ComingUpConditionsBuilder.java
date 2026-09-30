@@ -62,9 +62,16 @@ import java.util.Optional;
  * {@code forecast_evaluation} population — never a survivor surface, which would understate
  * presence and inflate rarity toward over-promotion (plan D4, external-review finding §14 round 3).
  * Inversion rarity stays on the config fallback until P7's {@code topic_daily_log} accrues an
- * unbiased population; the historical occurrences shown for it come from the survivor-only
- * {@code forecast_score} table for DISPLAY only ("nothing is discarded" — README §2.1) and never
- * feed the rarity number.
+ * unbiased population; the historical occurrences shown for it come from
+ * {@code survivor_atmosphere}'s {@code inversion_score} column (V158, Phase 2 of "record
+ * conditions for every place", owner decision 2026-09-30) for DISPLAY only ("nothing is
+ * discarded" — README §2.1) and never feed the rarity number. ⚠️ <b>An unbiased population now
+ * exists</b> — since V158 that column carries the deterministic calculator's own score for every
+ * inversion-eligible candidate, triaged-out and Gate-4-stood-down ones included, the same
+ * complete-population shape dust's arrival count already reads — but switching the RARITY term
+ * onto it is a separate decision, not made here: this class still only moved which table the
+ * DISPLAY occurrences and forward peak read from (see {@link #buildInversion}), and
+ * {@code inversionRarityNeverUpgrades} still pins the config fallback.
  *
  * <h2>Coastal tides reuses P2's scoring machinery, never a second formula</h2>
  *
@@ -538,10 +545,15 @@ public class ComingUpConditionsBuilder {
 
     // ── Valley inversions (D4, D11) ──────────────────────────────────────
     //
-    // Unaffected by the "record conditions for every place" change (Phase 1, owner decision
-    // 2026-09-30): this reads forecast_score INVERSION components, which are written only from a
-    // completed Claude evaluation, so a triaged or Gate-4-stood-down slot still contributes nothing
-    // here. See InversionHotTopicStrategy's own javadoc for the same point and the planned Phase 2.
+    // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158): both the
+    // trailing-history occurrence list and the forward peak below now read
+    // survivor_atmosphere.inversion_score (the deterministic InversionScoreCalculator score,
+    // populated for every inversion-eligible candidate whatever the triage verdict or Gate 4
+    // decision), not forecast_score's Claude-echoed INVERSION component. This answers the same
+    // "what is happening" question InversionHotTopicStrategy asks, from the same population — see
+    // that class's own javadoc for why the two surfaces (this one and the map's Claude-echoed
+    // badge) are allowed to disagree. The RARITY term still stays on the config fallback
+    // (unchanged by this move — see the class javadoc's own note on that).
 
     private ComingUpCondition buildInversion(LocalDate builtFor) {
         int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();
@@ -554,14 +566,15 @@ public class ComingUpConditionsBuilder {
         // display only ("nothing is discarded"); they must not feed this number.
         double rarityBits = SurpriseScore.rarity(inversionConfig.getFallbackMeanGapDays());
 
-        Map<LocalDate, Integer> maxScoreByDate = new LinkedHashMap<>();
+        Map<LocalDate, Double> maxScoreByDate = new LinkedHashMap<>();
         try {
             for (SurvivorSignals signal : survivorSignalReader.read(windowStart, yesterday)) {
-                if (signal.eventType() != TargetType.SUNRISE || signal.scores().inversion() == null
-                        || signal.scores().inversion() < InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
+                Double score = signal.readings().inversionScore();
+                if (signal.eventType() != TargetType.SUNRISE || score == null
+                        || score < InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
                     continue;
                 }
-                maxScoreByDate.merge(signal.date(), signal.scores().inversion(), Math::max);
+                maxScoreByDate.merge(signal.date(), score, Math::max);
             }
         } catch (RuntimeException e) {
             LOG.warn("Inversion trailing-window read failed — the condition will show no historical "
@@ -576,10 +589,10 @@ public class ComingUpConditionsBuilder {
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
         for (LocalDate date : dates) {
-            int score = maxScoreByDate.get(date);
+            double score = maxScoreByDate.get(date);
             double bits = rarityBits + inversionMagnitude(score, inversionConfig);
-            occurrences.add(new ComingUpConditionOccurrence(date, DATE_LABEL.format(date), score + "/10",
-                    null, round1(bits), null, STATUS_HELD_BACK, null));
+            occurrences.add(new ComingUpConditionOccurrence(date, DATE_LABEL.format(date),
+                    reportedScore(score) + "/10", null, round1(bits), null, STATUS_HELD_BACK, null));
         }
 
         ComingUpConditionPeak peak = null;
@@ -587,20 +600,21 @@ public class ComingUpConditionsBuilder {
         try {
             forwardPeak = survivorSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
                     .filter(s -> passesPeakGate(s.eventType()))
-                    .filter(s -> s.eventType() == TargetType.SUNRISE && s.scores().inversion() != null
-                            && s.scores().inversion() >= InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE)
-                    .max(Comparator.comparingInt(s -> s.scores().inversion()))
+                    .filter(s -> s.eventType() == TargetType.SUNRISE && s.readings().inversionScore() != null
+                            && s.readings().inversionScore() >= InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE)
+                    .max(Comparator.comparingDouble(s -> s.readings().inversionScore()))
                     .orElse(null);
         } catch (RuntimeException e) {
             LOG.warn("Inversion forward-peak read failed — the peak cell will say so rather than the "
                     + "whole feed failing: {}", e.toString());
         }
         if (forwardPeak != null) {
-            int score = forwardPeak.scores().inversion();
+            double score = forwardPeak.readings().inversionScore();
             double bits = rarityBits + inversionMagnitude(score, inversionConfig);
-            peak = new ComingUpConditionPeak(DATE_LABEL.format(forwardPeak.date()), score + "/10", round1(bits));
+            String valueLabel = reportedScore(score) + "/10";
+            peak = new ComingUpConditionPeak(DATE_LABEL.format(forwardPeak.date()), valueLabel, round1(bits));
             occurrences.add(new ComingUpConditionOccurrence(forwardPeak.date(), DATE_LABEL.format(forwardPeak.date()),
-                    score + "/10", null, round1(bits), null, STATUS_INSIDE_PLAN, null));
+                    valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
         String quantLabel = frequencyPhrase(rarityBits, "most mornings") + " · counts as strong above "
@@ -609,7 +623,18 @@ public class ComingUpConditionsBuilder {
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);
     }
 
-    private static double inversionMagnitude(int score, ComingUpScoringProperties.Inversion config) {
+    /**
+     * Rounds the calculator's raw score for display — never truncate, matching
+     * {@code PromptBuilder}'s own comment on the identical conversion. The calculator's
+     * components are all whole-number doubles (or exact 6.0/8.0 gate ceilings), so this never
+     * actually changes a value; it exists so a fractional double can never leak into the "N/10"
+     * label.
+     */
+    private static int reportedScore(double score) {
+        return (int) Math.round(score);
+    }
+
+    private static double inversionMagnitude(double score, ComingUpScoringProperties.Inversion config) {
         return score >= config.getMagnitudeThresholdScore()
                 ? config.getMagnitudeAboveBits() : SurpriseScore.DEFAULT_MAGNITUDE_BITS;
     }

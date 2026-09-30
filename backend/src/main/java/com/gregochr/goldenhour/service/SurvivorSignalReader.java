@@ -27,9 +27,16 @@ import java.util.Map;
  * {@code SurvivorAtmosphereWriter}'s own javadoc). {@code forecast_score} (the scores half —
  * inversion, bluebell) is UNCHANGED by that phase and remains genuinely survivor-only: it is written
  * only from a completed Claude evaluation, so a triaged or stability-skipped slot never has one
- * (bluebell stays scored-only by design — no deterministic substitute for the Claude rating exists;
- * cloud inversion's own deterministic substitute is planned, separately, as Phase 2, with its own
- * migration). A composite built from a readings-only key therefore has {@link SurvivorSignals.Scores}
+ * (bluebell stays scored-only by design — no deterministic substitute for the Claude rating exists).
+ * ⚠️ <b>Cloud inversion's own deterministic substitute shipped as Phase 2 (V158, owner decision
+ * 2026-09-30)</b> — {@link SurvivorSignals.Readings#inversionScore()} carries
+ * {@code InversionScoreCalculator}'s own score for every inversion-eligible candidate, on
+ * {@code survivor_atmosphere}, populated whatever the triage verdict or Gate 4 decision.
+ * {@link SurvivorSignals.Scores#inversion()} (Claude's echo, from {@code forecast_score}) still
+ * exists and is still returned unchanged, but the inversion hot topic and the Coming up "Valley
+ * inversions" condition now read the calculator score instead — see
+ * {@code InversionHotTopicStrategy}'s own javadoc for why the two surfaces are allowed to disagree.
+ * A composite built from a readings-only key therefore has {@link SurvivorSignals.Scores}
  * {@code EMPTY} and populated {@link SurvivorSignals.Readings} — never a zero score and never an
  * exception — exactly like any other single-surface key (see {@link #read}'s own javadoc and this
  * class's test suite).
@@ -174,7 +181,7 @@ public class SurvivorSignalReader {
                             readings.getSnowDepthMetres(), readings.getFreezingLevelMetres(),
                             readings.getHumidity(), readings.getSurgeTotalMetres(),
                             readings.getSurgeWindSpeedMs(), readings.getSurgeWindDirectionDegrees(),
-                            readings.getTemperatureCelsius());
+                            readings.getTemperatureCelsius(), readings.getInversionScore());
             return new SurvivorSignals(location, date, eventType, scores, r);
         }
     }

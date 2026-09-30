@@ -48,7 +48,7 @@ class SnowTopsHotTopicStrategyTest {
         location.setRegion(region);
         location.setElevationMetres(elevationMetres);
         SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, null, null, freezingLevelMetres, null, null, null, null, null);
+                null, null, null, null, null, freezingLevelMetres, null, null, null, null, null, null);
         return new SurvivorSignals(location, date, TargetType.SUNRISE,
                 SurvivorSignals.Scores.EMPTY, readings);
     }

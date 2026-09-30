@@ -103,6 +103,20 @@ public class SurvivorAtmosphereEntity {
     @Column(name = "temperature_celsius")
     private Double temperatureCelsius;
 
+    /**
+     * Cloud inversion likelihood score (0–10, {@code InversionScoreCalculator}), or null when the
+     * location was not inversion-eligible (elevation &lt; 200 m, or does not overlook water). V158
+     * (Phase 2 of "record conditions for every place", owner decision 2026-09-30): the deterministic
+     * calculator's own score, captured at the same collection-time seam as every other reading on
+     * this row — unlike the Claude-echoed {@code forecast_score} INVERSION component, this is
+     * populated for a triaged-out or Gate-4-stood-down candidate too, since the calculator runs
+     * before both checks. Feeds {@code InversionHotTopicStrategy} and the Coming up "Valley
+     * inversions" condition; the map popup's inversion badge stays on Claude's echo
+     * ({@code forecast_evaluation.inversion_score}) and does not read this column.
+     */
+    @Column(name = "inversion_score")
+    private Double inversionScore;
+
     /** Total storm surge in metres (pressure + wind), or null. Feeds the STORM_SURGE facts line. */
     @Column(name = "surge_total_m")
     private Double surgeTotalMetres;

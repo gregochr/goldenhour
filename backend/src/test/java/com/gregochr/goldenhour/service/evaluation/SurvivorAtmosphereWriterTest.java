@@ -33,9 +33,10 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link SurvivorAtmosphereWriter} — the Stage B submission-time carrier write.
  *
- * <p>Verifies the readings captured per survivor, the surge-null inland case, latest-wins upsert,
- * and the no-op guards (flag off, HOURLY, null data). The repository is mocked; the real unique-key
- * upsert against the schema is proven by the integration slice.
+ * <p>Verifies the readings captured per survivor, the surge-null inland case, the V158 inversion
+ * score (captured when eligible, null when not), latest-wins upsert, and the no-op guards (flag
+ * off, HOURLY, null data). The repository is mocked; the real unique-key upsert against the schema
+ * is proven by the integration slice.
  */
 @ExtendWith(MockitoExtension.class)
 class SurvivorAtmosphereWriterTest {
@@ -150,6 +151,30 @@ class SurvivorAtmosphereWriterTest {
 
         SurvivorAtmosphereEntity saved = captureSave();
         assertThat(saved.getSurgeRiskLevel()).isEqualTo("HIGH");
+    }
+
+    @Test
+    @DisplayName("V158: captures the calculator's inversion score when the location was eligible")
+    void capturesInversionScore_whenEligible() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+        AtmosphericData eligible = inlandData().withInversionScore(9.0);
+
+        writer(true).write(location(), DATE, SUNSET, eligible);
+
+        assertThat(captureSave().getInversionScore()).isEqualTo(9.0);
+    }
+
+    @Test
+    @DisplayName("V158: inversion score is null for an ineligible location — ForecastDataAugmentor "
+            + "never calls the calculator for one, so data.inversionScore() is already null here")
+    void inversionScore_nullForIneligibleLocation() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+
+        writer(true).write(location(), DATE, SUNSET, inlandData());
+
+        assertThat(captureSave().getInversionScore()).isNull();
     }
 
     @Test

@@ -92,6 +92,16 @@ class SurvivorSignalReaderTest {
         return a;
     }
 
+    private static SurvivorAtmosphereEntity readingsWithInversion(LocationEntity loc,
+            double inversionScore) {
+        SurvivorAtmosphereEntity a = new SurvivorAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setInversionScore(inversionScore);
+        return a;
+    }
+
     private void stubInversion(List<ForecastScoreEntity> rows) {
         when(forecastScoreRepository.findComponentsByType(
                 ForecastType.INVERSION.getId(), FROM, TO)).thenReturn(rows);
@@ -177,6 +187,25 @@ class SurvivorSignalReaderTest {
         SurvivorSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.scores()).isSameAs(SurvivorSignals.Scores.EMPTY);
         assertThat(s.readings().dust()).isEqualByComparingTo("55.00");
+    }
+
+    @Test
+    @DisplayName("readings().inversionScore() surfaces the calculator's own score from "
+            + "survivor_atmosphere — the Phase 2 read path, independent of Scores.inversion()")
+    void readings_surfacesInversionScore() {
+        LocationEntity loc = location(9L);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(readingsWithInversion(loc, 9.0)));
+
+        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        assertThat(s.readings().inversionScore()).isEqualTo(9.0);
+    }
+
+    @Test
+    @DisplayName("EMPTY readings has a null inversionScore")
+    void emptyReadings_inversionScoreIsNull() {
+        assertThat(SurvivorSignals.Readings.EMPTY.inversionScore()).isNull();
     }
 
     @Test

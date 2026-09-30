@@ -152,6 +152,12 @@ public class SurvivorAtmosphereWriter {
             // SNOW_MIST facts (sub-zero mist over lying snow).
             row.setTemperatureCelsius(data.comfort().temperatureCelsius());
         }
+        // Cloud inversion likelihood (V158, Phase 2 of "record conditions for every place"):
+        // ForecastDataAugmentor.augmentWithInversionScore already ran InversionScoreCalculator for
+        // every inversion-eligible candidate before this write, so data.inversionScore() is already
+        // populated here exactly like every other reading on this row — null for an ineligible
+        // location, whatever the triage verdict or Gate 4 decision that follows turns out to be.
+        row.setInversionScore(data.inversionScore());
         row.setEvaluatedAt(Instant.now(clock));
         repository.save(row);
     }
