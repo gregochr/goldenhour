@@ -38,3 +38,15 @@ CLAUDE.md's Almanac section is corrected: the four `survivor_atmosphere`-backed 
 strategies (dust, fresh snow, snow on the tops, storm surge) now see readings out to the batch's
 full 5-day candidate window, not only the slots that reached Claude — the "record conditions for
 every place" bullet in the Backend-heavy notes records the rule.
+
+**Dust copy updated to match.** `DustHotTopicStrategy`'s chip and its science-tooltip description
+both promised colour outright — "vivid colour potential", "producing unusually vivid orange and red
+skies" — which was accurate when the topic could only ever fire on a slot Claude had already rated
+GO-adjacent. Now that the chip shows at a place whose sky is forecast blocked (a triaged-out or
+Gate-4-stood-down slot), that promise is no longer true by construction, so the copy now states the
+condition and makes the colour conditional on a clear sky rather than promising it: the chip reads
+"Elevated dust aloft — colour potential where the sky is clear", and the tooltip reads "Saharan dust
+carried north by upper winds can scatter light into unusually vivid orange and red skies at sunrise
+and sunset — when the sky is clear enough to show it." The identical description string duplicated
+inside `HotTopicSimulationService`'s admin DUST demo template is updated the same way, so the
+simulated topic an admin previews matches the live one.

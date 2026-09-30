@@ -28,8 +28,9 @@ import java.util.List;
 public class DustHotTopicStrategy implements HotTopicStrategy {
 
     private static final String DUST_DESCRIPTION =
-            "Saharan dust carried north by upper winds scatters light at sunrise and"
-                    + " sunset, producing unusually vivid orange and red skies.";
+            "Saharan dust carried north by upper winds can scatter light into unusually"
+                    + " vivid orange and red skies at sunrise and sunset — when the sky is"
+                    + " clear enough to show it.";
 
     /** Topic priority — act-on-it, sorts above the calendar heads-up topics. */
     private static final int PRIORITY = 3;
@@ -104,7 +105,7 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
                 dusty,
                 "DUST",
                 "Saharan dust",
-                "Elevated dust — vivid colour potential at sunrise and sunset",
+                "Elevated dust aloft — colour potential where the sky is clear",
                 PRIORITY,
                 DUST_DESCRIPTION,
                 dustFactsBuilder::attach);
