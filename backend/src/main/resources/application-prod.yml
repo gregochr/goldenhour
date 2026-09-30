@@ -79,6 +79,17 @@ resilience4j:
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
         exponentialMaxWaitDuration: 30s
+      # Second, longer-window retry around Anthropic Batch API creation calls
+      # (AnthropicBatchClient) — deliberately separate from "anthropic" above and much
+      # slower: batch creation is a handful of calls per cycle, hours apart, so ~30s/60s/120s
+      # of backoff (~3.5 min total on top of the SDK's own retries) is cheap insurance against
+      # a transient Anthropic-side 5xx/timeout. See docs on the 2026-09-29 incident.
+      anthropic-batch:
+        maxAttempts: 4
+        waitDuration: 30s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 120s
       open-meteo:
         maxAttempts: 3
         waitDuration: 5s

@@ -86,6 +86,25 @@ class ResilienceConfigTest {
     }
 
     @Test
+    @DisplayName("Anthropic-batch retry instance exists with 4 max attempts, separate from "
+            + "\"anthropic\"")
+    void anthropicBatchRetryConfigured() {
+        var retry = retryRegistry.retry("anthropic-batch");
+        assertThat(retry).isNotNull();
+        assertThat(retry.getRetryConfig().getMaxAttempts()).isEqualTo(4);
+        assertThat(retry.getRetryConfig().getExceptionPredicate()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Anthropic-batch has no circuit breaker of its own — it must not share tripped "
+            + "state with the per-location synchronous \"anthropic\" breaker")
+    void anthropicBatchHasNoDedicatedCircuitBreaker() {
+        assertThat(circuitBreakerRegistry.getAllCircuitBreakers())
+                .extracting(cb -> cb.getName())
+                .doesNotContain("anthropic-batch");
+    }
+
+    @Test
     @DisplayName("Open-Meteo retry predicate is wired")
     void openMeteoRetryPredicateWired() {
         var retry = retryRegistry.retry("open-meteo");

@@ -48,6 +48,23 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
     Optional<ForecastBatchEntity> findByAnthropicBatchId(String anthropicBatchId);
 
     /**
+     * Whether a batch with this Anthropic-assigned ID is already tracked.
+     *
+     * <p>Used by {@link com.gregochr.goldenhour.service.batch.AnthropicBatchClient}'s
+     * duplicate-batch adoption guard to exclude a listed candidate that is already a KNOWN
+     * batch — most importantly, an earlier bucket of the same cycle. {@link
+     * com.gregochr.goldenhour.service.batch.BatchSubmissionService#submit} persists a bucket's
+     * row immediately after {@code create()} returns, before the next bucket is even built, so by
+     * the time a later bucket's retry lists recent batches, every genuinely-succeeded sibling is
+     * already tracked and excluded here — closing the "adopts a sibling bucket's batch id" failure
+     * a size+timing match alone could not rule out.
+     *
+     * @param anthropicBatchId the {@code msgbatch_*} ID to check
+     * @return {@code true} if a row for this id already exists
+     */
+    boolean existsByAnthropicBatchId(String anthropicBatchId);
+
+    /**
      * Returns all batches tagged with the given pipeline run id.
      *
      * <p>Used by the nightly pipeline orchestrator to answer "is the batch

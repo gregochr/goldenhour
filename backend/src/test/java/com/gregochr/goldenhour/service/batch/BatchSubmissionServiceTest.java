@@ -1,16 +1,17 @@
 package com.gregochr.goldenhour.service.batch;
 
-import com.anthropic.client.AnthropicClient;
-import com.anthropic.core.http.AsyncStreamResponse;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
-import com.anthropic.services.blocking.MessageService;
-import com.anthropic.services.blocking.messages.BatchService;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.JobRunService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -36,37 +38,42 @@ import static org.mockito.Mockito.when;
 
 /**
  * Tests the unified batch submission service that replaced {@code submitBatch} and
- * {@code submitBatchWithResult} in Pass 2.
+ * {@code submitBatchWithResult} in Pass 2, and now delegates the actual Anthropic call to
+ * {@link AnthropicBatchClient} (the retry-hardened batch-creation seam added alongside the
+ * 2026-09-30 batch-submit-retry fix).
  */
 @ExtendWith(MockitoExtension.class)
 class BatchSubmissionServiceTest {
 
     @Mock
-    private AnthropicClient anthropicClient;
-    @Mock
-    private MessageService messageService;
-    @Mock
-    private BatchService batchService;
+    private AnthropicBatchClient anthropicBatchClient;
     @Mock
     private ForecastBatchRepository batchRepository;
     @Mock
     private JobRunService jobRunService;
     @Mock
     private MessageBatch messageBatch;
-    @Mock
-    private AsyncStreamResponse<String> streamResponse;
 
     private BatchSubmissionService service;
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger serviceLogger;
 
     @BeforeEach
     void setUp() {
-        service = new BatchSubmissionService(anthropicClient, batchRepository, jobRunService);
+        service = new BatchSubmissionService(anthropicBatchClient, batchRepository, jobRunService);
+        serviceLogger = (Logger) LoggerFactory.getLogger(BatchSubmissionService.class);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogAppender() {
+        serviceLogger.detachAppender(logAppender);
     }
 
     private void stubBatchCreate(String batchId) {
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-        when(batchService.create(any(BatchCreateParams.class))).thenReturn(messageBatch);
+        when(anthropicBatchClient.createBatch(any(BatchCreateParams.class))).thenReturn(messageBatch);
         when(messageBatch.id()).thenReturn(batchId);
         when(messageBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusHours(24));
     }
@@ -89,7 +96,7 @@ class BatchSubmissionServiceTest {
                 BatchTriggerSource.SCHEDULED, "Test");
 
         assertThat(result).isNull();
-        verify(anthropicClient, never()).messages();
+        verify(anthropicBatchClient, never()).createBatch(any());
         verify(batchRepository, never()).save(any());
         verify(jobRunService, never()).startBatchRun(anyInt(), anyString());
     }
@@ -162,12 +169,10 @@ class BatchSubmissionServiceTest {
     }
 
     @Test
-    @DisplayName("submit: Anthropic exception returns null without rethrowing")
+    @DisplayName("submit: a generic exception from AnthropicBatchClient returns null without rethrowing")
     void submit_anthropicThrows_returnsNull() {
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-        when(batchService.create(any(BatchCreateParams.class)))
-                .thenThrow(new RuntimeException("Anthropic 529"));
+        when(anthropicBatchClient.createBatch(any(BatchCreateParams.class)))
+                .thenThrow(new RuntimeException("boom"));
 
         BatchCreateParams.Request request = BatchCreateParams.Request.builder()
                 .customId("fc-1-2026-04-16-SUNRISE")
@@ -183,6 +188,36 @@ class BatchSubmissionServiceTest {
 
         assertThat(result).isNull();
         verify(batchRepository, never()).save(any());
+
+        assertThat(logAppender.list).hasSize(1);
+        ILoggingEvent event = logAppender.list.get(0);
+        assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+        assertThat(event.getFormattedMessage())
+                .isEqualTo("JFDI test submission failed (trigger=JFDI): boom");
+    }
+
+    @Test
+    @DisplayName("submit: retries exhausted on AnthropicBatchClient returns null and logs the "
+            + "exact attempt count at ERROR")
+    void submit_retriesExhausted_returnsNullAndLogsAttemptCount() {
+        when(anthropicBatchClient.createBatch(any(BatchCreateParams.class)))
+                .thenThrow(new BatchRetryExhaustedException(4,
+                        new RuntimeException("Internal server error")));
+
+        BatchSubmitResult result = service.submit(List.of(aRequest()), BatchType.FORECAST,
+                BatchTriggerSource.SCHEDULED, "Test exhausted");
+
+        assertThat(result).isNull();
+        verify(batchRepository, never()).save(any());
+        verify(jobRunService, never()).startBatchRun(anyInt(), anyString());
+
+        assertThat(logAppender.list).hasSize(1);
+        ILoggingEvent event = logAppender.list.get(0);
+        assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+        assertThat(event.getFormattedMessage())
+                .isEqualTo("Test exhausted submission failed after 4 attempt(s) "
+                        + "(trigger=SCHEDULED): Batch creation failed after 4 attempt(s): "
+                        + "Internal server error");
     }
 
     @Test
