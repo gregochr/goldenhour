@@ -35,7 +35,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -526,5 +531,170 @@ class AnthropicBatchClientTest {
 
         verify(batchService, times(4)).create(params);
         verify(batchService, times(3)).list(any(BatchListParams.class));
+    }
+
+    // ── Round 3 (a Codex review of #949's 8b8ed0dd): cross-submitter serialization and the
+    // handed-out-id record ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("createBatch: two concurrent callers are serialized — the second create() call "
+            + "starts only after the first createBatch() call has fully returned")
+    void concurrentCreateBatchCalls_areSerialized() throws InterruptedException {
+        useRetryWithMaxAttempts(4);
+        BatchCreateParams paramsA = BatchCreateParams.builder().requests(buildRequests(1)).build();
+        BatchCreateParams paramsB = BatchCreateParams.builder().requests(buildRequests(2)).build();
+        MessageBatch batchA = mock(MessageBatch.class);
+        MessageBatch batchB = mock(MessageBatch.class);
+        when(batchA.id()).thenReturn("msgbatch_a");
+        when(batchB.id()).thenReturn("msgbatch_b");
+
+        List<String> order = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch aEntered = new CountDownLatch(1);
+        CountDownLatch releaseA = new CountDownLatch(1);
+
+        when(batchService.create(paramsA)).thenAnswer(invocation -> {
+            order.add("A-enter");
+            aEntered.countDown();
+            assertThat(releaseA.await(5, TimeUnit.SECONDS)).isTrue();
+            return batchA;
+        });
+        when(batchService.create(paramsB)).thenAnswer(invocation -> {
+            order.add("B-enter");
+            return batchB;
+        });
+
+        Thread threadA = new Thread(() -> client.createBatch(paramsA));
+        threadA.start();
+        assertThat(aEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // B starts while A still holds creationLock (blocked inside its create() answer) — B
+        // must block on the lock and cannot call its own create() until A releases it.
+        Thread threadB = new Thread(() -> client.createBatch(paramsB));
+        threadB.start();
+
+        releaseA.countDown();
+        threadA.join(5_000);
+        threadB.join(5_000);
+
+        assertThat(threadA.isAlive()).isFalse();
+        assertThat(threadB.isAlive()).isFalse();
+        assertThat(order).containsExactly("A-enter", "B-enter");
+    }
+
+    @Test
+    @DisplayName("createBatch: the lock is released even when createBatch throws, so a "
+            + "following call from ANOTHER thread proceeds rather than deadlocking")
+    void lockIsReleasedOnFailure_followingCallFromAnotherThreadProceeds() throws InterruptedException {
+        useRetryWithMaxAttempts(1);
+        BatchCreateParams failingParams = BatchCreateParams.builder().requests(buildRequests(1)).build();
+        AnthropicServiceException badRequest = serviceException(400);
+        when(batchService.create(failingParams)).thenThrow(badRequest);
+
+        assertThatThrownBy(() -> client.createBatch(failingParams))
+                .isInstanceOf(BatchRetryExhaustedException.class);
+
+        BatchCreateParams followingParams = BatchCreateParams.builder().requests(buildRequests(2)).build();
+        MessageBatch success = mock(MessageBatch.class);
+        when(batchService.create(followingParams)).thenReturn(success);
+
+        AtomicReference<MessageBatch> resultHolder = new AtomicReference<>();
+        Thread otherThread = new Thread(() -> resultHolder.set(client.createBatch(followingParams)));
+        otherThread.start();
+        otherThread.join(5_000);
+
+        assertThat(otherThread.isAlive()).isFalse();
+        assertThat(resultHolder.get()).isSameAs(success);
+    }
+
+    @Test
+    @DisplayName("createBatch: a batch id this client already returned is never adopted later, "
+            + "even though it is absent from forecast_batch (the sky-rating shape — no tracking "
+            + "row is ever written for that caller)")
+    void previouslyHandedOutBatchId_isNeverAdoptedEvenWhenUntracked() {
+        useRetryWithMaxAttempts(4);
+        // uniqueParams(...), not buildRequests(1) for both: two calls to buildRequests(1) build
+        // structurally EQUAL BatchCreateParams (the same single deterministic customId each
+        // time), which Mockito would then treat as the SAME stubbed invocation — corrupting both
+        // the stub sequencing and the create()-count verification below. uniqueParams keeps the
+        // same request COUNT (1, so the size filter still matches) while keeping the two
+        // BatchCreateParams objects themselves distinct.
+        BatchCreateParams paramsA = uniqueParams("handed-out-a");
+        MessageBatch batchA = aBatch("msgbatch_sky_returned",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT, ZoneOffset.UTC), 1L);
+        when(batchService.create(paramsA)).thenReturn(batchA);
+
+        MessageBatch firstResult = client.createBatch(paramsA);
+        assertThat(firstResult).isSameAs(batchA);
+
+        // A second, distinct request of the SAME size. Its first attempt fails; the retry's
+        // adoption check lists recent batches and sees batchA — same size, createdAt equal to
+        // this call's own firstAttemptStart (both calls share the fixed clock) — but batchA was
+        // already handed out by THIS client and must never be adopted a second time, regardless
+        // of forecastBatchRepository (which, by default, does not track it either — exactly the
+        // sky-rating shape, where no ForecastBatchEntity row is ever written).
+        BatchCreateParams paramsB = uniqueParams("handed-out-b");
+        MessageBatch batchB = mock(MessageBatch.class);
+        BatchListPage page = mock(BatchListPage.class);
+        when(page.items()).thenReturn(List.of(batchA));
+        when(batchService.list(any(BatchListParams.class))).thenReturn(page);
+        when(batchService.create(paramsB))
+                .thenThrow(new AnthropicIoException("timeout"))
+                .thenReturn(batchB);
+
+        MessageBatch secondResult = client.createBatch(paramsB);
+
+        assertThat(secondResult).isSameAs(batchB);
+        verify(batchService, times(2)).create(paramsB);
+    }
+
+    @Test
+    @DisplayName("createBatch: the handed-out-id record is bounded — the eldest id is evicted "
+            + "once the cap is exceeded, so it becomes adoptable again")
+    void handedOutIdRecord_evictsEldestPastCap() {
+        useRetryWithMaxAttempts(4);
+        String firstId = "msgbatch_evict_me";
+        BatchCreateParams firstParams = uniqueParams("first");
+        MessageBatch firstBatch = aBatch(firstId,
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT, ZoneOffset.UTC), 1L);
+        when(batchService.create(firstParams)).thenReturn(firstBatch);
+        assertThat(client.createBatch(firstParams)).isSameAs(firstBatch);
+
+        // Fill the record past its cap with distinct successful creations, evicting firstId —
+        // each filler request is structurally unique (a distinct customId), so none of these
+        // stubs collide with each other or with firstParams/retryParams below.
+        for (int i = 0; i < AnthropicBatchClient.HANDED_OUT_ID_CAP; i++) {
+            BatchCreateParams fillerParams = uniqueParams("filler-" + i);
+            MessageBatch fillerBatch = mock(MessageBatch.class);
+            when(fillerBatch.id()).thenReturn("msgbatch_filler_" + i);
+            when(batchService.create(fillerParams)).thenReturn(fillerBatch);
+            client.createBatch(fillerParams);
+        }
+
+        // A distinct request whose retry's adoption check would find firstBatch as a same-size,
+        // same-timing candidate. It is no longer excluded by the handed-out-id record (evicted),
+        // so — still untracked in forecastBatchRepository — it is adopted.
+        BatchCreateParams retryParams = uniqueParams("retry");
+        BatchListPage page = mock(BatchListPage.class);
+        when(page.items()).thenReturn(List.of(firstBatch));
+        when(batchService.list(any(BatchListParams.class))).thenReturn(page);
+        when(batchService.create(retryParams)).thenThrow(new AnthropicIoException("timeout"));
+
+        MessageBatch result = client.createBatch(retryParams);
+
+        assertThat(result).isSameAs(firstBatch);
+    }
+
+    /** A {@link BatchCreateParams} with exactly one request, structurally unique per {@code tag}. */
+    private static BatchCreateParams uniqueParams(String tag) {
+        return BatchCreateParams.builder()
+                .requests(List.of(BatchCreateParams.Request.builder()
+                        .customId("unique-" + tag)
+                        .params(BatchCreateParams.Request.Params.builder()
+                                .model("claude-sonnet-4-6")
+                                .maxTokens(1024)
+                                .addUserMessage("test")
+                                .build())
+                        .build()))
+                .build();
     }
 }

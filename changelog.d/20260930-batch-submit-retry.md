@@ -50,6 +50,16 @@
     other 4xx (400/401/403/404/408/409/413) stays non-retryable.
   - The list call itself is best-effort — a failure there just proceeds to create, rather than
     blocking the retry on a diagnostic-only check.
+- **Round 3 (a further Codex review, after round 2 shipped as 8b8ed0dd): two DIFFERENT submitters
+  in the same process — forecast and aurora batches guard separately, and the weekly sky-rating
+  batch has no guard at all — could still race and adopt each other's batch id, since neither the
+  `forecast_batch` check nor sky-rating's total lack of tracking can see a sibling's batch before
+  its own caller has had a chance to persist (or, for sky-rating, ever will).** Fixed by serializing
+  every `AnthropicBatchClient.createBatch` call in the process behind one `ReentrantLock` (held for
+  the whole call, including retry waits) plus a bounded, in-memory record of every id this client
+  has ever handed out (created or adopted), written before the lock is released and checked
+  alongside the `forecast_batch` exclusion — closing the gap the lock alone leaves between one
+  call returning and its caller persisting.
 - **`BatchSubmissionService`'s contract is unchanged** (empty list → `null`; a persistence failure
   after a successful create still throws `OrphanedBatchException`; any other exhausted failure logs
   ERROR and returns `null`) but the ERROR line now says how many attempts were made

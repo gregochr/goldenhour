@@ -15,9 +15,12 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Retry-hardened wrapper around a single Anthropic Batch API call: creating a batch.
@@ -113,6 +116,58 @@ import java.util.concurrent.atomic.AtomicInteger;
  * retrying 429 for this call, {@link com.gregochr.goldenhour.config.BatchSubmitRetryPredicate} now
  * retries 429 itself (the one exception to "never a 4xx" — see its own javadoc for why that is
  * safe here specifically).
+ *
+ * <p><b>Why batch creation is serialized within this JVM, and why a handed-out-id record is
+ * still needed on top (round 3, a Codex review of #949's 8b8ed0dd).</b> Round 2 closed the
+ * single-submitter case, but two DIFFERENT submitters can race: {@code
+ * ScheduledBatchEvaluationService} guards forecast and aurora submission with two SEPARATE
+ * {@code AtomicBoolean}s (so a forecast bucket and an aurora batch can submit concurrently), and
+ * {@code SkyRatingEvalBatchService}/{@code SkyRatingEvalBatchClient} has no submission guard at
+ * all. If submitter A's {@code create()} times out after Anthropic had already accepted it, while
+ * submitter B's {@code create()} succeeds around the same moment, A's retry can list recent
+ * batches and see B's batch as the only UNTRACKED same-size match — {@link
+ * ForecastBatchRepository#existsByAnthropicBatchId} misses it because B has not yet persisted its
+ * own {@code forecast_batch} row (that happens in B's CALLER, after {@link #createBatch} already
+ * returned), and a sky-rating batch is never stored there at all. A then adopts B's batch, whose
+ * {@code custom_id}s are wrong for A's tasks.
+ *
+ * <p>{@link #creationLock}, a {@link ReentrantLock} instance field (this bean is a singleton, so
+ * one field serializes every caller in the process), is held for the ENTIRE body of {@link
+ * #createBatch} — including its retry waits, not just the HTTP calls — so no two {@code
+ * createBatch} invocations from this process can ever be in flight at once. A {@link
+ * ReentrantLock} rather than a {@code synchronized} method deliberately: this project runs on
+ * virtual threads, and a thread parked in {@code synchronized} pins its carrier thread for the
+ * whole wait, while {@code ReentrantLock.lock()} does not. Waiting up to the retry policy's full
+ * ~3.5 minutes behind another submitter's retries is acceptable here: batch creation is rare (a
+ * handful of calls per cycle), forecast buckets are already submitted sequentially within one
+ * cycle regardless, the aurora batch job is seeded PAUSED, and the sky-rating batch runs weekly.
+ *
+ * <p>The lock alone is not sufficient, though: it only prevents two calls being IN FLIGHT
+ * together, not one call seeing a batch a JUST-FINISHED call returned. Once A releases the lock
+ * (having adopted or created), B can acquire it, fail, list, and see A's batch — still untracked
+ * in {@code forecast_batch}, because A's caller has not persisted it yet, or as with sky-rating,
+ * never will. {@link #handedOutBatchIds} closes that gap: every id {@link #createBatch} is about
+ * to return — created or adopted — is recorded into it BEFORE the lock is released, and {@link
+ * #findAdoptableBatch} excludes any id already in it, alongside the {@code forecast_batch} check.
+ * It is a plain {@link LinkedHashMap} with an overridden {@code removeEldestEntry}, guarded by
+ * {@code synchronized} blocks (a quick map mutation, never a blocking wait, so pinning a virtual
+ * thread's carrier here is not the concern {@link #creationLock} exists for) rather than {@link
+ * java.util.Collections#synchronizedMap}, so the eviction check and the put stay visibly paired at
+ * each call site. Bounded at {@value #HANDED_OUT_ID_CAP} entries, oldest inserted evicted first:
+ * a batch old enough to fall out of a window this small was created before any submission this
+ * process could still plausibly be retrying (the retry policy's own ~3.5-minute ceiling bounds how
+ * long a single {@code createBatch} call, and therefore how stale an in-flight sibling's id, can
+ * be), so evicting it is safe.
+ *
+ * <p><b>Remaining limit.</b> Both mechanisms are scoped to THIS JVM. A different process — another
+ * instance of this application, or a local dev run pointed at the production API key — shares
+ * neither the lock nor the handed-out-id record, and could in principle have its batch adopted by
+ * this one in the rare case both create a same-size batch inside the same short retry window. The
+ * ambiguity refusal in {@link #findAdoptableBatch} still catches the case where both that batch
+ * and this attempt's own orphan are simultaneously visible and untracked; it cannot catch the case
+ * where only the OTHER process's batch is visible and this one's own orphan is not (e.g. because
+ * this attempt in fact failed outright and created nothing) — that is a single, unresolvable
+ * candidate, adopted exactly as any other single match is.
  */
 @Service
 public class AnthropicBatchClient {
@@ -130,6 +185,12 @@ public class AnthropicBatchClient {
     private static final long RECENT_BATCH_LIST_LIMIT = 20L;
 
     /**
+     * Bound on {@link #handedOutBatchIds} — see the class javadoc's round-3 section for why this
+     * size is safe.
+     */
+    static final int HANDED_OUT_ID_CAP = 500;
+
+    /**
      * The shared client with transport-level retries disabled ({@code maxRetries = 0}), derived
      * once in the constructor. See the class javadoc's P1-B section for why every {@code create()}
      * and {@code list()} call in this class must go through this client rather than the raw one.
@@ -139,6 +200,28 @@ public class AnthropicBatchClient {
     private final RetryRegistry retryRegistry;
     private final Clock clock;
     private final ForecastBatchRepository forecastBatchRepository;
+
+    /**
+     * Serializes every {@link #createBatch} call from this process — see the class javadoc's
+     * round-3 section. A {@link ReentrantLock} rather than {@code synchronized}: this project runs
+     * on virtual threads, and only {@code ReentrantLock.lock()} avoids pinning the carrier thread
+     * for the whole wait.
+     */
+    private final ReentrantLock creationLock = new ReentrantLock();
+
+    /**
+     * Every batch id this instance's {@link #createBatch} has returned — created or adopted —
+     * recorded before {@link #creationLock} is released. See the class javadoc's round-3 section
+     * for why {@link ForecastBatchRepository} tracking alone is not enough and for the bound's
+     * justification. Plain {@link LinkedHashMap}, not {@link java.util.Collections#synchronizedMap},
+     * guarded by explicit {@code synchronized} blocks at each of its two call sites.
+     */
+    private final Map<String, Boolean> handedOutBatchIds = new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+            return size() > HANDED_OUT_ID_CAP;
+        }
+    };
 
     /**
      * Constructs the client.
@@ -169,6 +252,10 @@ public class AnthropicBatchClient {
      * previous attempt actually created the batch despite looking like a failure locally, and
      * adopts it rather than risking a paid duplicate — see {@link #findAdoptableBatch}.
      *
+     * <p>Serialized against every other caller in this process via {@link #creationLock} — see
+     * the class javadoc's round-3 section — for the whole call, including retry waits. The
+     * returned batch's id is recorded into {@link #handedOutBatchIds} before the lock is released.
+     *
      * @param params the batch creation parameters
      * @return the created (or adopted) batch
      * @throws BatchRetryExhaustedException if every attempt failed — wraps the last failure and
@@ -178,14 +265,34 @@ public class AnthropicBatchClient {
      *                                       than an Anthropic-side error.
      */
     public MessageBatch createBatch(BatchCreateParams params) {
-        Instant firstAttemptStart = Instant.now(clock);
-        AtomicInteger attemptCounter = new AtomicInteger(0);
-        Retry retry = retryRegistry.retry(RETRY_INSTANCE_NAME);
+        creationLock.lock();
         try {
-            return retry.executeSupplier(
-                    () -> attemptCreate(params, firstAttemptStart, attemptCounter));
-        } catch (RuntimeException e) {
-            throw new BatchRetryExhaustedException(attemptCounter.get(), e);
+            Instant firstAttemptStart = Instant.now(clock);
+            AtomicInteger attemptCounter = new AtomicInteger(0);
+            Retry retry = retryRegistry.retry(RETRY_INSTANCE_NAME);
+            MessageBatch batch;
+            try {
+                batch = retry.executeSupplier(
+                        () -> attemptCreate(params, firstAttemptStart, attemptCounter));
+            } catch (RuntimeException e) {
+                throw new BatchRetryExhaustedException(attemptCounter.get(), e);
+            }
+            recordHandedOut(batch.id());
+            return batch;
+        } finally {
+            creationLock.unlock();
+        }
+    }
+
+    private void recordHandedOut(String batchId) {
+        synchronized (handedOutBatchIds) {
+            handedOutBatchIds.put(batchId, Boolean.TRUE);
+        }
+    }
+
+    private boolean wasHandedOutByThisProcess(String batchId) {
+        synchronized (handedOutBatchIds) {
+            return handedOutBatchIds.containsKey(batchId);
         }
     }
 
@@ -209,12 +316,15 @@ public class AnthropicBatchClient {
      * <p>A candidate is a batch whose {@code createdAt} is at or after {@code firstAttemptStart}
      * (no tolerance — see the class javadoc's P1-A section), whose total request count
      * (processing + succeeded + errored + canceled + expired) equals {@code
-     * params.requests().size()}, and whose id {@link ForecastBatchRepository} does not already
-     * know about (excludes a genuinely-succeeded sibling bucket, which is tracked by the time this
-     * runs). Exactly one such candidate is adopted directly. Two or more is refused outright — see
-     * {@link AmbiguousBatchAdoptionException}. The list call itself is best-effort: if it fails,
-     * this returns empty so the caller proceeds to create a batch rather than blocking a retry on
-     * a diagnostic-only check.
+     * params.requests().size()}, whose id {@link ForecastBatchRepository} does not already know
+     * about (excludes a genuinely-succeeded sibling bucket, which is tracked by the time this
+     * runs), and whose id is not already in {@link #handedOutBatchIds} (excludes a batch THIS
+     * client already returned to a different, concurrent caller — see the class javadoc's
+     * round-3 section for why the {@code forecast_batch} check alone misses that case). Exactly
+     * one such candidate is adopted directly. Two or more is refused outright — see {@link
+     * AmbiguousBatchAdoptionException}. The list call itself is best-effort: if it fails, this
+     * returns empty so the caller proceeds to create a batch rather than blocking a retry on a
+     * diagnostic-only check.
      *
      * @param params            the batch creation parameters for the attempt about to run
      * @param firstAttemptStart the original attempt's start instant
@@ -241,6 +351,7 @@ public class AnthropicBatchClient {
                 .filter(b -> !b.createdAt().toInstant().isBefore(firstAttemptStart))
                 .filter(b -> totalRequestCount(b) == expectedRequestCount)
                 .filter(b -> !forecastBatchRepository.existsByAnthropicBatchId(b.id()))
+                .filter(b -> !wasHandedOutByThisProcess(b.id()))
                 .sorted(Comparator.comparing((MessageBatch b) -> b.createdAt().toInstant()).reversed())
                 .toList();
 
