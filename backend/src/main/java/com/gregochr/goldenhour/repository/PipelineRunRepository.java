@@ -46,4 +46,19 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
     Optional<PipelineRunEntity>
             findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
                     CycleType cycleType, Instant start, Instant end);
+
+    /**
+     * Whether any pipeline run was triggered strictly after the given instant.
+     *
+     * <p>The cheap Phase 1 check for the verdict-minimum-sample gap-1 fix (round 13,
+     * {@code BriefingEvaluationService}'s disposition-supersede rule): the common case is that no
+     * cycle has started after the one that submitted an incoming batch result, so this one indexed
+     * existence check is all a merge call pays — the more expensive disposition join
+     * ({@code ForecastRunDispositionRepository#findSupersedingCycleTriggerTimes}) runs only when
+     * this returns {@code true}.
+     *
+     * @param threshold the instant to compare against — an incoming result's own submission instant
+     * @return {@code true} if at least one pipeline run's {@code trigger_time} is after it
+     */
+    boolean existsByTriggerTimeAfter(Instant threshold);
 }

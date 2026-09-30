@@ -8,6 +8,8 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
+import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -41,6 +43,8 @@ class EvaluationDeltaLogTest {
     @Mock private EvaluationDeltaLogRepository deltaLogRepository;
     @Mock private FreshnessResolver freshnessResolver;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
+    @Mock private PipelineRunRepository pipelineRunRepository;
+    @Mock private ForecastRunDispositionRepository forecastRunDispositionRepository;
 
     private BriefingEvaluationService service;
 
@@ -52,7 +56,8 @@ class EvaluationDeltaLogTest {
                 // an Instant, and persistToDb only WARNs on a serialisation failure, so a bare
                 // mapper would quietly skip the persistence path instead of failing.
                 new ObjectMapper().registerModule(new JavaTimeModule()),
-                freshnessResolver, stabilitySnapshotProvider);
+                freshnessResolver, stabilitySnapshotProvider,
+                pipelineRunRepository, forecastRunDispositionRepository);
     }
 
     @SuppressWarnings("unchecked")

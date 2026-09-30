@@ -139,6 +139,23 @@ import java.time.Instant;
  *                            compare against it, and a {@code null} value is omitted so a result
  *                            with no submission instant round-trips byte-identical to one written
  *                            before this field existed.
+ *                            ⚠️ <b>Round 13: comparing against a STORED result is not the whole
+ *                            story either — a result can be superseded by a DECISION with no
+ *                            competing result to compare against at all.</b> A later cycle's Gate 4
+ *                            stability skip or triage stand-down writes no {@code cached_evaluation}
+ *                            entry — only a {@code forecast_run_disposition} row — so a batch delayed
+ *                            past that decision had nothing stored to lose a staleness comparison
+ *                            against. {@code BriefingEvaluationService.supersededByLaterRun} is the
+ *                            second check every merge method now runs, before the staleness
+ *                            comparison this field drives: it asks whether a pipeline run that
+ *                            started AFTER this field's own value has already recorded a decision
+ *                            about the same slot, via a join through {@code ForecastBatchEntity} to
+ *                            the disposition's OWNING CYCLE'S trigger time — never the disposition's
+ *                            own {@code created_at}, which a same-cycle disposition always postdates
+ *                            and would otherwise make every cycle's own paperwork look like it
+ *                            supersedes the very result it documents. See that method's own javadoc
+ *                            for the two-phase query shape and {@code BriefingEvaluationService}'s
+ *                            class javadoc for the full rule. Arrival order still decides nothing.
  */
 public record BriefingEvaluationResult(
         String locationName,

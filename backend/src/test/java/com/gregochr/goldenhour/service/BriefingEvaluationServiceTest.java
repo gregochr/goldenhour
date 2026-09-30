@@ -14,6 +14,8 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
+import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,7 +37,10 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -65,6 +70,8 @@ class BriefingEvaluationServiceTest {
     @Mock private EvaluationDeltaLogRepository deltaLogRepository;
     @Mock private FreshnessResolver freshnessResolver;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
+    @Mock private PipelineRunRepository pipelineRunRepository;
+    @Mock private ForecastRunDispositionRepository forecastRunDispositionRepository;
 
     // Must match the ObjectMapper bean AppConfig actually injects, JavaTimeModule and all.
     // A bare `new ObjectMapper()` cannot serialise the Instant that BriefingEvaluationResult now
@@ -209,7 +216,8 @@ class BriefingEvaluationServiceTest {
 
             BriefingEvaluationService restarted = new BriefingEvaluationService(
                     cachedEvaluationRepository, deltaLogRepository,
-                    objectMapper, freshnessResolver, stabilitySnapshotProvider);
+                    objectMapper, freshnessResolver, stabilitySnapshotProvider,
+                    pipelineRunRepository, forecastRunDispositionRepository);
             restarted.rehydrateCacheOnStartup();
 
             assertThat(restarted.getCachedScores(REGION, today, TargetType.SUNRISE)
@@ -221,11 +229,18 @@ class BriefingEvaluationServiceTest {
     void setUp() {
         service = new BriefingEvaluationService(
                 cachedEvaluationRepository, deltaLogRepository,
-                objectMapper, freshnessResolver, stabilitySnapshotProvider);
+                objectMapper, freshnessResolver, stabilitySnapshotProvider,
+                pipelineRunRepository, forecastRunDispositionRepository);
         // Default: no existing DB cache entries
         org.mockito.Mockito.lenient()
                 .when(cachedEvaluationRepository.findByCacheKey(any()))
                 .thenReturn(java.util.Optional.empty());
+        // Default: no later pipeline run exists — every pre-existing test (and any new test that
+        // does not deliberately opt into the round-13 "gap 1" scenario) short-circuits Gap 1's
+        // Phase 1 check with no further interaction, exactly like the pre-round-13 code path.
+        org.mockito.Mockito.lenient()
+                .when(pipelineRunRepository.existsByTriggerTimeAfter(any()))
+                .thenReturn(false);
     }
 
     // ── getCachedScores / hasEvaluation ────────────────────────────────────────
@@ -897,6 +912,145 @@ class BriefingEvaluationServiceTest {
                     service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
             assertThat(stored.rating()).isEqualTo(4);
             assertThat(stored.summary()).isEqualTo("no-instant");
+        }
+    }
+
+    // ── round 13, "gap 1": a result superseded by a DECISION, not merely a stored result ──
+
+    @Nested
+    @DisplayName("a result superseded by a later cycle's disposition reaches no sink (round 13)")
+    class SupersededByLaterRun {
+
+        private final String cacheKey = REGION + "|" + DATE + "|SUNSET";
+
+        private static final Instant NIGHTLY = Instant.parse("2026-03-30T01:05:00Z");
+        private static final Instant INTRADAY = Instant.parse("2026-03-30T14:04:00Z");
+
+        private static BriefingEvaluationResult sky(String location, int rating, boolean forced,
+                Instant submittedAt) {
+            BriefingEvaluationResult r = new BriefingEvaluationResult(
+                    location, rating, 70, 65, "sky-" + rating).withSubmittedAt(submittedAt);
+            return forced ? r.withForced(true) : r;
+        }
+
+        @Test
+        @DisplayName("Codex's case: a cycle T1 rating arrives after cycle T2's SKIPPED_STABILITY "
+                + "for the same slot — not written; the cache never carries the slot at all")
+        void lateOlderResult_rejectedAfterNewerStabilitySkip() {
+            when(pipelineRunRepository.existsByTriggerTimeAfter(NIGHTLY)).thenReturn(true);
+            when(forecastRunDispositionRepository.findSupersedingCycleTriggerTimes(
+                    eq(DATE), eq("SUNSET"), any(), eq(NIGHTLY)))
+                    .thenReturn(List.<Object[]>of(new Object[] {"X", INTRADAY}));
+
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 3, false, NIGHTLY)));
+
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).doesNotContainKey("X");
+        }
+
+        @Test
+        @DisplayName("the same, with T2's decision being SKIPPED_TRIAGED instead — the query does "
+                + "not distinguish which non-cached disposition category superseded the slot, so "
+                + "the outcome is identical: not written")
+        void lateOlderResult_rejectedAfterNewerTriageStandDown() {
+            when(pipelineRunRepository.existsByTriggerTimeAfter(NIGHTLY)).thenReturn(true);
+            when(forecastRunDispositionRepository.findSupersedingCycleTriggerTimes(
+                    eq(DATE), eq("SUNSET"), any(), eq(NIGHTLY)))
+                    .thenReturn(List.<Object[]>of(new Object[] {"X", INTRADAY}));
+
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 3, false, NIGHTLY)));
+
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).doesNotContainKey("X");
+        }
+
+        @Test
+        @DisplayName("the late result carries forced=true: still rejected — a superseded result "
+                + "buys the region no exemption, because nothing about it is ever written")
+        void lateOlderForcedResult_rejectedAndGrantsNoExemption() {
+            when(pipelineRunRepository.existsByTriggerTimeAfter(NIGHTLY)).thenReturn(true);
+            when(forecastRunDispositionRepository.findSupersedingCycleTriggerTimes(
+                    eq(DATE), eq("SUNSET"), any(), eq(NIGHTLY)))
+                    .thenReturn(List.<Object[]>of(new Object[] {"X", INTRADAY}));
+
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 5, true, NIGHTLY)));
+
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).doesNotContainKey("X");
+        }
+
+        @Test
+        @DisplayName("SAME cycle writes a disposition for this slot (its own FORCE_EVALUATED "
+                + "record, created moments after the cycle's trigger time): the forced rating IS "
+                + "written — a disposition whose owning cycle's trigger time EQUALS the incoming "
+                + "result's own submittedAt is not \"later\", never superseding its own cycle")
+        void sameCycleDisposition_doesNotSupersedeItsOwnResult() {
+            when(pipelineRunRepository.existsByTriggerTimeAfter(NIGHTLY)).thenReturn(true);
+            // Defensive-depth: even if the repository ever returned a same-cycle row (which the
+            // real query's strict `>` excludes by construction), the service's own in-memory
+            // isAfter check must still refuse to treat an EQUAL instant as later.
+            when(forecastRunDispositionRepository.findSupersedingCycleTriggerTimes(
+                    eq(DATE), eq("SUNSET"), any(), eq(NIGHTLY)))
+                    .thenReturn(List.<Object[]>of(new Object[] {"X", NIGHTLY}));
+
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 4, true, NIGHTLY)));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored).isNotNull();
+            assertThat(stored.rating()).isEqualTo(4);
+            assertThat(stored.forced()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a later cycle recorded only SKIPPED_CACHED for the region: the disposition "
+                + "query excludes that category, so it returns nothing for this slot and the late "
+                + "result IS written")
+        void laterCycleRecordedOnlyCachedSkip_resultStillWritten() {
+            when(pipelineRunRepository.existsByTriggerTimeAfter(NIGHTLY)).thenReturn(true);
+            when(forecastRunDispositionRepository.findSupersedingCycleTriggerTimes(
+                    eq(DATE), eq("SUNSET"), any(), eq(NIGHTLY)))
+                    .thenReturn(List.of());
+
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 3, false, NIGHTLY)));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored).isNotNull();
+            assertThat(stored.rating()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("a retry batch's result, with its precursor cycle's own disposition present: "
+                + "written — the retry shares its precursor's cycle trigger time, so that "
+                + "disposition is not \"later\" either")
+        void retryBatchResult_withPrecursorCycleRowsPresent_written() {
+            when(pipelineRunRepository.existsByTriggerTimeAfter(NIGHTLY)).thenReturn(true);
+            when(forecastRunDispositionRepository.findSupersedingCycleTriggerTimes(
+                    eq(DATE), eq("SUNSET"), any(), eq(NIGHTLY)))
+                    .thenReturn(List.<Object[]>of(new Object[] {"X", NIGHTLY}));
+
+            // mergeFromBatch is the RETRY_FAILED merge path — see the method's own javadoc.
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 4, false, NIGHTLY)));
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored).isNotNull();
+            assertThat(stored.rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("no later run exists: exactly one query, and the disposition repository is "
+                + "never touched at all")
+        void noLaterRunExists_costsExactlyOneQuery() {
+            when(pipelineRunRepository.existsByTriggerTimeAfter(NIGHTLY)).thenReturn(false);
+
+            service.mergeFromBatch(cacheKey, List.of(sky("X", 3, false, NIGHTLY)));
+
+            verify(pipelineRunRepository, times(1)).existsByTriggerTimeAfter(NIGHTLY);
+            verifyNoInteractions(forecastRunDispositionRepository);
+
+            BriefingEvaluationResult stored =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("X");
+            assertThat(stored).isNotNull();
+            assertThat(stored.rating()).isEqualTo(3);
         }
     }
 

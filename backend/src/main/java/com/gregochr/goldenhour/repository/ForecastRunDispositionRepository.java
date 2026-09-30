@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -151,4 +152,64 @@ public interface ForecastRunDispositionRepository
             + ")")
     List<Object[]> findLatestNonCachedDispositions(
             @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    /**
+     * For the given slots (one date, one event type, a set of location names), returns the OWNING
+     * CYCLE'S {@code trigger_time} of every non-{@code SKIPPED_CACHED} disposition recorded by a
+     * pipeline run that started strictly after {@code thresholdInstant} — Phase 2 of the round-13
+     * "gap 1" fix ({@code BriefingEvaluationService}'s per-batch disposition-supersede check).
+     *
+     * <p>⚠️ <b>Joins through {@code forecast_batch}, and comparing the disposition's OWN
+     * {@code created_at} against the threshold instead would be wrong.</b> A disposition row
+     * carries no pipeline run id of its own — {@code ForecastDispositionService#persist} anchors
+     * every disposition from a cycle against that cycle's FIRST job run, and exactly one
+     * {@code forecast_batch} row (the first bucket submitted that cycle) shares that same
+     * {@code job_run_id} and also carries the cycle's real {@code pipeline_run_id} — so this is the
+     * one join that recovers "which cycle wrote this disposition" without a schema migration
+     * (both columns already existed). A disposition is always written a short time AFTER its own
+     * cycle starts (collection happens, then the disposition insert follows the first batch
+     * submission), so every cycle's OWN {@code EVALUATED}/{@code FORCE_EVALUATED}/
+     * {@code SKIPPED_STABILITY} row for a slot it just decided has a {@code created_at} strictly
+     * after that SAME cycle's own trigger time — comparing {@code created_at} directly against an
+     * incoming result's submission instant (which, for an orchestrated batch, IS that same trigger
+     * time) would make every cycle's own disposition look like it "supersedes" the very result it
+     * documents. Comparing the OWNING CYCLE's trigger time instead correctly reads a same-cycle
+     * disposition as simultaneous (excluded by the caller's strict {@code isAfter} test on the
+     * returned value against the result's own submission instant), never later.
+     *
+     * <p>Returns the raw {@code [locationName (String), cycleTriggerTime (Instant)]} pairs rather
+     * than a single winner so the caller can resolve each location's own verdict independently
+     * against that location's own submission instant — necessary because although every location in
+     * one batch call shares the same date and event type, a caller must not assume they all share
+     * one submission instant (a retry batch's recovered locations still carry their precursor
+     * cycle's instant, but nothing enforces every batch that ever calls this shares exactly one).
+     * Excludes {@code SKIPPED_CACHED} for the same reason {@link #findLatestNonCachedDispositions}
+     * does — a region-level cache reuse is not a decision about any one slot.
+     *
+     * <p>One bulk query, only reached when {@code PipelineRunRepository#existsByTriggerTimeAfter}
+     * has already confirmed a later cycle exists at all — never one per location.
+     *
+     * @param date             the slots' evaluation date
+     * @param eventType        the slots' stored event type string (e.g. {@code "SUNRISE"})
+     * @param locationNames    the candidate location names to check
+     * @param thresholdInstant only a disposition whose owning cycle started strictly after this
+     *                         counts
+     * @return {@code [locationName, cycleTriggerTime]} pairs, one per qualifying disposition (a
+     *         location may appear more than once if more than one later cycle wrote a disposition
+     *         for it — the caller takes the latest)
+     */
+    @Query("SELECT d.locationName, p.triggerTime "
+            + "FROM ForecastRunDispositionEntity d, ForecastBatchEntity b, PipelineRunEntity p "
+            + "WHERE d.jobRunId = b.jobRunId "
+            + "AND b.pipelineRunId = p.id "
+            + "AND d.evaluationDate = :date "
+            + "AND d.eventType = :eventType "
+            + "AND d.locationName IN (:locationNames) "
+            + "AND d.disposition <> 'SKIPPED_CACHED' "
+            + "AND p.triggerTime > :thresholdInstant")
+    List<Object[]> findSupersedingCycleTriggerTimes(
+            @Param("date") LocalDate date,
+            @Param("eventType") String eventType,
+            @Param("locationNames") Collection<String> locationNames,
+            @Param("thresholdInstant") Instant thresholdInstant);
 }

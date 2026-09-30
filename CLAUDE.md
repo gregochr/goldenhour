@@ -436,7 +436,7 @@ difference a change. This cost a day on 2026-08-03.
 | store | per-run history | written by | read by |
 |---|---|---|---|
 | `cached_evaluation` (briefing evaluation cache) | **no** — overwritten each run, ⚠️ **on the basis of SUBMISSION order, never arrival order** (round 12) — see below | `BriefingEvaluationService.writeFromBatch`, from the batch pipeline | `BriefingService.enrichSlot` — **this is the rating the UI displays**, keyed by location *name* — ⚠️ since the tide gate lift (2026-09-18, `docs/engineering/tide-window-plan.md` §6 Q1) each entry's `results_json` also carries `skyRating` (`BriefingEvaluationResult.skyRating` → `BriefingSlot.skyRating`, no migration): the sky visitor's own component alone, with no tide averaged in, next to the combined `rating` every other reader already used. Null on a row written before the field existed |
-| `forecast_score` (V108) | **no** — `uq_forecast_score_component` is UNIQUE on (forecast_type, location, date, event); latest evaluation wins, deliberately matching `cached_evaluation` semantics | the Pass-2 dual write in `ForecastResultHandler` | **`ForecastDtoMapper`** (the API DTO's Claude BLUEBELL rating) and **`SurvivorSignalReader`** (hot-topic components, read by all six survivor-signal strategies and by the "Coming up" panel's dust/inversion conditions) — ⚠️ *not* a proving surface any more, whatever the older comments said. ⚠️ **The two readers now apply DIFFERENT rules, on purpose (owner decision, 2026-09-29 — the two-question rule; see the "Hot topics are recomputed LIVE" bullet above).** `ForecastDtoMapper` serves this component as a RATING (the DTO's bluebell score), so it keeps the retraction rule: a component here is evidence exactly like a rating, and a nightly Gate 4 stability skip retracts it the same way, dropping (never serving) a component whose own `evaluated_at` predates the slot's most recent stability skip, via `EvaluationViewService.isRetractedByStabilitySkip` against a `loadStabilitySkips` map it loads once per `toDtoList` call and once per single-row `toDto`. `SurvivorSignalReader` applies **no retraction of any kind** — it briefly did, for one day (commit c6e14cc8, reverted the next day by the owner decision above), and now returns every INVERSION/BLUEBELL component exactly as stored, whatever a later stability skip or triage stand-down has since decided about the RATING for the same slot. `survivor_atmosphere` readings (dust, surge, snow) were never retracted on either path — measured/forecast atmospheric INPUT, never Claude's opinion. A stale `forecast_score` row hidden behind a newer TRIAGE row is therefore not a gap on the hot-topic path — nothing there is retracted by design — and remains, as before, unaddressed on the `ForecastDtoMapper`/rating side (no fresh row is ever written for a triage stand-down the way `forecast_evaluation` always gets one) |
+| `forecast_score` (V108) | **no** — `uq_forecast_score_component` is UNIQUE on (forecast_type, location, date, event); latest evaluation wins, deliberately matching `cached_evaluation` semantics — ⚠️ since round 13's "gap 2", "latest" means latest by `pipeline_run_id` ordering, never by arrival order: `ForecastScoreWriter#upsert` rejects an incoming write whose `pipelineRunId` is strictly smaller than the stored row's, see the round-13 bullet below | the Pass-2 dual write in `ForecastResultHandler` | **`ForecastDtoMapper`** (the API DTO's Claude BLUEBELL rating) and **`SurvivorSignalReader`** (hot-topic components, read by all six survivor-signal strategies and by the "Coming up" panel's dust/inversion conditions) — ⚠️ *not* a proving surface any more, whatever the older comments said. ⚠️ **The two readers now apply DIFFERENT rules, on purpose (owner decision, 2026-09-29 — the two-question rule; see the "Hot topics are recomputed LIVE" bullet above).** `ForecastDtoMapper` serves this component as a RATING (the DTO's bluebell score), so it keeps the retraction rule: a component here is evidence exactly like a rating, and a nightly Gate 4 stability skip retracts it the same way, dropping (never serving) a component whose own `evaluated_at` predates the slot's most recent stability skip, via `EvaluationViewService.isRetractedByStabilitySkip` against a `loadStabilitySkips` map it loads once per `toDtoList` call and once per single-row `toDto`. `SurvivorSignalReader` applies **no retraction of any kind** — it briefly did, for one day (commit c6e14cc8, reverted the next day by the owner decision above), and now returns every INVERSION/BLUEBELL component exactly as stored, whatever a later stability skip or triage stand-down has since decided about the RATING for the same slot. `survivor_atmosphere` readings (dust, surge, snow) were never retracted on either path — measured/forecast atmospheric INPUT, never Claude's opinion. A stale `forecast_score` row hidden behind a newer TRIAGE row is therefore not a gap on the hot-topic path — nothing there is retracted by design — and remains, as before, unaddressed on the `ForecastDtoMapper`/rating side (no fresh row is ever written for a triage stand-down the way `forecast_evaluation` always gets one) |
 | `forecast_evaluation` | **yes**, insert-only and never pruned | the **synchronous** engine | `GET /api/forecast` (the map's primary endpoint), `EvaluationViewService`, `ForecastCalibrationService` |
 
 ⚠️ **Round 12: "overwritten each run" is true, but "each run" means "each SUBMITTED evaluation," and
@@ -485,6 +485,57 @@ row-scoring seam (`ForecastResultHandler#scoreEvaluationRow`) is not exposed the
 a row by primary key, one row per submission, so a late arrival can only ever affect its OWN row, never
 overwrite a different cycle's; the pre-existing "latest row per slot" SERVE query is a separate,
 already-documented `forecast_evaluation` limitation, not a new one this round created.
+
+⚠️ **Round 13 found the class of bug went WIDER than round 12's own comparison could reach, on two
+fronts — "gap 1" and "gap 2" — and fixed both except the one named follow-up above.** A Codex review
+of round 12 found that comparing an incoming result against whatever is currently STORED is not
+enough: a later cycle's Gate 4 stability skip or weather-triage stand-down writes NO
+`cached_evaluation` entry to compare against at all — only a `forecast_run_disposition` row — so a
+batch delayed past that later decision had nothing to lose a staleness comparison against, and wrote
+its (chronologically stale) rating straight into the cache, restoring the arrival-order bug for
+exactly the case the serve-time stability-skip retraction above was built for. **Gap 1**
+(`BriefingEvaluationService.supersededByLaterRun`, called from `mergeFromBatch`,
+`mergeWoodlandFromBatch` and `mergeBluebellFromBatch` before any staleness/combination logic runs):
+before writing or combining a location, checks whether a pipeline run that started AFTER the
+incoming result's own `submittedAt` has already recorded ANY non-`SKIPPED_CACHED` disposition for
+that exact slot; if so, the result is superseded and reaches no sink at all (logged once at INFO).
+⚠️ **The join must be keyed on the disposition's OWNING CYCLE's `trigger_time`, never on the
+disposition's own `created_at`** — a disposition is always written a short time AFTER its own cycle
+starts, so comparing `created_at` directly against an incoming result's `submittedAt` (which, for an
+orchestrated batch, IS that same cycle's trigger time) would make every cycle's own
+`EVALUATED`/`FORCE_EVALUATED`/`SKIPPED_STABILITY` disposition look like it supersedes the very result
+it documents — every forced T+3 rating would vanish, the exact hazard the round-13 brief asked to be
+confirmed before building. `ForecastRunDispositionEntity` carries no pipeline run id of its own, but
+recovers one without a migration: `ForecastDispositionService#persist` anchors every cycle's
+dispositions against that cycle's FIRST job run, and exactly one `ForecastBatchEntity` row (the first
+bucket submitted that cycle) shares that same `job_run_id` and already carries the real
+`pipeline_run_id` — `ForecastRunDispositionRepository#findSupersedingCycleTriggerTimes` is the
+three-entity JPQL join that recovers it. Two queries in the worst case, one in the common case:
+`PipelineRunRepository#existsByTriggerTimeAfter` is a cheap Phase 1 existence check (does ANY cycle
+exist after the earliest submission among this batch's own results at all), and the disposition join
+is Phase 2, reached — and paid for, once, for the whole batch, never per location — only when Phase 1
+says yes. Only orchestrated batches write dispositions at all (`submitForecastBatchForPipelineRun`
+`requireNonNull`s the `pipelineRunId`; JFDI and the synchronous engine write none), so only they can
+ever supersede anything under this rule — but a synchronous or JFDI RESULT is covered as a target
+uniformly, since the synchronous path also routes through `mergeFromBatch`. The `PENDING`
+`forecast_evaluation` row is still scored unconditionally by `scoreEvaluationRow`, unaffected by this
+check (it runs earlier, inside `ForecastResultHandler#buildResult`, before the orchestrator ever
+calls the merge methods this check lives in) — and that is safe without any further change, because
+`forecast_run_at` is stamped at collection time, never score time, so a genuinely later cycle's own
+row (with its own later `forecast_run_at`) already wins `EvaluationViewService#loadLatestForecasts`'
+per-slot MAX comparison regardless of when an older cycle's Claude result happens to arrive late.
+**Gap 2** (`ForecastScoreWriter#upsert`): the identical unordered-overwrite weakness named as a
+follow-up in round 12 turned out to be trivially and safely fixable after all, since
+`ForecastScoreEntity` already stores the producing run's own `pipeline_run_id` directly — no
+disposition join needed. An incoming write with a strictly SMALLER `pipelineRunId` than the stored
+row's is rejected (logged once at INFO); ids are safe to compare directly because
+`PipelineRunEntity.id` is an autoincrement key assigned in strict cycle-trigger order, so comparing
+ids IS comparing trigger times. Equal ids overwrite as before, and a `null` on EITHER side (a legacy
+stored row, or an incoming sync/admin write, which this table's own writer already documents as
+always `null`) is "unknown, cannot be shown to be older" and proceeds exactly as it always has.
+`survivor_atmosphere` remains the one still-unaddressed member of round 12's follow-up list —
+`SurvivorAtmosphereWriter.write` finds-or-creates by natural key with no stored run id at all to
+compare against, so closing it would need its own schema change and review, out of scope here.
 
 Two consequences worth stating plainly:
 
