@@ -672,6 +672,85 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("submitForecastBatch: an OrphanedBatchException in the FIRST of three non-empty "
+            + "buckets rewrites BOTH later, never-attempted buckets' candidates to "
+            + "SUBMISSION_FAILED — not just left as the misleading EVALUATED/FORCE_EVALUATED the "
+            + "collector wrote, which was the review-found gap in the first cut of this feature "
+            + "(2026-09-30): a bucket queued after the orphaned one never reaches "
+            + "evaluationService.submit at all, so its candidates had no matching outcome for "
+            + "applySubmissionFailures to rewrite and were persisted as though a request had "
+            + "reached Claude for them")
+    void submitForecastBatch_orphanInFirstOfThreeBuckets_laterUnattemptedBucketsBecomeSubmissionFailed() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE.plusDays(1), TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        // Bucket 1 (near-term inland) is the one that orphans — its own candidate stays
+        // EVALUATED, since a real request DID reach Claude for it.
+        CandidateDisposition inlandDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        // Bucket 2 (near-term coastal) — an ordinary EVALUATED candidate, never attempted at all.
+        CandidateDisposition coastalDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNSET, 0,
+                DispositionCategory.EVALUATED, null);
+        // Bucket 3 (far-term inland) — a FORCE_EVALUATED candidate, never attempted at all; its
+        // force-eval provenance must survive as the " (forced)" suffix, the same convention item
+        // B's ordinary both-failed branch already uses.
+        CandidateDisposition farInlandDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE.plusDays(1), TargetType.SUNRISE, 1,
+                DispositionCategory.FORCE_EVALUATED, FORCE_EVAL_DETAIL);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(nearCoastalTask), List.of(farInlandTask),
+                        List.of(), List.of(), List.of(),
+                        List.of(inlandDispo, coastalDispo, farInlandDispo)));
+        OrphanedBatchException orphaned = new OrphanedBatchException(
+                "msgbatch_inland_orphan", new RuntimeException("row persist failed"));
+        when(evaluationService.submit(eq(List.of(nearInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenThrow(orphaned);
+        // No stub for the near-coastal or far-inland buckets at all — submitBuckets must never
+        // call evaluationService.submit for them, since the orphan aborts the cycle before their
+        // turn. The orphan is on the FIRST bucket, so no earlier bucket set cycleJobRunId; the
+        // cycle falls back to a disposition-only anchor run.
+        when(jobRunService.startDispositionAnchorRun(3)).thenReturn(777L);
+
+        assertThatThrownBy(() -> service.submitForecastBatch())
+                .isSameAs(orphaned);
+
+        CandidateDisposition expectedCoastalFailed = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNSET, 0,
+                DispositionCategory.SUBMISSION_FAILED,
+                "near-term coastal batch not submitted: an earlier bucket's batch was orphaned");
+        CandidateDisposition expectedFarInlandFailed = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE.plusDays(1), TargetType.SUNRISE, 1,
+                DispositionCategory.SUBMISSION_FAILED,
+                "far-term inland batch not submitted: an earlier bucket's batch was orphaned "
+                        + "(forced)");
+        verify(dispositionService).persist(eq(777L),
+                eq(List.of(inlandDispo, expectedCoastalFailed, expectedFarInlandFailed)));
+        verifyNoMoreInteractions(dispositionService);
+
+        // Proves the later buckets were never attempted at all — not attempted-and-failed.
+        verify(evaluationService).submit(eq(List.of(nearInlandTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull());
+        verifyNoMoreInteractions(evaluationService);
+    }
+
+    @Test
     @DisplayName("submitForecastBatch: a successful bucket logs [BATCH DIAG] Submitted at WARN "
             + "with the batch id, and the trailing summary reports 1/1 buckets submitted")
     void submitForecastBatch_successfulBucket_logsSubmittedWithBatchId() {

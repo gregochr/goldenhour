@@ -417,6 +417,11 @@ public class ScheduledBatchEvaluationService {
         // Per-bucket outcome, in submission order — the input to the disposition
         // rewrite below and to the BatchSubmissionSummary this method returns.
         List<BucketOutcome> bucketOutcomes = new ArrayList<>();
+        // Every non-empty bucket this cycle WOULD submit, in submission order, built before any
+        // of them is actually attempted — so if one orphans, persistOnOrphan can find every
+        // bucket queued AFTER it (never attempted at all) without threading extra parameters
+        // through all six submission sites below.
+        List<LabeledBucket> allNonEmptyBuckets = buildNonEmptyBuckets(tasks);
 
         if (!tasks.nearInland().isEmpty()) {
             bucketsAttempted++;
@@ -425,7 +430,7 @@ public class ScheduledBatchEvaluationService {
                 h = submitBucketSafely(tasks.nearInland(), pipelineRunId, "near-term inland");
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
-                        "near-term inland", tasks.nearInland().size(), e);
+                        allNonEmptyBuckets, "near-term inland", e);
                 throw e;
             }
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
@@ -441,7 +446,7 @@ public class ScheduledBatchEvaluationService {
                 h = submitBucketSafely(tasks.nearCoastal(), pipelineRunId, "near-term coastal");
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
-                        "near-term coastal", tasks.nearCoastal().size(), e);
+                        allNonEmptyBuckets, "near-term coastal", e);
                 throw e;
             }
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
@@ -457,7 +462,7 @@ public class ScheduledBatchEvaluationService {
                 h = submitBucketSafely(tasks.farInland(), pipelineRunId, "far-term inland");
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
-                        "far-term inland", tasks.farInland().size(), e);
+                        allNonEmptyBuckets, "far-term inland", e);
                 throw e;
             }
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
@@ -473,7 +478,7 @@ public class ScheduledBatchEvaluationService {
                 h = submitBucketSafely(tasks.farCoastal(), pipelineRunId, "far-term coastal");
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
-                        "far-term coastal", tasks.farCoastal().size(), e);
+                        allNonEmptyBuckets, "far-term coastal", e);
                 throw e;
             }
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
@@ -491,7 +496,7 @@ public class ScheduledBatchEvaluationService {
                 h = submitBucketSafely(tasks.bluebell(), pipelineRunId, "bluebell");
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
-                        "bluebell", tasks.bluebell().size(), e);
+                        allNonEmptyBuckets, "bluebell", e);
                 throw e;
             }
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
@@ -510,7 +515,7 @@ public class ScheduledBatchEvaluationService {
                 h = submitBucketSafely(tasks.woodland(), pipelineRunId, "woodland");
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
-                        "woodland", tasks.woodland().size(), e);
+                        allNonEmptyBuckets, "woodland", e);
                 throw e;
             }
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
@@ -602,42 +607,143 @@ public class ScheduledBatchEvaluationService {
      * Persists the cycle's dispositions collected so far when a bucket's submission orphaned a
      * batch, before the caller rethrows to fail the whole run.
      *
-     * <p>The orphaned bucket's own candidates are deliberately NOT added to {@code
-     * bucketOutcomesSoFar} before this call (the caller catches {@link OrphanedBatchException}
-     * before reaching the {@code bucketOutcomes.add(...)} line for that bucket) — so {@link
-     * #applySubmissionFailures} finds no entry for their slot keys and leaves their dispositions
-     * exactly as the collector wrote them, {@code EVALUATED}/{@code FORCE_EVALUATED}. That is
-     * correct, not an oversight: a real request DID reach Claude for them, unlike an ordinary
-     * failed bucket where nothing did.
+     * <p>The orphaned bucket's own candidates reached Claude for real (money spent, a request in
+     * flight) even though its local tracking row was lost, so its bucket is recorded here as a
+     * SUCCESS — not omitted — which leaves its own solo candidates {@code EVALUATED}/
+     * {@code FORCE_EVALUATED} (found, not failed, unchanged) exactly as before, but ALSO lets an
+     * OPEN_FELL candidate whose sky task landed here and whose paired bluebell task landed in a
+     * bucket below go through {@link #applySubmissionFailures}' ordinary partial-pairing rule
+     * rather than being missed entirely.
+     *
+     * <p><b>The bug this method exists to fix (found by review, 2026-09-30).</b> Every bucket
+     * queued AFTER the orphaned one is never attempted at all — {@code submitBuckets} rethrows
+     * before reaching them — yet the collector already wrote their candidates as {@code
+     * EVALUATED}/{@code FORCE_EVALUATED}. The first cut of this method only knew about buckets
+     * that had already run ({@code bucketOutcomesSoFar}), so a later bucket's candidates had no
+     * matching entry in {@link #applySubmissionFailures}' lookup at all and were left untouched —
+     * recreating, for every bucket after the orphaned one, exactly the false "a request reached
+     * Claude" audit trail this whole PR exists to remove. {@code allNonEmptyBuckets} (built once
+     * in {@code submitBuckets}, before any bucket is attempted) is what lets this method find
+     * those never-attempted buckets and rewrite their candidates to {@code SUBMISSION_FAILED} too.
      *
      * @param cycleJobRunId       the job_run accumulated from buckets that succeeded BEFORE this
      *                            one — may still be {@code null} if this is the first bucket
      * @param dispositions        the cycle's full, uncorrected disposition list from collection
      * @param bucketOutcomesSoFar every earlier bucket's outcome, not including the orphaned one
-     * @param label                the orphaned bucket's human label, for the log line
-     * @param taskCount            how many candidates were in the orphaned bucket, for the log line
+     * @param allNonEmptyBuckets  every non-empty bucket this cycle would submit, in submission
+     *                            order, built before any bucket was attempted
+     * @param label                the orphaned bucket's human label — its own position in {@code
+     *                             allNonEmptyBuckets} marks where "never attempted" begins
      * @param e                    the exception, for its batch id and cause
      */
     private void persistOnOrphan(Long cycleJobRunId, List<CandidateDisposition> dispositions,
-            List<BucketOutcome> bucketOutcomesSoFar, String label, int taskCount,
-            OrphanedBatchException e) {
+            List<BucketOutcome> bucketOutcomesSoFar, List<LabeledBucket> allNonEmptyBuckets,
+            String label, OrphanedBatchException e) {
+        int orphanIndex = indexOfLabel(allNonEmptyBuckets, label);
+        LabeledBucket orphanedBucket = allNonEmptyBuckets.get(orphanIndex);
+        List<LabeledBucket> notYetAttempted =
+                allNonEmptyBuckets.subList(orphanIndex + 1, allNonEmptyBuckets.size());
+
         LOG.error("[BATCH DIAG] {} bucket's batch (batchId={}) was created at Anthropic but its "
                         + "tracking row could not be persisted locally — its {} candidate(s) stay "
-                        + "EVALUATED (a real request reached Claude for them); persisting the "
-                        + "cycle's dispositions collected so far before this failure takes down "
-                        + "the whole run",
-                label, e.getAnthropicBatchId(), taskCount, e);
-        List<CandidateDisposition> finalDispositions =
-                applySubmissionFailures(dispositions, bucketOutcomesSoFar);
+                        + "EVALUATED (a real request reached Claude for them); {} bucket(s) after "
+                        + "it were never attempted at all ({}) and their candidate(s) become "
+                        + "SUBMISSION_FAILED; persisting the cycle's dispositions collected so far "
+                        + "before this failure takes down the whole run",
+                label, e.getAnthropicBatchId(), orphanedBucket.tasks().size(),
+                notYetAttempted.size(),
+                notYetAttempted.stream().map(LabeledBucket::label)
+                        .collect(Collectors.joining(", ")),
+                e);
+
+        List<BucketOutcome> outcomes = new ArrayList<>(bucketOutcomesSoFar);
+        outcomes.add(new BucketOutcome(orphanedBucket.label(), orphanedBucket.tasks(), true));
+        for (LabeledBucket notAttempted : notYetAttempted) {
+            outcomes.add(
+                    new BucketOutcome(notAttempted.label(), notAttempted.tasks(), false, true));
+        }
+
+        List<CandidateDisposition> finalDispositions = applySubmissionFailures(dispositions, outcomes);
         persistCycleDispositions(cycleJobRunId, finalDispositions);
     }
 
     /**
-     * One bucket's submission outcome — its label, the tasks it carried, and whether the batch
-     * actually reached Anthropic. Input to {@link #applySubmissionFailures} and to the trailing
-     * {@link BatchSubmissionSummary} {@link #submitBuckets} returns.
+     * Finds a bucket's index within an ordered bucket list by its human label.
+     *
+     * @param buckets the ordered bucket list to search
+     * @param label   the label to find
+     * @return the matching bucket's index
+     * @throws IllegalStateException if no bucket in the list carries that label — every label
+     *                                passed to {@link #persistOnOrphan} is a literal from the same
+     *                                six labels {@link #buildNonEmptyBuckets} uses, so this can
+     *                                only fire on a future maintenance mismatch between the two
      */
-    private record BucketOutcome(String label, List<EvaluationTask.Forecast> tasks, boolean success) {
+    private static int indexOfLabel(List<LabeledBucket> buckets, String label) {
+        for (int i = 0; i < buckets.size(); i++) {
+            if (buckets.get(i).label().equals(label)) {
+                return i;
+            }
+        }
+        throw new IllegalStateException(
+                "Bucket label \"" + label + "\" not found among submitted buckets — "
+                        + "buildNonEmptyBuckets and the submission sites in submitBuckets have "
+                        + "drifted out of sync");
+    }
+
+    /**
+     * Builds the ordered, non-empty-only bucket list for one cycle, in the exact order {@link
+     * #submitBuckets} submits them. Called once per cycle, before any bucket is attempted, so
+     * {@link #persistOnOrphan} can identify every bucket queued after an orphaned one.
+     *
+     * @param tasks the bucketed tasks from collection
+     * @return every non-empty bucket, in submission order
+     */
+    private static List<LabeledBucket> buildNonEmptyBuckets(ScheduledBatchTasks tasks) {
+        List<LabeledBucket> buckets = new ArrayList<>();
+        addIfNonEmpty(buckets, "near-term inland", tasks.nearInland());
+        addIfNonEmpty(buckets, "near-term coastal", tasks.nearCoastal());
+        addIfNonEmpty(buckets, "far-term inland", tasks.farInland());
+        addIfNonEmpty(buckets, "far-term coastal", tasks.farCoastal());
+        addIfNonEmpty(buckets, "bluebell", tasks.bluebell());
+        addIfNonEmpty(buckets, "woodland", tasks.woodland());
+        return buckets;
+    }
+
+    private static void addIfNonEmpty(List<LabeledBucket> buckets, String label,
+            List<EvaluationTask.Forecast> tasks) {
+        if (!tasks.isEmpty()) {
+            buckets.add(new LabeledBucket(label, tasks));
+        }
+    }
+
+    /**
+     * One of the six possible submission buckets and its tasks, independent of whether it was
+     * ever actually submitted. Built once per cycle by {@link #buildNonEmptyBuckets} so {@link
+     * #persistOnOrphan} can find every bucket queued after an orphaned one without threading
+     * extra parameters through all six submission sites in {@link #submitBuckets}.
+     */
+    private record LabeledBucket(String label, List<EvaluationTask.Forecast> tasks) {
+    }
+
+    /**
+     * One bucket's submission outcome — its label, the tasks it carried, whether the batch
+     * actually reached Anthropic, and whether it was never attempted at all (an orphan in an
+     * earlier bucket aborted the cycle before this one's turn). Input to
+     * {@link #applySubmissionFailures} and to the trailing {@link BatchSubmissionSummary}
+     * {@link #submitBuckets} returns.
+     *
+     * @param unattempted {@code true} only for a bucket queued after an orphaned one and never
+     *                    submitted at all — distinct from an ordinary failed submission ({@code
+     *                    success = false, unattempted = false}), which DID reach the Anthropic
+     *                    call and got an empty handle back. {@link #applySubmissionFailures} uses
+     *                    this to write a "never submitted" detail rather than the ordinary
+     *                    "submission failed" one.
+     */
+    private record BucketOutcome(String label, List<EvaluationTask.Forecast> tasks, boolean success,
+            boolean unattempted) {
+        BucketOutcome(String label, List<EvaluationTask.Forecast> tasks, boolean success) {
+            this(label, tasks, success, false);
+        }
     }
 
     /**
@@ -671,7 +777,11 @@ public class ScheduledBatchEvaluationService {
      * say when the two buckets disagree:
      * <ul>
      *   <li><b>Both buckets failed</b> — no request reached Claude for this candidate at all, so
-     *       the disposition becomes {@code SUBMISSION_FAILED}, naming both buckets.</li>
+     *       the disposition becomes {@code SUBMISSION_FAILED}, naming both buckets. When every
+     *       failed bucket is {@link BucketOutcome#unattempted()} (queued after an orphaned one,
+     *       never attempted at all — see {@link #persistOnOrphan}), the detail says so ("batch not
+     *       submitted: an earlier bucket's batch was orphaned") rather than claiming a submission
+     *       was attempted and failed.</li>
      *   <li><b>Both buckets succeeded (or the candidate has only one task)</b> — the disposition is
      *       left exactly as the collector wrote it.</li>
      *   <li><b>One bucket failed, the other succeeded</b> — a real request DID reach Claude for
@@ -686,7 +796,11 @@ public class ScheduledBatchEvaluationService {
      *       silently erase the one fact {@code VerdictSampleGate}'s force-eval exemption exists to
      *       preserve. There is no forced-vs-not branch here the way the both-failed case above
      *       needs one: appending is correct either way, since a forced candidate's detail is never
-     *       null to begin with.</li>
+     *       null to begin with. The same wording split applies here: a failed side that is {@link
+     *       BucketOutcome#unattempted()} gets the "not submitted" phrasing instead of "submission
+     *       failed" — this is exactly how an orphaned bucket's OPEN_FELL pairing is handled, since
+     *       {@link #persistOnOrphan} records the orphaned bucket itself as a SUCCESS (a real
+     *       request did reach it) and any bucket after it as {@code unattempted}.</li>
      * </ul>
      *
      * <p>A disposition whose slot key is not found in {@code bucketOutcomes} at all (should not
@@ -695,8 +809,11 @@ public class ScheduledBatchEvaluationService {
      *
      * @param dispositions   the cycle's per-candidate dispositions, exactly as the collector wrote
      *                       them
-     * @param bucketOutcomes every non-empty bucket this cycle submitted, with its tasks and
-     *                       whether the submission succeeded
+     * @param bucketOutcomes every bucket relevant to this rewrite — ordinarily every non-empty
+     *                       bucket this cycle submitted, but {@link #persistOnOrphan} also passes
+     *                       the orphaned bucket itself (as a success) and every bucket queued after
+     *                       it (as {@code unattempted} failures) so those never-submitted
+     *                       candidates are rewritten too
      * @return the dispositions to persist — identical to {@code dispositions} when every bucket
      *         succeeded
      */
@@ -730,18 +847,30 @@ public class ScheduledBatchEvaluationService {
             } else if (!anySucceeded) {
                 String bucketNames = slotBuckets.stream().map(BucketOutcome::label).distinct()
                         .collect(Collectors.joining("+"));
+                boolean allUnattempted = slotBuckets.stream().allMatch(BucketOutcome::unattempted);
                 String forcedNote = d.category() == DispositionCategory.FORCE_EVALUATED
                         ? " (forced)" : "";
+                String detail = allUnattempted
+                        ? bucketNames + " batch not submitted: an earlier bucket's batch was "
+                                + "orphaned" + forcedNote
+                        : bucketNames + " batch submission failed" + forcedNote;
                 result.add(new CandidateDisposition(
                         d.locationId(), d.locationName(), d.evaluationDate(), d.eventType(),
-                        d.daysAhead(), DispositionCategory.SUBMISSION_FAILED,
-                        bucketNames + " batch submission failed" + forcedNote));
+                        d.daysAhead(), DispositionCategory.SUBMISSION_FAILED, detail));
             } else {
-                String failedNames = slotBuckets.stream().filter(b -> !b.success())
+                List<BucketOutcome> failedBuckets =
+                        slotBuckets.stream().filter(b -> !b.success()).toList();
+                String failedNames = failedBuckets.stream()
                         .map(BucketOutcome::label).distinct()
                         .collect(Collectors.joining("+"));
-                String partialNote = failedNames + " batch submission failed for part of this "
-                        + "candidate's pairing — the rest was evaluated normally";
+                boolean allUnattemptedFailed =
+                        failedBuckets.stream().allMatch(BucketOutcome::unattempted);
+                String partialNote = allUnattemptedFailed
+                        ? failedNames + " batch not submitted for part of this candidate's "
+                                + "pairing — an earlier bucket's batch was orphaned; the rest was "
+                                + "evaluated normally"
+                        : failedNames + " batch submission failed for part of this "
+                                + "candidate's pairing — the rest was evaluated normally";
                 // APPEND, never replace — a FORCE_EVALUATED row's detail is never null (it always
                 // carries ForecastTaskCollector's "Force-evaluated best-bet headline candidate"),
                 // and replacing it here would silently lose that fact.
