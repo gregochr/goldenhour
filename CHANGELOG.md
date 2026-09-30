@@ -5,6 +5,1068 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.2] - 2026-09-30
+
+### Changed — a region's ratings need a large enough sample before they may set its verdict
+
+A single rated location, however it got its rating, was enough to set a fifty-location region's
+verdict, crown it a BEST BET or ALSO GOOD pick, and outrank a region every one of whose locations
+was actually scored. Production evidence, 2026-09-29: for Fri 2 Oct sunrise the whole 253-location
+catalogue held six ratings, all 4★, all force-evaluated far-horizon headline candidates — and that
+window read "Worth it" and took ALSO GOOD. The owner's words: a single good rating "isn't really in
+the spirit" of the app — a good sunrise needs a statistically significant number of 3/4/5★
+forecasts, not a blip.
+
+`VerdictSampleGate` now gates a region's rated `displayVerdict`, pick eligibility and ranking on
+whether its sample is large enough: at least 5 rated voting slots, and at least half the voting
+roster *examined* — rated, or a resolved weather stand-down the pipeline actually triaged; an
+unrated, un-triaged slot beyond Gate 4's horizon is no evidence at all. A region that clears both
+tests behaves exactly as before. On a poor-weather near window, where most of the region is triaged
+and only the viable remainder is rated, the region has been examined in full and its ratings keep
+deciding its verdict unchanged — the gate bites only the far-horizon, stability-gated shape the
+production example above shows. Below the gate a region falls back to the same triage-derived
+verdict an unrated region already gets, cannot be a pick, ranks below every region that clears the
+gate, and is floored at `Confidence.LOW`. The star is never touched: `meanRating` and `bestRating`
+keep serving the rated average and maximum exactly as before, whatever the sample size — only the
+verdict word, the pick and the ranking change.
+
+**The exemption — an owner decision dated 2026-09-29, the same day, added once the interaction was raised:**
+`ForceEvalHeadlineSelector` force-evaluates a capped handful of far-out headline candidates a night
+specifically so a clear far-out day can be crowned with real Claude evidence — a handful of forced
+ratings can never reach the sample gate's own threshold, so a gate with no exemption would have left
+that spend buying stars no verdict could use. A region with at least one voting slot whose CURRENT
+rating was written by a force evaluation is exempt from the sample gate outright: its verdict, pick
+eligibility, ranking and confidence follow the rated average exactly as they did before this change.
+"Current" is answered per slot by the new `EvaluationViewService.loadForcedFlags` — one bulk query
+per serve, bounded to the served window, reading each slot's most recent `EVALUATED`/
+`FORCE_EVALUATED` `forecast_run_disposition` row — so a later ordinary evaluation ends the exemption
+for that slot, and the parent stability-skip retraction clears a forced rating outright the next
+time a nightly cycle declines to re-look at it. A failed or empty disposition lookup reads as not
+forced; unknown never grants the exemption.
+
+Two nullable `BriefingRegion` fields ride the existing `daily_briefing_cache` JSON with no
+migration: `sampleSufficient` (the raw sample-size test, independent of forcing) and `forcedSample`
+(whether the exemption applies) — together they let a client eventually tell "crowned on a
+sufficient sample" apart from "crowned on forced headline ratings", though nothing reads them yet.
+Both are `null`, read as unknown/ineligible, on a payload cached before this change. Computed fresh
+on both the build and serve paths by `BriefingRegionEvaluationRollup`, the same place the region's
+mean, best rating and confidence already are.
+
+### Fixed — the verdict sample gate's "examined" count and force-evaluation exemption both trusted the wrong signal
+
+A Codex review of #943 raised two P1s against `VerdictSampleGate` (2026-09-29), both confirmed and
+fixed here.
+
+**`examinedCount` read the briefing's own weather verdict instead of what the batch actually did.**
+A voting slot counted as "triaged" whenever its `BriefingSlot.verdict()` was `STANDDOWN` — but that
+verdict is the briefing's own, independently-computed weather call, spanning the whole horizon, and
+can disagree with the batch's latest decision for that exact slot. Worse: an unrated slot the
+briefing still marks STANDDOWN from an older evaluation, which Gate 4 then `SKIPPED_STABILITY`
+without fetching fresh weather this cycle, was wrongly counted as examined — letting a region's
+ratings cross the 50% coverage threshold on slots nobody looked at this cycle.
+`VerdictSampleGate.examinedCount` now takes a `Set<String>` of slots the batch's own latest
+disposition named `SKIPPED_TRIAGED`, sourced from a new `EvaluationViewService.loadTriagedByBatch`
+bulk read of `ForecastRunDispositionRepository.findLatestNonCachedDispositions` — nothing else
+counts: not `SKIPPED_STABILITY`, `SKIPPED_CACHED`, `SKIPPED_ERROR`, `SKIPPED_PAST_DATE`,
+`SKIPPED_NO_REFRESH_NEEDED`, an absent disposition, nor the briefing's own verdict.
+`SKIPPED_CACHED` is deliberately excluded from both sides of the query's own "latest" comparison
+(not merely filtered from the result), so a slot triaged last night and reported cached tonight
+still counts as examined — the underlying triage decision stays visible rather than hidden behind
+the newer cache-reuse row. `VerdictSampleGate` stays pure (it takes the set as a parameter and
+issues no query of its own); the flag rides into the rollup as a synthetic, `@JsonIgnore`d
+`BriefingEvaluationResult.triagedByBatch(name)` marker inserted into the resolver map only when a
+slot has no rating or triage result of its own — the only place such a slot's disposition can attach
+to anything the rollup already reads.
+
+**The force-evaluation exemption was granted on the disposition's existence, not on the rating that
+landed.** `ScheduledBatchEvaluationService.persistCycleDispositions` writes a `FORCE_EVALUATED`
+disposition at *submission* time, before any Claude result is processed — so while a forced batch is
+pending, or if it later fails, an older cached rating from a completely different evaluation was
+wrongly stamped `forced` merely because a forced run had been requested for the same slot.
+`EvaluationViewService.loadForceEvaluatedAt` now returns each slot's `FORCE_EVALUATED` disposition's
+own `created_at` (an `Instant`, not a bare boolean), and the winning result is stamped forced only
+when its own evaluation instant — a cached result's `evaluatedAt`, or a forecast row's
+`forecastRunInstant`, both already-existing helpers — is at or after that instant, and no newer
+`EVALUATED` disposition exists for the slot (the existing tie-at-same-instant-reads-as-not-forced
+rule is unchanged). A result with no evaluation instant at all (a legacy row) is never forced. A
+`PENDING`/`ABANDONED` row with no rating can never become the winning source in the first place —
+`hasSomethingToSay` is false for it, so `cachedWins`'s second clause always prefers whatever the
+cache still says — so it can never make an older cached rating look forced either; traced, not
+newly guarded, and pinned by a test.
+
+Both fixes are covered by tests with fixed clocks and literal expectations, including two scenarios
+proven (via a non-destructive `git worktree` checkout of the pre-fix commit) to fail against the
+code these fixes replace:
+`BriefingRegionEvaluationRollupTest.farWindow_standdownVerdictButBatchStabilitySkipped_insufficient`
+and `EvaluationViewServiceTest.ForcedEvaluationFlag.forceEvaluatedDispositionButWinningRatingPredatesIt_readsNotForced`.
+
+Query cost: two more bulk reads join the existing `loadStabilitySkips` (`loadForceEvaluatedAt`,
+`loadTriagedByBatch`), kept separate rather than folded into one flattened fetch because the three
+answer genuinely different questions and a shared aggregation risks exactly the kind of subtlety
+both P1s were about — one `GET /api/briefing` serve now issues 5 queries for
+scores+stability+forced+triaged (was 4); one briefing build issues 10 (was 8), from the two
+independent bulk-load call sites (`BriefingService.bulkScoreResolver`,
+`BriefingRollupBuilder.loadLiveScores`), each loading both new reads exactly once, never once per
+region.
+
+### Fixed — a delayed batch could overwrite a newer rating, not just a newer force-evaluation mark
+
+A Codex review of 9761f365 found that round 10's `forced`-provenance fix (P1-A) rested on an
+incomplete premise: recording `BriefingEvaluationResult.forced` at write time assumes write order
+matches evaluation order, and it does not. `BatchPollingService` polls every still-`SUBMITTED`
+batch independently, and the Anthropic Batch API allows up to 24 hours to complete, so a batch can
+outlive its pipeline's internal safety timeout and finish AFTER a newer cycle's batch for the same
+slot has already written it. The delayed, older batch's `forced = true` would then land on top of a
+rating a newer, ordinary evaluation should have ended the exemption for.
+
+Investigating the class of bug (not just the one instance) confirmed it is real and general: every
+write into `cached_evaluation` — `mergeFromBatch`, `mergeWoodlandFromBatch`, and the OPEN_FELL
+recombination in `recombineBluebell` — compared nothing about submission order before writing or
+combining. Arrival order, which `evaluatedAt` records, is not evaluation order; the delayed batch's
+RATING, not only its forced mark, could silently overwrite a newer one. `forecast_score` and
+`survivor_atmosphere` share the identical weakness (both upsert unconditionally on their natural
+key) and are left unaddressed as a named follow-up, out of this commit's scope; the PENDING
+`forecast_evaluation` row-scoring seam is not exposed the same way, since it scores a row by primary
+key rather than by natural-key overwrite.
+
+The fix required no schema migration. `ForecastBatchEntity.pipelineRunId` and
+`PipelineRunEntity.triggerTime` already existed — a cycle's own trigger time, set once at cycle
+start and shared identically by every batch (including a retry) the cycle submits, is the reliable
+submission-order key; a batch outside any orchestrated cycle falls back to its own `submittedAt`.
+`BriefingEvaluationResult.submittedAt` (nullable `Instant`, `@JsonInclude(NON_NULL)`, rides
+`results_json` exactly as `forced` does) carries this instant onto every result.
+`BatchResultProcessor.resolveSubmissionInstant` resolves it once per batch and threads it through
+the (also new) `ResultContext.submissionInstant`, down to `ForecastResultHandler`'s three
+`buildXxx` methods and the synchronous path (`EvaluationServiceImpl.evaluateNowForecast`, which now
+takes an injected `Clock`). `BriefingEvaluationService`'s three live merge methods compare the
+incoming result's `submittedAt` against the stored result's for that location before writing: an
+incoming result strictly OLDER is rejected as stale and logged once at INFO; a `null` on either
+side (a legacy row, or a result with no instant to report) is never stale, matching every other
+"unknown is safe" convention `forced` already established.
+
+A second, more subtle finding fell out of writing the tests for this: sky and bluebell are
+submitted as genuinely separate Anthropic batches, so their own `ForecastBatchEntity.submittedAt`
+values almost never coincide even within one cycle — comparing those directly would have broken
+OPEN_FELL recombination almost every time. Stamping every result with the shared CYCLE instant
+instead of the individual batch's own timestamp is what makes a same-cycle pair's two sides carry
+an EQUAL `submittedAt` by construction, so `recombineBluebell` now requires that equality (not
+merely "not stale") before averaging; a bluebell newer than a stored sky entry but from a different
+cycle is written but stands alone, the same "sky hasn't arrived yet" race the class already
+tolerated.
+
+With the ordering fixed generally, `forced` needed no combination-specific reasoning left at all —
+except that writing the round-12 tests exposed a genuine bug in round 10's own combination method.
+`BriefingEvaluationResult.withForcedFromCombination` used to take one argument (the "newly-arrived"
+side) and read only its flag, reasoning that a same-cycle OPEN_FELL pair's two tasks always agree
+on `forced` by construction (`ForecastTaskCollector` submits both from one loop iteration reading
+one local variable) — true in production, but a synthetic same-cycle pair with the two flags
+genuinely differing exposed that the method itself never enforced that invariant, and produced the
+wrong answer for it. Both `withForcedFromCombination` and the new `withSubmittedAtFromCombination`
+now take two explicit arguments and compute a genuine, commutative result — a plain OR for forced,
+"prefer the newer side, fall back to the other" for the instant — removing the arrival-order
+reasoning the coordinator asked to see gone.
+
+New and updated tests: `BriefingEvaluationServiceTest` gained a `SubmissionOrderStaleness` nested
+class covering Codex's case and its mirror (both pinned to fail against 9761f365), same-cycle
+combination in both force-holding configurations, a cross-cycle bluebell standing alone rather than
+combining, the wider defect pinned generally for sky/woodland/bluebell-only sites, a synchronous-
+vs-slow-batch race, and both legacy/unknown-instant fallback directions; two pre-existing round-10
+tests were given real, differing submission instants so their "cycle N vs cycle N+1" names describe
+what they actually exercise, rather than relying on argument position with no timestamps at all — a
+gap round 12 closed. `BriefingEvaluationResultTest` was rewritten for the two-argument combination
+methods, including the exact case (only the older side forced) that exposed the original one-argument
+shape's bug. `BatchResultProcessorTest` gained three tests pinning the pipeline-run lookup, the
+retry-shares-precursor's-instant behaviour, and the ad-hoc fallback (all three confirmed to fail
+when the lookup is disabled). `CachePayloadGoldenMasterTest` gained the byte-identical/round-trip/
+legacy-null coverage for the new field, mirroring `forced`'s own three tests exactly.
+
+## Round 13 — the comparison still missed a DECISION with no competing result, and a second sink
+
+A further Codex review found round 12's fix incomplete on two fronts, both closed here without a
+schema migration.
+
+**Gap 1.** Round 12 only ever compares an incoming result against whatever is currently STORED in
+`cached_evaluation`. But a later cycle's Gate 4 stability skip or weather-triage stand-down writes
+NO cache entry to compare against — only a `forecast_run_disposition` row — so a batch delayed past
+that later decision had nothing to lose a staleness comparison against at all, and its
+chronologically stale rating went straight into the cache: exactly the arrival-order bug the
+serve-time stability-skip retraction (`EvaluationViewService`) already exists to guard against,
+reopened through a door round 12 did not close.
+
+The obvious-looking fix — compare a disposition's own `created_at` against the incoming result's
+`submittedAt` — was checked and rejected before writing any code, because it is actively wrong: a
+disposition is always written a short time AFTER its own cycle starts, so a cycle's own
+`EVALUATED`/`FORCE_EVALUATED`/`SKIPPED_STABILITY` record of the very slot it just decided would
+always postdate that SAME cycle's trigger time (which, for an orchestrated batch, IS the result's
+own `submittedAt`) — every forced T+3 rating would be retracted by its own cycle's own paperwork.
+The fix instead identifies each disposition's OWNING CYCLE and compares that cycle's `trigger_time`
+against the incoming result's `submittedAt`; a same-cycle disposition then compares as simultaneous
+(excluded by a strict `isAfter`), never later. `ForecastRunDispositionEntity` carries no pipeline run
+id of its own, but one is recoverable without a migration: every cycle's dispositions are anchored
+to that cycle's FIRST job run, and exactly one `ForecastBatchEntity` row (the first bucket submitted
+that cycle) shares that same `job_run_id` and already carries the real `pipeline_run_id` — a new
+three-entity JPQL join (`ForecastRunDispositionRepository#findSupersedingCycleTriggerTimes`)
+recovers it. Cost is two-phase: `PipelineRunRepository#existsByTriggerTimeAfter` is a cheap
+existence check that answers the common case (no later cycle exists yet) with one query and no
+further interaction; only when it says yes does the disposition join run, once per batch call, never
+once per location. `BriefingEvaluationService.supersededByLaterRun` is the new gate, consulted first
+in `mergeFromBatch`, `mergeWoodlandFromBatch` and `mergeBluebellFromBatch`, ahead of the existing
+staleness/combination logic — a superseded result is written to no sink and logged once at INFO. The
+PENDING `forecast_evaluation` row is untouched by this and needs no change: `scoreEvaluationRow` runs
+earlier, inside `ForecastResultHandler#buildResult`, before the orchestrator ever reaches the merge
+methods this gate lives in, and `forecast_run_at` is stamped at collection time (never bumped at
+score time), so a genuinely later cycle's own row already wins `loadLatestForecasts`' per-slot MAX
+comparison regardless of when an older cycle's Claude result happens to arrive.
+
+**Gap 2.** `forecast_score` was named as an unaddressed follow-up in round 12 and turned out to be
+fixable in this same commit after all: `ForecastScoreEntity` already stores the producing run's own
+`pipeline_run_id` directly, so no disposition join is needed there — `ForecastScoreWriter#upsert` now
+rejects an incoming write whose `pipelineRunId` is strictly smaller than the stored row's (logged
+once at INFO), comparing ids directly rather than trigger times, because `PipelineRunEntity.id` is an
+autoincrement key assigned in strict cycle-trigger order and so already IS that ordering. Equal ids
+overwrite as before; a `null` on either side (a legacy row, or a sync/admin write, which this
+writer's own class javadoc already documents as always `null`) proceeds exactly as before —
+"unknown" can never be shown to be older. `survivor_atmosphere` remains the one genuinely
+unaddressed member of round 12's follow-up list: it has no stored run id of any kind to compare
+against, so closing it needs its own schema change and review, out of scope here.
+
+New and updated tests: `BriefingEvaluationServiceTest` gained a `SupersededByLaterRun` nested class —
+Codex's case and its `SKIPPED_TRIAGED` sibling (both confirmed to fail when the Phase 1 check is
+short-circuited to always proceed), the same case with a forced rating (no exemption survives a
+superseded write, because nothing is written), a same-cycle disposition that must NOT supersede its
+own result (the regression guard for the hazard named above), a later cycle that recorded only
+`SKIPPED_CACHED` (write proceeds), a retry batch sharing its precursor's cycle (write proceeds), and
+a "no later run exists" case asserting the disposition repository is never touched at all
+(`verifyNoInteractions`, no `any()` in the `verify()` call). `ForecastScoreWriterTest` gained four
+tests for gap 2 — an earlier run rejected after a later one already landed (confirmed to fail when
+the ordering check is stubbed out), equal ids overwriting, a null stored id always losing, and a null
+incoming id still overwriting a known stored id. Every test from rounds 1 through 12 still passes
+(9077 total after this round, up from 9059).
+
+## Round 14 — round 13's own fix was wrong, tested against production, and corrected
+
+A further Codex review tested round 13's discriminator against production (read-only) and found it
+does not hold, on two counts.
+
+**The evidence.** Pipeline run 249 (INTRADAY, 2026-09-29, trigger 14:00:00 UTC): all three Anthropic
+batch submissions failed with HTTP 500. `ScheduledBatchEvaluationService#persistCycleDispositions`
+anchored the cycle's 589 dispositions — 510 `EVALUATED`, 76 `SKIPPED_TRIAGED`, 3
+`SKIPPED_UNKNOWN_LOCATION` — to a disposition-only "anchor run" job_run with **no `forecast_batch`
+row at all**: `forecast_batch` holds zero rows for that job_run_id, and over five days, 589 of 13,120
+disposition rows join to no batch at all. Two consequences, both wrong in round 13:
+
+1. Round 13's three-entity join through `forecast_batch` (`d.jobRunId = b.jobRunId AND
+   b.pipelineRunId = p.id`) cannot see ANY disposition from an anchor run, in either direction — a
+   genuine `SKIPPED_TRIAGED` decision from a failed cycle was invisible to it, exactly the shape
+   this whole feature exists to catch.
+2. Round 13's disposition filter (`d.disposition <> 'SKIPPED_CACHED'`) let `EVALUATED`/
+   `FORCE_EVALUATED` supersede a result. Both categories record only that a candidate was INCLUDED
+   for submission, never that a result was produced — the 510 `EVALUATED` rows on the failed cycle
+   above produced exactly zero results. Had a `forecast_batch` row existed for them (the ordinary,
+   non-anchor case), round 13 would have rejected a perfectly good older rating in favour of
+   nothing, leaving the slot with no rating at all where, before this whole PR, the stale-but-real
+   prior rating would have kept serving.
+
+**Correction 1 — the disposition allow-list is now explicit, not "everything except".** Every
+`DispositionCategory` value was individually re-argued: `SKIPPED_STABILITY` (the original #940
+retraction category — a positive decision to decline re-scoring) and `SKIPPED_TRIAGED` (the weather
+stand-down — a positive decision the slot was looked at and rejected) are IN; `EVALUATED` and
+`FORCE_EVALUATED` (inclusion records, not results — the production proof above) are OUT;
+`SKIPPED_CACHED` (a region-level reuse, not a per-slot decision), `SKIPPED_PAST_DATE`,
+`SKIPPED_TRAVEL_DAY`, `SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_ERROR` and `SKIPPED_NO_REFRESH_NEEDED`
+("a later look is already guaranteed" — the opposite of a decision against) are all OUT; and
+`SKIPPED_HARD_CONSTRAINT`/`SKIPPED_NO_PROMPT` are OUT too, per the explicit two-item allow-list,
+though the former is arguably a candidate for a future round since it IS a genuine stand-down. The
+new JPQL queries (`ForecastRunDispositionRepository#findSupersedingDispositions`/
+`#existsSupersedingDisposition`) filter `disposition IN ('SKIPPED_STABILITY', 'SKIPPED_TRIAGED')`
+literally — an allow-list, never a NOT-IN exclusion.
+
+**Correction 2 — the discriminator needs no `forecast_batch` join at all.** A disposition supersedes
+a result when its `created_at` is at or after the trigger time of the FIRST pipeline run triggered
+after the result's own `submittedAt`. `PipelineRunRepository#findTriggerTimesAfter` answers this
+purely from the `pipeline_run` table, which exists for every triggered cycle regardless of whether
+that cycle ever produced a batch — so the anchor-run case is no longer a blind spot. This cannot
+misclassify a same-cycle row: a cycle's own dispositions are always written minutes after its own
+trigger and hours before the next cycle's, so a same-cycle disposition's `created_at` always falls
+strictly before "the first trigger after this result's own submittedAt" and reads as simultaneous,
+never later. Checked and confirmed: two pipeline runs cannot both be in their SUBMIT phase at once —
+`PipelineOrchestrator.submitPhase`'s own javadoc documents a single `AtomicBoolean` submission guard
+shared by every trigger (scheduled and admin-fired); the losing trigger's run is failed outright
+("Forecast batch submission dropped — another pipeline run already holds the submission guard"), so
+this rule never has to reason about two overlapping submissions for the same cycle. Results in one
+merge call may carry different `submittedAt` values (the brief's own hazard to check): the trigger
+list is loaded ONCE from the EARLIEST submission among them, and each result's own "next trigger" is
+resolved from that one in-memory list — one bulk disposition query still covers every location in
+the call. Query cost, corrected and now stated precisely: ONE query in the common case per MERGE
+CALL for the cache-side check (`SupersedingDispositionService#supersededLocations`), two when a
+later cycle exists at all; the forecast_score-side check (`#isSuperseded`) is necessarily per
+RESPONSE, not per batch — see correction 3.
+
+**Correction 3 — `forecast_score` was still reachable by a superseded response, because "written to
+no sink" was false until this round.** `ForecastResultHandler` writes `forecast_score` inside
+`buildResult`/`buildWoodlandResult`/`buildBluebellResult`, which run once PER ANTHROPIC RESPONSE as
+`BatchResultProcessor` consumes the Batch API's streaming result reader. That reader only learns a
+batch's location set as it streams, so there is no point "before any result of the batch is parsed"
+at which every location it will touch is already known — a true batch-wide hoist would need to
+buffer an entire batch before writing anything, which this class does not do for any sink today.
+The accepted, explained fallback: `SupersedingDispositionService#isSuperseded` runs once per
+response, immediately before each of the three `forecast_score` write sites, and the synchronous
+path (`handleSyncResult`) carries the identical check before its own write. Cost: one query in the
+common case per response, two only when a later cycle already exists for that one submission — a
+real but rare per-response cost, traded for genuine correctness over a hoist that is not achievable
+with the current streaming reader. The PENDING `forecast_evaluation` row is scored unconditionally
+regardless (confirmed safe, unchanged from round 13's own finding), and `api_call_log` is written
+unconditionally too, so cost accounting stays complete even though a superseded response's rating
+reaches no sink. `survivor_atmosphere` needed no change at all: `SurvivorAtmosphereWriter.write` is
+called only from `ForecastTaskCollector` (batch collection, before any batch is even submitted) and
+`ForecastService` (the synchronous engine's pre-Claude-call point) — never from
+`ForecastResultHandler` — so a superseded RESULT has no bearing on it.
+
+**New shared component**: `SupersedingDispositionService` (new class,
+`service/evaluation`) — both `BriefingEvaluationService.supersededByLaterRun` (bulk, merge-level)
+and `ForecastResultHandler`'s three `forecast_score` sites (single-location, per-response) delegate
+to it, so the discriminator and the allow-list are defined exactly once. Round 13's
+`PipelineRunRepository#existsByTriggerTimeAfter` and
+`ForecastRunDispositionRepository#findSupersedingCycleTriggerTimes` (the three-entity join) are
+both replaced — `PipelineRunRepository#findTriggerTimesAfter` returns every later trigger ascending
+(not merely whether one exists), and the disposition queries are two new allow-listed,
+`forecast_batch`-free queries (`findSupersedingDispositions` bulk, `existsSupersedingDisposition`
+single-location).
+
+New and changed tests: `SupersedingDispositionServiceTest` (new, 23 tests) — the production case and
+its bulk-form sibling (both must fail against 20922233's design, confirmed by direct comparison
+against that commit's actual JPQL, which allowed `EVALUATED` through and required the
+`forecast_batch` join), the anchor-run shape with no `forecast_batch` row for either
+`SKIPPED_TRIAGED` or `SKIPPED_STABILITY` (must fail against 20922233's join), one test per excluded
+disposition category (ten, all confirmed passing against the real allow-list), same-cycle safety (no
+later run exists at all, so the disposition repository is never even consulted), a retry batch
+sharing its precursor's cycle, two results in one call with different `submittedAt` values (one
+superseded, one not, from a single shared trigger-time load), query-count tests with precise literal
+`verify()` arguments (no `any()`) for both the common and later-run-exists cases, and null-
+submittedAt handling (no repository interaction at all). `PipelineRunRepositoryTest` and
+`ForecastRunDispositionRepositoryTest` (both new, `@DataJpaTest` on H2, no Docker) prove the actual
+JPQL at the SQL level — including a literal repeat of the production case, which fails when the
+allow-list is reverted to round 13's `<> 'SKIPPED_CACHED'` filter (confirmed by temporarily reverting
+the query and re-running: exactly the production-case test and the ten-excluded-categories test
+fail). `BriefingEvaluationServiceTest`'s `SupersededByLaterRun` nested class was rewritten to test
+ONLY the wiring (does `mergeFromBatch`/`mergeWoodlandFromBatch`/`mergeBluebellFromBatch` correctly
+skip whatever `SupersedingDispositionService` reports) — the algorithm itself moved to
+`SupersedingDispositionServiceTest`, so the class it used to mock
+(`PipelineRunRepository`/`ForecastRunDispositionRepository` directly) is now mocked one level up
+(`SupersedingDispositionService`). `ForecastResultHandlerTest` gained three tests for correction 3 —
+a superseded response writes no `forecast_score` row but still scores its PENDING row and still
+writes `api_call_log` (confirmed to fail when the gate is removed), a non-superseded response writes
+normally, and the synchronous path carries the identical gate. Every test from rounds 1 through 13
+still passes (9115 total after this round, up from 9077).
+
+### Fixed — dropping a best-bet pick could leave an orphaned runner-up standing in as the headline
+
+A Codex review of d930d028 (round 4's fixes) found a P1 in that same commit's own fallback
+eligibility re-check: when a prior successful run's rank 1 pick had since gone verdict-ineligible
+but rank 2 was still eligible, `BestBetFallbackService.findFreshFallback` served rank 2 ALONE — a
+stored "Also Good" whose headline, detail and `relationship`/`differsBy` fields were all written (or
+persisted) to describe how it differs from rank 1, now rendered as the block's only pick, with
+nothing left to be second to or separate from.
+
+Checking the question against `BestBetRanker.dropUnevaluatedPicks` — which round 4's
+`dropIneligiblePicks` was modelled on — found the identical defect already latent there: both
+methods called `rerankWithRecomputedRelationships` whenever any pick was dropped, which correctly
+recomputes `relationship`/`differsBy` for a promoted survivor but never touches its `headline`/
+`detail`/`confidence`, all Claude-authored prose composed relative to the ORIGINAL rank 1 (see
+`BestBetPromptText`'s ALSO GOOD SELECTION RULE: "make the temporal distinction obvious... the reader
+knows immediately this is a different opportunity, not a backup for the same outing"). Promoting
+that prose into rank 1's place presents it as the headline it was never written to be. This is the
+same orphan defect `BriefingHonestyFilter.withdrawUnsupportedBets` was already written to refuse for
+its own case (`losingRankOneWithdraws RankTwo`'s own javadoc), just not yet generalised.
+
+The fix: `BestBetRanker.afterRemoval(original, kept)` is now the one rule every removal site uses —
+losing rank 1 withdraws the whole set (no promotion, no rewritten prose, matching
+`BriefingHonestyFilter`'s established behaviour); losing anything else renumbers the `rank` field of
+the survivors alone, touching no other field, since a still-standing rank 1 makes every trailing
+survivor's `relationship`/`differsBy` (computed relative to that same, unchanged rank 1) still
+correct without recomputation. `dropUnevaluatedPicks` and `dropIneligiblePicks` both now delegate to
+it; `BriefingHonestyFilter.withdrawUnsupportedBets` is refactored onto the same shared method with
+no behaviour change (all 32 of its existing tests pass unchanged); `BestBetFallbackService
+.findFreshFallback` now builds the run's full original pick list before filtering so it can ask
+`afterRemoval` the same question, rather than filtering with a bare `continue` that could not tell
+"rank 1 was dropped" apart from "rank 2 was dropped".
+
+`BestBetRanker.applyCoverageAwareRanking`'s own promotion (the pre-existing, independently
+calibrated headline-coverage-floor demotion) is explicitly OUT of scope here: it promotes a
+different, already-present pick on ranking merit rather than removing anything, so
+`rerankWithRecomputedRelationships`'s recomputation is the right operation there. It carries a
+related, narrower risk of its own — a promoted pick's prose was equally written as an "Also Good"
+relative to the demoted headline — noted but not addressed this round.
+
+New tests: `BestBetRankerTest` (new file) pins `afterRemoval`'s exact field-level behaviour for
+rank-1-removed (withdraws), rank-2-removed (rank 1 unchanged, every field asserted), nothing-removed,
+everything-removed, and a middle-pick-removed renumbering case, plus direct
+`dropUnevaluatedPicks`/`dropIneligiblePicks` parity tests. `BestBetFallbackServiceTest` gained four
+two-pick scenarios (rank 1 ineligible/rank 2 eligible → withdrawn; rank 1 eligible/rank 2
+ineligible → rank 1 alone; both ineligible → empty; both eligible → both unchanged, the pre-existing
+behaviour). `CloseToHomeServiceTest` gained a belt-and-braces confirmation that
+`matchingBestBet` never treats a rank-2-only list as a match (it already couldn't, via its existing
+`rank() == 1` filter — this pins that explicitly rather than leaving it implicit).
+
+### Fixed — a recombined rating could silently lose its force-evaluation mark, and the best-bet advisor could still crown an insufficient region
+
+A Codex review of the #943/round-3 work (72e7b612/26044705) found two more P1s.
+
+**Forced provenance dropped on recombination.** `BriefingEvaluationResult.forced` is stamped once,
+at write time, by `ForecastResultHandler#buildResult` — but that is only the FIRST write. An
+OPEN_FELL candidate's paired bluebell task can arrive and be averaged into a prior sky rating by
+`BriefingEvaluationService.recombineBluebell`, and the averaged result was being built through a
+10-arg compatibility constructor that defaults `forced = false` unconditionally, silently ending an
+exemption either source actually carried. An audit of every `new BriefingEvaluationResult(` and
+`with…` call site in `backend/src/main/java` classified each as fresh-from-evaluation (carries its
+own task's `forced` already — `ForecastResultHandler`, `writeFromBatch`, `mergeFromBatch`,
+`mergeWoodlandFromBatch`), a rebuild-or-combine site (must carry the mark explicitly —
+`recombineBluebell` was the only one that didn't), or not-a-rating (retraction, triage — `forced`
+stays `false` by construction). `BriefingEvaluationResult.withForcedFromCombination(newlyArrived)`
+is the one combination rule every rebuild-or-combine site now uses: the combined result takes the
+newly-arrived side's own mark. That single formula is provably correct for both cases a combination
+can face — within one cycle's OPEN_FELL pair, sky and bluebell always carry an identical `forced`
+flag by construction (`ForecastTaskCollector` submits both from the same loop iteration reading the
+same local variable), so reading either side already equals "either forced"; across cycles, the
+side passed in is always the one that was just produced, so reading its flag alone is "the newer
+write's mark wins" — a later ordinary evaluation correctly ends an earlier forced exemption, and a
+later forced evaluation correctly grants one an earlier ordinary rating never had.
+
+**The best-bet advisor could still crown a region the Plan tab would refuse a verdict.**
+`BriefingRegionEvaluationRollup` computes `sampleSufficient`/`forcedSample` for every region, and
+`PlanWindowProjector` already withholds a rating-derived verdict from an insufficient, non-exempt
+region — but `BriefingBestBetAdvisor`'s rollup builder and `BestBetRanker` recomputed rating
+coverage independently and never consulted that flag, so such a region could still be named in
+`bestBets`, `pipeline_run_pick`, and the advisor's model-comparison surfaces. The eligibility test
+moved onto the record itself as `BriefingRegion.verdictEligible()` (moved out of
+`PlanWindowProjector`'s private static, which now calls the shared method), and
+`BestBetRanker.dropIneligiblePicks` validates Claude's OWN returned picks against it — after the
+existing zero-coverage drop, before the coverage-aware ranking — reading `CandidateCoverage`'s new
+`verdictEligible` field, which `BriefingRollupBuilder.appendRegionNode` now populates from the
+region it already holds a reference to. This is deliberately model-OUTPUT validation, never prompt
+shaping: the rollup JSON sent to Claude carries no new field, so no `BestBetAuroraPromptRegressionTest`
+fixture moved. An all-ineligible response degrades to `SUCCESS_NO_PICKS`, the same honest decline the
+zero-coverage drop already produces. `BestBetFallbackService.findFreshFallback` now takes the current
+briefing's days and re-checks a stored pick's region against the same test before resurrecting it as
+a stale fallback — a region eligible when the pick was persisted can go ineligible by the time a
+later FAILED cycle serves it back, and `BriefingHonestyFilter`'s own withdrawal only catches a
+zero-coverage ("blanked") region, not this narrower insufficient-but-nonzero case. The reconstructed
+`CandidateCoverage` the advisor's replay harness builds from a stored rollup JSON carries
+`verdictEligible = false` as a documented placeholder — that field was never part of the JSON schema
+sent to Claude, and neither `replayWithPrompt` nor the model-comparison path calls the new drop at
+all, so the placeholder is provably never consulted on that path.
+
+New and updated tests: `BriefingEvaluationResultTest` (new — `withRating`/`withEvaluatedAt` preserve
+or clear `forced` correctly, `retracted()` never carries it, `withForcedFromCombination`'s own
+behaviour including the null-input and unrated-combined-result guards),
+`BriefingEvaluationServiceTest` (`recombineBluebell` forced/forced, forced-bluebell/ordinary-sky,
+ordinary/ordinary, and both cross-cycle exemption-ends/exemption-granted orderings),
+`BriefingBestBetAdvisorTest` (a new `advise drops picks naming a verdict-ineligible region` nested
+class: an insufficient non-exempt region is dropped even when Claude names it, a forced-sample
+region is allowed, a sufficient region is allowed, a legacy null-eligibility payload is not eligible,
+and an all-dropped response matches the existing `SUCCESS_NO_PICKS` outcome — the shared `region()`
+test fixture now defaults `sampleSufficient = true` so every pre-existing happy-path test is
+unaffected by the new gate), and `BestBetFallbackServiceTest` (a stored pick whose region has since
+gone ineligible is dropped, a still-eligible one is served, and a region no longer present in the
+current briefing at all is treated as unknown rather than ineligible).
+
+### Fixed — the verdict sample gate's force-evaluation exemption was granted by timestamp inference, and inference was provably wrong
+
+A second Codex review of the #943 P1-B fix (72e7b612/26044705) found the force-evaluation exemption
+still unsafe, in a different way from the first finding. The fix compared a `FORCE_EVALUATED`
+disposition's `created_at` against the winning result's own evaluation instant, on the theory that a
+rating no earlier than the disposition must have come from it. That theory does not hold:
+`ScheduledBatchEvaluationService.persistCycleDispositions` anchors **every** disposition in a cycle
+to the cycle's first submitted bucket's job run, not the specific far-term bucket that actually
+force-evaluated a slot — and dispositions are written at submission, before any Claude result lands.
+So a forced batch submitted and left pending or failed, followed by an entirely unrelated ordinary
+rating for the same slot (a hand-started synchronous admin run, in the reported case) landing after
+the disposition's timestamp, satisfied the comparison and was wrongly granted the exemption a
+region's verdict, pick eligibility and ranking depend on.
+
+The fix replaces inference with provenance. `BriefingEvaluationResult.forced` is now stamped exactly
+once, by `ForecastResultHandler#buildResult`, from the task that actually produced the rating —
+never re-derived at serve time from any disposition. The fact travels from `ForecastTaskCollector`'s
+scheduled loop (the one place `forced` is decided, at the same moment a candidate is chosen as a
+`ForceEvalHeadlineSelector` rescue) across the async Anthropic Batch API round trip via a new `-f`
+suffix on the batch `custom_id` (`CustomIdFactory#forForecast`/`forBluebell`/`forWoodland`,
+`EvaluationTask.Forecast#forced`) — the same mechanism the pending-row `-r{evalRowId}` suffix already
+uses. `EvaluationViewService` no longer loads or compares any disposition for this at all: it simply
+reads `forced()` off whichever source (cache or `forecast_evaluation` row) wins the existing
+precedence rule. A `forecast_evaluation`-row-only winner is always `forced = false` (that entity
+carries no such marker, and none is added — unknown never grants the exemption); a legacy or
+out-of-roster cached entry with no field deserialises to `false`. `loadForceEvaluatedAt`,
+`isCurrentlyForced` and `stampForced` are deleted, along with the now-unused
+`ForecastRunDispositionRepository#findLatestEvaluatingDispositions` query and its six CI-only
+`DispositionWriteIntegrationTest` cases — nothing else used them.
+
+The force-evaluation marker travels for every task kind the FORCE-EVAL branch can produce, not only
+the sky lane: a WOODLAND-exposure or OPEN_FELL-paired bluebell candidate can be force-evaluated
+exactly like a sky one, since `ForecastTaskCollector` decides eligibility before it routes to a lane
+— `bluebellTaskFor`/`woodlandTaskFor` and the bluebell/woodland custom-id builders all carry it now.
+`BatchRetryService` carries a precursor's own `forced` marker onto its reconstructed retry task
+(`RetrySelection.RetryFailure` gained the field) — a retry of a force-evaluated slot's failed request
+is still that same slot's force-evaluation attempt, not a fresh ordinary one.
+
+Backward and forward compatibility for the custom-id change are both proven by test: every id shape
+the previous binary could produce still parses identically with `forced=false` (the Anthropic Batch
+API can take up to 24 hours, so batches already in flight at deploy must round-trip unchanged), and
+the worst-case id (`Long.MAX_VALUE` location id, `Long.MAX_VALUE` eval-row id, `SUNRISE`, forced)
+lands at exactly 64 characters — the Anthropic `custom_id` limit, not merely under it. The reverse
+direction — a deploy rolled back while a `-f`-suffixed batch is still in flight — is not safe and is
+not patched: the previous binary's parser reads the trailing `f` as an invalid `TargetType` and the
+response is logged as malformed, costing one wasted Claude call per in-flight forced task rather than
+corrupting anything. This is accepted as a narrow, low-probability window in the same fail-safe
+direction every other malformed-id case in `CustomIdFactory` already takes.
+
+New and corrected tests: `CustomIdFactoryTest` (worst-case length, forced round trips for all three
+lanes, the full backward-compatibility table), `ForecastResultHandlerTest` (batch and sync paths
+stamp `forced` only from the task/identity's own flag, never a timestamp — including the sync
+engine's ordinary hand-started run, which now structurally cannot be exempted), `CachePayloadGoldenMasterTest`
+(a non-forced result's JSON is byte-identical to before this change; a forced result's JSON round-trips;
+a legacy row with no field reads `forced=false`), `ForecastTaskCollectorForceEvalTest` (the sky-lane
+task carries `forced`; a new WOODLAND-candidate case proves the same for the canopy lane),
+`BatchRetryServiceTest` (a forced precursor's retry task is forced too), and `EvaluationViewServiceTest`'s
+force-evaluation nested class was rewritten to seed the exemption through stamped results rather than
+mocked dispositions.
+
+### Fixed — the verdict sample gate's "examined" count still missed the production shape it exists to protect
+
+A Codex review of 72e7b612 (the first #943 P1-A/P1-B fix) found one P1: the round-1 fix made the
+rule wrong in the MAIN case it was built to protect.
+
+`VerdictSampleGate.examinedCount` was fixed to stop reading the briefing's own weather-triage
+`Verdict` and instead read a `triagedByBatch` marker synthesised onto the score resolver's map — but
+that marker was only attached when the resolver had NOTHING else to return for a slot. In
+production, a batch triage always ALSO writes a real `forecast_evaluation` triage row alongside its
+`SKIPPED_TRIAGED` disposition (`ForecastService#fetchWeatherAndTriage`), so `resolveForEnrichment`
+resolves a genuine triage result instead — the marker's one branch almost never fired, and
+`examinedCount` silently collapsed to rated-only. A region with 35 batch-triaged and 15 rated
+voting slots out of 50 — the poor-weather near-window case the original brief explicitly said must
+keep today's verdict — read 15-of-50, under half, and lost it.
+
+The fix removes the flag from `BriefingEvaluationResult` entirely (it had already been attached
+wrongly once) and hands `BriefingRegionEvaluationRollup` the disposition-sourced evidence through a
+genuinely separate channel: a new `TriagedByBatchResolver` functional interface, resolved for the
+same region/date/event key as the existing `RegionScoreResolver` but answering independently —
+`EvaluationViewService.getTriagedByBatchLocationNames`/`getTriagedByBatchLocationNamesBulk`, sourced
+from the same `loadTriagedByBatch` disposition read as before. `BriefingScoreEnricher.enrich` grew
+a third parameter for it, with a default 2-arg overload so every caller that has no triaged evidence
+to supply keeps compiling and reads as not-examined-by-triage (safe under-counting).
+
+A slot can be examined via triage through EITHER of two independent channels, unioned by the
+rollup: the disposition table (a batch triage), or a resolved `triageReason() != null` read directly
+off whatever the score resolver already returned for the slot — needed because a hand-started or
+synchronous-engine run can triage a slot (a real `forecast_evaluation` row) without ever writing a
+`forecast_run_disposition` row at all. `VerdictSampleGate.examinedCount`'s own
+`claudeRating() == null` guard, unchanged, still prevents double-counting a slot that is both rated
+and named by either channel. A stability-skipped slot is excluded from both channels: its latest
+disposition is `SKIPPED_STABILITY`, not `SKIPPED_TRIAGED`, and a recorded stability skip retracts
+whatever the score resolver would otherwise return to a `retracted()` marker with a null
+`triageReason`.
+
+A false comment from the round-1 fix (`EvaluationViewService.java`, both the single-key and bulk
+enrichment methods) claiming "`SKIPPED_TRIAGED` writes only a disposition row, no
+`forecast_evaluation` row" is corrected — it does not, and the round-1 tests' own fixtures never
+modelled the real row, which is why the bug survived a green suite once already.
+
+New and corrected tests, all exercising real production shapes: `BriefingRegionEvaluationRollupTest`
+gained a real-triage-result variant of the near-window case, a channel-B (hand-started, no
+disposition) case, and a rated-and-triaged double-count guard; `EvaluationViewServiceTest` gained an
+end-to-end nested class driving the real `EvaluationViewService` (mocked repositories) through a
+real `BriefingRegionEvaluationRollup`, proving the bulk and single-key resolver shapes agree and
+that the near-window and far-window cases resolve correctly. Two tests are mechanically proven (via
+a non-destructive `git worktree` checkout of 72e7b612) to fail against the code they replace.
+
+### Fixed — a nightly stability skip now retracts the rating it superseded
+
+A slot the overnight batch declined to re-score — its grid cell too unsettled for its horizon —
+kept serving whatever rating an earlier, more eligible cycle had left behind, indefinitely: the
+skip writes no row to `cached_evaluation` or `forecast_evaluation`, so nothing on the serve path
+ever saw a reason to reconsider. `EvaluationViewService` now bulk-loads each slot's most recent
+`SKIPPED_STABILITY` disposition and retracts whichever of the cached result and the
+`forecast_evaluation` row predates it, before either reaches precedence — so the slot reads exactly
+like any other never-rated one (no star, no verdict word, no prose), never as a weather stand-down.
+A later real evaluation, eligible or forced, simply outdates the skip and restores a rating in the
+normal way. The rule is applied once and reused by every serve surface that resolves "cached result
+vs newer evidence" — the Plan payload, `GET /api/briefing/evaluate/scores`, and the map's
+`GET /api/forecast` — so they cannot disagree about the same slot. Only a nightly Gate 4 stability
+skip counts: a region-level cache reuse, a past-date or travel-day skip, a triage stand-down, a row
+with neither a rating nor a triage reason, and the intraday cycle's "a later look is already
+guaranteed" skip are all excluded by construction, and a legacy cached row with no known write time
+keeps serving as it always has.
+
+The Plan payload needed a second piece: a persisted `BriefingSlot` already carries whatever rating
+the last build gave it, so a resolver that simply had nothing new to say for a slot used to leave
+that embedded rating untouched — indistinguishable, to `BriefingRegionEvaluationRollup`, from a slot
+it was never asked about. `EvaluationViewService` now returns a distinct retraction marker rather
+than a bare absent entry when a skip is the reason nothing survived, and the rollup clears the
+slot's rating, sky rating, both potentials, summary and headline on it — never by setting a triage
+reason, so the slot's verdict and stand-down text read exactly as a never-rated slot's, not a
+weather stand-down.
+
+**Follow-up fix, same day (Codex review of #940):** the rule above compares a forecast row's
+`forecast_run_at` against a disposition's true `Instant`, and that comparison was silently wrong.
+`EvaluationViewService.forecastRunInstant` zoned the naive `forecast_run_at` column as
+`Europe/London`, but the column has only ever been written as a naive UTC wall clock
+(`ForecastService.buildEntity`, unchanged since the column's introduction on 2026-02-24). Through
+British Summer Time this read every forecast row as one hour OLDER than it actually was, which both
+skewed the pre-existing freshness gate (a cached rating written up to an hour before a later triage
+row could wrongly outrank it) and could wrongly retract a row written shortly AFTER a stability skip
+because it read as shortly before it. Fixed by zoning as UTC — the zone the column is actually
+written in — and correcting the method's javadoc, which had asserted the opposite. No other site in
+the codebase converts `forecast_run_at` to an `Instant`; the two DTO mappers that serialise it
+untouched, and the two direct `LocalDateTime`-to-`LocalDateTime` comparisons in
+`ForecastCalibrationService`/`EvaluationViewService.loadLatestForecasts`, are correct as they stand
+and were left alone.
+
+**Second follow-up fix, same day (Codex re-review of #940):** two readers still went around all of
+the above by reading the raw `BriefingEvaluationService` cache directly instead of through
+`EvaluationViewService` — `BriefingRollupBuilder.computeRegionStats` (the best-bet advisor's
+`claudeAverageRating`/coverage figures) and `PipelineRunPickService.lookupAverageRating` (the
+`pipeline_run_pick.claude_average_rating` cross-run comparison snapshot). Reading before retraction
+meant a rating the Plan card and the map had already stopped showing — because a nightly stability
+skip superseded it — still counted toward the advisor's pick and toward the run-to-run comparison,
+the very "every surface must agree" property this fix exists for, broken one layer further in. The
+same gap is older than the stability-skip feature: a rating superseded by a newer *triage* row was
+equally still in the raw cache and uncounted nowhere else. Both close together, because both are
+instances of one rule: neither caller should ever see a rating the rest of the product has stopped
+serving. New sibling accessor `EvaluationViewService.getLiveScoresForEnrichment` applies the same
+precedence and stability-skip retraction `getScoresForEnrichment` already does, then filters out
+every retraction marker before returning — a caller of this method never has to remember to check
+for one, because it never receives one. `BriefingRollupBuilder` and `PipelineRunPickService` now
+depend on `EvaluationViewService` instead of `BriefingEvaluationService` directly; no circular
+dependency resulted. A deliberate side effect: a location whose only evidence is a scored or triaged
+`forecast_evaluation` row (no cache entry at all) is now counted too, since that is what the
+precedence-aware read already does for every other surface — narrowing an existing divergence
+between what the advisor saw and what the Plan tab and map already served, not only retracting stale
+ratings. The pre-existing fail-open roster-hygiene residual on this lookup (a renamed, disabled or
+moved location still answering under a name no slot claims) is unchanged by this move, not fixed —
+`getScoresForEnrichment` carries the same cache-outlives-the-roster behaviour forward for the
+identical, already-documented reason.
+
+**Third follow-up fix, same day (a second Codex re-review of #940):** the retraction-aware read the
+previous fix introduced was itself a performance regression, caught before merge. Routing
+`BriefingRollupBuilder.computeRegionStats` and `logCacheCoverage` through
+`getLiveScoresForEnrichment` meant calling it once per region **and** event — up to 6 events × the
+region count × 2 call sites, each call costing three queries — roughly 216 queries per best-bet
+rollup against production's roster, where the in-memory cache read it replaced cost none. New
+`EvaluationViewService.getLiveScoresForEnrichmentBulk(start, end, types)` closes it: the bulk sibling
+of `getScoresForEnrichmentBulk`, filtering out retraction markers the identical way
+`getLiveScoresForEnrichment` does. `BriefingRollupBuilder.loadLiveScores` now loads it exactly ONCE
+per rollup, and `computeRegionStats`/`logCacheCoverage` both read that one pre-loaded map by key —
+never calling `EvaluationViewService` themselves. Single-key `getLiveScoresForEnrichment` keeps
+exactly one caller, `PipelineRunPickService.lookupAverageRating`, which persists at most a handful of
+picks per run — the right shape for a single-key read, not a bulk one. The build path for the Plan
+payload itself carried the same shape of bug, one query narrower: `BriefingService` used to hand its
+enrichment rollup the single-key `getScoresForEnrichment` as a resolver, once per region/event — two
+queries each until the stability-skip fix above added a third. `BriefingService.bulkScoreResolver`
+now loads the (marker-preserving) `getScoresForEnrichmentBulk` once per build instead, mirroring the
+shape `ServedBriefingAssembler.reEnrichVerdicts` already used on the serve path. Per-request paths
+(`GET /api/briefing`, `GET /api/briefing/evaluate/scores`, `GET /api/forecast`) were untouched by
+either fix and still issue one stability-skip query each.
+
+**Fourth follow-up fix, same day (a second Codex re-review of #940):** retraction was still being
+decided by asking, per source, "is the evidence I can see stale relative to the skip" — and that
+question has a blind spot. `forecast_evaluation` is insert-only, and the "latest row per slot" query
+every reader here relies on can legitimately return a newer, EMPTY row (an `ABANDONED` batch attempt,
+or any other `PENDING`-then-closed-out row with neither a rating nor a triage reason) sitting on top
+of an older RATED row from an earlier cycle — the query correctly hides the older row, because a
+newer one exists. That empty row genuinely postdates the skip, so asking "is it stale" answers "no" —
+the wrong answer, because the only reason anything postdates the skip is a row saying nothing at all.
+A slot in exactly this shape (a forecast-only rating superseded by a skip, then hidden behind a later
+empty row) read as plain absence rather than retraction, and on the Plan payload — the one surface
+that starts from a persisted tree rather than building one fresh — an absence leaves an EMBEDDED
+rating from an earlier build untouched, so the stale star survived there while the map, built fresh
+each time, correctly showed nothing.
+
+New `EvaluationViewService.isSlotRetracted(cachedResult, cachedEvaluatedAt, forecastRow,
+latestStabilitySkipAt)` is the fix, and the ONE place every path now decides retraction: a slot with
+a recorded skip is retracted when NO live evidence survives it at all — neither a cached result
+written after it, nor a forecast row that both postdates it AND has something to say — regardless of
+whether the caller can see the stale evidence that skip superseded, a newer empty row hiding it, or
+nothing at all. `resolveForEnrichmentRetractionAware` (used by both `getScoresForEnrichment` and a
+restructured `getScoresForEnrichmentBulk`, which now resolves every slot through the same method the
+single-key read uses rather than a separate two-phase cache-then-forecast reconciliation),
+`mergeToView`, and `ForecastController`'s raw-row filter all call it, so the three cannot disagree.
+`ForecastController` has no cache lookup of its own and calls `isSlotRetracted` with a null cached
+side — correctly meaning "no live cache evidence available here" — which also closes a narrow,
+genuine behaviour gap on that endpoint: an otherwise-unscored row with a skip against it and nothing
+else live is now dropped rather than served with a null rating, agreeing with `mergeToView`'s
+`Source.NONE`. An ordinary unscored row with no skip recorded — the overwhelming majority of
+`forecast_evaluation`'s null-rating rows — is completely unaffected, since `isSlotRetracted` returns
+false immediately whenever there is no skip to apply. Canopy (woodland) and bluebell slots need no
+carve-out: `ForecastTaskCollector` runs the Gate 4 eligibility decision for every candidate before
+branching on which prompt to build, so a canopy or bluebell slot can carry a `SKIPPED_STABILITY`
+disposition exactly like a sky slot, and both mini-batches write their ratings into
+`cached_evaluation` via `mergeWoodlandFromBatch`/`mergeBluebellFromBatch` — the same store the
+resolver already reads, so no rating source is invisible to the new rule.
+
+**Fifth follow-up fix, next day (a third Codex re-review of #940):** the rule above covered two of
+the three stores a rating can live in and stopped short of the one it named but never touched —
+`forecast_score` (V108), the normalised INVERSION/BLUEBELL component rows read by
+`SurvivorSignalReader` (all six survivor-signal hot-topic strategies) and `ForecastDtoMapper` (the
+API DTO's Claude BLUEBELL rating). A component score is evidence exactly like a rating, and a
+nightly Gate 4 stability skip left it exactly as un-retracted as the original bug left
+`cached_evaluation`/`forecast_evaluation`: `forecast_score` UPSERTs only when a Claude call actually
+happens, so a slot the pipeline later declines to re-score leaves its old row standing as "the
+latest" with nothing to mark it stale. A withdrawn Plan-card rating could still carry a bluebell
+hot-topic chip, or a withdrawn map popup could still show the BLUEBELL DTO field, both citing a
+score the pipeline had moved past.
+
+`forecast_score` has no sibling store the way the other two do — a component row is written ONLY on
+an actual Claude call, never a placeholder — so its retraction question is simpler than
+`EvaluationViewService.isSlotRetracted`'s: not "does any live evidence survive across two stores",
+just "is this one row's own `evaluated_at` older than the slot's latest skip". Both readers call the
+existing `EvaluationViewService.isRetractedByStabilitySkip` primitive directly against the
+component's own timestamp — never a second, hand-written condition — keyed by
+`EvaluationViewService.stabilitySkipKey` (now `public`, for exactly this reuse) against a
+`loadStabilitySkips` map each loads itself. `survivor_atmosphere` readings (dust, surge, snow,
+humidity) are untouched: they are measured or forecast atmospheric INPUT, never Claude's opinion, so
+a skip — which retracts an evaluation the pipeline declined to redo — has nothing to say about them.
+
+**Cost.** Six hot-topic strategies each call `SurvivorSignalReader.read()` independently for the
+same window already (18 queries per aggregation, unchanged, a pre-existing shape this fix did not
+touch) — loading the skip map inside `read()` on every call would have added one skip query per
+strategy, which the design explicitly rules out. `SurvivorSignalReader.withStabilityWindow` is the
+fix: `HotTopicAggregator` opens ONE window around its whole strategies pass (a `ThreadLocal`,
+cleared in a `finally` block the instant the pass ends — call-scoped sharing with a hard boundary,
+never a time-based cache with a staleness window of its own), and every `read()` call made from
+inside it shares that one loaded map. Net cost: one additional query per hot-topic aggregation, not
+six. `ForecastDtoMapper` mirrors its own existing `preloadWaves` shape — one `loadStabilitySkips`
+call per `toDtoList` (bulk) and one per single-row `toDto`, each a new query on an endpoint that
+previously issued none, and each already paying several other per-row queries for the one or few
+rows it serves.
+
+**Known, unaddressed, narrower gap.** Unlike `forecast_evaluation`, no fresh `forecast_score` row is
+ever written for a TRIAGE stand-down — only for an actual Claude call — so a component superseded by
+a newer *triage* decision (as opposed to a stability skip) has no mechanism to detect it at all. This
+is not the bug the stability-skip rule fixes and is out of scope here; recorded so it reads as a
+known limit rather than a surprise later.
+
+### Fixed — the spread row's compact rating count was reaching screen readers as a fraction
+
+The compact `N/M rated` text the Spread row shows below the minimum-sample gate (needed to fit a
+realistic pool size into the value column at 320px) had leaked into the card's own accessible
+sentence, so a screen reader voiced a partial-sample card's `1/4` as a fraction or a date-like
+string rather than as the two counts it visually is. `spreadRowState` now returns two strings for
+that state — `text` (the compact form the row shows) and `spoken` (the same fact in words, `N of M
+rated`, for the accessible sentence) — equal only for "none rated yet", which carries no count to
+mis-voice. The tooltip is unaffected; it already built its own fuller sentence independently.
+
+### Changed — the Plan card's spread histogram needs a real sample before it draws a shape
+
+A single rated 4★ location in a 31-place pool used to draw a full-height bar, reading as "this
+sunrise looks good" when the truth was "this sunrise is almost entirely unlooked-at". The histogram
+now draws its five bars only when the rated sample clears both a floor (`rated >= 5`) and a
+coverage half (`rated >= total · 0.5`, mirroring the backend's own thin-coverage confidence rule) —
+below that gate the row prints `none rated yet` or the compact `N/M rated` instead (never "N of M
+rated", which measured too wide for the value column at a realistic pool size), one narrow, dated
+exception to the ban on "N of M scored" copy (plan-matrix-plan.md §4 A27), because here the count
+discloses that the picture is missing rather than standing in for one. An empty pool is not a gate
+failure and keeps its pre-existing five-hairline picture and tooltip sentences unchanged.
+
+Once bars are drawn, the pool's unrated remainder is now a sixth bar of its own — hatched, in the
+same bone ink family the map's unscored plate already uses and at the same diagonal, never a ramp
+colour — sharing the five bands' own scale and sitting to the left of 1★ with a wider gap than the
+2px between bands. The tooltip and the visible row read one shared decision function
+(`spreadRowState` in `utils/windowFirstSpread.js`); the tooltip deliberately says MORE than the row
+below the gate (the pool size, and for a partial sample the rated count), never the row's text
+verbatim. A footer clause names the hatch in words while it is on screen, at every width — it is
+conditional and, in practice, close to permanent once a catalogue has any sparsely-rated windows,
+not a rare or phone-only note.
+
+A follow-up commit the same day corrected an adversarial review's findings against this one: the
+hatch's angle was mirrored against the map's own canvas hatch, an empty pool had picked up new text
+it should not have, the row's text could overflow its column at a realistic pool size, and the
+accessible sentence had dropped the pool count and the "within reach" claim below the gate.
+
+### Changed — hot topics and Coming up report conditions, never a rating's retraction
+
+The owner drew a line between two questions this product answers separately: "what is
+happening" (hot topics, the "Coming up" panel) and "where is worth going" (stars, verdicts,
+picks — `cached_evaluation`, `forecast_evaluation`, `GET /api/briefing`,
+`GET /api/briefing/evaluate/scores`, the map's forecast rows). A nightly Gate 4 stability skip
+or a weather-triage stand-down is a decision against the second question, so it must retract a
+rating — but it has nothing to say about the first. Knowing there is snow, Saharan dust or a
+likely valley inversion is interesting on its own terms, independent of whether the pipeline
+currently judges anywhere worth the drive to photograph it.
+
+This reverses part of #940 (commit c6e14cc8, landed the previous day), which made
+`SurvivorSignalReader` — the read path for all six survivor-signal hot-topic strategies
+(bluebell, inversion, dust, fresh snow, snow on the tops, storm surge) and the "Coming up"
+panel's dust/inversion standing conditions — drop an INVERSION or BLUEBELL `forecast_score`
+component whose own `evaluated_at` predated its slot's most recent nightly stability skip, on
+the reasoning that "a component is evidence exactly like a rating". The owner's decision is that
+this was the wrong analogy for a panel that reports conditions rather than verdicts: a slot the
+pipeline has since declined to re-score is not a reason to stop telling a reader there was strong
+inversion potential, or dust in the air, on that morning.
+
+`SurvivorSignalReader.read` now applies **no retraction of any kind** — it returns every
+`forecast_score` component and every `survivor_atmosphere` reading in the requested window
+exactly as stored. Its `withStabilityWindow`/`resolveStabilitySkips`/`isComponentRetracted`
+machinery, its `ThreadLocal` stability-skip window, and its dependency on `EvaluationViewService`
+are all removed; `HotTopicAggregator` no longer opens a shared window around the strategies pass
+and no longer holds a `SurvivorSignalReader` reference at all, so a hot-topic aggregation issues
+zero stability-skip or disposition queries (previously one, shared across all six strategies;
+before that, briefly, one per strategy). `ComingUpConditionsBuilder`'s three reads through
+`SurvivorSignalReader` (the trailing inversion history and both forward-peak reads) needed no
+code change — they simply stopped being filtered.
+
+`ForecastDtoMapper` is unaffected and deliberately different: it serves the same BLUEBELL
+component as the forecast DTO's *rating*, the second question, so it keeps its stability-skip
+retraction exactly as #940 shipped it. A consequence, stated so it is not later filed as an
+inconsistency: after a stability skip, a slot's bluebell hot-topic chip can now show while the
+same slot's DTO bluebell rating reads null — the chip says bluebells are (or were) out, the
+rating says whether the pipeline currently judges that place worth the drive. Two different
+questions, deliberately answered from the same underlying component by two different rules.
+
+`EvaluationViewService`'s rating-side retraction (`isSlotRetracted`, `isRetractedByStabilitySkip`,
+`stabilitySkipKey`) is unchanged; its javadoc is updated to say only `ForecastDtoMapper` reaches
+those primitives directly now, and to record that `SurvivorSignalReader` deliberately does not.
+
+Tests: `SurvivorSignalReaderTest`, `HotTopicAggregatorTest`, `BluebellHotTopicStrategyTest` and
+`ComingUpConditionsBuilderTest` are updated to pin the new contract with literal expectations — a
+component evaluated long before any later pipeline decision is still returned and still emits its
+topic, through real (not mocked) readers/strategies where the original tests did the same.
+`ForecastDtoMapperTest`'s two retraction tests, and every rating-side test in
+`EvaluationViewServiceTest`, `BriefingRegionEvaluationRollupTest` and `ForecastControllerTest`,
+pass unchanged.
+
+### Changed — the nightly drive-time refresh only re-measures a user who needs it
+
+`drive_time_refresh` used to re-measure every enabled user with a saved home, every night, one
+OpenRouteService matrix call per user against the whole location roster — whether or not anything
+had changed. On a free ORS plan that cost grows with the user count for no benefit on most nights,
+since most answers are identical to the night before.
+
+A scheduled fire now measures a user only when they are due: their `driveTimesCalculatedAt` stamp
+is null (never measured, or a postcode change discarded it — see `UserSettingsService.saveHome`),
+or the location roster has grown since that stamp, so a location added after everyone's last
+refresh does not stay unmeasured forever. Everyone else is skipped with no ORS call at all, decided
+from one query for the roster's newest `created_at` rather than one query per user. A quiet night —
+nobody's postcode moved and nothing was added — now makes zero OpenRouteService calls.
+
+The admin "Run now" trigger (`DynamicSchedulerService.triggerNow`) is unchanged: it still measures
+every enabled user with a home, exactly as before, because it is the deliberate override for the
+one thing the stamp cannot detect on its own — a location's coordinates being corrected in place.
+`DynamicSchedulerService` now tells a manually-triggered job target from a scheduled one via a new
+`registerJobTarget(String, Consumer<Boolean>)` overload; every job that does not care about the
+distinction keeps using the existing `Runnable` overload and behaves exactly as it always has on
+both routes.
+
+The manual Settings-dialog refresh button, its cooldown and its 409 behaviour are untouched.
+
+A follow-up migration (V156) corrects the job's admin-facing `scheduler_job_config.description`,
+seeded by V133 with the old "recalculates every user's" wording, to describe the new skip logic and
+say that "Run now" always re-measures everyone.
+
+A P1 fix (review of PR #942): both the scheduled job and the manual Settings refresh now stamp
+`driveTimesCalculatedAt` with the instant the location roster was READ, captured immediately before
+`measureForUser`, rather than an instant taken once the answer was back — the earlier version could
+silently leave a location unmeasured indefinitely if it was created while routing was in flight;
+`rosterGrewSince`'s boundary is now inclusive (`created_at` equal to the stamp counts as grown too),
+so a tie can never be missed.
+
+Two more P1s (second review of PR #942), both rooted in the same mistake: `driveTimesCalculatedAt`
+was being read as proof that the roster had been covered, when it was not always true.
+
+First, the manual Settings refresh could advance that stamp for an attempt that stored no rows.
+When OpenRouteService gave no answer at all, `UserSettingsService.refreshDriveTimes` used to write
+the stamp anyway (through a now-deleted `UserDriveTimeWriter.stampIfHomeUnchanged`) purely so the
+30-minute cooldown still caught a repeated press. On the one realistic sequence that reaches this —
+a postcode change, whose save has already cleared the stamp, is the only way this button is enabled
+— that left a non-null stamp newer than the roster with zero rows behind it, and the scheduled job
+skipped that user every night thereafter. The stamp now moves only together with stored rows, on
+both routes; an attempt that measures nothing leaves it exactly as it was (`null` on that sequence),
+and the response reports the user's own unchanged stamp rather than "now", so the Settings dialog
+cannot print "Last calculated: Just now" for a refresh that stored nothing. The 30-minute cooldown
+for a *failed* attempt is now tracked separately, in an in-memory `ConcurrentHashMap<Long, Instant>`
+on `UserSettingsService` keyed by user id, consulted alongside the persisted stamp and cleared on a
+successful store, a 409 (home moved mid-measurement), or `saveHome` moving the home — an in-memory
+limiter resets on an app restart, which is accepted for a rate limit on a single-instance app.
+
+Second, `LocationEntity.createdAt` is assigned by the application before the row is saved, so there
+is a gap — however small — between that reading and the row becoming visible to another
+connection's query. A roster read landing inside that gap sees the table one location short, while
+the row it missed still carries a `created_at` earlier than the stamp this class goes on to store —
+which the Round-2 inclusive-tie fix does not catch, since the two instants are not equal, only
+close. `DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN` (one hour) widens `rosterGrewSince` further in
+the same direction: a location counts as "added since" a stamp when its `created_at` is at or after
+`stamp minus ROSTER_VISIBILITY_MARGIN`, not only at or after the stamp itself. The real gap this
+covers is bounded by one `JpaRepository.save()` call (`LocationService.add` is not
+`@Transactional`, and the tide fetch that follows `save()` runs after the row is already committed)
+— milliseconds, not the hour chosen; the margin is deliberately generous rather than tight. The
+bounded cost: a user whose stamp lands within the margin after such a location is measured once
+more on the very next scheduled run and never again for that location, because the fresh stamp that
+run stores is then a full day clear of it — the common trigger being an admin adding a location and
+pressing "Run now" within the hour. The residual is stated rather than hidden: an `INSERT` whose own
+transaction stays open longer than the margin would still be missed, and an admin's "Run now"
+remains the remedy for that case, exactly as for a location's coordinates being corrected in place.
+
+One more P1 (third review of PR #942): the second fix above stopped a NEW stamp-without-rows state
+from being written, but did nothing about one an earlier build had already left in the database.
+`DriveDurationService.measureForUser` documents two different kinds of "nothing": no answer from ORS
+at all (an empty `Optional`), and ORS answering with no valid duration to *any* location (a present
+but empty list) — the javadoc's own words are "ORS answered, and storing it clears the stored ones".
+`UserSettingsService.refreshDriveTimes` only closed the first kind; the second still called
+`UserDriveTimeWriter.storeIfHomeUnchanged` with an empty list, which clears a user's stored rows and
+stamps in the very same compare-and-set — recreating the exact stamp-without-rows state the previous
+fix exists to prevent. Both kinds of nothing are now handled identically on the manual path: no
+writer call, rows and stamp both left exactly as they were, matching what the scheduled job's own
+`run` method has always done for an empty measurement regardless of cause.
+
+A new migration, V157, reconciles the state an earlier build could already have left behind: it
+clears `drive_times_calculated_at` for every user who has a stamp and zero `user_drive_time` rows,
+using `NOT EXISTS` so it is a safe no-op on re-run. Production, checked read-only before this
+migration was written, holds zero affected rows today (4 users, 2 with a home, 2 stamped, none
+stamped without rows) — the migration is precautionary for other environments and the window before
+deploy, not a repair for a live incident. `DriveTimeRefreshJob.needsRefresh`'s javadoc now states the
+one cost this rule accepts on purpose: a user whose home can never be routed to anywhere gets no
+rows, ever, so their stamp stays null and every scheduled run measures them again, one ORS call each
+— exactly this job's pre-skip-logic behaviour, now confined to the users it actually applies to.
+Local H2 dev databases run no migrations at all (see this file's own "no Docker" section), so a
+local database holding a legacy stamp-without-rows row — reachable only by having exercised the old
+buggy code path before pulling this fix — keeps it; no startup repair was added for that case, since
+it is narrow, self-inflicted, and already covered by this project's documented local-reset procedure
+(delete `backend/data/goldenhour.mv.db` and `.lock.db`).
+
+One more P1 (fourth review of PR #942), against the previous fix's own decision: merging the two
+kinds of nothing on the manual path went too far. `DriveDurationService.measureForUser`'s
+confirmed-unreachable answer (ORS answered; no destination has a valid duration) is not "nothing
+learned" — ORS has just told us the stored drive times are stale, and the previous fix's merge left
+them in place, so the reach lens and a leave-by time went on using journeys ORS had just
+invalidated. The decision: a confirmed-unreachable manual refresh CLEARS the user's rows and sets
+the stamp to `null` together — a new guarded `UserDriveTimeWriter.clearIfHomeUnchanged`, using the
+same compare-and-set shape `storeIfHomeUnchanged` uses, on its own dedicated repository method
+(`AppUserRepository.clearDriveTimesCalculatedAtIfHomeIs` — a literal `SET ... = NULL`, added after
+review rather than calling `stampDriveTimesIfHomeIs` with a `null` instant, so the write never
+depends on how a bound null binds on a given JDBC driver) and `clearForUser`'s row delete — no third
+way to delete rows. That leaves the EXACT state
+a home move already produces (rows gone, stamp `null`), which the rest of the product already
+handles honestly: no "Last calculated" line, the reach lens reads the location as unknown, and the
+scheduled job measures the user again on its very next run because the stamp is null. The no-answer
+case (ORS gave no answer at all) is unchanged from the previous fix: rows and stamp both left
+exactly as they were.
+
+The scheduled job's own behaviour is unchanged and now stated as a deliberate decision, not merely
+inherited: it treats both kinds of nothing identically, as a failure that stores nothing, because it
+runs unattended overnight and a transient ORS wobble returning zero valid durations must not
+silently wipe a user's drive times before anyone is looking. `UserDriveTimeWriter`'s class javadoc
+now carries the full outcome table — {rows stored, no answer, confirmed unreachable, home moved} ×
+{manual, scheduled} — as the single source of truth for which route does what to the rows and the
+stamp on each outcome.
+
+The 30-minute manual-refresh cooldown for a confirmed-unreachable attempt is enforced entirely by
+the in-memory `pendingDriveTimeAttempts` map now, deliberately left in place (not cleared) after a
+successful clear: the persisted stamp that attempt leaves behind is `null`, so unlike a successful
+store it cannot cover the cooldown on its own. A home move during a confirmed-unreachable
+measurement still answers 409 with nothing written, clearing the pending-attempt entry exactly as
+the stored path's 409 already did, and `saveHome` moving the home clears a confirmed-unreachable
+attempt's pending entry too, releasing the cooldown for an immediate retry from the new home.
+
+V157 is unaffected: the invariant it repairs — no non-null stamp with zero rows — still holds after
+this change, since `clearIfHomeUnchanged` sets rows and stamp together, atomically, guarded by the
+same compare-and-set `storeIfHomeUnchanged` uses.
+
+A CI failure surfaced a defect in `ClearDriveTimeStampWithoutRowsMigrationTest`'s own seeding,
+unrelated to V157 itself: the test hard-coded primary keys (`app_user.id = 1`, `locations.id = 1`)
+that collided with rows Flyway migrations seed on every fresh database (V10's admin user, V84's
+bluebell locations) — a defect the local gate cannot catch, since local dev runs no migrations and
+this class only runs in CI. Fixed by reading every id back via `INSERT ... RETURNING id` instead of
+assuming one, and by reusing a location Flyway had already seeded rather than inserting a new one.
+Every assertion now selects by the ids the test itself created, so the seeded admin row (no stamp,
+no rows) cannot affect a result even incidentally. The container field was already non-static
+(a fresh container, and therefore a fresh schema, per test method), so the two test methods were
+never able to see each other's rows regardless of run order — the collision was each method against
+Flyway's own seed data, not the two methods against each other.
+
+A further review pointed out that `clearIfHomeUnchanged`'s compare-and-set had only ever been
+exercised through mocks — no test had run the actual `SET ... = NULL` statement against a real
+database, so a null bind that a JDBC driver could not type would only fail at runtime, on a rare
+path. `AppUserRepository` gained its own dedicated `clearDriveTimesCalculatedAtIfHomeIs` method (a
+literal `SET u.driveTimesCalculatedAt = NULL ...`, not `stampDriveTimesIfHomeIs` called with a
+`null` instant), removing the question rather than relying on an untested answer, and
+`clearIfHomeUnchanged` now calls it. Two real-database tests were added either way, because they
+prove the method's whole behaviour (the delete, the atomicity, the guard), not only the null-bind
+question the repository change already settles: `UserSettingsRaceSequenceTest` (H2, runs locally)
+and `UserSettingsRowLockIntegrationTest` (Postgres, CI-only) each gained a pair proving the rows are
+deleted and the stamp nulled when the home matches, and that both survive untouched when it does not.
+
+One more P1 (fifth review of PR #942), on `DriveDurationService.measureForUser`'s OTHER kind of
+partial result: a successful ORS answer that omits one or more destinations (a null or negative
+duration for that destination specifically) while storing valid durations for the rest. `run` was
+already advancing the stamp on such an answer, so an omitted destination was never retried on the
+schedule alone. Verified before deciding: `OpenRouteServiceClient.fetchDurations` makes one
+un-chunked call per measurement, and a transient failure (unconfigured, rate-limited, malformed or
+empty response) fails that whole call rather than returning a partial list — so a null or negative
+entry can only come from ORS's own per-destination answer within an otherwise successful response, a
+definitive "no route exists" result, never a transient one. Decision: **keep the behaviour.**
+Refusing to advance the stamp until every destination succeeds would make every user due every
+night for as long as one location in the roster is unroutable from anywhere — not hypothetical,
+since production held exactly such a location (a latitude typo placing it in the sea) until this
+date, undetected. That is a data problem an admin fixes by correcting the coordinates, and the
+admin's "Run now" (which bypasses this predicate) re-measures everyone the moment they do; nightly
+retries cannot fix coordinates, and the location renders honestly meanwhile (no drive time is
+"unknown," passing every reach tier). `DriveTimeRefreshJob.needsRefresh`'s javadoc now records this
+as a decision taken in review, dated 2026-09-29, and the scheduled route logs one aggregated WARN per run
+(never one per user) naming every location a successful measurement omitted that run, so an
+unroutable location is visible to an operator the first night it appears — a manual "Run now" skips
+this query and its WARN, since it already hands its result straight to the admin who pressed it.
+
+One more P1 (sixth review of PR #942), on the in-memory `pendingDriveTimeAttempts` map itself:
+it was keyed only by user id, so it could throttle a refresh reading a DIFFERENT home from the one
+the pending entry was actually about. Sequence: a manual refresh reads home A; before it records
+its attempt, `saveHome` commits a move to home B and removes that user's pending entry — finding
+nothing, since the refresh has not recorded it yet; the refresh then records its attempt (still
+against A, the home it read) and ORS gives no answer or throws. The entry left behind carried no
+origin, so an immediate refresh reading the new home B was refused with 429 for up to 30 minutes,
+even though a home move is documented to release the cooldown.
+
+Each entry now carries the home coordinates the refresh read alongside the attempt instant
+(`UserSettingsService.PendingAttempt`, a package-private record: `attemptedAt`, `originLat`,
+`originLon`). The 30-minute cooldown only counts a pending entry when its origin matches the
+caller's CURRENT home, read fresh at the top of the same refresh; a mismatched entry is ignored
+exactly as if it were absent, and `refreshDriveTimes` unconditionally overwrites whatever was there
+with a fresh entry for the origin it just read — "ignored and replaced," never merely ignored.
+Origin comparison is exact `==` on both coordinates, the same equality
+`AppUserRepository.stampDriveTimesIfHomeIs`'s JPQL already uses on the same `DOUBLE PRECISION`
+columns — no tolerance introduced that the persisted compare-and-set does not already have.
+
+An attempt that THROWS is handled by the same rule, not a separate one: nothing in
+`refreshDriveTimes` catches `measureForUser`'s exception, so the entry recorded a moment earlier
+(against the origin that call was reading) survives it exactly as it survives a no-answer response.
+A retry from that SAME origin within the cooldown is still throttled; a retry from a DIFFERENT
+origin is not, for the identical reason a no-answer entry releases on a different origin.
+
+`saveHome`'s own removal of the pending entry is kept, unconditionally, on every move — but it is
+now a tidy-up rather than the thing correctness depends on, since the origin check already makes a
+stale entry harmless even where this removal's own race finds nothing yet to remove. A move away
+and back to the same coordinates within the cooldown (A to B and back to A) does not resurrect the
+earlier A-scoped entry: `saveHome` clears the pending entry on EVERY move, including the one back to
+A, with no memory of what the home used to be — consistent with the persisted stamp and rows, which
+`saveHome` also clears unconditionally on every move and never restores merely because the
+coordinates recur.
+
+Every read-then-write on the map that removes an entry it wrote itself now uses the value-conditional
+`remove(key, value)` rather than a bare `remove(key)` — after a successful store, on the 409 path,
+and on the confirmed-unreachable-but-home-moved 409 — so a concurrent refresh for the same user
+cannot have its own fresh entry clobbered by a stale one finishing late. Two simultaneous refreshes
+for the same user and the same origin: the second is refused with 429 if its own throttle check runs
+after the first has recorded its attempt (the ordinary case, since the entry is written before the
+ORS call); a genuine race where both read the map before either writes is unchanged from before this
+fix and remains out of scope here, as it was before.
+
+New tests in `UserSettingsServiceTest`'s `ManualAttemptCooldown` nested class reproduce Codex's
+exact interleaving for both a no-answer attempt and one where ORS throws — both fail against the
+prior commit, whose map carried no origin at all — plus a same-origin-after-exception throttle test
+and an A-to-B-and-back-to-A test pinning that a move-away-and-back does not resurrect an earlier
+attempt.
+
+### Docs — CLAUDE.md records the suite sizes, dated
+
+Measured on 2026-09-28 at `f849f13d`: 8,690 backend tests with the 11 CI-only integration classes excluded (53 more `@Test` methods there), 6,807 frontend tests in 266 files. A dated line under *Test Standards*, so a reader can tell a healthy run from a starved one; re-measure rather than trust it.
+
 ## [v2.22.1] - 2026-09-26
 
 ### Fixed — the map tide-mode save no longer takes part in the settings answers' order
