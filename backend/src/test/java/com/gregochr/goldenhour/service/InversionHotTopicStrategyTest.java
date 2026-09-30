@@ -24,17 +24,21 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link InversionHotTopicStrategy}.
  *
- * <p>Phase 2 of "record conditions for every place" (owner decision 2026-09-30) moved this
- * detector off {@link SurvivorSignals.Scores#inversion()} (Claude's {@code forecast_score} echo)
- * onto {@link SurvivorSignals.Readings#inversionScore()} (the deterministic calculator's own
- * score, from {@code survivor_atmosphere}). All 15 fixtures that used to build a
- * {@code Scores(inversion, band, ...)} row now build a {@code Readings(..., inversionScore)} row
- * instead — moved, not merely duplicated, because the old {@code Scores}-only path must no longer
- * be able to make this detector fire at all (see {@code detect_scoresInversionAlone_neverFires}
- * below). The detector fires only at the STRONG band (score &ge; {@code STRONG_SCORE_INCLUSIVE} =
- * 9), and the band label is now DERIVED from the score via
- * {@code PromptBuilder.InversionPotential.fromScore} rather than read off a stored
- * classification, since the calculator produces no such string. Expired mornings are dropped via
+ * <p>Round 3 of Phase 2 "record conditions for every place" (owner decision 2026-09-30, a Codex P1
+ * against PR #948's second cut) moved this detector onto
+ * {@link SurvivorSignals#effectiveInversionScore()} — the ONE shared rule: the calculator's
+ * {@link SurvivorSignals.Readings#inversionScore()} when present, else Claude's
+ * {@link SurvivorSignals.Scores#inversion()} echo. This REVERSES the second cut's own
+ * {@code detect_silentWhenReadingNull_evenIfScoresInversionIsTen} test (a null reading with a
+ * strong echo used to be silent; it now fires — see
+ * {@code detect_nullReadingWithStrongEcho_fires} below, and {@code effectiveInversionScore}'s own
+ * javadoc for why: a forward slot is NOT guaranteed to have a fresh calculator reading every
+ * cycle, since {@code BriefingCandidateCollector} can skip it on a fresh cache for up to 36 hours
+ * before the calculator ever runs). The detector fires only at the STRONG band (score &ge;
+ * {@code STRONG_SCORE_INCLUSIVE} = 9), the reading always wins over a disagreeing echo when both
+ * are present, and the band label is DERIVED from the effective score via
+ * {@code PromptBuilder.InversionPotential.fromScore} rather than read off a stored classification,
+ * since the calculator produces no such string. Expired mornings are dropped via
  * {@link SolarEventFreshness} (mocked here), and every remaining strong-inversion morning is
  * enumerated in the pill.
  */
@@ -95,19 +99,36 @@ class InversionHotTopicStrategyTest {
     }
 
     /** A SUNRISE row whose ONLY inversion evidence is Claude's {@code Scores} echo — Readings is
-     * EMPTY. Used to prove the old read path no longer counts at all. */
+     * EMPTY. Exercises {@code effectiveInversionScore()}'s fallback arm. */
     private static SurvivorSignals signalScoresOnly(LocalDate date, String regionName,
             int scoresInversion) {
+        return signalBoth(date, regionName, null, scoresInversion);
+    }
+
+    /**
+     * A SUNRISE row carrying BOTH a calculator reading and Claude's echo, independently — lets a
+     * test prove the reading wins even when it disagrees with (including when it is LOWER than)
+     * the echo.
+     *
+     * @param readingScore the calculator's {@code Readings.inversionScore()}, or null
+     * @param echoScore    Claude's {@code Scores.inversion()} echo, or null
+     */
+    private static SurvivorSignals signalBoth(LocalDate date, String regionName,
+            Double readingScore, Integer echoScore) {
         LocationEntity location = new LocationEntity();
         if (regionName != null) {
             RegionEntity region = new RegionEntity();
             region.setName(regionName);
             location.setRegion(region);
         }
-        SurvivorSignals.Scores scores =
-                new SurvivorSignals.Scores(scoresInversion, "STRONG", null, null);
-        return new SurvivorSignals(location, date, TargetType.SUNRISE, scores,
-                SurvivorSignals.Readings.EMPTY);
+        SurvivorSignals.Scores scores = echoScore == null
+                ? SurvivorSignals.Scores.EMPTY
+                : new SurvivorSignals.Scores(echoScore, "STRONG", null, null);
+        SurvivorSignals.Readings readings = readingScore == null
+                ? SurvivorSignals.Readings.EMPTY
+                : new SurvivorSignals.Readings(
+                        null, null, null, null, null, null, null, null, null, null, null, readingScore);
+        return new SurvivorSignals(location, date, TargetType.SUNRISE, scores, readings);
     }
 
     @Test
@@ -187,11 +208,53 @@ class InversionHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("a row whose Readings carries no inversion score is silent even when Scores.inversion() "
-            + "is 10 — the old Claude-echo path no longer counts at all")
-    void detect_silentWhenReadingNull_evenIfScoresInversionIsTen() {
+    @DisplayName("REVERSES the old (3e688862) expectation: a null calculator reading with a strong "
+            + "Claude echo (10) now FIRES — a forward slot is not guaranteed to have a fresh "
+            + "reading every cycle (BriefingCandidateCollector's SKIPPED_CACHED gate can hold one "
+            + "back up to 36h before the calculator ever runs), so the echo is read as a stand-in "
+            + "for a slot the calculator has not reached yet, not ignored")
+    void detect_nullReadingWithStrongEcho_fires() {
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signalScoresOnly(FROM, "The Lake District", 10)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(factWithKey(topics.get(0), "inversion").value()).isEqualTo("10/10 · strong");
+    }
+
+    @Test
+    @DisplayName("a LOWER calculator reading (8, MODERATE) beats a HIGHER Claude echo (10) — the "
+            + "reading wins whenever the calculator has scored the slot, even when disagreeing "
+            + "downward, so this stays silent")
+    void detect_readingBelowThreshold_beatsStrongEcho_silent() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalBoth(FROM, "The Lake District", 8.0, 10)));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a calculator reading of 10 with no echo at all still fires — the ordinary, "
+            + "already-covered case, named explicitly for the effective-score contract")
+    void detect_readingPresentEchoNull_fires() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalBoth(FROM, "The Lake District", 10.0, null)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(factWithKey(topics.get(0), "inversion").value()).isEqualTo("10/10 · strong");
+    }
+
+    @Test
+    @DisplayName("both the reading and the echo null (a slot with no inversion evidence at all) is "
+            + "silent")
+    void detect_bothNull_silent() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalBoth(FROM, "The Lake District", null, null)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }

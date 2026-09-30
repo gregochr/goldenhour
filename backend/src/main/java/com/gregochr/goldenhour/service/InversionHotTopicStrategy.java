@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Detects cloud inversion hot topics by reading the survivor surface's readings half
- * ({@code survivor_atmosphere}).
+ * Detects cloud inversion hot topics by reading the survivor surface's unified inversion signal
+ * ({@link SurvivorSignals#effectiveInversionScore()}).
  *
  * <p>A temperature inversion traps cloud below elevated viewpoints, creating a "sea of
  * clouds" at dawn. {@code InversionScoreCalculator} runs a deterministic 0–10 likelihood score
@@ -27,24 +27,36 @@ import java.util.Locale;
  * {@link PromptBuilder.InversionPotential#fromScore(int)} (9–10 = STRONG).
  *
  * <p>⚠️ <b>Phase 2 of "record conditions for every place" (owner decision 2026-09-30): this
- * detector moved off Claude's echo onto the calculator's own score.</b> Through 2026-09-30 this
- * class read {@link SurvivorSignals.Scores#inversion()} — the {@code forecast_score} INVERSION
- * component, written only from a completed Claude evaluation — so it was silent for a triaged-out
- * or Gate-4-stood-down location exactly like the two-question rule (2026-09-29) says a hot topic
- * must not be. It now reads {@link SurvivorSignals.Readings#inversionScore()} instead — the
- * deterministic calculator's own score, from {@code survivor_atmosphere} (V158) — so a stood-down
- * location still shows its inversion likelihood. {@code Scores#inversion()} is left entirely
- * unread here now; it is still read by {@code ComingUpConditionsBuilder}'s trailing-history
- * display and by {@code TopicDailyLogJob} (both documented on their own classes).
+ * detector's score always follows the calculator, with Claude's echo as a stand-in only for a
+ * slot the calculator has not reached yet.</b> Through 2026-09-30 this class read
+ * {@link SurvivorSignals.Scores#inversion()} — the {@code forecast_score} INVERSION component,
+ * written only from a completed Claude evaluation — so it was silent for a triaged-out or
+ * Gate-4-stood-down location exactly like the two-question rule (2026-09-29) says a hot topic must
+ * not be. A second cut moved it onto {@link SurvivorSignals.Readings#inversionScore()} alone,
+ * reasoning that a forward slot is upserted every cycle and therefore always current; a Codex
+ * review of PR #948 (round 3) found that reasoning wrong — {@code BriefingCandidateCollector}
+ * skips a region with a fresh {@code cached_evaluation} entry ({@code SKIPPED_CACHED}, around
+ * lines 204–227) BEFORE {@code fetchWeatherAndTriage} ever runs, and
+ * {@code FreshnessProperties.settledHours} (36, uncapped at T+2 and beyond) lets that skip hold for
+ * up to 36 hours on a SETTLED region, so a forward slot can carry a null calculator reading for a
+ * day and a half while Claude's own echo already exists. This detector now reads
+ * {@link SurvivorSignals#effectiveInversionScore()} instead — the ONE shared rule every reader of
+ * this signal uses (also read by {@code ComingUpConditionsBuilder.buildInversion}'s two loops):
+ * the calculator's reading when present, else Claude's echo. When the calculator HAS scored a
+ * slot, the calculator decides, full stop — the reading always wins when both exist. The echo is
+ * never anything more than a stand-in for what the calculator has not reached yet, and it is the
+ * same 0–10 scale with the same STRONG cut, so this can never make the topic fire on a slot the
+ * calculator itself would have refused.
  *
  * <p>⚠️ <b>Two surfaces, two questions, and they may disagree — deliberately.</b> The map popup's
  * inversion badge ({@code ForecastDtoMapper} → {@code forecast_evaluation.inversion_score}) stays
- * on Claude's echo and is unaffected by this change: it answers "is this place worth going to",
- * exactly the second question the two-question rule reserves for a completed evaluation, and
+ * on Claude's echo alone and is unaffected by this change: it answers "is this place worth going
+ * to", exactly the second question the two-question rule reserves for a completed evaluation, and
  * Claude has narrow discretion to disagree with the calculator on the measured reversal. This hot
- * topic answers "what is happening" and always follows the calculator. So a location can show a
- * strong-inversion chip here while its own map badge reads a different band, or vice versa on a
- * location Claude never evaluated at all — that is the intended split, not a bug to reconcile.
+ * topic answers "what is happening" and always follows the effective score above. So a location
+ * can show a strong-inversion chip here while its own map badge reads a different band, or vice
+ * versa on a location Claude never evaluated at all — that is the intended split, not a bug to
+ * reconcile.
  *
  * <p>Makes no external API calls.
  *
@@ -111,8 +123,8 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
         List<SurvivorSignals> strong = survivorSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> s.eventType() == TargetType.SUNRISE)
-                .filter(s -> s.readings().inversionScore() != null
-                        && s.readings().inversionScore() >= STRONG_SCORE_INCLUSIVE)
+                .filter(s -> s.effectiveInversionScore() != null
+                        && s.effectiveInversionScore() >= STRONG_SCORE_INCLUSIVE)
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .sorted(Comparator.comparing(SurvivorSignals::date))
                 .toList();
@@ -147,17 +159,18 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      */
     private HotTopic attachFacts(HotTopic topic, List<SurvivorSignals> dayRows) {
         SurvivorSignals top = dayRows.stream()
-                .filter(s -> s.readings().inversionScore() != null)
-                .max(Comparator.comparingDouble((SurvivorSignals s) -> s.readings().inversionScore()))
+                .filter(s -> s.effectiveInversionScore() != null)
+                .max(Comparator.comparingDouble(SurvivorSignals::effectiveInversionScore))
                 .orElse(null);
         if (top == null) {
             return topic;
         }
         // Round, never truncate — see PromptBuilder's own comment on the same conversion. The
-        // calculator's components are all whole-number doubles (or exact 6.0/8.0 gate ceilings),
-        // so this never actually changes a value; it exists so the display rule can't drift from
-        // the one the prompt already applies.
-        int reported = (int) Math.round(top.readings().inversionScore());
+        // calculator's components are all whole-number doubles (or exact 6.0/8.0 gate ceilings)
+        // and Claude's echo is already a whole-number Integer widened to double, so this never
+        // actually changes a value; it exists so the display rule can't drift from the one the
+        // prompt already applies.
+        int reported = (int) Math.round(top.effectiveInversionScore());
         String value = reported + "/10 · " + bandLabel(reported);
         return topic.withScience(
                 List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE);

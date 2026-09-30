@@ -469,16 +469,16 @@ class ComingUpConditionsBuilderTest {
 
     // ── Inversion: rarity never upgrades ─────────────────────────────────
     //
-    // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158) moved this
-    // condition's forward peak onto survivor_atmosphere.inversion_score (the deterministic
-    // calculator's own score) alone — the same population InversionHotTopicStrategy now reads.
-    // ⚠️ PR #948 (a Codex P1 against the first V158 cut) found the occurrence list could not stay
-    // calculator-only: every pre-migration survivor_atmosphere row has a null inversion_score
-    // forever (past dates are never re-evaluated), so the trailing history fell back to
-    // forecast_score's Claude-echoed INVERSION component for a date whose reading is null — see
-    // ComingUpConditionsBuilder.trailingInversionScore's own javadoc. The forward peak's own
-    // fixtures below are therefore calculator-only (readings), while the occurrence-list fixtures
-    // further down mix readings and forecast_score rows to exercise the fallback explicitly.
+    // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158; unified in
+    // round 3 after a second Codex P1 against PR #948) reads BOTH the trailing occurrence list AND
+    // the forward peak through SurvivorSignals.effectiveInversionScore() — the calculator's
+    // survivor_atmosphere.inversion_score when present, else Claude's forecast_score echo, for
+    // either window. Round 2 kept the forward peak calculator-only on the assumption a forward
+    // slot is upserted every cycle; that assumption was found wrong (BriefingCandidateCollector's
+    // SKIPPED_CACHED gate can hold a SETTLED region's write back up to 36h before
+    // fetchWeatherAndTriage ever runs), so the fixtures below no longer split "forward =
+    // calculator-only" from "trailing = falls back" — every fixture from here on mixes readings
+    // and forecast_score rows freely, and the SAME assertions apply to both windows.
 
     private static SurvivorAtmosphereEntity inversionReading(LocationEntity location, LocalDate date,
             double score) {
@@ -490,7 +490,7 @@ class ComingUpConditionsBuilderTest {
         return entity;
     }
 
-    /** A {@code forecast_score} INVERSION row — Claude's echo, the trailing-history fallback. */
+    /** A {@code forecast_score} INVERSION row — Claude's echo, the calculator's stand-in. */
     private static ForecastScoreEntity inversionEcho(LocationEntity location, LocalDate date, int score) {
         ForecastScoreEntity entity = new ForecastScoreEntity();
         entity.setForecastType(ForecastType.INVERSION);
@@ -598,7 +598,7 @@ class ComingUpConditionsBuilderTest {
         assertThat(conditions.get(2).peak().valueLabel()).isEqualTo("9/10");
     }
 
-    // ── Trailing-history fallback (PR #948, Codex P1 against the first V158 cut) ────────────
+    // ── Effective inversion score: ONE rule for both windows (PR #948, rounds 2 and 3) ────────
 
     @Test
     @DisplayName("a past date with a null survivor_atmosphere reading and a strong forecast_score "
@@ -693,9 +693,11 @@ class ComingUpConditionsBuilderTest {
     }
 
     @Test
-    @DisplayName("the forward-peak cell stays calculator-only: a null reading with a strong echo is "
-            + "NOT shown as the peak, even though the trailing history would fall back to it")
-    void buildInversion_forwardPeak_nullReadingWithStrongEcho_notShown() {
+    @DisplayName("REVERSES the round-2 (78ff787c) expectation: the forward-peak cell is NOT "
+            + "calculator-only any more — a null reading with a strong echo IS shown as the peak, "
+            + "because BriefingCandidateCollector's SKIPPED_CACHED gate can leave a forward slot's "
+            + "calculator reading null for up to 36h while Claude's own echo already exists for it")
+    void buildInversion_forwardPeak_nullReadingWithStrongEcho_isShown() {
         LocationEntity fell = LocationEntity.builder().id(13L).name("Forward Fell").lat(1.0).lon(1.0).build();
         LocalDate peakDate = TODAY.plusDays(1);
         SurvivorAtmosphereEntity nullReading = new SurvivorAtmosphereEntity();
@@ -714,12 +716,33 @@ class ComingUpConditionsBuilderTest {
 
         ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
 
-        assertThat(inversion.peak()).isNull();
-        // Nor does the echo-only forward date leak into the occurrence list as a HELD_BACK row —
-        // the forward window is [builtFor, lastPlanDate], entirely disjoint from the trailing
-        // window [windowStart, yesterday], so this date is simply never looked at by either loop
-        // in a way that would list it.
-        assertThat(inversion.occurrences()).isEmpty();
+        assertThat(inversion.peak()).isNotNull();
+        assertThat(inversion.peak().valueLabel()).isEqualTo("9/10");
+    }
+
+    @Test
+    @DisplayName("the forward peak also prefers the READING over a disagreeing echo, exactly like "
+            + "the trailing history — one rule, used identically by both windows")
+    void buildInversion_forwardPeak_readingWinsOverDisagreeingEcho() {
+        LocationEntity fell = LocationEntity.builder().id(14L).name("Forward Both Fell").lat(1.0).lon(1.0).build();
+        LocalDate peakDate = TODAY.plusDays(1);
+        SurvivorAtmosphereEntity reading = inversionReading(fell, peakDate, 10.0);
+        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
+                .thenReturn(List.of(reading));
+        when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
+                .thenAnswer(invocation -> {
+                    LocalDate from = invocation.getArgument(1);
+                    LocalDate to = invocation.getArgument(2);
+                    // A deliberately different echo value — a wrongly-preferred echo would be
+                    // caught by the "10/10" assertion below.
+                    return !peakDate.isBefore(from) && !peakDate.isAfter(to)
+                            ? List.of(inversionEcho(fell, peakDate, 9)) : List.of();
+                });
+
+        ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
+
+        assertThat(inversion.peak()).isNotNull();
+        assertThat(inversion.peak().valueLabel()).isEqualTo("10/10");
     }
 
     // ── frequencyPhrase (lunar-eclipse plan §2.9) ────────────────────────

@@ -33,14 +33,17 @@ import java.util.Map;
  * {@code InversionScoreCalculator}'s own score for every inversion-eligible candidate, on
  * {@code survivor_atmosphere}, populated whatever the triage verdict or Gate 4 decision.
  * {@link SurvivorSignals.Scores#inversion()} (Claude's echo, from {@code forecast_score}) still
- * exists and is still returned unchanged. The inversion hot topic and the Coming up "Valley
- * inversions" condition's forward peak read the calculator score alone; that condition's own
- * TRAILING-HISTORY occurrence list falls back to {@code Scores#inversion()} for a past date whose
- * calculator reading is null (every pre-V158 row, forever — see
- * {@code ComingUpConditionsBuilder.trailingInversionScore}'s own javadoc, a Codex finding against
- * PR #948's first V158 cut), so this field is NOT dead code — see
- * {@code InversionHotTopicStrategy}'s own javadoc for why the two surfaces (this composite's two
- * inversion fields, and the map's separately-echoed badge) are allowed to disagree.
+ * exists and is still returned unchanged — it is NOT dead code, because
+ * {@link SurvivorSignals#effectiveInversionScore()} falls back to it whenever the calculator's
+ * reading is null. ⚠️ <b>One rule, used for both windows (round 3, a Codex P1 against PR #948's
+ * second cut)</b> — an earlier design kept the forward peak calculator-only on the assumption a
+ * forward slot is upserted every cycle; that assumption is false ({@code BriefingCandidateCollector}
+ * can skip a region on a fresh cache for up to 36 hours before {@code fetchWeatherAndTriage} ever
+ * runs), so both the inversion hot topic and the Coming up "Valley inversions" condition's forward
+ * peak AND trailing history now read {@code effectiveInversionScore()} — see that method's own
+ * javadoc for the full history and why "the calculator decides when it has scored a slot" survives
+ * intact. See {@code InversionHotTopicStrategy}'s own javadoc for why the map's separately-echoed
+ * badge is still allowed to disagree with this composite's effective score.
  * A composite built from a readings-only key therefore has {@link SurvivorSignals.Scores}
  * {@code EMPTY} and populated {@link SurvivorSignals.Readings} — never a zero score and never an
  * exception — exactly like any other single-surface key (see {@link #read}'s own javadoc and this

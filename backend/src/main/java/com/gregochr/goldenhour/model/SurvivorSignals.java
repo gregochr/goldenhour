@@ -38,24 +38,68 @@ public record SurvivorSignals(
         Readings readings) {
 
     /**
+     * Returns the effective cloud inversion score for this key — the ONE rule every reader of
+     * inversion likelihood uses, forward or trailing: {@link Readings#inversionScore()} (the
+     * deterministic calculator's own score) when the calculator has scored this slot, else
+     * {@link Scores#inversion()} (Claude's {@code forecast_score} echo of the identical 0–10
+     * scale) as a stand-in for a slot the calculator has not yet reached.
+     *
+     * <p>⚠️ <b>Round 3 of Phase 2 (owner decision 2026-09-30, a Codex P1 against PR #948's second
+     * cut): there is no forward/trailing split any more — one rule, used everywhere.</b> The
+     * second cut assumed a forward slot is upserted every cycle, so the calculator's reading is
+     * always current there and the fallback was needed only for the trailing history (a past date
+     * that can never be re-evaluated). That assumption is false: {@code BriefingCandidateCollector}
+     * skips a region with a fresh {@code cached_evaluation} entry — {@code SKIPPED_CACHED}, around
+     * lines 204–227 — <em>before {@code fetchWeatherAndTriage} ever runs</em>, and
+     * {@code FreshnessProperties.settledHours} defaults to 36 with no horizon cap at T+2 and beyond
+     * ({@code FreshnessResolver.horizonCap} returns null there), so a SETTLED forward slot can go
+     * up to 36 hours without a fresh {@code survivor_atmosphere} write at all — the exact gap the
+     * forward-only design assumed could not happen. Splitting the rule by window direction was
+     * therefore the wrong shape: what actually varies is not "forward vs trailing" but "has the
+     * calculator scored this slot THIS cycle or not", which both windows can independently answer
+     * either way.
+     *
+     * <p><b>This does not retreat from the owner's decision that the calculator governs.</b> Where
+     * the calculator HAS scored a slot, the calculator decides, full stop — the reading always
+     * wins when both are present. The echo is only ever a stand-in for a slot the calculator has
+     * not yet reached, on the identical 0–10 scale with the identical STRONG cut (9), so this rule
+     * can never make the topic fire on a slot the calculator would itself have refused; it only
+     * ever fills a gap the calculator has not had the chance to fill yet.
+     *
+     * <p>Used by {@code InversionHotTopicStrategy.detect}/{@code attachFacts} and by both of
+     * {@code ComingUpConditionsBuilder.buildInversion}'s reads (trailing history and forward peak
+     * alike) — the single shared helper a helper-level test and both readers' own tests pin
+     * against identical fixtures, so the two can never disagree.
+     *
+     * @return the effective 0–10 inversion score, or null when neither surface has one for this key
+     */
+    public Double effectiveInversionScore() {
+        Double reading = readings.inversionScore();
+        if (reading != null) {
+            return reading;
+        }
+        Integer echoed = scores.inversion();
+        return echoed == null ? null : echoed.doubleValue();
+    }
+
+    /**
      * Score-shaped survivor signals from {@code forecast_score} — each nullable when that score was
      * not written for the key (ineligible location, out of season, or eval not yet returned).
      *
-     * <p>⚠️ <b>{@link #inversion()} is Claude's echo, and is no longer the PRIMARY read path for
-     * the inversion hot topic or the Coming up "Valley inversions" condition's forward peak
-     * (Phase 2, owner decision 2026-09-30).</b> Both of those now read
-     * {@link Readings#inversionScore()} first — the deterministic calculator's own score, populated
-     * for every inversion-eligible candidate regardless of triage or Gate 4, and correct from the
-     * first cycle after deploy for anything forward-looking, since a forward slot is upserted every
-     * cycle. ⚠️ <b>The Coming up condition's TRAILING-HISTORY occurrence list is the one place this
-     * field still has a live, permanent, production reader</b> — {@code ComingUpConditionsBuilder
-     * .trailingInversionScore} falls back to this field whenever a past date's
-     * {@link Readings#inversionScore()} is null, which every pre-V158 {@code survivor_atmosphere}
-     * row is forever (a past date is never re-evaluated, so there is no later cycle to backfill a
-     * reading for it) — see that method's own javadoc for the fallback's full justification (a
-     * Codex finding against PR #948's first V158 cut). {@code TopicDailyLogJob}'s future-population
-     * log reads {@code forecast_score} directly, bypassing this composite entirely — see that
-     * class's own javadoc.
+     * <p>⚠️ <b>{@link #inversion()} is Claude's echo — read only through {@link #effectiveInversionScore()}
+     * now, never directly, by the inversion hot topic or the Coming up "Valley inversions"
+     * condition (Phase 2, owner decision 2026-09-30; unified onto one rule in round 3 after a
+     * Codex P1 — see that method's own javadoc for the full history, including why "forward slot,
+     * calculator-only" was itself found wrong).</b> This field is a genuine, permanent, live
+     * production input via that shared helper: it is what {@code effectiveInversionScore()} falls
+     * back to whenever {@link Readings#inversionScore()} is null, for EITHER window — a past date
+     * whose reading was never written (every pre-V158 row, forever), or a forward date whose
+     * {@code survivor_atmosphere} write has not happened yet this cycle (a region skipped by
+     * {@code BriefingCandidateCollector}'s {@code SKIPPED_CACHED} gate before
+     * {@code fetchWeatherAndTriage} ever runs, which can hold for up to 36 hours on a SETTLED
+     * region at T+2 or beyond). {@code TopicDailyLogJob}'s future-population log reads
+     * {@code forecast_score} directly, bypassing this composite entirely — see that class's own
+     * javadoc.
      *
      * @param inversion       cloud inversion score 0–10 (Claude's echo), or null
      * @param inversionBand   the inversion row's stored classification (NONE/MODERATE/STRONG), or

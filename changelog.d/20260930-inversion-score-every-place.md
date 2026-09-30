@@ -21,12 +21,14 @@ or Gate 4 decision that follows.
 `Scores`, which is Claude's judgement) and `SurvivorSignalReader` carries the new column through
 unchanged. `InversionHotTopicStrategy` and `ComingUpConditionsBuilder.buildInversion`'s forward-peak
 cell read `readings().inversionScore()` instead of `scores().inversion()` — same STRONG threshold
-(score ≥ 9), same SUNRISE-only filter, same freshness rule. ⚠️ **Corrected in a follow-up commit the
-same day** (`changelog.d/20260930-inversion-trailing-history-fallback.md`, a Codex P1 against this
-commit): the trailing-history occurrence list could not move to `readings().inversionScore()` alone
-the way the forward peak did, because a past date's reading is populated only going forward from
-this migration and is never retroactively filled in. That entry has the full fix. Coming up's
-rarity term is untouched either way: it still reads the config fallback, and
+(score ≥ 9), same SUNRISE-only filter, same freshness rule. ⚠️ **Corrected twice in follow-up commits
+the same day** (`changelog.d/20260930-inversion-trailing-history-fallback.md`, two Codex P1s against
+this commit): first, the trailing-history occurrence list could not move to
+`readings().inversionScore()` alone the way the forward peak did, because a past date's reading is
+populated only going forward from this migration and is never retroactively filled in; then a SECOND
+finding showed the forward peak's own "always current" assumption was itself wrong, and the two
+reads were unified onto one shared rule. That entry has the full, current design. Coming up's
+rarity term is untouched by either fix: it still reads the config fallback, and
 `inversionRarityNeverUpgrades` still pins that.
 
 **The band label is now derived, not stored.** The calculator produces no NONE/MODERATE/STRONG
