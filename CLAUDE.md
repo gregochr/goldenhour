@@ -487,55 +487,94 @@ overwrite a different cycle's; the pre-existing "latest row per slot" SERVE quer
 already-documented `forecast_evaluation` limitation, not a new one this round created.
 
 ⚠️ **Round 13 found the class of bug went WIDER than round 12's own comparison could reach, on two
-fronts — "gap 1" and "gap 2" — and fixed both except the one named follow-up above.** A Codex review
-of round 12 found that comparing an incoming result against whatever is currently STORED is not
-enough: a later cycle's Gate 4 stability skip or weather-triage stand-down writes NO
-`cached_evaluation` entry to compare against at all — only a `forecast_run_disposition` row — so a
-batch delayed past that later decision had nothing to lose a staleness comparison against, and wrote
-its (chronologically stale) rating straight into the cache, restoring the arrival-order bug for
-exactly the case the serve-time stability-skip retraction above was built for. **Gap 1**
-(`BriefingEvaluationService.supersededByLaterRun`, called from `mergeFromBatch`,
-`mergeWoodlandFromBatch` and `mergeBluebellFromBatch` before any staleness/combination logic runs):
-before writing or combining a location, checks whether a pipeline run that started AFTER the
-incoming result's own `submittedAt` has already recorded ANY non-`SKIPPED_CACHED` disposition for
-that exact slot; if so, the result is superseded and reaches no sink at all (logged once at INFO).
-⚠️ **The join must be keyed on the disposition's OWNING CYCLE's `trigger_time`, never on the
-disposition's own `created_at`** — a disposition is always written a short time AFTER its own cycle
-starts, so comparing `created_at` directly against an incoming result's `submittedAt` (which, for an
-orchestrated batch, IS that same cycle's trigger time) would make every cycle's own
-`EVALUATED`/`FORCE_EVALUATED`/`SKIPPED_STABILITY` disposition look like it supersedes the very result
-it documents — every forced T+3 rating would vanish, the exact hazard the round-13 brief asked to be
-confirmed before building. `ForecastRunDispositionEntity` carries no pipeline run id of its own, but
-recovers one without a migration: `ForecastDispositionService#persist` anchors every cycle's
-dispositions against that cycle's FIRST job run, and exactly one `ForecastBatchEntity` row (the first
-bucket submitted that cycle) shares that same `job_run_id` and already carries the real
-`pipeline_run_id` — `ForecastRunDispositionRepository#findSupersedingCycleTriggerTimes` is the
-three-entity JPQL join that recovers it. Two queries in the worst case, one in the common case:
-`PipelineRunRepository#existsByTriggerTimeAfter` is a cheap Phase 1 existence check (does ANY cycle
-exist after the earliest submission among this batch's own results at all), and the disposition join
-is Phase 2, reached — and paid for, once, for the whole batch, never per location — only when Phase 1
-says yes. Only orchestrated batches write dispositions at all (`submitForecastBatchForPipelineRun`
-`requireNonNull`s the `pipelineRunId`; JFDI and the synchronous engine write none), so only they can
-ever supersede anything under this rule — but a synchronous or JFDI RESULT is covered as a target
-uniformly, since the synchronous path also routes through `mergeFromBatch`. The `PENDING`
-`forecast_evaluation` row is still scored unconditionally by `scoreEvaluationRow`, unaffected by this
-check (it runs earlier, inside `ForecastResultHandler#buildResult`, before the orchestrator ever
-calls the merge methods this check lives in) — and that is safe without any further change, because
-`forecast_run_at` is stamped at collection time, never score time, so a genuinely later cycle's own
-row (with its own later `forecast_run_at`) already wins `EvaluationViewService#loadLatestForecasts`'
-per-slot MAX comparison regardless of when an older cycle's Claude result happens to arrive late.
+fronts — "gap 1" and "gap 2" — but round 13's OWN first cut of gap 1 was itself wrong, tested
+against production and corrected in round 14.** A Codex review of round 12 found that comparing an
+incoming result against whatever is currently STORED is not enough: a later cycle's Gate 4 stability
+skip or weather-triage stand-down writes NO `cached_evaluation` entry to compare against at all —
+only a `forecast_run_disposition` row — so a batch delayed past that later decision had nothing to
+lose a staleness comparison against, and wrote its (chronologically stale) rating straight into the
+cache, restoring the arrival-order bug for exactly the case the serve-time stability-skip retraction
+above was built for.
+
+⚠️ **Round 13's fix joined `forecast_batch` and allowed every disposition except `SKIPPED_CACHED` to
+supersede — both wrong, proven against production on 2026-09-29.** Pipeline run 249 (INTRADAY,
+trigger 14:00:00 UTC): all three Anthropic batch submissions failed with HTTP 500, so
+`ScheduledBatchEvaluationService#persistCycleDispositions` anchored the cycle's 589 dispositions —
+510 `EVALUATED`, 76 `SKIPPED_TRIAGED`, 3 `SKIPPED_UNKNOWN_LOCATION` — to a disposition-only "anchor
+run" job_run with **no `forecast_batch` row at all** (`forecast_batch` holds zero rows for that
+job_run_id; over five days, 589 of 13,120 disposition rows join to no batch at all). Round 13's
+three-entity join through `forecast_batch` could not see ANY of these dispositions in either
+direction, and separately, `EVALUATED`/`FORCE_EVALUATED` record only that a candidate was INCLUDED
+for submission, never that a result was ever produced — the 510 `EVALUATED` rows on that failed
+cycle produced exactly zero results, so treating them as superseding (round 13's actual rule,
+`d.disposition <> 'SKIPPED_CACHED'`) would have rejected a perfectly good older rating in favour of
+nothing, leaving the slot unrated where the stale-but-real prior rating should have kept serving.
+
+**Gap 1, corrected (`SupersedingDispositionService`, round 14)** — a new, standalone service both
+`BriefingEvaluationService.supersededByLaterRun` (the merge-level bulk check, called from
+`mergeFromBatch`, `mergeWoodlandFromBatch` and `mergeBluebellFromBatch`) and
+`ForecastResultHandler`'s three `forecast_score` write sites (correction 3, below) delegate to. The
+rule needs no `forecast_batch` row at all: **a disposition supersedes a result when the
+disposition's `created_at` is at or after the trigger time of the FIRST `pipeline_run` triggered
+after the result's own `submittedAt`** — `PipelineRunRepository#findTriggerTimesAfter` answers this
+purely from the `pipeline_run` table, which exists for every triggered cycle regardless of whether
+that cycle ever produced a batch. A same-cycle disposition's `created_at` always falls strictly
+before the next cycle's trigger time (cycles are hours apart; disposition persistence is
+near-instant), so it is correctly read as simultaneous with its own result, never later — the
+same-cycle safety round 13 achieved via the (now-removed) `forecast_batch` join is preserved without
+it. ⚠️ **The disposition allow-list is now explicit and exactly two values** —
+`ForecastRunDispositionRepository#findSupersedingDispositions`/`#existsSupersedingDisposition` query
+`disposition IN ('SKIPPED_STABILITY', 'SKIPPED_TRIAGED')`, never "everything except." Every other
+`DispositionCategory` value — `EVALUATED`, `FORCE_EVALUATED`, `SKIPPED_HARD_CONSTRAINT`,
+`SKIPPED_NO_PROMPT`, `SKIPPED_CACHED`, `SKIPPED_PAST_DATE`, `SKIPPED_TRAVEL_DAY`,
+`SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_ERROR`, `SKIPPED_NO_REFRESH_NEEDED` — is excluded by
+construction (see `SupersedingDispositionService`'s class javadoc for why each one is out, one at a
+time; `SKIPPED_HARD_CONSTRAINT` is arguably a candidate for a future round since it IS a genuine
+stand-down decision, but was not added here). Query cost: one cheap query in the common case (no
+cycle has started since the earliest submission being checked — the ordinary, non-delayed case,
+since a fresh result's `submittedAt` is recent), two when a later cycle exists at all (the same
+call, plus one bulk disposition query). Results in one merge call may carry different `submittedAt`
+values; the trigger-time list is loaded once from the EARLIEST of them and each result's own "next
+trigger" is resolved from that one in-memory list. The `PENDING` `forecast_evaluation` row is still
+scored unconditionally by `scoreEvaluationRow`, unaffected by any of this (it runs earlier, inside
+`ForecastResultHandler#buildResult`, before the orchestrator ever calls the merge methods this check
+lives in) — safe because `forecast_run_at` is stamped at collection time, never score time, so a
+genuinely later cycle's own row already wins `EvaluationViewService#loadLatestForecasts`' per-slot
+MAX comparison regardless of when an older cycle's Claude result happens to arrive late.
+
+⚠️ **Correction 3: `forecast_score` was still reachable by a superseded response until round 14,
+because it writes per-response, before the merge-level check ever runs.** `ForecastResultHandler`
+writes `forecast_score` inside `buildResult`/`buildWoodlandResult`/`buildBluebellResult`, which run
+once PER ANTHROPIC RESPONSE as `BatchResultProcessor` consumes the Batch API's streaming result
+reader — and that reader only learns a batch's location set as it streams, so there is no point
+"before any result of the batch is parsed" at which every location it will touch is already known.
+A true batch-wide hoist is therefore not possible without buffering an entire batch before writing
+anything, which this class does not do for any sink today. The accepted, explained fallback is
+`SupersedingDispositionService#isSuperseded`, called once per response immediately before each of
+the three `forecast_score` write sites — one query in the common case per response, two only when a
+later cycle already exists for that one submission (a real but rare per-response cost, traded for
+correctness over a true hoist). The synchronous path (`handleSyncResult`) carries the identical
+check before its own write. `api_call_log` is written unconditionally regardless (cost accounting
+stays complete even though a superseded response's rating reaches no sink), and
+`survivor_atmosphere` needs no gate here at all: `SurvivorAtmosphereWriter.write` is called only
+from `ForecastTaskCollector` (batch collection, before any batch is even submitted) and
+`ForecastService` (the synchronous engine's pre-Claude-call point) — never from `ForecastResultHandler`
+— so a superseded RESULT has no bearing on it; it captures measured weather at collection time, not
+Claude's opinion of it.
+
 **Gap 2** (`ForecastScoreWriter#upsert`): the identical unordered-overwrite weakness named as a
 follow-up in round 12 turned out to be trivially and safely fixable after all, since
 `ForecastScoreEntity` already stores the producing run's own `pipeline_run_id` directly — no
-disposition join needed. An incoming write with a strictly SMALLER `pipelineRunId` than the stored
-row's is rejected (logged once at INFO); ids are safe to compare directly because
-`PipelineRunEntity.id` is an autoincrement key assigned in strict cycle-trigger order, so comparing
-ids IS comparing trigger times. Equal ids overwrite as before, and a `null` on EITHER side (a legacy
-stored row, or an incoming sync/admin write, which this table's own writer already documents as
-always `null`) is "unknown, cannot be shown to be older" and proceeds exactly as it always has.
-`survivor_atmosphere` remains the one still-unaddressed member of round 12's follow-up list —
-`SurvivorAtmosphereWriter.write` finds-or-creates by natural key with no stored run id at all to
-compare against, so closing it would need its own schema change and review, out of scope here.
+disposition join needed, and round 14's corrections to gap 1 do not change gap 2 at all. An incoming
+write with a strictly SMALLER `pipelineRunId` than the stored row's is rejected (logged once at
+INFO); ids are safe to compare directly because `PipelineRunEntity.id` is an autoincrement key
+assigned in strict cycle-trigger order, so comparing ids IS comparing trigger times. Equal ids
+overwrite as before, and a `null` on EITHER side (a legacy stored row, or an incoming sync/admin
+write, which this table's own writer already documents as always `null`) is "unknown, cannot be
+shown to be older" and proceeds exactly as it always has. `survivor_atmosphere` remains the one
+still-unaddressed member of round 12's follow-up list — `SurvivorAtmosphereWriter.write`
+finds-or-creates by natural key with no stored run id at all to compare against, so closing it would
+need its own schema change and review, out of scope here.
 
 Two consequences worth stating plainly:
 

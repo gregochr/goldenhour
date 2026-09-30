@@ -127,6 +127,8 @@ class CachePayloadGoldenMasterTest {
     @Mock
     private com.gregochr.goldenhour.repository.ForecastEvaluationRepository
             forecastEvaluationRepository;
+    @Mock
+    private SupersedingDispositionService supersedingDispositionService;
 
     /**
      * Parser handle the handler passes to the (stubbed) parser. A real Jackson-3 mapper rather
@@ -407,7 +409,7 @@ class CachePayloadGoldenMasterTest {
                 jobRunService, parserHandle,
                 new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
                 forecastDataAugmentor, forecastScoreWriter, parser,
-                forecastEvaluationRepository);
+                forecastEvaluationRepository, supersedingDispositionService);
 
         String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET" + (forced ? "-f" : "");
         String rawText = "{\"injected-by-stub\":true}";

@@ -32,6 +32,7 @@ import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.Forecast
 import com.gregochr.goldenhour.service.evaluation.ForecastScoreWriter;
 import com.gregochr.goldenhour.service.evaluation.ResultContext;
 import com.gregochr.goldenhour.service.evaluation.SunsetEvaluationParser;
+import com.gregochr.goldenhour.service.evaluation.SupersedingDispositionService;
 import com.gregochr.goldenhour.service.evaluation.visitor.BluebellVisitor;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.SkyVisitor;
@@ -145,13 +146,18 @@ class ClaudeResponseParseResilienceTest {
     private ForecastScoreWriter forecastScoreWriter;
     @Mock
     private ForecastEvaluationRepository forecastEvaluationRepository;
+    @Mock
+    private SupersedingDispositionService supersedingDispositionService;
 
     private ForecastResultHandler handler;
 
     @BeforeEach
     void setUp() {
         // Real parser, real Jackson-3 mapper, real combiner: the fixtures must be exercised by the
-        // production parse path, not by a stub standing in for it.
+        // production parse path, not by a stub standing in for it. supersedingDispositionService is
+        // unstubbed — Mockito's default false for isSuperseded means every forecast_score write in
+        // this file's fixtures proceeds exactly as it did before round 14, since none of them
+        // concern the round-14 gate.
         handler = new ForecastResultHandler(
                 briefingEvaluationService,
                 jobRunService,
@@ -161,7 +167,8 @@ class ClaudeResponseParseResilienceTest {
                 forecastDataAugmentor,
                 forecastScoreWriter,
                 new SunsetEvaluationParser(),
-                forecastEvaluationRepository);
+                forecastEvaluationRepository,
+                supersedingDispositionService);
     }
 
     // ── (i) + (ii) + (iii), table-driven ─────────────────────────────────────

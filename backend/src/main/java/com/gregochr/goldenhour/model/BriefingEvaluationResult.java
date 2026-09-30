@@ -139,23 +139,32 @@ import java.time.Instant;
  *                            compare against it, and a {@code null} value is omitted so a result
  *                            with no submission instant round-trips byte-identical to one written
  *                            before this field existed.
- *                            ⚠️ <b>Round 13: comparing against a STORED result is not the whole
- *                            story either — a result can be superseded by a DECISION with no
- *                            competing result to compare against at all.</b> A later cycle's Gate 4
- *                            stability skip or triage stand-down writes no {@code cached_evaluation}
- *                            entry — only a {@code forecast_run_disposition} row — so a batch delayed
- *                            past that decision had nothing stored to lose a staleness comparison
- *                            against. {@code BriefingEvaluationService.supersededByLaterRun} is the
- *                            second check every merge method now runs, before the staleness
- *                            comparison this field drives: it asks whether a pipeline run that
- *                            started AFTER this field's own value has already recorded a decision
- *                            about the same slot, via a join through {@code ForecastBatchEntity} to
- *                            the disposition's OWNING CYCLE'S trigger time — never the disposition's
- *                            own {@code created_at}, which a same-cycle disposition always postdates
- *                            and would otherwise make every cycle's own paperwork look like it
- *                            supersedes the very result it documents. See that method's own javadoc
- *                            for the two-phase query shape and {@code BriefingEvaluationService}'s
- *                            class javadoc for the full rule. Arrival order still decides nothing.
+ *                            ⚠️ <b>Comparing against a STORED result is not the whole story
+ *                            either — a result can be superseded by a DECISION with no competing
+ *                            result to compare against at all.</b> A later cycle's Gate 4 stability
+ *                            skip or triage stand-down writes no {@code cached_evaluation} entry —
+ *                            only a {@code forecast_run_disposition} row — so a batch delayed past
+ *                            that decision had nothing stored to lose a staleness comparison
+ *                            against. {@code BriefingEvaluationService.supersededByLaterRun}
+ *                            (delegating to {@code SupersedingDispositionService}) is the second
+ *                            check every merge method runs, before the staleness comparison this
+ *                            field drives. ⚠️ <b>Round 14 corrected round 13's own first cut of this
+ *                            rule, tested against production and found wrong on two fronts</b> — see
+ *                            {@code SupersedingDispositionService}'s class javadoc for the full
+ *                            account, including the 2026-09-29 production evidence (pipeline run
+ *                            249, every batch submission failed, 510 {@code EVALUATED} dispositions
+ *                            anchored to a job run with no {@code forecast_batch} row at all). In
+ *                            short: the join through {@code ForecastBatchEntity} round 13 used to
+ *                            find a disposition's "owning cycle" is invisible for exactly that
+ *                            shape, and {@code EVALUATED}/{@code FORCE_EVALUATED} record only that a
+ *                            candidate was included for submission, never that a result was ever
+ *                            produced. The rule now needs no {@code forecast_batch} row at all — a
+ *                            disposition supersedes a result when its {@code created_at} is at or
+ *                            after the trigger time of the FIRST {@code pipeline_run} triggered
+ *                            after this field's own value — and only two disposition categories,
+ *                            {@code SKIPPED_STABILITY} and {@code SKIPPED_TRIAGED}, are on the
+ *                            explicit allow-list that can ever supersede. Arrival order still
+ *                            decides nothing.
  */
 public record BriefingEvaluationResult(
         String locationName,

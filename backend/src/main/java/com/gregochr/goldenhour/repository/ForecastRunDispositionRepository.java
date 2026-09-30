@@ -154,62 +154,87 @@ public interface ForecastRunDispositionRepository
             @Param("start") LocalDate start, @Param("end") LocalDate end);
 
     /**
-     * For the given slots (one date, one event type, a set of location names), returns the OWNING
-     * CYCLE'S {@code trigger_time} of every non-{@code SKIPPED_CACHED} disposition recorded by a
-     * pipeline run that started strictly after {@code thresholdInstant} — Phase 2 of the round-13
-     * "gap 1" fix ({@code BriefingEvaluationService}'s per-batch disposition-supersede check).
+     * For the given slots (one date, one event type, a set of location names), returns
+     * {@code [locationName, createdAt]} for every disposition recorded on or after
+     * {@code minCreatedAt} whose category is a genuine decision AGAINST the slot —
+     * {@code SKIPPED_STABILITY} or {@code SKIPPED_TRIAGED}, the explicit two-value allow-list
+     * {@code SupersedingDispositionService} enumerates in full.
      *
-     * <p>⚠️ <b>Joins through {@code forecast_batch}, and comparing the disposition's OWN
-     * {@code created_at} against the threshold instead would be wrong.</b> A disposition row
-     * carries no pipeline run id of its own — {@code ForecastDispositionService#persist} anchors
-     * every disposition from a cycle against that cycle's FIRST job run, and exactly one
-     * {@code forecast_batch} row (the first bucket submitted that cycle) shares that same
-     * {@code job_run_id} and also carries the cycle's real {@code pipeline_run_id} — so this is the
-     * one join that recovers "which cycle wrote this disposition" without a schema migration
-     * (both columns already existed). A disposition is always written a short time AFTER its own
-     * cycle starts (collection happens, then the disposition insert follows the first batch
-     * submission), so every cycle's OWN {@code EVALUATED}/{@code FORCE_EVALUATED}/
-     * {@code SKIPPED_STABILITY} row for a slot it just decided has a {@code created_at} strictly
-     * after that SAME cycle's own trigger time — comparing {@code created_at} directly against an
-     * incoming result's submission instant (which, for an orchestrated batch, IS that same trigger
-     * time) would make every cycle's own disposition look like it "supersedes" the very result it
-     * documents. Comparing the OWNING CYCLE's trigger time instead correctly reads a same-cycle
-     * disposition as simultaneous (excluded by the caller's strict {@code isAfter} test on the
-     * returned value against the result's own submission instant), never later.
+     * <p>⚠️ <b>Round 14 replaces round 13's design entirely — it does NOT join
+     * {@code forecast_batch}, and it does NOT accept {@code EVALUATED}/{@code FORCE_EVALUATED}.</b>
+     * Both were found wrong against production on 2026-09-29 (pipeline run 249): every one of that
+     * intraday cycle's three Anthropic batch submissions failed (HTTP 500), so
+     * {@code ScheduledBatchEvaluationService#persistCycleDispositions} anchored its 589 dispositions
+     * — 510 {@code EVALUATED}, 76 {@code SKIPPED_TRIAGED}, 3 {@code SKIPPED_UNKNOWN_LOCATION} — to a
+     * disposition-only "anchor run" job_run with NO {@code forecast_batch} row at all. Two
+     * consequences: (1) a three-entity join through {@code forecast_batch} cannot see any
+     * disposition from an anchor run — invisible to the OLD query, whichever direction the bug ran;
+     * (2) {@code EVALUATED} records only that a candidate was INCLUDED for submission, never that a
+     * result exists or ever will — the 510 {@code EVALUATED} rows on that failed cycle produced
+     * exactly zero results. Treating {@code EVALUATED}/{@code FORCE_EVALUATED} as superseding (the
+     * OLD design) would have rejected a perfectly good older rating in favour of nothing, leaving
+     * the slot unrated where, before this whole feature, the stale rating would have kept serving.
      *
-     * <p>Returns the raw {@code [locationName (String), cycleTriggerTime (Instant)]} pairs rather
-     * than a single winner so the caller can resolve each location's own verdict independently
-     * against that location's own submission instant — necessary because although every location in
-     * one batch call shares the same date and event type, a caller must not assume they all share
-     * one submission instant (a retry batch's recovered locations still carry their precursor
-     * cycle's instant, but nothing enforces every batch that ever calls this shares exactly one).
-     * Excludes {@code SKIPPED_CACHED} for the same reason {@link #findLatestNonCachedDispositions}
-     * does — a region-level cache reuse is not a decision about any one slot.
+     * <p><b>The caller resolves the correct threshold without any join at all</b> — see
+     * {@code SupersedingDispositionService}'s class javadoc for the full "first pipeline run
+     * triggered after the result's own {@code submittedAt}" rule and why it cannot misclassify a
+     * same-cycle disposition. This query only ever receives the already-resolved instant and filters
+     * on {@code created_at}, this table's own native, indexed timestamp — no cross-table timing
+     * inference happens here.
      *
-     * <p>One bulk query, only reached when {@code PipelineRunRepository#existsByTriggerTimeAfter}
-     * has already confirmed a later cycle exists at all — never one per location.
+     * <p>One bulk query, covering every location the caller passes in one round trip — never one
+     * per location.
      *
-     * @param date             the slots' evaluation date
-     * @param eventType        the slots' stored event type string (e.g. {@code "SUNRISE"})
-     * @param locationNames    the candidate location names to check
-     * @param thresholdInstant only a disposition whose owning cycle started strictly after this
-     *                         counts
-     * @return {@code [locationName, cycleTriggerTime]} pairs, one per qualifying disposition (a
-     *         location may appear more than once if more than one later cycle wrote a disposition
-     *         for it — the caller takes the latest)
+     * @param date          the slots' evaluation date
+     * @param eventType     the slots' stored event type string (e.g. {@code "SUNRISE"})
+     * @param locationNames the candidate location names to check
+     * @param minCreatedAt  only a disposition created at or after this instant counts (the caller's
+     *                      already-resolved "first later trigger" boundary — the smallest such
+     *                      boundary among the results it is checking, when they differ)
+     * @return {@code [locationName, createdAt]} pairs, one per qualifying disposition row (a
+     *         location may appear more than once — the caller takes the latest)
      */
-    @Query("SELECT d.locationName, p.triggerTime "
-            + "FROM ForecastRunDispositionEntity d, ForecastBatchEntity b, PipelineRunEntity p "
-            + "WHERE d.jobRunId = b.jobRunId "
-            + "AND b.pipelineRunId = p.id "
+    @Query("SELECT d.locationName, d.createdAt FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition IN ('SKIPPED_STABILITY', 'SKIPPED_TRIAGED') "
             + "AND d.evaluationDate = :date "
             + "AND d.eventType = :eventType "
             + "AND d.locationName IN (:locationNames) "
-            + "AND d.disposition <> 'SKIPPED_CACHED' "
-            + "AND p.triggerTime > :thresholdInstant")
-    List<Object[]> findSupersedingCycleTriggerTimes(
+            + "AND d.createdAt >= :minCreatedAt")
+    List<Object[]> findSupersedingDispositions(
             @Param("date") LocalDate date,
             @Param("eventType") String eventType,
             @Param("locationNames") Collection<String> locationNames,
-            @Param("thresholdInstant") Instant thresholdInstant);
+            @Param("minCreatedAt") Instant minCreatedAt);
+
+    /**
+     * Single-location existence check backing {@code SupersedingDispositionService#isSuperseded} —
+     * the per-response fallback gate in front of the {@code forecast_score} dual write (round 14,
+     * "correction 3"). A true hoist (deciding supersession for a whole Anthropic batch before any of
+     * its responses are parsed) is not possible with the streaming Batch API result reader, which
+     * only learns a batch's location set as it consumes the stream — see
+     * {@code ForecastResultHandler}'s class javadoc for why the merge-level bulk check
+     * ({@link #findSupersedingDispositions}) is kept as the primary mechanism and this single-row
+     * check is the accepted, explained fallback for the one sink (`forecast_score`) that writes
+     * per-response rather than per-merge-call.
+     *
+     * <p>Same two-value allow-list as {@link #findSupersedingDispositions} — see that method's own
+     * javadoc for why {@code EVALUATED}/{@code FORCE_EVALUATED} must never appear here.
+     *
+     * @param locationName the slot's location name
+     * @param date         the slot's evaluation date
+     * @param eventType    the slot's stored event type string
+     * @param minCreatedAt only a disposition created at or after this instant counts
+     * @return {@code true} if a qualifying disposition exists for this exact slot
+     */
+    @Query("SELECT COUNT(d) > 0 FROM ForecastRunDispositionEntity d "
+            + "WHERE d.disposition IN ('SKIPPED_STABILITY', 'SKIPPED_TRIAGED') "
+            + "AND d.locationName = :locationName "
+            + "AND d.evaluationDate = :date "
+            + "AND d.eventType = :eventType "
+            + "AND d.createdAt >= :minCreatedAt")
+    boolean existsSupersedingDisposition(
+            @Param("locationName") String locationName,
+            @Param("date") LocalDate date,
+            @Param("eventType") String eventType,
+            @Param("minCreatedAt") Instant minCreatedAt);
 }

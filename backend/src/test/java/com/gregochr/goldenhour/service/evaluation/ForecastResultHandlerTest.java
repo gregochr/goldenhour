@@ -48,6 +48,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -93,6 +94,8 @@ class ForecastResultHandlerTest {
     private ForecastScoreWriter forecastScoreWriter;
     @Mock
     private ForecastEvaluationRepository forecastEvaluationRepository;
+    @Mock
+    private SupersedingDispositionService supersedingDispositionService;
 
     private ForecastResultHandler handler;
 
@@ -105,7 +108,7 @@ class ForecastResultHandlerTest {
                         new SkyVisitor(), new TideVisitor(), new BluebellVisitor(),
                         new WoodlandVisitor())),
                 forecastDataAugmentor, forecastScoreWriter, parser,
-                forecastEvaluationRepository);
+                forecastEvaluationRepository, supersedingDispositionService);
     }
 
     @Test
@@ -886,6 +889,100 @@ class ForecastResultHandlerTest {
         } finally {
             logger.detachAppender(appender);
         }
+    }
+
+    // ── round 14, "correction 3": forecast_score is gated per-response ──────────
+
+    @Test
+    @DisplayName("round 14: a response reported superseded writes NO forecast_score row, still "
+            + "scores its PENDING row, and still writes its api_call_log row")
+    void parseBatchResponse_reportedSuperseded_noForecastScoreWrite_stillScoresRowAndLogs() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 777L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r777",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(777L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 1, 5))
+                .batchState(BatchState.PENDING)
+                .build();
+        when(forecastEvaluationRepository.findById(777L)).thenReturn(Optional.of(pendingRow));
+        Instant submittedAt = Instant.parse("2026-04-16T01:05:00Z");
+        when(supersedingDispositionService.isSuperseded(
+                "Castlerigg", DATE, SUNRISE, submittedAt)).thenReturn(true);
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome, ResultContext.forBatch(
+                        99L, "msgbatch_x", null, submittedAt, BatchTriggerSource.SCHEDULED));
+
+        // The parsed result is still returned (the cache-level check runs later, at merge time) —
+        // this test is specifically about the forecast_score write, not the cache write.
+        assertThat(result).isPresent();
+        // No forecast_score write reaches the writer at all.
+        verify(forecastScoreWriter, never()).write(any(), any(), any(), any(), anyList(), any());
+        // The PENDING row is still scored unconditionally — safe per BriefingEvaluationService's
+        // own javadoc: forecast_run_at is stamped at collection time, so a genuinely later cycle's
+        // own row always wins the per-slot MAX comparison regardless.
+        verify(forecastEvaluationRepository).save(any(ForecastEvaluationEntity.class));
+        // api_call_log is written unconditionally too, so cost accounting stays complete even
+        // though this response's rating reaches no sink.
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE-r777"),
+                eq(true), eq("SUCCESS"), eq(null), eq(null),
+                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
+                eq(DATE), eq(SUNRISE), eq(outcome.rawText()));
+    }
+
+    @Test
+    @DisplayName("round 14: a response NOT reported superseded writes forecast_score normally")
+    void parseBatchResponse_notReportedSuperseded_writesForecastScoreNormally() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        Instant submittedAt = Instant.parse("2026-04-16T01:05:00Z");
+        when(supersedingDispositionService.isSuperseded(
+                "Castlerigg", DATE, SUNRISE, submittedAt)).thenReturn(false);
+
+        handler.parseBatchResponse(location, identity, outcome, ResultContext.forBatch(
+                99L, "msgbatch_x", null, submittedAt, BatchTriggerSource.SCHEDULED));
+
+        verify(forecastScoreWriter).write(any(), any(), any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("round 14: the synchronous path checks supersession too — a hand-started result "
+            + "superseded by a later cycle's stand-down writes no forecast_score row")
+    void handleSyncResult_reportedSuperseded_noForecastScoreWrite() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
+                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU, 8500);
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
+        Instant submittedAt = Instant.parse("2026-04-16T09:00:00Z");
+        when(supersedingDispositionService.isSuperseded(
+                "Castlerigg", DATE, SUNRISE, submittedAt)).thenReturn(true);
+
+        handler.handleSyncResult(task, outcome,
+                ResultContext.forSync(99L, submittedAt, BatchTriggerSource.ADMIN));
+
+        verify(forecastScoreWriter, never()).write(any(), any(), any(), any(), anyList(), any());
     }
 
     @Test

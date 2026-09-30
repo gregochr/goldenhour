@@ -4,6 +4,8 @@ import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -48,17 +50,28 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
                     CycleType cycleType, Instant start, Instant end);
 
     /**
-     * Whether any pipeline run was triggered strictly after the given instant.
+     * Every pipeline run's {@code trigger_time} strictly after the given instant, ascending.
      *
-     * <p>The cheap Phase 1 check for the verdict-minimum-sample gap-1 fix (round 13,
-     * {@code BriefingEvaluationService}'s disposition-supersede rule): the common case is that no
-     * cycle has started after the one that submitted an incoming batch result, so this one indexed
-     * existence check is all a merge call pays — the more expensive disposition join
-     * ({@code ForecastRunDispositionRepository#findSupersedingCycleTriggerTimes}) runs only when
-     * this returns {@code true}.
+     * <p>Round 14 replaces round 13's disposition-owning-cycle join entirely: a disposition
+     * supersedes a result when the disposition's {@code created_at} is at or after the trigger time
+     * of the FIRST pipeline run triggered after the result's own {@code submittedAt} — see
+     * {@code SupersedingDispositionService}'s class javadoc for the full rule and why it needs no
+     * {@code forecast_batch} join at all (a round-13 defect: a disposition-only "anchor run", the
+     * shape every failed batch submission produces, has no {@code forecast_batch} row to join
+     * through, so the round-13 join could not see it).
+     *
+     * <p>This table alone answers "is there a later cycle at all, and when did it start" — it never
+     * depends on whether that cycle ever produced a batch, a result, or anything else. The common
+     * case — no cycle has started after the given instant, because the incoming result is not
+     * actually delayed — returns an empty list and callers stop there, at one cheap indexed query.
+     * An ascending, ALL-later-triggers list (not merely the first) is returned so one caller can
+     * resolve several different results' own "next trigger" from the same load, when those results
+     * carry different {@code submittedAt} values in one batch/merge call.
      *
      * @param threshold the instant to compare against — an incoming result's own submission instant
-     * @return {@code true} if at least one pipeline run's {@code trigger_time} is after it
+     * @return every later trigger time, oldest first; empty when none
      */
-    boolean existsByTriggerTimeAfter(Instant threshold);
+    @Query("SELECT p.triggerTime FROM PipelineRunEntity p WHERE p.triggerTime > :threshold "
+            + "ORDER BY p.triggerTime ASC")
+    List<Instant> findTriggerTimesAfter(@Param("threshold") Instant threshold);
 }
