@@ -5,13 +5,13 @@ import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
-import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
-import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
+import com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,8 +35,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * End-to-end tests for the "record conditions for every place" change (Phase 1, owner decision
- * 2026-09-30), wiring the REAL {@link SurvivorAtmosphereWriter}, the REAL {@link
- * SurvivorSignalReader} and a REAL hot-topic strategy together (only the two JPA repositories are
+ * 2026-09-30), wiring the REAL {@link SlotAtmosphereWriter}, the REAL {@link
+ * SlotSignalReader} and a REAL hot-topic strategy together (only the two JPA repositories are
  * mocked). Every other test touching these classes mocks the reader or the writer individually;
  * this class exists because the interesting claim — "a place a Claude call never reached still
  * shows a hot-topic chip, and the missing {@code forecast_score} component reads as null, not
@@ -52,7 +52,7 @@ class RecordConditionsForEveryPlaceIntegrationTest {
             Clock.fixed(DATE.atTime(12, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
 
     @Mock
-    private SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    private SlotAtmosphereRepository slotAtmosphereRepository;
     @Mock
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
@@ -60,13 +60,13 @@ class RecordConditionsForEveryPlaceIntegrationTest {
     @Mock
     private DustFactsBuilder dustFactsBuilder;
 
-    private SurvivorAtmosphereWriter writer;
-    private SurvivorSignalReader reader;
+    private SlotAtmosphereWriter writer;
+    private SlotSignalReader reader;
 
     @BeforeEach
     void setUp() {
-        writer = new SurvivorAtmosphereWriter(survivorAtmosphereRepository, CLOCK, true);
-        reader = new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
+        writer = new SlotAtmosphereWriter(slotAtmosphereRepository, CLOCK, null, true);
+        reader = new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
     }
 
     private static LocationEntity location(long id, String name) {
@@ -104,19 +104,19 @@ class RecordConditionsForEveryPlaceIntegrationTest {
 
         // Step 1: the write ForecastTaskCollector now makes for EVERY candidate that fetched
         // weather, regardless of the triage verdict.
-        when(survivorAtmosphereRepository.findByLocationIdAndEvaluationDateAndEventType(
+        when(slotAtmosphereRepository.findByLocationIdAndEvaluationDateAndEventType(
                 1L, DATE, TargetType.SUNSET)).thenReturn(Optional.empty());
         writer.write(loc, DATE, TargetType.SUNSET, data);
-        ArgumentCaptor<SurvivorAtmosphereEntity> saved =
-                ArgumentCaptor.forClass(SurvivorAtmosphereEntity.class);
-        verify(survivorAtmosphereRepository).save(saved.capture());
-        SurvivorAtmosphereEntity storedRow = saved.getValue();
+        ArgumentCaptor<SlotAtmosphereEntity> saved =
+                ArgumentCaptor.forClass(SlotAtmosphereEntity.class);
+        verify(slotAtmosphereRepository).save(saved.capture());
+        SlotAtmosphereEntity storedRow = saved.getValue();
         assertThat(storedRow.getAerosolOpticalDepth()).isEqualByComparingTo("0.50");
 
         // Step 2: the reader sees the written row, and NO forecast_score rows at all — this slot
         // was triaged out and never reached Claude.
         stubEmptyForecastScores();
-        when(survivorAtmosphereRepository.findInDateRange(DATE, WINDOW_END))
+        when(slotAtmosphereRepository.findInDateRange(DATE, WINDOW_END))
                 .thenReturn(List.of(storedRow));
 
         // Step 3: the real strategy fires off the real reader's join.
@@ -133,19 +133,19 @@ class RecordConditionsForEveryPlaceIntegrationTest {
     }
 
     @Test
-    @DisplayName("a slot with a survivor_atmosphere reading but NO forecast_score row reads as a "
+    @DisplayName("a slot with a slot_atmosphere reading but NO forecast_score row reads as a "
             + "null inversion component, not zero — InversionHotTopicStrategy does not fire on it "
             + "and does not throw")
     void inversionComponentAbsent_readsAsNullNotZero_noExceptionThroughRealStrategy() {
         LocationEntity loc = location(2L, "Cat Bells");
-        SurvivorAtmosphereEntity reading = new SurvivorAtmosphereEntity();
+        SlotAtmosphereEntity reading = new SlotAtmosphereEntity();
         reading.setLocation(loc);
         reading.setEvaluationDate(DATE);
         reading.setEventType(TargetType.SUNRISE);
         reading.setSnowDepthMetres(0.05);
 
         stubEmptyForecastScores();
-        when(survivorAtmosphereRepository.findInDateRange(DATE, WINDOW_END))
+        when(slotAtmosphereRepository.findInDateRange(DATE, WINDOW_END))
                 .thenReturn(List.of(reading));
 
         InversionHotTopicStrategy strategy = new InversionHotTopicStrategy(reader, freshness);
@@ -173,7 +173,7 @@ class RecordConditionsForEveryPlaceIntegrationTest {
         score.setSummary("MODERATE");
         score.setEvaluatedAt(Instant.now(CLOCK));
 
-        SurvivorAtmosphereEntity reading = new SurvivorAtmosphereEntity();
+        SlotAtmosphereEntity reading = new SlotAtmosphereEntity();
         reading.setLocation(loc);
         reading.setEvaluationDate(DATE);
         reading.setEventType(TargetType.SUNRISE);
@@ -187,7 +187,7 @@ class RecordConditionsForEveryPlaceIntegrationTest {
                 ForecastType.INVERSION.getId(), DATE, WINDOW_END)).thenReturn(List.of(score));
         when(forecastScoreRepository.findComponentsByType(
                 ForecastType.BLUEBELL.getId(), DATE, WINDOW_END)).thenReturn(List.of());
-        when(survivorAtmosphereRepository.findInDateRange(DATE, WINDOW_END))
+        when(slotAtmosphereRepository.findInDateRange(DATE, WINDOW_END))
                 .thenReturn(List.of(reading));
         when(freshness.isAhead(any(), any(), any())).thenReturn(true);
 

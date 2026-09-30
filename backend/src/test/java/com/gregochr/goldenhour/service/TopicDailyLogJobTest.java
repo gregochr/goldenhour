@@ -6,7 +6,7 @@ import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.StormSurgeDetails;
-import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
@@ -16,7 +16,7 @@ import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.repository.TopicDailyLogRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -74,7 +74,7 @@ class TopicDailyLogJobTest {
     private ForecastScoreRepository forecastScoreRepository;
 
     @Mock
-    private SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    private SlotAtmosphereRepository slotAtmosphereRepository;
 
     @Mock
     private TideExtremeRepository tideExtremeRepository;
@@ -111,7 +111,7 @@ class TopicDailyLogJobTest {
                 .thenReturn(List.of());
         lenient().when(forecastScoreRepository.findComponentsByType(anyLong(), any(), any()))
                 .thenReturn(List.of());
-        lenient().when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
+        lenient().when(slotAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
         lenient().when(locationRepository.findCoastalLocations()).thenReturn(List.of());
         lenient().when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(any()))
                 .thenReturn(List.of());
@@ -121,7 +121,7 @@ class TopicDailyLogJobTest {
         lenient().when(lunarPhaseService.nearestSyzygyIsPerigean(any())).thenReturn(false);
 
         job = new TopicDailyLogJob(forecastEvaluationRepository, forecastScoreRepository,
-                survivorAtmosphereRepository, tideExtremeRepository, tideService, lunarPhaseService,
+                slotAtmosphereRepository, tideExtremeRepository, tideService, lunarPhaseService,
                 locationRepository, auroraForecastResultRepository, nlcClarityService, regionService,
                 topicDailyLogRepository, dynamicSchedulerService, CLOCK);
     }
@@ -312,10 +312,10 @@ class TopicDailyLogJobTest {
     void snow_firesAtThreshold() {
         RegionEntity region = region(1L);
         LocationEntity location = locationWithRegion(10L, region);
-        SurvivorAtmosphereEntity row = new SurvivorAtmosphereEntity();
+        SlotAtmosphereEntity row = new SlotAtmosphereEntity();
         row.setLocation(location);
         row.setSnowDepthMetres(0.03);
-        when(survivorAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(row));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(row));
 
         job.runScheduled();
 
@@ -330,10 +330,10 @@ class TopicDailyLogJobTest {
     void snow_belowThreshold_logsFalsePresence() {
         RegionEntity region = region(1L);
         LocationEntity location = locationWithRegion(10L, region);
-        SurvivorAtmosphereEntity row = new SurvivorAtmosphereEntity();
+        SlotAtmosphereEntity row = new SlotAtmosphereEntity();
         row.setLocation(location);
         row.setSnowDepthMetres(0.01);
-        when(survivorAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(row));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(row));
 
         job.runScheduled();
 

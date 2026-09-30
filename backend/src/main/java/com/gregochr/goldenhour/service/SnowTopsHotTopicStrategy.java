@@ -2,7 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -18,7 +18,7 @@ import java.util.List;
  * below its summit {@code elevation_m} (the margin gives confidence the tops are actually white, not
  * merely at the theoretical freezing altitude). The freezing-level-versus-elevation comparison
  * self-selects high ground, so no minimum-elevation floor is applied. Reads through the
- * {@link SurvivorSignalReader} (the unified read surface, {@code survivor_atmosphere}). ⚠️ Since
+ * {@link SlotSignalReader} (the unified read surface, {@code slot_atmosphere}). ⚠️ Since
  * the "record conditions for every place" change (Phase 1, owner decision 2026-09-30) this fires
  * for every candidate whose weather was fetched, not only the ones that went on to a Claude
  * rating — snow on the tops is a fact about the fells, independent of whether the sky above them
@@ -40,15 +40,15 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
     /** The italic "where to shoot" cue on the enriched fact line. */
     private static final String TOPS_NOTE = "shoot from low ground looking up, before cloud builds";
 
-    private final SurvivorSignalReader survivorSignalReader;
+    private final SlotSignalReader slotSignalReader;
 
     /**
      * Constructs a {@code SnowTopsHotTopicStrategy}.
      *
-     * @param survivorSignalReader the unified survivor read model (freezing-level readings)
+     * @param slotSignalReader the unified slot read model (freezing-level readings)
      */
-    public SnowTopsHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
-        this.survivorSignalReader = survivorSignalReader;
+    public SnowTopsHotTopicStrategy(SlotSignalReader slotSignalReader) {
+        this.slotSignalReader = slotSignalReader;
     }
 
     /**
@@ -75,10 +75,10 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SurvivorSignals> white = survivorSignalReader.read(fromDate, toDate).stream()
+        List<SlotSignals> white = slotSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> isTopsWhite(s.readings().freezingLevelMetres(),
                         s.location() != null ? s.location().getElevationMetres() : null))
-                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .sorted(Comparator.comparing(SlotSignals::date))
                 .toList();
         if (white.isEmpty()) {
             return List.of();
@@ -105,8 +105,8 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
      * @param dayRows that day's white-tops rows
      * @return the topic enriched with the snow-line facts (unchanged if no row carries both figures)
      */
-    private HotTopic attachFacts(HotTopic topic, List<SurvivorSignals> dayRows) {
-        SurvivorSignals rep = dayRows.stream()
+    private HotTopic attachFacts(HotTopic topic, List<SlotSignals> dayRows) {
+        SlotSignals rep = dayRows.stream()
                 .filter(s -> s.readings().freezingLevelMetres() != null
                         && s.location() != null && s.location().getElevationMetres() != null)
                 .max(Comparator.comparingDouble(SnowTopsHotTopicStrategy::marginMetres))
@@ -122,7 +122,7 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
         return topic.withScience(facts, TOPS_NOTE);
     }
 
-    private static double marginMetres(SurvivorSignals s) {
+    private static double marginMetres(SlotSignals s) {
         return s.location().getElevationMetres() - s.readings().freezingLevelMetres();
     }
 }

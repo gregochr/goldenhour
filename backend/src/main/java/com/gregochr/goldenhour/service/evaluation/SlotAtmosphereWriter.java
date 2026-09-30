@@ -1,10 +1,10 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -15,17 +15,18 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * Writer for atmospheric readings ({@code survivor_atmosphere}, V115) — the readings half of the
+ * Writer for atmospheric readings ({@code slot_atmosphere}, V115) — the readings half of the
  * unified hot-topic read surface, counterpart to {@link ForecastScoreWriter} (the scores half).
  *
- * <p>⚠️ <b>The class and table names are historical and now inaccurate — a rename is pending, not
- * done here.</b> Through 2026-09-30 a row was written only for a candidate that survived weather
- * triage and the Gate 4 stability gate ("survivor-by-construction"), which is exactly the product
- * rule the "record conditions for every place" change (Phase 1, owner decision 2026-09-30) reversed:
- * knowing there is dust, snow or a storm surge at a place is interesting on its own terms (the "what
- * is happening" question hot topics and the Coming up feed answer), independent of whether the same
- * place is forecast to be blocked (the separate "where is worth going" question stars and verdicts
- * answer). So "survivor" no longer describes this table's population.
+ * <p>⚠️ <b>This class and table were named {@code SurvivorAtmosphereWriter}/{@code
+ * survivor_atmosphere} until V159 (2026-09-30).</b> Through 2026-09-29 a row was written only for a
+ * candidate that survived weather triage and the Gate 4 stability gate ("survivor-by-construction"),
+ * which is exactly the product rule the "record conditions for every place" change (Phase 1, owner
+ * decision 2026-09-30) reversed: knowing there is dust, snow or a storm surge at a place is
+ * interesting on its own terms (the "what is happening" question hot topics and the Coming up feed
+ * answer), independent of whether the same place is forecast to be blocked (the separate "where is
+ * worth going" question stars and verdicts answer). So "survivor" no longer described this table's
+ * population, which is why V159 renamed it — see that migration's header comment.
  *
  * <p>⚠️ <b>{@link #write} is called from exactly ONE place: inside
  * {@link com.gregochr.goldenhour.service.ForecastService#fetchWeatherAndTriage
@@ -42,9 +43,10 @@ import java.time.LocalDate;
  * synchronous engine, all in one place. See that method's own javadoc for exactly which
  * dispositions now carry a row and which still do not (a candidate that never had its weather
  * fetched this cycle — past date, unknown location, travel day, a collection-time error — still
- * writes nothing, because there is no reading to record). Renaming the table and every class named
- * after it needs its own migration and is deliberately out of scope for this change — see the
- * changelog entry for the file list a rename would touch.
+ * writes nothing, because there is no reading to record). This class, {@link SlotAtmosphereRepository}
+ * and {@link com.gregochr.goldenhour.entity.SlotAtmosphereEntity} were renamed from their
+ * {@code Survivor*} originals in V159 (2026-09-30) — a mechanical rename, no behaviour change; see
+ * that migration's header comment and the changelog entry for the full file list.
  *
  * <p><b>Why submission time, not result time.</b> The atmospheric readings (aerosol, surge,
  * snow, humidity) live on the {@link AtmosphericData} computed at collection/submission and are
@@ -57,7 +59,7 @@ import java.time.LocalDate;
  * latest submission wins, so intraday re-runs and sync re-evaluations overwrite the same key,
  * matching {@code forecast_score} / {@code cached_evaluation} semantics. A later triage or
  * stability-skip decision for the same key does not retract an already-written row — this surface
- * carries no retraction of any kind, matching {@link com.gregochr.goldenhour.service.SurvivorSignalReader}'s
+ * carries no retraction of any kind, matching {@link com.gregochr.goldenhour.service.SlotSignalReader}'s
  * own rule.
  *
  * <p><b>Failure isolation.</b> Runs in its own {@link Propagation#REQUIRES_NEW} transaction so a
@@ -65,31 +67,43 @@ import java.time.LocalDate;
  * additionally wraps the call so a thrown exception is logged and {@code fetchWeatherAndTriage}
  * proceeds to its triage checks regardless.
  *
- * <p><b>Feature flag.</b> {@code photocast.survivor-atmosphere.write} (default {@code true}).
+ * <p><b>Feature flag.</b> {@code photocast.slot-atmosphere.write} (default {@code true}).
  * Flag off = no rows written; the additive-table rollback path, no redeploy. There is deliberately
  * no separate flag gating "every candidate" vs "survivors only" — owner decision 2026-09-30 is that
- * every place is recorded from the first deploy, with no staged rollout.
+ * every place is recorded from the first deploy, with no staged rollout. ⚠️ <b>The key itself was
+ * renamed from {@code photocast.survivor-atmosphere.write} in V159 (2026-09-30), the same commit
+ * that renamed this class.</b> Production's {@code application.yml} is not in this repository and
+ * may still set the OLD key, so both are bound here and the OLD key wins when it is set — a
+ * deploy that has not yet picked up the new key name must not silently start writing (or silently
+ * stop) because the key it set no longer means anything. Once every deployment's config is updated
+ * to the new key, the legacy parameter and this note can be deleted.
  */
 @Component
-public class SurvivorAtmosphereWriter {
+public class SlotAtmosphereWriter {
 
-    private final SurvivorAtmosphereRepository repository;
+    private final SlotAtmosphereRepository repository;
     private final Clock clock;
     private final boolean writeEnabled;
 
     /**
      * Constructs the writer.
      *
-     * @param repository   the survivor-atmosphere repository (V115)
-     * @param clock        injectable clock for {@code evaluated_at = now()}
-     * @param writeEnabled {@code photocast.survivor-atmosphere.write} (default true); when false
-     *                     the writer is a no-op, the additive-table rollback
+     * @param repository          the slot-atmosphere repository (V115)
+     * @param clock               injectable clock for {@code evaluated_at = now()}
+     * @param legacyWriteEnabled  the OLD {@code photocast.survivor-atmosphere.write} key, unbound
+     *                            ({@code null}) unless a deployment's config still sets it; wins
+     *                            over {@code writeEnabled} when set — see the class javadoc's
+     *                            "Feature flag" note
+     * @param writeEnabled        {@code photocast.slot-atmosphere.write} (default true); when
+     *                            false (and the legacy key is unset) the writer is a no-op, the
+     *                            additive-table rollback
      */
-    public SurvivorAtmosphereWriter(SurvivorAtmosphereRepository repository, Clock clock,
-            @Value("${photocast.survivor-atmosphere.write:true}") boolean writeEnabled) {
+    public SlotAtmosphereWriter(SlotAtmosphereRepository repository, Clock clock,
+            @Value("${photocast.survivor-atmosphere.write:#{null}}") Boolean legacyWriteEnabled,
+            @Value("${photocast.slot-atmosphere.write:true}") boolean writeEnabled) {
         this.repository = repository;
         this.clock = clock;
-        this.writeEnabled = writeEnabled;
+        this.writeEnabled = legacyWriteEnabled != null ? legacyWriteEnabled : writeEnabled;
     }
 
     /**
@@ -98,8 +112,9 @@ public class SurvivorAtmosphereWriter {
      *
      * <p>Called for every candidate whose weather was fetched this cycle, whatever the triage
      * verdict or Gate 4 stability decision that follows — see the class javadoc's "record
-     * conditions for every place" note. The name "the survivor's readings" is historical: this is
-     * no longer restricted to candidates that survived triage and gating.
+     * conditions for every place" note. This has not been restricted to candidates that survived
+     * triage and gating since Phase 1 (2026-09-30); the table and this class carried the old
+     * {@code Survivor*} name for the rest of that day, until V159 renamed both.
      *
      * @param location  the candidate location (must have an id)
      * @param date      the forecast date
@@ -119,9 +134,9 @@ public class SurvivorAtmosphereWriter {
             return;
         }
 
-        SurvivorAtmosphereEntity row = repository
+        SlotAtmosphereEntity row = repository
                 .findByLocationIdAndEvaluationDateAndEventType(location.getId(), date, eventType)
-                .orElseGet(SurvivorAtmosphereEntity::new);
+                .orElseGet(SlotAtmosphereEntity::new);
         row.setLocation(location);
         row.setEvaluationDate(date);
         row.setEventType(eventType);
@@ -160,7 +175,7 @@ public class SurvivorAtmosphereWriter {
         // inputs), whatever the triage verdict or Gate 4 decision that follows turns out to be.
         // inversionScored is set true unconditionally, WITH a score and WITH a null one alike: this
         // write ran the eligibility check this cycle, so a null score here is an authoritative
-        // answer, not an absent one — see SurvivorAtmosphereEntity.inversionScored's own javadoc for
+        // answer, not an absent one — see SlotAtmosphereEntity.inversionScored's own javadoc for
         // why a reader must not treat this null the same as a pre-column row's null (round 4, a
         // Codex P1 against round 3's own unify-onto-one-rule fix).
         row.setInversionScore(data.inversionScore());

@@ -35,7 +35,7 @@ import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TideAlignmentEvaluator;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.WeatherTriageEvaluator;
-import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
+import com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter;
 import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -110,7 +110,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private WeatherTriageEvaluator weatherTriageEvaluator;
     @Mock private TideAlignmentEvaluator tideAlignmentEvaluator;
-    @Mock private SurvivorAtmosphereWriter survivorAtmosphereWriter;
+    @Mock private SlotAtmosphereWriter slotAtmosphereWriter;
 
     private static final SeasonalWindow BLUEBELL_SEASON =
             new SeasonalWindow(MonthDay.of(4, 10), MonthDay.of(5, 20), "BLUEBELL");
@@ -166,7 +166,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 solarService, openMeteoService, augmentor, legacyEvaluationService,
                 engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
                 eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                survivorAtmosphereWriter, CLOCK);
+                slotAtmosphereWriter, CLOCK);
 
         collector = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,
@@ -242,7 +242,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
 
         assertThat(result.inland()).isEmpty();
         assertThat(result.coastal()).isEmpty();
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(location, today, TargetType.SUNRISE, sharedWeatherData);
     }
 
@@ -264,7 +264,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
 
         assertThat(result.inland()).isEmpty();
         assertThat(result.coastal()).isEmpty();
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(location, farOut, TargetType.SUNRISE, sharedWeatherData);
     }
 
@@ -289,7 +289,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         // invariant it must still uphold is that a canopy site never lands in the sky bucket.
         assertThat(result.inland()).as("no sky task for a canopy site").isEmpty();
         assertThat(result.coastal()).isEmpty();
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(location, today, TargetType.SUNRISE, sharedWeatherData);
     }
 
@@ -314,7 +314,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
 
         assertThat(result.inland()).isEmpty();
         assertThat(result.coastal()).isEmpty();
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(location, today, TargetType.SUNRISE, sharedWeatherData);
     }
 }

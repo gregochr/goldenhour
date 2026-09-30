@@ -10,19 +10,19 @@ import java.time.LocalDate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Unit tests for {@link SurvivorSignals#effectiveInversionScore()} — the ONE shared rule every
+ * Unit tests for {@link SlotSignals#effectiveInversionScore()} — the ONE shared rule every
  * reader of the inversion signal uses (Phase 2 "record conditions for every place", owner
  * decision 2026-09-30; unified onto one helper in round 3, then corrected in round 4 — both
  * Codex P1s against PR #948).
  *
  * <p>Round 4 REVERSES this class's own round-3 assumption that a null
- * {@link SurvivorSignals.Readings#inversionScore()} always means "the calculator has not reached
+ * {@link SlotSignals.Readings#inversionScore()} always means "the calculator has not reached
  * this slot". A FRESH write can also produce a null reading — an ineligible location, or an
  * eligible one {@code InversionScoreCalculator.calculate} could not score (missing weather
  * inputs) — and {@code ForecastScoreWriter} leaves a stale Claude echo in {@code forecast_score}
  * in place indefinitely whenever a later evaluation carries no score, so falling back to the echo
  * on every null reading could revive a STRONG rating the current cycle's data no longer supports.
- * {@link SurvivorSignals.Readings#inversionScored()} is the fix: {@code true} on every row a
+ * {@link SlotSignals.Readings#inversionScored()} is the fix: {@code true} on every row a
  * post-round-4 write produced (whatever the resulting score), {@code false} only for a row that
  * predates the flag. This class's fixtures now set BOTH the reading and the {@code scored} flag
  * independently, rather than inferring one from the other.
@@ -33,18 +33,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * builder can never disagree about which value is "the" inversion score for a key — there is
  * exactly one place that decision is made.
  */
-class SurvivorSignalsTest {
+class SlotSignalsTest {
 
     private static final LocalDate DATE = LocalDate.of(2026, 6, 17);
 
-    private static SurvivorSignals signal(boolean scored, Double readingScore, Integer echoScore) {
-        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
+    private static SlotSignals signal(boolean scored, Double readingScore, Integer echoScore) {
+        SlotSignals.Readings readings = new SlotSignals.Readings(
                 null, null, null, null, null, null, null, null, null, null, null,
                 readingScore, scored);
-        SurvivorSignals.Scores scores = echoScore == null
-                ? SurvivorSignals.Scores.EMPTY
-                : new SurvivorSignals.Scores(echoScore, "STRONG", null, null);
-        return new SurvivorSignals(new LocationEntity(), DATE, TargetType.SUNRISE, scores, readings);
+        SlotSignals.Scores scores = echoScore == null
+                ? SlotSignals.Scores.EMPTY
+                : new SlotSignals.Scores(echoScore, "STRONG", null, null);
+        return new SlotSignals(new LocationEntity(), DATE, TargetType.SUNRISE, scores, readings);
     }
 
     @Test
@@ -89,10 +89,10 @@ class SurvivorSignalsTest {
     @Test
     @DisplayName("EMPTY readings is scored=false, so a key with only an echo still falls back to it")
     void emptyReadings_isUnscored_fallsBackToEcho() {
-        SurvivorSignals.Readings empty = SurvivorSignals.Readings.EMPTY;
+        SlotSignals.Readings empty = SlotSignals.Readings.EMPTY;
         assertThat(empty.inversionScored()).isFalse();
-        SurvivorSignals signal = new SurvivorSignals(new LocationEntity(), DATE, TargetType.SUNRISE,
-                new SurvivorSignals.Scores(10, "STRONG", null, null), empty);
+        SlotSignals signal = new SlotSignals(new LocationEntity(), DATE, TargetType.SUNRISE,
+                new SlotSignals.Scores(10, "STRONG", null, null), empty);
         assertThat(signal.effectiveInversionScore()).isEqualTo(10.0);
     }
 }

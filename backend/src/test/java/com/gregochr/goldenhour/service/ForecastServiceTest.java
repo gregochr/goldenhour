@@ -105,8 +105,8 @@ class ForecastServiceTest {
     @Mock
     private TideAlignmentEvaluator tideAlignmentEvaluator;
     @Mock
-    private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-            survivorAtmosphereWriter;
+    private com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
+            slotAtmosphereWriter;
 
     /**
      * 2026-08-11 12:00 UTC — midday, where the UTC and Europe/London dates agree, so the
@@ -478,7 +478,7 @@ class ForecastServiceTest {
                 .hasMessageContaining("Weather data fetch failed");
         // Record conditions for every place (P1 fix, 2026-09-30): a slot whose weather fetch
         // itself failed never got atmospheric data at all, so there is nothing to record.
-        verifyNoInteractions(survivorAtmosphereWriter);
+        verifyNoInteractions(slotAtmosphereWriter);
     }
 
     @Test
@@ -496,7 +496,7 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather service returned null");
-        verifyNoInteractions(survivorAtmosphereWriter);
+        verifyNoInteractions(slotAtmosphereWriter);
     }
 
     // ── Record conditions for every place — the seam (P1 fix, 2026-09-30) ──────────────────────
@@ -508,7 +508,7 @@ class ForecastServiceTest {
     // write inside fetchWeatherAndTriage itself, immediately after the atmospheric data is
     // assembled and before either triage check, so every caller — present, and any future one —
     // is covered by the one seam. These tests would FAIL against commit b8fe0fa6, where this
-    // method's body never called survivorAtmosphereWriter.write on any branch at all (the write
+    // method's body never called slotAtmosphereWriter.write on any branch at all (the write
     // lived only in evaluateAndPersist, downstream, and at three collector/JFDI call sites a
     // triaged candidate never reaches).
 
@@ -530,7 +530,7 @@ class ForecastServiceTest {
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
                 EvaluationModel.SONNET, true, null);
 
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(DURHAM_LOCATION, date, TargetType.SUNSET, data);
     }
 
@@ -557,7 +557,7 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, null);
 
         assertThat(result.triaged()).isTrue();
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(DURHAM_LOCATION, date, TargetType.SUNRISE, data);
     }
 
@@ -589,7 +589,7 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, null);
 
         assertThat(result.triaged()).isTrue();
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(seascape, date, TargetType.SUNSET, data);
     }
 
@@ -607,7 +607,7 @@ class ForecastServiceTest {
                 .thenReturn(new WeatherExtractionResult(data, null));
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
         doThrow(new RuntimeException("DB unavailable"))
-                .when(survivorAtmosphereWriter).write(any(), any(), any(), any());
+                .when(slotAtmosphereWriter).write(any(), any(), any(), any());
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
@@ -619,19 +619,19 @@ class ForecastServiceTest {
 
     @Test
     @DisplayName("fetchWeatherAndTriage() writes no reading when the "
-            + "photocast.survivor-atmosphere.write flag is off — the same flag every caller "
+            + "photocast.slot-atmosphere.write flag is off — the same flag every caller "
             + "shares through the one seam")
     void fetchWeatherAndTriage_readingsFlagOff_writesNothing() {
         LocalDate date = LocalDate.of(2026, 6, 21);
         LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
         AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
 
-        com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository realRepo =
+        com.gregochr.goldenhour.repository.SlotAtmosphereRepository realRepo =
                 org.mockito.Mockito.mock(
-                        com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository.class);
-        com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter flagOffWriter =
-                new com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter(
-                        realRepo, clock, false);
+                        com.gregochr.goldenhour.repository.SlotAtmosphereRepository.class);
+        com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter flagOffWriter =
+                new com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter(
+                        realRepo, clock, null, false);
         ForecastService serviceWithFlagOff = new ForecastService(
                 solarService, openMeteoService, augmentor, evaluationService,
                 engineEvaluationService, repository, notificationDispatcher, eventPublisher,
@@ -2149,7 +2149,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    survivorAtmosphereWriter, at);
+                    slotAtmosphereWriter, at);
 
             service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);
@@ -2179,7 +2179,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    survivorAtmosphereWriter, at);
+                    slotAtmosphereWriter, at);
 
             return service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);

@@ -4,7 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,7 +31,7 @@ class DustHotTopicStrategyTest {
     private static final LocalDate TO = FROM.plusDays(3);
 
     @Mock
-    private SurvivorSignalReader survivorSignalReader;
+    private SlotSignalReader slotSignalReader;
 
     @Mock
     private SolarEventFreshness freshness;
@@ -43,43 +43,43 @@ class DustHotTopicStrategyTest {
 
     @BeforeEach
     void setUp() {
-        strategy = new DustHotTopicStrategy(survivorSignalReader, freshness, dustFactsBuilder);
+        strategy = new DustHotTopicStrategy(slotSignalReader, freshness, dustFactsBuilder);
     }
 
-    /** Keeps each given survivor row past the freshness filter (matching its exact location/date/event,
+    /** Keeps each given slot row past the freshness filter (matching its exact location/date/event,
      * not {@code any()}), and stubs the pass-through facts builder (whose own logic is covered by
      * {@link DustFactsBuilderTest}). Only the tests that emit a topic need these, so they are stubbed
      * per-test rather than leniently. The {@code attach} args are the {@link HotTopic} and row list
      * built inside {@code PerDateHotTopicBuilder} — not knowable here — so a pass-through is the seam. */
-    private void stubEmitPath(SurvivorSignals... keptRows) {
-        for (SurvivorSignals row : keptRows) {
+    private void stubEmitPath(SlotSignals... keptRows) {
+        for (SlotSignals row : keptRows) {
             when(freshness.isAhead(eq(row.location()), eq(row.date()), eq(row.eventType())))
                     .thenReturn(true);
         }
         when(dustFactsBuilder.attach(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
-    /** A survivor composite carrying only aerosol readings (the dust proxy inputs). */
-    private static SurvivorSignals signal(LocalDate date, String regionName,
+    /** A slot composite carrying only aerosol readings (the dust proxy inputs). */
+    private static SlotSignals signal(LocalDate date, String regionName,
             String aod, String dust, String pm25) {
         RegionEntity region = new RegionEntity();
         region.setName(regionName);
         LocationEntity location = new LocationEntity();
         location.setRegion(region);
-        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
+        SlotSignals.Readings readings = new SlotSignals.Readings(
                 aod == null ? null : new BigDecimal(aod),
                 dust == null ? null : new BigDecimal(dust),
                 pm25 == null ? null : new BigDecimal(pm25),
                 null, null, null, null, null, null, null, null, null, false);
-        return new SurvivorSignals(location, date, TargetType.SUNSET,
-                SurvivorSignals.Scores.EMPTY, readings);
+        return new SlotSignals(location, date, TargetType.SUNSET,
+                SlotSignals.Scores.EMPTY, readings);
     }
 
     @Test
-    @DisplayName("dust-enhanced survivor fires with priority 3 off the survivor surface")
+    @DisplayName("dust-enhanced row fires with priority 3 off the slot surface")
     void detect_dustEnhanced_fires() {
-        SurvivorSignals row = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(row));
+        SlotSignals row = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(row));
         stubEmitPath(row);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
@@ -92,18 +92,18 @@ class DustHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("a non-dusty survivor (PM2.5 too high) does not fire — the proxy filters, not just empty")
+    @DisplayName("a non-dusty row (PM2.5 too high) does not fire — the proxy filters, not just empty")
     void detect_smokyHighPm25_doesNotFire() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
                 signal(FROM, "The North Yorkshire Coast", "0.42", "60", "40")));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
 
     @Test
-    @DisplayName("no survivor readings does not fire")
+    @DisplayName("no slot readings does not fire")
     void detect_noRows_doesNotFire() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of());
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
@@ -111,8 +111,8 @@ class DustHotTopicStrategyTest {
     @Test
     @DisplayName("a dust row whose solar event has passed is dropped")
     void detect_expiredEvent_dropped() {
-        SurvivorSignals row = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(row));
+        SlotSignals row = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(row));
         when(freshness.isAhead(eq(row.location()), eq(FROM), eq(TargetType.SUNSET)))
                 .thenReturn(false);
 
@@ -122,9 +122,9 @@ class DustHotTopicStrategyTest {
     @Test
     @DisplayName("emits one card per non-expired dust day, each with that day's regions")
     void detect_multipleDays_onePerDate() {
-        SurvivorSignals day2 = signal(FROM.plusDays(2), "Northumberland", "0.42", "60", "10");
-        SurvivorSignals day0 = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(day2, day0));
+        SlotSignals day2 = signal(FROM.plusDays(2), "Northumberland", "0.42", "60", "10");
+        SlotSignals day0 = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(day2, day0));
         stubEmitPath(day2, day0);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);

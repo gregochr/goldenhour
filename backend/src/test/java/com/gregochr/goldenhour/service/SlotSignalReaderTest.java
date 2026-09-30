@@ -3,11 +3,11 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,9 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link SurvivorSignalReader} — the unified survivor read model.
+ * Unit tests for {@link SlotSignalReader} — the unified slot read model.
  *
- * <p>Verifies that scores ({@code forecast_score}) and readings ({@code survivor_atmosphere}) are
+ * <p>Verifies that scores ({@code forecast_score}) and readings ({@code slot_atmosphere}) are
  * folded by their shared key into one composite, kept in their own correctly-shaped sub-records
  * (never flattened), that single-surface keys yield the EMPTY sub-record on the absent side, and —
  * the owner's two-question rule (2026-09-29, see the class's own javadoc) — that {@link #read}
@@ -37,7 +37,7 @@ import static org.mockito.Mockito.when;
  * reintroduces filtering here is caught immediately.
  */
 @ExtendWith(MockitoExtension.class)
-class SurvivorSignalReaderTest {
+class SlotSignalReaderTest {
 
     private static final LocalDate FROM = LocalDate.of(2026, 6, 17);
     private static final LocalDate TO = FROM.plusDays(3);
@@ -51,10 +51,10 @@ class SurvivorSignalReaderTest {
     @Mock
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
-    private SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    private SlotAtmosphereRepository slotAtmosphereRepository;
 
-    private SurvivorSignalReader reader() {
-        return new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
+    private SlotSignalReader reader() {
+        return new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
     }
 
     private static LocationEntity location(long id) {
@@ -82,8 +82,8 @@ class SurvivorSignalReaderTest {
         return s;
     }
 
-    private static SurvivorAtmosphereEntity readings(LocationEntity loc, String dust) {
-        SurvivorAtmosphereEntity a = new SurvivorAtmosphereEntity();
+    private static SlotAtmosphereEntity readings(LocationEntity loc, String dust) {
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
         a.setLocation(loc);
         a.setEvaluationDate(FROM);
         a.setEventType(SUNSET);
@@ -92,9 +92,9 @@ class SurvivorSignalReaderTest {
         return a;
     }
 
-    private static SurvivorAtmosphereEntity readingsWithInversion(LocationEntity loc,
+    private static SlotAtmosphereEntity readingsWithInversion(LocationEntity loc,
             double inversionScore) {
-        SurvivorAtmosphereEntity a = new SurvivorAtmosphereEntity();
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
         a.setLocation(loc);
         a.setEvaluationDate(FROM);
         a.setEventType(SUNSET);
@@ -105,8 +105,8 @@ class SurvivorSignalReaderTest {
 
     /** A FRESH row (V158 round 4: {@code inversion_scored = true}) whose calculator legitimately
      * found nothing to report — the reading itself stays null. */
-    private static SurvivorAtmosphereEntity readingsWithScoredNullInversion(LocationEntity loc) {
-        SurvivorAtmosphereEntity a = new SurvivorAtmosphereEntity();
+    private static SlotAtmosphereEntity readingsWithScoredNullInversion(LocationEntity loc) {
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
         a.setLocation(loc);
         a.setEvaluationDate(FROM);
         a.setEventType(SUNSET);
@@ -124,8 +124,8 @@ class SurvivorSignalReaderTest {
                 ForecastType.BLUEBELL.getId(), FROM, TO)).thenReturn(rows);
     }
 
-    private void stubReadings(List<SurvivorAtmosphereEntity> rows) {
-        when(survivorAtmosphereRepository.findInDateRange(FROM, TO)).thenReturn(rows);
+    private void stubReadings(List<SlotAtmosphereEntity> rows) {
+        when(slotAtmosphereRepository.findInDateRange(FROM, TO)).thenReturn(rows);
     }
 
     @Test
@@ -136,10 +136,10 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of(readings(loc, "60.00")));
 
-        List<SurvivorSignals> result = reader().read(FROM, TO);
+        List<SlotSignals> result = reader().read(FROM, TO);
 
         assertThat(result).hasSize(1);
-        SurvivorSignals s = result.get(0);
+        SlotSignals s = result.get(0);
         assertThat(s.location().getId()).isEqualTo(1L);
         assertThat(s.date()).isEqualTo(FROM);
         assertThat(s.eventType()).isEqualTo(SUNSET);
@@ -158,7 +158,7 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of());
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
 
         assertThat(s.scores().inversion()).isEqualTo(10);
         assertThat(s.scores().inversionBand()).isEqualTo("STRONG");
@@ -172,7 +172,7 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of());
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
 
         assertThat(s.scores().inversion()).isEqualTo(9);
         assertThat(s.scores().inversionBand()).isNull();
@@ -196,28 +196,28 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of(readings(loc, "55.00")));
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
-        assertThat(s.scores()).isSameAs(SurvivorSignals.Scores.EMPTY);
+        SlotSignals s = reader().read(FROM, TO).get(0);
+        assertThat(s.scores()).isSameAs(SlotSignals.Scores.EMPTY);
         assertThat(s.readings().dust()).isEqualByComparingTo("55.00");
     }
 
     @Test
     @DisplayName("readings().inversionScore() surfaces the calculator's own score from "
-            + "survivor_atmosphere — the Phase 2 read path, independent of Scores.inversion()")
+            + "slot_atmosphere — the Phase 2 read path, independent of Scores.inversion()")
     void readings_surfacesInversionScore() {
         LocationEntity loc = location(9L);
         stubInversion(List.of());
         stubBluebell(List.of());
         stubReadings(List.of(readingsWithInversion(loc, 9.0)));
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.readings().inversionScore()).isEqualTo(9.0);
     }
 
     @Test
     @DisplayName("EMPTY readings has a null inversionScore")
     void emptyReadings_inversionScoreIsNull() {
-        assertThat(SurvivorSignals.Readings.EMPTY.inversionScore()).isNull();
+        assertThat(SlotSignals.Readings.EMPTY.inversionScore()).isNull();
     }
 
     @Test
@@ -229,7 +229,7 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of(readingsWithInversion(loc, 9.0)));
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.readings().inversionScore()).isEqualTo(9.0);
         assertThat(s.readings().inversionScored()).isTrue();
     }
@@ -243,7 +243,7 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of(readingsWithScoredNullInversion(loc)));
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.readings().inversionScore()).isNull();
         assertThat(s.readings().inversionScored()).isTrue();
     }
@@ -251,7 +251,7 @@ class SurvivorSignalReaderTest {
     @Test
     @DisplayName("V158 round 4: EMPTY readings defaults inversionScored to false")
     void emptyReadings_inversionScoredIsFalse() {
-        assertThat(SurvivorSignals.Readings.EMPTY.inversionScored()).isFalse();
+        assertThat(SlotSignals.Readings.EMPTY.inversionScored()).isFalse();
     }
 
     @Test
@@ -262,9 +262,9 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of());
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.scores().inversion()).isEqualTo(7);
-        assertThat(s.readings()).isSameAs(SurvivorSignals.Readings.EMPTY);
+        assertThat(s.readings()).isSameAs(SlotSignals.Readings.EMPTY);
     }
 
     @Test
@@ -275,7 +275,7 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of(score(ForecastType.BLUEBELL, loc, 4, "Bright still light")));
         stubReadings(List.of());
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.scores().bluebell()).isEqualTo(4);
         assertThat(s.scores().bluebellSummary()).isEqualTo("Bright still light");
     }
@@ -293,7 +293,7 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of(score(ForecastType.BLUEBELL, loc, 4, "Bright still light", ANCIENT)));
         stubReadings(List.of());
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.scores().bluebell()).isEqualTo(4);
         assertThat(s.scores().bluebellSummary()).isEqualTo("Bright still light");
     }
@@ -309,13 +309,13 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of());
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.scores().inversion()).isEqualTo(9);
         assertThat(s.scores().inversionBand()).isEqualTo("STRONG");
     }
 
     @Test
-    @DisplayName("survivor_atmosphere readings are returned alongside a component evaluated long "
+    @DisplayName("slot_atmosphere readings are returned alongside a component evaluated long "
             + "ago, exactly as they always have been — readings were never subject to any "
             + "retraction, on this path or the brief window that once applied one to scores")
     void readings_returnedAlongsideAnciently_evaluatedComponent() {
@@ -324,7 +324,7 @@ class SurvivorSignalReaderTest {
         stubBluebell(List.of());
         stubReadings(List.of(readings(loc, "60.00")));
 
-        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        SlotSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.scores().inversion()).isEqualTo(9);
         assertThat(s.readings().dust()).isEqualByComparingTo("60.00");
     }

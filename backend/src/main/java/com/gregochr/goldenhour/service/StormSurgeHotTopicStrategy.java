@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -16,7 +16,7 @@ import java.util.List;
  * midday. The forecast pipeline already computes and persists {@code surge_risk_level} per
  * evaluation (only for coastal locations). This detector fires when any candidate row in the
  * window is classified {@value #HIGH_RISK} — high only, not moderate. Reads through the
- * {@link SurvivorSignalReader} (the unified read surface, {@code survivor_atmosphere}). ⚠️ Since
+ * {@link SlotSignalReader} (the unified read surface, {@code slot_atmosphere}). ⚠️ Since
  * the "record conditions for every place" change (Phase 1, owner decision 2026-09-30) this fires
  * for every candidate whose weather was fetched, not only the ones that went on to a Claude
  * rating — a storm surge is a fact about the tide and the weather, independent of whether the sky
@@ -36,18 +36,18 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
     /** The only surge risk level that fires the topic. */
     private static final String HIGH_RISK = "HIGH";
 
-    private final SurvivorSignalReader survivorSignalReader;
+    private final SlotSignalReader slotSignalReader;
     private final StormSurgeFactsBuilder stormSurgeFactsBuilder;
 
     /**
      * Constructs a {@code StormSurgeHotTopicStrategy}.
      *
-     * @param survivorSignalReader   the unified survivor read model (surge risk + numeric readings)
+     * @param slotSignalReader   the unified slot read model (surge risk + numeric readings)
      * @param stormSurgeFactsBuilder builds the enriched surge + wave fact line
      */
-    public StormSurgeHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
+    public StormSurgeHotTopicStrategy(SlotSignalReader slotSignalReader,
             StormSurgeFactsBuilder stormSurgeFactsBuilder) {
-        this.survivorSignalReader = survivorSignalReader;
+        this.slotSignalReader = slotSignalReader;
         this.stormSurgeFactsBuilder = stormSurgeFactsBuilder;
     }
 
@@ -61,9 +61,9 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SurvivorSignals> highRisk = survivorSignalReader.read(fromDate, toDate).stream()
+        List<SlotSignals> highRisk = slotSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> HIGH_RISK.equals(s.readings().surgeRiskLevel()))
-                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .sorted(Comparator.comparing(SlotSignals::date))
                 .toList();
         if (highRisk.isEmpty()) {
             return List.of();

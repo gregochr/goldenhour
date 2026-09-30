@@ -9,7 +9,7 @@ import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.RegionGroup;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SeasonalWindow;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
@@ -29,25 +29,25 @@ import java.util.stream.Collectors;
  *
  * <p>Runs only during the configured bluebell season ({@link SeasonalWindow}). For each day in the
  * requested window it scans the BLUEBELL component scores (the 1–5 Claude bluebell ratings written
- * by the nightly pipeline's dual-write) through the {@link SurvivorSignalReader} — only bluebell
+ * by the nightly pipeline's dual-write) through the {@link SlotSignalReader} — only bluebell
  * sites carry a {@code scores().bluebell()}, so the read self-selects them. When the best rating is
  * &ge; {@value #HOT_TOPIC_THRESHOLD} a {@link HotTopic} is emitted. Makes no external API calls — a
  * purely read-only consumer of already-persisted data.
  *
  * <p>⚠️ <b>Bluebell is the named exception to the "record conditions for every place" change (Phase
- * 1, owner decision 2026-09-30).</b> That change made {@code survivor_atmosphere} readings (dust,
+ * 1, owner decision 2026-09-30).</b> That change made {@code slot_atmosphere} readings (dust,
  * snow, surge) available for every candidate whose weather was fetched, triaged-out and
  * Gate-4-stood-down candidates included. Bluebell reads {@code forecast_score}, not
- * {@code survivor_atmosphere} — a genuinely Claude-scored component with no deterministic
+ * {@code slot_atmosphere} — a genuinely Claude-scored component with no deterministic
  * substitute for the display rating — so this detector is UNCHANGED by that phase and continues to
  * report only where a slot was actually rated. Unlike cloud inversion (the other
  * {@code forecast_score}-backed detector, whose own deterministic substitute is planned separately
  * as Phase 2), bluebell has no such substitute planned at all: it stays scored-only by design.
  *
 
- * <p><b>Survivor read model.</b> Like every survivor-signal detector, this reads through the unified
- * {@link SurvivorSignalReader} rather than a table directly. It previously read {@code forecast_score}
- * BLUEBELL rows via its own repository; routing it through the reader keeps all survivor-signal
+ * <p><b>Slot read model.</b> Like every slot-signal detector, this reads through the unified
+ * {@link SlotSignalReader} rather than a table directly. It previously read {@code forecast_score}
+ * BLUEBELL rows via its own repository; routing it through the reader keeps all slot-signal
  * detectors on one read path. The thresholds are the 0–10 condition score remapped onto the 1–5
  * Claude rubric (1=forget it … 5=drop everything), preserving the original selectivity:
  * <ul>
@@ -83,20 +83,20 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
     private static final String BLUEBELL_NOTE =
             "still, misty mornings diffuse the low sun — before wind and harsh light";
 
-    private final SurvivorSignalReader survivorSignalReader;
+    private final SlotSignalReader slotSignalReader;
     private final SeasonalWindow bluebellSeason;
     private final SolarEventFreshness freshness;
 
     /**
      * Constructs a {@code BluebellHotTopicStrategy}.
      *
-     * @param survivorSignalReader the unified survivor read model (BLUEBELL component scores)
+     * @param slotSignalReader the unified slot read model (BLUEBELL component scores)
      * @param bluebellSeason       the configured bluebell season window
      * @param freshness            shared filter dropping sunrise/sunset events already past
      */
-    public BluebellHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
+    public BluebellHotTopicStrategy(SlotSignalReader slotSignalReader,
             SeasonalWindow bluebellSeason, SolarEventFreshness freshness) {
-        this.survivorSignalReader = survivorSignalReader;
+        this.slotSignalReader = slotSignalReader;
         this.bluebellSeason = bluebellSeason;
         this.freshness = freshness;
     }
@@ -115,9 +115,9 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        // Only bluebell sites carry a BLUEBELL component score, so filtering the survivor composites
+        // Only bluebell sites carry a BLUEBELL component score, so filtering the slot composites
         // to a non-null bluebell score self-selects them (no separate location lookup needed).
-        List<SurvivorSignals> bluebellSignals = survivorSignalReader.read(fromDate, toDate).stream()
+        List<SlotSignals> bluebellSignals = slotSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> s.scores().bluebell() != null)
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .toList();
@@ -127,8 +127,8 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
         // Group by date. A location may have a SUNRISE and a SUNSET composite on the same day;
         // the per-day best below naturally takes the higher rating.
-        Map<LocalDate, List<SurvivorSignals>> byDate = new LinkedHashMap<>();
-        for (SurvivorSignals s : bluebellSignals) {
+        Map<LocalDate, List<SlotSignals>> byDate = new LinkedHashMap<>();
+        for (SlotSignals s : bluebellSignals) {
             byDate.computeIfAbsent(s.date(), d -> new ArrayList<>()).add(s);
         }
 
@@ -137,12 +137,12 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
             if (!bluebellSeason.isActive(date)) {
                 continue;
             }
-            List<SurvivorSignals> dayScores = byDate.getOrDefault(date, List.of());
+            List<SlotSignals> dayScores = byDate.getOrDefault(date, List.of());
             if (dayScores.isEmpty()) {
                 continue;
             }
 
-            SurvivorSignals best = dayScores.stream()
+            SlotSignals best = dayScores.stream()
                     .max(Comparator.comparingInt(BluebellHotTopicStrategy::bluebellScore))
                     .orElse(null);
             if (best == null || best.scores().bluebell() == null
@@ -196,11 +196,11 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
      * actually out, and how open) is modelled nowhere in the system, so any bloom figure would be
      * fabricated; the pill scores conditions "assuming the flowers are in bloom", never asserts them.
      *
-     * @param dayScores all bluebell-scored survivor composites for the day
+     * @param dayScores all bluebell-scored slot composites for the day
      * @param bestScore the highest rating across all composites (already ≥ threshold)
      * @return the bluebell fact chips
      */
-    private List<HotTopicFact> buildFacts(List<SurvivorSignals> dayScores, int bestScore) {
+    private List<HotTopicFact> buildFacts(List<SlotSignals> dayScores, int bestScore) {
         List<HotTopicFact> facts = new ArrayList<>();
         facts.add(HotTopicFact.metric("conditions",
                 bestScore + "/5 · " + deriveQualityLabel(bestScore).toLowerCase(Locale.UK)));
@@ -225,14 +225,14 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
      * Locations with rating &ge; {@value #EXPANDED_DETAIL_THRESHOLD} are included (broader than the
      * topic threshold).
      *
-     * @param dayScores all bluebell-scored survivor composites for the day
+     * @param dayScores all bluebell-scored slot composites for the day
      * @param bestScore the highest rating across all composites
      * @return populated expanded detail
      */
     private ExpandedHotTopicDetail buildExpandedDetail(
-            List<SurvivorSignals> dayScores, int bestScore) {
+            List<SlotSignals> dayScores, int bestScore) {
 
-        Map<String, List<SurvivorSignals>> byRegion = dayScores.stream()
+        Map<String, List<SlotSignals>> byRegion = dayScores.stream()
                 .filter(s -> s.scores().bluebell() != null
                         && s.scores().bluebell() >= EXPANDED_DETAIL_THRESHOLD
                         && s.location() != null
@@ -245,15 +245,15 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
         int scoringLocationCount = 0;
         List<RegionGroup> regionGroups = new ArrayList<>();
 
-        for (Map.Entry<String, List<SurvivorSignals>> entry : byRegion.entrySet()) {
-            List<SurvivorSignals> regionScores = entry.getValue().stream()
+        for (Map.Entry<String, List<SlotSignals>> entry : byRegion.entrySet()) {
+            List<SlotSignals> regionScores = entry.getValue().stream()
                     .sorted(Comparator.comparingInt(
                             BluebellHotTopicStrategy::bluebellScore).reversed())
                     .toList();
 
             List<LocationEntry> locations = new ArrayList<>();
             boolean firstInRegion = true;
-            for (SurvivorSignals s : regionScores) {
+            for (SlotSignals s : regionScores) {
                 int score = s.scores().bluebell();
                 LocationEntity loc = s.location();
                 String exposure = loc.getBluebellExposure() != null
@@ -283,10 +283,10 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
     /**
      * Null-safe bluebell-score extractor for sorting/maxing composites (treats absent as 0).
      *
-     * @param signals the survivor composite
+     * @param signals the slot composite
      * @return the bluebell score, or 0 if absent
      */
-    private static int bluebellScore(SurvivorSignals signals) {
+    private static int bluebellScore(SlotSignals signals) {
         return signals.scores().bluebell() != null ? signals.scores().bluebell() : 0;
     }
 

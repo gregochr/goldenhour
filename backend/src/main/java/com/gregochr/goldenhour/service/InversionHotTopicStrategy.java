@@ -3,7 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import org.springframework.stereotype.Component;
 
@@ -13,14 +13,14 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Detects cloud inversion hot topics by reading the survivor surface's unified inversion signal
- * ({@link SurvivorSignals#effectiveInversionScore()}).
+ * Detects cloud inversion hot topics by reading the slot surface's unified inversion signal
+ * ({@link SlotSignals#effectiveInversionScore()}).
  *
  * <p>A temperature inversion traps cloud below elevated viewpoints, creating a "sea of
  * clouds" at dawn. {@code InversionScoreCalculator} runs a deterministic 0–10 likelihood score
  * for every inversion-eligible (elevated / overlooks-water) candidate, inside
  * {@code ForecastService.fetchWeatherAndTriage} before either triage check — so
- * {@code SurvivorAtmosphereWriter} records it for every such candidate whose weather was fetched
+ * {@code SlotAtmosphereWriter} records it for every such candidate whose weather was fetched
  * this cycle, whatever the triage verdict or Gate 4 decision that follows. This detector fires
  * when any such row in the window reaches the STRONG band — score &ge;
  * {@value #STRONG_SCORE_INCLUSIVE}, mirroring
@@ -29,10 +29,10 @@ import java.util.Locale;
  * <p>⚠️ <b>Phase 2 of "record conditions for every place" (owner decision 2026-09-30): this
  * detector's score always follows the calculator, with Claude's echo as a stand-in only for a
  * slot the calculator has not reached yet.</b> Through 2026-09-30 this class read
- * {@link SurvivorSignals.Scores#inversion()} — the {@code forecast_score} INVERSION component,
+ * {@link SlotSignals.Scores#inversion()} — the {@code forecast_score} INVERSION component,
  * written only from a completed Claude evaluation — so it was silent for a triaged-out or
  * Gate-4-stood-down location exactly like the two-question rule (2026-09-29) says a hot topic must
- * not be. A second cut moved it onto {@link SurvivorSignals.Readings#inversionScore()} alone,
+ * not be. A second cut moved it onto {@link SlotSignals.Readings#inversionScore()} alone,
  * reasoning that a forward slot is upserted every cycle and therefore always current; a Codex
  * review of PR #948 (round 3) found that reasoning wrong — {@code BriefingCandidateCollector}
  * skips a region with a fresh {@code cached_evaluation} entry ({@code SKIPPED_CACHED}, around
@@ -40,7 +40,7 @@ import java.util.Locale;
  * {@code FreshnessProperties.settledHours} (36, uncapped at T+2 and beyond) lets that skip hold for
  * up to 36 hours on a SETTLED region, so a forward slot can carry a null calculator reading for a
  * day and a half while Claude's own echo already exists. This detector now reads
- * {@link SurvivorSignals#effectiveInversionScore()} instead — the ONE shared rule every reader of
+ * {@link SlotSignals#effectiveInversionScore()} instead — the ONE shared rule every reader of
  * this signal uses (also read by {@code ComingUpConditionsBuilder.buildInversion}'s two loops):
  * the calculator's reading when present, else Claude's echo. When the calculator HAS scored a
  * slot, the calculator decides, full stop — the reading always wins when both exist. The echo is
@@ -50,8 +50,8 @@ import java.util.Locale;
  *
  * <p>⚠️ <b>Round 4: "the calculator has not reached this slot yet" and "the calculator reached it
  * and found nothing to report" are different facts, and only {@code inversion_scored} tells them
- * apart.</b> {@link SurvivorSignals#effectiveInversionScore()} used to read a null
- * {@link SurvivorSignals.Readings#inversionScore()} as reason enough to fall back to Claude's echo
+ * apart.</b> {@link SlotSignals#effectiveInversionScore()} used to read a null
+ * {@link SlotSignals.Readings#inversionScore()} as reason enough to fall back to Claude's echo
  * — but a null reading is also exactly what a FRESH write produces: {@code
  * InversionScoreCalculator.calculate} itself returns null for an eligible location when the
  * required weather inputs (dew point, surface temperature) are missing, and {@code
@@ -61,7 +61,7 @@ import java.util.Locale;
  * evaluation carries a non-null score, any earlier {@code forecast_score} row is left in place
  * forever whenever a later cycle scores nothing — so falling back on every null reading could
  * revive a STRONG rating from days ago that the current data no longer supports. V158's second
- * column, {@code inversion_scored}, fixes this: {@code SurvivorAtmosphereWriter} sets it {@code
+ * column, {@code inversion_scored}, fixes this: {@code SlotAtmosphereWriter} sets it {@code
  * true} on every write it makes, with a score or with a null one alike, so a row from a writer
  * that ran this cycle is authoritative — null included — and only a PRE-COLUMN row (written before
  * this flag existed, defaulting {@code false}) or an entirely absent key still falls back to the
@@ -115,18 +115,18 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     private static final String INVERSION_NOTE =
             "climb above it — the valleys fill with cloud, burning off after sunrise";
 
-    private final SurvivorSignalReader survivorSignalReader;
+    private final SlotSignalReader slotSignalReader;
     private final SolarEventFreshness freshness;
 
     /**
      * Constructs an {@code InversionHotTopicStrategy}.
      *
-     * @param survivorSignalReader the unified survivor read model (inversion scores)
+     * @param slotSignalReader the unified slot read model (inversion scores)
      * @param freshness            shared filter dropping strong-inversion mornings already past
      */
-    public InversionHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
+    public InversionHotTopicStrategy(SlotSignalReader slotSignalReader,
             SolarEventFreshness freshness) {
-        this.survivorSignalReader = survivorSignalReader;
+        this.slotSignalReader = slotSignalReader;
         this.freshness = freshness;
     }
 
@@ -140,12 +140,12 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SurvivorSignals> strong = survivorSignalReader.read(fromDate, toDate).stream()
+        List<SlotSignals> strong = slotSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> s.eventType() == TargetType.SUNRISE)
                 .filter(s -> s.effectiveInversionScore() != null
                         && s.effectiveInversionScore() >= STRONG_SCORE_INCLUSIVE)
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
-                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .sorted(Comparator.comparing(SlotSignals::date))
                 .toList();
         if (strong.isEmpty()) {
             return List.of();
@@ -176,10 +176,10 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      * @param dayRows that day's strong-inversion rows
      * @return the topic enriched with the strength fact (unchanged if no row carries a score)
      */
-    private HotTopic attachFacts(HotTopic topic, List<SurvivorSignals> dayRows) {
-        SurvivorSignals top = dayRows.stream()
+    private HotTopic attachFacts(HotTopic topic, List<SlotSignals> dayRows) {
+        SlotSignals top = dayRows.stream()
                 .filter(s -> s.effectiveInversionScore() != null)
-                .max(Comparator.comparingDouble(SurvivorSignals::effectiveInversionScore))
+                .max(Comparator.comparingDouble(SlotSignals::effectiveInversionScore))
                 .orElse(null);
         if (top == null) {
             return topic;
