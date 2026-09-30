@@ -41,13 +41,21 @@ public record SurvivorSignals(
      * Score-shaped survivor signals from {@code forecast_score} — each nullable when that score was
      * not written for the key (ineligible location, out of season, or eval not yet returned).
      *
-     * <p>⚠️ <b>{@link #inversion()} is Claude's echo, not the read path the inversion hot topic or
-     * the Coming up "Valley inversions" condition use any more (Phase 2, owner decision
-     * 2026-09-30).</b> Both now read {@link Readings#inversionScore()} — the deterministic
-     * calculator's own score, populated for every inversion-eligible candidate regardless of triage
-     * or Gate 4. This field survives only for {@code ComingUpConditionsBuilder}'s trailing-history
-     * display and {@code TopicDailyLogJob}'s future-population log, both of which still read
-     * {@code forecast_score} on purpose — see those classes' own javadoc.
+     * <p>⚠️ <b>{@link #inversion()} is Claude's echo, and is no longer the PRIMARY read path for
+     * the inversion hot topic or the Coming up "Valley inversions" condition's forward peak
+     * (Phase 2, owner decision 2026-09-30).</b> Both of those now read
+     * {@link Readings#inversionScore()} first — the deterministic calculator's own score, populated
+     * for every inversion-eligible candidate regardless of triage or Gate 4, and correct from the
+     * first cycle after deploy for anything forward-looking, since a forward slot is upserted every
+     * cycle. ⚠️ <b>The Coming up condition's TRAILING-HISTORY occurrence list is the one place this
+     * field still has a live, permanent, production reader</b> — {@code ComingUpConditionsBuilder
+     * .trailingInversionScore} falls back to this field whenever a past date's
+     * {@link Readings#inversionScore()} is null, which every pre-V158 {@code survivor_atmosphere}
+     * row is forever (a past date is never re-evaluated, so there is no later cycle to backfill a
+     * reading for it) — see that method's own javadoc for the fallback's full justification (a
+     * Codex finding against PR #948's first V158 cut). {@code TopicDailyLogJob}'s future-population
+     * log reads {@code forecast_score} directly, bypassing this composite entirely — see that
+     * class's own javadoc.
      *
      * @param inversion       cloud inversion score 0–10 (Claude's echo), or null
      * @param inversionBand   the inversion row's stored classification (NONE/MODERATE/STRONG), or

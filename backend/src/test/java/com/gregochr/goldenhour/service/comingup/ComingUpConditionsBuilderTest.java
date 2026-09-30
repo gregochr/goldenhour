@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.service.comingup;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.ForecastScoreEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -36,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -467,11 +470,15 @@ class ComingUpConditionsBuilderTest {
     // ── Inversion: rarity never upgrades ─────────────────────────────────
     //
     // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158) moved this
-    // condition's occurrence list and forward peak off forecast_score's Claude-echoed INVERSION
-    // component onto survivor_atmosphere.inversion_score (the deterministic calculator's own
-    // score) — the same population InversionHotTopicStrategy now reads. These fixtures stub
-    // survivorAtmosphereRepository accordingly; forecastScoreRepository is no longer consulted for
-    // inversion at all (see ComingUpConditionsBuilder.buildInversion's own comment).
+    // condition's forward peak onto survivor_atmosphere.inversion_score (the deterministic
+    // calculator's own score) alone — the same population InversionHotTopicStrategy now reads.
+    // ⚠️ PR #948 (a Codex P1 against the first V158 cut) found the occurrence list could not stay
+    // calculator-only: every pre-migration survivor_atmosphere row has a null inversion_score
+    // forever (past dates are never re-evaluated), so the trailing history fell back to
+    // forecast_score's Claude-echoed INVERSION component for a date whose reading is null — see
+    // ComingUpConditionsBuilder.trailingInversionScore's own javadoc. The forward peak's own
+    // fixtures below are therefore calculator-only (readings), while the occurrence-list fixtures
+    // further down mix readings and forecast_score rows to exercise the fallback explicitly.
 
     private static SurvivorAtmosphereEntity inversionReading(LocationEntity location, LocalDate date,
             double score) {
@@ -480,6 +487,17 @@ class ComingUpConditionsBuilderTest {
         entity.setEvaluationDate(date);
         entity.setEventType(TargetType.SUNRISE);
         entity.setInversionScore(score);
+        return entity;
+    }
+
+    /** A {@code forecast_score} INVERSION row — Claude's echo, the trailing-history fallback. */
+    private static ForecastScoreEntity inversionEcho(LocationEntity location, LocalDate date, int score) {
+        ForecastScoreEntity entity = new ForecastScoreEntity();
+        entity.setForecastType(ForecastType.INVERSION);
+        entity.setLocation(location);
+        entity.setEvaluationDate(date);
+        entity.setEventType(TargetType.SUNRISE);
+        entity.setScore(score);
         return entity;
     }
 
@@ -578,6 +596,130 @@ class ComingUpConditionsBuilderTest {
         assertThat(conditions.get(1).peak().valueLabel()).isEqualTo("AOD 0.55");
         assertThat(conditions.get(2).peak()).isNotNull();
         assertThat(conditions.get(2).peak().valueLabel()).isEqualTo("9/10");
+    }
+
+    // ── Trailing-history fallback (PR #948, Codex P1 against the first V158 cut) ────────────
+
+    @Test
+    @DisplayName("a past date with a null survivor_atmosphere reading and a strong forecast_score "
+            + "component IS listed, showing the component's score — must fail against 3e688862, "
+            + "which read readings().inversionScore() alone and reported no history at all")
+    void buildInversion_nullReadingWithStrongEcho_isListedWithEchoScore() {
+        LocationEntity fell = LocationEntity.builder().id(10L).name("Echo Fell").lat(1.0).lon(1.0).build();
+        LocalDate strongMorning = TODAY.minusDays(10);
+        // A pre-migration row: written before V158, so inversion_score is null forever — the exact
+        // shape every survivor_atmosphere row had before this migration.
+        SurvivorAtmosphereEntity nullReading = new SurvivorAtmosphereEntity();
+        nullReading.setLocation(fell);
+        nullReading.setEvaluationDate(strongMorning);
+        nullReading.setEventType(TargetType.SUNRISE);
+        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(0);
+            LocalDate to = invocation.getArgument(1);
+            return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
+                    ? List.of(nullReading) : List.of();
+        });
+        when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
+                .thenAnswer(invocation -> {
+                    LocalDate from = invocation.getArgument(1);
+                    LocalDate to = invocation.getArgument(2);
+                    return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
+                            ? List.of(inversionEcho(fell, strongMorning, 9)) : List.of();
+                });
+
+        ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
+
+        assertThat(inversion.occurrences()).hasSize(1);
+        assertThat(inversion.occurrences().getFirst().date()).isEqualTo(strongMorning);
+        assertThat(inversion.occurrences().getFirst().valueLabel()).isEqualTo("9/10");
+    }
+
+    @Test
+    @DisplayName("a date with BOTH a reading and a disagreeing echo shows the READING's score — "
+            + "the reading wins whenever it exists")
+    void buildInversion_bothPresentDisagreeing_readingWins() {
+        LocationEntity fell = LocationEntity.builder().id(11L).name("Both Fell").lat(1.0).lon(1.0).build();
+        LocalDate strongMorning = TODAY.minusDays(10);
+        SurvivorAtmosphereEntity reading = inversionReading(fell, strongMorning, 10.0);
+        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(0);
+            LocalDate to = invocation.getArgument(1);
+            return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
+                    ? List.of(reading) : List.of();
+        });
+        when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
+                .thenAnswer(invocation -> {
+                    LocalDate from = invocation.getArgument(1);
+                    LocalDate to = invocation.getArgument(2);
+                    // A deliberately DIFFERENT, still-strong echo value, so a wrongly-preferred
+                    // echo would be caught by this assertion.
+                    return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
+                            ? List.of(inversionEcho(fell, strongMorning, 9)) : List.of();
+                });
+
+        ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
+
+        assertThat(inversion.occurrences()).hasSize(1);
+        assertThat(inversion.occurrences().getFirst().valueLabel()).isEqualTo("10/10");
+    }
+
+    @Test
+    @DisplayName("a date with a null reading and an echo BELOW the strong threshold is not listed")
+    void buildInversion_nullReadingWithWeakEcho_notListed() {
+        LocationEntity fell = LocationEntity.builder().id(12L).name("Weak Fell").lat(1.0).lon(1.0).build();
+        LocalDate weakMorning = TODAY.minusDays(10);
+        SurvivorAtmosphereEntity nullReading = new SurvivorAtmosphereEntity();
+        nullReading.setLocation(fell);
+        nullReading.setEvaluationDate(weakMorning);
+        nullReading.setEventType(TargetType.SUNRISE);
+        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(0);
+            LocalDate to = invocation.getArgument(1);
+            return !weakMorning.isBefore(from) && !weakMorning.isAfter(to)
+                    ? List.of(nullReading) : List.of();
+        });
+        when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
+                .thenAnswer(invocation -> {
+                    LocalDate from = invocation.getArgument(1);
+                    LocalDate to = invocation.getArgument(2);
+                    // 8 is MODERATE, one below the STRONG_SCORE_INCLUSIVE=9 threshold.
+                    return !weakMorning.isBefore(from) && !weakMorning.isAfter(to)
+                            ? List.of(inversionEcho(fell, weakMorning, 8)) : List.of();
+                });
+
+        ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
+
+        assertThat(inversion.occurrences()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the forward-peak cell stays calculator-only: a null reading with a strong echo is "
+            + "NOT shown as the peak, even though the trailing history would fall back to it")
+    void buildInversion_forwardPeak_nullReadingWithStrongEcho_notShown() {
+        LocationEntity fell = LocationEntity.builder().id(13L).name("Forward Fell").lat(1.0).lon(1.0).build();
+        LocalDate peakDate = TODAY.plusDays(1);
+        SurvivorAtmosphereEntity nullReading = new SurvivorAtmosphereEntity();
+        nullReading.setLocation(fell);
+        nullReading.setEvaluationDate(peakDate);
+        nullReading.setEventType(TargetType.SUNRISE);
+        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
+                .thenReturn(List.of(nullReading));
+        when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
+                .thenAnswer(invocation -> {
+                    LocalDate from = invocation.getArgument(1);
+                    LocalDate to = invocation.getArgument(2);
+                    return !peakDate.isBefore(from) && !peakDate.isAfter(to)
+                            ? List.of(inversionEcho(fell, peakDate, 9)) : List.of();
+                });
+
+        ComingUpCondition inversion = builder.build(TODAY, List.of(), List.of()).get(2);
+
+        assertThat(inversion.peak()).isNull();
+        // Nor does the echo-only forward date leak into the occurrence list as a HELD_BACK row —
+        // the forward window is [builtFor, lastPlanDate], entirely disjoint from the trailing
+        // window [windowStart, yesterday], so this date is simply never looked at by either loop
+        // in a way that would list it.
+        assertThat(inversion.occurrences()).isEmpty();
     }
 
     // ── frequencyPhrase (lunar-eclipse plan §2.9) ────────────────────────

@@ -62,16 +62,15 @@ import java.util.Optional;
  * {@code forecast_evaluation} population — never a survivor surface, which would understate
  * presence and inflate rarity toward over-promotion (plan D4, external-review finding §14 round 3).
  * Inversion rarity stays on the config fallback until P7's {@code topic_daily_log} accrues an
- * unbiased population; the historical occurrences shown for it come from
- * {@code survivor_atmosphere}'s {@code inversion_score} column (V158, Phase 2 of "record
- * conditions for every place", owner decision 2026-09-30) for DISPLAY only ("nothing is
- * discarded" — README §2.1) and never feed the rarity number. ⚠️ <b>An unbiased population now
- * exists</b> — since V158 that column carries the deterministic calculator's own score for every
- * inversion-eligible candidate, triaged-out and Gate-4-stood-down ones included, the same
- * complete-population shape dust's arrival count already reads — but switching the RARITY term
- * onto it is a separate decision, not made here: this class still only moved which table the
- * DISPLAY occurrences and forward peak read from (see {@link #buildInversion}), and
- * {@code inversionRarityNeverUpgrades} still pins the config fallback.
+ * unbiased population — that is unaffected by V158 (Phase 2 of "record conditions for every
+ * place", owner decision 2026-09-30) and the trailing-history fallback described on
+ * {@link #buildInversion}: neither changes the RARITY number, only which TABLE a display
+ * occurrence's SCORE is read from. ⚠️ <b>An unbiased population now exists for a forward date</b>
+ * — {@code survivor_atmosphere.inversion_score} carries the deterministic calculator's own score
+ * for every inversion-eligible candidate evaluated from the first cycle after V158, triaged-out
+ * and Gate-4-stood-down ones included — but switching the RARITY term onto it is a separate
+ * decision, not made here, and {@code inversionRarityNeverUpgrades} still pins the config
+ * fallback.
  *
  * <h2>Coastal tides reuses P2's scoring machinery, never a second formula</h2>
  *
@@ -545,15 +544,27 @@ public class ComingUpConditionsBuilder {
 
     // ── Valley inversions (D4, D11) ──────────────────────────────────────
     //
-    // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158): both the
-    // trailing-history occurrence list and the forward peak below now read
-    // survivor_atmosphere.inversion_score (the deterministic InversionScoreCalculator score,
-    // populated for every inversion-eligible candidate whatever the triage verdict or Gate 4
-    // decision), not forecast_score's Claude-echoed INVERSION component. This answers the same
-    // "what is happening" question InversionHotTopicStrategy asks, from the same population — see
-    // that class's own javadoc for why the two surfaces (this one and the map's Claude-echoed
-    // badge) are allowed to disagree. The RARITY term still stays on the config fallback
-    // (unchanged by this move — see the class javadoc's own note on that).
+    // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158) split this
+    // condition's two reads by what can still change:
+    //
+    // FORWARD (the peak cell, below) stays calculator-only — survivor_atmosphere.inversion_score
+    // alone. A forward slot is upserted every cycle, so it is correct from the first cycle after
+    // deploy; there is nothing to fall back to and no reason to want Claude's echo instead.
+    //
+    // TRAILING HISTORY (the occurrence list, immediately below) FALLS BACK to forecast_score's
+    // Claude-echoed INVERSION component when a date's survivor_atmosphere reading is null — see
+    // trailingInversionScore's own javadoc for why this fallback is permanent, not a transition
+    // hack. A codex review of the first V158 cut (PR #948) found that every existing
+    // survivor_atmosphere row has a null inversion_score (the column did not exist when those rows
+    // were written, and past dates are never re-evaluated), so a calculator-only trailing read
+    // reported "none in the last 60 days" even where a strong forecast_score INVERSION row existed
+    // for that date — the false history would have stood until the whole window aged past it.
+    //
+    // Both reads answer the same "what is happening" question InversionHotTopicStrategy asks (see
+    // that class's own javadoc for why this condition and the map's Claude-echoed badge are
+    // allowed to disagree) — this split is about data availability across the two window
+    // directions, not a second question. The RARITY term stays on the config fallback either way
+    // (unchanged by this — see the class javadoc's own note on that).
 
     private ComingUpCondition buildInversion(LocalDate builtFor) {
         int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();
@@ -569,9 +580,11 @@ public class ComingUpConditionsBuilder {
         Map<LocalDate, Double> maxScoreByDate = new LinkedHashMap<>();
         try {
             for (SurvivorSignals signal : survivorSignalReader.read(windowStart, yesterday)) {
-                Double score = signal.readings().inversionScore();
-                if (signal.eventType() != TargetType.SUNRISE || score == null
-                        || score < InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
+                if (signal.eventType() != TargetType.SUNRISE) {
+                    continue;
+                }
+                Double score = trailingInversionScore(signal);
+                if (score == null || score < InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
                     continue;
                 }
                 maxScoreByDate.merge(signal.date(), score, Math::max);
@@ -624,11 +637,48 @@ public class ComingUpConditionsBuilder {
     }
 
     /**
+     * Returns the best available trailing-history inversion score for one signal: the
+     * deterministic calculator's own {@link SurvivorSignals.Readings#inversionScore()} when
+     * present, else Claude's {@link SurvivorSignals.Scores#inversion()} echo of the identical
+     * 0–10 scale and threshold.
+     *
+     * <p>⚠️ <b>This fallback is permanent, not a transition hack for the rows V158 shipped
+     * without a score.</b> Two real, ongoing populations only ever have the echo: every
+     * {@code survivor_atmosphere} row written before V158 carries a null {@code inversion_score}
+     * forever, because a past date is never re-evaluated by a later cycle — the column simply did
+     * not exist yet when that row was written, and there is no backfill (a read-time rule already
+     * covers what a backfill could not: the second population, below). And a {@code forecast_score}
+     * INVERSION row with NO {@code survivor_atmosphere} row at all — a key whose weather was fetched
+     * only by one of the pre-#947 force-submit code paths that predate the "record conditions for
+     * every place" writer being called at all — has only the echo, permanently, since nothing will
+     * ever backfill a reading for a cycle that already ran. Only the FORWARD peak (a slot upserted
+     * every cycle from today onward) can safely stay calculator-only; the trailing history cannot,
+     * because it can never acquire a reading for a date already in the past.
+     *
+     * <p>When both are present the reading wins — it is not merely equally good but the intended
+     * primary source, the same "the calculator is what this hot topic and this condition mean by
+     * inversion likelihood now" rule {@link InversionHotTopicStrategy} states for the forward case.
+     *
+     * @param signal the trailing-window survivor composite
+     * @return the score to test against {@link InversionHotTopicStrategy#STRONG_SCORE_INCLUSIVE},
+     *         or null when neither surface has one for this key
+     */
+    private static Double trailingInversionScore(SurvivorSignals signal) {
+        Double reading = signal.readings().inversionScore();
+        if (reading != null) {
+            return reading;
+        }
+        Integer echoed = signal.scores().inversion();
+        return echoed == null ? null : echoed.doubleValue();
+    }
+
+    /**
      * Rounds the calculator's raw score for display — never truncate, matching
      * {@code PromptBuilder}'s own comment on the identical conversion. The calculator's
      * components are all whole-number doubles (or exact 6.0/8.0 gate ceilings), so this never
      * actually changes a value; it exists so a fractional double can never leak into the "N/10"
-     * label.
+     * label. The Claude-echoed fallback score ({@link #trailingInversionScore}) is already a whole
+     * number (an {@code Integer} widened to {@code double}), so rounding is a no-op for it too.
      */
     private static int reportedScore(double score) {
         return (int) Math.round(score);

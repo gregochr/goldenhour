@@ -19,13 +19,15 @@ or Gate 4 decision that follows.
 
 `SurvivorSignals.Readings` gains `inversionScore` (kept in `Readings`, a derived input, not
 `Scores`, which is Claude's judgement) and `SurvivorSignalReader` carries the new column through
-unchanged. `InversionHotTopicStrategy` and `ComingUpConditionsBuilder.buildInversion`'s trailing
-occurrence list and forward-peak cell now read `readings().inversionScore()` instead of
-`scores().inversion()` — same STRONG threshold (score ≥ 9), same SUNRISE-only filter, same
-freshness rule. Coming up's rarity term is untouched: it still reads the config fallback, and
-`inversionRarityNeverUpgrades` still pins that — only the *occurrence population* moved off Claude's
-echo onto the calculator's complete, unbiased one; whether to also move rarity onto that population
-is a separate decision, left open.
+unchanged. `InversionHotTopicStrategy` and `ComingUpConditionsBuilder.buildInversion`'s forward-peak
+cell read `readings().inversionScore()` instead of `scores().inversion()` — same STRONG threshold
+(score ≥ 9), same SUNRISE-only filter, same freshness rule. ⚠️ **Corrected in a follow-up commit the
+same day** (`changelog.d/20260930-inversion-trailing-history-fallback.md`, a Codex P1 against this
+commit): the trailing-history occurrence list could not move to `readings().inversionScore()` alone
+the way the forward peak did, because a past date's reading is populated only going forward from
+this migration and is never retroactively filled in. That entry has the full fix. Coming up's
+rarity term is untouched either way: it still reads the config fallback, and
+`inversionRarityNeverUpgrades` still pins that.
 
 **The band label is now derived, not stored.** The calculator produces no NONE/MODERATE/STRONG
 string of its own (only Claude's echo used to carry one, in the `forecast_score` INVERSION row's
@@ -47,15 +49,12 @@ to the one condition Phase 1 named as its exception.
 
 `SurvivorSignals.Scores.inversion()`/`inversionBand()` (Claude's `forecast_score` echo) are left in
 place — nothing in this change removes them, since they are still populated from `forecast_score`
-and still exercised by test coverage that pins the composite's join behaviour — but after this
-change no production code reads either accessor any more: `TopicDailyLogJob` still logs from
-`forecast_score` directly for its own reasons (a comment on that class now names
-`survivor_atmosphere.inversion_score` as the eventual unbiased source, a separate decision left
-open), bypassing the `Scores` accessors entirely rather than reading them. Removing the two now-dead
-accessors and their reader wiring in `SurvivorSignalReader` is a candidate future cleanup,
-deliberately not done in this change.
+and still exercised by test coverage that pins the composite's join behaviour. ⚠️ As it turned out
+these accessors were not headed for cleanup at all: the same-day follow-up commit gives
+`Scores.inversion()` a genuine, permanent production reader (the trailing-history fallback) — see
+that entry.
 
-**No backfill.** A `survivor_atmosphere` row written before this migration carries a null
-`inversion_score`, and the inversion hot topic and Coming up condition stay silent for that slot
-until the next pipeline cycle upserts it — every slot is upserted every cycle, so the gap is at most
-one cycle old for any location that is still being evaluated.
+**No backfill migration** — this holds, but not for the reason first stated here (every slot being
+upserted every cycle does not make a *past* date's gap one cycle wide; the follow-up entry explains
+why a read-time fallback rather than a backfill is the correct permanent design, not a temporary one
+this note originally implied).
