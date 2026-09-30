@@ -143,6 +143,20 @@ public interface ForecastRunDispositionRepository
      * to the caller's own served window — never called per region or per slot. Same table, same
      * 30-day retention as {@link #findLatestStabilitySkipTimestamps} covers the served horizon.
      *
+     * <p>⚠️ <b>"Most recent" is expressed as a {@code NOT EXISTS} anti-join — "no non-cached row
+     * for the same slot is strictly later" — never as {@code created_at = (SELECT MAX(...))}.</b>
+     * The two are the same predicate, but Postgres cannot decorrelate a scalar subquery in
+     * {@code WHERE}: it runs it once per outer row, and with nothing on this table indexed by slot
+     * that was a full scan of the whole 30-day retention window per row. Measured on the 2026-09-30
+     * incident's shape (~78k rows, ~6k outer rows): 36 s per serve as shipped, 34 ms as an
+     * anti-join with no new index at all. Because this ran on every {@code GET /api/briefing}, the
+     * Plan tab rendered nothing and the map drew no heat field — the briefing never arrived before
+     * the proxy's 100 s limit. V160 also adds a slot-keyed index (location, date, event, created)
+     * as belt and braces, so a future per-slot "latest" read on this table cannot reintroduce the
+     * scan whichever shape it takes. The tie rule below is unchanged: two rows at the same max
+     * instant have no strictly-later row, so both survive the anti-join exactly as both matched
+     * the {@code MAX}.
+     *
      * <p>⚠️ A tie at the same {@code created_at} between two different non-cached categories for
      * one slot returns both rows; {@code EvaluationViewService.loadTriagedByBatch} folds a tie to
      * "not examined" (only counts a slot where every row at the max instant agrees it is
@@ -160,12 +174,13 @@ public interface ForecastRunDispositionRepository
             + "FROM ForecastRunDispositionEntity d "
             + "WHERE d.disposition <> 'SKIPPED_CACHED' "
             + "AND d.evaluationDate BETWEEN :start AND :end "
-            + "AND d.createdAt = ("
-            + "    SELECT MAX(d2.createdAt) FROM ForecastRunDispositionEntity d2 "
+            + "AND NOT EXISTS ("
+            + "    SELECT 1 FROM ForecastRunDispositionEntity d2 "
             + "    WHERE d2.locationName = d.locationName "
             + "    AND d2.evaluationDate = d.evaluationDate "
             + "    AND d2.eventType = d.eventType "
-            + "    AND d2.disposition <> 'SKIPPED_CACHED'"
+            + "    AND d2.disposition <> 'SKIPPED_CACHED' "
+            + "    AND d2.createdAt > d.createdAt"
             + ")")
     List<Object[]> findLatestNonCachedDispositions(
             @Param("start") LocalDate start, @Param("end") LocalDate end);
