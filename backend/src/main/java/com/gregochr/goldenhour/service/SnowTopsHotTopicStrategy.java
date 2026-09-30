@@ -18,9 +18,11 @@ import java.util.List;
  * below its summit {@code elevation_m} (the margin gives confidence the tops are actually white, not
  * merely at the theoretical freezing altitude). The freezing-level-versus-elevation comparison
  * self-selects high ground, so no minimum-elevation floor is applied. Reads through the
- * {@link SurvivorSignalReader} (the unified survivor surface), so it fires off the survivor
- * population, not the triaged rejects the legacy {@code forecast_evaluation} read sampled.
- * Makes no external API calls.
+ * {@link SurvivorSignalReader} (the unified read surface, {@code survivor_atmosphere}). ⚠️ Since
+ * the "record conditions for every place" change (Phase 1, owner decision 2026-09-30) this fires
+ * for every candidate whose weather was fetched, not only the ones that went on to a Claude
+ * rating — snow on the tops is a fact about the fells, independent of whether the sky above them
+ * is worth photographing. Makes no external API calls.
  */
 @Component
 public class SnowTopsHotTopicStrategy implements HotTopicStrategy {

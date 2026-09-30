@@ -116,9 +116,6 @@ class ForecastTaskCollectorTest {
     @Mock
     private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock
-    private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-            survivorAtmosphereWriter;
-    @Mock
     private com.gregochr.goldenhour.service.TravelDayService travelDayService;
 
     private ForecastTaskCollector collector;
@@ -132,7 +129,7 @@ class ForecastTaskCollectorTest {
                 locationService, briefingService, briefingEvaluationService,
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
-                stabilitySnapshotProvider, survivorAtmosphereWriter, travelDayService,
+                stabilitySnapshotProvider, travelDayService,
                 MIN_PREFETCH_RATIO, 0, CLOCK,
                 BLUEBELL_SEASON);
         // Default freshness threshold (matches UNSETTLED-equivalent default in legacy code).
@@ -1124,6 +1121,18 @@ class ForecastTaskCollectorTest {
         assertThat(d.detail()).isEqualTo("T+3 TRANSITIONAL");
         assertThat(d.daysAhead()).isEqualTo(3);
     }
+
+    // ── Record conditions for every place (Phase 1, owner decision 2026-09-30) ────────────────
+    // The write itself moved to a single seam inside ForecastService.fetchWeatherAndTriage
+    // (a Codex P1 finding against the first cut of this phase, which put the write directly in
+    // this collector, in ForceSubmitBatchService's two entry points, and left two other real
+    // callers — collectRegionFilteredBatches below and the synchronous engine's runTriagePhase —
+    // with no write at all). This collector no longer holds a SurvivorAtmosphereWriter
+    // dependency, so it cannot be verified from here; ForecastServiceTest now pins the seam
+    // itself (triaged/stability-irrelevant/thrown-exception/flag-off cases), and
+    // dispositions_triagedCandidate_recordedWithReason / dispositions_stabilityGated_
+    // recordedWithSkipReason below already pin that this collector calls fetchWeatherAndTriage
+    // for exactly the SKIPPED_TRIAGED and SKIPPED_STABILITY candidates the seam needs to reach.
 
     @Test
     @DisplayName("dispositions: intraday SETTLED at T+1 SUNSET is skipped as "

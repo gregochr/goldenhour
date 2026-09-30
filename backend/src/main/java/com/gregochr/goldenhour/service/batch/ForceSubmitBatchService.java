@@ -41,6 +41,14 @@ import java.util.List;
  * a JFDI run writes rows, so anything wrong with the dates it chooses lands in the table. That is
  * how a UTC-anchored range here came to persist {@code days_ahead = -1} (and, via
  * {@code ConfidenceDeriver.fromHorizon}, a {@code confidence} of HIGH) for a day already over.
+ *
+ * <p>⚠️ <b>Neither entry point writes a {@code survivor_atmosphere} reading itself.</b>
+ * {@code fetchWeatherAndTriage} records the candidate's atmospheric readings as part of its own
+ * body, before either triage check it runs — the one seam every caller of that method shares (see
+ * its own javadoc) — so a JFDI or force-submit slot is recorded exactly like a scheduled cycle's,
+ * with no extra call needed here. This class briefly carried its own {@code SurvivorAtmosphereWriter}
+ * dependency and two explicit write calls (one per entry point); both were removed once the seam
+ * moved inside {@code fetchWeatherAndTriage}, to avoid writing the same fetch twice.
  */
 @Service
 public class ForceSubmitBatchService {
@@ -58,17 +66,17 @@ public class ForceSubmitBatchService {
     /**
      * Constructs the force-submit batch service.
      *
-     * @param anthropicClient        raw Anthropic SDK client (still used by {@link #getResult}
-     *                               which bypasses {@code BatchPollingService} — see Pass 2.5)
-     * @param regionRepository       repository for looking up regions by ID
-     * @param locationService        service for retrieving enabled locations
-     * @param forecastService        service for weather fetch and data assembly
-     * @param modelSelectionService  resolves the active Claude model
-     * @param evaluationService      Pass 3.2 engine — submits forecast tasks via the
-     *                               canonical batch path (request build + observability)
-     * @param clock                  supplies "today" for the JFDI range, resolved in
-     *                               {@code Europe/London} by {@link ForecastHorizon} — the same
-     *                               calendar {@code ForecastService} measures the horizon on
+     * @param anthropicClient       raw Anthropic SDK client (still used by {@link #getResult}
+     *                              which bypasses {@code BatchPollingService} — see Pass 2.5)
+     * @param regionRepository      repository for looking up regions by ID
+     * @param locationService       service for retrieving enabled locations
+     * @param forecastService       service for weather fetch and data assembly
+     * @param modelSelectionService resolves the active Claude model
+     * @param evaluationService     Pass 3.2 engine — submits forecast tasks via the
+     *                              canonical batch path (request build + observability)
+     * @param clock                 supplies "today" for the JFDI range, resolved in
+     *                              {@code Europe/London} by {@link ForecastHorizon} — the same
+     *                              calendar {@code ForecastService} measures the horizon on
      */
     public ForceSubmitBatchService(AnthropicClient anthropicClient,
             RegionRepository regionRepository,

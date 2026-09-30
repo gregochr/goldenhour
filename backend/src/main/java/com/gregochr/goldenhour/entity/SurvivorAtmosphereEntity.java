@@ -22,17 +22,21 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * One survivor's pre-evaluation atmospheric readings — the readings half of the unified
- * survivor read surface (V115), counterpart to {@link ForecastScoreEntity} (the scores half).
+ * One candidate's pre-evaluation atmospheric readings — the readings half of the unified
+ * hot-topic read surface (V115), counterpart to {@link ForecastScoreEntity} (the scores half).
+ *
+ * <p>⚠️ <b>"Survivor" in this class's name is historical — a rename is pending, not done here.</b>
+ * Through 2026-09-30 a row existed only when a candidate survived weather triage and the Gate 4
+ * stability gate. The "record conditions for every place" change (Phase 1, owner decision
+ * 2026-09-30) reversed that: a row is now written for every candidate whose weather was fetched
+ * this cycle, whatever the later triage verdict or Gate 4 decision — a place stood down for cloud
+ * can still carry a dust, snow or storm-surge reading. See {@code SurvivorAtmosphereWriter}'s own
+ * javadoc for exactly which dispositions carry a row and which do not.
  *
  * <p>Grain is {@code (location, evaluation_date, event_type)}. The nightly pipeline
  * re-evaluates the same key across cycles, so the writer UPSERTs against
  * {@code uq_survivor_atmosphere} — latest submission wins, matching {@code forecast_score} and
  * {@code cached_evaluation} semantics.
- *
- * <p>Survivor-by-construction: a row exists only when a survivor is submitted (batch) or
- * evaluated (sync), so the atmospheric hot-topic detectors reading through the survivor read
- * model cannot sample the triaged rejects.
  *
  * <p>All readings are nullable — inland locations have no surge, summer has no snow. The
  * {@code humidity} reading is carried because the {@code SNOW_FRESH} detector co-reads it for

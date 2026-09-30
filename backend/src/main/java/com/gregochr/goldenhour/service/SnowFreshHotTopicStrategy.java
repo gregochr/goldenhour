@@ -22,9 +22,11 @@ import java.util.Set;
  * metres ({@code 2 cm}) at the hour nearest the solar event. When the existing briefing mist signal
  * co-occurs (humidity above {@link BriefingVerdictEvaluator#HUMIDITY_MARGINAL}% on a snowy row), the
  * topic is enriched into the SNOW_MIST variant rather than emitted as a separate topic. Reads
- * through the {@link SurvivorSignalReader} (the unified survivor surface), so it fires off the
- * survivor population, not the triaged rejects the legacy {@code forecast_evaluation} read
- * sampled. Makes no external API calls.
+ * through the {@link SurvivorSignalReader} (the unified read surface, {@code survivor_atmosphere}).
+ * ⚠️ Since the "record conditions for every place" change (Phase 1, owner decision 2026-09-30) this
+ * fires for every candidate whose weather was fetched, not only the ones that went on to a Claude
+ * rating — snow lying is a fact about the ground, independent of whether the sky above it is worth
+ * photographing. Makes no external API calls.
  */
 @Component
 public class SnowFreshHotTopicStrategy implements HotTopicStrategy {

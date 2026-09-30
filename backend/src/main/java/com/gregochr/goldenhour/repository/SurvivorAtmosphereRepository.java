@@ -12,12 +12,18 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Repository for survivor atmospheric readings (V115) — the readings half of the unified
- * survivor read surface.
+ * Repository for atmospheric readings (V115) — the readings half of the unified hot-topic read
+ * surface.
  *
- * <p>Written through by {@code SurvivorAtmosphereWriter} at submission/evaluation time:
+ * <p>⚠️ "Survivor" in the table and class names is historical — see {@code SurvivorAtmosphereWriter}'s
+ * class javadoc. Since the "record conditions for every place" change (Phase 1, owner decision
+ * 2026-09-30) a row exists for every candidate a batch cycle, a hand-started admin run, or the
+ * synchronous engine fetched weather for, not only the ones that survived triage and Gate 4.
+ *
+ * <p>Written through by {@code SurvivorAtmosphereWriter} at collection/submission/evaluation time:
  * {@link #findByLocationIdAndEvaluationDateAndEventType} is the upsert's lookup. Read by the
- * Stage 2 survivor read model on behalf of the atmospheric hot-topic detectors.
+ * unified read model ({@code SurvivorSignalReader}) on behalf of the atmospheric hot-topic
+ * detectors.
  */
 @Repository
 public interface SurvivorAtmosphereRepository

@@ -15,29 +15,60 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * Submission-time writer for survivor atmospheric readings ({@code survivor_atmosphere}, V115) —
- * the readings half of the unified survivor read surface, counterpart to
- * {@link ForecastScoreWriter} (the scores half).
+ * Writer for atmospheric readings ({@code survivor_atmosphere}, V115) — the readings half of the
+ * unified hot-topic read surface, counterpart to {@link ForecastScoreWriter} (the scores half).
+ *
+ * <p>⚠️ <b>The class and table names are historical and now inaccurate — a rename is pending, not
+ * done here.</b> Through 2026-09-30 a row was written only for a candidate that survived weather
+ * triage and the Gate 4 stability gate ("survivor-by-construction"), which is exactly the product
+ * rule the "record conditions for every place" change (Phase 1, owner decision 2026-09-30) reversed:
+ * knowing there is dust, snow or a storm surge at a place is interesting on its own terms (the "what
+ * is happening" question hot topics and the Coming up feed answer), independent of whether the same
+ * place is forecast to be blocked (the separate "where is worth going" question stars and verdicts
+ * answer). So "survivor" no longer describes this table's population.
+ *
+ * <p>⚠️ <b>{@link #write} is called from exactly ONE place: inside
+ * {@link com.gregochr.goldenhour.service.ForecastService#fetchWeatherAndTriage
+ * ForecastService.fetchWeatherAndTriage} itself</b> — immediately after the atmospheric data is
+ * assembled and before that method's own triage checks. The first cut of this phase (commit
+ * 9c01491f) instead called this writer from three separate call sites (the batch collector's
+ * scheduled path, and both of {@code ForceSubmitBatchService}'s entry points); a Codex review
+ * found two OTHER real callers of {@code fetchWeatherAndTriage} — the batch collector's own
+ * {@code collectRegionFilteredBatches} and the synchronous engine's
+ * {@code ForecastCommandExecutor.runTriagePhase} — reached it and got no write at all. Moving the
+ * call inside {@code fetchWeatherAndTriage} covers every present and future caller with one seam:
+ * the scheduled batch collector, its admin region-filtered sibling, {@code ForceSubmitBatchService}
+ * (JFDI and admin force-submit), {@code BatchRetryService}'s failed-request reconstruction, and the
+ * synchronous engine, all in one place. See that method's own javadoc for exactly which
+ * dispositions now carry a row and which still do not (a candidate that never had its weather
+ * fetched this cycle — past date, unknown location, travel day, a collection-time error — still
+ * writes nothing, because there is no reading to record). Renaming the table and every class named
+ * after it needs its own migration and is deliberately out of scope for this change — see the
+ * changelog entry for the file list a rename would touch.
  *
  * <p><b>Why submission time, not result time.</b> The atmospheric readings (aerosol, surge,
  * snow, humidity) live on the {@link AtmosphericData} computed at collection/submission and are
  * rendered into the Claude prompt text — they are NOT carried across the async Anthropic batch
  * boundary, so by the time the eval returns they are gone (only the score-shaped signals survive,
  * via {@link ForecastScoreWriter}). This writer therefore captures them where they still exist:
- * when a survivor is submitted (batch) or evaluated (sync). Survivor-by-construction — a row is
- * written only for a candidate that survived triage and gating, so detectors reading the carrier
- * cannot sample the triaged rejects.
+ * when a candidate's weather is fetched, before any triage verdict or Gate 4 decision is applied.
  *
  * <p><b>Upsert.</b> Rows are UPSERTed against {@code (location_id, evaluation_date, event_type)} —
  * latest submission wins, so intraday re-runs and sync re-evaluations overwrite the same key,
- * matching {@code forecast_score} / {@code cached_evaluation} semantics.
+ * matching {@code forecast_score} / {@code cached_evaluation} semantics. A later triage or
+ * stability-skip decision for the same key does not retract an already-written row — this surface
+ * carries no retraction of any kind, matching {@link com.gregochr.goldenhour.service.SurvivorSignalReader}'s
+ * own rule.
  *
  * <p><b>Failure isolation.</b> Runs in its own {@link Propagation#REQUIRES_NEW} transaction so a
- * write failure rolls back only this write — never the caller's submission/evaluation. Callers
- * additionally wrap the call so a thrown exception is logged and the pipeline proceeds.
+ * write failure rolls back only this write — never the fetch/triage in progress. The one call site
+ * additionally wraps the call so a thrown exception is logged and {@code fetchWeatherAndTriage}
+ * proceeds to its triage checks regardless.
  *
  * <p><b>Feature flag.</b> {@code photocast.survivor-atmosphere.write} (default {@code true}).
- * Flag off = no rows written; the additive-table rollback path, no redeploy.
+ * Flag off = no rows written; the additive-table rollback path, no redeploy. There is deliberately
+ * no separate flag gating "every candidate" vs "survivors only" — owner decision 2026-09-30 is that
+ * every place is recorded from the first deploy, with no staged rollout.
  */
 @Component
 public class SurvivorAtmosphereWriter {
@@ -62,10 +93,15 @@ public class SurvivorAtmosphereWriter {
     }
 
     /**
-     * Upserts the survivor's atmospheric readings for {@code (location, date, eventType)}. No-op
+     * Upserts the candidate's atmospheric readings for {@code (location, date, eventType)}. No-op
      * when the flag is off or the event is {@code HOURLY} (wildlife comfort, never colour-evaluated).
      *
-     * @param location  the survivor location (must have an id)
+     * <p>Called for every candidate whose weather was fetched this cycle, whatever the triage
+     * verdict or Gate 4 stability decision that follows — see the class javadoc's "record
+     * conditions for every place" note. The name "the survivor's readings" is historical: this is
+     * no longer restricted to candidates that survived triage and gating.
+     *
+     * @param location  the candidate location (must have an id)
      * @param date      the forecast date
      * @param eventType SUNRISE or SUNSET
      * @param data      the atmospheric snapshot to capture

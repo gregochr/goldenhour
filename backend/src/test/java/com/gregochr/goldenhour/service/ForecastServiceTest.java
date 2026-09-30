@@ -69,6 +69,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -475,6 +476,9 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather data fetch failed");
+        // Record conditions for every place (P1 fix, 2026-09-30): a slot whose weather fetch
+        // itself failed never got atmospheric data at all, so there is nothing to record.
+        verifyNoInteractions(survivorAtmosphereWriter);
     }
 
     @Test
@@ -492,6 +496,158 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather service returned null");
+        verifyNoInteractions(survivorAtmosphereWriter);
+    }
+
+    // ── Record conditions for every place — the seam (P1 fix, 2026-09-30) ──────────────────────
+    // A Codex review of the first cut (commit 9c01491f) found the write placed at three call
+    // sites (ForecastTaskCollector's scheduled path, ForceSubmitBatchService's two entry points)
+    // while two other real callers of this method — ForecastTaskCollector's
+    // collectRegionFilteredBatches and the synchronous engine's ForecastCommandExecutor
+    // .runTriagePhase — reached fetchWeatherAndTriage and got no write at all. The fix moves the
+    // write inside fetchWeatherAndTriage itself, immediately after the atmospheric data is
+    // assembled and before either triage check, so every caller — present, and any future one —
+    // is covered by the one seam. These tests would FAIL against commit b8fe0fa6, where this
+    // method's body never called survivorAtmosphereWriter.write on any branch at all (the write
+    // lived only in evaluateAndPersist, downstream, and at three collector/JFDI call sites a
+    // triaged candidate never reaches).
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() records the candidate's atmospheric readings when "
+            + "conditions are suitable (non-triaged)")
+    void fetchWeatherAndTriage_nonTriaged_recordsReadings() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        verify(survivorAtmosphereWriter, times(1))
+                .write(DURHAM_LOCATION, date, TargetType.SUNSET, data);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() still records the candidate's atmospheric readings "
+            + "when weather triage stands the slot down — the case a triaged-away candidate "
+            + "never reaches evaluateAndPersist, so the write cannot live there")
+    void fetchWeatherAndTriage_weatherTriaged_stillRecordsReadings() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(10L).build();
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any()))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isTrue();
+        verify(survivorAtmosphereWriter, times(1))
+                .write(DURHAM_LOCATION, date, TargetType.SUNRISE, data);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() still records the candidate's atmospheric readings "
+            + "when tide-alignment triage stands a SEASCAPE slot down")
+    void fetchWeatherAndTriage_tideTriaged_stillRecordsReadings() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        LocationEntity seascape = LocationEntity.builder()
+                .id(2L).name("Seaham").lat(DURHAM_LAT).lon(DURHAM_LON)
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(11L).build();
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(solarService.civilDuskUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset.plusHours(1));
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+        when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
+                .thenReturn(Optional.of(new TriageResult("No high tide in window",
+                        TriageRule.TIDE_MISALIGNED)));
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isTrue();
+        verify(survivorAtmosphereWriter, times(1))
+                .write(seascape, date, TargetType.SUNSET, data);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() isolates a readings-write failure — the fetch/triage "
+            + "still completes and the caller still gets a result")
+    void fetchWeatherAndTriage_readingsWriteFails_fetchStillProceeds() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+        doThrow(new RuntimeException("DB unavailable"))
+                .when(survivorAtmosphereWriter).write(any(), any(), any(), any());
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isFalse();
+        assertThat(result.atmosphericData()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() writes no reading when the "
+            + "photocast.survivor-atmosphere.write flag is off — the same flag every caller "
+            + "shares through the one seam")
+    void fetchWeatherAndTriage_readingsFlagOff_writesNothing() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository realRepo =
+                org.mockito.Mockito.mock(
+                        com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository.class);
+        com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter flagOffWriter =
+                new com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter(
+                        realRepo, clock, false);
+        ForecastService serviceWithFlagOff = new ForecastService(
+                solarService, openMeteoService, augmentor, evaluationService,
+                engineEvaluationService, repository, notificationDispatcher, eventPublisher,
+                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, clock);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        serviceWithFlagOff.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        verifyNoInteractions(realRepo);
     }
 
     @Test

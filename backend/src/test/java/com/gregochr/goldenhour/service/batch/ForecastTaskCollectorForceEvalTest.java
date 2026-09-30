@@ -91,8 +91,6 @@ class ForecastTaskCollectorForceEvalTest {
     @Mock private SolarService solarService;
     @Mock private FreshnessResolver freshnessResolver;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
-    @Mock private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-            survivorAtmosphereWriter;
     @Mock private com.gregochr.goldenhour.service.TravelDayService travelDayService;
 
     private ForecastTaskCollector collectorWithCap(int cap) {
@@ -100,7 +98,7 @@ class ForecastTaskCollectorForceEvalTest {
                 locationService, briefingService, briefingEvaluationService,
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
-                stabilitySnapshotProvider, survivorAtmosphereWriter, travelDayService, 0.5, cap,
+                stabilitySnapshotProvider, travelDayService, 0.5, cap,
                 CLOCK,
                 BLUEBELL_SEASON);
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));

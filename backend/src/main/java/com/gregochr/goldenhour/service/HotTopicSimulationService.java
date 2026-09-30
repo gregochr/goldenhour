@@ -401,8 +401,9 @@ public class HotTopicSimulationService {
             new SimulationTemplate(
                     "DUST", "Elevated dust",
                     "Saharan dust at sunset",
-                    "Saharan dust carried north by upper winds scatters light at sunrise and"
-                            + " sunset, producing unusually vivid orange and red skies.",
+                    "Saharan dust carried north by upper winds can scatter light into unusually"
+                            + " vivid orange and red skies at sunrise and sunset — when the sky is"
+                            + " clear enough to show it.",
                     3, null,
                     List.of("Northumberland", "The North Yorkshire Coast"), 2, null),
             new SimulationTemplate(
