@@ -152,6 +152,19 @@ public class SurvivorAtmosphereWriter {
             // SNOW_MIST facts (sub-zero mist over lying snow).
             row.setTemperatureCelsius(data.comfort().temperatureCelsius());
         }
+        // Cloud inversion likelihood (V158, Phase 2 of "record conditions for every place"):
+        // ForecastDataAugmentor.augmentWithInversionScore already ran InversionScoreCalculator for
+        // every inversion-eligible candidate before this write, so data.inversionScore() is already
+        // populated here exactly like every other reading on this row — null for an ineligible
+        // location OR for an eligible one the calculator itself could not score (missing weather
+        // inputs), whatever the triage verdict or Gate 4 decision that follows turns out to be.
+        // inversionScored is set true unconditionally, WITH a score and WITH a null one alike: this
+        // write ran the eligibility check this cycle, so a null score here is an authoritative
+        // answer, not an absent one — see SurvivorAtmosphereEntity.inversionScored's own javadoc for
+        // why a reader must not treat this null the same as a pre-column row's null (round 4, a
+        // Codex P1 against round 3's own unify-onto-one-rule fix).
+        row.setInversionScore(data.inversionScore());
+        row.setInversionScored(true);
         row.setEvaluatedAt(Instant.now(clock));
         repository.save(row);
     }

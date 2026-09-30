@@ -1,0 +1,39 @@
+-- V158: inversion score for every place — carry the deterministic inversion likelihood
+-- calculator's 0-10 score onto the survivor surface.
+--
+-- InversionScoreCalculator already runs for every inversion-eligible candidate (elevation
+-- >= 200m and overlooks_water) inside ForecastService.fetchWeatherAndTriage, before either
+-- triage check and before the survivor_atmosphere write — but that score lived only on the
+-- in-memory AtmosphericData and was never persisted for a triaged-out or Gate-4-stood-down
+-- candidate; only a completed Claude evaluation's echo of it reached forecast_score.INVERSION.
+-- That left the InversionHotTopicStrategy silent for exactly the places the "record conditions
+-- for every place" change (Phase 1, V115-era, owner decision 2026-09-30) was built to cover.
+--
+-- Owner decision 2026-09-30 (Phase 2): the inversion hot topic and the Coming up "Valley
+-- inversions" condition now read this deterministic score for every eligible place, without
+-- waiting on Claude. No feature switch. Bluebell remains the named exception (no deterministic
+-- substitute exists for it) and is unaffected by this migration.
+--
+-- inversion_score is additive and fully nullable, mirroring V124's temperature column on the
+-- same table: a row for an ineligible location (elevation < 200m, or not overlooking water)
+-- simply never gets a score here.
+--
+-- inversion_scored (round 4, a Codex P1 against round 3's own unify-onto-one-rule fix)
+-- distinguishes an
+-- AUTHORITATIVE null from an ABSENT one. InversionScoreCalculator.calculate can itself return
+-- null for an ELIGIBLE location when required weather inputs are missing (a null dew point or
+-- surface temperature — see its own null guards), and augmentWithInversionScore returns the
+-- base AtmosphericData unchanged (inversion_score stays null) both for that case and for an
+-- INELIGIBLE location — so a fresh write can carry a null score that means "this row was
+-- produced by a writer that inspected inversion status this cycle and found nothing to report",
+-- not "the calculator has never reached this key". Without a flag, a reader falling back to
+-- Claude's stale forecast_score echo on any null reading could revive a STRONG rating from a
+-- previous cycle that the current data no longer supports — ForecastScoreWriter leaves an
+-- existing INVERSION component in place whenever the current evaluation carries no score, so
+-- that stale echo persists indefinitely. inversion_scored = true on every write from
+-- SurvivorAtmosphereWriter (which always runs InversionScoreCalculator's eligibility check,
+-- whatever the result) tells the reader that this row's null, if present, is authoritative and
+-- must not be replaced by the echo; existing rows default to false, since they predate the
+-- calculator being wired into this table at all.
+ALTER TABLE survivor_atmosphere ADD COLUMN inversion_score DOUBLE PRECISION;
+ALTER TABLE survivor_atmosphere ADD COLUMN inversion_scored BOOLEAN NOT NULL DEFAULT FALSE;

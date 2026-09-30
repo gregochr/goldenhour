@@ -59,11 +59,17 @@ import java.util.Map;
  *       columns are written from {@code AtmosphericData} during augmentation, before triage or any
  *       Claude call ({@code ForecastService.buildEntity}), so they land on every evaluated row
  *       regardless of outcome.</li>
- *   <li><b>INVERSION</b> — {@code forecast_score} (survivor-only; the best available). Unlike dust
- *       and surge, the persisted inversion score is Claude's own output ({@code InversionDetails}
- *       Javadoc: "Cloud inversion score returned by Claude"), so it is null on any row that never
- *       reached Claude — there is no unbiased population to read yet (plan §1/§7: "inversion rarity
- *       stays on the config fallback until P7's log exists"). This job is that log's first writer.</li>
+ *   <li><b>INVERSION</b> — {@code forecast_score} (survivor-only; the best available <em>here</em>).
+ *       Unlike dust and surge, the persisted inversion score this job reads is Claude's own output
+ *       ({@code InversionDetails} Javadoc: "Cloud inversion score returned by Claude"), so it is
+ *       null on any row that never reached Claude — there is no unbiased population to read yet
+ *       (plan §1/§7: "inversion rarity stays on the config fallback until P7's log exists"). This
+ *       job is that log's first writer. ⚠️ An unbiased, complete-population column now exists —
+ *       {@code survivor_atmosphere.inversion_score} (V158, Phase 2 of "record conditions for every
+ *       place", owner decision 2026-09-30) — the same deterministic calculator score
+ *       {@link InversionHotTopicStrategy} and {@code ComingUpConditionsBuilder} moved onto, and it
+ *       is the eventual source once this job (or a successor) is repointed at it; that repointing
+ *       is a separate decision and deliberately not made here.</li>
  *   <li><b>SNOW</b> — {@code survivor_atmosphere} (survivor-only; the only source — the
  *       {@code forecast_evaluation} snow columns were dropped in V116). The plan's candidate list
  *       names one "SNOW" topic, but the codebase has two live snow strategies:

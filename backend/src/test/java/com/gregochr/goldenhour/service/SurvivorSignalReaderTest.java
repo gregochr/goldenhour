@@ -92,6 +92,28 @@ class SurvivorSignalReaderTest {
         return a;
     }
 
+    private static SurvivorAtmosphereEntity readingsWithInversion(LocationEntity loc,
+            double inversionScore) {
+        SurvivorAtmosphereEntity a = new SurvivorAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setInversionScore(inversionScore);
+        a.setInversionScored(true);
+        return a;
+    }
+
+    /** A FRESH row (V158 round 4: {@code inversion_scored = true}) whose calculator legitimately
+     * found nothing to report — the reading itself stays null. */
+    private static SurvivorAtmosphereEntity readingsWithScoredNullInversion(LocationEntity loc) {
+        SurvivorAtmosphereEntity a = new SurvivorAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setInversionScored(true);
+        return a;
+    }
+
     private void stubInversion(List<ForecastScoreEntity> rows) {
         when(forecastScoreRepository.findComponentsByType(
                 ForecastType.INVERSION.getId(), FROM, TO)).thenReturn(rows);
@@ -177,6 +199,59 @@ class SurvivorSignalReaderTest {
         SurvivorSignals s = reader().read(FROM, TO).get(0);
         assertThat(s.scores()).isSameAs(SurvivorSignals.Scores.EMPTY);
         assertThat(s.readings().dust()).isEqualByComparingTo("55.00");
+    }
+
+    @Test
+    @DisplayName("readings().inversionScore() surfaces the calculator's own score from "
+            + "survivor_atmosphere — the Phase 2 read path, independent of Scores.inversion()")
+    void readings_surfacesInversionScore() {
+        LocationEntity loc = location(9L);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(readingsWithInversion(loc, 9.0)));
+
+        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        assertThat(s.readings().inversionScore()).isEqualTo(9.0);
+    }
+
+    @Test
+    @DisplayName("EMPTY readings has a null inversionScore")
+    void emptyReadings_inversionScoreIsNull() {
+        assertThat(SurvivorSignals.Readings.EMPTY.inversionScore()).isNull();
+    }
+
+    @Test
+    @DisplayName("V158 round 4: the reader maps inversionScored=true off the entity's own flag, "
+            + "carried alongside a real reading")
+    void readings_mapsInversionScoredTrue_withReading() {
+        LocationEntity loc = location(10L);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(readingsWithInversion(loc, 9.0)));
+
+        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        assertThat(s.readings().inversionScore()).isEqualTo(9.0);
+        assertThat(s.readings().inversionScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V158 round 4: the reader also maps inversionScored=true when the reading itself "
+            + "is null — a fresh, authoritative null, not an absent row")
+    void readings_mapsInversionScoredTrue_withNullReading() {
+        LocationEntity loc = location(11L);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(readingsWithScoredNullInversion(loc)));
+
+        SurvivorSignals s = reader().read(FROM, TO).get(0);
+        assertThat(s.readings().inversionScore()).isNull();
+        assertThat(s.readings().inversionScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V158 round 4: EMPTY readings defaults inversionScored to false")
+    void emptyReadings_inversionScoredIsFalse() {
+        assertThat(SurvivorSignals.Readings.EMPTY.inversionScored()).isFalse();
     }
 
     @Test
