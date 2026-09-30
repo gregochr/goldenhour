@@ -2843,6 +2843,27 @@ class EvaluationViewServiceTest {
         }
 
         @Test
+        @DisplayName("triaged last night, this slot's bucket fails to submit tonight "
+                + "(SUBMISSION_FAILED): still counts as examined, exactly like SKIPPED_CACHED — "
+                + "findLatestNonCachedDispositions excludes SUBMISSION_FAILED from BOTH sides of "
+                + "its correlated subquery too, so last night's SKIPPED_TRIAGED is what the query "
+                + "hands back as \"the latest\"")
+        void triagedLastNightSubmissionFailedTonight_stillCountsAsExamined() {
+            // As with the SKIPPED_CACHED sibling test above: the repository method itself is what
+            // does the excluding (see its own javadoc) — this proves loadTriagedByBatch's OWN
+            // handling of whatever the (now-corrected) query hands it, taking "the query already
+            // filtered SUBMISSION_FAILED out" as given.
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
+                                    Instant.parse("2026-04-21T20:00:00Z"))));
+
+            Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
+
+            assertThat(triaged).containsExactly("Bamburgh|" + DATE + "|SUNRISE");
+        }
+
+        @Test
         @DisplayName("a tie between SKIPPED_TRIAGED and a different category at the same instant "
                 + "folds to NOT examined")
         void tieBetweenTriagedAndAnotherCategory_foldsToNotExamined() {

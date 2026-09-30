@@ -57,6 +57,18 @@ const MOCK_RUNS = [
     durationSeconds: 5400,
     failureReason: 'Safety timeout: Batch set did not reach terminal status within PT90M',
   },
+  {
+    id: 249,
+    cycleType: 'INTRADAY',
+    status: 'DEGRADED',
+    currentPhase: null,
+    waitingOn: null,
+    triggerTime: T,
+    completedAt: '2026-05-26T01:20:00Z',
+    durationSeconds: 1200,
+    failureReason: '3 of 3 forecast batch submissions failed (510 requests not submitted — '
+      + 'near-term inland, near-term coastal, far-term inland)',
+  },
 ];
 
 const MOCK_DETAIL = {
@@ -137,6 +149,25 @@ describe('PipelineRunsView', () => {
     expect(
       screen.getByText(/Safety timeout: Batch set did not reach/),
     ).toBeInTheDocument();
+  });
+
+  it('shows a DEGRADED pill and its failureReason in the list row, exactly as a FAILED '
+    + 'row shows its own', async () => {
+    fetchPipelineRuns.mockResolvedValue(MOCK_RUNS);
+
+    render(
+      <PipelineRunsView
+        activeRunId={null}
+        onSelectRun={() => {}}
+        onCloseDetail={() => {}}
+      />,
+    );
+
+    const row = await screen.findByTestId('pipeline-run-row-249');
+    expect(row.querySelector('[data-testid="status-pill-DEGRADED"]')).toBeInTheDocument();
+    expect(row).toHaveTextContent(
+      '3 of 3 forecast batch submissions failed (510 requests not submitted',
+    );
   });
 
   it('shows empty state when there are no runs', async () => {
@@ -300,6 +331,29 @@ describe('PipelineRunsView', () => {
     expect(
       screen.getByText(/Failure: Safety timeout: Batch set did not reach/),
     ).toBeInTheDocument();
+  });
+
+  it('surfaces the failureReason on a DEGRADED detail panel, under its own "Degraded:" '
+    + 'label distinct from a FAILED run\'s "Failure:"', async () => {
+    fetchPipelineRunDetail.mockResolvedValue({
+      ...MOCK_DETAIL,
+      run: MOCK_RUNS[3],
+    });
+
+    render(
+      <PipelineRunsView
+        activeRunId={249}
+        onSelectRun={() => {}}
+        onCloseDetail={() => {}}
+      />,
+    );
+
+    await screen.findByTestId('pipeline-run-detail-degraded');
+    expect(
+      screen.getByText(/Degraded: 3 of 3 forecast batch submissions failed/),
+    ).toBeInTheDocument();
+    // The FAILED-only block must not also render for a DEGRADED run.
+    expect(screen.queryByTestId('pipeline-run-detail-failure')).not.toBeInTheDocument();
   });
 
   it('does NOT render the cross-run comparison when comparison is absent (nightly)', async () => {

@@ -181,6 +181,48 @@ describe('DispositionBreakdown — per-category rows', () => {
     expect(screen.queryByTestId('disposition-row-SKIPPED_HARD_CONSTRAINT')).not.toBeInTheDocument();
     expect(screen.queryByText('Triaged')).not.toBeInTheDocument();
   });
+
+  it('shows SUBMISSION_FAILED with its count, human label, and detail — right after '
+    + 'EVALUATED, since it means a request this cycle meant to send never reached Claude',
+  async () => {
+    getDispositionBreakdown.mockResolvedValue({ data: {
+      jobRunId: 249, totalCount: 511,
+      countsByDisposition: { EVALUATED: 1, SUBMISSION_FAILED: 510 },
+      entries: [
+        {
+          locationId: 42, locationName: 'Durham UK',
+          evaluationDate: '2026-09-29', eventType: 'SUNRISE',
+          daysAhead: 0, disposition: 'EVALUATED', detail: null,
+        },
+        {
+          locationId: 43, locationName: 'Newcastle',
+          evaluationDate: '2026-09-29', eventType: 'SUNRISE',
+          daysAhead: 0, disposition: 'SUBMISSION_FAILED',
+          detail: 'near-term inland batch submission failed',
+        },
+      ],
+    }});
+    render(<DispositionBreakdown jobRunId={249} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('disposition-row-SUBMISSION_FAILED')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('disposition-row-SUBMISSION_FAILED')).toHaveTextContent('510');
+    expect(screen.getByText('Submission failed')).toBeInTheDocument();
+
+    // Row order: EVALUATED, then SUBMISSION_FAILED, before any SKIPPED_* row.
+    const rows = screen.getAllByTestId(/^disposition-row-/);
+    expect(rows.map((r) => r.getAttribute('data-testid'))).toEqual([
+      'disposition-row-EVALUATED',
+      'disposition-row-SUBMISSION_FAILED',
+    ]);
+
+    fireEvent.click(
+      screen.getByTestId('disposition-row-SUBMISSION_FAILED').querySelector('button'),
+    );
+    const entriesPanel = screen.getByTestId('disposition-entries-SUBMISSION_FAILED');
+    expect(entriesPanel).toHaveTextContent('Newcastle');
+    expect(entriesPanel).toHaveTextContent('near-term inland batch submission failed');
+  });
 });
 
 describe('DispositionBreakdown — drill-down expansion', () => {

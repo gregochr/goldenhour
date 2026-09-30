@@ -102,8 +102,8 @@ public interface ForecastRunDispositionRepository
 
     /**
      * For every (location name, evaluation date, event type) with at least one disposition in the
-     * range OTHER THAN {@code SKIPPED_CACHED}, returns the disposition AND {@code created_at} of
-     * the <em>most recent</em> such row.
+     * range OTHER THAN {@code SKIPPED_CACHED} or {@code SUBMISSION_FAILED}, returns the
+     * disposition AND {@code created_at} of the <em>most recent</em> such row.
      *
      * <p>Backs the verdict-minimum-sample rule's "examined" evidence ({@code
      * VerdictSampleGate#examinedCount}, Codex review of #943, P1-A): a voting slot counts as
@@ -113,14 +113,18 @@ public interface ForecastRunDispositionRepository
      * looked at at all, for a slot Gate 4 stability-skipped before the batch ever fetched fresh
      * weather for it).
      *
-     * <p>⚠️ <b>{@code SKIPPED_CACHED} is deliberately excluded from BOTH sides of the correlated
-     * subquery, not merely filtered from the outer result.</b> A region-level cache reuse
-     * ({@code SKIPPED_CACHED}) is not a decision about any one slot — it means "this region's
-     * existing ratings were judged fresh and reused" — so a slot triaged last night and then
-     * reported {@code SKIPPED_CACHED} tonight must still read as examined via last night's triage,
-     * not as un-examined because a newer, slot-blind row now sits on top of it. Excluding the
-     * category from the inner {@code MAX(created_at)} scope too (not just the outer filter) is
-     * what makes the triaged decision "the latest" again rather than merely visible-but-superseded.
+     * <p>⚠️ <b>{@code SKIPPED_CACHED} and {@code SUBMISSION_FAILED} are both deliberately excluded
+     * from BOTH sides of the correlated subquery, not merely filtered from the outer result.</b> A
+     * region-level cache reuse ({@code SKIPPED_CACHED}) is not a decision about any one slot — it
+     * means "this region's existing ratings were judged fresh and reused" — so a slot triaged last
+     * night and then reported {@code SKIPPED_CACHED} tonight must still read as examined via last
+     * night's triage, not as un-examined because a newer, slot-blind row now sits on top of it.
+     * {@code SUBMISSION_FAILED} is the same shape of problem from the opposite direction: it means
+     * a later cycle tried to submit this candidate and infrastructure failed it, which is not a
+     * decision about the slot either — an earlier {@code SKIPPED_TRIAGED} row must still read as
+     * the latest genuine decision, not be shadowed by a row that says nothing happened. Excluding
+     * both categories from the inner {@code MAX(created_at)} scope too (not just the outer filter)
+     * is what makes the triaged decision "the latest" again rather than merely visible-but-shadowed.
      *
      * <p>One bulk query per serve, grouped in the database rather than fetched row-by-row, bounded
      * to the caller's own served window — never called per region or per slot. Same table, same
@@ -136,19 +140,19 @@ public interface ForecastRunDispositionRepository
      * @param end   last evaluation date to include (inclusive)
      * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
      *         (String), disposition (String), createdAt (Instant)]}, one per slot with at least one
-     *         non-{@code SKIPPED_CACHED} disposition — the disposition and instant of whichever
-     *         such row is most recent for that slot
+     *         non-{@code SKIPPED_CACHED}, non-{@code SUBMISSION_FAILED} disposition — the
+     *         disposition and instant of whichever such row is most recent for that slot
      */
     @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition, d.createdAt "
             + "FROM ForecastRunDispositionEntity d "
-            + "WHERE d.disposition <> 'SKIPPED_CACHED' "
+            + "WHERE d.disposition NOT IN ('SKIPPED_CACHED', 'SUBMISSION_FAILED') "
             + "AND d.evaluationDate BETWEEN :start AND :end "
             + "AND d.createdAt = ("
             + "    SELECT MAX(d2.createdAt) FROM ForecastRunDispositionEntity d2 "
             + "    WHERE d2.locationName = d.locationName "
             + "    AND d2.evaluationDate = d.evaluationDate "
             + "    AND d2.eventType = d.eventType "
-            + "    AND d2.disposition <> 'SKIPPED_CACHED'"
+            + "    AND d2.disposition NOT IN ('SKIPPED_CACHED', 'SUBMISSION_FAILED')"
             + ")")
     List<Object[]> findLatestNonCachedDispositions(
             @Param("start") LocalDate start, @Param("end") LocalDate end);

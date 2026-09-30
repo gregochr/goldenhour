@@ -205,9 +205,12 @@ public class EvaluationViewService {
 
     /**
      * Bulk-loads the set of {@code "locationName|date|targetType"} slot keys whose latest
-     * non-{@code SKIPPED_CACHED} {@code forecast_run_disposition} in the range is
-     * {@code SKIPPED_TRIAGED} — the verdict-minimum-sample rule's "examined" evidence
-     * (a Codex review of #943, P1-A; see {@code VerdictSampleGate#examinedCount}).
+     * non-{@code SKIPPED_CACHED}, non-{@code SUBMISSION_FAILED} {@code forecast_run_disposition}
+     * in the range is {@code SKIPPED_TRIAGED} — the verdict-minimum-sample rule's "examined"
+     * evidence (a Codex review of #943, P1-A; see {@code VerdictSampleGate#examinedCount}). A
+     * later {@code SUBMISSION_FAILED} row (a candidate a later cycle tried and failed to submit)
+     * is excluded from "latest" exactly like {@code SKIPPED_CACHED} — see {@link
+     * ForecastRunDispositionRepository#findLatestNonCachedDispositions}'s own javadoc for why.
      *
      * <p>⚠️ <b>Sourced from the BATCH's own disposition table, never from the briefing tree's
      * weather-triage {@code Verdict}.</b> The first cut of the sample gate read {@code

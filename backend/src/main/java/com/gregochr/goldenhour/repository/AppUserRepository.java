@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -71,6 +72,17 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
      * @return the number of users with a different role
      */
     long countByRoleNot(UserRole role);
+
+    /**
+     * Returns every enabled user with the given role — backs {@code AdminAlertService}'s recipient
+     * list for the pipeline-degraded email (an enabled ADMIN account may still carry a blank or
+     * null email, which the caller filters out; this query answers only "which accounts hold the
+     * role and are enabled", not "which have a usable email").
+     *
+     * @param role the role to match (e.g. {@code ADMIN})
+     * @return enabled users with that role, in no particular order
+     */
+    List<AppUserEntity> findByRoleAndEnabledTrue(UserRole role);
 
     /**
      * Updates only the Coming-up last-seen instant (plan D3/P5) — never a whole-entity save.

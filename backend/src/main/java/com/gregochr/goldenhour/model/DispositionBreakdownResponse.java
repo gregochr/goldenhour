@@ -45,8 +45,11 @@ public record DispositionBreakdownResponse(
      *                        negative for past-date skips
      * @param disposition     one of {@link com.gregochr.goldenhour.entity.DispositionCategory}'s
      *                        name() values, or an unknown forward-compat value
-     * @param detail          human-readable reason for skip dispositions; null
-     *                        for EVALUATED
+     * @param detail          human-readable reason for skip dispositions; null for EVALUATED /
+     *                        FORCE_EVALUATED except the one rare case where a paired candidate's
+     *                        (OPEN_FELL sky+bluebell) other bucket failed to submit — then it
+     *                        records the partial loss even though the category is unchanged (see
+     *                        {@code ScheduledBatchEvaluationService#applySubmissionFailures})
      */
     public record DispositionEntry(
             Long locationId,

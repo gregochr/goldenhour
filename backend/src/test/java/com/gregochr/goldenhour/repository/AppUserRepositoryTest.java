@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -301,5 +302,74 @@ class AppUserRepositoryTest {
         assertThat(locked.getId()).isEqualTo(userId);
         assertThat(locked.getHomePostcode()).isEqualTo(OLD_POSTCODE);
         assertThat(repository.findByUsernameForUpdate("nobody")).isEmpty();
+    }
+
+    /**
+     * {@code AdminAlertService}'s recipient-list query — the fixture's own "reader" (PRO_USER) is
+     * always present, so a role filter that leaked past PRO_USER would be caught by every test in
+     * this nested class, not only the ones that add an ADMIN.
+     */
+    @Nested
+    @DisplayName("findByRoleAndEnabledTrue")
+    class FindByRoleAndEnabledTrue {
+
+        private Long persistUser(String username, UserRole role, boolean enabled, String email) {
+            AppUserEntity user = AppUserEntity.builder()
+                    .username(username)
+                    .password("{bcrypt}hash")
+                    .role(role)
+                    .enabled(enabled)
+                    .createdAt(LocalDateTime.of(2026, 1, 1, 12, 0))
+                    .email(email)
+                    .build();
+            Long id = entityManager.persistAndGetId(user, Long.class);
+            entityManager.flush();
+            return id;
+        }
+
+        @Test
+        @DisplayName("returns an enabled ADMIN, excludes the fixture's PRO_USER and a disabled "
+                + "ADMIN, and excludes a LITE_USER")
+        void returnsOnlyEnabledAdmins() {
+            Long enabledAdminId = persistUser("admin1", UserRole.ADMIN, true, "admin1@example.com");
+            persistUser("admin2disabled", UserRole.ADMIN, false, "admin2@example.com");
+            persistUser("lite1", UserRole.LITE_USER, true, "lite1@example.com");
+            entityManager.clear();
+
+            List<AppUserEntity> admins = repository.findByRoleAndEnabledTrue(UserRole.ADMIN);
+
+            assertThat(admins).extracting(AppUserEntity::getId).containsExactly(enabledAdminId);
+            assertThat(admins).extracting(AppUserEntity::getUsername).containsExactly("admin1");
+        }
+
+        @Test
+        @DisplayName("an enabled ADMIN with a null email is still returned — the blank/null-email "
+                + "filter is the caller's (AdminAlertService's) job, not this query's")
+        void enabledAdminWithNullEmail_stillReturned() {
+            AppUserEntity admin = AppUserEntity.builder()
+                    .username("noemailadmin")
+                    .password("{bcrypt}hash")
+                    .role(UserRole.ADMIN)
+                    .enabled(true)
+                    .createdAt(LocalDateTime.of(2026, 1, 1, 12, 0))
+                    .build();
+            entityManager.persistAndGetId(admin, Long.class);
+            entityManager.flush();
+            entityManager.clear();
+
+            List<AppUserEntity> admins = repository.findByRoleAndEnabledTrue(UserRole.ADMIN);
+
+            assertThat(admins).extracting(AppUserEntity::getUsername).containsExactly("noemailadmin");
+            assertThat(admins.get(0).getEmail()).isNull();
+        }
+
+        @Test
+        @DisplayName("no enabled ADMIN at all — empty, not null")
+        void noEnabledAdmin_returnsEmpty() {
+            persistUser("admindisabled", UserRole.ADMIN, false, "a@example.com");
+            entityManager.clear();
+
+            assertThat(repository.findByRoleAndEnabledTrue(UserRole.ADMIN)).isEmpty();
+        }
     }
 }

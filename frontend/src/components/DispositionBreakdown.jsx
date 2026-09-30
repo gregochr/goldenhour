@@ -6,11 +6,14 @@ import { getDispositionBreakdown } from '../api/metricsApi';
  * Per-category visual cue + display label.
  *
  * Order in this array is the order categories appear in the summary row,
- * which deliberately puts EVALUATED first and the spec's primary skip
- * categories before the rarer ones.
+ * which deliberately puts EVALUATED first, SUBMISSION_FAILED right after it
+ * (a candidate this cycle meant to send to Claude but couldn't, so it reads
+ * as close kin to EVALUATED rather than buried among the SKIPPED_* triage
+ * reasons), and the spec's primary skip categories before the rarer ones.
  */
 const CATEGORY_DISPLAY = [
   { key: 'EVALUATED',                  label: 'Evaluated',          tone: 'text-green-400' },
+  { key: 'SUBMISSION_FAILED',          label: 'Submission failed',  tone: 'text-red-400' },
   { key: 'SKIPPED_HARD_CONSTRAINT',    label: 'Hard constraint',    tone: 'text-orange-400' },
   { key: 'SKIPPED_TRIAGED',            label: 'Triaged',            tone: 'text-yellow-400' },
   { key: 'SKIPPED_NO_PROMPT',          label: 'No prompt',          tone: 'text-orange-400' },

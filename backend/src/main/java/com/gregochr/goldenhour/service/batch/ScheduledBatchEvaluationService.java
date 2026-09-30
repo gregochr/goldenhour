@@ -3,9 +3,11 @@ package com.gregochr.goldenhour.service.batch;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -26,6 +28,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -220,7 +224,8 @@ public class ScheduledBatchEvaluationService {
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
         return submitForecastBatchForPipelineRun(pipelineRunId, candidateStrategy, eligibilityPolicy,
-                false, NO_OP_BETWEEN_STEPS);
+                false, NO_OP_BETWEEN_STEPS)
+                .submitted();
     }
 
     /**
@@ -249,16 +254,19 @@ public class ScheduledBatchEvaluationService {
      * @param betweenCollectAndSubmit hook invoked with the cost-gate summary after
      *                               collection and before submission (used for
      *                               cycle-specific phase recording)
-     * @return {@code true} if this call acquired the submission guard and ran the
-     *         submission; {@code false} if another submission was already in
-     *         progress and this call was dropped without submitting anything. A
-     *         caller that creates a pipeline run for this call (the orchestrator)
+     * @return {@link ForecastBatchSubmissionOutcome#submitted()} is {@code true} if this call
+     *         acquired the submission guard and ran the submission; {@code false} if another
+     *         submission was already in progress and this call was dropped without submitting
+     *         anything. A caller that creates a pipeline run for this call (the orchestrator)
      *         MUST NOT treat {@code false} as success — the cycle submitted no
      *         batches of its own and must not proceed to wait-for-completion or
      *         briefing, which would otherwise brief from the other run's
-     *         in-flight (or stale cached) state.
+     *         in-flight (or stale cached) state. When {@code submitted()} is {@code true}, the
+     *         outcome's {@link ForecastBatchSubmissionOutcome#summary() summary} tells the
+     *         caller whether every bucket this call attempted actually reached Anthropic —
+     *         see {@link BatchSubmissionSummary#allSucceeded()}.
      */
-    public boolean submitForecastBatchForPipelineRun(Long pipelineRunId,
+    public ForecastBatchSubmissionOutcome submitForecastBatchForPipelineRun(Long pipelineRunId,
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy,
             boolean ephemeral,
@@ -270,12 +278,12 @@ public class ScheduledBatchEvaluationService {
         if (!forecastBatchRunning.compareAndSet(false, true)) {
             LOG.warn("Forecast batch already running — orchestrator trigger dropped "
                     + "(pipelineRunId={})", pipelineRunId);
-            return false;
+            return ForecastBatchSubmissionOutcome.dropped();
         }
         try {
-            doSubmitForecastBatch(pipelineRunId, candidateStrategy, eligibilityPolicy,
-                    ephemeral, betweenCollectAndSubmit);
-            return true;
+            BatchSubmissionSummary summary = doSubmitForecastBatch(pipelineRunId, candidateStrategy,
+                    eligibilityPolicy, ephemeral, betweenCollectAndSubmit);
+            return ForecastBatchSubmissionOutcome.ran(summary);
         } finally {
             forecastBatchRunning.set(false);
         }
@@ -351,7 +359,7 @@ public class ScheduledBatchEvaluationService {
      * @param ephemeral                whether the stability snapshot write-through is suppressed
      * @param betweenCollectAndSubmit  hook invoked with the cost-gate summary between steps
      */
-    private void doSubmitForecastBatch(Long pipelineRunId,
+    private BatchSubmissionSummary doSubmitForecastBatch(Long pipelineRunId,
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy,
             boolean ephemeral,
@@ -362,10 +370,13 @@ public class ScheduledBatchEvaluationService {
         // Hook fires between collect and submit, inside the concurrency guard.
         // Nightly: no-op. Intraday: closes STABILITY_RECLASSIFY, opens
         // FORECAST_BATCH_SUBMIT — so the cost-gate decision is a truthfully-timed
-        // phase of its own.
+        // phase of its own. Fires with the ORIGINAL dispositions (before any
+        // submission-failure rewrite below) — the cost-gate summary is about
+        // collection's decisions, made before submission is even attempted, and
+        // must reflect them exactly as collected.
         betweenCollectAndSubmit.accept(ReclassSummary.from(tasks.dispositions()));
 
-        submitBuckets(pipelineRunId, tasks);
+        return submitBuckets(pipelineRunId, tasks);
     }
 
     /**
@@ -374,8 +385,9 @@ public class ScheduledBatchEvaluationService {
      *
      * @param pipelineRunId orchestrated cycle id to tag batches with, or {@code null}
      * @param tasks         the bucketed tasks + dispositions from collection
+     * @return per-bucket submission accounting for this cycle
      */
-    private void submitBuckets(Long pipelineRunId, ScheduledBatchTasks tasks) {
+    private BatchSubmissionSummary submitBuckets(Long pipelineRunId, ScheduledBatchTasks tasks) {
         // NOTE: deliberately no `if (tasks.isEmpty()) return;` here. PR #112
         // removed that early-return so the cycle's dispositions persist
         // unconditionally (the all-cached / all-skipped cycle still produced a
@@ -402,38 +414,49 @@ public class ScheduledBatchEvaluationService {
         // though every one of them had gone out.
         int bucketsAttempted = 0;
         int bucketsSubmitted = 0;
+        // Per-bucket outcome, in submission order — the input to the disposition
+        // rewrite below and to the BatchSubmissionSummary this method returns.
+        List<BucketOutcome> bucketOutcomes = new ArrayList<>();
 
         if (!tasks.nearInland().isEmpty()) {
             bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.nearInland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            boolean success = h.batchId() != null;
+            bucketsSubmitted += success ? 1 : 0;
             logBatchBreakdown(tasks.nearInland(), "near-term inland", h);
+            bucketOutcomes.add(new BucketOutcome("near-term inland", tasks.nearInland(), success));
         }
         if (!tasks.nearCoastal().isEmpty()) {
             bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.nearCoastal(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            boolean success = h.batchId() != null;
+            bucketsSubmitted += success ? 1 : 0;
             logBatchBreakdown(tasks.nearCoastal(), "near-term coastal", h);
+            bucketOutcomes.add(new BucketOutcome("near-term coastal", tasks.nearCoastal(), success));
         }
         if (!tasks.farInland().isEmpty()) {
             bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.farInland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            boolean success = h.batchId() != null;
+            bucketsSubmitted += success ? 1 : 0;
             logBatchBreakdown(tasks.farInland(), "far-term inland", h);
+            bucketOutcomes.add(new BucketOutcome("far-term inland", tasks.farInland(), success));
         }
         if (!tasks.farCoastal().isEmpty()) {
             bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.farCoastal(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            boolean success = h.batchId() != null;
+            bucketsSubmitted += success ? 1 : 0;
             logBatchBreakdown(tasks.farCoastal(), "far-term coastal", h);
+            bucketOutcomes.add(new BucketOutcome("far-term coastal", tasks.farCoastal(), success));
         }
         // Bluebell mini-batch: homogeneous bluebell-prompt tasks submitted as their own batch
         // so the bluebell system prompt caches across requests. Empty out of season.
@@ -442,8 +465,10 @@ public class ScheduledBatchEvaluationService {
             EvaluationHandle h = evaluationService.submit(
                     tasks.bluebell(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            boolean success = h.batchId() != null;
+            bucketsSubmitted += success ? 1 : 0;
             logBatchBreakdown(tasks.bluebell(), "bluebell", h);
+            bucketOutcomes.add(new BucketOutcome("bluebell", tasks.bluebell(), success));
         }
         // Woodland mini-batch: same homogeneity argument as bluebell, but year-round. A canopy
         // site is in exactly one of these two buckets on any given date, never both, so neither
@@ -453,16 +478,25 @@ public class ScheduledBatchEvaluationService {
             EvaluationHandle h = evaluationService.submit(
                     tasks.woodland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            boolean success = h.batchId() != null;
+            bucketsSubmitted += success ? 1 : 0;
             logBatchBreakdown(tasks.woodland(), "woodland", h);
+            bucketOutcomes.add(new BucketOutcome("woodland", tasks.woodland(), success));
         }
+
+        // Rewrite EVALUATED/FORCE_EVALUATED dispositions to SUBMISSION_FAILED for every
+        // candidate whose task(s) landed only in bucket(s) that failed to submit — see
+        // applySubmissionFailures' own javadoc for the full rule, including the OPEN_FELL
+        // sky+bluebell pairing where a candidate's tasks can span two buckets.
+        List<CandidateDisposition> finalDispositions =
+                applySubmissionFailures(tasks.dispositions(), bucketOutcomes);
 
         // Persist the cycle's per-candidate accounting UNCONDITIONALLY. This is
         // the single chokepoint every forecast submission path funnels through
         // (legacy submitForecastBatch + orchestrated submitForecastBatchForPipelineRun
         // + the future intraday cycle, all via this method), so the persist
         // cannot be routed around again.
-        persistCycleDispositions(cycleJobRunId, tasks.dispositions());
+        persistCycleDispositions(cycleJobRunId, finalDispositions);
 
         if (!tasks.isEmpty()) {
             LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
@@ -475,6 +509,126 @@ public class ScheduledBatchEvaluationService {
                     tasks.bluebell().size(), tasks.woodland().size(),
                     tasks.totalSize(), bucketsSubmitted, bucketsAttempted, pipelineRunId);
         }
+
+        List<BatchSubmissionSummary.FailedBucket> failedBuckets = bucketOutcomes.stream()
+                .filter(b -> !b.success())
+                .map(b -> new BatchSubmissionSummary.FailedBucket(b.label(), b.tasks().size()))
+                .toList();
+        return new BatchSubmissionSummary(bucketsAttempted, bucketsSubmitted, failedBuckets);
+    }
+
+    /**
+     * One bucket's submission outcome — its label, the tasks it carried, and whether the batch
+     * actually reached Anthropic. Input to {@link #applySubmissionFailures} and to the trailing
+     * {@link BatchSubmissionSummary} {@link #submitBuckets} returns.
+     */
+    private record BucketOutcome(String label, List<EvaluationTask.Forecast> tasks, boolean success) {
+    }
+
+    /**
+     * One candidate slot's identity — the same (location, date, event) triple both
+     * {@link EvaluationTask.Forecast} and {@link CandidateDisposition} carry, used to match a
+     * disposition back to the bucket(s) its task(s) landed in.
+     */
+    private record SlotKey(Long locationId, LocalDate date, TargetType eventType) {
+        static SlotKey of(EvaluationTask.Forecast task) {
+            return new SlotKey(task.location().getId(), task.date(), task.targetType());
+        }
+
+        static SlotKey of(CandidateDisposition disposition) {
+            return new SlotKey(
+                    disposition.locationId(), disposition.evaluationDate(), disposition.eventType());
+        }
+    }
+
+    /**
+     * Rewrites {@code EVALUATED}/{@code FORCE_EVALUATED} dispositions to
+     * {@link DispositionCategory#SUBMISSION_FAILED} for every candidate whose task(s) landed only
+     * in bucket(s) whose Anthropic submission failed — so the disposition trail says plainly that
+     * no request reached Claude for that candidate, rather than the misleading {@code EVALUATED}
+     * the 2026-09-29 incident left behind.
+     *
+     * <p><b>The pairing rule.</b> A candidate produces tasks in TWO buckets only for an OPEN_FELL
+     * site in bluebell season: one sky task (in a near/far × inland/coastal bucket) plus one
+     * paired bluebell task (in the {@code bluebell} bucket) — every other candidate's task(s) land
+     * in exactly one bucket. There is still only ONE disposition row per candidate (the collector
+     * never writes two), so a two-bucket candidate needs a single rule for what its one row should
+     * say when the two buckets disagree:
+     * <ul>
+     *   <li><b>Both buckets failed</b> — no request reached Claude for this candidate at all, so
+     *       the disposition becomes {@code SUBMISSION_FAILED}, naming both buckets.</li>
+     *   <li><b>Both buckets succeeded (or the candidate has only one task)</b> — the disposition is
+     *       left exactly as the collector wrote it.</li>
+     *   <li><b>One bucket failed, the other succeeded</b> — a real request DID reach Claude for
+     *       this candidate (the sky rating, or the bluebell rating, whichever bucket landed), so
+     *       rewriting to {@code SUBMISSION_FAILED} would be a false claim that nothing reached
+     *       Claude. The disposition stays {@code EVALUATED}/{@code FORCE_EVALUATED} — it WAS
+     *       evaluated — but its {@code detail} is annotated to record the partial loss, since an
+     *       operator reading the Job Run detail UI would otherwise have no way to know half the
+     *       pair never landed. This is the one case where an EVALUATED disposition carries a
+     *       non-null detail; every other EVALUATED/FORCE_EVALUATED row keeps {@code detail = null}
+     *       exactly as before.</li>
+     * </ul>
+     *
+     * <p>A disposition whose slot key is not found in {@code bucketOutcomes} at all (should not
+     * happen for an EVALUATED/FORCE_EVALUATED row — every included candidate produces at least one
+     * task in exactly one of the six buckets) is left untouched rather than guessed at.
+     *
+     * @param dispositions   the cycle's per-candidate dispositions, exactly as the collector wrote
+     *                       them
+     * @param bucketOutcomes every non-empty bucket this cycle submitted, with its tasks and
+     *                       whether the submission succeeded
+     * @return the dispositions to persist — identical to {@code dispositions} when every bucket
+     *         succeeded
+     */
+    private static List<CandidateDisposition> applySubmissionFailures(
+            List<CandidateDisposition> dispositions, List<BucketOutcome> bucketOutcomes) {
+        if (bucketOutcomes.stream().allMatch(BucketOutcome::success)) {
+            return dispositions;
+        }
+        Map<SlotKey, List<BucketOutcome>> outcomesBySlot = new HashMap<>();
+        for (BucketOutcome bucket : bucketOutcomes) {
+            for (EvaluationTask.Forecast task : bucket.tasks()) {
+                outcomesBySlot.computeIfAbsent(SlotKey.of(task), k -> new ArrayList<>()).add(bucket);
+            }
+        }
+        List<CandidateDisposition> result = new ArrayList<>(dispositions.size());
+        for (CandidateDisposition d : dispositions) {
+            if (d.category() != DispositionCategory.EVALUATED
+                    && d.category() != DispositionCategory.FORCE_EVALUATED) {
+                result.add(d);
+                continue;
+            }
+            List<BucketOutcome> slotBuckets = outcomesBySlot.get(SlotKey.of(d));
+            if (slotBuckets == null || slotBuckets.isEmpty()) {
+                result.add(d);
+                continue;
+            }
+            boolean anySucceeded = slotBuckets.stream().anyMatch(BucketOutcome::success);
+            boolean anyFailed = slotBuckets.stream().anyMatch(b -> !b.success());
+            if (!anyFailed) {
+                result.add(d);
+            } else if (!anySucceeded) {
+                String bucketNames = slotBuckets.stream().map(BucketOutcome::label).distinct()
+                        .collect(Collectors.joining("+"));
+                String forcedNote = d.category() == DispositionCategory.FORCE_EVALUATED
+                        ? " (forced)" : "";
+                result.add(new CandidateDisposition(
+                        d.locationId(), d.locationName(), d.evaluationDate(), d.eventType(),
+                        d.daysAhead(), DispositionCategory.SUBMISSION_FAILED,
+                        bucketNames + " batch submission failed" + forcedNote));
+            } else {
+                String failedNames = slotBuckets.stream().filter(b -> !b.success())
+                        .map(BucketOutcome::label).distinct()
+                        .collect(Collectors.joining("+"));
+                result.add(new CandidateDisposition(
+                        d.locationId(), d.locationName(), d.evaluationDate(), d.eventType(),
+                        d.daysAhead(), d.category(),
+                        failedNames + " batch submission failed for part of this candidate's "
+                                + "pairing — the rest was evaluated normally"));
+            }
+        }
+        return result;
     }
 
     /**

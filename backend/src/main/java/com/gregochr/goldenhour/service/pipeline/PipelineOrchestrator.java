@@ -4,14 +4,19 @@ import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.PipelinePhase;
+import com.gregochr.goldenhour.entity.PipelinePhaseStatus;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.entity.PipelineRunPhaseEntity;
+import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
+import com.gregochr.goldenhour.service.batch.ForecastBatchSubmissionOutcome;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.BatchRetryService;
@@ -20,6 +25,7 @@ import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ReclassSummary;
 import com.gregochr.goldenhour.service.batch.RetrySelection;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
+import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -115,6 +121,7 @@ public class PipelineOrchestrator {
     private final DynamicSchedulerService dynamicSchedulerService;
     private final PipelineRunPickService pipelineRunPickService;
     private final BatchRetryService batchRetryService;
+    private final AdminAlertService adminAlertService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -134,6 +141,7 @@ public class PipelineOrchestrator {
      * @param dynamicSchedulerService         scheduler this orchestrator registers itself with
      * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
+     * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      */
     @Autowired
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -144,12 +152,14 @@ public class PipelineOrchestrator {
             @Value("${photocast.pipeline.safety-timeout:PT4H}") Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
             PipelineRunPickService pipelineRunPickService,
-            BatchRetryService batchRetryService) {
+            BatchRetryService batchRetryService,
+            AdminAlertService adminAlertService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
-                dynamicSchedulerService, pipelineRunPickService, batchRetryService);
+                dynamicSchedulerService, pipelineRunPickService, batchRetryService,
+                adminAlertService);
     }
 
     /**
@@ -169,6 +179,8 @@ public class PipelineOrchestrator {
      * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks;
      *                                        tests may pass {@code null} to skip persistence
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
+     * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED;
+     *                                        tests may pass {@code null} to skip alerting
      */
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
@@ -180,7 +192,8 @@ public class PipelineOrchestrator {
             Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
             PipelineRunPickService pipelineRunPickService,
-            BatchRetryService batchRetryService) {
+            BatchRetryService batchRetryService,
+            AdminAlertService adminAlertService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -190,6 +203,7 @@ public class PipelineOrchestrator {
         this.pollInterval = pollInterval;
         this.safetyTimeout = safetyTimeout;
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.adminAlertService = adminAlertService;
         this.pipelineRunPickService = pipelineRunPickService;
         this.batchRetryService = batchRetryService;
     }
@@ -405,9 +419,10 @@ public class PipelineOrchestrator {
                 : summary -> { };
 
         try {
-            boolean submitted = scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
-                    runId, candidateStrategy, eligibilityPolicy, intraday, betweenSteps);
-            if (!submitted) {
+            ForecastBatchSubmissionOutcome outcome =
+                    scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                            runId, candidateStrategy, eligibilityPolicy, intraday, betweenSteps);
+            if (!outcome.submitted()) {
                 String reason = "Forecast batch submission dropped — another pipeline run "
                         + "already holds the submission guard (overlapping cycle trigger)";
                 LOG.warn("Pipeline run {} ({}): {}", runId, cycleType, reason);
@@ -425,7 +440,19 @@ public class PipelineOrchestrator {
                 pipelineRunService.failRun(runId, reason);
                 return false;
             }
-            pipelineRunService.completePhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT, null);
+            // The submission ran, but not every bucket necessarily reached Anthropic. The phase
+            // itself is marked FAILED (never the run — the run must still WAIT and BRIEF, briefing
+            // from whatever cache exists, which is the correct fallback) so the failure is visible
+            // in the phase timeline and so waitAndBriefPhase can read it back — including after a
+            // process restart, since the phase row is the durable record — to decide DEGRADED vs
+            // COMPLETED once the cycle finishes. See PipelineRunStatus#DEGRADED.
+            BatchSubmissionSummary summary = outcome.summary();
+            if (summary != null && !summary.allSucceeded()) {
+                pipelineRunService.failPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT,
+                        summary.detail());
+            } else {
+                pipelineRunService.completePhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT, null);
+            }
             return true;
         } catch (RuntimeException e) {
             // Fail whichever phase was in flight when the exception fired — for
@@ -485,7 +512,7 @@ public class PipelineOrchestrator {
                 return;
             }
 
-            pipelineRunService.completeRun(runId);
+            finishRun(runId);
         } catch (BatchSafetyTimeoutException e) {
             // Safety backstop fired — log loudly and mark the run failed so the
             // next cron schedules a fresh cycle. The user-visible failureReason
@@ -502,6 +529,74 @@ public class PipelineOrchestrator {
         } catch (RuntimeException e) {
             LOG.error("Pipeline run {}: wait/brief tail failed — {}", runId, e.getMessage(), e);
             pipelineRunService.failRun(runId, "Wait/brief tail failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Marks the run terminal on the success path — {@link PipelineRunStatus#COMPLETED} in the
+     * ordinary case, or {@link PipelineRunStatus#DEGRADED} when this cycle's own
+     * {@code FORECAST_BATCH_SUBMIT} phase was left {@code FAILED} because one or more forecast
+     * batch submissions failed (see {@code submitPhase}).
+     *
+     * <p>Reads the phase row back from {@link PipelineRunService#findLatestPhase} rather than
+     * carrying the {@code BatchSubmissionSummary} through in memory, so the decision is correct
+     * even when this call is reached after a process restart resumed the cycle from
+     * {@code FORECAST_BATCH_WAIT} or later — the phase row, not an in-memory value, is the durable
+     * record of whether submission fully succeeded. Called from exactly one place, the success
+     * tail of {@link #waitAndBriefPhase}; every other exit from that method already marks the run
+     * FAILED for an unrelated reason and returns before reaching here, so FAILED always outranks
+     * DEGRADED by construction.
+     *
+     * <p>Fires the {@code AdminAlertService} email exactly on the DEGRADED branch, after the
+     * status write — never on the COMPLETED branch and never for a FAILED run (those exit through
+     * a different path entirely). The alert is best-effort: a null {@code adminAlertService}
+     * (tests) or the call throwing synchronously before its {@code @Async} dispatch is caught and
+     * logged, never allowed to undo the status write that already happened.
+     *
+     * @param runId pipeline run id
+     */
+    private void finishRun(Long runId) {
+        boolean submitFailed = pipelineRunService
+                .findLatestPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT)
+                .map(phase -> phase.getStatus() == PipelinePhaseStatus.FAILED)
+                .orElse(false);
+        if (submitFailed) {
+            String reason = pipelineRunService
+                    .findLatestPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT)
+                    .map(PipelineRunPhaseEntity::getDetail)
+                    .orElse("One or more forecast batch submissions failed");
+            pipelineRunService.degradeRun(runId, reason);
+            alertAdminsOfDegradedRun(runId, reason);
+        } else {
+            pipelineRunService.completeRun(runId);
+        }
+    }
+
+    /**
+     * Best-effort dispatch of the pipeline-degraded admin email. Never throws: a null service
+     * (tests that pass {@code null} to skip alerting) is a no-op, and any exception the call
+     * raises synchronously — before {@code AdminAlertService}'s own {@code @Async} boundary takes
+     * over — is caught and logged rather than escaping into the orchestrator's success path.
+     *
+     * @param runId  the degraded run's id
+     * @param reason the same detail recorded as the run's {@code failureReason}
+     */
+    private void alertAdminsOfDegradedRun(Long runId, String reason) {
+        if (adminAlertService == null) {
+            return;
+        }
+        try {
+            PipelineRunEntity run = pipelineRunService.findById(runId).orElse(null);
+            if (run == null) {
+                LOG.warn("Pipeline run {}: degraded but could not be re-read for the admin "
+                        + "alert — skipping", runId);
+                return;
+            }
+            adminAlertService.sendPipelineDegradedAlert(
+                    runId, run.getCycleType(), run.getTriggerTime(), reason);
+        } catch (RuntimeException e) {
+            LOG.warn("Pipeline run {}: admin alert dispatch raised an exception — logged and "
+                    + "ignored (run stays DEGRADED): {}", runId, e.getMessage());
         }
     }
 
