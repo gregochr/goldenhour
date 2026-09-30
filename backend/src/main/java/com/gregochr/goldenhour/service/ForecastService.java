@@ -73,8 +73,8 @@ public class ForecastService {
     private final ApplicationEventPublisher eventPublisher;
     private final WeatherTriageEvaluator weatherTriageEvaluator;
     private final TideAlignmentEvaluator tideAlignmentEvaluator;
-    private final com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-            survivorAtmosphereWriter;
+    private final com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
+            slotAtmosphereWriter;
     private final Clock clock;
 
     /**
@@ -91,7 +91,7 @@ public class ForecastService {
      * @param eventPublisher          publishes location task state transition events
      * @param weatherTriageEvaluator  heuristic triage evaluator for skipping unsuitable conditions
      * @param tideAlignmentEvaluator  pre-Claude triage evaluator for tide misalignment at SEASCAPE locations
-     * @param survivorAtmosphereWriter records atmospheric readings for every candidate whose
+     * @param slotAtmosphereWriter records atmospheric readings for every candidate whose
      *                                 weather is fetched — called from inside
      *                                 {@link #fetchWeatherAndTriage}, the one seam every caller
      *                                 of this service shares
@@ -105,8 +105,8 @@ public class ForecastService {
             NotificationDispatcher notificationDispatcher,
             ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
             TideAlignmentEvaluator tideAlignmentEvaluator,
-            com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-                    survivorAtmosphereWriter,
+            com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
+                    slotAtmosphereWriter,
             Clock clock) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
@@ -118,7 +118,7 @@ public class ForecastService {
         this.eventPublisher = eventPublisher;
         this.weatherTriageEvaluator = weatherTriageEvaluator;
         this.tideAlignmentEvaluator = tideAlignmentEvaluator;
-        this.survivorAtmosphereWriter = survivorAtmosphereWriter;
+        this.slotAtmosphereWriter = slotAtmosphereWriter;
         this.clock = clock;
     }
 
@@ -255,7 +255,7 @@ public class ForecastService {
      * <p>If triage determines conditions are unsuitable, a canned entity (rating=1) is persisted
      * and the result is marked as triaged. Otherwise, the atmospheric data is returned ready for
      * Claude evaluation. Every call records the candidate's atmospheric readings to
-     * {@code survivor_atmosphere} before either triage check runs — see the 9-argument
+     * {@code slot_atmosphere} before either triage check runs — see the 9-argument
      * overload's javadoc for why this is the one shared seam.
      *
      * @param location              the location entity
@@ -279,7 +279,7 @@ public class ForecastService {
      *
      * <p>⚠️ <b>The one seam every caller of this method shares — the record-conditions-for-
      * every-place write.</b> Immediately after the atmospheric data is fully assembled and before
-     * either triage check below, this method calls {@code SurvivorAtmosphereWriter.write} for the
+     * either triage check below, this method calls {@code SlotAtmosphereWriter.write} for the
      * candidate — whatever the triage verdict or any later Gate 4 decision turns out to be. This
      * method already persists a {@code forecast_evaluation} row as a side effect on the triage
      * branches (a fact CLAUDE.md records), so adding the readings write at the same point costs
@@ -397,13 +397,13 @@ public class ForecastService {
         // via ForecastCommandExecutor.runTriagePhase), so every present and future caller is
         // covered by one write rather than one write per call site. Runs here, before either
         // triage check below, so a triaged-out or later-Gate-4-skipped candidate still gets its
-        // reading — the two-question rule (see SurvivorAtmosphereWriter's own javadoc) requires
+        // reading — the two-question rule (see SlotAtmosphereWriter's own javadoc) requires
         // it regardless of what the caller goes on to decide about the verdict. Isolated so a
         // carrier write failure never aborts the fetch/triage this method exists to perform.
         try {
-            survivorAtmosphereWriter.write(location, date, targetType, forecastData);
+            slotAtmosphereWriter.write(location, date, targetType, forecastData);
         } catch (Exception e) {
-            LOG.error("survivor_atmosphere write FAILED for {} {} {}; fetch/triage proceeds: {}",
+            LOG.error("slot_atmosphere write FAILED for {} {} {}; fetch/triage proceeds: {}",
                     locationName, date, targetType, e.getMessage(), e);
         }
 
@@ -466,7 +466,7 @@ public class ForecastService {
     /**
      * Evaluates atmospheric data with Claude and persists the result.
      *
-     * <p>Writes no {@code survivor_atmosphere} reading of its own — {@code preEval} was already
+     * <p>Writes no {@code slot_atmosphere} reading of its own — {@code preEval} was already
      * produced by {@link #fetchWeatherAndTriage}, which is the one seam that records it, so every
      * caller of this method reaches the write before ever getting here.
      *
@@ -503,7 +503,7 @@ public class ForecastService {
 
         ForecastEvaluationEntity saved = repository.save(entity);
 
-        // No survivor_atmosphere write here — it already happened inside fetchWeatherAndTriage,
+        // No slot_atmosphere write here — it already happened inside fetchWeatherAndTriage,
         // which every preEval this method is called with was produced by. Writing again here
         // would be a second write for the same fetch (harmless — the writer upserts on the
         // natural key — but redundant), so the single seam covers this call site for free.

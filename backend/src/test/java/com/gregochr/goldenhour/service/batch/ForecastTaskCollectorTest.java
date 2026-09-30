@@ -1127,7 +1127,7 @@ class ForecastTaskCollectorTest {
     // (a Codex P1 finding against the first cut of this phase, which put the write directly in
     // this collector, in ForceSubmitBatchService's two entry points, and left two other real
     // callers — collectRegionFilteredBatches below and the synchronous engine's runTriagePhase —
-    // with no write at all). This collector no longer holds a SurvivorAtmosphereWriter
+    // with no write at all). This collector no longer holds a SlotAtmosphereWriter
     // dependency, so it cannot be verified from here; ForecastServiceTest now pins the seam
     // itself (triaged/stability-irrelevant/thrown-exception/flag-off cases), and
     // dispositions_triagedCandidate_recordedWithReason / dispositions_stabilityGated_

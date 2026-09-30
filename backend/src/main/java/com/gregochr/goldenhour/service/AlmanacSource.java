@@ -11,7 +11,7 @@ import java.util.List;
  * <p><strong>Why this is not {@code HotTopicStrategy}.</strong> That interface has the same shape —
  * {@code detect(from, to)} — and it is a trap. Of its thirteen implementations only three actually
  * honour the range they are handed: two tide strategies read a five-day briefing cache, NLC reads a
- * clarity cache built during the briefing run, six read survivor signals the batch pipeline only
+ * clarity cache built during the briefing run, six read slot signals the batch pipeline only
  * ever writes out to T+3, and aurora inspects {@code fromDate} and {@code fromDate + 1} and nothing
  * else. Asking that interface for ninety days returns a four-day answer wearing a ninety-day
  * signature.

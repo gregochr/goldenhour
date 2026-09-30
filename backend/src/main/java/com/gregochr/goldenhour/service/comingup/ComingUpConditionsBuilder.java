@@ -4,7 +4,7 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AlmanacEvent;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.comingup.ComingUpCondition;
 import com.gregochr.goldenhour.model.comingup.ComingUpConditionOccurrence;
@@ -15,7 +15,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.DustHotTopicStrategy;
 import com.gregochr.goldenhour.service.InversionHotTopicStrategy;
 import com.gregochr.goldenhour.service.PlanHorizon;
-import com.gregochr.goldenhour.service.SurvivorSignalReader;
+import com.gregochr.goldenhour.service.SlotSignalReader;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
 import org.slf4j.Logger;
@@ -62,9 +62,18 @@ import java.util.Optional;
  * {@code forecast_evaluation} population — never a survivor surface, which would understate
  * presence and inflate rarity toward over-promotion (plan D4, external-review finding §14 round 3).
  * Inversion rarity stays on the config fallback until P7's {@code topic_daily_log} accrues an
- * unbiased population; the historical occurrences shown for it come from the survivor-only
- * {@code forecast_score} table for DISPLAY only ("nothing is discarded" — README §2.1) and never
- * feed the rarity number.
+ * unbiased population — that is unaffected by V158 (Phase 2 of "record conditions for every
+ * place", owner decision 2026-09-30) and by {@link SlotSignals#effectiveInversionScore()}'s
+ * calculator-first, echo-fallback rule: neither changes the RARITY number, only which SOURCE a
+ * display occurrence's SCORE is drawn from. ⚠️ <b>A more complete population exists now, but it is
+ * not a clean "calculator alone" population</b> — {@code slot_atmosphere.inversion_score}
+ * carries the deterministic calculator's own score for every inversion-eligible candidate whose
+ * weather was actually fetched this cycle, triaged-out and Gate-4-stood-down ones included, but a
+ * region skipped by {@code BriefingCandidateCollector}'s {@code SKIPPED_CACHED} gate (up to 36
+ * hours on a SETTLED region) never reaches that write at all, so even a forward date can fall back
+ * to Claude's echo (see {@code effectiveInversionScore}'s own javadoc). Switching the RARITY term
+ * onto either population is a separate decision, not made here, and
+ * {@code inversionRarityNeverUpgrades} still pins the config fallback.
  *
  * <h2>Coastal tides reuses P2's scoring machinery, never a second formula</h2>
  *
@@ -108,7 +117,7 @@ public class ComingUpConditionsBuilder {
     private final TideRunPeakHistory tideRunPeakHistory;
     private final TideService tideService;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
-    private final SurvivorSignalReader survivorSignalReader;
+    private final SlotSignalReader slotSignalReader;
     private final ComingUpScoringProperties scoringProperties;
 
     /**
@@ -122,20 +131,20 @@ public class ComingUpConditionsBuilder {
      * @param tideService                    supplies each representative's stored range statistics
      * @param forecastEvaluationRepository the complete-population source for dust's observed
      *                                      arrival rate
-     * @param survivorSignalReader          the survivor surface for both topics' forward (T+0..T+3)
+     * @param slotSignalReader          the slot surface for both topics' forward (T+0..T+3)
      *                                      peak and inversion's display-only historical occurrences
      * @param scoringProperties              every knob the surprise model uses
      */
     public ComingUpConditionsBuilder(LocationRepository locationRepository, TideRunBuilder tideRunBuilder,
             TideRunPeakHistory tideRunPeakHistory, TideService tideService,
             ForecastEvaluationRepository forecastEvaluationRepository,
-            SurvivorSignalReader survivorSignalReader, ComingUpScoringProperties scoringProperties) {
+            SlotSignalReader slotSignalReader, ComingUpScoringProperties scoringProperties) {
         this.locationRepository = locationRepository;
         this.tideRunBuilder = tideRunBuilder;
         this.tideRunPeakHistory = tideRunPeakHistory;
         this.tideService = tideService;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
-        this.survivorSignalReader = survivorSignalReader;
+        this.slotSignalReader = slotSignalReader;
         this.scoringProperties = scoringProperties;
     }
 
@@ -435,9 +444,9 @@ public class ComingUpConditionsBuilder {
 
     // ── Saharan dust (D4, D11) ───────────────────────────────────────────
     //
-    // The forward-peak read below (survivorSignalReader.read(...) filtered by isDustEnhanced) is a
+    // The forward-peak read below (slotSignalReader.read(...) filtered by isDustEnhanced) is a
     // DISPLAY concern, not the rarity computation above it — and since the "record conditions for
-    // every place" change (Phase 1, owner decision 2026-09-30) it now sees survivor_atmosphere
+    // every place" change (Phase 1, owner decision 2026-09-30) it now sees slot_atmosphere
     // readings for every candidate whose weather was fetched, triaged-out and Gate-4-stood-down
     // candidates included, not only the ones Claude went on to score. That widens the peak cell's
     // population (a strictly safe direction — more dust readings found, never fewer) but leaves the
@@ -500,9 +509,9 @@ public class ComingUpConditionsBuilder {
         }
 
         ComingUpConditionPeak peak = null;
-        SurvivorSignals forwardPeak = null;
+        SlotSignals forwardPeak = null;
         try {
-            forwardPeak = survivorSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
+            forwardPeak = slotSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
                     .filter(s -> passesPeakGate(s.eventType()))
                     .filter(s -> DustHotTopicStrategy.isDustEnhanced(s.readings().aerosolOpticalDepth(),
                             s.readings().dust(), s.readings().pm25()))
@@ -538,10 +547,37 @@ public class ComingUpConditionsBuilder {
 
     // ── Valley inversions (D4, D11) ──────────────────────────────────────
     //
-    // Unaffected by the "record conditions for every place" change (Phase 1, owner decision
-    // 2026-09-30): this reads forecast_score INVERSION components, which are written only from a
-    // completed Claude evaluation, so a triaged or Gate-4-stood-down slot still contributes nothing
-    // here. See InversionHotTopicStrategy's own javadoc for the same point and the planned Phase 2.
+    // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158; unified in
+    // round 3 after a Codex P1 against PR #948): both reads below — the trailing occurrence list
+    // AND the forward peak — use the ONE shared rule, SlotSignals.effectiveInversionScore():
+    // the calculator's slot_atmosphere.inversion_score when present, else Claude's
+    // forecast_score echo. There is no forward/trailing split any more. Round 2 gave the trailing
+    // history a fallback and left the forward peak calculator-only, reasoning that a forward slot
+    // is upserted every cycle and is therefore always current. That reasoning was wrong: a Codex
+    // review found BriefingCandidateCollector skips a region with a fresh cached_evaluation entry
+    // (SKIPPED_CACHED, around lines 204-227) BEFORE fetchWeatherAndTriage ever runs, and
+    // FreshnessProperties.settledHours (36h, uncapped at T+2 and beyond) lets that skip hold for up
+    // to 36 hours on a SETTLED region — so a forward slot can carry a null calculator reading for a
+    // day and a half while Claude's own echo already exists for it. See
+    // SlotSignals.effectiveInversionScore's own javadoc for the full history and why this is
+    // still the owner's "the calculator decides" rule, not a retreat from it: the reading always
+    // wins whenever the calculator has scored the slot, and the echo can never make the topic fire
+    // on a score the calculator would itself have refused.
+    //
+    // Both reads answer the same "what is happening" question InversionHotTopicStrategy asks (see
+    // that class's own javadoc for why this condition and the map's Claude-echoed badge are
+    // allowed to disagree). The RARITY term stays on the config fallback either way (unchanged by
+    // this — see the class javadoc's own note on that).
+    //
+    // Round 4 (a further Codex P1 against effectiveInversionScore() itself): a null reading is not
+    // always "the calculator has not reached this slot yet" — it is also what a FRESH write
+    // produces when InversionScoreCalculator.calculate returns null for missing weather inputs, or
+    // for an ineligible location. V158's second column, inversion_scored, tells the two apart: a
+    // fresh null (inversion_scored = true) is an answer and stays silent in both loops below;
+    // only a PRE-COLUMN row (inversion_scored = false, written before this flag existed) or an
+    // absent key still falls back to Claude's echo. See SlotSignals.effectiveInversionScore's
+    // own javadoc for the full reasoning and why this still never lets the echo overrule a
+    // calculator reading that exists.
 
     private ComingUpCondition buildInversion(LocalDate builtFor) {
         int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();
@@ -554,14 +590,17 @@ public class ComingUpConditionsBuilder {
         // display only ("nothing is discarded"); they must not feed this number.
         double rarityBits = SurpriseScore.rarity(inversionConfig.getFallbackMeanGapDays());
 
-        Map<LocalDate, Integer> maxScoreByDate = new LinkedHashMap<>();
+        Map<LocalDate, Double> maxScoreByDate = new LinkedHashMap<>();
         try {
-            for (SurvivorSignals signal : survivorSignalReader.read(windowStart, yesterday)) {
-                if (signal.eventType() != TargetType.SUNRISE || signal.scores().inversion() == null
-                        || signal.scores().inversion() < InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
+            for (SlotSignals signal : slotSignalReader.read(windowStart, yesterday)) {
+                if (signal.eventType() != TargetType.SUNRISE) {
                     continue;
                 }
-                maxScoreByDate.merge(signal.date(), signal.scores().inversion(), Math::max);
+                Double score = signal.effectiveInversionScore();
+                if (score == null || score < InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
+                    continue;
+                }
+                maxScoreByDate.merge(signal.date(), score, Math::max);
             }
         } catch (RuntimeException e) {
             LOG.warn("Inversion trailing-window read failed — the condition will show no historical "
@@ -576,31 +615,32 @@ public class ComingUpConditionsBuilder {
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
         for (LocalDate date : dates) {
-            int score = maxScoreByDate.get(date);
+            double score = maxScoreByDate.get(date);
             double bits = rarityBits + inversionMagnitude(score, inversionConfig);
-            occurrences.add(new ComingUpConditionOccurrence(date, DATE_LABEL.format(date), score + "/10",
-                    null, round1(bits), null, STATUS_HELD_BACK, null));
+            occurrences.add(new ComingUpConditionOccurrence(date, DATE_LABEL.format(date),
+                    reportedScore(score) + "/10", null, round1(bits), null, STATUS_HELD_BACK, null));
         }
 
         ComingUpConditionPeak peak = null;
-        SurvivorSignals forwardPeak = null;
+        SlotSignals forwardPeak = null;
         try {
-            forwardPeak = survivorSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
+            forwardPeak = slotSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
                     .filter(s -> passesPeakGate(s.eventType()))
-                    .filter(s -> s.eventType() == TargetType.SUNRISE && s.scores().inversion() != null
-                            && s.scores().inversion() >= InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE)
-                    .max(Comparator.comparingInt(s -> s.scores().inversion()))
+                    .filter(s -> s.eventType() == TargetType.SUNRISE && s.effectiveInversionScore() != null
+                            && s.effectiveInversionScore() >= InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE)
+                    .max(Comparator.comparingDouble(SlotSignals::effectiveInversionScore))
                     .orElse(null);
         } catch (RuntimeException e) {
             LOG.warn("Inversion forward-peak read failed — the peak cell will say so rather than the "
                     + "whole feed failing: {}", e.toString());
         }
         if (forwardPeak != null) {
-            int score = forwardPeak.scores().inversion();
+            double score = forwardPeak.effectiveInversionScore();
             double bits = rarityBits + inversionMagnitude(score, inversionConfig);
-            peak = new ComingUpConditionPeak(DATE_LABEL.format(forwardPeak.date()), score + "/10", round1(bits));
+            String valueLabel = reportedScore(score) + "/10";
+            peak = new ComingUpConditionPeak(DATE_LABEL.format(forwardPeak.date()), valueLabel, round1(bits));
             occurrences.add(new ComingUpConditionOccurrence(forwardPeak.date(), DATE_LABEL.format(forwardPeak.date()),
-                    score + "/10", null, round1(bits), null, STATUS_INSIDE_PLAN, null));
+                    valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
         String quantLabel = frequencyPhrase(rarityBits, "most mornings") + " · counts as strong above "
@@ -609,7 +649,20 @@ public class ComingUpConditionsBuilder {
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);
     }
 
-    private static double inversionMagnitude(int score, ComingUpScoringProperties.Inversion config) {
+    /**
+     * Rounds the calculator's raw score for display — never truncate, matching
+     * {@code PromptBuilder}'s own comment on the identical conversion. The calculator's
+     * components are all whole-number doubles (or exact 6.0/8.0 gate ceilings), so this never
+     * actually changes a value; it exists so a fractional double can never leak into the "N/10"
+     * label. Claude's echoed fallback score ({@link SlotSignals#effectiveInversionScore()}) is
+     * already a whole number (an {@code Integer} widened to {@code double}), so rounding is a
+     * no-op for it too.
+     */
+    private static int reportedScore(double score) {
+        return (int) Math.round(score);
+    }
+
+    private static double inversionMagnitude(double score, ComingUpScoringProperties.Inversion config) {
         return score >= config.getMagnitudeThresholdScore()
                 ? config.getMagnitudeAboveBits() : SurpriseScore.DEFAULT_MAGNITUDE_BITS;
     }
@@ -618,7 +671,7 @@ public class ComingUpConditionsBuilder {
 
     /**
      * Whether a candidate lands within {@link ComingUpScoringProperties#getPeakLightWindowMinutes()}
-     * minutes of a light window — satisfied by construction for every survivor row today, since
+     * minutes of a light window — satisfied by construction for every slot row today, since
      * both are keyed to {@link TargetType#SUNRISE} or {@link TargetType#SUNSET}. The configured
      * minutes bound is not read arithmetically (guarded only as "configured to a positive value"):
      * no forward candidate carries a clock time to compare against a light window's edges yet, so

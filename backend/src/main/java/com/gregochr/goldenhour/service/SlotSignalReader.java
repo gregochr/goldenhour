@@ -3,11 +3,11 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -17,27 +17,49 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The unified survivor read model — the ONE read path the survivor-signal hot-topic detectors use.
+ * The unified slot read model — the ONE read path the slot-signal hot-topic detectors use.
  *
- * <p>⚠️ <b>The name is historical — a rename is pending, not done here.</b> It joins two tables that
- * were both "survivor-only" through 2026-09-30, but the "record conditions for every place" change
- * (Phase 1, owner decision 2026-09-30) moved {@code survivor_atmosphere} off that rule: it now holds
+ * <p>⚠️ <b>This class and {@link SlotSignals} were named {@code SurvivorSignalReader}/
+ * {@code SurvivorSignals} until V159 (2026-09-30).</b> It joins two tables that
+ * were both "survivor-only" through 2026-09-29, but the "record conditions for every place" change
+ * (Phase 1, owner decision 2026-09-30) moved {@code slot_atmosphere} off that rule: it now holds
  * a row for every candidate a batch cycle, a hand-started admin run, or the synchronous engine
  * fetched weather for, triaged-out and Gate-4-stood-down candidates included (see
- * {@code SurvivorAtmosphereWriter}'s own javadoc). {@code forecast_score} (the scores half —
+ * {@code SlotAtmosphereWriter}'s own javadoc). {@code forecast_score} (the scores half —
  * inversion, bluebell) is UNCHANGED by that phase and remains genuinely survivor-only: it is written
  * only from a completed Claude evaluation, so a triaged or stability-skipped slot never has one
- * (bluebell stays scored-only by design — no deterministic substitute for the Claude rating exists;
- * cloud inversion's own deterministic substitute is planned, separately, as Phase 2, with its own
- * migration). A composite built from a readings-only key therefore has {@link SurvivorSignals.Scores}
- * {@code EMPTY} and populated {@link SurvivorSignals.Readings} — never a zero score and never an
+ * (bluebell stays scored-only by design — no deterministic substitute for the Claude rating exists).
+ * ⚠️ <b>Cloud inversion's own deterministic substitute shipped as Phase 2 (V158, owner decision
+ * 2026-09-30)</b> — {@link SlotSignals.Readings#inversionScore()} carries
+ * {@code InversionScoreCalculator}'s own score for every inversion-eligible candidate, on
+ * {@code slot_atmosphere}, populated whatever the triage verdict or Gate 4 decision.
+ * {@link SlotSignals.Scores#inversion()} (Claude's echo, from {@code forecast_score}) still
+ * exists and is still returned unchanged — it is NOT dead code, because
+ * {@link SlotSignals#effectiveInversionScore()} falls back to it whenever
+ * {@link SlotSignals.Readings#inversionScored()} is false. ⚠️ <b>One rule, used for both
+ * windows (round 3, a Codex P1 against PR #948's second cut)</b> — an earlier design kept the
+ * forward peak calculator-only on the assumption a forward slot is upserted every cycle; that
+ * assumption is false ({@code BriefingCandidateCollector} can skip a region on a fresh cache for up
+ * to 36 hours before {@code fetchWeatherAndTriage} ever runs), so both the inversion hot topic and
+ * the Coming up "Valley inversions" condition's forward peak AND trailing history now read
+ * {@code effectiveInversionScore()}. ⚠️ <b>A further Codex P1 (round 4) then found the fallback
+ * itself too eager</b> — {@code InversionScoreCalculator.calculate} can return null for an
+ * ELIGIBLE location (missing weather inputs), so a fresh row's null {@code inversionScore} is not
+ * always "the calculator hasn't reached this slot"; {@link SlotSignals.Readings#inversionScored()}
+ * (V158's second column, true on every row a post-round-4 write produces) is what lets the helper
+ * tell a fresh, authoritative null apart from an absent one — see that method's own javadoc for the
+ * full history and why "the calculator decides when it has scored a slot" survives intact. See
+ * {@code InversionHotTopicStrategy}'s own javadoc for why the map's separately-echoed badge is
+ * still allowed to disagree with this composite's effective score.
+ * A composite built from a readings-only key therefore has {@link SlotSignals.Scores}
+ * {@code EMPTY} and populated {@link SlotSignals.Readings} — never a zero score and never an
  * exception — exactly like any other single-surface key (see {@link #read}'s own javadoc and this
  * class's test suite).
  *
  * <p>"Unified" is a single READ surface over correctly-shaped STORAGE, not a single physical table.
- * It joins {@code forecast_score} (scores: inversion, bluebell) and {@code survivor_atmosphere}
+ * It joins {@code forecast_score} (scores: inversion, bluebell) and {@code slot_atmosphere}
  * (readings: dust, surge, snow) by their shared {@code (location, date, event_type)} key into one
- * {@link SurvivorSignals} composite per key. Scores and readings stay in their own sub-records
+ * {@link SlotSignals} composite per key. Scores and readings stay in their own sub-records
  * (never flattened).
  *
  * <p>⚠️ <b>The owner's two-question rule (2026-09-29) — hot topics answer a different question from
@@ -50,7 +72,7 @@ import java.util.Map;
  * nothing to say about the first: knowing there is snow, dust or a likely inversion is interesting on
  * its own terms, independent of whether the pipeline currently judges anywhere worth the drive to
  * photograph it. {@link #read} therefore applies NO retraction of any kind — it returns every
- * {@code forecast_score} component (INVERSION, BLUEBELL) and every {@code survivor_atmosphere}
+ * {@code forecast_score} component (INVERSION, BLUEBELL) and every {@code slot_atmosphere}
  * reading in the window exactly as stored, whatever the pipeline has since decided about the rating
  * for the same slot.
  *
@@ -74,38 +96,38 @@ import java.util.Map;
  * component by two different rules.
  */
 @Service
-public class SurvivorSignalReader {
+public class SlotSignalReader {
 
     private final ForecastScoreRepository forecastScoreRepository;
-    private final SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    private final SlotAtmosphereRepository slotAtmosphereRepository;
 
     /**
      * Constructs the reader.
      *
      * @param forecastScoreRepository      the scores half ({@code forecast_score})
-     * @param survivorAtmosphereRepository the readings half ({@code survivor_atmosphere})
+     * @param slotAtmosphereRepository the readings half ({@code slot_atmosphere})
      */
-    public SurvivorSignalReader(ForecastScoreRepository forecastScoreRepository,
-            SurvivorAtmosphereRepository survivorAtmosphereRepository) {
+    public SlotSignalReader(ForecastScoreRepository forecastScoreRepository,
+            SlotAtmosphereRepository slotAtmosphereRepository) {
         this.forecastScoreRepository = forecastScoreRepository;
-        this.survivorAtmosphereRepository = survivorAtmosphereRepository;
+        this.slotAtmosphereRepository = slotAtmosphereRepository;
     }
 
     /**
-     * Returns the survivor-signal composites for every survivor key in the window. A composite is
+     * Returns the slot-signal composites for every slot key in the window. A composite is
      * present for any key that has at least one score or reading; absent signals are left null in
      * their sub-record. The list is in no guaranteed order — detectors group/sort as they need.
      *
      * <p>No retraction of any kind is applied here — see the class javadoc. Every INVERSION and
-     * BLUEBELL {@code forecast_score} row and every {@code survivor_atmosphere} reading in the
+     * BLUEBELL {@code forecast_score} row and every {@code slot_atmosphere} reading in the
      * window is returned exactly as stored, whatever a later nightly stability skip or triage
      * stand-down has since decided about the RATING for the same slot.
      *
      * @param from inclusive start date
      * @param to   inclusive end date
-     * @return one composite per survivor {@code (location, date, event_type)} in the window
+     * @return one composite per slot {@code (location, date, event_type)} in the window
      */
-    public List<SurvivorSignals> read(LocalDate from, LocalDate to) {
+    public List<SlotSignals> read(LocalDate from, LocalDate to) {
         Map<String, Accumulator> byKey = new LinkedHashMap<>();
 
         for (ForecastScoreEntity s : forecastScoreRepository.findComponentsByType(
@@ -124,12 +146,12 @@ public class SurvivorSignalReader {
             acc.bluebell = s.getScore();
             acc.bluebellSummary = s.getSummary();
         }
-        for (SurvivorAtmosphereEntity a : survivorAtmosphereRepository.findInDateRange(from, to)) {
+        for (SlotAtmosphereEntity a : slotAtmosphereRepository.findInDateRange(from, to)) {
             accumulatorFor(byKey, a.getLocation(), a.getEvaluationDate(), a.getEventType())
                     .readings = a;
         }
 
-        List<SurvivorSignals> result = new ArrayList<>(byKey.size());
+        List<SlotSignals> result = new ArrayList<>(byKey.size());
         for (Accumulator acc : byKey.values()) {
             result.add(acc.build());
         }
@@ -151,7 +173,7 @@ public class SurvivorSignalReader {
         private String inversionBand;
         private Integer bluebell;
         private String bluebellSummary;
-        private SurvivorAtmosphereEntity readings;
+        private SlotAtmosphereEntity readings;
 
         private Accumulator(LocationEntity location, LocalDate date, TargetType eventType) {
             this.location = location;
@@ -159,23 +181,24 @@ public class SurvivorSignalReader {
             this.eventType = eventType;
         }
 
-        private SurvivorSignals build() {
+        private SlotSignals build() {
             boolean noScores = inversion == null && inversionBand == null
                     && bluebell == null && bluebellSummary == null;
-            SurvivorSignals.Scores scores = noScores
-                    ? SurvivorSignals.Scores.EMPTY
-                    : new SurvivorSignals.Scores(
+            SlotSignals.Scores scores = noScores
+                    ? SlotSignals.Scores.EMPTY
+                    : new SlotSignals.Scores(
                             inversion, inversionBand, bluebell, bluebellSummary);
-            SurvivorSignals.Readings r = readings == null
-                    ? SurvivorSignals.Readings.EMPTY
-                    : new SurvivorSignals.Readings(
+            SlotSignals.Readings r = readings == null
+                    ? SlotSignals.Readings.EMPTY
+                    : new SlotSignals.Readings(
                             readings.getAerosolOpticalDepth(), readings.getDust(),
                             readings.getPm25(), readings.getSurgeRiskLevel(),
                             readings.getSnowDepthMetres(), readings.getFreezingLevelMetres(),
                             readings.getHumidity(), readings.getSurgeTotalMetres(),
                             readings.getSurgeWindSpeedMs(), readings.getSurgeWindDirectionDegrees(),
-                            readings.getTemperatureCelsius());
-            return new SurvivorSignals(location, date, eventType, scores, r);
+                            readings.getTemperatureCelsius(), readings.getInversionScore(),
+                            readings.isInversionScored());
+            return new SlotSignals(location, date, eventType, scores, r);
         }
     }
 }

@@ -1,13 +1,13 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,9 +31,9 @@ import static org.mockito.Mockito.mock;
  * Unit tests for {@link HotTopicAggregator}.
  *
  * <p>⚠️ Between #940 landing (commit c6e14cc8) and the owner's two-question rule (2026-09-29,
- * see {@code SurvivorSignalReader}'s class javadoc), this aggregator opened a shared
- * {@code SurvivorSignalReader.withStabilityWindow} around the whole strategies pass. That
- * dependency is gone entirely — this class no longer holds a {@code SurvivorSignalReader}
+ * see {@code SlotSignalReader}'s class javadoc), this aggregator opened a shared
+ * {@code SlotSignalReader.withStabilityWindow} around the whole strategies pass. That
+ * dependency is gone entirely — this class no longer holds a {@code SlotSignalReader}
  * reference at all, and {@link #getHotTopics_aggregationIssuesNoStabilityOrDispositionQuery}
  * below proves it end to end through real strategies.
  */
@@ -208,18 +208,18 @@ class HotTopicAggregatorTest {
     @Mock
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
-    private SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    private SlotAtmosphereRepository slotAtmosphereRepository;
     @Mock
     private ForecastRunDispositionRepository forecastRunDispositionRepository;
 
     /**
      * Proves the count from the brief directly, through a real strategy and a real
-     * {@link SurvivorSignalReader} — not a mock standing in for the claim. Before 2026-09-29 this
+     * {@link SlotSignalReader} — not a mock standing in for the claim. Before 2026-09-29 this
      * same shape of pass opened one shared {@code loadStabilitySkips} query (backed by
      * {@link ForecastRunDispositionRepository#findLatestStabilitySkipTimestamps}); now
-     * {@code SurvivorSignalReader}'s only two collaborators are {@link ForecastScoreRepository} and
-     * {@link SurvivorAtmosphereRepository}, and {@code HotTopicAggregator} itself holds neither an
-     * {@code EvaluationViewService} nor a {@code SurvivorSignalReader} reference — so the
+     * {@code SlotSignalReader}'s only two collaborators are {@link ForecastScoreRepository} and
+     * {@link SlotAtmosphereRepository}, and {@code HotTopicAggregator} itself holds neither an
+     * {@code EvaluationViewService} nor a {@code SlotSignalReader} reference — so the
      * disposition repository, mocked here exactly as production wires it to other beans (e.g.
      * {@code EvaluationViewService} for the rating-retraction path this test does not exercise), is
      * verified to receive ZERO interactions across a full real aggregation.
@@ -227,31 +227,36 @@ class HotTopicAggregatorTest {
     @Test
     @DisplayName("one hot-topic aggregation issues no stability-skip or disposition query at all — "
             + "the repository behind that lookup is never touched, proven through a real strategy "
-            + "and a real SurvivorSignalReader (owner decision, 2026-09-29)")
+            + "and a real SlotSignalReader (owner decision, 2026-09-29)")
     void getHotTopics_aggregationIssuesNoStabilityOrDispositionQuery() {
         LocationEntity fell = new LocationEntity();
         fell.setId(1L);
         fell.setName("Great Gable");
-        ForecastScoreEntity strongInversion = new ForecastScoreEntity();
-        strongInversion.setForecastType(ForecastType.INVERSION);
+        // Phase 2 (V158, owner decision 2026-09-30): InversionHotTopicStrategy now fires off the
+        // calculator's own slot_atmosphere reading, not the forecast_score Claude echo — so
+        // the strong-inversion row this test needs to make the strategy fire lives here.
+        SlotAtmosphereEntity strongInversion = new SlotAtmosphereEntity();
         strongInversion.setLocation(fell);
         strongInversion.setEvaluationDate(FROM);
         strongInversion.setEventType(TargetType.SUNRISE);
-        strongInversion.setScore(9);
-        strongInversion.setSummary("STRONG");
+        strongInversion.setInversionScore(9.0);
+        // V158 round 4: a fresh row must be marked scored, or effectiveInversionScore() reads it
+        // as pre-column and falls back to the (here, absent) forecast_score echo instead.
+        strongInversion.setInversionScored(true);
         strongInversion.setEvaluatedAt(Instant.parse("2026-04-25T05:00:00Z"));
         lenient().when(forecastScoreRepository.findComponentsByType(
                         ForecastType.INVERSION.getId(), FROM, TO))
-                .thenReturn(List.of(strongInversion));
+                .thenReturn(List.of());
         lenient().when(forecastScoreRepository.findComponentsByType(
                         ForecastType.BLUEBELL.getId(), FROM, TO))
                 .thenReturn(List.of());
-        lenient().when(survivorAtmosphereRepository.findInDateRange(FROM, TO)).thenReturn(List.of());
+        lenient().when(slotAtmosphereRepository.findInDateRange(FROM, TO))
+                .thenReturn(List.of(strongInversion));
 
         SolarEventFreshness freshness = mock(SolarEventFreshness.class);
         lenient().when(freshness.isAhead(fell, FROM, TargetType.SUNRISE)).thenReturn(true);
-        SurvivorSignalReader realReader =
-                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
+        SlotSignalReader realReader =
+                new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
         InversionHotTopicStrategy realInversionStrategy =
                 new InversionHotTopicStrategy(realReader, freshness);
 

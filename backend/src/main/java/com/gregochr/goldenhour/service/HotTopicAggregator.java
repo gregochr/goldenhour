@@ -17,12 +17,12 @@ import java.util.List;
  * <p>When {@link HotTopicSimulationService} is enabled the real strategies are
  * bypassed and simulated topics are returned instead — for admin demos and UI testing.
  *
- * <p>⚠️ Until 2026-09-29 this class opened a shared {@code SurvivorSignalReader.withStabilityWindow}
+ * <p>⚠️ Until 2026-09-29 this class opened a shared {@code SlotSignalReader.withStabilityWindow}
  * around the whole strategies pass, so a nightly Gate 4 stability skip could retract a
  * {@code forecast_score} component before a strategy ever saw it. The owner's two-question rule
  * removed that: hot topics answer "what is happening", not "is it worth going", so a stability skip
  * or a triage stand-down — both decisions about the RATING — must never silence a topic. See
- * {@code SurvivorSignalReader}'s own class javadoc. This class therefore has no dependency on the
+ * {@code SlotSignalReader}'s own class javadoc. This class therefore has no dependency on the
  * stability-skip machinery at all any more.
  */
 @Service

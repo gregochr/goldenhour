@@ -852,8 +852,8 @@ public class ScheduledBatchEvaluationService {
     /**
      * Region-filtered variant of the forecast batch. Delegates collection to
      * {@link ForecastTaskCollector} and submits the inland and coastal buckets
-     * via the engine. Returns the inland handle if any (preferring inland as
-     * typically larger), or the coastal handle, or null if both were empty.
+     * via the engine. Returns the first bucket Anthropic actually accepted
+     * (inland preferred), or null if neither was accepted or nothing was built.
      */
     private BatchSubmitResult doSubmitForecastBatchForRegions(List<Long> regionIds) {
         RegionFilteredBatchTasks tasks =
@@ -873,8 +873,11 @@ public class ScheduledBatchEvaluationService {
                 tasks.inland().size(), describeAdminBucket(tasks.inland(), inlandHandle),
                 tasks.coastal().size(), describeAdminBucket(tasks.coastal(), coastalHandle));
 
-        // Return whichever result succeeded — prefer inland (typically larger)
-        return handleToResult(inlandHandle != null ? inlandHandle : coastalHandle);
+        // Return whichever bucket Anthropic actually accepted — a null check alone
+        // is not enough here, because a failed submission still returns a non-null
+        // EvaluationHandle.empty() (batchId=null), so a plain null-coalescing ternary
+        // would pick a failed inland handle over a genuinely submitted coastal one.
+        return handleToResult(firstSubmitted(inlandHandle, coastalHandle));
     }
 
     /**
@@ -907,6 +910,33 @@ public class ScheduledBatchEvaluationService {
     }
 
     // BatchSubmitResult was promoted to a top-level record in the same package.
+
+    /**
+     * Picks the first handle Anthropic actually accepted, inland preferred.
+     *
+     * <p>A bucket with no tasks is {@code null} here; a bucket that had tasks but
+     * whose submission failed is a non-null {@link
+     * com.gregochr.goldenhour.service.evaluation.EvaluationHandle#empty()} (a real
+     * record with {@code batchId() == null}) — so neither a null check nor a plain
+     * {@code a != null ? a : b} is sufficient to tell "no batch" apart from "batch
+     * failed."
+     *
+     * @param inland  the inland handle, or null if the inland bucket was empty
+     * @param coastal the coastal handle, or null if the coastal bucket was empty
+     * @return the first of the two with a non-null {@code batchId()}, inland
+     *     preferred; null if neither was accepted
+     */
+    private static com.gregochr.goldenhour.service.evaluation.EvaluationHandle firstSubmitted(
+            com.gregochr.goldenhour.service.evaluation.EvaluationHandle inland,
+            com.gregochr.goldenhour.service.evaluation.EvaluationHandle coastal) {
+        if (inland != null && inland.batchId() != null) {
+            return inland;
+        }
+        if (coastal != null && coastal.batchId() != null) {
+            return coastal;
+        }
+        return null;
+    }
 
     /**
      * Core aurora batch logic extracted to keep the public method a thin guard wrapper.

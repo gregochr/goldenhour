@@ -13,7 +13,7 @@ import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
+import com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter;
 import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -89,7 +89,7 @@ class ForecastCommandExecutorReadingsSeamTest {
     @Mock private NotificationDispatcher notificationDispatcher;
     @Mock private WeatherTriageEvaluator weatherTriageEvaluator;
     @Mock private TideAlignmentEvaluator tideAlignmentEvaluator;
-    @Mock private SurvivorAtmosphereWriter survivorAtmosphereWriter;
+    @Mock private SlotAtmosphereWriter slotAtmosphereWriter;
 
     private ForecastCommandExecutor executor;
     private JobRunEntity stubJobRun;
@@ -121,7 +121,7 @@ class ForecastCommandExecutorReadingsSeamTest {
                 solarService, openMeteoService, augmentor, legacyEvaluationService,
                 engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
                 eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                survivorAtmosphereWriter, CLOCK);
+                slotAtmosphereWriter, CLOCK);
 
         executor = new ForecastCommandExecutor(
                 realForecastService, locationService, jobRunService, solarService,
@@ -211,9 +211,9 @@ class ForecastCommandExecutorReadingsSeamTest {
 
         // Both target types (SUNRISE + SUNSET) triaged away — an early stop, zero evaluations.
         org.assertj.core.api.Assertions.assertThat(results).isEmpty();
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(location, today, TargetType.SUNRISE, sharedWeatherData);
-        verify(survivorAtmosphereWriter, times(1))
+        verify(slotAtmosphereWriter, times(1))
                 .write(location, today, TargetType.SUNSET, sharedWeatherData);
     }
 }

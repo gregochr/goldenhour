@@ -119,7 +119,7 @@ public class HotTopicEventEnricher {
         }
 
         // Qualifying locations — the exact spots the map overlay opens to. Backfill only when the
-        // detecting strategy didn't already provide them (survivor-based topics carry precise sets).
+        // detecting strategy didn't already provide them (slot-based topics carry precise sets).
         if (result.locationNames() == null) {
             List<String> names = qualifyingLocations(result, enabled, coastal, darkSky, bluebell);
             if (!names.isEmpty()) {

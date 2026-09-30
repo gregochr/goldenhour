@@ -100,15 +100,15 @@ import java.util.stream.Collectors;
  * {@link #isSlotRetracted}'s — "is this one row's own evaluated-at older than the skip" — rather
  * than "does ANY live evidence across two stores survive it".
  *
- * <p>⚠️ <b>{@code SurvivorSignalReader} — the read path for all six survivor-signal hot-topic
+ * <p>⚠️ <b>{@code SlotSignalReader} — the read path for all six slot-signal hot-topic
  * strategies and the "Coming up" almanac's dust/inversion conditions — deliberately does NOT apply
  * this rule.</b> A 2026-09-29 owner decision drew a line between two questions: "what is happening"
  * (hot topics, Coming up) and "where is worth going" (ratings, verdicts, picks — everything this
  * class serves). A stability skip or a triage stand-down answers only the second question, so it
- * must never silence the first. Between #940 landing and this decision, {@code SurvivorSignalReader}
+ * must never silence the first. Between #940 landing and this decision, {@code SlotSignalReader}
  * briefly applied the identical retraction this javadoc describes for {@code ForecastDtoMapper} (see
  * commit c6e14cc8); that was reversed, not merely left unfinished — see
- * {@code SurvivorSignalReader}'s own class javadoc and
+ * {@code SlotSignalReader}'s own class javadoc and
  * {@code changelog.d/20260929-hot-topics-report-conditions.md}. A stale forecast_score row hidden
  * behind a newer TRIAGE row (as opposed to a stability skip) therefore is not a gap on the hot-topic
  * path at all — nothing there is retracted by either mechanism, by design.
@@ -375,7 +375,7 @@ public class EvaluationViewService {
      * <p>Public so a third store's reader — {@code ForecastDtoMapper} (its own {@code forecast_score}
      * BLUEBELL lookup, the API DTO's rating) — can look a slot's skip up in a
      * {@link #loadStabilitySkips} map with the exact same key shape, rather than hand-rolling the
-     * format and risking it drifting from this one. {@code SurvivorSignalReader} (the hot-topic read
+     * format and risking it drifting from this one. {@code SlotSignalReader} (the hot-topic read
      * path) deliberately does not use this — see its own class javadoc for the owner's two-question
      * rule.
      *

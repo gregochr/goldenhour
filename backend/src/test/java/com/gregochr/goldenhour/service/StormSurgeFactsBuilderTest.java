@@ -5,7 +5,7 @@ import com.gregochr.goldenhour.entity.MarineWaveEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -58,12 +58,12 @@ class StormSurgeFactsBuilderTest {
         return loc;
     }
 
-    private static SurvivorSignals surgeRow(long locationId, Double surgeM, Double windMs,
+    private static SlotSignals surgeRow(long locationId, Double surgeM, Double windMs,
             Double windDir) {
-        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, "HIGH", null, null, null, surgeM, windMs, windDir, null);
-        return new SurvivorSignals(location(locationId), DATE, TargetType.SUNSET,
-                SurvivorSignals.Scores.EMPTY, readings);
+        SlotSignals.Readings readings = new SlotSignals.Readings(
+                null, null, null, "HIGH", null, null, null, surgeM, windMs, windDir, null, null, false);
+        return new SlotSignals(location(locationId), DATE, TargetType.SUNSET,
+                SlotSignals.Scores.EMPTY, readings);
     }
 
     private static HotTopic baseTopic() {

@@ -8,7 +8,7 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.StormSurgeDetails;
-import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
@@ -18,7 +18,7 @@ import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.repository.TopicDailyLogRepository;
 import com.gregochr.goldenhour.util.ForecastHorizon;
@@ -59,12 +59,18 @@ import java.util.Map;
  *       columns are written from {@code AtmosphericData} during augmentation, before triage or any
  *       Claude call ({@code ForecastService.buildEntity}), so they land on every evaluated row
  *       regardless of outcome.</li>
- *   <li><b>INVERSION</b> — {@code forecast_score} (survivor-only; the best available). Unlike dust
- *       and surge, the persisted inversion score is Claude's own output ({@code InversionDetails}
- *       Javadoc: "Cloud inversion score returned by Claude"), so it is null on any row that never
- *       reached Claude — there is no unbiased population to read yet (plan §1/§7: "inversion rarity
- *       stays on the config fallback until P7's log exists"). This job is that log's first writer.</li>
- *   <li><b>SNOW</b> — {@code survivor_atmosphere} (survivor-only; the only source — the
+ *   <li><b>INVERSION</b> — {@code forecast_score} (survivor-only; the best available <em>here</em>).
+ *       Unlike dust and surge, the persisted inversion score this job reads is Claude's own output
+ *       ({@code InversionDetails} Javadoc: "Cloud inversion score returned by Claude"), so it is
+ *       null on any row that never reached Claude — there is no unbiased population to read yet
+ *       (plan §1/§7: "inversion rarity stays on the config fallback until P7's log exists"). This
+ *       job is that log's first writer. ⚠️ An unbiased, complete-population column now exists —
+ *       {@code slot_atmosphere.inversion_score} (V158, Phase 2 of "record conditions for every
+ *       place", owner decision 2026-09-30) — the same deterministic calculator score
+ *       {@link InversionHotTopicStrategy} and {@code ComingUpConditionsBuilder} moved onto, and it
+ *       is the eventual source once this job (or a successor) is repointed at it; that repointing
+ *       is a separate decision and deliberately not made here.</li>
+ *   <li><b>SNOW</b> — {@code slot_atmosphere} (survivor-only; the only source — the
  *       {@code forecast_evaluation} snow columns were dropped in V116). The plan's candidate list
  *       names one "SNOW" topic, but the codebase has two live snow strategies:
  *       {@link SnowFreshHotTopicStrategy} (lying-depth threshold, a plain column reading) and
@@ -139,7 +145,7 @@ public class TopicDailyLogJob {
 
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final ForecastScoreRepository forecastScoreRepository;
-    private final SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    private final SlotAtmosphereRepository slotAtmosphereRepository;
     private final TideExtremeRepository tideExtremeRepository;
     private final TideService tideService;
     private final LunarPhaseService lunarPhaseService;
@@ -156,7 +162,7 @@ public class TopicDailyLogJob {
      *
      * @param forecastEvaluationRepository  the complete-population source for DUST and STORM_SURGE
      * @param forecastScoreRepository       the survivor-only source for INVERSION
-     * @param survivorAtmosphereRepository  the survivor-only source for SNOW
+     * @param slotAtmosphereRepository  the survivor-only source for SNOW
      * @param tideExtremeRepository         stored tide extremes for SPRING_TIDE/KING_TIDE
      * @param tideService                   per-location spring-tide height threshold
      * @param lunarPhaseService             decides the SPRING_TIDE vs KING_TIDE label (never height)
@@ -170,7 +176,7 @@ public class TopicDailyLogJob {
      */
     public TopicDailyLogJob(ForecastEvaluationRepository forecastEvaluationRepository,
             ForecastScoreRepository forecastScoreRepository,
-            SurvivorAtmosphereRepository survivorAtmosphereRepository,
+            SlotAtmosphereRepository slotAtmosphereRepository,
             TideExtremeRepository tideExtremeRepository,
             TideService tideService,
             LunarPhaseService lunarPhaseService,
@@ -183,7 +189,7 @@ public class TopicDailyLogJob {
             Clock clock) {
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.forecastScoreRepository = forecastScoreRepository;
-        this.survivorAtmosphereRepository = survivorAtmosphereRepository;
+        this.slotAtmosphereRepository = slotAtmosphereRepository;
         this.tideExtremeRepository = tideExtremeRepository;
         this.tideService = tideService;
         this.lunarPhaseService = lunarPhaseService;
@@ -301,10 +307,10 @@ public class TopicDailyLogJob {
 
     private void logSnow(LocalDate date) {
         try {
-            List<SurvivorAtmosphereEntity> rows = survivorAtmosphereRepository.findInDateRange(date, date);
+            List<SlotAtmosphereEntity> rows = slotAtmosphereRepository.findInDateRange(date, date);
             Map<Long, Reading> byRegion = new LinkedHashMap<>();
 
-            for (SurvivorAtmosphereEntity row : rows) {
+            for (SlotAtmosphereEntity row : rows) {
                 RegionEntity region = regionOf(row.getLocation());
                 if (region == null || region.getId() == null) {
                     continue;

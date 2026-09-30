@@ -30,7 +30,7 @@ import java.util.Optional;
  * was load-bearing: it is what justified the caller swallowing a write failure as harmless. Two
  * live readers have since appeared. {@link com.gregochr.goldenhour.model.ForecastDtoMapper} takes
  * the Claude BLUEBELL rating for the API DTO straight from this table, and
- * {@code SurvivorSignalReader} reads components for the hot-topic surfaces. A lost write is
+ * {@code SlotSignalReader} reads components for the hot-topic surfaces. A lost write is
  * therefore user-visible, not merely an unproven record.
  *
  * <p><b>What it writes</b>, per scored evaluation (location, date, SUNRISE/SUNSET):
@@ -78,7 +78,7 @@ import java.util.Optional;
  * find-or-create-then-overwrite {@link #upsert} shared the identical unordered-write weakness
  * round 12 fixed on {@code cached_evaluation} — a batch delayed past a later cycle's own
  * evaluation of the same slot could overwrite the newer component with a stale one, so
- * {@code ForecastDtoMapper}'s BLUEBELL rating and {@code SurvivorSignalReader}'s hot-topic
+ * {@code ForecastDtoMapper}'s BLUEBELL rating and {@code SlotSignalReader}'s hot-topic
  * components could disagree with the cache the Plan card and map already serve for the identical
  * cycle. The fix compares the stored row's {@code pipelineRunId} against the incoming one: since
  * {@link com.gregochr.goldenhour.entity.PipelineRunEntity#getId()} is an autoincrement primary key
