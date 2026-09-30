@@ -9,28 +9,30 @@ import java.time.LocalDate;
 /**
  * The unified hot-topic read surface's composite, for one {@code (location, date, event_type)}.
  *
- * <p>This is the return shape of {@code SurvivorSignalReader} — the ONE read model the survivor-
+ * <p>This is the return shape of {@code SlotSignalReader} — the ONE read model the slot-
  * signal hot-topic detectors consult. It deliberately carries scores and readings as their own
  * correctly-shaped sub-records ({@link Scores}, {@link Readings}) rather than flattening them into
  * one homogeneous row: a flat row would be the single-physical-table sprawl that V107/V108 deleted,
  * wearing a read-model hat. Unified <em>access</em>, correctly-shaped <em>data</em>.
  *
- * <p>⚠️ <b>"Survivor" is historical for the readings half.</b> Backed by two tables —
- * {@code forecast_score} (scores) and {@code survivor_atmosphere} (readings). {@code forecast_score}
- * remains genuinely survivor-only: it is written only from a completed Claude evaluation.
- * {@code survivor_atmosphere} is not, since the "record conditions for every place" change (Phase 1,
- * owner decision 2026-09-30) — it now holds a row for every candidate whose weather was fetched,
- * triaged-out and Gate-4-stood-down candidates included. A composite with populated
- * {@link Readings} and {@code EMPTY} {@link Scores} is therefore an ordinary, expected shape, not a
- * survivor by construction.
+ * <p>⚠️ <b>This class and {@code SlotSignalReader} were named {@code SurvivorSignals}/
+ * {@code SurvivorSignalReader} until V159 (2026-09-30) — "survivor" was already historical for the
+ * readings half by then.</b> Backed by two tables — {@code forecast_score} (scores) and
+ * {@code slot_atmosphere} (readings). {@code forecast_score} remains genuinely survivor-only: it is
+ * written only from a completed Claude evaluation. {@code slot_atmosphere} is not, since the
+ * "record conditions for every place" change (Phase 1, owner decision 2026-09-30) — it now holds a
+ * row for every candidate whose weather was fetched, triaged-out and Gate-4-stood-down candidates
+ * included. A composite with populated {@link Readings} and {@code EMPTY} {@link Scores} is
+ * therefore an ordinary, expected shape, not a survivor by construction — which is exactly why
+ * V159 renamed the class and its reader away from "survivor".
  *
  * @param location  the candidate's location (region fetched, for grouping)
  * @param date      the forecast date
  * @param eventType SUNRISE or SUNSET
- * @param scores    the score-shaped survivor signals (inversion, bluebell), never null
- * @param readings  the reading-shaped survivor signals (aerosol, surge, snow), never null
+ * @param scores    the score-shaped slot signals (inversion, bluebell), never null
+ * @param readings  the reading-shaped slot signals (aerosol, surge, snow), never null
  */
-public record SurvivorSignals(
+public record SlotSignals(
         LocationEntity location,
         LocalDate date,
         TargetType eventType,
@@ -54,7 +56,7 @@ public record SurvivorSignals(
      * lines 204–227 — <em>before {@code fetchWeatherAndTriage} ever runs</em>, and
      * {@code FreshnessProperties.settledHours} defaults to 36 with no horizon cap at T+2 and beyond
      * ({@code FreshnessResolver.horizonCap} returns null there), so a SETTLED forward slot can go
-     * up to 36 hours without a fresh {@code survivor_atmosphere} write at all — the exact gap the
+     * up to 36 hours without a fresh {@code slot_atmosphere} write at all — the exact gap the
      * forward-only design assumed could not happen. Splitting the rule by window direction was
      * therefore the wrong shape: what actually varies is not "forward vs trailing" but "has the
      * calculator scored this slot THIS cycle or not", which both windows can independently answer
@@ -65,7 +67,7 @@ public record SurvivorSignals(
      * also produce a null reading.</b> {@code InversionScoreCalculator.calculate} returns null for
      * an eligible location when required weather inputs are missing (a null dew point or surface
      * temperature), and {@code ForecastDataAugmentor.augmentWithInversionScore} leaves the score
-     * null for an ineligible location too — either way {@code SurvivorAtmosphereWriter} still
+     * null for an ineligible location too — either way {@code SlotAtmosphereWriter} still
      * writes the row this cycle. Without a flag, this method could not tell that authoritative null
      * apart from an absent (never-written-since-the-column-existed) one, and {@code
      * ForecastScoreWriter} leaves a stale INVERSION echo in {@code forecast_score} in place
@@ -101,7 +103,7 @@ public record SurvivorSignals(
     }
 
     /**
-     * Score-shaped survivor signals from {@code forecast_score} — each nullable when that score was
+     * Score-shaped slot signals from {@code forecast_score} — each nullable when that score was
      * not written for the key (ineligible location, out of season, or eval not yet returned).
      *
      * <p>⚠️ <b>{@link #inversion()} is Claude's echo — read only through {@link #effectiveInversionScore()}
@@ -112,7 +114,7 @@ public record SurvivorSignals(
      * production input via that shared helper: it is what {@code effectiveInversionScore()} falls
      * back to whenever {@link Readings#inversionScore()} is null, for EITHER window — a past date
      * whose reading was never written (every pre-V158 row, forever), or a forward date whose
-     * {@code survivor_atmosphere} write has not happened yet this cycle (a region skipped by
+     * {@code slot_atmosphere} write has not happened yet this cycle (a region skipped by
      * {@code BriefingCandidateCollector}'s {@code SKIPPED_CACHED} gate before
      * {@code fetchWeatherAndTriage} ever runs, which can hold for up to 36 hours on a SETTLED
      * region at T+2 or beyond). {@code TopicDailyLogJob}'s future-population log reads
@@ -134,7 +136,7 @@ public record SurvivorSignals(
     }
 
     /**
-     * Reading-shaped survivor signals from {@code survivor_atmosphere} — each nullable (inland has
+     * Reading-shaped slot signals from {@code slot_atmosphere} — each nullable (inland has
      * no surge, summer has no snow).
      *
      * @param aerosolOpticalDepth aerosol optical depth, or null
@@ -161,7 +163,7 @@ public record SurvivorSignals(
      *                                  exists for a completed evaluation. ⚠️ Never read this field
      *                                  alone to decide "unscored" — always pair it with
      *                                  {@link #inversionScored()}, or use
-     *                                  {@link SurvivorSignals#effectiveInversionScore()} directly
+     *                                  {@link SlotSignals#effectiveInversionScore()} directly
      * @param inversionScored           true when this row's writer ran the calculator's
      *                                  eligibility check THIS cycle, whatever the resulting score —
      *                                  false only for a row written before V158 round 4 added this
@@ -170,7 +172,7 @@ public record SurvivorSignals(
      *                                  ineligible location, or an eligible one the calculator could
      *                                  not score for want of weather inputs) and must not fall back
      *                                  to Claude's echo the way a {@code false} row's does — see
-     *                                  {@link SurvivorSignals#effectiveInversionScore()}'s own
+     *                                  {@link SlotSignals#effectiveInversionScore()}'s own
      *                                  javadoc for the full history (round 4, a Codex P1 against
      *                                  round 3's own unify-onto-one-rule fix)
      */

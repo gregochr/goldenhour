@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -9,7 +9,7 @@ import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.WeatherData;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,15 +31,15 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link SurvivorAtmosphereWriter} — the Stage B submission-time carrier write.
+ * Unit tests for {@link SlotAtmosphereWriter} — the Stage B submission-time carrier write.
  *
- * <p>Verifies the readings captured per survivor, the surge-null inland case, the V158 inversion
+ * <p>Verifies the readings captured per slot, the surge-null inland case, the V158 inversion
  * score (captured when eligible, null when not), latest-wins upsert, and the no-op guards (flag
  * off, HOURLY, null data). The repository is mocked; the real unique-key upsert against the schema
  * is proven by the integration slice.
  */
 @ExtendWith(MockitoExtension.class)
-class SurvivorAtmosphereWriterTest {
+class SlotAtmosphereWriterTest {
 
     private static final LocalDate DATE = LocalDate.of(2026, 6, 21);
     private static final TargetType SUNSET = TargetType.SUNSET;
@@ -48,10 +48,10 @@ class SurvivorAtmosphereWriterTest {
     private static final long LOCATION_ID = 7L;
 
     @Mock
-    private SurvivorAtmosphereRepository repository;
+    private SlotAtmosphereRepository repository;
 
-    private SurvivorAtmosphereWriter writer(boolean enabled) {
-        return new SurvivorAtmosphereWriter(repository, CLOCK, enabled);
+    private SlotAtmosphereWriter writer(boolean enabled) {
+        return new SlotAtmosphereWriter(repository, CLOCK, null, enabled);
     }
 
     private static LocationEntity location() {
@@ -71,7 +71,7 @@ class SurvivorAtmosphereWriterTest {
                 new BigDecimal("0.42"), 600);
     }
 
-    /** Inland survivor: weather + aerosol populated, no surge (tide null). */
+    /** Inland slot: weather + aerosol populated, no surge (tide null). */
     private static AtmosphericData inlandData() {
         return new AtmosphericData("Cat Bells", DATE.atTime(20, 30), SUNSET,
                 null, weather(), aerosol(), null, null, null, null, null);
@@ -92,6 +92,36 @@ class SurvivorAtmosphereWriterTest {
     }
 
     @Test
+    @DisplayName("legacy photocast.survivor-atmosphere.write key wins over the renamed "
+            + "photocast.slot-atmosphere.write key when a deployment's config still sets it")
+    void legacyKey_whenSet_overridesRenamedKey() {
+        SlotAtmosphereWriter legacyOffNewOn = new SlotAtmosphereWriter(repository, CLOCK, false, true);
+        legacyOffNewOn.write(location(), DATE, SUNSET, inlandData());
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("legacy key unset (null) → the renamed key alone decides")
+    void legacyKeyUnset_renamedKeyDecides() {
+        SlotAtmosphereWriter legacyUnsetNewOff = new SlotAtmosphereWriter(repository, CLOCK, null, false);
+        legacyUnsetNewOff.write(location(), DATE, SUNSET, inlandData());
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("legacy key true wins over a renamed key of false — old config keeps writing")
+    void legacyKeyTrue_winsOverRenamedKeyFalse() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+        SlotAtmosphereWriter legacyOnNewOff = new SlotAtmosphereWriter(repository, CLOCK, true, false);
+
+        legacyOnNewOff.write(location(), DATE, SUNSET, inlandData());
+
+        SlotAtmosphereEntity saved = captureSave();
+        assertThat(saved.getLocation().getId()).isEqualTo(LOCATION_ID);
+    }
+
+    @Test
     @DisplayName("HOURLY event → writes nothing (wildlife comfort is never colour-evaluated)")
     void hourly_writesNothing() {
         writer(true).write(location(), DATE, TargetType.HOURLY, inlandData());
@@ -106,14 +136,14 @@ class SurvivorAtmosphereWriterTest {
     }
 
     @Test
-    @DisplayName("inland survivor: captures aerosol/snow/freezing/humidity; surge_risk_level null")
+    @DisplayName("inland slot: captures aerosol/snow/freezing/humidity; surge_risk_level null")
     void inland_capturesReadings_noSurge() {
         when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
                 .thenReturn(Optional.empty());
 
         writer(true).write(location(), DATE, SUNSET, inlandData());
 
-        SurvivorAtmosphereEntity saved = captureSave();
+        SlotAtmosphereEntity saved = captureSave();
         assertThat(saved.getLocation().getId()).isEqualTo(LOCATION_ID);
         assertThat(saved.getEvaluationDate()).isEqualTo(DATE);
         assertThat(saved.getEventType()).isEqualTo(SUNSET);
@@ -139,7 +169,7 @@ class SurvivorAtmosphereWriterTest {
     }
 
     @Test
-    @DisplayName("coastal survivor: surge_risk_level carries the breakdown's risk level name")
+    @DisplayName("coastal slot: surge_risk_level carries the breakdown's risk level name")
     void coastal_capturesSurgeRiskLevel() {
         when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
                 .thenReturn(Optional.empty());
@@ -149,7 +179,7 @@ class SurvivorAtmosphereWriterTest {
 
         writer(true).write(location(), DATE, SUNSET, coastal);
 
-        SurvivorAtmosphereEntity saved = captureSave();
+        SlotAtmosphereEntity saved = captureSave();
         assertThat(saved.getSurgeRiskLevel()).isEqualTo("HIGH");
     }
 
@@ -201,7 +231,7 @@ class SurvivorAtmosphereWriterTest {
 
         writer(true).write(location(), DATE, SUNSET, inlandData());
 
-        SurvivorAtmosphereEntity saved = captureSave();
+        SlotAtmosphereEntity saved = captureSave();
         assertThat(saved.getInversionScore()).isNull();
         assertThat(saved.isInversionScored()).isTrue();
     }
@@ -209,7 +239,7 @@ class SurvivorAtmosphereWriterTest {
     @Test
     @DisplayName("upsert: an existing row for the key is updated in place (latest submission wins)")
     void upsert_updatesExistingRow() {
-        SurvivorAtmosphereEntity existing = new SurvivorAtmosphereEntity();
+        SlotAtmosphereEntity existing = new SlotAtmosphereEntity();
         existing.setLocation(location());
         existing.setEvaluationDate(DATE);
         existing.setEventType(SUNSET);
@@ -224,9 +254,9 @@ class SurvivorAtmosphereWriterTest {
         assertThat(existing.getEvaluatedAt()).isEqualTo(FIXED);
     }
 
-    private SurvivorAtmosphereEntity captureSave() {
-        ArgumentCaptor<SurvivorAtmosphereEntity> captor =
-                ArgumentCaptor.forClass(SurvivorAtmosphereEntity.class);
+    private SlotAtmosphereEntity captureSave() {
+        ArgumentCaptor<SlotAtmosphereEntity> captor =
+                ArgumentCaptor.forClass(SlotAtmosphereEntity.class);
         verify(repository).save(captor.capture());
         return captor.getValue();
     }

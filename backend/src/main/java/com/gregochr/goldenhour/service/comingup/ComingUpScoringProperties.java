@@ -41,7 +41,7 @@ public class ComingUpScoringProperties {
      * existing tide-in-light (60) and surge-peak-in-light (90) constants, scoped to
      * standing-condition peaks only. Not read arithmetically by {@code ComingUpConditionsBuilder
      * #passesPeakGate} yet: no forward candidate carries a clock time to compare against a light
-     * window's edges, so the v1 proxy is SUNRISE/SUNSET typing — every survivor row keyed to
+     * window's edges, so the v1 proxy is SUNRISE/SUNSET typing — every slot row keyed to
      * either is already inside a light window by construction (D5: "in v1 the gate cannot fail").
      * This is the documented bound that proxy stands in for, routed through config rather than a
      * hardcoded literal, ready for P7's {@code landed_on_window} to make it a real comparison.

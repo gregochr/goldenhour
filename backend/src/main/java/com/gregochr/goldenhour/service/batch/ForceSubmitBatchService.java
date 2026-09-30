@@ -42,11 +42,11 @@ import java.util.List;
  * how a UTC-anchored range here came to persist {@code days_ahead = -1} (and, via
  * {@code ConfidenceDeriver.fromHorizon}, a {@code confidence} of HIGH) for a day already over.
  *
- * <p>⚠️ <b>Neither entry point writes a {@code survivor_atmosphere} reading itself.</b>
+ * <p>⚠️ <b>Neither entry point writes a {@code slot_atmosphere} reading itself.</b>
  * {@code fetchWeatherAndTriage} records the candidate's atmospheric readings as part of its own
  * body, before either triage check it runs — the one seam every caller of that method shares (see
  * its own javadoc) — so a JFDI or force-submit slot is recorded exactly like a scheduled cycle's,
- * with no extra call needed here. This class briefly carried its own {@code SurvivorAtmosphereWriter}
+ * with no extra call needed here. This class briefly carried its own {@code SlotAtmosphereWriter}
  * dependency and two explicit write calls (one per entry point); both were removed once the seam
  * moved inside {@code fetchWeatherAndTriage}, to avoid writing the same fetch twice.
  */

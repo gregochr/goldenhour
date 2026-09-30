@@ -2,7 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
@@ -22,7 +22,7 @@ import java.util.Set;
  * metres ({@code 2 cm}) at the hour nearest the solar event. When the existing briefing mist signal
  * co-occurs (humidity above {@link BriefingVerdictEvaluator#HUMIDITY_MARGINAL}% on a snowy row), the
  * topic is enriched into the SNOW_MIST variant rather than emitted as a separate topic. Reads
- * through the {@link SurvivorSignalReader} (the unified read surface, {@code survivor_atmosphere}).
+ * through the {@link SlotSignalReader} (the unified read surface, {@code slot_atmosphere}).
  * ⚠️ Since the "record conditions for every place" change (Phase 1, owner decision 2026-09-30) this
  * fires for every candidate whose weather was fetched, not only the ones that went on to a Claude
  * rating — snow lying is a fact about the ground, independent of whether the sky above it is worth
@@ -65,18 +65,18 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     /** The italic cue when mist sits over snow but the air is not (provably) sub-zero. */
     private static final String MIST_NOTE = "mist over lying snow — soft, flat light";
 
-    private final SurvivorSignalReader survivorSignalReader;
+    private final SlotSignalReader slotSignalReader;
     private final SolarEventFreshness freshness;
 
     /**
      * Constructs a {@code SnowFreshHotTopicStrategy}.
      *
-     * @param survivorSignalReader the unified survivor read model (snow depth + humidity readings)
+     * @param slotSignalReader the unified slot read model (snow depth + humidity readings)
      * @param freshness            shared filter dropping sunrise/sunset events already past
      */
-    public SnowFreshHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
+    public SnowFreshHotTopicStrategy(SlotSignalReader slotSignalReader,
             SolarEventFreshness freshness) {
-        this.survivorSignalReader = survivorSignalReader;
+        this.slotSignalReader = slotSignalReader;
         this.freshness = freshness;
     }
 
@@ -112,22 +112,22 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SurvivorSignals> snowy = survivorSignalReader.read(fromDate, toDate).stream()
+        List<SlotSignals> snowy = slotSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> isFreshSnow(s.readings().snowDepthMetres()))
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
-                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .sorted(Comparator.comparing(SlotSignals::date))
                 .toList();
         if (snowy.isEmpty()) {
             return List.of();
         }
 
         List<LocalDate> days = snowy.stream()
-                .map(SurvivorSignals::date)
+                .map(SlotSignals::date)
                 .distinct()
                 .sorted()
                 .toList();
         Set<String> regions = new LinkedHashSet<>();
-        for (SurvivorSignals s : snowy) {
+        for (SlotSignals s : snowy) {
             String region = s.location() != null && s.location().getRegion() != null
                     ? s.location().getRegion().getName() : null;
             if (region != null) {
@@ -136,7 +136,7 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
         }
 
         String dayLabel = DayLabels.joinRelative(days, fromDate);
-        List<SurvivorSignals> mistyRows = snowy.stream()
+        List<SlotSignals> mistyRows = snowy.stream()
                 .filter(s -> isMisty(s.readings().humidity()))
                 .toList();
         List<String> regionList = new ArrayList<>(regions);
@@ -151,9 +151,9 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
      * deepest-snow row (the most striking lie); the snow line is its freezing-level altitude —
      * "depth and snow-line height tell you where it will actually stick".
      */
-    private HotTopic buildFreshTopic(List<SurvivorSignals> snowy, LocalDate date, String dayLabel,
+    private HotTopic buildFreshTopic(List<SlotSignals> snowy, LocalDate date, String dayLabel,
             List<String> regions) {
-        SurvivorSignals rep = deepest(snowy);
+        SlotSignals rep = deepest(snowy);
         List<HotTopicFact> facts = new ArrayList<>();
         facts.add(HotTopicFact.metric("depth", depthCm(rep) + " cm"));
         Double freezingLevel = rep.readings().freezingLevelMetres();
@@ -181,9 +181,9 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
      * plain "fresh snow with mist" pill, claiming only the humidity we can see. The representative is
      * the deepest misty row so its temperature/humidity are a coherent single-location snapshot.
      */
-    private HotTopic buildMistTopic(List<SurvivorSignals> mistyRows, LocalDate date, String dayLabel,
+    private HotTopic buildMistTopic(List<SlotSignals> mistyRows, LocalDate date, String dayLabel,
             List<String> regions) {
-        SurvivorSignals rep = deepest(mistyRows);
+        SlotSignals rep = deepest(mistyRows);
         Double temperature = rep.readings().temperatureCelsius();
         boolean hoarFrost = temperature != null && temperature < 0;
 
@@ -223,13 +223,13 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     }
 
     /** The deepest-snow row in a non-empty list (all rows carry a depth by construction). */
-    private static SurvivorSignals deepest(List<SurvivorSignals> rows) {
+    private static SlotSignals deepest(List<SlotSignals> rows) {
         return rows.stream()
                 .max(Comparator.comparingDouble(s -> s.readings().snowDepthMetres()))
                 .orElseThrow();
     }
 
-    private static long depthCm(SurvivorSignals s) {
+    private static long depthCm(SlotSignals s) {
         return Math.round(s.readings().snowDepthMetres() * 100);
     }
 }

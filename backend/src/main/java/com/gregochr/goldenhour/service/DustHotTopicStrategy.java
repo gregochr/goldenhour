@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -17,8 +17,8 @@ import java.util.List;
  * proxy exactly (see {@code isDustEnhanced} in the map popup): elevated AOD
  * (&gt; {@value #AOD_THRESHOLD}) or surface dust (&gt; {@value #DUST_THRESHOLD} µg/m³),
  * with PM2.5 low enough (&lt; {@value #PM25_THRESHOLD} µg/m³, or absent) to rule out
- * smoke/haze. Reads the aerosol readings through the {@link SurvivorSignalReader} (the unified
- * read surface, {@code survivor_atmosphere}). ⚠️ <b>Since the "record conditions for every place"
+ * smoke/haze. Reads the aerosol readings through the {@link SlotSignalReader} (the unified
+ * read surface, {@code slot_atmosphere}). ⚠️ <b>Since the "record conditions for every place"
  * change (Phase 1, owner decision 2026-09-30) this fires for every candidate whose weather was
  * fetched, not only the ones Claude went on to score</b> — a place whose sky is forecast blocked
  * can still carry a dust chip, deliberately (the "what is happening" question this detector
@@ -44,20 +44,20 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
     /** PM2.5 in µg/m³ below which smoke/haze is ruled out (mirrors the dust badge). */
     static final BigDecimal PM25_THRESHOLD = new BigDecimal("35");
 
-    private final SurvivorSignalReader survivorSignalReader;
+    private final SlotSignalReader slotSignalReader;
     private final SolarEventFreshness freshness;
     private final DustFactsBuilder dustFactsBuilder;
 
     /**
      * Constructs a {@code DustHotTopicStrategy}.
      *
-     * @param survivorSignalReader the unified survivor read model (aerosol readings)
+     * @param slotSignalReader the unified slot read model (aerosol readings)
      * @param freshness            shared filter dropping sunrise/sunset events already past
      * @param dustFactsBuilder     builds the enriched AOD + afterglow fact line
      */
-    public DustHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
+    public DustHotTopicStrategy(SlotSignalReader slotSignalReader,
             SolarEventFreshness freshness, DustFactsBuilder dustFactsBuilder) {
-        this.survivorSignalReader = survivorSignalReader;
+        this.slotSignalReader = slotSignalReader;
         this.freshness = freshness;
         this.dustFactsBuilder = dustFactsBuilder;
     }
@@ -66,7 +66,7 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
      * Returns true when aerosol readings indicate dust-enhanced skies, replicating the
      * Saharan dust badge proxy exactly: elevated AOD or surface dust rules dust in, while
      * low (or absent) PM2.5 rules smoke/haze out. {@link #detect} applies this proxy to each
-     * survivor composite's aerosol readings; isolating it here keeps it boundary-unit-testable
+     * slot composite's aerosol readings; isolating it here keeps it boundary-unit-testable
      * and consistent with the frontend badge.
      *
      * @param aod  aerosol optical depth, or null
@@ -91,11 +91,11 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<SurvivorSignals> dusty = survivorSignalReader.read(fromDate, toDate).stream()
+        List<SlotSignals> dusty = slotSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> isDustEnhanced(s.readings().aerosolOpticalDepth(),
                         s.readings().dust(), s.readings().pm25()))
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
-                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .sorted(Comparator.comparing(SlotSignals::date))
                 .toList();
         if (dusty.isEmpty()) {
             return List.of();

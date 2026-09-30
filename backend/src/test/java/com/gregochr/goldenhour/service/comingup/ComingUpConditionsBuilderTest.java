@@ -4,7 +4,7 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
@@ -16,8 +16,8 @@ import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository;
-import com.gregochr.goldenhour.service.SurvivorSignalReader;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
+import com.gregochr.goldenhour.service.SlotSignalReader;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,7 +66,7 @@ class ComingUpConditionsBuilderTest {
     @Mock
     private ForecastScoreRepository forecastScoreRepository;
     @Mock
-    private SurvivorAtmosphereRepository survivorAtmosphereRepository;
+    private SlotAtmosphereRepository slotAtmosphereRepository;
 
     private ComingUpConditionsBuilder builder;
 
@@ -78,15 +78,15 @@ class ComingUpConditionsBuilderTest {
                 .thenReturn(List.of());
         lenient().when(forecastScoreRepository.findComponentsByType(any(), any(), any()))
                 .thenReturn(List.of());
-        lenient().when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
+        lenient().when(slotAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
         // No tide history/stats by default — every run scores the cold-start default unless a test
         // stubs otherwise.
         lenient().when(tideRunBuilder.peakRange(anyList(), anyList())).thenReturn(Optional.empty());
 
-        SurvivorSignalReader survivorSignalReader =
-                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
+        SlotSignalReader slotSignalReader =
+                new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
         builder = new ComingUpConditionsBuilder(locationRepository, tideRunBuilder, tideRunPeakHistory,
-                tideService, forecastEvaluationRepository, survivorSignalReader, new ComingUpScoringProperties());
+                tideService, forecastEvaluationRepository, slotSignalReader, new ComingUpScoringProperties());
     }
 
     private static AlmanacEvent tideEvent(LocalDate start, LocalDate end, String type) {
@@ -432,15 +432,15 @@ class ComingUpConditionsBuilderTest {
         zeroWindow.setPeakLightWindowMinutes(0);
         ComingUpConditionsBuilder zeroWindowBuilder = new ComingUpConditionsBuilder(locationRepository,
                 tideRunBuilder, tideRunPeakHistory, tideService, forecastEvaluationRepository,
-                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository),
+                new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository),
                 zeroWindow);
 
         assertThat(zeroWindowBuilder.passesPeakGate(TargetType.SUNRISE)).isFalse();
     }
 
-    private static SurvivorAtmosphereEntity survivorAtmosphere(LocationEntity location, LocalDate date,
+    private static SlotAtmosphereEntity slotAtmosphere(LocationEntity location, LocalDate date,
             TargetType eventType, double aod) {
-        SurvivorAtmosphereEntity entity = new SurvivorAtmosphereEntity();
+        SlotAtmosphereEntity entity = new SlotAtmosphereEntity();
         entity.setLocation(location);
         entity.setEvaluationDate(date);
         entity.setEventType(eventType);
@@ -453,13 +453,13 @@ class ComingUpConditionsBuilderTest {
             + "excludes it and a lower-AOD SUNRISE candidate wins instead")
     void peakGateExcludesHourlyEndToEnd() {
         LocationEntity dusty = LocationEntity.builder().id(2L).name("Dusty Point").lat(1.0).lon(1.0).build();
-        // Only the dust condition's forward peak reads through SurvivorSignalReader without a
+        // Only the dust condition's forward peak reads through SlotSignalReader without a
         // second, redundant type filter (unlike inversion's, which also hardcodes SUNRISE) — so
         // this is the one path where passesPeakGate is the sole thing standing between an HOURLY
         // wildlife-comfort reading and a fabricated dust peak.
-        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE)).thenReturn(List.of(
-                survivorAtmosphere(dusty, TODAY.plusDays(1), TargetType.HOURLY, 0.9),
-                survivorAtmosphere(dusty, TODAY.plusDays(1), TargetType.SUNRISE, 0.55)));
+        when(slotAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE)).thenReturn(List.of(
+                slotAtmosphere(dusty, TODAY.plusDays(1), TargetType.HOURLY, 0.9),
+                slotAtmosphere(dusty, TODAY.plusDays(1), TargetType.SUNRISE, 0.55)));
 
         ComingUpCondition dust = builder.build(TODAY, List.of(), List.of()).get(1);
 
@@ -471,8 +471,8 @@ class ComingUpConditionsBuilderTest {
     //
     // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158; unified in
     // round 3 after a second Codex P1 against PR #948) reads BOTH the trailing occurrence list AND
-    // the forward peak through SurvivorSignals.effectiveInversionScore() — the calculator's
-    // survivor_atmosphere.inversion_score when present, else Claude's forecast_score echo, for
+    // the forward peak through SlotSignals.effectiveInversionScore() — the calculator's
+    // slot_atmosphere.inversion_score when present, else Claude's forecast_score echo, for
     // either window. Round 2 kept the forward peak calculator-only on the assumption a forward
     // slot is upserted every cycle; that assumption was found wrong (BriefingCandidateCollector's
     // SKIPPED_CACHED gate can hold a SETTLED region's write back up to 36h before
@@ -480,11 +480,11 @@ class ComingUpConditionsBuilderTest {
     // calculator-only" from "trailing = falls back" — every fixture from here on mixes readings
     // and forecast_score rows freely, and the SAME assertions apply to both windows.
 
-    /** A SCORED survivor_atmosphere row carrying a real calculator reading — the shape a fresh
+    /** A SCORED slot_atmosphere row carrying a real calculator reading — the shape a fresh
      * write produces when the calculator found something to report. */
-    private static SurvivorAtmosphereEntity inversionReading(LocationEntity location, LocalDate date,
+    private static SlotAtmosphereEntity inversionReading(LocationEntity location, LocalDate date,
             double score) {
-        SurvivorAtmosphereEntity entity = new SurvivorAtmosphereEntity();
+        SlotAtmosphereEntity entity = new SlotAtmosphereEntity();
         entity.setLocation(location);
         entity.setEvaluationDate(date);
         entity.setEventType(TargetType.SUNRISE);
@@ -493,12 +493,12 @@ class ComingUpConditionsBuilderTest {
         return entity;
     }
 
-    /** A FRESH survivor_atmosphere row whose calculator legitimately found nothing to report —
+    /** A FRESH slot_atmosphere row whose calculator legitimately found nothing to report —
      * scored=true, but the reading itself is null (an ineligible location, or an eligible one
      * missing weather inputs). V158 round 4: this null is authoritative and must not fall back to
      * a stale forecast_score echo. */
-    private static SurvivorAtmosphereEntity scoredNullReading(LocationEntity location, LocalDate date) {
-        SurvivorAtmosphereEntity entity = new SurvivorAtmosphereEntity();
+    private static SlotAtmosphereEntity scoredNullReading(LocationEntity location, LocalDate date) {
+        SlotAtmosphereEntity entity = new SlotAtmosphereEntity();
         entity.setLocation(location);
         entity.setEvaluationDate(date);
         entity.setEventType(TargetType.SUNRISE);
@@ -506,11 +506,11 @@ class ComingUpConditionsBuilderTest {
         return entity;
     }
 
-    /** A PRE-COLUMN survivor_atmosphere row — written before V158 round 4 added
+    /** A PRE-COLUMN slot_atmosphere row — written before V158 round 4 added
      * {@code inversion_scored} (default {@code false}), so its null reading carries no
      * information and {@code effectiveInversionScore()} correctly falls back to Claude's echo. */
-    private static SurvivorAtmosphereEntity preColumnReading(LocationEntity location, LocalDate date) {
-        SurvivorAtmosphereEntity entity = new SurvivorAtmosphereEntity();
+    private static SlotAtmosphereEntity preColumnReading(LocationEntity location, LocalDate date) {
+        SlotAtmosphereEntity entity = new SlotAtmosphereEntity();
         entity.setLocation(location);
         entity.setEvaluationDate(date);
         entity.setEventType(TargetType.SUNRISE);
@@ -533,14 +533,14 @@ class ComingUpConditionsBuilderTest {
             + "the (complete-population) window shows")
     void inversionRarityNeverUpgrades() {
         LocationEntity fell = LocationEntity.builder().id(3L).name("Fell").lat(1.0).lon(1.0).build();
-        List<SurvivorAtmosphereEntity> rows = List.of(
+        List<SlotAtmosphereEntity> rows = List.of(
                 inversionReading(fell, TODAY.minusDays(50), 9.0), inversionReading(fell, TODAY.minusDays(40), 9.0),
                 inversionReading(fell, TODAY.minusDays(30), 9.0), inversionReading(fell, TODAY.minusDays(20), 9.0),
                 inversionReading(fell, TODAY.minusDays(10), 9.0), inversionReading(fell, TODAY.minusDays(5), 9.0));
         // Answers by actual date range rather than a blanket any(): the builder makes two calls
         // (the trailing 60-day historical read, and the forward T+0..T+3 peak read), and a
         // date-blind stub would let a historical row leak into the forward peak.
-        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+        when(slotAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
             return rows.stream()
@@ -570,10 +570,10 @@ class ComingUpConditionsBuilderTest {
     }
 
     // ── Owner decision (2026-09-29): hot topics / Coming up apply no stability-skip or triage
-    //    retraction at all — SurvivorSignalReader.read() is unfiltered, so every read this class
+    //    retraction at all — SlotSignalReader.read() is unfiltered, so every read this class
     //    makes through it (trailing history AND both forward peaks) is unaffected. This reverses
-    //    the brief window (#940, commit c6e14cc8) in which SurvivorSignalReaderTest and this class
-    //    briefly had a shared stability-skip dependency; see SurvivorSignalReader's class javadoc.
+    //    the brief window (#940, commit c6e14cc8) in which SlotSignalReaderTest and this class
+    //    briefly had a shared stability-skip dependency; see SlotSignalReader's class javadoc.
 
     @Test
     @DisplayName("the trailing inversion history keeps a strong occurrence however long ago its row "
@@ -582,12 +582,12 @@ class ComingUpConditionsBuilderTest {
     void buildInversion_trailingHistoryKeepsOccurrenceRegardlessOfHowStaleItsEvaluationIs() {
         LocationEntity fell = LocationEntity.builder().id(7L).name("Old Fell").lat(1.0).lon(1.0).build();
         LocalDate strongMorning = TODAY.minusDays(10);
-        SurvivorAtmosphereEntity row = inversionReading(fell, strongMorning, 9.0);
+        SlotAtmosphereEntity row = inversionReading(fell, strongMorning, 9.0);
         // An arbitrarily old evaluation instant — under the reverted #940 extension this would have
         // been retracted by almost any stability skip recorded after it. There is no such lookup any
         // more, so this must have no bearing on whether the occurrence survives.
         row.setEvaluatedAt(Instant.parse("2020-01-01T00:00:00Z"));
-        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+        when(slotAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
             return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
@@ -602,20 +602,20 @@ class ComingUpConditionsBuilderTest {
 
     @Test
     @DisplayName("both forward-peak reads — dust's AOD and inversion's score, both from the SAME "
-            + "survivor_atmosphere row — return their occurrence with no regard to when the "
+            + "slot_atmosphere row — return their occurrence with no regard to when the "
             + "underlying row was evaluated; neither is filtered by a stability skip or a triage "
             + "decision")
     void bothForwardPeaks_unaffectedByStaleEvaluation() {
         LocationEntity dustyFell = LocationEntity.builder().id(8L).name("Dusty Fell").lat(1.0).lon(1.0).build();
         LocalDate peakDate = TODAY.plusDays(1);
-        // One row carries both readings, exactly as survivor_atmosphere's grain (location, date,
+        // One row carries both readings, exactly as slot_atmosphere's grain (location, date,
         // event_type) does in production — two separate rows for the same key would make the
         // reader's per-key accumulator silently drop one of them.
-        SurvivorAtmosphereEntity row = survivorAtmosphere(dustyFell, peakDate, TargetType.SUNRISE, 0.55);
+        SlotAtmosphereEntity row = slotAtmosphere(dustyFell, peakDate, TargetType.SUNRISE, 0.55);
         row.setInversionScore(9.0);
         row.setInversionScored(true);
         row.setEvaluatedAt(Instant.parse("2020-01-01T00:00:00Z"));
-        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
+        when(slotAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
                 .thenReturn(List.of(row));
 
         List<ComingUpCondition> conditions = builder.build(TODAY, List.of(), List.of());
@@ -640,8 +640,8 @@ class ComingUpConditionsBuilderTest {
     void buildInversion_preColumnRowWithStrongEcho_isListedWithEchoScore() {
         LocationEntity fell = LocationEntity.builder().id(10L).name("Echo Fell").lat(1.0).lon(1.0).build();
         LocalDate strongMorning = TODAY.minusDays(10);
-        SurvivorAtmosphereEntity nullReading = preColumnReading(fell, strongMorning);
-        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+        SlotAtmosphereEntity nullReading = preColumnReading(fell, strongMorning);
+        when(slotAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
             return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
@@ -670,8 +670,8 @@ class ComingUpConditionsBuilderTest {
     void buildInversion_freshNullReadingWithStrongEcho_notListed() {
         LocationEntity fell = LocationEntity.builder().id(15L).name("Fresh Null Fell").lat(1.0).lon(1.0).build();
         LocalDate strongMorning = TODAY.minusDays(10);
-        SurvivorAtmosphereEntity freshNullReading = scoredNullReading(fell, strongMorning);
-        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+        SlotAtmosphereEntity freshNullReading = scoredNullReading(fell, strongMorning);
+        when(slotAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
             return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
@@ -696,8 +696,8 @@ class ComingUpConditionsBuilderTest {
     void buildInversion_bothPresentDisagreeing_readingWins() {
         LocationEntity fell = LocationEntity.builder().id(11L).name("Both Fell").lat(1.0).lon(1.0).build();
         LocalDate strongMorning = TODAY.minusDays(10);
-        SurvivorAtmosphereEntity reading = inversionReading(fell, strongMorning, 10.0);
-        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+        SlotAtmosphereEntity reading = inversionReading(fell, strongMorning, 10.0);
+        when(slotAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
             return !strongMorning.isBefore(from) && !strongMorning.isAfter(to)
@@ -725,8 +725,8 @@ class ComingUpConditionsBuilderTest {
     void buildInversion_preColumnRowWithWeakEcho_notListed() {
         LocationEntity fell = LocationEntity.builder().id(12L).name("Weak Fell").lat(1.0).lon(1.0).build();
         LocalDate weakMorning = TODAY.minusDays(10);
-        SurvivorAtmosphereEntity nullReading = preColumnReading(fell, weakMorning);
-        when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
+        SlotAtmosphereEntity nullReading = preColumnReading(fell, weakMorning);
+        when(slotAtmosphereRepository.findInDateRange(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
             return !weakMorning.isBefore(from) && !weakMorning.isAfter(to)
@@ -755,8 +755,8 @@ class ComingUpConditionsBuilderTest {
     void buildInversion_forwardPeak_preColumnRowWithStrongEcho_isShown() {
         LocationEntity fell = LocationEntity.builder().id(13L).name("Forward Fell").lat(1.0).lon(1.0).build();
         LocalDate peakDate = TODAY.plusDays(1);
-        SurvivorAtmosphereEntity nullReading = preColumnReading(fell, peakDate);
-        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
+        SlotAtmosphereEntity nullReading = preColumnReading(fell, peakDate);
+        when(slotAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
                 .thenReturn(List.of(nullReading));
         when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
                 .thenAnswer(invocation -> {
@@ -781,8 +781,8 @@ class ComingUpConditionsBuilderTest {
         LocationEntity fell = LocationEntity.builder().id(16L).name("Forward Fresh Null Fell")
                 .lat(1.0).lon(1.0).build();
         LocalDate peakDate = TODAY.plusDays(1);
-        SurvivorAtmosphereEntity freshNullReading = scoredNullReading(fell, peakDate);
-        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
+        SlotAtmosphereEntity freshNullReading = scoredNullReading(fell, peakDate);
+        when(slotAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
                 .thenReturn(List.of(freshNullReading));
         when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
                 .thenAnswer(invocation -> {
@@ -803,8 +803,8 @@ class ComingUpConditionsBuilderTest {
     void buildInversion_forwardPeak_readingWinsOverDisagreeingEcho() {
         LocationEntity fell = LocationEntity.builder().id(14L).name("Forward Both Fell").lat(1.0).lon(1.0).build();
         LocalDate peakDate = TODAY.plusDays(1);
-        SurvivorAtmosphereEntity reading = inversionReading(fell, peakDate, 10.0);
-        when(survivorAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
+        SlotAtmosphereEntity reading = inversionReading(fell, peakDate, 10.0);
+        when(slotAtmosphereRepository.findInDateRange(TODAY, LAST_PLAN_DATE))
                 .thenReturn(List.of(reading));
         when(forecastScoreRepository.findComponentsByType(eq(ForecastType.INVERSION.getId()), any(), any()))
                 .thenAnswer(invocation -> {

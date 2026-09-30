@@ -9,7 +9,7 @@ import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SeasonalWindow;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
  * Unit tests for {@link BluebellHotTopicStrategy}.
  *
  * <p>The strategy reads the Claude {@code BLUEBELL} component scores (1–5) through the unified
- * {@link SurvivorSignalReader} (a non-null {@code scores().bluebell()} self-selects bluebell sites);
+ * {@link SlotSignalReader} (a non-null {@code scores().bluebell()} self-selects bluebell sites);
  * thresholds are HOT_TOPIC &ge; 3, EXPANDED &ge; 2, high-priority &ge; 4.
  */
 @ExtendWith(MockitoExtension.class)
@@ -46,7 +46,7 @@ class BluebellHotTopicStrategyTest {
     private static final LocalDate OUT_OF_SEASON = LocalDate.of(2026, 6, 15);
 
     @Mock
-    private SurvivorSignalReader survivorSignalReader;
+    private SlotSignalReader slotSignalReader;
 
     @Mock
     private SolarEventFreshness freshness;
@@ -55,7 +55,7 @@ class BluebellHotTopicStrategyTest {
 
     @BeforeEach
     void setUp() {
-        strategy = new BluebellHotTopicStrategy(survivorSignalReader,
+        strategy = new BluebellHotTopicStrategy(slotSignalReader,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"), freshness);
     }
 
@@ -79,13 +79,13 @@ class BluebellHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(OUT_OF_SEASON, OUT_OF_SEASON.plusDays(3));
 
         assertThat(topics).isEmpty();
-        verifyNoInteractions(survivorSignalReader);
+        verifyNoInteractions(slotSignalReader);
     }
 
     @Test
-    @DisplayName("returns empty list when no bluebell-scored survivors exist")
+    @DisplayName("returns empty list when no bluebell-scored rows exist")
     void detect_noBluebellSignals_returnsEmpty() {
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON.plusDays(2))).thenReturn(List.of());
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON.plusDays(2))).thenReturn(List.of());
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON.plusDays(2));
 
@@ -100,7 +100,7 @@ class BluebellHotTopicStrategyTest {
         LocationEntity location = LocationEntity.builder()
                 .id(1L).name("Rannerdale Knotts").lat(54.556).lon(-3.292)
                 .locationType(Set.of(LocationType.BLUEBELL)).region(region).enabled(true).build();
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 4, "Misty and still")));
         when(freshness.isAhead(any(LocationEntity.class), eq(IN_SEASON), eq(TargetType.SUNRISE)))
                 .thenReturn(false);
@@ -124,7 +124,7 @@ class BluebellHotTopicStrategyTest {
                 .enabled(true)
                 .build();
 
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 4, "Misty and still")));
         stubAhead(IN_SEASON);
 
@@ -143,7 +143,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("returns empty list when best bluebell rating < 3")
     void detect_poorConditions_returnsEmpty() {
         LocationEntity location = simpleLocation(1L, "Test Location");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 2, null)));
         stubAhead(IN_SEASON);
 
@@ -156,7 +156,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("excellent conditions (rating >= 4) get priority 1")
     void detect_excellentConditions_priority1() {
         LocationEntity location = simpleLocation(1L, "Rannerdale");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 5, null)));
         stubAhead(IN_SEASON);
 
@@ -170,7 +170,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("workable conditions (rating 3) get priority 3")
     void detect_goodConditions_priority3() {
         LocationEntity location = simpleLocation(1L, "Allen Banks");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 3, null)));
         stubAhead(IN_SEASON);
 
@@ -186,7 +186,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("fact line shows the conditions rating + note, and NEVER a bloom/peak claim")
     void detect_factLine_conditionsAndNote_noBloomClaim() {
         LocationEntity location = simpleLocation(1L, "Rannerdale");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 5, "Misty and still")));
         stubAhead(IN_SEASON);
 
@@ -208,7 +208,7 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc1 = regionLocation(1L, "Rannerdale", "Lake District");
         LocationEntity loc2 = regionLocation(2L, "Allen Banks", "Northumberland");
         LocationEntity loc3 = regionLocation(3L, "Middling Wood", "Lake District");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON)).thenReturn(List.of(
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON)).thenReturn(List.of(
                 bluebellSignal(loc1, IN_SEASON, 5, null),
                 bluebellSignal(loc2, IN_SEASON, 4, null),
                 bluebellSignal(loc3, IN_SEASON, 3, null)));   // below the 4+ tier — not counted
@@ -225,7 +225,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("rating 2 does NOT emit a hot topic (threshold is >= 3)")
     void detect_score2_doesNotEmit() {
         LocationEntity location = simpleLocation(1L, "Test");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 2, null)));
         stubAhead(IN_SEASON);
 
@@ -238,7 +238,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("rating 3 gets priority 3 (boundary: < 4 threshold)")
     void detect_score3_priority3() {
         LocationEntity location = simpleLocation(1L, "Test");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 3, null)));
         stubAhead(IN_SEASON);
 
@@ -252,7 +252,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("rating 4 gets priority 1 (boundary: >= 4 threshold)")
     void detect_score4_priority1() {
         LocationEntity location = simpleLocation(1L, "Test");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 4, null)));
         stubAhead(IN_SEASON);
 
@@ -271,7 +271,7 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc2 = regionLocation(2L, "L2", "Lake District");
         LocationEntity loc3 = regionLocation(3L, "L3", "North York Moors");
 
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
                         bluebellSignal(loc1, IN_SEASON, 5, null),
                         bluebellSignal(loc2, IN_SEASON, 4, null),
@@ -291,7 +291,7 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc2 = regionLocation(2L, "L2", "Lake District");
 
         // deliberately supply low-then-high to confirm sorting is by score, not input order.
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
                         bluebellSignal(loc2, IN_SEASON, 3, null),
                         bluebellSignal(loc1, IN_SEASON, 5, null)));
@@ -309,7 +309,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("day label is 'today' when evaluation date equals fromDate")
     void detect_evaluationOnFromDate_detailContainsToday() {
         LocationEntity location = simpleLocation(1L, "Test");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 4, "Misty")));
         stubAhead(IN_SEASON);
 
@@ -323,7 +323,7 @@ class BluebellHotTopicStrategyTest {
     void detect_evaluationOnFromDatePlusOne_detailContainsTomorrow() {
         LocalDate tomorrow = IN_SEASON.plusDays(1);
         LocationEntity location = simpleLocation(1L, "Test");
-        when(survivorSignalReader.read(IN_SEASON, tomorrow))
+        when(slotSignalReader.read(IN_SEASON, tomorrow))
                 .thenReturn(List.of(bluebellSignal(location, tomorrow, 4, null)));
         stubAhead(tomorrow);
 
@@ -338,7 +338,7 @@ class BluebellHotTopicStrategyTest {
         // IN_SEASON = 2026-04-25 (Saturday), plusDays(2) = 2026-04-27 (Monday)
         LocalDate monday = IN_SEASON.plusDays(2);
         LocationEntity location = simpleLocation(1L, "Test");
-        when(survivorSignalReader.read(IN_SEASON, monday))
+        when(slotSignalReader.read(IN_SEASON, monday))
                 .thenReturn(List.of(bluebellSignal(location, monday, 4, null)));
         stubAhead(monday);
 
@@ -350,13 +350,13 @@ class BluebellHotTopicStrategyTest {
     // ── Read-model interaction ────────────────────────────────────────────────
 
     @Test
-    @DisplayName("reads the survivor model over the requested date range")
+    @DisplayName("reads the slot model over the requested date range")
     void detect_readsReaderWithDateRange() {
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON.plusDays(3))).thenReturn(List.of());
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON.plusDays(3))).thenReturn(List.of());
 
         strategy.detect(IN_SEASON, IN_SEASON.plusDays(3));
 
-        verify(survivorSignalReader).read(IN_SEASON, IN_SEASON.plusDays(3));
+        verify(slotSignalReader).read(IN_SEASON, IN_SEASON.plusDays(3));
     }
 
     // ── expandedDetail tests ──────────────────────────────────────────────────
@@ -370,7 +370,7 @@ class BluebellHotTopicStrategyTest {
                 .id(1L).name("Rannerdale Knotts").lat(54.5).lon(-3.2)
                 .region(region).bluebellExposure(BluebellExposure.WOODLAND).enabled(true).build();
 
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(loc, IN_SEASON, 4, "Misty and still")));
         stubAhead(IN_SEASON);
 
@@ -390,7 +390,7 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc1 = regionLocation(1L, "Rannerdale", "Lake District");
         LocationEntity loc2 = regionLocation(2L, "Allen Banks", "Northumberland");
 
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
                         bluebellSignal(loc1, IN_SEASON, 4, null),
                         bluebellSignal(loc2, IN_SEASON, 1, null)));
@@ -409,7 +409,7 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc1 = regionLocation(1L, "Low Scorer", "Lake District");
         LocationEntity loc2 = regionLocation(2L, "High Scorer", "Lake District");
 
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
                         bluebellSignal(loc1, IN_SEASON, 3, null),
                         bluebellSignal(loc2, IN_SEASON, 5, null)));
@@ -429,7 +429,7 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc1 = regionLocation(1L, "Second", "Lake District");
         LocationEntity loc2 = regionLocation(2L, "First", "Lake District");
 
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
                         bluebellSignal(loc1, IN_SEASON, 3, null),
                         bluebellSignal(loc2, IN_SEASON, 5, null)));
@@ -446,7 +446,7 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("bluebellMetrics bestScore matches highest rating")
     void detect_expandedDetail_bluebellMetricsBestScoreCorrect() {
         LocationEntity loc = regionLocation(1L, "Test", "Lake District");
-        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(bluebellSignal(loc, IN_SEASON, 5, null)));
         stubAhead(IN_SEASON);
 
@@ -468,20 +468,20 @@ class BluebellHotTopicStrategyTest {
     }
 
     // ── owner decision (2026-09-29): no retraction of any kind, end to end through a REAL
-    //    SurvivorSignalReader ────────────────────────────────────────────────────────────────
+    //    SlotSignalReader ────────────────────────────────────────────────────────────────
 
     @Test
     @DisplayName("a bluebell component is served as a hot topic however long ago it was evaluated, "
             + "and however the pipeline has since decided to treat this slot's RATING — hot topics "
             + "answer 'what is happening', not 'is it worth going' (owner decision, 2026-09-29). "
-            + "End to end through a real SurvivorSignalReader, not a mocked one — replaces the "
+            + "End to end through a real SlotSignalReader, not a mocked one — replaces the "
             + "retraction test #940/c6e14cc8 added, which this decision reverses")
     void detect_bluebellComponentServedRegardlessOfLaterPipelineDecisions_emitsTopic() {
         com.gregochr.goldenhour.repository.ForecastScoreRepository forecastScoreRepository =
                 org.mockito.Mockito.mock(com.gregochr.goldenhour.repository.ForecastScoreRepository.class);
-        com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository survivorAtmosphereRepository =
+        com.gregochr.goldenhour.repository.SlotAtmosphereRepository slotAtmosphereRepository =
                 org.mockito.Mockito.mock(
-                        com.gregochr.goldenhour.repository.SurvivorAtmosphereRepository.class);
+                        com.gregochr.goldenhour.repository.SlotAtmosphereRepository.class);
 
         LocationEntity location = simpleLocation(1L, "Rannerdale Knotts");
         com.gregochr.goldenhour.entity.ForecastScoreEntity bluebellRow =
@@ -494,7 +494,7 @@ class BluebellHotTopicStrategyTest {
         bluebellRow.setSummary("Misty and still");
         // An arbitrarily old evaluation instant — under the reverted #940 extension a stability
         // skip recorded almost any time after this would have retracted the row. There is no such
-        // lookup on this path any more (SurvivorSignalReader has no disposition/stability-skip
+        // lookup on this path any more (SlotSignalReader has no disposition/stability-skip
         // dependency at all), so this must have no bearing on whether the topic is emitted.
         bluebellRow.setEvaluatedAt(java.time.Instant.parse("2020-01-01T00:00:00Z"));
         when(forecastScoreRepository.findComponentsByType(
@@ -503,11 +503,11 @@ class BluebellHotTopicStrategyTest {
         when(forecastScoreRepository.findComponentsByType(
                 com.gregochr.goldenhour.entity.ForecastType.INVERSION.getId(), IN_SEASON, IN_SEASON))
                 .thenReturn(List.of());
-        when(survivorAtmosphereRepository.findInDateRange(IN_SEASON, IN_SEASON)).thenReturn(List.of());
+        when(slotAtmosphereRepository.findInDateRange(IN_SEASON, IN_SEASON)).thenReturn(List.of());
         when(freshness.isAhead(location, IN_SEASON, TargetType.SUNRISE)).thenReturn(true);
 
-        SurvivorSignalReader realReader =
-                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository);
+        SlotSignalReader realReader =
+                new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
         BluebellHotTopicStrategy realStrategy = new BluebellHotTopicStrategy(realReader,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"), freshness);
 
@@ -531,10 +531,10 @@ class BluebellHotTopicStrategyTest {
                 .id(id).name(name).lat(54.0).lon(-3.0).region(region).enabled(true).build();
     }
 
-    private static SurvivorSignals bluebellSignal(LocationEntity location, LocalDate date,
+    private static SlotSignals bluebellSignal(LocationEntity location, LocalDate date,
             int score, String summary) {
-        return new SurvivorSignals(location, date, TargetType.SUNRISE,
-                new SurvivorSignals.Scores(null, null, score, summary),
-                SurvivorSignals.Readings.EMPTY);
+        return new SlotSignals(location, date, TargetType.SUNRISE,
+                new SlotSignals.Scores(null, null, score, summary),
+                SlotSignals.Readings.EMPTY);
     }
 }

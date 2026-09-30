@@ -25,17 +25,18 @@ import java.time.LocalDate;
  * One candidate's pre-evaluation atmospheric readings — the readings half of the unified
  * hot-topic read surface (V115), counterpart to {@link ForecastScoreEntity} (the scores half).
  *
- * <p>⚠️ <b>"Survivor" in this class's name is historical — a rename is pending, not done here.</b>
- * Through 2026-09-30 a row existed only when a candidate survived weather triage and the Gate 4
- * stability gate. The "record conditions for every place" change (Phase 1, owner decision
- * 2026-09-30) reversed that: a row is now written for every candidate whose weather was fetched
- * this cycle, whatever the later triage verdict or Gate 4 decision — a place stood down for cloud
- * can still carry a dust, snow or storm-surge reading. See {@code SurvivorAtmosphereWriter}'s own
- * javadoc for exactly which dispositions carry a row and which do not.
+ * <p>⚠️ <b>This class and its table were named {@code SurvivorAtmosphereEntity}/{@code
+ * survivor_atmosphere} until V159 (2026-09-30) — "survivor" was already historical by then and the
+ * rename is this migration.</b> Through 2026-09-29 a row existed only when a candidate survived
+ * weather triage and the Gate 4 stability gate. The "record conditions for every place" change
+ * (Phase 1, owner decision 2026-09-30) reversed that: a row is now written for every candidate
+ * whose weather was fetched this cycle, whatever the later triage verdict or Gate 4 decision — a
+ * place stood down for cloud can still carry a dust, snow or storm-surge reading. See {@code
+ * SlotAtmosphereWriter}'s own javadoc for exactly which dispositions carry a row and which do not.
  *
  * <p>Grain is {@code (location, evaluation_date, event_type)}. The nightly pipeline
  * re-evaluates the same key across cycles, so the writer UPSERTs against
- * {@code uq_survivor_atmosphere} — latest submission wins, matching {@code forecast_score} and
+ * {@code uq_slot_atmosphere} — latest submission wins, matching {@code forecast_score} and
  * {@code cached_evaluation} semantics.
  *
  * <p>All readings are nullable — inland locations have no surge, summer has no snow. The
@@ -43,21 +44,21 @@ import java.time.LocalDate;
  * the {@code SNOW_MIST} variant.
  */
 @Entity
-@Table(name = "survivor_atmosphere",
+@Table(name = "slot_atmosphere",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_survivor_atmosphere",
+                name = "uq_slot_atmosphere",
                 columnNames = {"location_id", "evaluation_date", "event_type"}),
-        indexes = @Index(name = "idx_survivor_atmosphere_date", columnList = "evaluation_date"))
+        indexes = @Index(name = "idx_slot_atmosphere_date", columnList = "evaluation_date"))
 @Getter
 @Setter
 @NoArgsConstructor
-public class SurvivorAtmosphereEntity {
+public class SlotAtmosphereEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** The survivor location this atmospheric snapshot belongs to. */
+    /** The location this atmospheric snapshot belongs to. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "location_id", nullable = false)
     private LocationEntity location;
@@ -132,7 +133,7 @@ public class SurvivorAtmosphereEntity {
      * {@code forecast_score} echo the way an absent (pre-column, {@code scored = false}) row does,
      * or a stale STRONG rating from a previous cycle would be revived after the current data no
      * longer supports it (Claude's echo is left in place indefinitely by {@code ForecastScoreWriter}
-     * whenever a later evaluation carries no score of its own). {@code SurvivorAtmosphereWriter}
+     * whenever a later evaluation carries no score of its own). {@code SlotAtmosphereWriter}
      * sets this {@code true} on every write, with a score or with a null one alike.
      */
     @Column(name = "inversion_scored", nullable = false)

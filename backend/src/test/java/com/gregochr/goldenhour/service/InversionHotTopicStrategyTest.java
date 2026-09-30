@@ -5,7 +5,7 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,9 +26,9 @@ import static org.mockito.Mockito.when;
  *
  * <p>Round 3 of Phase 2 "record conditions for every place" (owner decision 2026-09-30, a Codex P1
  * against PR #948's second cut) moved this detector onto
- * {@link SurvivorSignals#effectiveInversionScore()} — the ONE shared rule: the calculator's
- * {@link SurvivorSignals.Readings#inversionScore()} when {@link SurvivorSignals.Readings#inversionScored()}
- * is true, else Claude's {@link SurvivorSignals.Scores#inversion()} echo.
+ * {@link SlotSignals#effectiveInversionScore()} — the ONE shared rule: the calculator's
+ * {@link SlotSignals.Readings#inversionScore()} when {@link SlotSignals.Readings#inversionScored()}
+ * is true, else Claude's {@link SlotSignals.Scores#inversion()} echo.
  *
  * <p>⚠️ <b>Round 4 (a further Codex P1) REVERSES round 3's own flip a second time, for a narrower
  * case.</b> Round 3 made a null reading with a strong echo fire — correct for a genuinely UNSCORED
@@ -55,7 +55,7 @@ class InversionHotTopicStrategyTest {
     private static final LocalDate TO = FROM.plusDays(3);
 
     @Mock
-    private SurvivorSignalReader survivorSignalReader;
+    private SlotSignalReader slotSignalReader;
 
     @Mock
     private SolarEventFreshness freshness;
@@ -64,7 +64,7 @@ class InversionHotTopicStrategyTest {
 
     @BeforeEach
     void setUp() {
-        strategy = new InversionHotTopicStrategy(survivorSignalReader, freshness);
+        strategy = new InversionHotTopicStrategy(slotSignalReader, freshness);
     }
 
     /** Keeps each given morning ahead of the freshness cutoff. Stubbed per-test (only the tests that
@@ -82,16 +82,16 @@ class InversionHotTopicStrategyTest {
     }
 
     /**
-     * A SUNRISE survivor composite carrying an inversion score in {@link SurvivorSignals.Readings}
+     * A SUNRISE slot composite carrying an inversion score in {@link SlotSignals.Readings}
      * — the shape the writer now produces for any row this detector admits.
      */
-    private static SurvivorSignals signal(LocalDate date, String regionName, double inversionScore) {
+    private static SlotSignals signal(LocalDate date, String regionName, double inversionScore) {
         return signalAt(date, regionName, inversionScore, TargetType.SUNRISE);
     }
 
-    /** A survivor composite for a specific solar event, carrying a SCORED inversion reading —
+    /** A slot composite for a specific solar event, carrying a SCORED inversion reading —
      * the shape a fresh write produces when the calculator found something to report. */
-    private static SurvivorSignals signalAt(LocalDate date, String regionName,
+    private static SlotSignals signalAt(LocalDate date, String regionName,
             double inversionScore, TargetType eventType) {
         LocationEntity location = new LocationEntity();
         if (regionName != null) {
@@ -99,16 +99,16 @@ class InversionHotTopicStrategyTest {
             region.setName(regionName);
             location.setRegion(region);
         }
-        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
+        SlotSignals.Readings readings = new SlotSignals.Readings(
                 null, null, null, null, null, null, null, null, null, null, null,
                 inversionScore, true);
-        return new SurvivorSignals(location, date, eventType, SurvivorSignals.Scores.EMPTY, readings);
+        return new SlotSignals(location, date, eventType, SlotSignals.Scores.EMPTY, readings);
     }
 
     /** A SUNRISE row from BEFORE the {@code inversion_scored} column existed — {@code scored} is
      * false, so its only inversion evidence is Claude's {@code Scores} echo. Exercises
      * {@code effectiveInversionScore()}'s fallback arm. */
-    private static SurvivorSignals signalScoresOnly(LocalDate date, String regionName,
+    private static SlotSignals signalScoresOnly(LocalDate date, String regionName,
             int scoresInversion) {
         return signalBoth(date, regionName, false, null, scoresInversion);
     }
@@ -119,11 +119,11 @@ class InversionHotTopicStrategyTest {
      * "the calculator looked at this slot" are two separate facts since round 4 (a fresh row can
      * legitimately carry a null reading and still be {@code scored}).
      *
-     * @param scored       {@link SurvivorSignals.Readings#inversionScored()}
+     * @param scored       {@link SlotSignals.Readings#inversionScored()}
      * @param readingScore the calculator's {@code Readings.inversionScore()}, or null
      * @param echoScore    Claude's {@code Scores.inversion()} echo, or null
      */
-    private static SurvivorSignals signalBoth(LocalDate date, String regionName,
+    private static SlotSignals signalBoth(LocalDate date, String regionName,
             boolean scored, Double readingScore, Integer echoScore) {
         LocationEntity location = new LocationEntity();
         if (regionName != null) {
@@ -131,19 +131,19 @@ class InversionHotTopicStrategyTest {
             region.setName(regionName);
             location.setRegion(region);
         }
-        SurvivorSignals.Scores scores = echoScore == null
-                ? SurvivorSignals.Scores.EMPTY
-                : new SurvivorSignals.Scores(echoScore, "STRONG", null, null);
-        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
+        SlotSignals.Scores scores = echoScore == null
+                ? SlotSignals.Scores.EMPTY
+                : new SlotSignals.Scores(echoScore, "STRONG", null, null);
+        SlotSignals.Readings readings = new SlotSignals.Readings(
                 null, null, null, null, null, null, null, null, null, null, null,
                 readingScore, scored);
-        return new SurvivorSignals(location, date, TargetType.SUNRISE, scores, readings);
+        return new SlotSignals(location, date, TargetType.SUNRISE, scores, readings);
     }
 
     @Test
-    @DisplayName("strong inversion survivor fires with priority 2 off the readings surface")
+    @DisplayName("strong inversion row fires with priority 2 off the readings surface")
     void detect_strongInversion_fires() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The North York Moors", 9.0)));
         stubAhead(FROM);
 
@@ -161,7 +161,7 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("fact line shows the derived strength band; no fabricated inversion-top altitude")
     void detect_strongInversion_factLine() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The North York Moors", 9.0)));
         stubAhead(FROM);
 
@@ -176,7 +176,7 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("the strongest of a day's rows drives the score fact")
     void detect_representative_highestScore() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
                 signal(FROM, "The Lake District", 9.0),
                 signal(FROM, "The Lake District", 10.0)));
         stubAhead(FROM);
@@ -196,9 +196,9 @@ class InversionHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("no survivor rows does not fire")
+    @DisplayName("no slot rows does not fire")
     void detect_noRows_doesNotFire() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of());
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
@@ -206,11 +206,11 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("boundary: score 9 fires (STRONG), score 8 does not (MODERATE)")
     void detect_strongBandBoundary() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 8.0)));
         assertThat(strategy.detect(FROM, TO)).isEmpty();
 
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 9.0)));
         stubAhead(FROM);
         assertThat(strategy.detect(FROM, TO)).hasSize(1);
@@ -223,7 +223,7 @@ class InversionHotTopicStrategyTest {
             + "calculator has never reached (round 3's original intent, kept under an accurate "
             + "name in round 4)")
     void detect_preColumnRowWithStrongEcho_fires() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signalScoresOnly(FROM, "The Lake District", 10)));
         stubAhead(FROM);
 
@@ -240,7 +240,7 @@ class InversionHotTopicStrategyTest {
             + "inputs to score), so it must not fall back to a stale echo a later evaluation "
             + "never overwrote (round 4, a Codex P1 against round 3's own fix)")
     void detect_freshNullWithStrongEcho_silent() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signalBoth(FROM, "The Lake District", true, null, 10)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
@@ -251,7 +251,7 @@ class InversionHotTopicStrategyTest {
             + "reading wins whenever the calculator has scored the slot, even when disagreeing "
             + "downward, so this stays silent")
     void detect_readingBelowThreshold_beatsStrongEcho_silent() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signalBoth(FROM, "The Lake District", true, 8.0, 10)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
@@ -261,7 +261,7 @@ class InversionHotTopicStrategyTest {
     @DisplayName("a calculator reading of 10 with no echo at all still fires — the ordinary, "
             + "already-covered case, named explicitly for the effective-score contract")
     void detect_readingPresentEchoNull_fires() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signalBoth(FROM, "The Lake District", true, 10.0, null)));
         stubAhead(FROM);
 
@@ -274,7 +274,7 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("an unscored row with no echo either (no inversion evidence at all) is silent")
     void detect_bothNull_silent() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signalBoth(FROM, "The Lake District", false, null, null)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
@@ -283,7 +283,7 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("today's inversion is suppressed once its sunrise has passed")
     void detect_todayPastSunrise_suppressed() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The North York Moors", 9.0)));
         when(freshness.isAhead(any(LocationEntity.class), eq(FROM), eq(TargetType.SUNRISE)))
                 .thenReturn(false);
@@ -294,7 +294,7 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("past today's sunrise, the topic rolls forward to the next strong morning")
     void detect_todayPastSunrise_rollsForwardToFutureDay() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(
                         signal(FROM, "Today Region", 9.0),
                         signal(FROM.plusDays(1), "Tomorrow Region", 9.0)));
@@ -313,7 +313,7 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("emits one card per non-expired morning, each with that day's regions")
     void detect_multipleDays_onePerDate() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(
                         signal(FROM.plusDays(2), "Northumberland", 9.0),
                         signal(FROM, "The North York Moors", 9.0),
@@ -338,7 +338,7 @@ class InversionHotTopicStrategyTest {
         // A SUNSET inversion row would pass the (stubbed-ahead) freshness check, but must be
         // dropped up front: a sea of clouds is a dawn event, so this-morning's inversion must not
         // linger into the evening on the strength of the still-future sunset.
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signalAt(FROM, "The North York Moors", 9.0, TargetType.SUNSET)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
@@ -347,7 +347,7 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("mixed sunrise + sunset rows: only the sunrise row drives the card")
     void detect_mixedRows_onlySunriseCounts() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(
                         signalAt(FROM, "Sunset Region", 9.0, TargetType.SUNSET),
                         signalAt(FROM, "Sunrise Region", 9.0, TargetType.SUNRISE)));
@@ -363,7 +363,7 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("null region in a strong row is skipped")
     void detect_nullRegion_skipped() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(
                         signal(FROM, null, 9.0),
                         signal(FROM, "The North York Moors", 9.0)));

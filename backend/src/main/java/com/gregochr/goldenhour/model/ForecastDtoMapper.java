@@ -58,7 +58,7 @@ public class ForecastDtoMapper {
      * @param marineWaveRepository    source of coastal sea-state (Hs) for the DTO
      * @param evaluationViewService   source of the stability-skip lookup that retracts a BLUEBELL
      *                                rating a nightly Gate 4 skip has superseded (see
-     *                                {@code SurvivorSignalReader}'s javadoc for the same rule
+     *                                {@code SlotSignalReader}'s javadoc for the same rule
      *                                applied to the hot-topic read path)
      */
     public ForecastDtoMapper(LunarPhaseService lunarPhaseService, SolarService solarService,
@@ -308,7 +308,7 @@ public class ForecastDtoMapper {
     /**
      * Loads the whole window's stability-skip instants in one query, mirroring
      * {@link #preloadWaves}'s shape — so {@link #toDto} can retract a stale BLUEBELL component with
-     * a map lookup instead of a per-row query, exactly as {@code SurvivorSignalReader} does for the
+     * a map lookup instead of a per-row query, exactly as {@code SlotSignalReader} does for the
      * hot-topic read path (see that class's javadoc for why a component score is evidence like a
      * rating, and is retracted by the same nightly Gate 4 skip the same way).
      *
@@ -339,7 +339,7 @@ public class ForecastDtoMapper {
     /**
      * Whether a BLUEBELL component row must be treated as absent because a nightly Gate 4 stability
      * skip stands against its slot and postdates it — the same rule and the same low-level
-     * primitive ({@code EvaluationViewService.isRetractedByStabilitySkip}) {@code SurvivorSignalReader}
+     * primitive ({@code EvaluationViewService.isRetractedByStabilitySkip}) {@code SlotSignalReader}
      * applies to the identical {@code forecast_score} row on the hot-topic read path.
      *
      * @param row            the BLUEBELL component row
@@ -450,7 +450,7 @@ public class ForecastDtoMapper {
                         ForecastType.BLUEBELL, loc.getId(), entity.getTargetDate(),
                         entity.getTargetType()).orElse(null);
                 // A nightly Gate 4 stability skip retracts this component exactly as it retracts a
-                // cached_evaluation/forecast_evaluation rating — see SurvivorSignalReader's javadoc.
+                // cached_evaluation/forecast_evaluation rating — see SlotSignalReader's javadoc.
                 // bluebellRow's own evaluatedAt, not entity.getForecastRunAt(): the two rows are
                 // written by different passes and can carry different instants for the same slot.
                 if (bluebellRow != null && !isBluebellRetracted(bluebellRow, entity.getLocationName(),

@@ -78,8 +78,8 @@ import java.util.Set;
  * is untouched by this gate (scored unconditionally, exactly as {@code BriefingEvaluationService}'s
  * javadoc explains is safe), and {@code api_call_log} is written unconditionally too, via
  * {@link #persistBatchLog}/{@link #persistSyncLog}, so cost accounting for a superseded response is
- * complete even though its rating reaches no sink. {@code survivor_atmosphere} needs no gate here at
- * all: {@code SurvivorAtmosphereWriter.write} is called only from {@code ForecastTaskCollector} (the
+ * complete even though its rating reaches no sink. {@code slot_atmosphere} needs no gate here at
+ * all: {@code SlotAtmosphereWriter.write} is called only from {@code ForecastTaskCollector} (the
  * batch collection phase, before any batch is even submitted) and {@code ForecastService} (the
  * synchronous engine's own pre-Claude-call point) — never from this class — so a superseded RESULT
  * has no bearing on it; it captures measured weather at collection time, not Claude's opinion of it,
