@@ -1,5 +1,9 @@
 package com.gregochr.goldenhour.service.batch;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -20,6 +24,7 @@ import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,6 +33,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.time.Clock;
@@ -101,6 +107,8 @@ class ScheduledBatchEvaluationServiceTest {
             java.time.Instant.parse("2026-04-14T12:00:00Z"), java.time.ZoneOffset.UTC);
 
     private ScheduledBatchEvaluationService service;
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger serviceLogger;
 
     @BeforeEach
     void setUp() {
@@ -113,6 +121,16 @@ class ScheduledBatchEvaluationServiceTest {
                 locationRepository, auroraProperties, dynamicSchedulerService,
                 evaluationService, forecastTaskCollector, dispositionService,
                 jobRunService, CLOCK);
+
+        serviceLogger = (Logger) LoggerFactory.getLogger(ScheduledBatchEvaluationService.class);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogAppender() {
+        serviceLogger.detachAppender(logAppender);
     }
 
     // ── registerJobTargets ───────────────────────────────────────────────────
@@ -338,6 +356,120 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("submitForecastBatch: a successful bucket logs [BATCH DIAG] Submitted at WARN "
+            + "with the batch id, and the trailing summary reports 1/1 buckets submitted")
+    void submitForecastBatch_successfulBucket_logsSubmittedWithBatchId() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(), List.of(),
+                        List.of(), List.of(), List.of(), List.of()));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(7L, "msgbatch_honest_ok", 1));
+
+        service.submitForecastBatch();
+
+        assertThat(logAppender.list)
+                .filteredOn(event -> event.getFormattedMessage().startsWith("[BATCH DIAG]"))
+                .anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                    assertThat(event.getFormattedMessage())
+                            .startsWith("[BATCH DIAG] Submitted 1 near-term inland requests "
+                                    + "(batchId=msgbatch_honest_ok)");
+                })
+                .noneSatisfy(event -> assertThat(event.getFormattedMessage())
+                        .contains("NOT submitted"));
+
+        assertThat(logAppender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.INFO);
+            assertThat(event.getFormattedMessage()).contains("submitted 1/1 buckets");
+        });
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: a bucket whose submission failed logs [BATCH DIAG] NOT "
+            + "submitted at ERROR rather than the WARN \"Submitted\" line — the 2026-09-29 "
+            + "incident's dishonest log")
+    void submitForecastBatch_failedBucket_logsNotSubmittedAtError() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(), List.of(),
+                        List.of(), List.of(), List.of(), List.of()));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(EvaluationHandle.empty());
+
+        service.submitForecastBatch();
+
+        assertThat(logAppender.list)
+                .filteredOn(event -> event.getFormattedMessage().startsWith("[BATCH DIAG]"))
+                .anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+                    assertThat(event.getFormattedMessage())
+                            .startsWith("[BATCH DIAG] NOT submitted 1 near-term inland requests "
+                                    + "(submission failed)");
+                })
+                .noneSatisfy(event -> assertThat(event.getFormattedMessage())
+                        .contains("Submitted 1 near-term inland"));
+
+        assertThat(logAppender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.INFO);
+            assertThat(event.getFormattedMessage()).contains("submitted 0/1 buckets");
+        });
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: a partial failure (one bucket ok, one fails) reports "
+            + "1/2 buckets submitted in the trailing summary")
+    void submitForecastBatch_partialFailure_reportsPartialBucketCount() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(nearCoastalTask),
+                        List.of(), List.of(), List.of(), List.of(), List.of()));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(7L, "msgbatch_partial_ok", 1))
+                .thenReturn(EvaluationHandle.empty());
+
+        service.submitForecastBatch();
+
+        assertThat(logAppender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.INFO);
+            assertThat(event.getFormattedMessage())
+                    .contains("total 2 requests")
+                    .contains("submitted 1/2 buckets");
+        });
+    }
+
+    @Test
     @DisplayName("submitScheduledBatchForRegions: empty collector result → returns null")
     void submitScheduledBatchForRegions_collectorEmpty_returnsNull() {
         when(forecastTaskCollector.collectRegionFilteredBatches(any()))
@@ -368,6 +500,38 @@ class ScheduledBatchEvaluationServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.batchId()).isEqualTo("msgbatch_admin");
         verify(evaluationService).submit(any(List.class), eq(BatchTriggerSource.ADMIN));
+    }
+
+    @Test
+    @DisplayName("submitScheduledBatchForRegions: a bucket that HAD tasks but failed to submit "
+            + "logs \"(failed)\", never \"(empty)\" — that reading was indistinguishable from a "
+            + "bucket with no tasks at all")
+    void submitScheduledBatchForRegions_oneBucketFails_logsFailedNotEmpty() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectRegionFilteredBatches(any()))
+                .thenReturn(new RegionFilteredBatchTasks(
+                        List.of(inlandTask), List.of(coastalTask)));
+        // Inland is submitted first in the production code, and fails; coastal succeeds.
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(EvaluationHandle.empty())
+                .thenReturn(new EvaluationHandle(null, "msgbatch_coastal_ok", 1));
+
+        service.submitScheduledBatchForRegions(List.of(1L));
+
+        assertThat(logAppender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.INFO);
+            assertThat(event.getFormattedMessage()).isEqualTo(
+                    "[BATCH DIAG] Admin batch split: 1 inland in (failed), "
+                            + "1 coastal in msgbatch_coastal_ok");
+        });
     }
 
     // ── Aurora ───────────────────────────────────────────────────────────────

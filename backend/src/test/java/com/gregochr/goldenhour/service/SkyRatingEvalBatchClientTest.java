@@ -13,6 +13,7 @@ import com.anthropic.models.messages.batches.MessageBatchResult;
 import com.anthropic.models.messages.batches.MessageBatchSucceededResult;
 import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
+import com.gregochr.goldenhour.service.batch.AnthropicBatchClient;
 import com.gregochr.goldenhour.service.evaluation.ClaudeBatchOutcome;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,6 +38,7 @@ class SkyRatingEvalBatchClientTest {
     private AnthropicClient anthropicClient;
     private MessageService messageService;
     private BatchService batchService;
+    private AnthropicBatchClient anthropicBatchClient;
     private SkyRatingEvalBatchClient client;
 
     @BeforeEach
@@ -44,18 +46,19 @@ class SkyRatingEvalBatchClientTest {
         anthropicClient = mock(AnthropicClient.class);
         messageService = mock(MessageService.class);
         batchService = mock(BatchService.class);
+        anthropicBatchClient = mock(AnthropicBatchClient.class);
         when(anthropicClient.messages()).thenReturn(messageService);
         when(messageService.batches()).thenReturn(batchService);
-        client = new SkyRatingEvalBatchClient(anthropicClient);
+        client = new SkyRatingEvalBatchClient(anthropicClient, anthropicBatchClient);
     }
 
     @Test
-    @DisplayName("submit creates the batch and returns its id")
+    @DisplayName("submit creates the batch via AnthropicBatchClient and returns its id")
     void submitReturnsBatchId() {
         MessageBatch batch = mock(MessageBatch.class);
         when(batch.id()).thenReturn("msgbatch_123");
         when(batch.expiresAt()).thenReturn(OffsetDateTime.parse("2026-07-01T00:00:00Z"));
-        when(batchService.create(org.mockito.ArgumentMatchers.any(BatchCreateParams.class)))
+        when(anthropicBatchClient.createBatch(org.mockito.ArgumentMatchers.any(BatchCreateParams.class)))
                 .thenReturn(batch);
 
         String id = client.submit(List.of(mock(BatchCreateParams.Request.class)));

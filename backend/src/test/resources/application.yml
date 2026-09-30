@@ -74,6 +74,17 @@ resilience4j:
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
         exponentialMaxWaitDuration: 30s
+      # Same shape as prod's "anthropic-batch" (AnthropicBatchClient) but with millisecond
+      # backoff — production's 30s/60s/120s would make ForecastBatchPipelineIntegrationTest's
+      # "submission failure" scenario (a persistent 500 from the batch-create endpoint) take
+      # minutes per test run for no extra coverage; the retry COUNT and predicate are what
+      # those tests exercise, not the real-world wait.
+      anthropic-batch:
+        maxAttempts: 4
+        waitDuration: 10ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 50ms
       open-meteo:
         maxAttempts: 3
         waitDuration: 5s

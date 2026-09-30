@@ -25,6 +25,22 @@ public class ResilienceConfig {
     }
 
     /**
+     * Customises the "anthropic-batch" retry instance with {@link BatchSubmitRetryPredicate}.
+     *
+     * <p>Deliberately a separate instance from "anthropic" above: batch creation is a handful of
+     * calls per cycle (see {@code AnthropicBatchClient}), and must not share retry or circuit
+     * breaker state with the per-location synchronous path — which is also why this instance has
+     * no circuit breaker of its own.
+     *
+     * @return a customizer that filters retries to server errors and I/O failures on batch creation
+     */
+    @Bean
+    public RetryConfigCustomizer anthropicBatchRetryCustomizer() {
+        return RetryConfigCustomizer.of("anthropic-batch", builder ->
+                builder.retryOnException(new BatchSubmitRetryPredicate()));
+    }
+
+    /**
      * Customises the "open-meteo" retry instance with {@link TransientHttpErrorPredicate}.
      *
      * @return a customizer that filters retries to HTTP 5xx and 429 errors

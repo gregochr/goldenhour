@@ -396,47 +396,65 @@ public class ScheduledBatchEvaluationService {
         // unconditional (see persistCycleDispositions below) and the empty case
         // gets a disposition-anchor run instead of being discarded.
         Long cycleJobRunId = null;
+        // Counts every non-empty bucket this cycle attempted vs how many actually reached
+        // Anthropic — the honesty fix for the 2026-09-29 incident, where all three buckets
+        // failed to submit but the trailing INFO line below still said "total N requests" as
+        // though every one of them had gone out.
+        int bucketsAttempted = 0;
+        int bucketsSubmitted = 0;
 
         if (!tasks.nearInland().isEmpty()) {
+            bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.nearInland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            logBatchBreakdown(tasks.nearInland(), "near-term inland");
+            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            logBatchBreakdown(tasks.nearInland(), "near-term inland", h);
         }
         if (!tasks.nearCoastal().isEmpty()) {
+            bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.nearCoastal(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            logBatchBreakdown(tasks.nearCoastal(), "near-term coastal");
+            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            logBatchBreakdown(tasks.nearCoastal(), "near-term coastal", h);
         }
         if (!tasks.farInland().isEmpty()) {
+            bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.farInland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            logBatchBreakdown(tasks.farInland(), "far-term inland");
+            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            logBatchBreakdown(tasks.farInland(), "far-term inland", h);
         }
         if (!tasks.farCoastal().isEmpty()) {
+            bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.farCoastal(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            logBatchBreakdown(tasks.farCoastal(), "far-term coastal");
+            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            logBatchBreakdown(tasks.farCoastal(), "far-term coastal", h);
         }
         // Bluebell mini-batch: homogeneous bluebell-prompt tasks submitted as their own batch
         // so the bluebell system prompt caches across requests. Empty out of season.
         if (!tasks.bluebell().isEmpty()) {
+            bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.bluebell(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            logBatchBreakdown(tasks.bluebell(), "bluebell");
+            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            logBatchBreakdown(tasks.bluebell(), "bluebell", h);
         }
         // Woodland mini-batch: same homogeneity argument as bluebell, but year-round. A canopy
         // site is in exactly one of these two buckets on any given date, never both, so neither
         // batch is ever diluted by the other's system prompt.
         if (!tasks.woodland().isEmpty()) {
+            bucketsAttempted++;
             EvaluationHandle h = evaluationService.submit(
                     tasks.woodland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
-            logBatchBreakdown(tasks.woodland(), "woodland");
+            bucketsSubmitted += h.batchId() != null ? 1 : 0;
+            logBatchBreakdown(tasks.woodland(), "woodland", h);
         }
 
         // Persist the cycle's per-candidate accounting UNCONDITIONALLY. This is
@@ -448,13 +466,14 @@ public class ScheduledBatchEvaluationService {
 
         if (!tasks.isEmpty()) {
             LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
-                            + "bluebell {}, woodland {}, total {} requests, pipelineRunId={}",
+                            + "bluebell {}, woodland {}, total {} requests, submitted {}/{} buckets, "
+                            + "pipelineRunId={}",
                     tasks.nearInland().size() + tasks.nearCoastal().size(),
                     tasks.nearInland().size(), tasks.nearCoastal().size(),
                     tasks.farInland().size() + tasks.farCoastal().size(),
                     tasks.farInland().size(), tasks.farCoastal().size(),
                     tasks.bluebell().size(), tasks.woodland().size(),
-                    tasks.totalSize(), pipelineRunId);
+                    tasks.totalSize(), bucketsSubmitted, bucketsAttempted, pipelineRunId);
         }
     }
 
@@ -495,12 +514,19 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
-     * Logs the date/event/region breakdown for a submitted batch.
+     * Logs the date/event/region breakdown for a batch bucket — worded to say plainly whether
+     * the bucket actually reached Anthropic, since a WARN line reading "Submitted N requests"
+     * when {@code evaluationService.submit} had in fact returned an empty handle (2026-09-29:
+     * all three cycle buckets failed with HTTP 500 and this line kept saying "Submitted" anyway)
+     * is worse than no line at all — an operator trusts it.
      *
-     * @param tasks the included tasks for this batch
-     * @param label batch label (e.g. "inland" or "coastal")
+     * @param tasks  the bucket's tasks, whether or not submission succeeded
+     * @param label  batch label (e.g. "inland" or "coastal")
+     * @param handle the result of {@code evaluationService.submit} for this bucket — a non-null
+     *               {@code batchId()} means Anthropic actually accepted the batch
      */
-    private void logBatchBreakdown(List<EvaluationTask.Forecast> tasks, String label) {
+    private void logBatchBreakdown(List<EvaluationTask.Forecast> tasks, String label,
+            EvaluationHandle handle) {
         LocalDate today = ForecastHorizon.today(clock);
 
         String dateBreakdown = tasks.stream()
@@ -532,9 +558,16 @@ public class ScheduledBatchEvaluationService {
                 .map(e -> e.getKey() + "=" + e.getValue())
                 .collect(Collectors.joining(", "));
 
-        LOG.warn("[BATCH DIAG] Submitted {} {} requests — by date: [{}] | by event: [{}] "
-                        + "| by region: [{}]",
-                tasks.size(), label, dateBreakdown, eventBreakdown, regionBreakdown);
+        if (handle != null && handle.batchId() != null) {
+            LOG.warn("[BATCH DIAG] Submitted {} {} requests (batchId={}) — by date: [{}] "
+                            + "| by event: [{}] | by region: [{}]",
+                    tasks.size(), label, handle.batchId(), dateBreakdown, eventBreakdown,
+                    regionBreakdown);
+        } else {
+            LOG.error("[BATCH DIAG] NOT submitted {} {} requests (submission failed) — by date: "
+                            + "[{}] | by event: [{}] | by region: [{}]",
+                    tasks.size(), label, dateBreakdown, eventBreakdown, regionBreakdown);
+        }
     }
 
     /**
@@ -558,13 +591,31 @@ public class ScheduledBatchEvaluationService {
                         : evaluationService.submit(tasks.coastal(), BatchTriggerSource.ADMIN);
 
         LOG.info("[BATCH DIAG] Admin batch split: {} inland in {}, {} coastal in {}",
-                tasks.inland().size(),
-                inlandHandle != null ? inlandHandle.batchId() : "(empty)",
-                tasks.coastal().size(),
-                coastalHandle != null ? coastalHandle.batchId() : "(empty)");
+                tasks.inland().size(), describeAdminBucket(tasks.inland(), inlandHandle),
+                tasks.coastal().size(), describeAdminBucket(tasks.coastal(), coastalHandle));
 
         // Return whichever result succeeded — prefer inland (typically larger)
         return handleToResult(inlandHandle != null ? inlandHandle : coastalHandle);
+    }
+
+    /**
+     * Describes one admin batch-split bucket for the {@code [BATCH DIAG] Admin batch split} log
+     * line — {@code "(empty)"} is only correct when the bucket had no tasks to submit at all; a
+     * bucket that had tasks but whose submission failed (a non-null, empty {@link
+     * EvaluationHandle}) previously logged the same {@code "(empty)"}, indistinguishable from a
+     * bucket that was never attempted.
+     *
+     * @param tasks  the bucket's tasks
+     * @param handle the submission result, or {@code null} when the bucket was empty and
+     *               {@code evaluationService.submit} was never called
+     * @return the batch id, {@code "(empty)"}, or {@code "(failed)"}
+     */
+    private static String describeAdminBucket(List<EvaluationTask.Forecast> tasks,
+            EvaluationHandle handle) {
+        if (tasks.isEmpty()) {
+            return "(empty)";
+        }
+        return handle != null && handle.batchId() != null ? handle.batchId() : "(failed)";
     }
 
     private static BatchSubmitResult handleToResult(

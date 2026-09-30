@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.batch;
 
-import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
@@ -36,21 +35,22 @@ public class BatchSubmissionService {
 
     private static final Logger LOG = LoggerFactory.getLogger(BatchSubmissionService.class);
 
-    private final AnthropicClient anthropicClient;
+    private final AnthropicBatchClient anthropicBatchClient;
     private final ForecastBatchRepository batchRepository;
     private final JobRunService jobRunService;
 
     /**
      * Constructs the submission service.
      *
-     * @param anthropicClient raw Anthropic SDK client for batch API access
-     * @param batchRepository repository for persisting the batch tracking entity
-     * @param jobRunService   service for creating the linked job run record
+     * @param anthropicBatchClient retry-hardened batch creation call (see its own javadoc for
+     *                             why a second, longer-window retry sits on top of the SDK's own)
+     * @param batchRepository      repository for persisting the batch tracking entity
+     * @param jobRunService        service for creating the linked job run record
      */
-    public BatchSubmissionService(AnthropicClient anthropicClient,
+    public BatchSubmissionService(AnthropicBatchClient anthropicBatchClient,
             ForecastBatchRepository batchRepository,
             JobRunService jobRunService) {
-        this.anthropicClient = anthropicClient;
+        this.anthropicBatchClient = anthropicBatchClient;
         this.batchRepository = batchRepository;
         this.jobRunService = jobRunService;
     }
@@ -138,8 +138,9 @@ public class BatchSubmissionService {
 
             // ⚠️ Everything below this line runs AFTER money has been spent. The batch now exists
             // at Anthropic and cannot be recalled, so the ordering of what follows is the whole
-            // recovery story.
-            MessageBatch batch = anthropicClient.messages().batches().create(params);
+            // recovery story. createBatch() itself already retries transient failures (with a
+            // duplicate-batch adoption guard) over a multi-minute window — see AnthropicBatchClient.
+            MessageBatch batch = anthropicBatchClient.createBatch(params);
             Instant expiresAt = batch.expiresAt().toInstant();
 
             // The forecast_batch row is persisted FIRST, before any job-run bookkeeping, because
@@ -194,6 +195,13 @@ public class BatchSubmissionService {
             return new BatchSubmitResult(jobRunId, batch.id(), requests.size());
         } catch (OrphanedBatchException e) {
             throw e;
+        } catch (BatchRetryExhaustedException e) {
+            // The 2026-09-29 incident (three HTTP 500s, one per bucket) failed here every time:
+            // AnthropicBatchClient's own retry window was exhausted (or the first attempt was a
+            // non-retryable error), so nothing was ever submitted for this bucket.
+            LOG.error("{} submission failed after {} attempt(s) (trigger={}): {}",
+                    logPrefix, e.getAttempts(), triggerSource, e.getMessage(), e);
+            return null;
         } catch (Exception e) {
             LOG.error("{} submission failed (trigger={}): {}",
                     logPrefix, triggerSource, e.getMessage(), e);
