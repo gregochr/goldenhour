@@ -19,14 +19,26 @@ import java.util.Map;
 /**
  * The unified survivor read model — the ONE read path the survivor-signal hot-topic detectors use.
  *
+ * <p>⚠️ <b>The name is historical — a rename is pending, not done here.</b> It joins two tables that
+ * were both "survivor-only" through 2026-09-30, but the "record conditions for every place" change
+ * (Phase 1, owner decision 2026-09-30) moved {@code survivor_atmosphere} off that rule: it now holds
+ * a row for every candidate a batch cycle, a hand-started admin run, or the synchronous engine
+ * fetched weather for, triaged-out and Gate-4-stood-down candidates included (see
+ * {@code SurvivorAtmosphereWriter}'s own javadoc). {@code forecast_score} (the scores half —
+ * inversion, bluebell) is UNCHANGED by that phase and remains genuinely survivor-only: it is written
+ * only from a completed Claude evaluation, so a triaged or stability-skipped slot never has one
+ * (bluebell stays scored-only by design — no deterministic substitute for the Claude rating exists;
+ * cloud inversion's own deterministic substitute is planned, separately, as Phase 2, with its own
+ * migration). A composite built from a readings-only key therefore has {@link SurvivorSignals.Scores}
+ * {@code EMPTY} and populated {@link SurvivorSignals.Readings} — never a zero score and never an
+ * exception — exactly like any other single-surface key (see {@link #read}'s own javadoc and this
+ * class's test suite).
+ *
  * <p>"Unified" is a single READ surface over correctly-shaped STORAGE, not a single physical table.
- * It joins the two survivor-only tables — {@code forecast_score} (scores: inversion, bluebell) and
- * {@code survivor_atmosphere} (readings: dust, surge, snow) — by their shared
- * {@code (location, date, event_type)} key into one {@link SurvivorSignals} composite per key.
- * Scores and readings stay in their own sub-records (never flattened), and every composite is a
- * survivor by construction (both backing tables are survivor-only), so a detector reading through
- * this model structurally cannot sample the triaged rejects that broke the legacy
- * {@code forecast_evaluation} reads.
+ * It joins {@code forecast_score} (scores: inversion, bluebell) and {@code survivor_atmosphere}
+ * (readings: dust, surge, snow) by their shared {@code (location, date, event_type)} key into one
+ * {@link SurvivorSignals} composite per key. Scores and readings stay in their own sub-records
+ * (never flattened).
  *
  * <p>⚠️ <b>The owner's two-question rule (2026-09-29) — hot topics answer a different question from
  * a rating, and a stability skip or a triage stand-down must never silence the first.</b> "What is

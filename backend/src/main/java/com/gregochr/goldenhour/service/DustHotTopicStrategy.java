@@ -18,9 +18,11 @@ import java.util.List;
  * (&gt; {@value #AOD_THRESHOLD}) or surface dust (&gt; {@value #DUST_THRESHOLD} µg/m³),
  * with PM2.5 low enough (&lt; {@value #PM25_THRESHOLD} µg/m³, or absent) to rule out
  * smoke/haze. Reads the aerosol readings through the {@link SurvivorSignalReader} (the unified
- * survivor surface), so the proxy fires off the SURVIVOR population — the good forecasts Claude
- * scored — not the triaged rejects the legacy {@code forecast_evaluation} read sampled. Makes no
- * external API calls.
+ * read surface, {@code survivor_atmosphere}). ⚠️ <b>Since the "record conditions for every place"
+ * change (Phase 1, owner decision 2026-09-30) this fires for every candidate whose weather was
+ * fetched, not only the ones Claude went on to score</b> — a place whose sky is forecast blocked
+ * can still carry a dust chip, deliberately (the "what is happening" question this detector
+ * answers is independent of "is this place worth the drive"). Makes no external API calls.
  */
 @Component
 public class DustHotTopicStrategy implements HotTopicStrategy {

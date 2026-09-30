@@ -21,10 +21,19 @@ import java.util.Locale;
  * such row in the window reaches the STRONG band — score &ge; {@value #STRONG_SCORE_INCLUSIVE},
  * mirroring {@code PromptBuilder.InversionPotential.fromScore} (9–10 = STRONG).
  *
- * <p>Reads through the {@link SurvivorSignalReader} (the unified survivor surface, backed by
+ * <p>Reads through the {@link SurvivorSignalReader} (the unified read surface, backed by
  * {@code forecast_score}), NOT {@code forecast_evaluation}: nightly the latter holds only the
  * triaged-out rejects, so the legacy {@code inversion_potential} read was inert in production
- * (the evaluated survivors route here). Makes no external API calls.
+ * (the evaluated slots route here). Makes no external API calls.
+ *
+ * <p>⚠️ <b>Unaffected by the "record conditions for every place" change (Phase 1, owner decision
+ * 2026-09-30).</b> That change made {@code survivor_atmosphere} readings (dust, snow, surge)
+ * available for every candidate whose weather was fetched, but this detector reads
+ * {@code forecast_score}, which is written only from a completed Claude evaluation — a triaged or
+ * Gate-4-stood-down slot still has no INVERSION component and this detector still does not fire
+ * for it. Moving cloud inversion onto the calculator's deterministic score for every place,
+ * without Claude, is planned separately as Phase 2, with its own migration — deliberately not
+ * built here.
  *
  * <p><b>Advance notice, every morning.</b> An inversion "sea of clouds" is a dawn phenomenon —
  * it is only useful as night-before planning, because once sunrise has passed you can no longer

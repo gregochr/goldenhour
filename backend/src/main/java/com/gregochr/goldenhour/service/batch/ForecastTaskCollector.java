@@ -384,6 +384,30 @@ public class ForecastTaskCollector {
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), nearTermModel, false, null,
                         prefetchedWeather, cloudCache);
+
+                // Record conditions for every place this cycle fetched weather for — the
+                // "what is happening" question (hot topics, Coming up) must be answerable for
+                // every candidate the pipeline looked at, not only the ones that go on to a
+                // stars verdict (owner decision 2026-09-29, "record conditions for every place
+                // each run", Phase 1). This runs BEFORE the triage verdict and the Gate 4
+                // stability decision below — both of which retract a RATING but must never
+                // silence a hot topic (the two-question rule; see SurvivorSignalReader's class
+                // javadoc). It used to sit after both gates, keyed to "past triage + gating" —
+                // which is exactly the old product rule this phase reverses: a place stood down
+                // for cloud used to have no dust/snow/surge reading at all, even when the
+                // condition was there. `preEval.atmosphericData()` is populated whether or not
+                // the candidate triages or gates out (the triage branches below return it
+                // unchanged), so this is the earliest point after weather is actually in hand.
+                // Isolated so a carrier write failure never aborts collection for this candidate.
+                try {
+                    survivorAtmosphereWriter.write(candidate.location(), candidate.date(),
+                            candidate.targetType(), preEval.atmosphericData());
+                } catch (Exception e) {
+                    LOG.error("survivor_atmosphere write FAILED for {} {} {}; collection proceeds: {}",
+                            candidate.location().getName(), candidate.date(),
+                            candidate.targetType(), e.getMessage(), e);
+                }
+
                 // Season is tested DIRECTLY against the configured window. It used to be
                 // inferred from a non-null bluebell condition score, which is a three-way
                 // conjunction the augmentor evaluates (in season AND typed BLUEBELL AND exposure
@@ -488,19 +512,6 @@ public class ForecastTaskCollector {
                 }
 
                 boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
-
-                // Survivor confirmed (past triage + gating): capture its atmospheric readings to
-                // the survivor surface now, before the async batch boundary discards them. Covers
-                // both the woodland-only and sky branches below. Isolated so a carrier write
-                // failure never aborts batch collection.
-                try {
-                    survivorAtmosphereWriter.write(candidate.location(), candidate.date(),
-                            candidate.targetType(), preEval.atmosphericData());
-                } catch (Exception e) {
-                    LOG.error("survivor_atmosphere write FAILED for {} {} {}; collection proceeds: {}",
-                            candidate.location().getName(), candidate.date(),
-                            candidate.targetType(), e.getMessage(), e);
-                }
 
                 if (woodlandTask) {
                     // Canopy site out of bluebell season: ONE woodland task, no sky task. Its own

@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,21 +55,25 @@ public class ForceSubmitBatchService {
     private final ModelSelectionService modelSelectionService;
     private final EvaluationService evaluationService;
     private final Clock clock;
+    private final SurvivorAtmosphereWriter survivorAtmosphereWriter;
 
     /**
      * Constructs the force-submit batch service.
      *
-     * @param anthropicClient        raw Anthropic SDK client (still used by {@link #getResult}
-     *                               which bypasses {@code BatchPollingService} — see Pass 2.5)
-     * @param regionRepository       repository for looking up regions by ID
-     * @param locationService        service for retrieving enabled locations
-     * @param forecastService        service for weather fetch and data assembly
-     * @param modelSelectionService  resolves the active Claude model
-     * @param evaluationService      Pass 3.2 engine — submits forecast tasks via the
-     *                               canonical batch path (request build + observability)
-     * @param clock                  supplies "today" for the JFDI range, resolved in
-     *                               {@code Europe/London} by {@link ForecastHorizon} — the same
-     *                               calendar {@code ForecastService} measures the horizon on
+     * @param anthropicClient          raw Anthropic SDK client (still used by {@link #getResult}
+     *                                 which bypasses {@code BatchPollingService} — see Pass 2.5)
+     * @param regionRepository         repository for looking up regions by ID
+     * @param locationService          service for retrieving enabled locations
+     * @param forecastService          service for weather fetch and data assembly
+     * @param modelSelectionService    resolves the active Claude model
+     * @param evaluationService        Pass 3.2 engine — submits forecast tasks via the
+     *                                 canonical batch path (request build + observability)
+     * @param clock                    supplies "today" for the JFDI range, resolved in
+     *                                 {@code Europe/London} by {@link ForecastHorizon} — the same
+     *                                 calendar {@code ForecastService} measures the horizon on
+     * @param survivorAtmosphereWriter records conditions for every candidate weather was fetched
+     *                                 for, the same "record conditions for every place" writer the
+     *                                 scheduled batch collector and the synchronous engine use
      */
     public ForceSubmitBatchService(AnthropicClient anthropicClient,
             RegionRepository regionRepository,
@@ -76,7 +81,8 @@ public class ForceSubmitBatchService {
             ForecastService forecastService,
             ModelSelectionService modelSelectionService,
             EvaluationService evaluationService,
-            Clock clock) {
+            Clock clock,
+            SurvivorAtmosphereWriter survivorAtmosphereWriter) {
         this.anthropicClient = anthropicClient;
         this.regionRepository = regionRepository;
         this.locationService = locationService;
@@ -84,6 +90,7 @@ public class ForceSubmitBatchService {
         this.modelSelectionService = modelSelectionService;
         this.evaluationService = evaluationService;
         this.clock = clock;
+        this.survivorAtmosphereWriter = survivorAtmosphereWriter;
     }
 
     /**
@@ -137,6 +144,20 @@ public class ForceSubmitBatchService {
                         if (data == null) {
                             failedCount++;
                             continue;
+                        }
+
+                        // Record conditions for every candidate weather was fetched for — the
+                        // same writer and the same rule the scheduled batch collector uses (see
+                        // ForecastTaskCollector). A JFDI run bypasses the triage VERDICT and the
+                        // Gate 4 stability gate entirely, but weather is still fetched here, so
+                        // there is no reason this surface should be sparser than a scheduled
+                        // cycle's. Isolated so a carrier write failure never aborts submission.
+                        try {
+                            survivorAtmosphereWriter.write(location, date, event, data);
+                        } catch (Exception e) {
+                            LOG.error("survivor_atmosphere write FAILED for {} {} {}; "
+                                            + "JFDI submission proceeds: {}",
+                                    location.getName(), date, event, e.getMessage(), e);
                         }
 
                         // R4: a JFDI submit of a previously-triaged slot gets a pending row
@@ -215,6 +236,17 @@ public class ForceSubmitBatchService {
                     LOG.warn("[FORCE BATCH] {} — null atmospheric data", location.getName());
                     failedLocations.add(location.getName());
                     continue;
+                }
+
+                // Record conditions for every candidate weather was fetched for — see the
+                // identical write in submitJfdiBatch above for why this surface should not be
+                // sparser than a scheduled cycle's just because the gates are bypassed here.
+                try {
+                    survivorAtmosphereWriter.write(location, date, event, data);
+                } catch (Exception e) {
+                    LOG.error("survivor_atmosphere write FAILED for {} {} {}; "
+                                    + "force submission proceeds: {}",
+                            location.getName(), date, event, e.getMessage(), e);
                 }
 
                 // R4: same as JFDI above — a force-submit of a previously-triaged slot gets a

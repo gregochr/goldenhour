@@ -14,11 +14,13 @@ import java.util.List;
  * <p>Low pressure and onshore winds push water levels above predicted heights; combined
  * with high tide this produces crashing waves and dramatic coastal conditions — even at
  * midday. The forecast pipeline already computes and persists {@code surge_risk_level} per
- * evaluation (only for coastal locations). This detector fires when any survivor in the
+ * evaluation (only for coastal locations). This detector fires when any candidate row in the
  * window is classified {@value #HIGH_RISK} — high only, not moderate. Reads through the
- * {@link SurvivorSignalReader} (the unified survivor surface), so it fires off the survivor
- * population, not the triaged rejects the legacy {@code forecast_evaluation} read sampled.
- * Makes no external API calls.
+ * {@link SurvivorSignalReader} (the unified read surface, {@code survivor_atmosphere}). ⚠️ Since
+ * the "record conditions for every place" change (Phase 1, owner decision 2026-09-30) this fires
+ * for every candidate whose weather was fetched, not only the ones that went on to a Claude
+ * rating — a storm surge is a fact about the tide and the weather, independent of whether the sky
+ * above the coast is worth photographing. Makes no external API calls.
  */
 @Component
 public class StormSurgeHotTopicStrategy implements HotTopicStrategy {

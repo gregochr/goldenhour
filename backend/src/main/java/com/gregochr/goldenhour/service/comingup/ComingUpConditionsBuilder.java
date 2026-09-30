@@ -434,6 +434,14 @@ public class ComingUpConditionsBuilder {
     }
 
     // ── Saharan dust (D4, D11) ───────────────────────────────────────────
+    //
+    // The forward-peak read below (survivorSignalReader.read(...) filtered by isDustEnhanced) is a
+    // DISPLAY concern, not the rarity computation above it — and since the "record conditions for
+    // every place" change (Phase 1, owner decision 2026-09-30) it now sees survivor_atmosphere
+    // readings for every candidate whose weather was fetched, triaged-out and Gate-4-stood-down
+    // candidates included, not only the ones Claude went on to score. That widens the peak cell's
+    // population (a strictly safe direction — more dust readings found, never fewer) but leaves the
+    // rarity number above untouched, since it is deliberately computed from forecast_evaluation.
 
     private ComingUpCondition buildDust(LocalDate builtFor) {
         int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();
@@ -529,6 +537,11 @@ public class ComingUpConditionsBuilder {
     }
 
     // ── Valley inversions (D4, D11) ──────────────────────────────────────
+    //
+    // Unaffected by the "record conditions for every place" change (Phase 1, owner decision
+    // 2026-09-30): this reads forecast_score INVERSION components, which are written only from a
+    // completed Claude evaluation, so a triaged or Gate-4-stood-down slot still contributes nothing
+    // here. See InversionHotTopicStrategy's own javadoc for the same point and the planned Phase 2.
 
     private ComingUpCondition buildInversion(LocalDate builtFor) {
         int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();

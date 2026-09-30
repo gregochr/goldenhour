@@ -1125,6 +1125,94 @@ class ForecastTaskCollectorTest {
         assertThat(d.daysAhead()).isEqualTo(3);
     }
 
+    // ── Record conditions for every place (Phase 1, owner decision 2026-09-30) ────────────────
+    // Through 2026-09-30 SurvivorAtmosphereWriter.write was called AFTER both the triage check
+    // and the Gate 4 eligibility decision, so a SKIPPED_TRIAGED or SKIPPED_STABILITY candidate
+    // never had its atmospheric readings recorded at all — a place stood down for cloud had no
+    // dust/snow/surge chip even when the condition was there. The write now happens immediately
+    // after fetchWeatherAndTriage returns, before either gate. These three tests would FAIL
+    // against origin/main (the write was not reached on either skip path, and never verified
+    // against a fixed disposition + verify() pair before this phase).
+
+    @Test
+    @DisplayName("record conditions for every place: a slot stood down by triage still gets its "
+            + "atmospheric readings written")
+    void collectScheduledBatches_triagedSlot_stillWritesReadings() {
+        LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
+        stubModels();
+        stubPrefetchSuccess(loc);
+        // fetchWeatherAndTriage returns the full atmospheric snapshot even on a triage verdict
+        // (ForecastService never nulls it out on that branch) — the fixture must match that, not
+        // the collector's own existing triagedPreEval() helper, which sets it null because the
+        // OLD code path never read it for a triaged candidate.
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName(loc.getName())
+                .solarEventTime(EVENT_TIME)
+                .targetType(TargetType.SUNRISE)
+                .build();
+        ForecastPreEvalResult triaged = new ForecastPreEvalResult(true, "cloud", null, data, loc,
+                TODAY, TargetType.SUNRISE, EVENT_TIME, 60, 0, EvaluationModel.HAIKU, Set.of(), "k",
+                new OpenMeteoForecastResponse());
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(triaged);
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.isEmpty()).isTrue();
+        assertThat(result.dispositions()).hasSize(1);
+        assertThat(result.dispositions().get(0).category())
+                .isEqualTo(DispositionCategory.SKIPPED_TRIAGED);
+        verify(survivorAtmosphereWriter).write(loc, TODAY, TargetType.SUNRISE, data);
+    }
+
+    @Test
+    @DisplayName("record conditions for every place: a slot skipped by Gate 4 stability still "
+            + "gets its atmospheric readings written")
+    void collectScheduledBatches_stabilityGatedSlot_stillWritesReadings() {
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(3),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        ForecastPreEvalResult preEval = inlandPreEval(loc, TODAY.plusDays(3), 3);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(preEval);
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.TRANSITIONAL, "frontal approach", 1));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.isEmpty()).isTrue();
+        assertThat(result.dispositions()).hasSize(1);
+        assertThat(result.dispositions().get(0).category())
+                .isEqualTo(DispositionCategory.SKIPPED_STABILITY);
+        verify(survivorAtmosphereWriter).write(
+                loc, TODAY.plusDays(3), TargetType.SUNRISE, preEval.atmosphericData());
+    }
+
+    @Test
+    @DisplayName("record conditions for every place: a SKIPPED_PAST_DATE slot writes nothing — "
+            + "no weather was ever fetched for it this cycle")
+    void collectScheduledBatches_pastDate_writesNoReadings() {
+        when(briefingService.getCachedBriefing())
+                .thenReturn(buildBriefingForVerdict(TODAY.minusDays(1), Verdict.GO));
+        stubModels();
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.isEmpty()).isTrue();
+        verifyNoInteractions(survivorAtmosphereWriter);
+    }
+
     @Test
     @DisplayName("dispositions: intraday SETTLED at T+1 SUNSET is skipped as "
             + "SKIPPED_NO_REFRESH_NEEDED (through the real collect path)")

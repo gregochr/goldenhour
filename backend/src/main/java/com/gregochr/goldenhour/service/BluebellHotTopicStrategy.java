@@ -34,6 +34,17 @@ import java.util.stream.Collectors;
  * &ge; {@value #HOT_TOPIC_THRESHOLD} a {@link HotTopic} is emitted. Makes no external API calls — a
  * purely read-only consumer of already-persisted data.
  *
+ * <p>⚠️ <b>Bluebell is the named exception to the "record conditions for every place" change (Phase
+ * 1, owner decision 2026-09-30).</b> That change made {@code survivor_atmosphere} readings (dust,
+ * snow, surge) available for every candidate whose weather was fetched, triaged-out and
+ * Gate-4-stood-down candidates included. Bluebell reads {@code forecast_score}, not
+ * {@code survivor_atmosphere} — a genuinely Claude-scored component with no deterministic
+ * substitute for the display rating — so this detector is UNCHANGED by that phase and continues to
+ * report only where a slot was actually rated. Unlike cloud inversion (the other
+ * {@code forecast_score}-backed detector, whose own deterministic substitute is planned separately
+ * as Phase 2), bluebell has no such substitute planned at all: it stays scored-only by design.
+ *
+
  * <p><b>Survivor read model.</b> Like every survivor-signal detector, this reads through the unified
  * {@link SurvivorSignalReader} rather than a table directly. It previously read {@code forecast_score}
  * BLUEBELL rows via its own repository; routing it through the reader keeps all survivor-signal
