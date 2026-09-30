@@ -85,14 +85,21 @@ import java.util.concurrent.atomic.AtomicInteger;
  * exact risk it was meant to guard against, in miniature: an unrelated, untracked (e.g. genuinely
  * orphaned) batch of the same size created moments earlier can still fall inside the window and
  * either be wrongly adopted (if it is the only one) or manufacture a false ambiguity (if this
- * attempt's own orphan is also present). Client and server clocks here are both NTP-synced cloud
- * hosts, so sub-second skew is the realistic case, and the cutoff is now exactly {@code
+ * attempt's own orphan is also present). This JVM's host is NTP-synced (production runs in Docker
+ * on a Mac mini on a home network, not a cloud host with a guaranteed-close clock to Anthropic's,
+ * but NTP still keeps sub-second skew the realistic case), so the cutoff is now exactly {@code
  * firstAttemptStart} with no tolerance in either direction — the boundary is inclusive
- * ({@code createdAt >= firstAttemptStart}). The residual cost of dropping it is narrow and already
- * has a safety net: if Anthropic's clock is measurably behind this JVM's, a genuine orphan from
- * THIS attempt could be missed and a further duplicate created on the next attempt — which is the
- * same "ORPHANED BATCH" shape {@link BatchSubmissionService} already surfaces loudly for manual
- * recovery, not a silent data-corruption risk the way adopting the wrong id would be.
+ * ({@code createdAt >= firstAttemptStart}). The residual cost of dropping it is real, not merely
+ * theoretical, and worth stating plainly rather than as a safety net: if Anthropic's clock is
+ * measurably behind this JVM's, a genuine orphan from THIS attempt is missed and a further
+ * duplicate is created on the next attempt — and that duplicate is logged by NOTHING. It is not
+ * the "ORPHANED BATCH" shape {@link BatchSubmissionService} surfaces (that log fires only when
+ * {@code create()} succeeded and the subsequent {@code forecast_batch} save failed); here both
+ * succeed, so the batch runs, is billed, and its results are never collected or processed. That
+ * silent extra cost is still the preferred failure mode over the alternative: adopting the wrong
+ * batch id risks wrong ratings landing against this bucket's tasks, or an outright unique-
+ * constraint failure on {@code forecast_batch.anthropic_batch_id} — a cost that is silent AND
+ * cheap beats one that is loud AND corrupting.
  *
  * <p><b>Why {@code create()} and {@code list()} run on a SEPARATE, transport-retry-disabled
  * client (round 2, P1-B).</b> The shared {@code AnthropicClient} injected here still retries
