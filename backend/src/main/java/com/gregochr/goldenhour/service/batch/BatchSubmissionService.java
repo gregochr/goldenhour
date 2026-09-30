@@ -173,20 +173,31 @@ public class BatchSubmissionService {
 
             // Job-run bookkeeping is deliberately best-effort and AFTER the row above: it feeds
             // metrics, not result processing, so losing it costs a dashboard line rather than a
-            // batch.
+            // batch. ⚠️ It has its OWN try/catch, separate from the outer one below, because the
+            // outer catch-all returns null — "nothing was submitted" — and by this point a batch
+            // genuinely WAS submitted and its forecast_batch row genuinely WAS persisted (it is
+            // already pollable). A transient job_run insert failure here must cost only this
+            // dashboard line, never make a real submission read as SUBMISSION_FAILED, a false
+            // DEGRADED run, and a false admin alert.
             //
             // ⚠️ Linked by targeted UPDATE, never by re-saving `entity`. The row is already
             // pollable by this point — that is the whole reason it was written first — so merging
             // the in-memory instance back would overwrite every column with its construction-time
             // state, reverting a batch the poller had just COMPLETED to SUBMITTED and putting its
             // processed results back in the polling set. See ForecastBatchRepository.linkJobRun.
-            JobRunEntity jobRun = jobRunService.startBatchRun(requests.size(), batch.id());
-            if (jobRun != null) {
-                entity.setJobRunId(jobRun.getId());
-                batchRepository.linkJobRun(entity.getId(), jobRun.getId());
+            Long jobRunId = null;
+            try {
+                JobRunEntity jobRun = jobRunService.startBatchRun(requests.size(), batch.id());
+                if (jobRun != null) {
+                    entity.setJobRunId(jobRun.getId());
+                    batchRepository.linkJobRun(entity.getId(), jobRun.getId());
+                    jobRunId = jobRun.getId();
+                }
+            } catch (Exception jobRunFailure) {
+                LOG.warn("{} batchId={}: job-run bookkeeping failed (best-effort, batch is still "
+                                + "submitted and pollable) — {}",
+                        logPrefix, batch.id(), jobRunFailure.getMessage(), jobRunFailure);
             }
-
-            Long jobRunId = jobRun != null ? jobRun.getId() : null;
             LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}, "
                             + "pipelineRunId={}, trigger={}",
                     logPrefix, batch.id(), requests.size(), expiresAt,

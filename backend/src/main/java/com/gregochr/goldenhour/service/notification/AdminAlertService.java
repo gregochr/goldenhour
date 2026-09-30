@@ -10,6 +10,7 @@ import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
@@ -64,6 +65,7 @@ public class AdminAlertService {
 
     private final JavaMailSender mailSender;
     private final AppUserRepository appUserRepository;
+    private final boolean enabled;
 
     /**
      * Constructs the service.
@@ -71,12 +73,19 @@ public class AdminAlertService {
      * @param mailSender         Spring mail sender (optional — null when SMTP is not configured,
      *                           matching {@link UserEmailService}'s own constructor)
      * @param appUserRepository  resolves the enabled-ADMIN recipient list
+     * @param enabled            {@code notifications.admin-alerts.enabled}, default {@code false}
+     *                           when absent — {@code application-local.yml} points {@code
+     *                           spring.mail} at a real SMTP server, so this must default OFF or a
+     *                           local run with {@code MAIL_PASSWORD} set would email every ADMIN
+     *                           in the local database on a degraded run
      */
     public AdminAlertService(
             @Autowired(required = false) JavaMailSender mailSender,
-            AppUserRepository appUserRepository) {
+            AppUserRepository appUserRepository,
+            @Value("${notifications.admin-alerts.enabled:false}") boolean enabled) {
         this.mailSender = mailSender;
         this.appUserRepository = appUserRepository;
+        this.enabled = enabled;
     }
 
     /**
@@ -99,38 +108,52 @@ public class AdminAlertService {
     @Async
     public void sendPipelineDegradedAlert(Long runId, CycleType cycleType, Instant triggerTime,
             String failureSummary) {
-        if (mailSender == null) {
-            LOG.debug("Mail sender not configured — skipping pipeline-degraded admin alert "
-                    + "(runId={})", runId);
+        if (!enabled) {
+            LOG.debug("notifications.admin-alerts.enabled=false — skipping pipeline-degraded "
+                    + "admin alert (runId={})", runId);
             return;
         }
-        List<String> recipients = appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)
-                .stream()
-                .map(AppUserEntity::getEmail)
-                .filter(email -> email != null && !email.isBlank())
-                .toList();
-        if (recipients.isEmpty()) {
-            LOG.warn("Pipeline run {} degraded, but no enabled ADMIN account has an email "
-                    + "address — no alert sent", runId);
-            return;
-        }
-
-        String subject = "PhotoCast: pipeline run " + runId + " degraded — "
-                + subjectClause(failureSummary);
-        String body = buildBody(runId, cycleType, triggerTime, failureSummary);
-
-        for (String recipient : recipients) {
-            try {
-                sendPlainTextEmail(recipient, subject, body);
-                LOG.info("Pipeline-degraded alert sent to {} for run {}",
-                        LogSanitizer.sanitize(recipient), runId);
-            } catch (Exception ex) {
-                // Best-effort: one admin's mailbox rejecting the message must not stop the
-                // others from being told, and must never propagate into the orchestrator.
-                LOG.warn("Failed to send pipeline-degraded alert to {} for run {}: {}",
-                        LogSanitizer.sanitize(recipient), runId,
-                        LogSanitizer.sanitize(ex.getMessage()));
+        // The WHOLE body is guarded, not just the per-recipient send loop below: a failure in
+        // the recipient query or in building the subject/body must be exactly as best-effort as a
+        // failure sending to one recipient — this method's own javadoc promises it never throws
+        // into the orchestrator, and until this wrap only the send loop actually kept that promise.
+        try {
+            if (mailSender == null) {
+                LOG.debug("Mail sender not configured — skipping pipeline-degraded admin alert "
+                        + "(runId={})", runId);
+                return;
             }
+            List<String> recipients = appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)
+                    .stream()
+                    .map(AppUserEntity::getEmail)
+                    .filter(email -> email != null && !email.isBlank())
+                    .toList();
+            if (recipients.isEmpty()) {
+                LOG.warn("Pipeline run {} degraded, but no enabled ADMIN account has an email "
+                        + "address — no alert sent", runId);
+                return;
+            }
+
+            String subject = "PhotoCast: pipeline run " + runId + " degraded — "
+                    + subjectClause(failureSummary);
+            String body = buildBody(runId, cycleType, triggerTime, failureSummary);
+
+            for (String recipient : recipients) {
+                try {
+                    sendPlainTextEmail(recipient, subject, body);
+                    LOG.info("Pipeline-degraded alert sent to {} for run {}",
+                            LogSanitizer.sanitize(recipient), runId);
+                } catch (Exception ex) {
+                    // Best-effort: one admin's mailbox rejecting the message must not stop the
+                    // others from being told, and must never propagate into the orchestrator.
+                    LOG.warn("Failed to send pipeline-degraded alert to {} for run {}: {}",
+                            LogSanitizer.sanitize(recipient), runId,
+                            LogSanitizer.sanitize(ex.getMessage()));
+                }
+            }
+        } catch (Exception ex) {
+            LOG.warn("Pipeline-degraded admin alert failed for run {}: {}", runId,
+                    LogSanitizer.sanitize(ex.getMessage()), ex);
         }
     }
 

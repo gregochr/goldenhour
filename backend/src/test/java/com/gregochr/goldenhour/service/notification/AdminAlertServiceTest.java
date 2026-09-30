@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
  *
  * <p>A real (non-mocked) {@link MimeMessage} backs each recipient's send so the subject and
  * body content can be read back and asserted on directly, rather than merely verifying that
- * {@code send(...)} was called — {@link MimeMessageHelper} writes through to the real JavaMail
+ * {@code send(...)} was called — {@code MimeMessageHelper} writes through to the real JavaMail
  * object, which a Mockito mock cannot reproduce.
  */
 @ExtendWith(MockitoExtension.class)
@@ -62,14 +62,45 @@ class AdminAlertServiceTest {
         return new MimeMessage(Session.getDefaultInstance(new Properties()));
     }
 
+    /** The enabled-by-default service under test — most tests exercise the enabled path. */
+    private AdminAlertService enabledService() {
+        return new AdminAlertService(mailSender, appUserRepository, true);
+    }
+
     @Test
-    @DisplayName("no mail sender configured — the repository is never even queried")
-    void nullMailSender_skipsEntirely() {
-        AdminAlertService service = new AdminAlertService(null, appUserRepository);
+    @DisplayName("notifications.admin-alerts.enabled=false — the repository is never queried and "
+            + "the mail sender is never touched, regardless of whether one is configured")
+    void disabled_skipsEntirelyWithoutTouchingRepositoryOrMailSender() {
+        AdminAlertService service = new AdminAlertService(mailSender, appUserRepository, false);
 
         service.sendPipelineDegradedAlert(249L, CycleType.INTRADAY, TRIGGER, DETAIL);
 
         verify(appUserRepository, never()).findByRoleAndEnabledTrue(any());
+        verify(mailSender, never()).createMimeMessage();
+    }
+
+    @Test
+    @DisplayName("no mail sender configured — the repository is never even queried")
+    void nullMailSender_skipsEntirely() {
+        AdminAlertService service = new AdminAlertService(null, appUserRepository, true);
+
+        service.sendPipelineDegradedAlert(249L, CycleType.INTRADAY, TRIGGER, DETAIL);
+
+        verify(appUserRepository, never()).findByRoleAndEnabledTrue(any());
+    }
+
+    @Test
+    @DisplayName("a repository failure (e.g. a transient DB error) is caught and logged rather "
+            + "than escaping the @Async method — the whole body is guarded, not only the "
+            + "per-recipient send loop")
+    void repositoryThrows_neverEscapes() {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN))
+                .thenThrow(new RuntimeException("DB unavailable"));
+
+        enabledService().sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
+
+        // Reaching this line at all is the assertion — the exception never escaped.
+        verify(mailSender, never()).createMimeMessage();
     }
 
     @Test
@@ -83,9 +114,8 @@ class AdminAlertServiceTest {
         MimeMessage aliceMessage = newMimeMessage();
         MimeMessage bobMessage = newMimeMessage();
         when(mailSender.createMimeMessage()).thenReturn(aliceMessage, bobMessage);
-        AdminAlertService service = new AdminAlertService(mailSender, appUserRepository);
 
-        service.sendPipelineDegradedAlert(249L, CycleType.INTRADAY, TRIGGER, DETAIL);
+        enabledService().sendPipelineDegradedAlert(249L, CycleType.INTRADAY, TRIGGER, DETAIL);
 
         verify(mailSender).send(aliceMessage);
         verify(mailSender).send(bobMessage);
@@ -105,30 +135,57 @@ class AdminAlertServiceTest {
     }
 
     @Test
-    @DisplayName("a disabled ADMIN and a blank/null email are excluded from the recipient list")
-    void excludesBlankAndNullEmailAdmins() {
-        // findByRoleAndEnabledTrue already filters enabled=true at the query level; this proves
-        // the service's OWN blank/null-email filter over whatever the repository hands back.
+    @DisplayName("a disabled admin (enabled=false, excluded by the repository query itself) and "
+            + "a blank/null email (excluded by this service's own filter) are both kept out of "
+            + "the recipient list — proven by the exact createMimeMessage() call count, not "
+            + "merely that alice's own send happened, since a deleted email filter would still "
+            + "let alice's send succeed while the others fail silently inside the swallowed "
+            + "per-recipient catch")
+    void excludesDisabledAndBlankOrNullEmailAdmins() {
+        // findByRoleAndEnabledTrue is mocked here to return what a real "enabled=true" query
+        // would — the disabled admin below stands for one the repository itself would already
+        // have excluded; it is included in this fixture only to name that it is never even a
+        // candidate, not to re-prove the repository's own WHERE clause.
         when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
                 admin("alice", "alice@example.com", true),
                 admin("noemail", "", true),
                 admin("nullemail", null, true)));
         MimeMessage aliceMessage = newMimeMessage();
         when(mailSender.createMimeMessage()).thenReturn(aliceMessage);
-        AdminAlertService service = new AdminAlertService(mailSender, appUserRepository);
 
-        service.sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
+        enabledService().sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
 
+        // Exactly one message object is ever created — if the blank/null-email filter were
+        // deleted, createMimeMessage() would be called three times (once per candidate, before
+        // helper.setTo("")/setTo(null) could throw), even though only alice's send() would
+        // ultimately succeed. This assertion fails in that case; times(1).send(aliceMessage)
+        // alone would not have.
+        verify(mailSender, times(1)).createMimeMessage();
         verify(mailSender, times(1)).send(aliceMessage);
     }
 
     @Test
-    @DisplayName("no enabled ADMIN has an email at all — nothing sent, no exception")
-    void noAdminWithEmail_sendsNothing() {
-        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of());
-        AdminAlertService service = new AdminAlertService(mailSender, appUserRepository);
+    @DisplayName("every enabled ADMIN has a blank or null email — the post-filter recipient list "
+            + "is empty, so nothing is sent (distinct from the repository itself returning no "
+            + "ADMIN at all)")
+    void everyEnabledAdminHasNoUsableEmail_sendsNothing() {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
+                admin("noemail", "", true),
+                admin("nullemail", null, true)));
 
-        service.sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
+        enabledService().sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
+
+        verify(mailSender, never()).createMimeMessage();
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    @DisplayName("no enabled ADMIN at all (the repository itself returns empty) — nothing sent, "
+            + "no exception")
+    void noEnabledAdminAtAll_sendsNothing() {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of());
+
+        enabledService().sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
 
         verify(mailSender, never()).send(any(MimeMessage.class));
     }
@@ -145,9 +202,8 @@ class AdminAlertServiceTest {
         when(mailSender.createMimeMessage()).thenReturn(aliceMessage, bobMessage);
         doThrow(new MailSendException("smtp connection refused"))
                 .when(mailSender).send(aliceMessage);
-        AdminAlertService service = new AdminAlertService(mailSender, appUserRepository);
 
-        service.sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
+        enabledService().sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, TRIGGER, DETAIL);
 
         verify(mailSender).send(aliceMessage);
         verify(mailSender).send(bobMessage);
@@ -161,9 +217,8 @@ class AdminAlertServiceTest {
                 admin("alice", "alice@example.com", true)));
         MimeMessage message = newMimeMessage();
         when(mailSender.createMimeMessage()).thenReturn(message);
-        AdminAlertService service = new AdminAlertService(mailSender, appUserRepository);
 
-        service.sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, null, DETAIL);
+        enabledService().sendPipelineDegradedAlert(249L, CycleType.NIGHTLY, null, DETAIL);
 
         String body = (String) message.getContent();
         assertThat(body).contains("Trigger time: unknown");

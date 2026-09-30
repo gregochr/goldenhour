@@ -36,9 +36,10 @@ const STATUS_PILL_CLASSES = {
   COMPLETED: 'bg-green-900/30 text-green-400',
   FAILED: 'bg-red-900/30 text-red-400',
   // The cycle finished and briefed — WAIT and BRIEFING both ran — but one or more forecast
-  // batch submissions failed, so some served ratings predate this cycle. Amber, like RUNNING:
-  // it is a caution, not the red failure COMPLETED's green counterpart would wrongly imply.
-  DEGRADED: 'bg-amber-900/30 text-amber-400',
+  // batch submissions failed, so some served ratings predate this cycle. Deliberately its OWN
+  // colour (orange), not RUNNING's amber: a finished DEGRADED run sitting in a list next to a
+  // live RUNNING one must read as visually distinct at a glance, not as "still in progress".
+  DEGRADED: 'bg-orange-900/30 text-orange-400',
 };
 
 const PHASE_STATUS_PILL_CLASSES = {
@@ -479,7 +480,7 @@ function PipelineRunDetail({ runId, onClose }) {
         )}
         {run.status === 'DEGRADED' && run.failureReason && (
           <p
-            className="text-xs text-amber-400"
+            className="text-xs text-orange-400"
             data-testid="pipeline-run-detail-degraded"
           >
             Degraded: {run.failureReason}

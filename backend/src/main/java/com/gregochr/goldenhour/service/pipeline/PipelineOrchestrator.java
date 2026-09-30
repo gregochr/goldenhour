@@ -6,7 +6,6 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelinePhaseStatus;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
-import com.gregochr.goldenhour.entity.PipelineRunPhaseEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
@@ -24,6 +23,7 @@ import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ReclassSummary;
 import com.gregochr.goldenhour.service.batch.RetrySelection;
+import com.gregochr.goldenhour.service.batch.RetrySubmitResult;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import jakarta.annotation.PostConstruct;
@@ -534,18 +534,20 @@ public class PipelineOrchestrator {
 
     /**
      * Marks the run terminal on the success path — {@link PipelineRunStatus#COMPLETED} in the
-     * ordinary case, or {@link PipelineRunStatus#DEGRADED} when this cycle's own
-     * {@code FORECAST_BATCH_SUBMIT} phase was left {@code FAILED} because one or more forecast
-     * batch submissions failed (see {@code submitPhase}).
+     * ordinary case, or {@link PipelineRunStatus#DEGRADED} when EITHER this cycle's own
+     * {@code FORECAST_BATCH_SUBMIT} phase (see {@code submitPhase}) OR its {@code RETRY_FAILED}
+     * phase (see {@link #retryFailedPhase}) was left {@code FAILED}. The two are independent
+     * facts — a cycle can lose a forecast batch, a retry batch, or both — and when both failed the
+     * DEGRADED reason names both, not just the first one checked.
      *
-     * <p>Reads the phase row back from {@link PipelineRunService#findLatestPhase} rather than
-     * carrying the {@code BatchSubmissionSummary} through in memory, so the decision is correct
-     * even when this call is reached after a process restart resumed the cycle from
-     * {@code FORECAST_BATCH_WAIT} or later — the phase row, not an in-memory value, is the durable
-     * record of whether submission fully succeeded. Called from exactly one place, the success
-     * tail of {@link #waitAndBriefPhase}; every other exit from that method already marks the run
-     * FAILED for an unrelated reason and returns before reaching here, so FAILED always outranks
-     * DEGRADED by construction.
+     * <p>Reads both phase rows back from {@link PipelineRunService#findLatestPhase} rather than
+     * carrying anything through in memory, so the decision is correct even when this call is
+     * reached after a process restart resumed the cycle from {@code FORECAST_BATCH_WAIT},
+     * {@code RETRY_FAILED} or {@code BRIEFING} — the phase rows, not an in-memory value, are the
+     * durable record of whether submission fully succeeded. Called from exactly one place, the
+     * success tail of {@link #waitAndBriefPhase}; every other exit from that method already marks
+     * the run FAILED for an unrelated reason and returns before reaching here, so FAILED always
+     * outranks DEGRADED by construction.
      *
      * <p>Fires the {@code AdminAlertService} email exactly on the DEGRADED branch, after the
      * status write — never on the COMPLETED branch and never for a FAILED run (those exit through
@@ -556,20 +558,42 @@ public class PipelineOrchestrator {
      * @param runId pipeline run id
      */
     private void finishRun(Long runId) {
-        boolean submitFailed = pipelineRunService
-                .findLatestPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT)
-                .map(phase -> phase.getStatus() == PipelinePhaseStatus.FAILED)
-                .orElse(false);
-        if (submitFailed) {
-            String reason = pipelineRunService
-                    .findLatestPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT)
-                    .map(PipelineRunPhaseEntity::getDetail)
-                    .orElse("One or more forecast batch submissions failed");
+        String submitFailure = failureDetailIfFailed(runId, PipelinePhase.FORECAST_BATCH_SUBMIT,
+                "One or more forecast batch submissions failed");
+        String retryFailure = failureDetailIfFailed(runId, PipelinePhase.RETRY_FAILED,
+                "Retry batch submission failed");
+        if (submitFailure != null || retryFailure != null) {
+            String reason = combineDegradeReasons(submitFailure, retryFailure);
             pipelineRunService.degradeRun(runId, reason);
             alertAdminsOfDegradedRun(runId, reason);
         } else {
             pipelineRunService.completeRun(runId);
         }
+    }
+
+    /**
+     * @return the phase's own detail when its latest row is FAILED, {@code defaultDetail} when it
+     *         is FAILED with no detail recorded, or {@code null} when the phase never ran or did
+     *         not fail
+     */
+    private String failureDetailIfFailed(Long runId, PipelinePhase phase, String defaultDetail) {
+        return pipelineRunService.findLatestPhase(runId, phase)
+                .filter(row -> row.getStatus() == PipelinePhaseStatus.FAILED)
+                .map(row -> row.getDetail() != null ? row.getDetail() : defaultDetail)
+                .orElse(null);
+    }
+
+    /**
+     * Builds the DEGRADED {@code failureReason} naming whichever of FORECAST_BATCH_SUBMIT /
+     * RETRY_FAILED actually failed — either alone, or both concatenated when both did (a batch
+     * submission failure this cycle and a retry submission failure are independent facts, and a
+     * reader should see both rather than only the first one checked).
+     */
+    private static String combineDegradeReasons(String submitFailure, String retryFailure) {
+        if (submitFailure != null && retryFailure != null) {
+            return submitFailure + "; " + retryFailure;
+        }
+        return submitFailure != null ? submitFailure : retryFailure;
     }
 
     /**
@@ -640,12 +664,24 @@ public class PipelineOrchestrator {
                     selection.failureCount() + " failed — exceeds cap " + selection.cap()
                             + ", NOT retried (systematic failure — investigate)");
             case RETRY -> {
-                batchRetryService.submitRetry(runId, selection);
+                RetrySubmitResult retryResult = batchRetryService.submitRetry(runId, selection);
                 waitForBatchSetComplete(runId);
-                String detail = batchRetryService.summariseRecovery(
-                        runId, selection.failureCount());
-                pipelineRunService.completePhase(runId, PipelinePhase.RETRY_FAILED, detail);
-                LOG.info("Pipeline run {}: RETRY_FAILED — {}", runId, detail);
+                if (retryResult.submissionFailed()) {
+                    // A real, reconstructed retry batch never reached Anthropic — this is not
+                    // "some failures stayed failed" (summariseRecovery's ordinary shape), it is
+                    // an infrastructure failure of the retry attempt itself, so the phase is
+                    // FAILED rather than completed with a recovery summary. finishRun reads this
+                    // back, alongside FORECAST_BATCH_SUBMIT, to decide DEGRADED.
+                    String reason = "retry batch submission failed ("
+                            + retryResult.taskCount() + " requests)";
+                    LOG.error("Pipeline run {}: RETRY_FAILED — {}", runId, reason);
+                    pipelineRunService.failPhase(runId, PipelinePhase.RETRY_FAILED, reason);
+                } else {
+                    String detail = batchRetryService.summariseRecovery(
+                            runId, selection.failureCount());
+                    pipelineRunService.completePhase(runId, PipelinePhase.RETRY_FAILED, detail);
+                    LOG.info("Pipeline run {}: RETRY_FAILED — {}", runId, detail);
+                }
             }
             default -> throw new IllegalStateException(
                     "Unhandled retry decision: " + selection.decision());

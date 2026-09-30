@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service.batch;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -24,6 +27,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -284,7 +288,7 @@ class BatchRetryServiceTest {
                 new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 555L)),
                 CAP);
 
-        int submitted = service().submitRetry(RUN_ID, selection);
+        int submitted = service().submitRetry(RUN_ID, selection).submittedCount();
 
         assertThat(submitted).isEqualTo(1);
         ArgumentCaptor<List<EvaluationTask>> captor = ArgumentCaptor.forClass(List.class);
@@ -333,6 +337,81 @@ class BatchRetryServiceTest {
         assertThat(captor.getValue()).singleElement()
                 .isInstanceOfSatisfying(EvaluationTask.Forecast.class,
                         t -> assertThat(t.forced()).isTrue());
+    }
+
+    @Test
+    @DisplayName("submitRetry: a real, reconstructed retry batch that fails to reach Anthropic "
+            + "(evaluationService.submit returns an empty handle) is reported as submissionFailed "
+            + "— distinct from RetrySubmitResult.none(), and logged at ERROR, not INFO, since "
+            + "PipelineOrchestrator's DEGRADED decision depends on telling the two apart")
+    void submitRetry_evaluationServiceReturnsEmptyHandle_reportsSubmissionFailed() {
+        ch.qos.logback.classic.Logger serviceLogger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(BatchRetryService.class);
+        ListAppender<ILoggingEvent> logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger.addAppender(logAppender);
+        try {
+            LocationEntity loc = location(42L, "Bamburgh");
+            when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+            when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+            when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                    any(), any(), eq(false), isNull()))
+                    .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
+            when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                    .thenReturn(List.of());
+            when(evaluationService.submit(anyList(), eq(BatchTriggerSource.RETRY), eq(RUN_ID),
+                    eq(true)))
+                    .thenReturn(EvaluationHandle.empty());
+            when(forecastService.persistPendingEvaluation(any())).thenReturn(999L);
+
+            String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 555L);
+            RetrySelection selection = RetrySelection.retry(List.of(
+                    new RetrySelection.RetryFailure(
+                            customId, 42L, DATE, TargetType.SUNRISE, 555L)),
+                    CAP);
+
+            RetrySubmitResult result = service().submitRetry(RUN_ID, selection);
+
+            assertThat(result.submissionFailed()).isTrue();
+            assertThat(result.submittedCount()).isZero();
+            assertThat(result.taskCount()).isEqualTo(1);
+            assertThat(result.batchId()).isNull();
+
+            assertThat(logAppender.list)
+                    .filteredOn(e -> e.getFormattedMessage().startsWith("RETRY_FAILED:"))
+                    .anySatisfy(e -> {
+                        assertThat(e.getLevel()).isEqualTo(Level.ERROR);
+                        assertThat(e.getFormattedMessage()).isEqualTo(
+                                "RETRY_FAILED: retry batch submission FAILED for pipelineRunId=77 "
+                                        + "— 1 request(s) reconstructed but none reached "
+                                        + "Anthropic");
+                    })
+                    .noneSatisfy(e -> assertThat(e.getFormattedMessage())
+                            .contains("submitted retry batch"));
+        } finally {
+            serviceLogger.detachAppender(logAppender);
+        }
+    }
+
+    @Test
+    @DisplayName("submitRetry: RetrySubmitResult.none() cases (nothing to reconstruct, idempotent "
+            + "re-entry, non-RETRY selection) never report submissionFailed — 'nothing to retry' "
+            + "is not a failure of anything")
+    void submitRetry_noneResultCases_neverReportSubmissionFailed() {
+        assertThat(RetrySubmitResult.none().submissionFailed()).isFalse();
+
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        when(locationRepository.findById(42L)).thenReturn(Optional.empty());
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, null)),
+                CAP);
+
+        RetrySubmitResult result = service().submitRetry(RUN_ID, selection);
+
+        assertThat(result.taskCount()).isZero();
+        assertThat(result.submissionFailed()).isFalse();
     }
 
     // ── R6: retry pending-row lifecycle ──────────────────────────────────────
@@ -391,7 +470,7 @@ class BatchRetryServiceTest {
                 new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)),
                 CAP);
 
-        int submitted = service().submitRetry(RUN_ID, selection);
+        int submitted = service().submitRetry(RUN_ID, selection).submittedCount();
 
         assertThat(submitted).isZero();
         verify(forecastService, never()).persistPendingEvaluation(any());
@@ -421,7 +500,7 @@ class BatchRetryServiceTest {
                 new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, null)),
                 CAP);
 
-        int submitted = service().submitRetry(RUN_ID, selection);
+        int submitted = service().submitRetry(RUN_ID, selection).submittedCount();
 
         assertThat(submitted).isEqualTo(1);
         ArgumentCaptor<ForecastPreEvalResult> pendingCaptor =
@@ -445,7 +524,7 @@ class BatchRetryServiceTest {
         RetrySelection selection = RetrySelection.retry(List.of(
                 new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, null)), CAP);
 
-        int submitted = service().submitRetry(RUN_ID, selection);
+        int submitted = service().submitRetry(RUN_ID, selection).submittedCount();
 
         assertThat(submitted).isZero();
         verifyNoInteractions(evaluationService);
@@ -455,7 +534,7 @@ class BatchRetryServiceTest {
     @Test
     @DisplayName("submitRetry does nothing for a non-RETRY selection")
     void submitRetryIgnoresNonRetrySelection() {
-        int submitted = service().submitRetry(RUN_ID, RetrySelection.systematic(99, CAP));
+        int submitted = service().submitRetry(RUN_ID, RetrySelection.systematic(99, CAP)).submittedCount();
 
         assertThat(submitted).isZero();
         verifyNoInteractions(evaluationService);
@@ -475,7 +554,7 @@ class BatchRetryServiceTest {
         RetrySelection selection = RetrySelection.retry(List.of(
                 new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, null)), CAP);
 
-        int submitted = service().submitRetry(RUN_ID, selection);
+        int submitted = service().submitRetry(RUN_ID, selection).submittedCount();
 
         assertThat(submitted).isZero();
         verify(evaluationService, never()).submit(anyList(), any(), any(), eq(true));

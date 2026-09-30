@@ -2843,24 +2843,22 @@ class EvaluationViewServiceTest {
         }
 
         @Test
-        @DisplayName("triaged last night, this slot's bucket fails to submit tonight "
-                + "(SUBMISSION_FAILED): still counts as examined, exactly like SKIPPED_CACHED — "
-                + "findLatestNonCachedDispositions excludes SUBMISSION_FAILED from BOTH sides of "
-                + "its correlated subquery too, so last night's SKIPPED_TRIAGED is what the query "
-                + "hands back as \"the latest\"")
-        void triagedLastNightSubmissionFailedTonight_stillCountsAsExamined() {
-            // As with the SKIPPED_CACHED sibling test above: the repository method itself is what
-            // does the excluding (see its own javadoc) — this proves loadTriagedByBatch's OWN
-            // handling of whatever the (now-corrected) query hands it, taking "the query already
-            // filtered SUBMISSION_FAILED out" as given.
+        @DisplayName("a slot whose latest non-cached disposition is SUBMISSION_FAILED is absent — "
+                + "unlike SKIPPED_CACHED, SUBMISSION_FAILED is NOT excluded by the repository "
+                + "query (see its own javadoc: a SUBMISSION_FAILED row means tonight's OWN triage "
+                + "passed the candidate, which is a real, newer, slot-specific fact, unlike a "
+                + "region-level cache reuse), so it legitimately becomes \"the latest\" here and "
+                + "correctly reads as not examined — this pins the corrected behaviour after an "
+                + "earlier cut of this method wrongly special-cased SUBMISSION_FAILED as excluded")
+        void latestSubmissionFailed_isAbsent() {
             when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
                     .thenReturn(List.<Object[]>of(
-                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SKIPPED_TRIAGED",
-                                    Instant.parse("2026-04-21T20:00:00Z"))));
+                            nonCachedRow("Bamburgh", DATE, SUNRISE, "SUBMISSION_FAILED",
+                                    Instant.parse("2026-04-22T01:00:00Z"))));
 
             Set<String> triaged = service.loadTriagedByBatch(DATE, DATE);
 
-            assertThat(triaged).containsExactly("Bamburgh|" + DATE + "|SUNRISE");
+            assertThat(triaged).isEmpty();
         }
 
         @Test
