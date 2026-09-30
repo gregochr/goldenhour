@@ -16,6 +16,9 @@
 #   - must be on main, working tree clean
 #   - syncs with origin/main before tagging, and refuses to run when local main is
 #     ahead (unpushed commits get swept into the CHANGELOG promotion PR)
+#   - if origin has moved a tag since the last fetch (e.g. a release re-tagged onto a
+#     later commit after a failed deploy), updates the local tag to match instead of
+#     failing silently
 #   - target commit defaults to HEAD (--target to override)
 #   - verifies target is reachable from main
 #   - shows commits between last tag and target for review
@@ -67,8 +70,56 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 # 3. Sync with remote
+#
+# `--quiet` used to hide a real failure here. The owner's local v2.22.2 tag pointed at
+# 325438c9; the first deploy from that commit failed, so the release was re-tagged onto
+# the fixed commit (c545e8d6) and origin's v2.22.2 was force-pushed to point there
+# instead. The next `git fetch origin --tags --quiet` then rejected the tag update with
+# "! [rejected] v2.22.2 -> v2.22.2 (would clobber existing tag)" and exited 1 — a real
+# error `--quiet` swallowed, leaving nothing on screen but "Fetching from origin..."
+# before the script silently exited. Origin is authoritative for tags (the Deploy
+# workflow runs off origin's tags, and this script is the only thing that pushes them),
+# so a clobbered tag is reconciled here rather than left to error: each rejected tag is
+# force-updated individually to match origin, never a blanket --force across every tag,
+# and a local-only tag origin doesn't have is left untouched.
+fetch_tags_from_origin() {
+    local fetch_out clobbered tag local_sha
+    if fetch_out=$(git fetch origin --tags 2>&1); then
+        return 0
+    fi
+
+    clobbered=$(printf '%s\n' "$fetch_out" | awk '/would clobber existing tag/ {print $5}')
+    if [[ -z "$clobbered" ]]; then
+        echo "Error: git fetch origin failed:"
+        echo "$fetch_out"
+        exit 1
+    fi
+
+    while IFS= read -r tag; do
+        [[ -z "$tag" ]] && continue
+        local_sha=$(git rev-parse --verify "$tag" 2>/dev/null || echo "")
+        git fetch origin --force "refs/tags/$tag:refs/tags/$tag"
+        echo ""
+        echo "Notice: origin's tag $tag has moved since it was last fetched here —"
+        echo "updating the local tag to match. Origin is authoritative: the Deploy"
+        echo "workflow runs off origin's tags, and this script is the only thing that"
+        echo "pushes them."
+        [[ -n "$local_sha" ]] && echo "  local (old): $(git log -1 --oneline "$local_sha")"
+        echo "  origin (now local): $(git log -1 --oneline "$tag")"
+    done <<< "$clobbered"
+
+    # Re-run the plain fetch: everything else it brings down (branches, other tags)
+    # still needs fetching, and this also surfaces any OTHER failure that was hiding
+    # behind the clobber (network blip, auth) which the targeted updates above did not fix.
+    if ! fetch_out=$(git fetch origin --tags 2>&1); then
+        echo "Error: git fetch origin failed:"
+        echo "$fetch_out"
+        exit 1
+    fi
+}
+
 echo "Fetching from origin..."
-git fetch origin --tags --quiet
+fetch_tags_from_origin
 
 # "Differs from origin/main" is three states, not one, and only one of them is safe
 # to fast-forward. Behind is the ordinary case. Ahead is fatal: the promotion block
@@ -148,7 +199,7 @@ if [[ -z "$VERSION" ]]; then
         printf "  2) %-9s patch (default)\n" "$PATCH_V"
         printf "  3) %-9s minor\n" "$MINOR_V"
     fi
-    read -p "Choose 1-3, Enter for ${PATCH_V:-?}, or type a version (Ctrl-C to stop): " VERSION
+    read -r -p "Choose 1-3, Enter for ${PATCH_V:-?}, or type a version (Ctrl-C to stop): " VERSION
     case "$VERSION" in
         1) VERSION="$MAJOR_V" ;;
         2|"") VERSION="$PATCH_V" ;;
@@ -168,7 +219,7 @@ fi
 
 # 7. Tag-already-exists check
 if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-    echo "Error: tag v$VERSION already exists at $(git rev-parse --short v$VERSION)"
+    echo "Error: tag v$VERSION already exists at $(git rev-parse --short "v$VERSION")"
     echo "Delete it first if you really mean to retag:"
     echo "  git tag -d v$VERSION && git push origin :refs/tags/v$VERSION"
     exit 1
@@ -465,7 +516,7 @@ if [[ -n "$UNRELEASED_BODY" || -n "$PENDING_AT_TARGET" ]]; then
         echo ""
         echo "Warning: main gained $((EXTRA - 1)) commit(s) besides the promotion while waiting:"
         git log --oneline --reverse "$MAIN_HEAD".."$TARGET_SHA"
-        read -p "Tag v$VERSION including these? (y/N): " CONFIRM_EXTRA
+        read -r -p "Tag v$VERSION including these? (y/N): " CONFIRM_EXTRA
         if [[ "$CONFIRM_EXTRA" != "y" && "$CONFIRM_EXTRA" != "Y" ]]; then
             echo "Cancelled — the notes are promoted on main; re-run ./release.sh $VERSION to tag."
             exit 1
