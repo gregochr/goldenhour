@@ -751,6 +751,119 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("submitForecastBatch: an OrphanedBatchException on an OPEN_FELL candidate's sky "
+            + "bucket (the FIRST bucket) counts that bucket as a SUCCESS — a real request reached "
+            + "Claude for the sky rating — while the paired bluebell bucket, queued after it, is "
+            + "never attempted at all; the candidate's one disposition row stays EVALUATED with the "
+            + "\"not submitted\" pairing note appended, never rewritten to SUBMISSION_FAILED")
+    void submitForecastBatch_orphanOnPairedSkyBucket_staysEvaluatedWithNotSubmittedNote() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(skyTask), List.of(), List.of(), List.of(),
+                        List.of(bluebellTask), List.of(),
+                        List.of(dispo)));
+        OrphanedBatchException orphaned = new OrphanedBatchException(
+                "msgbatch_sky_orphan", new RuntimeException("row persist failed"));
+        when(evaluationService.submit(eq(List.of(skyTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenThrow(orphaned);
+        // No stub for the bluebell bucket at all — submitBuckets must never call
+        // evaluationService.submit for it, since the orphan on the first (and only preceding)
+        // bucket aborts the cycle before the bluebell bucket's turn. The orphan is on the FIRST
+        // bucket, so no earlier bucket set cycleJobRunId; the cycle falls back to a
+        // disposition-only anchor run over the collector's one disposition row.
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(778L);
+
+        assertThatThrownBy(() -> service.submitForecastBatch())
+                .isSameAs(orphaned);
+
+        CandidateDisposition expected = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED,
+                "bluebell batch not submitted for part of this candidate's pairing — an earlier "
+                        + "bucket's batch was orphaned; the rest was evaluated normally");
+        verify(dispositionService).persist(eq(778L), eq(List.of(expected)));
+        verifyNoMoreInteractions(dispositionService);
+
+        verify(jobRunService).startDispositionAnchorRun(1);
+
+        // Proves the bluebell bucket was never attempted at all — not attempted-and-failed.
+        verify(evaluationService).submit(eq(List.of(skyTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull());
+        verifyNoMoreInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: the same orphaned-sky-bucket/unattempted-bluebell-bucket "
+            + "pairing on a FORCE_EVALUATED OPEN_FELL candidate APPENDS the \"not submitted\" note "
+            + "to the existing force-eval detail — the row stays FORCE_EVALUATED, never "
+            + "SUBMISSION_FAILED, and ForecastTaskCollector's own forced-reason text is preserved "
+            + "rather than replaced")
+    void submitForecastBatch_orphanOnPairedSkyBucketForceEvaluated_appendsNotSubmittedNote() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast skyTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.FORCE_EVALUATED, FORCE_EVAL_DETAIL);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(skyTask), List.of(), List.of(), List.of(),
+                        List.of(bluebellTask), List.of(),
+                        List.of(dispo)));
+        OrphanedBatchException orphaned = new OrphanedBatchException(
+                "msgbatch_sky_orphan", new RuntimeException("row persist failed"));
+        when(evaluationService.submit(eq(List.of(skyTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull()))
+                .thenThrow(orphaned);
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(778L);
+
+        assertThatThrownBy(() -> service.submitForecastBatch())
+                .isSameAs(orphaned);
+
+        CandidateDisposition expected = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.FORCE_EVALUATED,
+                FORCE_EVAL_DETAIL + "; bluebell batch not submitted for part of this candidate's "
+                        + "pairing — an earlier bucket's batch was orphaned; the rest was "
+                        + "evaluated normally");
+        verify(dispositionService).persist(eq(778L), eq(List.of(expected)));
+        verifyNoMoreInteractions(dispositionService);
+
+        verify(jobRunService).startDispositionAnchorRun(1);
+
+        verify(evaluationService).submit(eq(List.of(skyTask)),
+                eq(BatchTriggerSource.SCHEDULED), ArgumentMatchers.isNull());
+        verifyNoMoreInteractions(evaluationService);
+    }
+
+    @Test
     @DisplayName("submitForecastBatch: a successful bucket logs [BATCH DIAG] Submitted at WARN "
             + "with the batch id, and the trailing summary reports 1/1 buckets submitted")
     void submitForecastBatch_successfulBucket_logsSubmittedWithBatchId() {
