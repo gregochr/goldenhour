@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -368,6 +369,123 @@ class ScheduledBatchEvaluationServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.batchId()).isEqualTo("msgbatch_admin");
         verify(evaluationService).submit(any(List.class), eq(BatchTriggerSource.ADMIN));
+    }
+
+    @Test
+    @DisplayName("submitScheduledBatchForRegions: inland and coastal both submit ok → "
+            + "returns the INLAND result")
+    void submitScheduledBatchForRegions_bothOk_prefersInland() {
+        LocationEntity inlandLocation = buildLocation("Durham UK");
+        LocationEntity coastalLocation = buildLocation("Bamburgh");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                inlandLocation, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                coastalLocation, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectRegionFilteredBatches(any()))
+                .thenReturn(new RegionFilteredBatchTasks(
+                        List.of(inlandTask), List.of(coastalTask)));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationHandle(200L, "msgbatch_inland", 1));
+        when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationHandle(201L, "msgbatch_coastal", 1));
+
+        BatchSubmitResult result = service.submitScheduledBatchForRegions(List.of(1L));
+
+        assertThat(result).isNotNull();
+        assertThat(result.jobRunId()).isEqualTo(200L);
+        assertThat(result.batchId()).isEqualTo("msgbatch_inland");
+        assertThat(result.requestCount()).isEqualTo(1);
+        verify(evaluationService).submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.ADMIN));
+        verify(evaluationService).submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN));
+    }
+
+    @Test
+    @DisplayName("submitScheduledBatchForRegions: inland submission fails, coastal ok → "
+            + "returns the COASTAL result, not null (regression for the hidden-batch bug)")
+    void submitScheduledBatchForRegions_inlandFailedCoastalOk_returnsCoastal() {
+        LocationEntity inlandLocation = buildLocation("Durham UK");
+        LocationEntity coastalLocation = buildLocation("Bamburgh");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                inlandLocation, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                coastalLocation, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectRegionFilteredBatches(any()))
+                .thenReturn(new RegionFilteredBatchTasks(
+                        List.of(inlandTask), List.of(coastalTask)));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(EvaluationHandle.empty());
+        when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationHandle(301L, "msgbatch_coastal_only", 1));
+
+        BatchSubmitResult result = service.submitScheduledBatchForRegions(List.of(1L));
+
+        assertThat(result).isNotNull();
+        assertThat(result.jobRunId()).isEqualTo(301L);
+        assertThat(result.batchId()).isEqualTo("msgbatch_coastal_only");
+        assertThat(result.requestCount()).isEqualTo(1);
+        verify(evaluationService).submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.ADMIN));
+        verify(evaluationService).submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN));
+    }
+
+    @Test
+    @DisplayName("submitScheduledBatchForRegions: both inland and coastal submissions fail → "
+            + "returns null, but both buckets were still submitted")
+    void submitScheduledBatchForRegions_bothFailed_returnsNull() {
+        LocationEntity inlandLocation = buildLocation("Durham UK");
+        LocationEntity coastalLocation = buildLocation("Bamburgh");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                inlandLocation, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                coastalLocation, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectRegionFilteredBatches(any()))
+                .thenReturn(new RegionFilteredBatchTasks(
+                        List.of(inlandTask), List.of(coastalTask)));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(EvaluationHandle.empty());
+        when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(EvaluationHandle.empty());
+
+        BatchSubmitResult result = service.submitScheduledBatchForRegions(List.of(1L));
+
+        assertThat(result).isNull();
+        verify(evaluationService).submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.ADMIN));
+        verify(evaluationService).submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN));
+    }
+
+    @Test
+    @DisplayName("submitScheduledBatchForRegions: no inland tasks, coastal ok → "
+            + "returns coastal, submit called exactly once")
+    void submitScheduledBatchForRegions_inlandEmptyCoastalOk_submitsOnce() {
+        LocationEntity coastalLocation = buildLocation("Bamburgh");
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                coastalLocation, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectRegionFilteredBatches(any()))
+                .thenReturn(new RegionFilteredBatchTasks(List.of(), List.of(coastalTask)));
+        when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationHandle(401L, "msgbatch_coastal_solo", 1));
+
+        BatchSubmitResult result = service.submitScheduledBatchForRegions(List.of(1L));
+
+        assertThat(result).isNotNull();
+        assertThat(result.jobRunId()).isEqualTo(401L);
+        assertThat(result.batchId()).isEqualTo("msgbatch_coastal_solo");
+        assertThat(result.requestCount()).isEqualTo(1);
+        verify(evaluationService).submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN));
+        verifyNoMoreInteractions(evaluationService);
     }
 
     // ── Aurora ───────────────────────────────────────────────────────────────
