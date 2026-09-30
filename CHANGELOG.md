@@ -5,6 +5,529 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.3] - 2026-09-30
+
+### Changed — `survivor_atmosphere` and every class built around it are renamed to `slot_atmosphere`/`Slot*`
+
+Since #947/#948 (2026-09-30, "record conditions for every place", Phases 1–2) this table holds a
+row for EVERY candidate slot the pipeline fetched weather for that cycle — triaged-out and
+Gate-4-stood-down candidates included — not only the ones that survived triage and Gate 4
+("survivors"). "Survivor" was already a false name on the table, and on every class built around it,
+the day those two PRs shipped; both said so and deliberately left the rename for its own change so
+the behaviour change was not buried under a mechanical diff. This change is that rename, and it
+changes no behaviour.
+
+This repository's word for `(location, date, event_type)` is "slot" (`BriefingSlot`, "slot"
+throughout CLAUDE.md), so the new names use it:
+
+| Old | New |
+|---|---|
+| table `survivor_atmosphere` | `slot_atmosphere` |
+| `SurvivorAtmosphereEntity` | `SlotAtmosphereEntity` |
+| `SurvivorAtmosphereRepository` | `SlotAtmosphereRepository` |
+| `SurvivorAtmosphereWriter` | `SlotAtmosphereWriter` |
+| `SurvivorSignals` (+ nested `Readings`, `Scores`) | `SlotSignals` |
+| `SurvivorSignalReader` | `SlotSignalReader` |
+
+**Migration V159** renames the table and, separately, its primary key, its foreign key
+(`fk_survivor_atmosphere_location` → `fk_slot_atmosphere_location`), its unique constraint
+(`uq_survivor_atmosphere` → `uq_slot_atmosphere`) and its index
+(`idx_survivor_atmosphere_date` → `idx_slot_atmosphere_date`) — Postgres does not rename a table's
+dependent objects when the table itself is renamed, so each needed its own `RENAME CONSTRAINT`/
+`RENAME TO`, including the primary key, which V115's `CREATE TABLE` never named explicitly and so
+was auto-named `survivor_atmosphere_pkey`. A new Testcontainers migration test
+(`SlotAtmosphereRenameMigrationTest`, CI-only) seeds a row under the old table name at V158, applies
+V159, and asserts all five old names are gone, all five new names exist, and the row's data survived
+untouched.
+
+**The config flag is renamed too, with the old key still read.** `photocast.survivor-atmosphere.write`
+is now `photocast.slot-atmosphere.write` (default `true`, unchanged). Production's `application.yml`
+is not in this repository and may still set the old key, so `SlotAtmosphereWriter` binds both — the
+old key wins when it is set, so a deployment that has not yet picked up the new key name keeps
+behaving exactly as before. Once every deployment is updated, the legacy parameter can be deleted.
+
+**Everywhere the old identifiers appeared as literal names — class references, `{@link}`/`{@code}`
+javadoc, log lines, the entity's `@Table`/`@UniqueConstraint`/`@Index` annotations, and test fixture/
+method names — is renamed to match.** A new unit test, `SlotAtmosphereEntityTest`, pins the entity's
+`@Table` name and its constraint/index names to the `slot_atmosphere` spelling so a later refactor
+cannot silently split the entity from the migration that creates the table it maps to.
+
+**What is deliberately left alone.** Every migration file through V158, and both 2026-09-30
+changelog entries from #947/#948, are immutable history and still say "survivor" — that is what the
+table and classes were called on that date, and rewriting history would make an old log line or an
+old changelog entry unreadable against the code as it stood then. CLAUDE.md's "Where a rating
+lives" section and the "record conditions for every place" bullets now read the new names, with one
+sentence noting the table was called `survivor_atmosphere` until this migration. A handful of
+generic English uses of the word "survivor" — describing candidates that survived triage in
+`ForecastCommandExecutor`, remaining best-bet picks in `BestBetRanker`/`BriefingBestBetAdvisor`, and
+similar unrelated ranking/filtering code — are untouched, since they never named the renamed table or
+classes in the first place. The frontend has no reference to any of these identifiers (confirmed by
+search) and is untouched.
+
+### Changed — atmospheric conditions are now recorded for every place the pipeline looks at, not only the ones it goes on to rate
+
+Hot topics and the Coming up feed answer "what is happening?" — knowing there is Saharan dust,
+lying snow or a storm surge at a place is interesting on its own terms. Stars, verdicts and picks
+answer the separate question "where is worth going?" Through 2026-09-29 the two questions shared
+one gate by accident: `SurvivorAtmosphereWriter.write` (`survivor_atmosphere` — dust, snow,
+freezing level, humidity, storm surge) was called only for a candidate that survived weather triage
+*and* the Gate 4 stability policy, so a place forecast to be cloudy or stability-gated had no dust,
+snow or surge chip at all, even when the condition was genuinely there.
+
+The write happens immediately after `fetchWeatherAndTriage` assembles the atmospheric data — before
+the triage verdict and before the Gate 4 decision — so a `SKIPPED_TRIAGED` or `SKIPPED_STABILITY`
+candidate now carries a reading exactly like an `EVALUATED` one. A candidate that never had its
+weather fetched this cycle (`SKIPPED_PAST_DATE`, `SKIPPED_CACHED`, `SKIPPED_TRAVEL_DAY`,
+`SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_HARD_CONSTRAINT` — all decided before the candidate loop from
+an earlier cycle's own cached verdict — or a `SKIPPED_ERROR` where the fetch itself failed) still
+writes nothing, since there is no reading to record. No feature switch — every place is recorded
+from the first deploy, matching the existing `photocast.survivor-atmosphere.write` all-or-nothing
+flag.
+
+**Round 2: the write moved to a single seam, after a Codex review of the first cut found two more
+gaps.** The first cut of this change (commit 9c01491f) put the write directly at three call
+sites — `ForecastTaskCollector`'s scheduled batch path, and both of `ForceSubmitBatchService`'s
+entry points (JFDI and admin force-submit). A Codex review of the resulting PR found this missed
+two OTHER real callers of `ForecastService.fetchWeatherAndTriage`: the batch collector's own admin
+`collectRegionFilteredBatches`, and the synchronous engine's `ForecastCommandExecutor
+.runTriagePhase` — both fetch weather and triage/Gate-4-skip candidates exactly like the scheduled
+path, but neither had a write at all, so a triaged-out slot on an admin region-filtered run or a
+hand-started `/api/forecast/run*` call still had no reading recorded. Rather than add two more call
+sites, the write moved inside `ForecastService.fetchWeatherAndTriage` itself — the one place every
+caller already shares, and the same method that CLAUDE.md already documents as saving a
+`forecast_evaluation` row as a side effect. This covers all six current callers (the two batch
+collector paths, both `ForceSubmitBatchService` entry points, `BatchRetryService`'s failed-request
+reconstruction, and the synchronous engine) and any future one, with exactly one write per fetch.
+The three call-site writes added in the first cut, and `evaluateAndPersist`'s own write (which a
+triaged candidate never reached anyway, since its caller discards triaged results before calling
+it), were removed — a caller that already writes would otherwise write the same fetch twice.
+`ForecastTaskCollector` and `ForceSubmitBatchService` no longer depend on `SurvivorAtmosphereWriter`
+at all, since neither calls it directly any more.
+
+**Round 3: a woodland-only candidate on the admin region-filtered path was still excluded BEFORE
+reaching the seam, because it never went through the collector's canopy check at all until this
+round.** A Codex review of PR #947 (round 3, against commit 1f637d56) found
+`ForecastTaskCollector.collectRegionFilteredBatches` tested `candidate.location().isWoodlandOnly()`
+and skipped the candidate before ever calling `fetchWeatherAndTriage` — so a wood-only location on
+an admin region-filtered run fetched weather (the batch prefetch upstream already covers every
+candidate) but never reached the one seam that records it, while the scheduled path
+(`collectScheduledBatches`), which decides its own woodland lane strictly AFTER the identical call,
+recorded it correctly. The canopy check moved to after the call, matching the scheduled loop's
+shape exactly: every candidate on this path now reaches `fetchWeatherAndTriage` unconditionally, and
+a canopy candidate is excluded from the inland/coastal buckets afterward, regardless of what colour
+triage said about it — this path has no woodland bucket of its own to route a canopy candidate
+into (unlike the scheduled loop's `woodland` list), so the two paths agree on the one thing that
+matters here: a canopy site never lands in the sky lane, and its reading is recorded either way.
+
+**Bluebell stays the named exception.** It and cloud inversion read `forecast_score`, not
+`survivor_atmosphere` — a genuinely Claude-scored component, unaffected by this change, since it is
+written only from a completed evaluation. Bluebell has no deterministic substitute for the display
+rating and stays scored-only by design; cloud inversion's own deterministic substitute (the
+calculator's score for every place, without Claude) is planned separately as a Phase 2 with its own
+migration.
+
+The "survivor" name on the table and every class built around it (`SurvivorAtmosphereWriter`,
+`SurvivorAtmosphereEntity`, `SurvivorAtmosphereRepository`, `SurvivorSignalReader`,
+`SurvivorSignals`) is now historical — every javadoc that claimed the rows were survivor-only has
+been corrected, and each class carries a note that a rename is pending, deliberately not folded
+into this change (a rename needs its own migration and would otherwise bury the behaviour change
+under a mechanical diff).
+
+CLAUDE.md's Almanac section is corrected: the four `survivor_atmosphere`-backed hot-topic
+strategies (dust, fresh snow, snow on the tops, storm surge) now see readings out to the batch's
+full 5-day candidate window, not only the slots that reached Claude — the "record conditions for
+every place" bullet in the Backend-heavy notes records the rule.
+
+**Dust copy updated to match.** `DustHotTopicStrategy`'s chip and its science-tooltip description
+both promised colour outright — "vivid colour potential", "producing unusually vivid orange and red
+skies" — which was accurate when the topic could only ever fire on a slot Claude had already rated
+GO-adjacent. Now that the chip shows at a place whose sky is forecast blocked (a triaged-out or
+Gate-4-stood-down slot), that promise is no longer true by construction, so the copy now states the
+condition and makes the colour conditional on a clear sky rather than promising it: the chip reads
+"Elevated dust aloft — colour potential where the sky is clear", and the tooltip reads "Saharan dust
+carried north by upper winds can scatter light into unusually vivid orange and red skies at sunrise
+and sunset — when the sky is clear enough to show it." The identical description string duplicated
+inside `HotTopicSimulationService`'s admin DUST demo template is updated the same way, so the
+simulated topic an admin previews matches the live one.
+
+### Security — Frontend dependency audit fixes (brace-expansion 5.0.12, fast-uri 3.1.8)
+
+- **The v2.22.2 release failed at the frontend `npm audit` gate, on both the tag's Deploy run and
+  the same commit's CI run on `main`** — the promotion PR (#945) had passed minutes earlier, so this
+  was time-triggered by the advisory database, not by anything in the release. Three high
+  advisories in `brace-expansion` 4.0.0–5.0.11 (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7,
+  GHSA-6j4f-fj2g-mc7p — quadratic-time expansion and two stack-exhaustion recursions, all DoS),
+  and one moderate in `fast-uri` 3.0.0–3.1.7 (GHSA-hrr3-gc8f-f4qj). The moderate one does not
+  trip the `high` gate on its own and is fixed here because it is the same two-line shape.
+- **The `overrides` pin was itself the vulnerable version, again.** `package.json` pins
+  `brace-expansion` to force every `minimatch` (3.x, 5.x and 10.x) onto one 5.x node; #421 set it
+  to `5.0.9` for the previous advisory in this package, and that is exactly the version now inside
+  the vulnerable range. Bumped to `5.0.12`, the first release outside it. Editing the lockfile
+  alone is not enough here — `npm ci` refuses the tree with `Missing: brace-expansion@5.0.9` five
+  times over, once per `minimatch`, because the override still names the old version.
+- **Transitive and dev-only**: `minimatch` reaches the tree through `eslint`,
+  `@eslint/config-array`, `glob` and `filelist`; `fast-uri` through `ajv`. Both lockfile nodes are
+  `"dev": true`; nothing shipped to users was affected. `ajv`'s `^3.0.1` range already permits
+  `3.1.8`, so that one is lockfile-only.
+- **Seven lines, deliberately not `npm audit fix`** (the same reasoning as #421 — it rewrites
+  lockfile metadata the CI runner's older npm does not, including the `libc` field on the optional
+  rollup binaries). Proven the way CI will read it: `rm -rf node_modules && npm ci` exits 0 with
+  0 vulnerabilities and leaves the lockfile byte-identical, `scripts/npm-audit.sh frontend high`
+  reports 0 under npm 11, and lint, 6,849 Vitest tests and the production build are green.
+- **Deploy fires only on a tag push**, so this PR alone does not re-run the release: once it is on
+  `main` the tag needs re-cutting (owner-run, as ever).
+
+### Fixed — the inversion signal needed one shared fallback rule, not a forward/trailing split, and then a way to tell an authoritative null from an absent one
+
+**Round 2** — A Codex review of PR #948 (against commit `3e688862`, the first V158 cut) found a P1:
+after V158 added `survivor_atmosphere.inversion_score`, every row written before that migration
+carries a null value there forever, because a past date is never re-evaluated by a later pipeline
+cycle — there is no later look that could ever fill it in. `ComingUpConditionsBuilder.buildInversion`'s
+trailing-window occurrence list had moved to reading that column alone, so it reported "none in the
+last 60 days" even on dates where a strong `forecast_score` INVERSION row (Claude's echo of the
+identical 0–10 scale) genuinely existed. That false history would have stood until the entire 60-day
+window aged past every pre-migration date — weeks of a silently wrong "Valley inversions" card. The
+round-2 fix split the condition's two reads by window direction: the forward peak stayed
+calculator-only (reasoning that a forward slot is upserted every cycle, so it is always current),
+while the trailing history alone fell back to Claude's echo via a new
+`ComingUpConditionsBuilder.trailingInversionScore` helper.
+
+**Round 3 (this fix) found the round-2 split itself wrong, not just incomplete.** A second Codex
+review of PR #948 established that a forward slot is NOT guaranteed to carry a fresh calculator
+reading every cycle: `BriefingCandidateCollector` skips a region with a fresh `cached_evaluation`
+entry — `SKIPPED_CACHED`, around lines 204–227 — *before* `fetchWeatherAndTriage` (and therefore the
+calculator) ever runs for it, and `FreshnessProperties.settledHours` defaults to 36 with no horizon
+cap at T+2 and beyond (`FreshnessResolver.horizonCap` returns null there), so a SETTLED forward slot
+can go up to 36 hours with a null `survivor_atmosphere.inversion_score` while Claude's own
+`forecast_score` echo for that exact slot already exists. Under the round-2 design, both the
+inversion hot topic and the Coming up condition's forward-peak cell would wrongly suppress an
+imminent, already-known inversion for up to a day and a half.
+
+**The fix drops the forward/trailing distinction entirely.** There is now ONE rule, used everywhere
+the inversion signal is read: `SurvivorSignals.effectiveInversionScore()` — the calculator's
+`Readings.inversionScore()` when present, else Claude's `Scores.inversion()` echo (the identical
+0–10 scale, the identical STRONG cut of 9). `InversionHotTopicStrategy.detect`/`attachFacts` and
+BOTH of `ComingUpConditionsBuilder.buildInversion`'s reads (trailing history and forward peak alike)
+call this one shared helper; `ComingUpConditionsBuilder.trailingInversionScore` (round 2's
+now-superseded helper) is deleted.
+
+**This is not a retreat from the owner's "the calculator decides" rule — it is the same rule, made
+consistent.** Where the calculator HAS scored a slot, the calculator decides, full stop: the reading
+always wins when both are present, even when it disagrees with (including when it is LOWER than) the
+echo. The echo is never anything more than a stand-in for a slot the calculator has not reached yet,
+on the identical scale and threshold, so this can never make the topic fire on a score the calculator
+itself would have refused — it only ever fills a gap the calculator has not had the chance to fill.
+
+**The fallback remains permanent, not a transition hack**, and now covers a third population beyond
+the two round 2 named: every pre-V158 `survivor_atmosphere` row (a past date's null reading is never
+retroactively filled in), any `forecast_score` INVERSION row with no matching `survivor_atmosphere`
+row at all (a key fetched only by a pre-#947 code path that predates the writer being called), and —
+newly — any forward slot a `SKIPPED_CACHED` gate has not yet let the calculator re-score this cycle.
+None of the three will ever be filled in by waiting; a read-time rule is the only design that covers
+all three, since the third population proves even "wait for the next cycle" is not a reliable fix for
+a forward slot. **Still no backfill migration** — a backfill could write today's calculator score
+into old rows, but it cannot reach the second or third population above (no row was ever written, or
+the write simply has not happened yet this cycle), so the read-time rule is needed regardless, and
+once it exists it already covers everything a backfill could have fixed.
+
+**A consequence worth naming precisely, corrected from round 2's own claim**: `SurvivorSignals
+.Scores.inversion()`/`inversionBand()` were described in the same-day Phase 2 changelog entry as
+unread by any production code and a candidate for future removal. That was already wrong by the end
+of round 2 (which gave the trailing history a genuine reader) and remains wrong now: `effectiveInversionScore()`
+is a permanent, live production reader of both fields, for both windows. `SurvivorSignals.java`,
+`SurvivorSignalReader.java`, `InversionHotTopicStrategy.java`, `ComingUpConditionsBuilder.java` and
+`CLAUDE.md` all name the single shared helper now.
+
+**Round 2's "silent until the next cycle" claim is also corrected — it is no longer true.** Because
+the echo now stands in for BOTH windows, a slot with a `forecast_score` echo and no calculator
+reading fires from the very first request after this deploys, not only after the next scheduled
+cycle. Only a slot with genuinely no evidence on EITHER surface — no calculator reading and no
+Claude echo — stays silent, and that silence ends whenever either surface first gets a value, not on
+a fixed clock. The two scheduled cycles that write fresh calculator readings remain the nightly run
+(~01:00 UTC) and the intraday refresh (~14:00 UTC), for reference, but they are no longer the only
+thing that can end the silence for a slot Claude has already evaluated.
+
+Tests: `SurvivorSignalsTest` (new) pins `effectiveInversionScore()` directly at the helper level —
+reading-only, echo-only, both-null, agreeing, and both present with the echo higher OR lower than
+the reading (the reading always wins either way) — the one place this decision is made, so the
+strategy and the builder can never disagree about it. `InversionHotTopicStrategyTest` REVERSES its
+own round-2 test (`detect_silentWhenReadingNull_evenIfScoresInversionIsTen` renamed and flipped to
+`detect_nullReadingWithStrongEcho_fires`) and adds: a lower reading beating a higher echo stays
+silent; a reading with no echo still fires (named explicitly); both null stays silent.
+`ComingUpConditionsBuilderTest` REVERSES its own round-2 forward-peak test
+(`buildInversion_forwardPeak_nullReadingWithStrongEcho_notShown` renamed and flipped to
+`buildInversion_forwardPeak_nullReadingWithStrongEcho_isShown`) and adds a forward-peak
+reading-wins-over-disagreeing-echo case, mirroring the trailing-history one already there;
+`inversionRarityNeverUpgrades` and the round-2 trailing-history tests are unaffected and still pass.
+
+**Round 4 — a further Codex P1 found `effectiveInversionScore()` itself still wrong: it treated
+EVERY null `Readings.inversionScore()` as "the calculator has not reached this slot yet", but a
+null reading is also exactly what a FRESH write produces.** Two causes, both legitimate: (1)
+`InversionScoreCalculator.calculate` returns null for an otherwise-ELIGIBLE location when required
+weather inputs (a null dew point or surface temperature) are missing; (2) `ForecastDataAugmentor
+.augmentWithInversionScore` returns the base `AtmosphericData` unchanged — the score staying null —
+for an INELIGIBLE location. Both leave `survivor_atmosphere.inversion_score` null on a row written
+THIS cycle, indistinguishable from a row the calculator simply has not reached at all. Since
+`ForecastScoreWriter.write` only upserts the `forecast_score` INVERSION component when
+`eval.inversionScore() != null`, any earlier component for that slot is left in place indefinitely
+whenever a later evaluation scores nothing — so round 3's blanket "null reading → fall back to the
+echo" rule could revive a STRONG rating from a stale evaluation days after the calculator itself
+had legitimately found nothing to report, on the exact slot the deterministic scoring was meant to
+correct.
+
+**The fix distinguishes an authoritative null from an absent one with data, not with timestamps.**
+`V158__add_survivor_inversion_score.sql` (amended in place — this PR was never merged, confirmed by
+an empty `git log origin/main -- backend/src/main/resources/db/migration/V158*`) gains a second
+column, `inversion_scored BOOLEAN NOT NULL DEFAULT FALSE`. `SurvivorAtmosphereWriter.write` now sets
+`inversionScored = true` on every write it makes — with a real score or with a null one alike —
+because a fresh write always ran the calculator's own eligibility check this cycle, whatever it
+found. `SurvivorSignals.Readings` gains the thirteenth component `inversionScored` (`false` in
+`EMPTY`), mapped by `SurvivorSignalReader` straight off the entity's own flag.
+`effectiveInversionScore()` now checks `readings.inversionScored()` FIRST: when `true`, it returns
+`readings.inversionScore()` exactly as stored, null included, and never consults the echo at all;
+only when `false` — a row written before this column existed — does it fall back to Claude's echo,
+or null if neither surface has anything to say. The calculator still decides whenever it has
+scored a slot, full stop; this round narrows *what counts as* the calculator having scored a slot,
+it does not touch the precedence rule itself.
+
+**The permanent fallback population shrinks by exactly the case this round fixes.** Round 3 named
+three populations that only ever have the echo; the "any forward slot a `SKIPPED_CACHED` gate has
+not yet let the calculator re-score this cycle" population is now split in two by this round: a
+slot with NO `survivor_atmosphere` row at all for that key still falls back (nothing to mark
+scored), but a slot the calculator DID score this cycle — even to a null result — no longer does.
+The two populations that remain permanent are unchanged in kind: every pre-round-4
+`survivor_atmosphere` row (`inversion_scored = false` by the migration's default, and a past date is
+never re-evaluated so the flag is never retroactively set) and any `forecast_score` INVERSION row
+with no matching `survivor_atmosphere` row at all. **Still no backfill migration** — the read-time
+flag already tells the two cases apart; a backfill could not populate `inversion_scored` for a
+historical row with any confidence it reflects that row's own cycle.
+
+Tests: `SurvivorSignalsTest.effectiveInversionScore` gains the scored/unscored cross product —
+scored=true with a null reading and a strong echo (10) now returns null (silent), reversing round
+3's own `detect_nullReadingWithStrongEcho_fires`-shaped expectation at the helper level; scored=true
+with a real reading (9) returns 9 regardless of the echo; scored=false with an echo (10) returns 10
+(the pre-column shape, unchanged); scored=false with no echo returns null.
+`SurvivorAtmosphereWriterTest` gains two cases: a write with a calculator score sets
+`inversionScored = true`, and a write with a null score sets it `true` too.
+`SurvivorSignalReaderTest` gains a mapping test (scored=true, with and without a reading survives
+the join) and confirms `Readings.EMPTY.inversionScored()` is `false`. `InversionHotTopicStrategyTest`
+renames `detect_nullReadingWithStrongEcho_fires` to `detect_preColumnRowWithStrongEcho_fires`
+(unchanged assertion — a pre-column row still fires) and adds
+`detect_freshNullWithStrongEcho_silent`, its direct reversal for a scored row. Every remaining
+signal-carrying fixture across `DustFactsBuilderTest`, `DustHotTopicStrategyTest`,
+`SnowFreshHotTopicStrategyTest`, `StormSurgeFactsBuilderTest`, `StormSurgeHotTopicStrategyTest`,
+`SnowTopsHotTopicStrategyTest`, `HotTopicAggregatorTest` and
+`RecordConditionsForEveryPlaceIntegrationTest` was audited and given an explicit `scored` value
+(`false` where the fixture is unrelated to inversion; `true` where an existing fixture asserts on a
+real inversion reading, since leaving it at the record's default `false` would have silently
+switched that fixture onto the echo path instead of the reading it was written to test).
+`ComingUpConditionsBuilderTest` renames its own `buildInversion_nullReadingWithStrongEcho
+_isListedWithEchoScore`/`buildInversion_forwardPeak_nullReadingWithStrongEcho_isShown` to
+`_preColumnRowWithStrongEcho_*` (unchanged assertions) and adds their direct reversals,
+`buildInversion_freshNullReadingWithStrongEcho_notListed` and
+`buildInversion_forwardPeak_freshNullReadingWithStrongEcho_noPeak`, using two new helpers
+(`scoredNullReading`, `preColumnReading`) that make each fixture's intent explicit rather than
+relying on a bare `new SurvivorAtmosphereEntity()`'s default field values.
+
+### Changed — the cloud inversion hot topic now scores every eligible place, not only the ones Claude rated
+
+Phase 1 of "record conditions for every place" (`changelog.d/20260930-record-conditions-every-place.md`)
+made dust, snow and storm-surge readings survive weather triage and the Gate 4 stability policy, but
+named cloud inversion as a deliberate exception: `InversionHotTopicStrategy` and the Coming up
+"Valley inversions" condition both read `forecast_score`'s INVERSION component, which is written
+only from a completed Claude evaluation, so a triaged-out or Gate-4-stood-down inversion-eligible
+location still had no inversion topic at all.
+
+This phase closes that gap. `InversionScoreCalculator` already ran a deterministic 0–10 likelihood
+score for every candidate with elevation ≥ 200 m and `overlooksWater` — inside
+`ForecastService.fetchWeatherAndTriage`, before either triage check runs — but that score lived only
+on the in-memory `AtmosphericData` and was discarded for anything that did not go on to a completed
+Claude evaluation. Migration `V158__add_survivor_inversion_score.sql` adds a nullable
+`inversion_score DOUBLE PRECISION` column to `survivor_atmosphere`; `SurvivorAtmosphereWriter.write`
+now sets it from `data.inversionScore()` at the same collection-time seam as every other reading on
+that row, so it is populated (or left null for an ineligible location) whatever the triage verdict
+or Gate 4 decision that follows. ⚠️ **V158 gained a second column, `inversion_scored`, in round 4**
+(`changelog.d/20260930-inversion-trailing-history-fallback.md`) — a null `inversion_score` turned
+out to be ambiguous between "not scored yet" and "scored, nothing to report", and that entry has the
+fix; this one is left describing the single-column shape it originally shipped for historical
+accuracy.
+
+`SurvivorSignals.Readings` gains `inversionScore` (kept in `Readings`, a derived input, not
+`Scores`, which is Claude's judgement) and `SurvivorSignalReader` carries the new column through
+unchanged. `InversionHotTopicStrategy` and `ComingUpConditionsBuilder.buildInversion`'s forward-peak
+cell read `readings().inversionScore()` instead of `scores().inversion()` — same STRONG threshold
+(score ≥ 9), same SUNRISE-only filter, same freshness rule. ⚠️ **Corrected twice in follow-up commits
+the same day** (`changelog.d/20260930-inversion-trailing-history-fallback.md`, two Codex P1s against
+this commit): first, the trailing-history occurrence list could not move to
+`readings().inversionScore()` alone the way the forward peak did, because a past date's reading is
+populated only going forward from this migration and is never retroactively filled in; then a SECOND
+finding showed the forward peak's own "always current" assumption was itself wrong, and the two
+reads were unified onto one shared rule. That entry has the full, current design. Coming up's
+rarity term is untouched by either fix: it still reads the config fallback, and
+`inversionRarityNeverUpgrades` still pins that.
+
+**The band label is now derived, not stored.** The calculator produces no NONE/MODERATE/STRONG
+string of its own (only Claude's echo used to carry one, in the `forecast_score` INVERSION row's
+`summary` column). The fact line's band now comes from `PromptBuilder.InversionPotential.fromScore`
+— the identical score-to-band mapping the prompt already applies to the same calculator score — so
+the hot topic's "9/10 · strong" can never disagree with the threshold that gated it firing at all.
+`InversionHotTopicStrategy.bandLabel` is now a pure function of the score rather than a fallback for
+a possibly-absent stored classification.
+
+**Two surfaces, two questions — and they may disagree, deliberately.** The map popup's inversion
+badge (`ForecastDtoMapper` → `forecast_evaluation.inversion_score`/`inversion_potential`) is
+unaffected by this change and stays on Claude's own echo: it answers "is this place worth going to",
+where Claude has narrow, evidence-checked discretion to disagree with the calculator on the measured
+reversal. The hot topic and Coming up answer "what is happening" and always follow the deterministic
+calculator. A location can therefore show a strong-inversion chip while its own map badge reads a
+different band that morning, or vice versa for a location Claude never evaluated — the intended
+split the two-question rule (2026-09-29) already established for dust, snow and surge, now applied
+to the one condition Phase 1 named as its exception.
+
+`SurvivorSignals.Scores.inversion()`/`inversionBand()` (Claude's `forecast_score` echo) are left in
+place — nothing in this change removes them, since they are still populated from `forecast_score`
+and still exercised by test coverage that pins the composite's join behaviour. ⚠️ As it turned out
+these accessors were not headed for cleanup at all: the same-day follow-up commit gives
+`Scores.inversion()` a genuine, permanent production reader (the trailing-history fallback) — see
+that entry.
+
+**No backfill migration** — this holds, but not for the reason first stated here (every slot being
+upserted every cycle does not make a *past* date's gap one cycle wide; the follow-up entry explains
+why a read-time fallback rather than a backfill is the correct permanent design, not a temporary one
+this note originally implied).
+
+### Fixed — batch submission now survives a transient Anthropic 5xx, and the diagnostics stop lying when it doesn't
+
+- **2026-09-29 incident, pipeline run 249 (INTRADAY 14:00 UTC): all three Anthropic Batch API
+  submissions failed with HTTP 500, one per bucket, and the cycle evaluated nothing** — the SDK
+  client's own retry (`ClientOptions.maxRetries = 2`, so 3 attempts within a few seconds) had
+  already run and given up before `BatchSubmissionService.submit` ever saw the failure; its
+  catch-all logged ERROR and returned `null`, and the afternoon kept serving 01:00's ratings.
+- **`AnthropicBatchClient`** is a new, separate `@Service` bean — separate so Resilience4j's
+  `@Retry`-style AOP actually intercepts it, though the retry itself is driven programmatically
+  via an injected `RetryRegistry` (the class javadoc explains why: the duplicate-batch guard below
+  needs per-call state — which attempt this is, and when the first one started — that an
+  annotated method has no clean way to carry). It wraps `messages().batches().create(...)` with a
+  second, much longer-window retry (`"anthropic-batch"` instance: 4 attempts, 30s → 60s → 120s
+  exponential backoff, no circuit breaker of its own — it must not share tripped state with the
+  per-location synchronous `"anthropic"` instance) governed by a new `BatchSubmitRetryPredicate`
+  (retries `AnthropicServiceException` status ≥ 500 and `AnthropicIoException`/`IOException`
+  anywhere in the cause chain, plus 429 — see the P1-B round below for why 429 is retried here).
+- **Batch creation is not idempotent and carries no idempotency key, so a retry after a failure
+  that actually succeeded remotely (a read timeout after acceptance, say) would pay for and
+  orphan a second batch nothing tracks.** Before every retry attempt (never the first),
+  `AnthropicBatchClient` lists the 20 most recent batches and adopts one instead of creating a
+  duplicate when it finds exactly one whose `createdAt` is at or after the first attempt's start
+  and whose total request count matches.
+- **Round 2 (a Codex review of PR #949, two P1s), before this shipped:**
+  - **P1-A — the size+timing match alone could adopt a SIBLING bucket's batch id.** Two buckets of
+    the same size, submitted seconds apart in the same cycle, satisfied the original match test
+    equally well, and adopting the wrong one would hit `forecast_batch`'s unique
+    `anthropic_batch_id` constraint (or, worse under concurrent callers, attach a batch under the
+    wrong custom ids). Fixed two ways: (1) a new `ForecastBatchRepository.existsByAnthropicBatchId`
+    excludes any candidate already tracked — `BatchSubmissionService` persists a bucket's row
+    immediately after `create()` returns, before the next bucket is even built, so every
+    genuinely-succeeded sibling is already tracked by the time a later bucket's retry runs this
+    check; (2) if MORE THAN ONE untracked candidate still matches, `AnthropicBatchClient` no
+    longer guesses — it logs every candidate id at ERROR as a possible orphan needing manual
+    recovery and throws a new, deliberately non-retryable `AmbiguousBatchAdoptionException`
+    (wrapped in the usual `BatchRetryExhaustedException`), rather than adopting one or creating
+    another. The previous 5-second negative clock-skew tolerance was also dropped outright — the
+    cutoff is now exactly `firstAttemptStart` (inclusive) — since once tracked siblings are
+    excluded, a tolerance's only remaining job was absorbing clock skew, at the cost of reopening
+    the same false-match risk in miniature against an unrelated untracked batch.
+  - **P1-B — the shared client's own transport-level retry (408/409/429/5xx, up to 3 attempts)
+    could fire multiple non-idempotent `create()` calls inside ONE attempt this class's own retry
+    loop counted as one**, before the duplicate-batch guard ever ran. `AnthropicBatchClient` now
+    derives a client with transport retries disabled (`anthropicClient.withOptions(o ->
+    o.maxRetries(0))`) once in the constructor and uses it for every `create()` and `list()` call,
+    so every actual HTTP attempt is one this class's own retry (and guard) can see. Consequence:
+    with the transport layer no longer retrying 429 for this call, `BatchSubmitRetryPredicate` now
+    retries 429 itself — the one 4xx exception, safe specifically because a 429 means the batch was
+    never created, so retrying carries none of the duplicate-batch risk the guard exists for. Every
+    other 4xx (400/401/403/404/408/409/413) stays non-retryable.
+  - The list call itself is best-effort — a failure there just proceeds to create, rather than
+    blocking the retry on a diagnostic-only check.
+- **Round 3 (a further Codex review, after round 2 shipped as 8b8ed0dd): two DIFFERENT submitters
+  in the same process — forecast and aurora batches guard separately, and the weekly sky-rating
+  batch has no guard at all — could still race and adopt each other's batch id, since neither the
+  `forecast_batch` check nor sky-rating's total lack of tracking can see a sibling's batch before
+  its own caller has had a chance to persist (or, for sky-rating, ever will).** Fixed by serializing
+  every `AnthropicBatchClient.createBatch` call in the process behind one `ReentrantLock` (held for
+  the whole call, including retry waits) plus a bounded, in-memory record of every id this client
+  has ever handed out (created or adopted), written before the lock is released and checked
+  alongside the `forecast_batch` exclusion — closing the gap the lock alone leaves between one
+  call returning and its caller persisting.
+- **`BatchSubmissionService`'s contract is unchanged** (empty list → `null`; a persistence failure
+  after a successful create still throws `OrphanedBatchException`; any other exhausted failure logs
+  ERROR and returns `null`) but the ERROR line now says how many attempts were made
+  (`BatchRetryExhaustedException.getAttempts()`), and its constructor now takes the new
+  `AnthropicBatchClient` in place of the raw `AnthropicClient`. Every production caller — scheduled
+  buckets, admin, force-submit, JFDI, aurora, and `BatchRetryService`'s RETRY_FAILED phase — already
+  goes through this one seam and gets the retry for free; the weekly sky-rating eval harness
+  (`SkyRatingEvalBatchClient`, previously calling the SDK directly) was moved onto the same seam too.
+- **The `[BATCH DIAG] Submitted N ... requests` line was untrue on failure** — `submitBuckets` logged
+  it unconditionally regardless of whether `evaluationService.submit` actually reached Anthropic, so
+  the incident's three failed buckets each logged "Submitted" anyway. `logBatchBreakdown` now takes
+  the submission's `EvaluationHandle` and logs WARN with the batch id on success or ERROR
+  `"[BATCH DIAG] NOT submitted N ... requests (submission failed)"` on failure, and the trailing
+  `"Forecast batch split: ..."` INFO line now appends `"submitted K/B buckets"` rather than implying
+  every bucket landed. The admin region-filtered `"[BATCH DIAG] Admin batch split"` line no longer
+  reports `"(empty)"` for a bucket that had tasks but failed to submit — that reading was
+  indistinguishable from a bucket with no tasks at all — and now says `"(failed)"` instead.
+- Dispositions and pipeline-run status are unchanged by this change — a failed bucket still records
+  `EVALUATED` dispositions and the run still completes normally; fixing that is a separate,
+  owner-decision-gated follow-up.
+
+### Fixed — a fully-failed forecast batch submission no longer reads as a normal night
+
+- **A new disposition, `SUBMISSION_FAILED`**: `ScheduledBatchEvaluationService.submitBuckets`
+  now rewrites a candidate's `EVALUATED`/`FORCE_EVALUATED` disposition to `SUBMISSION_FAILED`
+  after submission, for every candidate whose task(s) landed only in bucket(s) whose Anthropic
+  submission failed — naming the bucket(s) and, for a forced candidate, preserving that fact in
+  the detail string. A candidate whose tasks span two buckets (an OPEN_FELL sky+bluebell pair)
+  where only one bucket fails keeps its original category — a real request DID reach Claude for
+  it — with the partial loss recorded in `detail` instead. The category is excluded, exactly like
+  `SKIPPED_CACHED`, from both sides of `findLatestNonCachedDispositions`' correlated subquery (so
+  it can never shadow an earlier `SKIPPED_TRIAGED` decision) and from `SupersedingDispositionService`'s
+  two-value allow-list (it is not a decision against a slot's existing rating). The frontend
+  Disposition Breakdown section shows it right after `EVALUATED`.
+- **A new pipeline run status, `DEGRADED`**: the orchestrator still completes WAIT and BRIEFING
+  exactly as before — briefing from whatever cache exists is the correct fallback — but when one
+  or more forecast batch submissions failed, the `FORECAST_BATCH_SUBMIT` phase is recorded FAILED
+  with a detail naming which buckets failed and how many requests were lost, and the run is
+  marked `DEGRADED` (never `COMPLETED`) with that same detail as its `failureReason`. `FAILED`
+  still outranks `DEGRADED`: a run that fails for an unrelated reason (safety timeout, a briefing
+  exception) is unaffected. The Pipeline Runs admin UI shows an amber `DEGRADED` pill and its
+  failure reason, distinct from a red `FAILED` one.
+- **Every enabled ADMIN with an email is emailed once per degraded run.** A new
+  `AdminAlertService` reuses the same `JavaMailSender`/from-address `UserEmailService` already
+  sends transactional mail with in production — not the disabled `NotificationChannel`/
+  `NotificationDispatcher` machinery, which carries forecast results to end users and was never
+  meant to spend budget on an operational alert. The email names the run id, cycle type, trigger
+  time (UTC), the per-bucket failure detail, and states plainly that the app is still serving
+  ratings from the previous successful run. Best-effort throughout: no mail sender configured, no
+  enabled admin with an email, or the send itself failing are all caught and logged, never
+  allowed to change the run's status or escape into the orchestrator.
+- Born from the 2026-09-29 incident (pipeline run 249): every one of that cycle's three forecast
+  batch submissions failed, but the run completed and was recorded `COMPLETED` — indistinguishable
+  from a night where every rating was fresh, with nobody told.
+
+### Fixed — admin "Submit scheduled batch" no longer reports failure when only the coastal bucket landed
+
+The admin region-filtered batch submission (`POST /api/admin/batches/submit-scheduled`) splits its
+tasks into an inland and a coastal bucket and submits each separately. When the inland bucket had
+tasks but its own Anthropic submission failed, and the coastal bucket's submission succeeded, the
+endpoint answered 422 "failed" — hiding a live coastal batch. The bug was in the result selection: a
+failed submission returns a non-null `EvaluationHandle.empty()` (`batchId() == null`), not `null`,
+so `inlandHandle != null ? inlandHandle : coastalHandle` picked the failed inland handle over the
+genuinely submitted coastal one. `doSubmitForecastBatchForRegions` now returns the first bucket
+Anthropic actually accepted, inland preferred, via a `batchId() != null` check on each handle rather
+than a bare null check.
+
+Beyond the misleading failure response, the next press of "Submit scheduled batch" would have hit
+409 "already in progress" from the hidden coastal batch that was, in fact, still running.
+
 ## [v2.22.2] - 2026-09-30
 
 ### Changed — a region's ratings need a large enough sample before they may set its verdict
