@@ -1222,7 +1222,12 @@ builds of a native dependency, so a security patch would be carrying a change th
 binary the Linux runner installs. Edit the three lines (version, resolved, integrity — take the
 integrity from `https://registry.npmjs.org/<pkg>/<version>`), then prove it the way CI will:
 `rm -rf node_modules && npm ci` must exit 0, report 0 vulnerabilities, and leave the lockfile
-unchanged.
+unchanged. ⚠️ **Check `package.json`'s `overrides` first**: `brace-expansion` is pinned there
+to one exact version so every `minimatch` shares a node, and twice now (#421, and the v2.22.2
+release failure) the pin was itself the newly-vulnerable version — with the pin unbumped, the
+three-line lockfile edit leaves `npm ci` refusing the tree (`Missing: brace-expansion@<old>`, once
+per `minimatch`), and an audit run over an EMPTY `node_modules` then reports 0 vulnerabilities,
+which is not evidence of anything.
 
 The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say. ⚠️ Every rung that reaches the full `test` phase must carry `-Dtest='!**/integration/**'`, because there is no local Docker and never will be; without it you get a Testcontainers stack trace instead of a test failure. The integration classes run in CI.
 
