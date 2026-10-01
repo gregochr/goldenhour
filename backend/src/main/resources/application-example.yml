@@ -293,11 +293,9 @@ photocast:
                                    # (dust/surge/snow) to slot_atmosphere at submission time — the
                                    # readings half of the unified hot-topic read surface. Rollback =
                                    # set false (additive table, no redeploy). Renamed from
-                                   # photocast.survivor-atmosphere.write in V159 (2026-09-30);
-                                   # SlotAtmosphereWriter still reads the OLD key too, and the old
-                                   # key wins when a deployment's config still sets it, so production
-                                   # (application.yml, not in this repository) keeps working
-                                   # unchanged until it is updated to the new key.
+                                   # photocast.survivor-atmosphere.write in V159 (2026-09-30); the old
+                                   # key was read as a legacy alias for the rest of that day only and
+                                   # is no longer read at all.
   season:
     bluebell:
       start: "04-18"               # bluebell season first active day (MM-dd, inclusive).
