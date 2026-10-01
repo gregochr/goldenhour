@@ -12,7 +12,11 @@ name: Production Health
 # Two notifier jobs, not one, and each needs only its own probe — see
 # notify-on-host-failure / notify-external-failure below for why. The
 # `external` job also runs a watchdog, off the box, for the case where the
-# on-host job itself can never fail: see its own watchdog step for why.
+# on-host job itself can never fail: see its own watchdog step for why. The
+# on-host job also carries its own `timeout-minutes`, for the case where it
+# starts running but then hangs against a wedged daemon: see that job's
+# comment for the bound, and notify-on-host-failure's own comment for why a
+# timeout's `cancelled` conclusion still has to open the issue.
 
 on:
   schedule:
@@ -24,6 +28,16 @@ jobs:
   on-host:
     name: On-host checks (compose, cloudflared, tailscale, apt, reboot)
     runs-on: self-hosted
+    # Bound derived from the script's own worst case, not guessed: HEALTH_TIMEOUT
+    # (180s) plus the external-equivalent 3 attempts at 20s each with 2x10s
+    # sleeps between them is about five minutes end to end. Fifteen is three
+    # times that slowest honest run — long enough that a genuinely slow check
+    # never gets caught by it, short enough that anything past it is a hang
+    # against a wedged daemon, not a check still working. Without this, a hung
+    # `docker compose ps` lets the job sit `in_progress` forever: the watchdog
+    # above accepts `in_progress` as alive and passes, and notify-on-host-failure
+    # below can never fire because its dependency never reaches a terminal state.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -131,7 +145,11 @@ jobs:
   # the same name could file two issues for the same incident.
   notify-on-host-failure:
     needs: on-host
-    if: failure()
+    # Not `if: failure()`: a job killed by its own `timeout-minutes` is not
+    # reliably reported as `failure` on every surface (it can come through as
+    # `cancelled`), so `failure()` would miss a genuine hang. A manual cancel
+    # of this scheduled workflow opening an issue too is an accepted, rare cost.
+    if: ${{ always() && needs.on-host.result != 'success' }}
     permissions:
       issues: write
     uses: ./.github/workflows/ci-failure-issue.yml

@@ -21,9 +21,13 @@ one notifier would not fire until GitHub eventually cancelled that queued job ho
 external job also carries a watchdog step that polls the run's own job list for up to 10 minutes,
 because an Actions runner that fails to restart after a reboot leaves the on-host job permanently
 queued rather than failed — invisible to both the host's own checks and the external probe's 401 —
-so without it the runner itself could die silently and nothing would ever notice. The `deploy` job
-in `deploy.yml` now runs `--deploy` immediately after bringing the new containers up, in place of
-the old fixed `sleep 30; docker compose ps`.
+so without it the runner itself could die silently and nothing would ever notice. The on-host job
+also carries `timeout-minutes: 15` (three times the script's own worst-case run) so a check that
+hangs against a wedged daemon reaches a terminal state instead of sitting `in_progress` forever and
+passing the watchdog, and its notifier fires on `needs.on-host.result != 'success'` rather than
+`failure()` alone, since a timed-out job's conclusion is not reliably reported as `failure` on every
+surface. The `deploy` job in `deploy.yml` now runs `--deploy` immediately after bringing the new
+containers up, in place of the old fixed `sleep 30; docker compose ps`.
 
 Owner decision: a pending reboot or pending apt updates **fail** the morning run — a warning on an
 otherwise-green run is invisible, which is exactly how the 26 updates went unnoticed — but they must
