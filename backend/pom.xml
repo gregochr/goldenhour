@@ -33,20 +33,26 @@
         <postgresql.version>42.7.13</postgresql.version>
 
         <!--
-            Overrides the version Spring Boot 4.1.0 manages (11.0.22) to clear five CVEs:
-            CVE-2026-55276, CVE-2026-53434 and CVE-2026-53404 (fixed in 11.0.23), and
-            CVE-2026-59083 and CVE-2026-59084 (fixed in 11.0.24). Boot's BOM drives all seven
-            tomcat-embed-* artifacts from this one property, so core, el and websocket move
-            together.
+            Overrides the version Spring Boot 4.1.1 manages (11.0.24) to clear nine CVEs with
+            CVSS >= 7.0 — CVE-2026-65183 (8.1), CVE-2026-65905 (9.8), CVE-2026-65927 (7.5),
+            CVE-2026-66422 (8.1), CVE-2026-68763 (7.5), CVE-2026-68525 (9.1), CVE-2026-68569
+            (8.1), CVE-2026-65182 (9.1) and CVE-2026-65637 (9.8) — plus CVE-2026-73180, below
+            the gate. All ten are fixed by 11.0.25 (confirmed against
+            https://tomcat.apache.org/security-11.html, which lists every one of them under its
+            "Fixed in Apache Tomcat 11.0.25" section and none under 11.0.26's). Boot's BOM drives
+            all seven tomcat-embed-* artifacts from this one property, so core, el and websocket
+            move together.
 
-            11.0.24 is the latest published release; 11.0.25 is marked "not yet released" and
-            404s on Central. The sixth CVE, CVE-2026-66299, needs 11.0.25 and is suppressed
-            separately in dependency-check-suppressions.xml — delete that block and raise this
-            property when 11.0.25 lands.
+            11.0.26 (the latest published release) is taken rather than stopping at 11.0.25
+            purely because it is free and already on Central. CVE-2026-66299, previously
+            suppressed in dependency-check-suppressions.xml while 11.0.25 was unpublished, is
+            also fixed by 11.0.25 — that suppression has been removed.
 
-            An override rather than a parent bump because no Spring Boot 4.1.x exists.
+            An override rather than a parent bump because no Spring Boot 4.1.x beyond 4.1.1
+            exists yet. Remove this line and check the managed version when one does:
+            `./mvnw help:evaluate -Dexpression=tomcat.version -DforceStdout`.
         -->
-        <tomcat.version>11.0.24</tomcat.version>
+        <tomcat.version>11.0.26</tomcat.version>
 
         <!--
             Patch bumps for two findings BELOW the dependency-check gate (both CVSS < 7.0, so
