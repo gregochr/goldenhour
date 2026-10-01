@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.8] - 2026-10-01
+
+### Changed — release.sh ends with the post-deploy health check's own verdict
+
+Since #960 the `Deploy to Production` job runs `scripts/prod-health.sh --deploy` over SSH right
+after `docker compose up`, but its one-line-per-check output and `prod-health: N checks, M failed`
+summary only ever lived in the job log — `release.sh` itself still ended on its own `✅ deployed`
+line with no mention of whether the check passed. `release.sh`'s step 9 now fetches the Deploy
+job's log after the run completes (retrying briefly, since the log can lag the run by a few
+seconds) and prints the extracted `ok `/`FAIL `/`prod-health:` lines as the very last thing on
+screen, under a `Post-deploy health check (on dockermacmini):` heading — on both the success and
+the failure path, since the health check is often the most useful diagnosis when the deploy itself
+fails. A check nobody reads is not a check; this is the owner's own description of what was
+missing. If the log can't be read (an older tag whose `deploy.yml` predates the check, a renamed
+job, a transient `gh` failure), one line says so with the run URL — this never changes `release.sh`'s
+own exit status, since the release has already succeeded or failed on its own terms by that point.
+
+### Fixed — the morning health check no longer fails on apt updates Ubuntu has deferred by phasing
+
+The first live run of `scripts/prod-health.sh`'s daily apt-updates check (#960) failed on exactly
+one package, `thermald`, and opened #962. The owner then ran `sudo apt upgrade` on dockermacmini
+twice and got the same answer both times: `The following upgrades have been deferred due to
+phasing: thermald` — `0 upgraded, 0 newly installed, 0 to remove and 1 not upgraded.` Ubuntu's
+phased rollout can list a package as upgradable via `apt list --upgradable` for days before `apt
+upgrade` will actually install it, and the owner cannot act on that — `sudo apt upgrade` already
+refuses the package by design, and forcing it with `sudo apt install thermald` is a deliberate
+owner call, not something a health check should demand on its behalf. `check_apt_updates` now
+counts the FAIL, and names the packages, entirely from apt's own installable-now simulation
+(`apt-get -s upgrade`, run without sudo) — parsing its summary line for what apt would actually
+install, its "will be upgraded" block for which packages those are, and its "deferred due to
+phasing" block for which packages it is holding back instead. `apt list --upgradable` is no longer
+called by this check at all: it cannot tell a real upgrade apart from one phasing is holding back,
+so using it for package names printed a phased package as installable even while the FAIL count
+itself, correctly, excluded it. A host with nothing installable but packages held by phasing now
+reports `ok` and names them, instead of failing a run the owner has no lever to clear; apt's "N not
+upgraded" count also covers packages "kept back" for dependency reasons, which `apt upgrade` cannot
+install but `sudo apt full-upgrade` can, so those are parsed into their own block and still FAIL the
+run (naming them and pointing at `sudo apt full-upgrade --dry-run`), distinct from a phasing
+deferral — and anything held back that names itself in neither block still FAILs as unrecognised
+rather than being silently waved through.
+
 ## [v2.22.7] - 2026-10-01
 
 ### Fixed — the Plan pane's conflict slot no longer adds a 10px gap when empty
