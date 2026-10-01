@@ -347,23 +347,37 @@ check_apt_updates() {
     deferred_count="${deferred_count:-0}"
     kept_back_count="${kept_back_count:-0}"
 
+    # "N not upgraded" is a TOTAL across every reason apt has for holding a
+    # package back — phasing and dependency-kept-back are the two this script
+    # names, but apt can have others. Anything the two named blocks don't
+    # account for must never be waved through as an ok phasing-only pass:
+    # that is the fail-closed rule for a reason this script does not
+    # recognise.
+    local unaccounted=$((held - deferred_count - kept_back_count))
+
     local phasing_clause=""
     if [ -n "$deferred" ]; then
         phasing_clause=" (plus ${deferred_count} deferred by phasing: ${deferred})"
     fi
 
+    local kept_back_clause=""
+    if [ -n "$kept_back" ]; then
+        kept_back_clause=" (plus ${kept_back_count} kept back: ${kept_back})"
+    fi
+
+    local unaccounted_clause=""
+    if [ "$unaccounted" -gt 0 ]; then
+        unaccounted_clause=" (plus ${unaccounted} held back for an unrecognised reason)"
+    fi
+
     if [ "$installable" -gt 0 ]; then
-        local kept_back_clause=""
-        if [ -n "$kept_back" ]; then
-            kept_back_clause=" (plus ${kept_back_count} kept back: ${kept_back})"
-        fi
         report_fail "$name" "${installable} package(s) upgradable now, first 10: ${sample}${phasing_clause}${kept_back_clause}"
     elif [ -n "$kept_back" ]; then
-        report_fail "$name" "${kept_back_count} package(s) kept back (${kept_back}) — not installable by 'apt upgrade'; review with 'sudo apt full-upgrade --dry-run'${phasing_clause}"
-    elif [ -n "$deferred" ]; then
+        report_fail "$name" "${kept_back_count} package(s) kept back (${kept_back}) — not installable by 'apt upgrade'; review with 'sudo apt full-upgrade --dry-run'${phasing_clause}${unaccounted_clause}"
+    elif [ -n "$deferred" ] && [ "$unaccounted" -le 0 ]; then
         report_ok "$name" "nothing installable now; ${deferred_count} deferred by Ubuntu phasing (${deferred}) — apt will take them when the rollout reaches this host"
     elif [ "$held" -gt 0 ]; then
-        report_fail "$name" "${held} held back for an unrecognised reason — read 'apt-get -s upgrade' on the host"
+        report_fail "$name" "${unaccounted} held back for an unrecognised reason (beyond ${kept_back_count} kept back and ${deferred_count} phased) — read 'apt-get -s upgrade' on the host${kept_back_clause}${phasing_clause}"
     else
         report_ok "$name" "no pending updates"
     fi
