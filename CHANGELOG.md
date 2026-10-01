@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.5] - 2026-10-01
+
+### Removed — the legacy `photocast.survivor-atmosphere.write` config key
+
+`SlotAtmosphereWriter` no longer reads the old `photocast.survivor-atmosphere.write` key as a
+legacy alias for the renamed `photocast.slot-atmosphere.write` (V159, 2026-09-30). Production's
+config carries neither key, so the default (`true`) applies either way; the alias existed only to
+protect a deployment that had not yet picked up the new key name, and is dropped now that none
+does. `photocast.slot-atmosphere.write` is read alone from this change on.
+
 ## [v2.22.4] - 2026-10-01
 
 ### Fixed — `release.sh` no longer exits silently when origin has moved a tag
