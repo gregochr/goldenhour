@@ -10,7 +10,13 @@ jobs:
   owasp-dependency-check:
     name: OWASP Dependency Check
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # Generous limit for NVD download
+    # A cold NVD download ran at ~3,000 records/s on 2026-09-27 (full 398,478-record
+    # database in ~2 minutes) and at ~45 records/s on 2026-10-01 (cancelled at 160,000
+    # of 400,203 records, still inside the hour) — the NVD API throttles unpredictably,
+    # and at the slow rate 400k records take ~2.5h. 60 minutes was only ever enough on
+    # a good day. 240 minutes covers the slow case; once the cache save below lands a
+    # cold run should be rare, since every run restores the newest DB a prior run saved.
+    timeout-minutes: 240
 
     steps:
       - name: Checkout
@@ -23,8 +29,22 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Cache OWASP Dependency-Check DB
-        uses: actions/cache@v4
+      # Split into restore/save (rather than the single actions/cache@v4 action this used
+      # to be) because actions/cache's own post-step skips the save entirely when the job
+      # has already failed — and a failing scan is this job's NORMAL case: `failBuildOnCVSS=7`
+      # is a gate meant to fail the build on a real finding, not an error to avoid. Every run
+      # since 2026-09-13 (the Tomcat CVEs) failed the scan step, so every run's freshly
+      # downloaded NVD data was thrown away before the post-step could cache it —
+      # `gh cache list --key owasp-db` has never had an entry. The one run that worked by
+      # accident (2026-09-27, scheduled run 36316518451) logged
+      # `Cache not found for input keys: owasp-db-Linux-36316518451, owasp-db-Linux-` and
+      # downloaded clean because the NVD API happened to be fast that day (~3,000 records/s).
+      # The restore-keys prefix (dropping the run id) means a run restores the newest DB any
+      # prior run saved, then saves its own refreshed copy under its own run id — so the
+      # cache accumulates across both successful and failing runs instead of resetting weekly.
+      - name: Restore OWASP Dependency-Check DB
+        id: owasp-db
+        uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
           key: owasp-db-${{ runner.os }}-${{ github.run_id }}
@@ -47,6 +67,17 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           cd backend && ./mvnw dependency-check:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false -DnvdValidForHours=168 -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
+
+      # `if: always()` is the whole fix — this is the step actions/cache@v4's own post-step
+      # would have skipped on the scan failure above. Runs before the report upload so a
+      # cancellation during the upload step (unlikely, but it is also `if: always()`) still
+      # leaves the DB saved.
+      - name: Save OWASP Dependency-Check DB
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: owasp-db-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload OWASP report
         if: always()
