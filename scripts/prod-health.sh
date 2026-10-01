@@ -37,6 +37,19 @@
 #     unattended job), so the pending-updates count is only as fresh as
 #     update-notifier's own daily `apt update` run. A package that became
 #     vulnerable an hour ago may not show up until tomorrow's cache refresh.
+#   - A package Ubuntu has deferred by phasing is not counted as a failure.
+#     `apt list --upgradable` lists a phased package as upgradable while
+#     `apt upgrade` deliberately refuses to install it until the staged
+#     rollout reaches this host, which can take days — the owner can do
+#     nothing about that but wait, since `sudo apt upgrade` already refuses it
+#     by design and `sudo apt install <pkg>` to force past the phasing is a
+#     deliberate owner call this script has no business making for them. So
+#     the FAIL count is apt's own installable-now simulation
+#     (`apt-get -s upgrade`), and a deferred package is reported separately as
+#     an `ok` line rather than failing the run (see check 6, below) — but a
+#     package "kept back" for dependency reasons is a different story: that
+#     one the owner CAN act on (`sudo apt full-upgrade`), so it still fails
+#     the run, named separately from a phasing deferral.
 #   - This does not reboot the host. Sudo on dockermacmini needs a password
 #     interactively, so a pending-reboot FAIL is a prompt for a human, not
 #     an action this script can complete on its own.
@@ -248,16 +261,109 @@ check_reboot_required() {
 # Reads the cache update-notifier's own daily `apt update` maintains; this
 # check does not run `apt update` itself (no sudo). The count can therefore
 # lag reality by up to a day.
+#
+# `apt list --upgradable` lists a package Ubuntu's phased rollout has not yet
+# reached this host exactly like any other upgradable one — `apt upgrade`
+# then refuses to install it ("deferred due to phasing"), which the owner
+# cannot act on (see the header comment's "WHAT IS DELIBERATELY NOT CLAIMED
+# HERE" section). So this check never calls `apt list --upgradable` at all:
+# it cannot tell a real upgrade apart from one phasing is holding back, which
+# is the whole point of this fix. Both the FAIL count and the package names
+# it reports come from apt's own installable-now simulation, `apt-get -s
+# upgrade` (run without sudo; it prints a NOTICE on stderr about not being
+# root, which the simulation itself does not need and which is redirected
+# away). apt's "N not upgraded" count also covers a second, different case —
+# a package "kept back" for dependency reasons, which `apt upgrade` will not
+# install but `sudo apt full-upgrade` can — so that count alone cannot decide
+# ok vs FAIL; the "kept back" and "deferred due to phasing" blocks are parsed
+# separately and a held-back package that names itself in neither block FAILs
+# as unrecognised rather than being silently waved through.
 check_apt_updates() {
     local name="apt updates"
-    local count
-    count="$(apt list --upgradable 2>/dev/null | tail -n +2 | grep -c . || true)"
-    count="${count:-0}"
+    local sim
+    sim="$(apt-get -s upgrade 2>/dev/null || true)"
 
-    if [ "$count" -gt 0 ]; then
-        local sample
-        sample="$(apt list --upgradable 2>/dev/null | tail -n +2 | cut -d/ -f1 | head -10 | tr '\n' ' ')"
-        report_fail "$name" "${count} package(s) upgradable, first 10: ${sample}(reads update-notifier's cached daily 'apt update' — this check does not run apt update itself)"
+    if [ -z "$sim" ]; then
+        report_fail "$name" "'apt-get -s upgrade' produced no output — the simulation could not be read, so pending updates cannot be checked"
+        return
+    fi
+
+    # apt-get's simulated-upgrade summary line, e.g. "2 upgraded, 0 newly
+    # installed, 0 to remove and 1 not upgraded." The first number is what
+    # apt would actually install right now; the last is how many it is
+    # holding back (phasing is the only reason this script distinguishes).
+    local summary
+    summary="$(printf '%s\n' "$sim" \
+        | grep -E '^[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove and [0-9]+ not upgraded\.$' \
+        | tail -1 || true)"
+
+    if [ -z "$summary" ]; then
+        report_fail "$name" "'apt-get -s upgrade' did not print its usual summary line — the simulation could not be read, so pending updates cannot be checked"
+        return
+    fi
+
+    local installable held
+    installable="$(printf '%s' "$summary" | sed -E 's/^([0-9]+) upgraded,.*/\1/')"
+    held="$(printf '%s' "$summary" | sed -E 's/.* and ([0-9]+) not upgraded\.$/\1/')"
+    installable="${installable:-0}"
+    held="${held:-0}"
+
+    # Packages named under "The following upgrades have been deferred due to
+    # phasing:" — the indented lines after that heading, until the next
+    # non-indented line.
+    local deferred
+    deferred="$(printf '%s\n' "$sim" | awk '
+        /^The following upgrades have been deferred due to phasing:/ { grab=1; next }
+        grab && /^[[:space:]]/ { print; next }
+        { grab=0 }
+    ' | xargs -n1 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+$//')"
+
+    # Packages named under "The following packages have been kept back:" —
+    # apt's OTHER reason a package can sit in "N not upgraded": a dependency
+    # conflict `apt upgrade` will not resolve but `apt full-upgrade` can, so
+    # unlike a phasing deferral the owner has a real lever here.
+    local kept_back
+    kept_back="$(printf '%s\n' "$sim" | awk '
+        /^The following packages have been kept back:/ { grab=1; next }
+        grab && /^[[:space:]]/ { print; next }
+        { grab=0 }
+    ' | xargs -n1 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+$//')"
+
+    # Packages named under "The following packages will be upgraded:" — the
+    # simulation's own installable set, parsed the same way as $deferred
+    # above. This must NOT come from `apt list --upgradable`: that listing
+    # cannot distinguish a real upgrade from one phasing is holding back, so
+    # using it here would print a deferred package as if it were installable.
+    local sample
+    sample="$(printf '%s\n' "$sim" | awk '
+        /^The following packages will be upgraded:/ { grab=1; next }
+        grab && /^[[:space:]]/ { print; next }
+        { grab=0 }
+    ' | xargs -n1 2>/dev/null | head -10 | tr '\n' ' ' | sed -E 's/[[:space:]]+$//')"
+
+    local deferred_count kept_back_count
+    deferred_count="$(printf '%s\n' "$deferred" | xargs -n1 2>/dev/null | grep -c . || true)"
+    kept_back_count="$(printf '%s\n' "$kept_back" | xargs -n1 2>/dev/null | grep -c . || true)"
+    deferred_count="${deferred_count:-0}"
+    kept_back_count="${kept_back_count:-0}"
+
+    local phasing_clause=""
+    if [ -n "$deferred" ]; then
+        phasing_clause=" (plus ${deferred_count} deferred by phasing: ${deferred})"
+    fi
+
+    if [ "$installable" -gt 0 ]; then
+        local kept_back_clause=""
+        if [ -n "$kept_back" ]; then
+            kept_back_clause=" (plus ${kept_back_count} kept back: ${kept_back})"
+        fi
+        report_fail "$name" "${installable} package(s) upgradable now, first 10: ${sample}${phasing_clause}${kept_back_clause}"
+    elif [ -n "$kept_back" ]; then
+        report_fail "$name" "${kept_back_count} package(s) kept back (${kept_back}) — not installable by 'apt upgrade'; review with 'sudo apt full-upgrade --dry-run'${phasing_clause}"
+    elif [ -n "$deferred" ]; then
+        report_ok "$name" "nothing installable now; ${deferred_count} deferred by Ubuntu phasing (${deferred}) — apt will take them when the rollout reaches this host"
+    elif [ "$held" -gt 0 ]; then
+        report_fail "$name" "${held} held back for an unrecognised reason — read 'apt-get -s upgrade' on the host"
     else
         report_ok "$name" "no pending updates"
     fi
