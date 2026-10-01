@@ -1230,6 +1230,18 @@
      has nothing to space. No `:not()` needed to say so. */
   gap: 10px;
 }
+/* The Plan pane's always-mounted pending/empty status wrapper (`WindowFirstShell.jsx`,
+   `window-first-pane-status`) is a flex CHILD of `.wf-body` above, so `.wf-body`'s own `gap: 10px`
+   puts a 10px gap on both sides of it whether or not it holds anything — and it holds nothing
+   whenever there are cards to show, which is what a reader sees almost all the time. Without this
+   rule the strip→doors spacing would measure 20px (one gap either side of the empty wrapper) where
+   it measured 10px before the wrapper existed. `:empty` cancels exactly the gap THIS rule's own
+   sibling declares, so the two have to travel together — change one, check the other. The wrapper
+   stays in the DOM and in the accessibility tree either way (`display: none`/conditional mounting
+   would pull the live region out of the a11y tree and reintroduce the insert-with-content
+   announcement problem it exists to avoid; `display: contents` has a history of dropping ARIA
+   roles in some engines), so the fix is a margin cancelling the gap, not a display change. */
+.wf-pane-status:empty { margin-top: -10px; }
 /* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7; width reversed by O-17) ────────────────
    The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the edge
    of ITS OWN panel) and sized by FLEXBOX rather than by any height computed here.

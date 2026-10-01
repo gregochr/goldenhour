@@ -180,7 +180,8 @@ export default function WindowFirstComingUp({
         </div>
 
         {/* One always-mounted live region holding whichever of the three notes applies.
-            ALWAYS mounted, and that is the load-bearing half: §5f records that a live region
+            ALWAYS mounted, and that is the load-bearing half:
+            `docs/engineering/window-first-redesign-plan.md` §5f records that a live region
             inserted in the same commit as its content is unreliably announced, which is why
             `WindowSpotSheet` puts `role="status"` on the element that is there whatever happens
             rather than on the conditional paragraph. Selection follows focus on this bar, so a
