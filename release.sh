@@ -595,6 +595,45 @@ notify() {
     fi
 }
 
+# The Deploy workflow's own "Deploy via SSH" step runs scripts/prod-health.sh --deploy after
+# `docker compose up` and prints one line per check plus a `prod-health: N checks, M failed`
+# summary — but that only ever lived in a job log nobody opens, so the deploy could succeed
+# while the health check quietly failed, or (before #960) run no check at all. The owner's ask
+# was for the health check to be "properly articulated as the very end of the output" — a check
+# nobody reads is not a check — so this pulls those lines back out of the job log and prints them
+# as the last thing release.sh says, on both the success and the failure path. The log can lag
+# the run's own completion by a few seconds, hence the short retry.
+print_deploy_health() {
+    local run_id="$1" run_url="$2"
+    local job_id lines attempt
+
+    job_id=$(gh run view "$run_id" --json jobs \
+        --jq '.jobs[] | select(.name == "Deploy to Production") | .databaseId' 2>/dev/null || true)
+
+    lines=""
+    if [[ -n "$job_id" ]]; then
+        for attempt in 1 2 3; do
+            lines=$(gh run view --job "$job_id" --log 2>/dev/null \
+                | awk -F'\t' '{print $3}' \
+                | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' \
+                | grep -E '^(ok  |FAIL |prod-health:)' || true)
+            grep -q '^prod-health:' <<< "$lines" && break
+            [[ "$attempt" -lt 3 ]] && sleep 5
+        done
+    fi
+
+    if [[ -z "$lines" ]]; then
+        echo "   (post-deploy health check output not found in the job log — see $run_url)"
+        return 0
+    fi
+
+    echo ""
+    echo "Post-deploy health check (on dockermacmini):"
+    while IFS= read -r line; do
+        echo "   $line"
+    done <<< "$lines"
+}
+
 echo "Waiting for the Deploy run to start (Ctrl-C stops watching; the deploy carries on)..."
 RUN_ID=""
 for _ in $(seq 1 24); do
@@ -643,6 +682,7 @@ if [[ "$CONCLUSION" == "success" ]]; then
     echo ""
     echo "✅ v$VERSION is deployed to production ($((ELAPSED / 60))m$(printf '%02d' $((ELAPSED % 60)))s)."
     echo "   https://app.photocast.online"
+    print_deploy_health "$RUN_ID" "$RUN_URL"
     notify "v$VERSION deployed to production"
 else
     echo ""
@@ -650,6 +690,7 @@ else
     echo "   $RUN_URL"
     gh run view "$RUN_ID" --json jobs \
         --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "   - \(.name): \(.conclusion)"' 2>/dev/null || true
+    print_deploy_health "$RUN_ID" "$RUN_URL"
     notify "v$VERSION deploy $CONCLUSION"
     exit 1
 fi
