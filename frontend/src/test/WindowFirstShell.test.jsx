@@ -356,6 +356,33 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(screen.queryByTestId('window-first-pane-pending')).toBeNull();
   });
 
+  it('pins the conflict slot as the pane\'s empty first child', async () => {
+    // The structural fact `.wf-conflict-slot:empty`'s comment in index.css names: this slot
+    // precedes everything else in `.wf-body`, so the gap it adds when empty is the one AFTER it,
+    // which `margin-bottom` cancels. (Which margin PROPERTY does the cancelling is a naming
+    // convention, not something this position requires — a `margin-top` here would produce the
+    // identical layout, since an empty flex item is 0px tall and its next sibling lands at the same
+    // pixel either way. What position DOES determine is which gap exists to cancel at all: if a
+    // future change ever inserted something ahead of the conflict slot, this slot would gain a gap
+    // BEFORE it too, and a single margin would no longer cancel both.)
+    renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
+
+    await screen.findByTestId('wf-heat-strip');
+    const pane = screen.getByTestId('window-first-pane');
+    const slot = screen.getByTestId('window-first-conflict-slot');
+
+    // A mutant that moved the slot deeper into the pane, or inserted a new element ahead of it,
+    // fails this — `firstElementChild` is a structural fact, not a testid lookup.
+    expect(pane.firstElementChild).toBe(slot);
+    // The CSS rule keys on this class; a mutant that dropped it would silence the behaviour this
+    // change exists for while every other assertion here kept passing.
+    expect(slot).toHaveClass('wf-conflict-slot');
+    // No conflict in this fixture, so the slot must render nothing for `:empty` to match at all —
+    // a mutant that rendered stray whitespace-bearing markup here would make the CSS selector miss
+    // silently, with no other test catching it.
+    expect(slot).toBeEmptyDOMElement();
+  });
+
   it('states the forecast\'s age, and never the model that produced it', () => {
     // §7: the model name is admin-only today and is not a pilot user's business, so the design's
     // "forecast 52m ago by Sonnet" ships as the age alone.

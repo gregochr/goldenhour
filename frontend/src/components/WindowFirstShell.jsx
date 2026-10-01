@@ -1920,7 +1920,12 @@ export default function WindowFirstShell({
             drill-down's own count records that trap two files away — and this message appears in
             response to a lens change several elements up the page, so a screen-reader reader would
             otherwise watch their whole plan empty in silence. */}
-        <div role="status" aria-live="polite" data-testid="window-first-conflict-slot">
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="window-first-conflict-slot"
+          className="wf-conflict-slot"
+        >
           {conflict && (
           <div data-testid="window-first-conflict" data-conflict={conflict.id} className="wf-clash">
             <b data-testid="window-first-conflict-head">{conflict.headline}</b>
