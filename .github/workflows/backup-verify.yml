@@ -15,6 +15,8 @@ name: Backup Verification
 # truncated dump, a dump of an empty database, and a good backup all look like
 # a plausibly-sized .sql.gz. Only restoring it and counting rows tells you
 # whether you actually have a backup.
+#
+# A second job, `runner-watchdog`, runs off-box — see its own comment below.
 
 on:
   schedule:
@@ -32,6 +34,14 @@ jobs:
   verify:
     name: Verify latest backup restores
     runs-on: self-hosted
+    # The scratch-Postgres readiness loop above is capped at 60×2s=2min, and
+    # restoring a production-sized dump takes a few minutes at worst — thirty
+    # is several times the slowest honest run, so anything longer is a hung
+    # `docker` call, not a slow one. Without this, a hang leaves the job
+    # `in_progress` forever: `runner-watchdog` below accepts `in_progress` as
+    # proof the runner is alive and passes, so `notify-failure` (which needs
+    # `verify` to reach a terminal state) would never fire either.
+    timeout-minutes: 30
     steps:
       - name: Check a recent backup exists
         run: |
@@ -145,11 +155,89 @@ jobs:
         if: always()
         run: docker rm -f "$SCRATCH_DB" >/dev/null 2>&1 || true
 
+  # "A component cannot be relied on to report its own failure" (see this file's
+  # own header) applies to the self-hosted RUNNER itself, not only to the backup
+  # script it is here to check. `verify` targets `self-hosted`, which is
+  # dockermacmini, the production host — if the Actions runner service on that
+  # box fails to come back after a reboot (it does not restart itself; see
+  # codeql.yml's identical note on the same runner), a job targeting it does not
+  # fail, it QUEUES forever. `notify-failure` below is `needs: verify` /
+  # `if: failure()`, and a queued job never reaches `failure()`, so the nightly
+  # restore test — and its notifier — would both go silent with nothing in the
+  # Actions UI louder than "queued". That is exactly the failure mode this
+  # workflow exists to catch for the backup script one layer in: loaded and
+  # firing, reporting nothing, for as long as nobody looks.
+  #
+  # This job is the off-box watchdog that closes it, mirroring the identical
+  # one added to `external` in prod-health.yml the same day, and prod-health.yml
+  # in turn mirrors codeql.yml's own reason for keeping its required check off
+  # the self-hosted runner entirely. It runs on `ubuntu-latest`, needs no
+  # checkout, and watches the RUN's own job list rather than asking the runner
+  # anything — so it reports even when dockermacmini is completely unreachable.
+  runner-watchdog:
+    name: Runner watchdog (off-box)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: 'Watchdog: the self-hosted runner picked up the verify job'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Matched by NAME PREFIX, not the exact string, so a rename of the
+          # tail of the `verify` job's `name:` above does not silently disable
+          # this watchdog.
+          attempts=20
+          interval=30
+          status=""
+          for ((i = 1; i <= attempts; i++)); do
+            # `|| true`: a failed `gh api` call must not kill this step under
+            # `set -e` — it means "unknown this iteration", not "the runner is
+            # fine", so it falls through to the empty-status case below and
+            # keeps looping rather than exiting either way.
+            status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
+              --jq '.jobs[] | select(.name | startswith("Verify latest backup")) | .status' 2>/dev/null || true)"
+            # Only the two real "the runner picked it up" statuses count as
+            # alive. Anything else — "queued", an empty string from a failed or
+            # empty `gh api` call, or any other text — is NOT evidence the
+            # runner is up, so every other case falls through to the sleep and
+            # tries again.
+            case "$status" in
+              in_progress | completed)
+                echo "verify job status: ${status}"
+                exit 0
+                ;;
+            esac
+            if [ "$i" -lt "$attempts" ]; then
+              sleep "$interval"
+            fi
+          done
+          echo "::error::The self-hosted runner on dockermacmini has not picked up the backup-verification job in 10 minutes — the runner service is probably down (it does not restart itself after every reboot), so the nightly backup is NOT being verified. Check \`systemctl status actions.runner.*\` on the mini."
+          exit 1
+
   notify-failure:
     needs: verify
-    if: failure()
+    # A job killed by `timeout-minutes` does not reliably report `failure` (it
+    # can report `cancelled`), so `failure()` alone would miss exactly the
+    # case the timeout exists for. A manual cancel of this scheduled workflow
+    # opening an issue is an accepted, rare cost.
+    if: ${{ always() && needs.verify.result != 'success' }}
     permissions:
       issues: write
     uses: ./.github/workflows/ci-failure-issue.yml
     with:
       workflow-name: Backup Verification
+
+  # A SEPARATE notifier, not folded into the one above via
+  # `needs: [verify, runner-watchdog]`: `needs` waits for every listed job to
+  # reach a terminal state, so a queued `verify` would hold this issue back for
+  # hours — the exact defect being fixed.
+  notify-watchdog-failure:
+    needs: runner-watchdog
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: Backup Verification — runner watchdog
