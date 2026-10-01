@@ -104,6 +104,18 @@ function warmStackedChunks() {
 }
 
 /**
+ * How long the first fetch has to run before the Plan pane's pending line admits it is taking a
+ * while (2026-10-01, the 2026-09-30 incident — a `GET /api/briefing` request that never completed
+ * in production, timing out against Cloudflare's 100s limit (36s was a lab measurement on
+ * production-sized data, not a production observation); fixed in #957. The Plan pane below the
+ * lens bar rendered nothing at all for the whole of that wait: no matrix, no doors, no count line, no
+ * empty-state sentence, because the pane had no pending state of its own). Far above a healthy
+ * round-trip and short enough that a reader staring at a frozen pane is not left guessing for a
+ * minute.
+ */
+const PENDING_SLOW_AFTER_MS = 10_000;
+
+/**
  * The point set a window with nothing scored gets — one frozen array rather than a fresh literal,
  * so a card whose window has no points does not get a new prop identity on every shell render.
  */
@@ -329,6 +341,29 @@ export default function WindowFirstShell({
     origin, setOrigin, regions, effectiveReachById,
     comingUpLastSeenDate, setComingUpLastSeenAt,
   } = useWindowFirstBriefing();
+  /**
+   * Whether the first fetch has been running long enough that the pending line should admit it is
+   * taking a while, rather than quietly repeating "Loading the forecast…" with nothing to show
+   * for it. Armed on a plain `setTimeout`, not a derivation of `loading` alone, because `loading`
+   * carries no timestamp — only whether a fetch is in flight right now.
+   *
+   * <p>No reset branch for `loading` going true→false: `WindowFirstBriefingContext`'s only
+   * `setLoading(false)` site is the one fetch's own `finally`, so `loading` goes true→false at
+   * most once per provider mount — there is no "next loading session" in which a stale
+   * `pendingSlow=true` could wrongly resurface. And even within this one mount, the text below
+   * renders only while `loading` is still true, so a `pendingSlow` left at `true` after loading
+   * ends is simply never read. The same arm-and-clear shape as the `PREFERRED_TAB_GRACE_MS` timer
+   * below (which arms once at mount; this one re-arms per `loading` transition, but both clear on
+   * unmount/dep-change with no reset branch) rather than fighting `react-hooks/set-state-in-effect`
+   * for a state the clock cannot produce — the same trade this file's `windowCards` key-release
+   * note, below, already argues.
+   */
+  const [pendingSlow, setPendingSlow] = useState(false);
+  useEffect(() => {
+    if (!loading) return undefined;
+    const timer = setTimeout(() => setPendingSlow(true), PENDING_SLOW_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [loading]);
   /**
    * The search dialog's open state, and the region it should be pre-filled with.
    *
@@ -1945,15 +1980,45 @@ export default function WindowFirstShell({
           />
         </Suspense>
 
-        {!loading && paneItems.length === 0 && (
-          <p
-            data-testid="window-first-pane-empty"
-            className="font-mono text-plex-text-muted"
-            style={{ fontSize: '10.5px' }}
-          >
-            No forecast to show.
-          </p>
-        )}
+        {/* ⚠️ The WRAPPER is always mounted and carries `role="status"`; the line inside is what
+            comes and goes — the same shape `WindowFirstComingUp`'s own status wrapper uses, and
+            for the identical reason (`docs/engineering/window-first-redesign-plan.md` §5f):
+            a live region inserted in the same commit as the CONTENT IT THEN CHANGES TO is
+            unreliably announced — the wrapper has to already be on screen before the pending→slow
+            and pending→settled TRANSITIONS it exists to announce. Before this wrapper existed, the
+            pane rendered NOTHING at all while `loading` was true and nothing had arrived yet — no
+            matrix, no doors, no count line, no sentence here — which is what made the 2026-09-30
+            slow-briefing incident (a `GET /api/briefing` request that never completed in
+            production, fixed in #957) read as a blank pane rather than a pane still working.
+
+            `wf-pane-status` cancels the `.wf-body` flex gap (index.css, beside the `.wf-body` rule)
+            when this wrapper is empty — i.e. whenever there ARE cards, which is what every reader
+            sees almost all the time — so the strip→doors spacing stays the 10px it was before this
+            wrapper existed, rather than adding a second 10px gap for an always-mounted but usually
+            empty node. */}
+        <div role="status" data-testid="window-first-pane-status" className="wf-pane-status">
+          {loading && paneItems.length === 0 && (
+            <p
+              data-testid="window-first-pane-pending"
+              className="font-mono text-plex-text-secondary"
+              style={{ fontSize: '10.5px' }}
+            >
+              {pendingSlow
+                ? 'Still loading the forecast — taking longer than usual.'
+                : 'Loading the forecast…'}
+            </p>
+          )}
+
+          {!loading && paneItems.length === 0 && (
+            <p
+              data-testid="window-first-pane-empty"
+              className="font-mono text-plex-text-secondary"
+              style={{ fontSize: '10.5px' }}
+            >
+              No forecast to show.
+            </p>
+          )}
+        </div>
 
         {/* The two doors, at the foot of the pane where the design puts them and inside the greyed
             region: they open forecast content, which is exactly what that treatment marks. */}

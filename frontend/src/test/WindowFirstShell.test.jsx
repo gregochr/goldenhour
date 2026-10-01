@@ -316,29 +316,44 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(tabs.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('⚠️ draws NOTHING between the matrix and the doors', async () => {
+  it('⚠️ draws NOTHING VISIBLE between the matrix and the doors', async () => {
     // The promoted strip stood here until M5 (plan D-1), and the test it replaces was named "draws
     // the strip above the promoted strip, which is a different thing that also stays". Both are now
     // false, so the assertion is about the gap rather than about the thing that filled it: every
     // topic is named on its own card and the doors follow the matrix directly. Written as a DOM
     // adjacency rather than a `queryByTestId(...).toBeNull()`, because a testid check passes just as
     // well against a strip that was renamed as against one that was deleted.
+    //
+    // ⚠️ Since 2026-10-01 the gap is no longer LITERALLY empty: `window-first-pane-status` (the
+    // pending/empty wrapper, mirroring the Coming up pane's own always-mounted status region) now
+    // sits between the strip and the doors permanently, because a live region inserted only once
+    // there is something to announce is not reliably announced at all. So the rule this test
+    // protects is now "nothing VISIBLE", not "nothing in the DOM" — the wrapper itself must render
+    // empty whenever there are cards to show, and its own `wf-pane-status:empty` CSS rule
+    // (index.css, beside `.wf-body`'s `gap: 10px`) cancels the flex gap it would otherwise add on
+    // top of `.wf-body`'s own, so the strip→doors spacing stays the same 10px it measured before
+    // this wrapper existed — see `windowFirstPaneStatusGap.test.js` for the CSS-level pin.
     renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
 
     const heat = await screen.findByTestId('wf-heat-strip');
+    const status = screen.getByTestId('window-first-pane-status');
     const doors = screen.getByTestId('window-first-doors');
     const pane = screen.getByTestId('window-first-pane');
     const children = [...pane.children];
-    // Both must be the pane's OWN children for the adjacency to mean anything — an index of -1
-    // would make the assertion vacuously satisfiable from either end.
+    // All three must be the pane's OWN children for the adjacency to mean anything — an index of
+    // -1 would make the assertion vacuously satisfiable from either end.
     expect(children).toContain(heat);
+    expect(children).toContain(status);
     expect(children).toContain(doors);
-    expect(children[children.indexOf(heat) + 1]).toBe(doors);
-    // ⚠️ Scoped to a pane WITH CARDS, which is the state the strip occupied. The empty-pane line
-    // ("No windows to show.") renders in exactly this slot and is conditional on there being no
-    // pane items at all, so it is not something the strip's deletion could have left behind — and
-    // this fixture, which has cards, is the one where the gap has to be empty.
+    expect(children[children.indexOf(heat) + 1]).toBe(status);
+    expect(children[children.indexOf(status) + 1]).toBe(doors);
+    expect(status).toBeEmptyDOMElement();
+    // ⚠️ Scoped to a pane WITH CARDS, which is the state the strip occupied. The empty-pane and
+    // pending lines render in exactly this wrapper and are conditional on `loading`/pane-item
+    // count, so neither is something the strip's deletion could have left behind — and this
+    // fixture, which is loaded with cards, is the one where both have to be absent.
     expect(screen.queryByTestId('window-first-pane-empty')).toBeNull();
+    expect(screen.queryByTestId('window-first-pane-pending')).toBeNull();
   });
 
   it('states the forecast\'s age, and never the model that produced it', () => {
@@ -376,10 +391,14 @@ describe('WindowFirstShell — the strip it hosts', () => {
     }
   });
 
-  it('says nothing about days while the first fetch is still in flight', () => {
-    // "No windows to show" during a cold load is a claim about the forecast made before anyone has
-    // asked it. Silence until the answer arrives — and the strip is absent too, rather than six
-    // empty coastlines under a header claiming to summarise them.
+  it('says nothing about the FORECAST while the first fetch is still in flight', () => {
+    // "No forecast to show." during a cold load is a claim about the forecast made before anyone
+    // has asked it. Silence about the forecast until the answer arrives — the strip is absent too,
+    // rather than six empty coastlines under a header claiming to summarise them — but the pane
+    // now says something about the REQUEST (`window-first-pane-pending`, below): that line makes
+    // no claim about the sky, only about whether the briefing has arrived yet, which is exactly
+    // what was missing on 2026-09-30, when a `GET /api/briefing` request that never completed in
+    // production (fixed in #957) left this pane rendering nothing at all.
     renderWithBriefing({
       briefing: null,
       loading: true,
@@ -399,6 +418,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     });
     expect(screen.queryByTestId('wf-heat-strip')).toBeNull();
     expect(screen.queryByTestId('window-first-pane-empty')).toBeNull();
+    expect(screen.getByTestId('window-first-pane-pending')).toHaveTextContent('Loading the forecast…');
   });
 
   it('renders one matrix cell per window in the Plan pane', async () => {
