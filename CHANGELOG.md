@@ -5,6 +5,69 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.4] - 2026-10-01
+
+### Fixed — `release.sh` no longer exits silently when origin has moved a tag
+
+Step 3 ran `git fetch origin --tags --quiet` under `set -euo pipefail`. When the owner's local
+`v2.22.2` tag pointed at 325438c9 and origin's `v2.22.2` had since been force-moved to c545e8d6 (the
+first deploy from 325438c9 failed, so the release was re-tagged onto the fixed commit), git rejected
+the update with `! [rejected] v2.22.2 -> v2.22.2 (would clobber existing tag)` and exited 1 —
+`--quiet` suppressed that line, so the script printed "Fetching from origin..." and stopped with no
+explanation.
+
+The fetch now runs without `--quiet`, capturing its combined output instead. A plain failure prints
+"Error: git fetch origin failed:" followed by git's full message and exits 1, same as before but
+visible. A failure whose only complaint is one or more clobbered tags is handled rather than treated
+as fatal: origin is authoritative for tags here (the Deploy workflow runs off origin's tags, and this
+script is the only thing that pushes them), so each rejected tag is force-updated individually —
+`git fetch origin --force refs/tags/<tag>:refs/tags/<tag>`, never a blanket `--force` across every
+tag — with a notice naming the tag, the old local commit and the new one from origin. A local-only
+tag origin doesn't have is left untouched. The plain fetch is re-run afterwards to pick up everything
+else and to catch any other failure that might have been hiding behind the clobber. A clean fetch is
+unchanged: silent, exit 0.
+
+CI's ShellCheck job now lints `release.sh` alongside `scripts/*.sh` (previously unchecked), which
+also caught and fixed three pre-existing findings in it: two `read -p` calls without `-r` (SC2162)
+and one unquoted tag ref in a `git rev-parse --short` call (SC2086).
+
+### Fixed — `GET /api/briefing` took tens of seconds per request, so the Plan tab rendered nothing and the map drew no heat field
+
+Since #943 (2026-09-29, the verdict-minimum-sample rule's "examined" evidence, P1-A round 2) every
+`GET /api/briefing` and `GET /api/briefing/digest` serve — and every briefing build — ran
+`ForecastRunDispositionRepository#findLatestNonCachedDispositions`, a correlated scalar subquery
+(`created_at = (SELECT MAX(created_at) … WHERE <same slot>)`) over `forecast_run_disposition`.
+V101's only indexes on that table are `(job_run_id)` and `(disposition, created_at)`, neither of
+which serves the slot correlation, and Postgres cannot decorrelate a scalar subquery in `WHERE`: it
+ran the subplan once per outer row as a full scan of the whole 30-day retention window. Measured on
+a Postgres 16 with the table sized to production's own rate (13,120 rows per five days of
+`evaluation_date`, ~78k rows at retention): **36 s per request** — and every open client re-issued
+it on focus and every 10 minutes while the previous request still held a pool connection.
+
+On the phone this looked like two unrelated defects, and both were this one: the briefing never
+arrived before Cloudflare's 100 s limit, so `WindowFirstShell` had no window cards (no matrix, no
+Regional planner door, no lens count line, and no "No forecast to show" line either, since the
+request was still loading), and the Map tab fell back to filler window rows — no verdict word on
+the pill, no served windows to build heat point sets from, hence no field — while its chips still
+showed stars, because those come from `GET /api/briefing/evaluate/scores`, which never ran this
+query.
+
+**The query is rewritten as a `NOT EXISTS` anti-join** ("no non-cached row for the same slot is
+strictly later"), which Postgres decorrelates into a hash anti join: 34 ms on the same data with no
+new index at all, returning the identical rows — the tie rule is unchanged, since two rows at the
+same max instant have no strictly-later row and both survive, and `SKIPPED_CACHED` is still
+excluded on both sides. **V160 adds `idx_forecast_run_disposition_slot`** on
+`(location_name, evaluation_date, event_type, created_at)` as belt and braces, so a future per-slot
+"latest" read on this table cannot reintroduce the scan whichever shape it takes.
+
+Tests: `ForecastRunDispositionRepositoryTest` gains an H2 nest pinning the rewritten query's
+answers (latest wins in both orders, cached excluded on both sides, cached-only slot absent,
+`SUBMISSION_FAILED` supersedes an older triage, a tie returns both rows, slots independent and
+range-bounded) — until now those semantics were proven only by the CI-only
+`DispositionWriteIntegrationTest`, which still runs unchanged against Postgres.
+`DispositionSlotIndexMigrationTest` (CI-only, Testcontainers) proves V160's index and its column
+order.
+
 ## [v2.22.3] - 2026-09-30
 
 ### Changed — `survivor_atmosphere` and every class built around it are renamed to `slot_atmosphere`/`Slot*`
