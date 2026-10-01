@@ -1,0 +1,96 @@
+name: Production Health
+
+# Runs scripts/prod-health.sh --daily every morning, so a reboot the host
+# wants, an expired Tailscale key, a dead cloudflared tunnel or a wrong
+# response from the app is a GitHub issue before the owner notices by hand —
+# exactly how the 26-update Ubuntu banner sat unapplied until someone logged
+# in on 2026-10-01 (see scripts/prod-health.sh's own header). Also runs at
+# the end of every deploy, via the `deploy` job in deploy.yml calling the same
+# script with `--deploy` directly over SSH — that run is not this workflow,
+# but checks the same four things checks 1-4 here do.
+#
+# Two notifier jobs, not one, and each needs only its own probe — see
+# notify-on-host-failure / notify-external-failure below for why.
+
+on:
+  schedule:
+    # 07:00 UTC — before the owner's day.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  on-host:
+    name: On-host checks (compose, cloudflared, tailscale, apt, reboot)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run scripts/prod-health.sh --daily
+        env:
+          COMPOSE_DIR: /home/gregochr/goldenhour
+        run: scripts/prod-health.sh --daily
+
+  external:
+    name: External reachability probe
+    runs-on: ubuntu-latest
+
+    # Deliberately NOT self-hosted, and deliberately no checkout: if
+    # dockermacmini is down entirely, the self-hosted `on-host` job above
+    # never starts and therefore never fails, so nothing would fire — this
+    # probe is the one part of the check that must not live on the box it is
+    # checking. Same reasoning as ci-failure-issue.yml's own notifier running
+    # on ubuntu-latest rather than the runner whose health it reports on.
+    steps:
+      - name: curl https://app.photocast.online/api/briefing — must answer 401
+        run: |
+          set -euo pipefail
+          # Retried up to 3 times, 10s apart: a single curl through Cloudflare
+          # can hit a momentary 502/520 even when production is fine, matching
+          # scripts/prod-health.sh's own check_app_answers retry.
+          code=""
+          for i in 1 2 3; do
+            # `|| true`: a curl that gets no HTTP response at all (DNS failure,
+            # --max-time exceeded, connection refused) exits non-zero, and
+            # under `set -e` that would kill this step on attempt one with no
+            # retry and no ::error:: line — exactly the "host is unreachable"
+            # case this job exists to catch. Mirrors check_app_answers.
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://app.photocast.online/api/briefing 2>&1 || true)"
+            if [ "$code" = "401" ]; then
+              echo "HTTP ${code}"
+              exit 0
+            fi
+            if [ "$i" -lt 3 ]; then
+              sleep 10
+            fi
+          done
+          echo "HTTP ${code}"
+          echo "::error::app.photocast.online answered '${code}', not 401, after 3 attempts (unauthenticated is the alive signal; 502/530 means the tunnel or backend is down)"
+          exit 1
+
+  # Two independent notifier jobs, not one `needs: [on-host, external]` job.
+  # `needs` waits for EVERY listed job to reach a terminal state — so if
+  # dockermacmini is down entirely, `external` fails in seconds but `on-host`
+  # sits queued for a self-hosted runner that will never show up, and a single
+  # notifier would not open its issue until GitHub eventually cancels that
+  # queued job hours later. That is exactly the scenario `external` exists to
+  # catch fast. Each notifier therefore needs only its own probe, and each
+  # carries a DISTINCT workflow-name: ci-failure-issue.yml keys its
+  # one-open-issue-per-workflow rule on that name, and two notifiers racing on
+  # the same name could file two issues for the same incident.
+  notify-on-host-failure:
+    needs: on-host
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: Production Health — on-host checks
+
+  notify-external-failure:
+    needs: external
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: Production Health — external probe
