@@ -1236,12 +1236,22 @@
    whenever there are cards to show, which is what a reader sees almost all the time. Without this
    rule the strip→doors spacing would measure 20px (one gap either side of the empty wrapper) where
    it measured 10px before the wrapper existed. `:empty` cancels exactly the gap THIS rule's own
-   sibling declares, so the two have to travel together — change one, check the other. The wrapper
+   sibling declares, so the three have to travel together — change one, check the others. The wrapper
    stays in the DOM and in the accessibility tree either way (`display: none`/conditional mounting
    would pull the live region out of the a11y tree and reintroduce the insert-with-content
    announcement problem it exists to avoid; `display: contents` has a history of dropping ARIA
    roles in some engines), so the fix is a margin cancelling the gap, not a display change. */
 .wf-pane-status:empty { margin-top: -10px; }
+/* The conflict slot (`window-first-conflict-slot`) is the SAME always-mounted live-region shape,
+   same `.wf-body` flex child, same gap defect — same mechanism as `.wf-pane-status:empty` above.
+   This slot is the pane's FIRST flex child, so the gap it adds when empty is the one AFTER it, and
+   this rule cancels that one. A 0px-tall item's next sibling lands at the same pixel whichever side
+   carries the cancelling margin — `margin-top: -10px` here would reach the identical result — so
+   `margin-bottom` is a naming convention (it reads as "cancel the gap after this element"), not a
+   structural requirement. What matters is that exactly ONE margin is declared: a rule carrying
+   both would cancel two gaps instead of one, which IS a visible defect. The three rules now have
+   to travel together — change one, check the others. */
+.wf-conflict-slot:empty { margin-bottom: -10px; }
 /* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7; width reversed by O-17) ────────────────
    The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the edge
    of ITS OWN panel) and sized by FLEXBOX rather than by any height computed here.
