@@ -334,12 +334,22 @@ check_apt_updates() {
     # above. This must NOT come from `apt list --upgradable`: that listing
     # cannot distinguish a real upgrade from one phasing is holding back, so
     # using it here would print a deferred package as if it were installable.
+    #
+    # ⚠️ Truncate to 10 WITHOUT `| head -10` here. With more than ten
+    # installable packages, `head -10` closes the pipe once it has its ten
+    # lines, the upstream `xargs`/awk is killed by SIGPIPE, and under
+    # `set -euo pipefail` that non-zero status aborts this `sample="$(...)"`
+    # assignment — and with it the whole script, before report_fail, the
+    # ::error:: line or the summary ever run. That is a busy-update-day
+    # failure mode for the exact case the ten-package cap exists to handle.
+    # The awk below reads every field to EOF and only ever PRINTS the first
+    # ten, so nothing upstream ever sees a closed pipe.
     local sample
     sample="$(printf '%s\n' "$sim" | awk '
         /^The following packages will be upgraded:/ { grab=1; next }
         grab && /^[[:space:]]/ { print; next }
         { grab=0 }
-    ' | xargs -n1 2>/dev/null | head -10 | tr '\n' ' ' | sed -E 's/[[:space:]]+$//')"
+    ' | awk '{for (i = 1; i <= NF; i++) if (++c <= 10) print $i}' | tr '\n' ' ' | sed -E 's/[[:space:]]+$//')"
 
     local deferred_count kept_back_count
     deferred_count="$(printf '%s\n' "$deferred" | xargs -n1 2>/dev/null | grep -c . || true)"
