@@ -18,8 +18,12 @@ The two jobs are notified by **two independent** notifier jobs rather than one s
 `needs: [a, b]` waits for every listed job to finish — if the host were down, the external probe
 would fail in seconds while the self-hosted job sat queued for a runner that will never appear, so
 one notifier would not fire until GitHub eventually cancelled that queued job hours later. The
-`deploy` job in `deploy.yml` now runs `--deploy` immediately after bringing the new containers up,
-in place of the old fixed `sleep 30; docker compose ps`.
+external job also carries a watchdog step that polls the run's own job list for up to 10 minutes,
+because an Actions runner that fails to restart after a reboot leaves the on-host job permanently
+queued rather than failed — invisible to both the host's own checks and the external probe's 401 —
+so without it the runner itself could die silently and nothing would ever notice. The `deploy` job
+in `deploy.yml` now runs `--deploy` immediately after bringing the new containers up, in place of
+the old fixed `sleep 30; docker compose ps`.
 
 Owner decision: a pending reboot or pending apt updates **fail** the morning run — a warning on an
 otherwise-green run is invisible, which is exactly how the 26 updates went unnoticed — but they must

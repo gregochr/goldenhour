@@ -10,7 +10,9 @@ name: Production Health
 # but checks the same four things checks 1-4 here do.
 #
 # Two notifier jobs, not one, and each needs only its own probe — see
-# notify-on-host-failure / notify-external-failure below for why.
+# notify-on-host-failure / notify-external-failure below for why. The
+# `external` job also runs a watchdog, off the box, for the case where the
+# on-host job itself can never fail: see its own watchdog step for why.
 
 on:
   schedule:
@@ -33,6 +35,8 @@ jobs:
   external:
     name: External reachability probe
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
 
     # Deliberately NOT self-hosted, and deliberately no checkout: if
     # dockermacmini is down entirely, the self-hosted `on-host` job above
@@ -67,6 +71,54 @@ jobs:
           echo "::error::app.photocast.online answered '${code}', not 401, after 3 attempts (unauthenticated is the alive signal; 502/530 means the tunnel or backend is down)"
           exit 1
 
+      # Watchdog: if the Actions runner service on dockermacmini fails to
+      # restart after a reboot while Docker and cloudflared happen to recover
+      # on their own, the `on-host` job above QUEUES rather than fails — a
+      # self-hosted job targeting an unreachable runner never reports, it
+      # just waits forever (the repo already documents this, for the same
+      # runner, in codeql.yml). The curl step above still gets its 401 and
+      # passes, so without this step neither notifier would ever fire again
+      # and the compose/Tailscale/reboot/apt checks would silently stop —
+      # the runner reporting on its own health is exactly the thing
+      # backup-verify.yml's header says never works. This step is the
+      # external half of that fix: it watches the RUN's own job list rather
+      # than asking the runner anything.
+      - name: 'Watchdog: the self-hosted runner picked up the on-host job'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Matched by NAME PREFIX, not the exact string, so a rename of the
+          # parenthetical in the on-host job's `name:` above does not
+          # silently disable this watchdog.
+          attempts=20
+          interval=30
+          status=""
+          for ((i = 1; i <= attempts; i++)); do
+            # `|| true`, as above: a failed `gh api` call must not kill this
+            # step under `set -e` — it means "unknown this iteration", not
+            # "the runner is fine", so it falls through to the empty-status
+            # case below and keeps looping rather than exiting either way.
+            status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
+              --jq '.jobs[] | select(.name | startswith("On-host checks")) | .status' 2>/dev/null || true)"
+            # Only the two real "the runner picked it up" statuses count as
+            # alive. Anything else — "queued", an empty string from a failed
+            # or empty `gh api` call, or any other text — is NOT evidence the
+            # runner is up, so every other case falls through to the sleep
+            # and tries again.
+            case "$status" in
+              in_progress | completed)
+                echo "on-host job status: ${status}"
+                exit 0
+                ;;
+            esac
+            if [ "$i" -lt "$attempts" ]; then
+              sleep "$interval"
+            fi
+          done
+          echo "::error::The self-hosted runner on dockermacmini has not picked up the on-host job in 10 minutes — the runner service is probably down (it does not restart itself after every reboot), so the compose, Tailscale, reboot and apt checks are NOT running. Check \`systemctl status actions.runner.*\` on the mini."
+          exit 1
+
   # Two independent notifier jobs, not one `needs: [on-host, external]` job.
   # `needs` waits for EVERY listed job to reach a terminal state — so if
   # dockermacmini is down entirely, `external` fails in seconds but `on-host`
@@ -93,4 +145,4 @@ jobs:
       issues: write
     uses: ./.github/workflows/ci-failure-issue.yml
     with:
-      workflow-name: Production Health — external probe
+      workflow-name: Production Health — external probe & runner watchdog
