@@ -5,6 +5,139 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.6] - 2026-10-01
+
+### Security — Tomcat 11.0.26 clears nine high-severity CVEs on tomcat-embed-core
+
+The weekly `OWASP Dependency Check` workflow has failed every run since at least 2026-09-13 against
+the `tomcat.version` property's pin at 11.0.24 (#702): nine CVEs with CVSS >= 7.0
+(CVE-2026-65183 8.1, CVE-2026-65905 9.8, CVE-2026-65927 7.5, CVE-2026-66422 8.1, CVE-2026-68763 7.5,
+CVE-2026-68525 9.1, CVE-2026-68569 8.1, CVE-2026-65182 9.1, CVE-2026-65637 9.8), plus
+CVE-2026-73180 below the gate — all ten fixed by 11.0.25, which had not yet been published when the
+pin was written. `backend/pom.xml` now overrides to 11.0.26 (the latest release on Central; Boot
+4.1.1 still manages 11.0.24), driving all seven `tomcat-embed-*` artifacts from the one property as
+before. The standing suppression for CVE-2026-66299 (the Tomcat WebSocket chat-example buffer,
+never shipped by an embedded Boot app) is removed, since 11.0.25 fixes that one too and the
+suppression's own notes said to delete it rather than renew it once a fix landed.
+
+### Added — production health check, every morning and after every deploy
+
+On 2026-10-01 the owner logged into dockermacmini by hand, saw Ubuntu's "26 updates can be applied"
+banner, applied them, hit "*** System restart required ***", rebooted, and then checked production
+came back the only way available: running `docker compose ps`, `systemctl status cloudflared`,
+`tailscale status` and a `curl` at `https://app.photocast.online/api/briefing` by eye. The 26 updates
+had sat unapplied until someone happened to log in and notice a banner — nothing had been watching
+for that.
+
+`scripts/prod-health.sh` is that four-command check, automated. It runs in two modes: `--deploy`
+(compose service health, cloudflared, Tailscale, and a real 401 from the app from outside the
+tunnel, retried up to 3 times 10s apart to ride out a momentary Cloudflare blip) and `--daily`,
+which adds a pending-reboot check and a pending-apt-updates count. The new `Production Health`
+scheduled workflow runs `--daily` on the self-hosted runner at 07:00 UTC, plus a second,
+deliberately `ubuntu-latest` job that probes `app.photocast.online` from outside — if the host is
+down entirely, the self-hosted job never starts and never fails, so nothing would otherwise fire.
+The two jobs are notified by **two independent** notifier jobs rather than one shared one, because
+`needs: [a, b]` waits for every listed job to finish — if the host were down, the external probe
+would fail in seconds while the self-hosted job sat queued for a runner that will never appear, so
+one notifier would not fire until GitHub eventually cancelled that queued job hours later. The
+external job also carries a watchdog step that polls the run's own job list for up to 10 minutes,
+because an Actions runner that fails to restart after a reboot leaves the on-host job permanently
+queued rather than failed — invisible to both the host's own checks and the external probe's 401 —
+so without it the runner itself could die silently and nothing would ever notice. The on-host job
+also carries `timeout-minutes: 15` (three times the script's own worst-case run) so a check that
+hangs against a wedged daemon reaches a terminal state instead of sitting `in_progress` forever and
+passing the watchdog, and its notifier fires on `needs.on-host.result != 'success'` rather than
+`failure()` alone, since a timed-out job's conclusion is not reliably reported as `failure` on every
+surface. The `deploy` job in `deploy.yml` now runs `--deploy` immediately after bringing the new
+containers up, in place of the old fixed `sleep 30; docker compose ps`.
+
+Owner decision: a pending reboot or pending apt updates **fail** the morning run — a warning on an
+otherwise-green run is invisible, which is exactly how the 26 updates went unnoticed — but they must
+**never** fail a deploy. A release must not be blocked because the host wants a reboot, so `--deploy`
+deliberately omits both checks.
+
+### Fixed — the Plan tab says the forecast is loading instead of rendering an empty pane
+
+On 2026-09-30, before #957's fix landed, a `GET /api/briefing` request never completed in
+production — it timed out against Cloudflare's 100s limit (36s was a lab measurement on
+production-sized data, not a production observation). For the whole of that wait the Plan pane
+below the lens bar rendered nothing at all: no matrix, no doors, no lens count line, not even the existing
+"No forecast to show." sentence, which is gated on the fetch having already finished. Diagnosing
+the slow backend from the phone meant inferring it from an absence, because the pane had no
+pending state of its own to point at.
+
+`WindowFirstShell` now renders a pending line — `Loading the forecast…` — whenever the briefing
+fetch is still in flight and nothing has arrived yet, in the same quiet style as the sibling empty
+line (both now ink `text-plex-text-secondary` rather than the lower-contrast `text-plex-text-muted`
+the empty line used before, since this text now shows on every cold load and carries meaning — the
+project has corrected the same muted-at-this-size contrast failure several times already). If the
+fetch is still running after ten seconds the same line switches to `Still loading the forecast —
+taking longer than usual.`, naming no cause the client cannot actually know (there is no request
+timeout on this call, so a slow connection would show the same line indefinitely) rather than
+repeating a sentence that increasingly reads as broken. Both lines, and the existing empty-pane
+sentence, now live inside one always-mounted `role="status"` wrapper, mirroring the Coming up
+pane's own status region (`docs/engineering/window-first-redesign-plan.md` §5f): a live region
+inserted in the same commit as the content it then CHANGES TO is unreliably announced, so the
+wrapper has to already be on screen before the pending→slow and pending→settled transitions it
+exists to announce.
+
+Because that wrapper is an always-mounted flex child of `.wf-body` (which carries its own
+`gap: 10px`), it added a second 10px gap between the heat strip and the doors in the
+loaded-with-cards state — the state nearly every reader sees — even while rendering nothing itself.
+`.wf-pane-status:empty { margin-top: -10px }` (index.css, beside `.wf-body`'s own gap) cancels one
+of the two gaps the wrapper would otherwise add; verified live, the computed `margin-top` reads
+`-10px` with the wrapper emptied and `0px` once it holds text. The wrapper stays mounted and in the
+accessibility tree either way — a display change was deliberately not used.
+
+A request that ultimately fails, as the real incident's did, still ends on "No forecast to show.":
+`loading` is cleared in `fetchBriefing`'s `finally` regardless of outcome, and that pre-existing,
+outcome-blind meaning of `loading` is unchanged here — a distinct "could not load" state is a
+product call this change does not make.
+
+The Map tab's window pill is deliberately untouched. Its verdict cell already renders empty for a
+night row by design (map-landing-plan.md §6 Q1) and for a filler row (§4 #38, `utils/mapVerdict.js`)
+that the briefing served no window for; a client-synthesised "loading" word there would make an
+empty cell ambiguous between those two existing meanings and a third, new one.
+
+### Fixed — the OWASP scan now keeps its NVD database between runs, including failing ones
+
+The weekly `OWASP Dependency Check` workflow has re-downloaded the full NVD database from scratch
+on every run since at least 2026-09-13, because `actions/cache@v4`'s post-step skips the save when
+the job has already failed — and a failing scan is this job's *normal* case, not an error to avoid
+(`failBuildOnCVSS=7` is a gate, armed on purpose). `gh cache list --key owasp-db` has never returned
+a single entry. The one run that worked (2026-09-27, run 36316518451) downloaded clean only because
+the NVD API happened to answer at ~3,000 records/s that day; on 2026-10-01 it answered at ~45
+records/s and the job was cancelled by its own 60-minute timeout at 160,000 of 400,203 records. The
+cache step is now split into `actions/cache/restore@v4` before the scan and
+`actions/cache/save@v4` with `if: always()` after it, so a refreshed DB is saved whether or not the
+scan passes, and `timeout-minutes` is raised from 60 to 240 to survive a slow NVD day until the
+cache has had a chance to warm up. Refs #702.
+
+### Fixed — backup verification can no longer stop silently when the Actions runner is down
+
+`backup-verify.yml`'s `verify` job runs on `self-hosted`, which is dockermacmini — the production
+host. If the Actions runner service on that box fails to come back after a reboot (it does not
+restart itself, as `codeql.yml` already documents for the same runner), a job targeting it does not
+fail, it queues forever, and `notify-failure` (`needs: verify`, `if: failure()`) never fires because
+a queued job never reaches `failure()`. The nightly restore test would then stop running with nothing
+louder than "queued" in the Actions UI — the same silent-failure shape this workflow was built to
+catch for the backup script itself, one layer further out.
+
+A new `runner-watchdog` job runs off-box on `ubuntu-latest`, mirroring the identical watchdog added
+to Production Health's `external` job in today's companion PR: it polls the run's own job list via
+`gh api` for up to 10 minutes and fails if the `verify` job is still `queued`, so it reports even when
+dockermacmini is completely unreachable. It gets its own notifier, `notify-watchdog-failure`, rather
+than being folded into `notify-failure` via `needs: [verify, runner-watchdog]` — `needs` waits for
+every listed job to reach a terminal state, so a queued `verify` would hold the watchdog's own issue
+back for hours, the exact defect being fixed.
+
+Two related fixes land alongside it. `verify` now carries `timeout-minutes: 30`, several times the
+slowest honest run, so a hung `docker` call can no longer leave the job `in_progress` forever — the
+watchdog accepts `in_progress` as proof the runner is alive, so without a timeout `notify-failure`
+could still never fire. And `notify-failure`'s condition moved from `if: failure()` to
+`if: ${{ always() && needs.verify.result != 'success' }}`, because a job killed by `timeout-minutes`
+can report `cancelled` rather than `failure`, which `failure()` alone would miss.
+
 ## [v2.22.5] - 2026-10-01
 
 ### Removed — the legacy `photocast.survivor-atmosphere.write` config key
