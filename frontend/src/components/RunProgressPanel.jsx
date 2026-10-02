@@ -15,7 +15,9 @@ import { needsAttention, retryNotOfferedLine, stoppedEarly } from '../utils/runO
 const NOTHING_TO_RETRY = "Nothing to retry: this run's failed places can no longer be run again.";
 const RETRY_FALLBACK = 'Could not start the retry.';
 const RETRY_STARTED_UNNAMED = 'Retry started.';
-const RUN_EXPIRED = "This run's progress is no longer available.";
+/** The task states from which a row does not move. */
+const FINISHED_STATES = new Set(['COMPLETE', 'FAILED', 'SKIPPED', 'TRIAGED']);
+const RUN_EXPIRED ="This run's progress is no longer available.";
 
 /** The word shown after the title of a finished run. */
 const statusWord = (payload) => {
@@ -90,7 +92,14 @@ const RunProgressPanel = ({
     return subscribeToRunProgress(
       jobRunId,
       (data) => {
-        if (!completeRef.current) setTasks((prev) => ({ ...prev, [data.taskKey]: data }));
+        if (completeRef.current) return;
+        setTasks((prev) => {
+          // A row that has finished never goes back: an update arriving out of order (a replay's older
+          // copy after the live one) would otherwise leave a finished place on "Pending" or a phase.
+          const shown = prev[data.taskKey];
+          if (shown && FINISHED_STATES.has(shown.state) && !FINISHED_STATES.has(data.state)) return prev;
+          return { ...prev, [data.taskKey]: data };
+        });
       },
       (data) => {
         // A replayed summary after completion would overwrite the completion payload's duration.

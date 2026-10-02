@@ -60,7 +60,11 @@ class FailedSlotRetryServiceTest {
     @Mock private EvaluationStrategy sonnetStrategy;
     @Mock private EvaluationStrategy opusStrategy;
 
+    /** 09:00 UTC on Friday 2 Oct 2026, the day before the fixtures' slots. */
+    private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-10-02T09:00:00Z"), ZoneOffset.UTC);
+
     private RunProgressTracker tracker;
+    private ForecastCommandFactory factory;
     private FailedSlotRetryService service;
 
     @BeforeEach
@@ -70,10 +74,9 @@ class FailedSlotRetryServiceTest {
                 EvaluationModel.HAIKU, haikuStrategy,
                 EvaluationModel.SONNET, sonnetStrategy,
                 EvaluationModel.OPUS, opusStrategy);
-        ForecastCommandFactory factory = new ForecastCommandFactory(modelSelectionService, strategies,
-                Clock.fixed(Instant.parse("2026-10-02T09:00:00Z"), ZoneOffset.UTC));
+        factory = new ForecastCommandFactory(modelSelectionService, strategies, FIXED_CLOCK);
         service = new FailedSlotRetryService(tracker, jobRunService, locationService, factory,
-                commandExecutor, Runnable::run);
+                commandExecutor, Runnable::run, FIXED_CLOCK);
     }
 
     // ---------------------------------------------------------------- fixtures
@@ -109,7 +112,7 @@ class FailedSlotRetryServiceTest {
     }
 
     /** Two places by two dates by two events; only Durham's Saturday sunset and Bamburgh's Sunday sunrise failed. */
-    private void playTheFourSlotRun() {
+    private void playEightSlotRunWithTwoFailed() {
         List<String[]> tasks = new ArrayList<>();
         List<LocationTaskState> states = new ArrayList<>();
         for (String name : List.of("Durham", "Bamburgh")) {
@@ -165,10 +168,10 @@ class FailedSlotRetryServiceTest {
     // ------------------------------------------------------- exact slots
 
     @Test
-    @DisplayName("four slots failed across two places and two dates: exactly those two slots are handed "
+    @DisplayName("eight slots (two places, dates, events), two failed: exactly those two are handed "
             + "to the executor, not the 2 places x 2 dates x 2 events product")
-    void retry_runsExactlyTheFailedSlots() {
-        playTheFourSlotRun();
+    void retry_eightSlotRunWithTwoFailed_runsExactlyTheTwo() {
+        playEightSlotRunWithTwoFailed();
         stubOriginalRunType(RunType.SHORT_TERM);
         LocationEntity durham = sky(1L, "Durham");
         LocationEntity bamburgh = sky(2L, "Bamburgh");
@@ -235,7 +238,7 @@ class FailedSlotRetryServiceTest {
     @DisplayName("a Very-Short-Term original is retried as VERY_SHORT_TERM: the job_run, the command and "
             + "the strategy are Very-Short-Term's, never Short-Term's")
     void retry_veryShortTermOriginal_usesVeryShortTermConfig() {
-        playTheFourSlotRun();
+        playEightSlotRunWithTwoFailed();
         stubOriginalRunType(RunType.VERY_SHORT_TERM);
         stubRoster(sky(1L, "Durham"), sky(2L, "Bamburgh"));
         when(modelSelectionService.getActiveModel(RunType.VERY_SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
@@ -255,7 +258,7 @@ class FailedSlotRetryServiceTest {
     @Test
     @DisplayName("a Long-Term original is retried as LONG_TERM with Long-Term's model")
     void retry_longTermOriginal_usesLongTermConfig() {
-        playTheFourSlotRun();
+        playEightSlotRunWithTwoFailed();
         stubOriginalRunType(RunType.LONG_TERM);
         stubRoster(sky(1L, "Durham"), sky(2L, "Bamburgh"));
         when(modelSelectionService.getActiveModel(RunType.LONG_TERM)).thenReturn(EvaluationModel.OPUS);
@@ -295,7 +298,7 @@ class FailedSlotRetryServiceTest {
     @Test
     @DisplayName("a run stopped on a rejected key is refused with the literal sentence and nothing is started")
     void retry_stoppedRun_refusedAndNothingStarted() {
-        playTheFourSlotRun();
+        playEightSlotRunWithTwoFailed();
         tracker.stopRun(ORIGINAL_RUN);
 
         FailedSlotRetryService.Outcome outcome = service.retry(ORIGINAL_RUN);
@@ -337,7 +340,7 @@ class FailedSlotRetryServiceTest {
     @Test
     @DisplayName("a job_run of a type that evaluates no forecast slots is refused")
     void retry_nonForecastRunType_refused() {
-        playTheFourSlotRun();
+        playEightSlotRunWithTwoFailed();
         stubOriginalRunType(RunType.WEATHER);
 
         FailedSlotRetryService.Outcome outcome = service.retry(ORIGINAL_RUN);
@@ -368,7 +371,7 @@ class FailedSlotRetryServiceTest {
     @Test
     @DisplayName("a run whose job_run row is gone has nothing to retry: its run type is unknown and is not guessed")
     void retry_jobRunRowGone_nothingToRetry() {
-        playTheFourSlotRun();
+        playEightSlotRunWithTwoFailed();
         when(jobRunService.findRun(ORIGINAL_RUN)).thenReturn(Optional.empty());
 
         assertThat(service.retry(ORIGINAL_RUN)).isEqualTo(new FailedSlotRetryService.NothingToRetry());
@@ -379,7 +382,7 @@ class FailedSlotRetryServiceTest {
     @DisplayName("a failed slot whose place has been disabled or deleted is left out and reported; "
             + "the other failed slot still runs")
     void retry_placeDisabled_skippedAndReported() {
-        playTheFourSlotRun();
+        playEightSlotRunWithTwoFailed();
         stubOriginalRunType(RunType.SHORT_TERM);
         LocationEntity durham = sky(1L, "Durham");
         stubRoster(durham); // Bamburgh is no longer enabled
@@ -390,7 +393,7 @@ class FailedSlotRetryServiceTest {
 
         assertThat(outcome).isEqualTo(new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 1,
                 List.of(new FailedSlotRetryService.SkippedSlot("Bamburgh", "2026-10-04", "SUNRISE",
-                        "The place is disabled or no longer exists."))));
+                        "The place is disabled, renamed or no longer exists."))));
         ForecastCommand command = executedCommand();
         assertThat(command.locations()).containsExactly(durham);
         assertThat(command.slots()).containsExactly(new ForecastSlot("Durham", SATURDAY, TargetType.SUNSET));
@@ -399,9 +402,10 @@ class FailedSlotRetryServiceTest {
     @Test
     @DisplayName("a failed slot whose place is no longer a sky location is left out and reported")
     void retry_placeNoLongerSky_skippedAndReported() {
-        playTheFourSlotRun();
+        playEightSlotRunWithTwoFailed();
         stubOriginalRunType(RunType.SHORT_TERM);
-        stubRoster(sky(1L, "Durham"), hide(2L, "Bamburgh"));
+        LocationEntity durham = sky(1L, "Durham");
+        stubRoster(durham, hide(2L, "Bamburgh"));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
         stubStart(RunType.SHORT_TERM);
 
@@ -410,12 +414,86 @@ class FailedSlotRetryServiceTest {
         assertThat(((FailedSlotRetryService.Started) outcome).skipped()).containsExactly(
                 new FailedSlotRetryService.SkippedSlot("Bamburgh", "2026-10-04", "SUNRISE",
                         "The place is no longer a sky location."));
+        ForecastCommand command = executedCommand();
+        assertThat(command.locations()).containsExactly(durham);
+        assertThat(command.slots()).containsExactly(new ForecastSlot("Durham", SATURDAY, TargetType.SUNSET));
+    }
+
+    @Test
+    @DisplayName("when every failed place is still enabled but none is a sky location there is nothing to "
+            + "retry and nothing is started")
+    void retry_everyFailedPlaceNoLongerSky_nothingToRetry() {
+        playEightSlotRunWithTwoFailed();
+        stubOriginalRunType(RunType.SHORT_TERM);
+        stubRoster(hide(1L, "Durham"), hide(2L, "Bamburgh"));
+
+        assertThat(service.retry(ORIGINAL_RUN)).isEqualTo(new FailedSlotRetryService.NothingToRetry());
+        verifyNothingStarted();
+    }
+
+    // ------------------------------------------------------- slots dated before today (UK civil date)
+
+    private FailedSlotRetryService serviceAt(String instant) {
+        return new FailedSlotRetryService(tracker, jobRunService, locationService, factory, commandExecutor,
+                Runnable::run, Clock.fixed(Instant.parse(instant), ZoneOffset.UTC));
+    }
+
+    /** A run in which Durham's 2026-10-02 sunset and 2026-10-03 sunrise failed. */
+    private void playRunFailedOnThe2ndAnd3rd() {
+        playRun(ORIGINAL_RUN,
+                List.of(task("Durham", "2026-10-02", "SUNSET"), task("Durham", "2026-10-03", "SUNRISE")),
+                List.of(LocationTaskState.FAILED, LocationTaskState.FAILED));
+        stubOriginalRunType(RunType.SHORT_TERM);
+        stubRoster(sky(1L, "Durham"));
+    }
+
+    private void stubStartUnderSonnet() {
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+        stubStart(RunType.SHORT_TERM);
+    }
+
+    @Test
+    @DisplayName("22:30 UTC on 2 Oct is 23:30 in London, still the 2nd: a slot dated the 2nd is today's and is "
+            + "retried, the 3rd too")
+    void retry_beforeLondonMidnight_todaysSlotIsRetried() {
+        playRunFailedOnThe2ndAnd3rd();
+        stubStartUnderSonnet();
+
+        FailedSlotRetryService.Outcome outcome = serviceAt("2026-10-02T22:30:00Z").retry(ORIGINAL_RUN);
+
+        assertThat(outcome).isEqualTo(new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 2, List.of()));
+    }
+
+    @Test
+    @DisplayName("23:30 UTC on 2 Oct is 00:30 on the 3rd in London (BST): the 2nd is yesterday, so its slot "
+            + "is left out as already happened though the UTC date is still the 2nd; the 3rd is retried")
+    void retry_afterLondonMidnight_yesterdaysSlotIsLeftOut() {
+        playRunFailedOnThe2ndAnd3rd();
+        stubStartUnderSonnet();
+
+        FailedSlotRetryService.Outcome outcome = serviceAt("2026-10-02T23:30:00Z").retry(ORIGINAL_RUN);
+
+        assertThat(outcome).isEqualTo(new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 1,
+                List.of(new FailedSlotRetryService.SkippedSlot("Durham", "2026-10-02", "SUNSET",
+                        "The event has already happened."))));
+        assertThat(executedCommand().slots())
+                .containsExactly(new ForecastSlot("Durham", SATURDAY, TargetType.SUNRISE));
+    }
+
+    @Test
+    @DisplayName("when every failed slot is dated before today there is nothing to retry and nothing is started")
+    void retry_everySlotInThePast_nothingToRetry() {
+        playRunFailedOnThe2ndAnd3rd();
+
+        assertThat(serviceAt("2026-10-04T09:00:00Z").retry(ORIGINAL_RUN))
+                .isEqualTo(new FailedSlotRetryService.NothingToRetry());
+        verifyNothingStarted();
     }
 
     @Test
     @DisplayName("when every failed place is gone there is nothing to retry and nothing is started")
     void retry_everyPlaceGone_nothingToRetry() {
-        playTheFourSlotRun();
+        playEightSlotRunWithTwoFailed();
         stubOriginalRunType(RunType.SHORT_TERM);
         stubRoster();
 

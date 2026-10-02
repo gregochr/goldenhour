@@ -49,8 +49,34 @@ describe('retryStartedNote', () => {
     });
 
     expect(note).toBe('Retrying 1 slot. Left out: West Fell 2026-10-03 sunrise '
-      + '(The place is disabled or no longer exists.); Hide 2026-10-04 sunset '
-      + '(The place is no longer a sky location.)');
+      + '(The place is disabled or no longer exists); Hide 2026-10-04 sunset '
+      + '(The place is no longer a sky location).');
+  });
+
+  it('names at most three left-out slots, then says how many more', () => {
+    const slot = (n) => ({
+      locationName: `Place ${n}`, date: '2026-10-03', targetType: 'SUNSET', reason: 'The place is gone.',
+    });
+
+    expect(retryStartedNote({ slots: 1, skipped: [1, 2, 3].map(slot) })).toBe(
+      'Retrying 1 slot. Left out: Place 1 2026-10-03 sunset (The place is gone); '
+      + 'Place 2 2026-10-03 sunset (The place is gone); Place 3 2026-10-03 sunset (The place is gone).');
+    expect(retryStartedNote({ slots: 1, skipped: [1, 2, 3, 4, 5].map(slot) })).toBe(
+      'Retrying 1 slot. Left out: Place 1 2026-10-03 sunset (The place is gone); '
+      + 'Place 2 2026-10-03 sunset (The place is gone); Place 3 2026-10-03 sunset (The place is gone); '
+      + 'and 2 more.');
+  });
+
+  it('never prints "null" or "undefined" for a part the server did not send', () => {
+    const note = retryStartedNote({
+      slots: 2,
+      skipped: [{ locationName: 'West Fell', date: null, targetType: 'SUNRISE', reason: 'Gone.' },
+        { locationName: null, date: '2026-10-03', targetType: undefined, reason: null },
+        {}],
+    });
+
+    expect(note).toBe('Retrying 2 slots. Left out: West Fell sunrise (Gone); A place 2026-10-03; A place.');
+    expect(note).not.toMatch(/null|undefined/);
   });
 
   it('claims nothing when the answer carries no slot count (an older server)', () => {

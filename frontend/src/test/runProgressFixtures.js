@@ -135,7 +135,7 @@ export const KEY_REJECTED_AFTER_ONE = [
 
 /** A light-pollution (Bortle) task as the server registers it: no date, event BORTLE. */
 export const bortleTask = (locationName, state, extra = {}) => task(
-  `${locationName}|BORTLE`,
+  `${locationName}|–|BORTLE`,
   locationName,
   state,
   {

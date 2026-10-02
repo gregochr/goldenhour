@@ -922,7 +922,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/forecast/run/{runId}/retry-failed is rejected for an anonymous caller and starts nothing")
     void retryFailed_anonymous_isRejected() throws Exception {
         mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().is4xxClientError());
+                .andExpect(status().isUnauthorized());
 
         verify(failedSlotRetryService, never()).retry(anyLong());
     }

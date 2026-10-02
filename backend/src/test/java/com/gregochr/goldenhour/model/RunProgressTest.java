@@ -228,6 +228,44 @@ class RunProgressTest {
         RunProgress progress = runWithOneFailedTask("2026-10-03", "HOURLY");
 
         assertThat(progress.getRetryBlock()).isEqualTo(RunProgress.RetryBlock.NOT_FORECAST_SLOTS);
+        assertThat(progress.isRetryable()).isFalse();
+    }
+
+    private static void addFailedTask(RunProgress progress, String name, String date, String type) {
+        String key = name + "|" + date + "|" + type;
+        progress.registerTask(key, name, date, type);
+        progress.updateTask(new LocationTaskEvent(RunProgressTest.class, 1L, key, name, date, type,
+                LocationTaskState.FAILED, "x", null));
+    }
+
+    @Test
+    @DisplayName("order of precedence: a stopped run reports API_KEY_REJECTED even when a failed task is BORTLE")
+    void retryBlock_stoppedAndBortle_apiKeyRejectedWins() {
+        RunProgress progress = new RunProgress(1L);
+        addFailedTask(progress, "Hill", "–", "BORTLE");
+        progress.stop(STOPPED);
+
+        assertThat(progress.getRetryBlock()).isEqualTo(RunProgress.RetryBlock.API_KEY_REJECTED);
+    }
+
+    @Test
+    @DisplayName("order of precedence: BORTLE reads LIGHT_POLLUTION even beside a failed HOURLY task")
+    void retryBlock_hourlyAndBortle_lightPollutionWins() {
+        RunProgress progress = new RunProgress(1L);
+        addFailedTask(progress, "Hide", "2026-10-03", "HOURLY");
+        addFailedTask(progress, "Hill", "–", "BORTLE");
+
+        assertThat(progress.getRetryBlock()).isEqualTo(RunProgress.RetryBlock.LIGHT_POLLUTION);
+    }
+
+    @Test
+    @DisplayName("a failed sky slot beside a failed HOURLY task is still blocked as NOT_FORECAST_SLOTS")
+    void retryBlock_skySlotAndHourly_notForecastSlots() {
+        RunProgress progress = new RunProgress(1L);
+        addFailedTask(progress, "Hill", "2026-10-03", "SUNSET");
+        addFailedTask(progress, "Hide", "2026-10-03", "HOURLY");
+
+        assertThat(progress.getRetryBlock()).isEqualTo(RunProgress.RetryBlock.NOT_FORECAST_SLOTS);
     }
 
     @Test

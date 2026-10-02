@@ -47,6 +47,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -218,6 +219,20 @@ class ForecastCommandExecutorSlotsTest {
     }
 
     @Test
+    @DisplayName("a null slot set (the canonical constructor) behaves as no slot list: the whole product runs")
+    void nullSlots_runsTheWholeProduct() {
+        stubSurvivingTriage();
+        stubEvaluation(4);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(SATURDAY),
+                List.of(place(1L, "Durham", null)), haikuStrategy, true, Set.of(), Set.of(), null);
+
+        executor.execute(cmd, jobRun);
+
+        assertThat(registeredTaskKeys()).containsExactlyInAnyOrder(
+                "Durham|2026-10-03|SUNRISE", "Durham|2026-10-03|SUNSET");
+    }
+
+    @Test
     @DisplayName("a named slot whose event has since passed stays in the run as SKIPPED and is never "
             + "triaged or evaluated; its sibling slot still runs")
     void explicitSlots_aSlotWhoseEventHasPassed_isSkippedNotEvaluated() {
@@ -293,7 +308,11 @@ class ForecastCommandExecutorSlotsTest {
         executor.execute(cmd, jobRun);
 
         assertThat(evaluated).containsExactlyInAnyOrder("Durham|2026-10-03|SUNRISE", "Durham|2026-10-03|SUNSET");
-        verify(forecastService, atLeastOnce()).persistCannedResult(any(ForecastPreEvalResult.class),
-                any(String.class), any(JobRunEntity.class));
+        ArgumentCaptor<ForecastPreEvalResult> canned = ArgumentCaptor.forClass(ForecastPreEvalResult.class);
+        ArgumentCaptor<String> reason = ArgumentCaptor.forClass(String.class);
+        verify(forecastService, times(2)).persistCannedResult(canned.capture(), reason.capture(), eq(jobRun));
+        assertThat(canned.getAllValues()).extracting(ForecastPreEvalResult::taskKey).containsExactlyInAnyOrder(
+                "Bamburgh|2026-10-03|SUNRISE", "Bamburgh|2026-10-03|SUNSET");
+        assertThat(reason.getAllValues()).containsOnly("Region sentinel sampling — all sentinels rated 2 or below");
     }
 }

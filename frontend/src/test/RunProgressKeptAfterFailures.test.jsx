@@ -368,21 +368,50 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
       expect(feed.subscriptions).toEqual([41]);
     });
 
-    it('says what was started on the promoted panel, which holds only the retried slots', async () => {
+    it('says what was started on the promoted panel, announced as a status, under the panel\'s header', async () => {
+      retryFailed.mockResolvedValue(RETRY_ACCEPTED);
+      await renderJobRuns();
+      await startRun(41);
+      await playFinished(41, TWO_FAILURES);
+      await press(retryButton());
+      await playRunning(6, [task('east|b', 'East Fell', 'EVALUATING')]);
+
+      const panel = screen.getByRole('region', { name: 'Run progress' });
+      const note = within(panel).getByRole('status');
+      expect(note).toHaveTextContent(
+        'Retrying 2 slots. Left out: West Fell 2026-10-03 sunrise (The place is disabled or no longer exists).');
+      expect(note).toBe(within(panel).getByTestId('retry-run-note'));
+      expect(feed.subscriptions).toEqual([41, 6]);
+    });
+
+    it('keeps the note across a tab switch: the panel that returns still says what the retry was given', async () => {
       retryFailed.mockResolvedValue(RETRY_ACCEPTED);
       await renderJobRuns();
       await startRun(41);
       await playFinished(41, TWO_FAILURES);
       await press(retryButton());
 
-      // The retry run (id 6 in the server's answer) holds exactly the two slots it was given.
-      await playRunning(6, [task('east|b', 'East Fell', 'EVALUATING'), task('hill|a', 'Test Hill', 'EVALUATING')]);
+      await goToTab('models');
+      await goToTab('metrics');
 
-      const panel = screen.getByRole('region', { name: 'Run progress' });
-      expect(within(panel).getByTestId('retry-run-note').textContent).toBe(
-        'Retrying 2 slots. Left out: West Fell 2026-10-03 sunrise (The place is disabled or no longer exists.)');
-      expect(within(panel).getAllByTestId('run-progress-row')).toHaveLength(2);
-      expect(feed.subscriptions).toEqual([41, 6]);
+      expect((await screen.findByTestId('retry-run-note')).textContent).toMatch(/^Retrying 2 slots\./);
+      expect(feed.subscriptions).toEqual([41, 6, 6]);
+    });
+
+    it('shows the note only on the run it names: Dismiss, then a different run, carries no note', async () => {
+      retryFailed.mockResolvedValue(RETRY_ACCEPTED);
+      await renderJobRuns();
+      await startRun(41);
+      await playFinished(41, TWO_FAILURES);
+      await press(retryButton());
+      expect(screen.getByTestId('retry-run-note')).toBeInTheDocument();
+      await playFinished(6, [task('east|b', 'East Fell', 'FAILED')]);
+
+      await press(dismissButton());
+      await startRun(99);
+
+      expect(screen.getByTestId('run-progress-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('retry-run-note')).toBeNull();
     });
 
     it('shows no "Retrying" line on a panel that is not a promoted retry run', async () => {

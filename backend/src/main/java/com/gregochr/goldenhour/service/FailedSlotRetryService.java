@@ -6,10 +6,12 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.RunProgress;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -41,6 +43,12 @@ import java.util.stream.Collectors;
  *       is not recoverable, and a model or strategy changed on the Run Config screen since is picked
  *       up by the retry. Sentinel sampling is not applied to the retry (see
  *       {@link ForecastCommandExecutor}).</li>
+ *   <li><b>Never a slot dated before today.</b> The executor's already-past gate guards only today's slots,
+ *       so a slot dated before today's UK civil date ({@link ForecastHorizon}) is left out here and listed
+ *       in {@code skipped}; when every slot is past there is nothing to retry.</li>
+ *   <li><b>Never a slot dated before today.</b> The executor's already-past gate guards only today's slots,
+ *       so a slot dated before today's UK civil date ({@link ForecastHorizon}) is left out here and listed
+ *       in {@code skipped}; when every slot is past there is nothing to retry.</li>
  *   <li><b>Never a rejected key, never a light-pollution run.</b> {@link RunProgress#getRetryBlock()}
  *       is the one answer the {@code run-complete} payload also carries, so the panel never offers a
  *       retry the server would refuse.</li>
@@ -71,7 +79,11 @@ public class FailedSlotRetryService {
     public static final String REFUSED_RUN_TYPE = "This kind of run cannot be retried here.";
 
     /** Why a failed slot was left out of the retry: its place is not an enabled place any more. */
-    public static final String SKIPPED_NOT_ENABLED = "The place is disabled or no longer exists.";
+    public static final String SKIPPED_NOT_ENABLED =
+            "The place is disabled, renamed or no longer exists.";
+
+    /** Why a failed slot was left out of the retry: its date is before today, so its event is over. */
+    public static final String SKIPPED_PAST = "The event has already happened.";
 
     /** Why a failed slot was left out of the retry: its place is no longer a sky subject. */
     public static final String SKIPPED_NOT_SKY = "The place is no longer a sky location.";
@@ -89,6 +101,7 @@ public class FailedSlotRetryService {
     private final ForecastCommandFactory commandFactory;
     private final ForecastCommandExecutor commandExecutor;
     private final Executor forecastExecutor;
+    private final Clock clock;
 
     /**
      * Constructs the service.
@@ -99,16 +112,20 @@ public class FailedSlotRetryService {
      * @param commandFactory   builds the retry's command under the original run type
      * @param commandExecutor  executes it
      * @param forecastExecutor runs it off the HTTP thread
+     * @param clock            supplies today's UK civil date, via {@link ForecastHorizon}, so a slot dated
+     *                         before it is left out (the executor's own already-past gate guards only today)
      */
     public FailedSlotRetryService(RunProgressTracker progressTracker, JobRunService jobRunService,
             LocationService locationService, ForecastCommandFactory commandFactory,
-            ForecastCommandExecutor commandExecutor, Executor forecastExecutor) {
+            ForecastCommandExecutor commandExecutor, Executor forecastExecutor,
+            Clock clock) {
         this.progressTracker = progressTracker;
         this.jobRunService = jobRunService;
         this.locationService = locationService;
         this.commandFactory = commandFactory;
         this.commandExecutor = commandExecutor;
         this.forecastExecutor = forecastExecutor;
+        this.clock = clock;
     }
 
     /**
@@ -181,6 +198,7 @@ public class FailedSlotRetryService {
 
         Map<String, LocationEntity> enabledByName = locationService.findAllEnabled().stream()
                 .collect(Collectors.toMap(LocationEntity::getName, Function.identity(), (a, b) -> a));
+        LocalDate today = ForecastHorizon.today(clock);
         Set<ForecastSlot> slots = new LinkedHashSet<>();
         Set<String> placeNames = new LinkedHashSet<>();
         List<SkippedSlot> skipped = new ArrayList<>();
@@ -188,6 +206,7 @@ public class FailedSlotRetryService {
             ForecastSlot slot = parse(task);
             LocationEntity place = enabledByName.get(task.locationName());
             String why = slot == null ? SKIPPED_MALFORMED
+                    : slot.date().isBefore(today) ? SKIPPED_PAST
                     : place == null ? SKIPPED_NOT_ENABLED
                     : !place.hasColourTypes() ? SKIPPED_NOT_SKY
                     : null;

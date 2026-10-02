@@ -31,6 +31,7 @@ public class RunProgress {
     private volatile RunPhase phase = RunPhase.TRIAGE;
     private volatile String failureReason;
     private volatile boolean stopped;
+    private final Object streamLock = new Object();
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -64,6 +65,19 @@ public class RunProgress {
      */
     public void updateTask(LocationTaskEvent event) {
         tasks.put(event.getTaskKey(), LocationTaskSnapshot.fromEvent(event));
+    }
+
+    /**
+     * The monitor that orders this run's per-task broadcasts against a subscriber's replay: every
+     * "update a task and tell the subscribers" and every "copy the tasks and replay them to a new
+     * subscriber" holds it, so a subscriber sees each task's states in the order they happened. One
+     * per run, never shared between runs. See {@code RunProgressTracker}'s class javadoc for the lock
+     * order against its completion lock.
+     *
+     * @return the run's stream lock
+     */
+    public Object streamLock() {
+        return streamLock;
     }
 
     /**

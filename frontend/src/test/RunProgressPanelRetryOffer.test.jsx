@@ -3,7 +3,7 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import RunProgressPanel from '../components/RunProgressPanel.jsx';
 import {
   TWO_FAILURES, KEY_REJECTED_NOTHING_TRIAGED, KEY_REJECTED_RUN, LIGHT_POLLUTION_ONE_FAILURE,
-  LIGHT_POLLUTION_COMPLETE_OPTIONS, RETRY_ACCEPTED, summaryEvent, completeEvent, createFeeds,
+  LIGHT_POLLUTION_COMPLETE_OPTIONS, RETRY_ACCEPTED, task, summaryEvent, completeEvent, createFeeds,
 } from './runProgressFixtures.js';
 
 // When Retry is offered, what the endpoint answers, and which line stands where Retry would be. The
@@ -130,30 +130,73 @@ describe('RunProgressPanel: what Retry offers and why it is withheld', () => {
       expect(onRetryStarted).toHaveBeenCalledWith(6, RETRY_ACCEPTED);
     });
 
-    it('shows the server\'s own sentence, whole, for a 409 refusal, through the existing error line', async () => {
-      retryFailed.mockRejectedValue(refusal(409, {
-        error: 'This run was stopped because Claude rejected the API key. Fix the key, then start the run again.',
-      }));
+    /**
+     * Presses Retry on a run whose server answers 409, and checks what the admin is left with: the
+     * server's sentence once, announced as an alert, and a button that is Retry again, not "Retrying...".
+     */
+    const expect409Shown = async (tasks, buttonName, sentence) => {
+      retryFailed.mockRejectedValue(refusal(409, { error: sentence }));
       render(<RunProgressPanel jobRunId={5} />);
-      await playRun(5, TWO_FAILURES);
+      await playRun(5, tasks);
 
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry 2 failed' })); });
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: buttonName })); });
 
-      expect(screen.getByTestId('retry-failed-error').textContent).toBe(
+      const alerts = screen.getAllByRole('alert').filter((a) => a.textContent === sentence);
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toBe(screen.getByTestId('retry-failed-error'));
+      expect(screen.getAllByText(sentence)).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: 'Retrying...' })).toBeNull();
+      expect(screen.getByRole('button', { name: buttonName })).not.toHaveAttribute('aria-disabled');
+    };
+
+    it('shows the server\'s own sentence, whole, for a 409 refusal, through the existing error line', async () => {
+      await expect409Shown(TWO_FAILURES, 'Retry 2 failed',
         'This run was stopped because Claude rejected the API key. Fix the key, then start the run again.');
     });
 
-    it('shows the light-pollution 409 sentence the same way', async () => {
-      retryFailed.mockRejectedValue(refusal(409, {
-        error: 'Light-pollution failures are retried by pressing Refresh Light Pollution again.',
-      }));
+    it('shows the light-pollution 409 sentence the same way, for a light-pollution run whose payload '
+      + 'still offered Retry (one from before the server withdrew it)', async () => {
+      // completeEvent defaults to retryable: true, as a payload from before `retryBlockedReason` existed.
+      await expect409Shown(LIGHT_POLLUTION_ONE_FAILURE, 'Retry 1 failed',
+        'Light-pollution failures are retried by pressing Refresh Light Pollution again.');
+    });
+  });
+
+  describe('task updates that arrive out of order', () => {
+    const update = async (t) => { await act(async () => { feed.feeds[5].onTask(t); }); };
+
+    it.each(['COMPLETE', 'FAILED', 'SKIPPED', 'TRIAGED'])(
+      'a row that has finished as %s is not moved back to Pending by a stale update', async (finished) => {
+        render(<RunProgressPanel jobRunId={5} />);
+
+        await update(task('hill|a', 'Test Hill', finished));
+        await update(task('hill|a', 'Test Hill', 'PENDING'));
+
+        const row = screen.getByTestId('run-progress-row');
+        expect(row.textContent).not.toMatch(/Pending/);
+      });
+
+    it.each([['FETCHING_WEATHER', 'Weather'], ['EVALUATING', 'Evaluating']])(
+      'a FAILED row is not moved back to %s by a stale update', async (earlier, badge) => {
+        render(<RunProgressPanel jobRunId={5} />);
+
+        await update(task('hill|a', 'Test Hill', 'FAILED'));
+        await update(task('hill|a', 'Test Hill', earlier));
+
+        const row = screen.getByTestId('run-progress-row');
+        expect(within(row).getByText('Failed')).toBeInTheDocument();
+        expect(within(row).queryByText(badge)).toBeNull();
+      });
+
+    it('still moves an unfinished row forward, and a pending row to a phase', async () => {
       render(<RunProgressPanel jobRunId={5} />);
-      await playRun(5, TWO_FAILURES);
 
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry 2 failed' })); });
+      await update(task('hill|a', 'Test Hill', 'PENDING'));
+      await update(task('hill|a', 'Test Hill', 'EVALUATING'));
+      expect(screen.getByTestId('run-progress-row').textContent).not.toMatch(/Pending/);
+      await update(task('hill|a', 'Test Hill', 'COMPLETE'));
 
-      expect(screen.getByTestId('retry-failed-error').textContent)
-        .toBe('Light-pollution failures are retried by pressing Refresh Light Pollution again.');
+      expect(screen.getByTestId('run-progress-row')).toHaveTextContent('Complete');
     });
   });
 

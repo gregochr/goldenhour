@@ -42,6 +42,18 @@ import java.util.concurrent.TimeUnit;
  * {@code run-complete} payload live subscribers received. A subscriber to an id the tracker does
  * not hold (evicted, restarted away, or never a tracked run) is sent a terminal
  * {@code run-expired} event once a short grace period shows it is not merely a run about to start.
+ *
+ * <p><b>Locking.</b> Two kinds of lock, and one order. {@code completionLock} is global and orders
+ * "a run completes" against "a subscriber arrives" and the expiry check. {@link RunProgress#streamLock()}
+ * is per run and orders "a task changes and is broadcast" against "a subscriber's replay copies the
+ * tasks and sends them", so a subscriber sees each task's states in the order they happened.
+ * <b>Order: {@code completionLock} before the run's stream lock, never the reverse.</b>
+ * {@code subscribe}, {@code completeRun} and {@code failRun} take both in that order; {@code onTaskEvent}
+ * and {@code setPhase} take only the stream lock and never call anything that takes the completion lock
+ * while holding it; the expiry check takes only the completion lock. So no thread holds a stream lock
+ * while waiting for the completion lock, and there is no cycle. No lock is held across runs. The cost:
+ * a subscriber whose socket stalls inside {@code send} holds its run's stream lock, delaying that run's
+ * other task events (as a stalled emitter already delayed the worker that was sending to it).
  */
 @Service
 public class RunProgressTracker {
@@ -160,8 +172,13 @@ public class RunProgressTracker {
         if (progress == null) {
             return;
         }
-        progress.updateTask(event);
-        broadcastTaskUpdate(event.getJobRunId(), progress, event.getTaskKey());
+        // Update and broadcast as one step under the run's stream lock: a subscriber's replay holds the
+        // same lock across "copy the tasks, send them", so it can never send a task's older copy AFTER
+        // this event's newer one.
+        synchronized (progress.streamLock()) {
+            progress.updateTask(event);
+            broadcastTaskUpdate(event.getJobRunId(), progress, event.getTaskKey());
+        }
     }
 
     /**
@@ -182,9 +199,11 @@ public class RunProgressTracker {
             if (completions.containsKey(jobRunId)) {
                 return;
             }
-            Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
-            completions.put(jobRunId, completeEvent);
-            broadcastRunComplete(jobRunId, completeEvent);
+            synchronized (progress.streamLock()) {
+                Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
+                completions.put(jobRunId, completeEvent);
+                broadcastRunComplete(jobRunId, completeEvent);
+            }
         }
     }
 
@@ -249,9 +268,11 @@ public class RunProgressTracker {
             }
             RunProgress progress = activeRuns.computeIfAbsent(jobRunId, RunProgress::new);
             progress.markFailed(reason);
-            Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
-            completions.put(jobRunId, completeEvent);
-            broadcastRunComplete(jobRunId, completeEvent);
+            synchronized (progress.streamLock()) {
+                Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
+                completions.put(jobRunId, completeEvent);
+                broadcastRunComplete(jobRunId, completeEvent);
+            }
         }
     }
 
@@ -273,29 +294,35 @@ public class RunProgressTracker {
             emitters.add(emitter);
             RunProgress progress = activeRuns.get(runId);
             if (progress != null) {
-                try {
-                    for (LocationTaskSnapshot snapshot : progress.getTasks().values()) {
+                // Copy and replay under the run's stream lock: a task event is applied and broadcast
+                // under the same lock, so the copy cannot go stale while it is being sent (a worker's
+                // live FAILED used to overtake the replay's older PENDING for the same task, and the
+                // panel kept the last one it received).
+                synchronized (progress.streamLock()) {
+                    try {
+                        for (LocationTaskSnapshot snapshot : progress.getTasks().values()) {
+                            emitter.send(SseEmitter.event()
+                                    .name("task-update")
+                                    .data(objectMapper.writeValueAsString(snapshot)));
+                        }
                         emitter.send(SseEmitter.event()
-                                .name("task-update")
-                                .data(objectMapper.writeValueAsString(snapshot)));
-                    }
-                    emitter.send(SseEmitter.event()
-                            .name("run-summary")
-                            .data(objectMapper.writeValueAsString(buildSummary(runId, progress))));
-                    Map<String, Object> completeEvent = completions.get(runId);
-                    if (completeEvent != null) {
-                        // Already finished: the live broadcast went out before this subscriber
-                        // existed, so replay the identical payload and end the stream as a live
-                        // completion does.
-                        emitter.send(SseEmitter.event()
-                                .name("run-complete")
-                                .data(objectMapper.writeValueAsString(completeEvent)));
+                                .name("run-summary")
+                                .data(objectMapper.writeValueAsString(buildSummary(runId, progress))));
+                        Map<String, Object> completeEvent = completions.get(runId);
+                        if (completeEvent != null) {
+                            // Already finished: the live broadcast went out before this subscriber
+                            // existed, so replay the identical payload and end the stream as a live
+                            // completion does.
+                            emitter.send(SseEmitter.event()
+                                    .name("run-complete")
+                                    .data(objectMapper.writeValueAsString(completeEvent)));
+                            emitters.remove(emitter);
+                            emitter.complete();
+                        }
+                    } catch (IOException e) {
+                        LOG.warn("Failed to send initial state to SSE subscriber: {}", e.getMessage());
                         emitters.remove(emitter);
-                        emitter.complete();
                     }
-                } catch (IOException e) {
-                    LOG.warn("Failed to send initial state to SSE subscriber: {}", e.getMessage());
-                    emitters.remove(emitter);
                 }
             } else {
                 scheduleExpiry(runId, emitter, emitters);
@@ -450,8 +477,12 @@ public class RunProgressTracker {
     public void setPhase(long jobRunId, com.gregochr.goldenhour.model.RunPhase phase) {
         RunProgress progress = activeRuns.get(jobRunId);
         if (progress != null) {
-            progress.setPhase(phase);
-            broadcastTaskUpdate(jobRunId, progress);
+            // Under the stream lock: the phase change re-sends the most recently updated task from a
+            // copy, which must not be older than a task event another worker is broadcasting.
+            synchronized (progress.streamLock()) {
+                progress.setPhase(phase);
+                broadcastTaskUpdate(jobRunId, progress);
+            }
         }
     }
 

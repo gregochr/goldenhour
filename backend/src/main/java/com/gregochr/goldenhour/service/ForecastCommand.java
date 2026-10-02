@@ -26,7 +26,7 @@ import java.util.Set;
  *                            re-runs exactly what failed rather than every combination of the failed places
  *                            and dates. Null/empty = every slot the locations and dates produce. A
  *                            non-empty set also stands sentinel sampling down for the run (see
- *                            {@link ForecastCommandExecutor}). Ignored by the wildlife engine
+ *                            {@link ForecastCommandExecutor})
  */
 public record ForecastCommand(
         RunType runType,

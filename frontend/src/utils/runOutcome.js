@@ -77,6 +77,18 @@ export const retryNotOfferedLine = (data) => {
   return RETRY_NOT_OFFERED_GENERIC;
 };
 
+/** How many left-out slots the note names before saying "and N more". */
+const MAX_LEFT_OUT_NAMED = 3;
+
+/** One left-out slot as "Place 2026-10-03 sunrise (reason)", leaving out any part the server did not send. */
+const leftOutEntry = (slot) => {
+  const present = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+  const place = present(slot?.locationName) ?? 'A place';
+  const when = [present(slot?.date), present(slot?.targetType)?.toLowerCase()].filter(Boolean).join(' ');
+  const reason = present(slot?.reason)?.replace(/\.+$/, '');
+  return `${place}${when ? ` ${when}` : ''}${reason ? ` (${reason})` : ''}`;
+};
+
 /**
  * What the server's 202 for a retry says was started: "Retrying 2 slots.", plus the failed slots it
  * left out (their place is disabled, gone or no longer a sky location) with the server's reason each.
@@ -91,8 +103,8 @@ export const retryStartedNote = (result) => {
   const started = `Retrying ${slots} ${slots === 1 ? 'slot' : 'slots'}.`;
   const skipped = Array.isArray(result.skipped) ? result.skipped : [];
   if (skipped.length === 0) return started;
-  const left = skipped
-    .map((s) => `${s.locationName} ${s.date} ${String(s.targetType).toLowerCase()} (${s.reason})`)
-    .join('; ');
-  return `${started} Left out: ${left}`;
+  const named = skipped.slice(0, MAX_LEFT_OUT_NAMED).map(leftOutEntry);
+  const more = skipped.length - named.length;
+  if (more > 0) named.push(`and ${more} more`);
+  return `${started} Left out: ${named.join('; ')}.`;
 };
