@@ -65,11 +65,16 @@ const MARKER_INTERACTIVE_ALPHA = 0.2;
  * always painted at {@code opacity:0.92*alpha} (docs/design/map-tab-v2/map-tab-v2.js:173), but 0.9
  * was the pre-existing repo value the P4 re-tune above never listed as a deliberate change — an
  * unledgered drift a spec-vs-shipped audit caught. See map-tab-v2-plan.md §4 for the ledger entry.
+ *
+ * <p>{@code RADIUS_MAX_PX} re-tuned 190 → 400 on 2026-10-02 (owner report: field invisible at zoom
+ * ~12 with 4-star chips). At zoom 12 (~22 m/px at lat 55) 7.2 km is ~330 px, so the old cap bit and
+ * shrank the field into blobs around each chip instead of covering the same countryside; it stacked
+ * with the 0.12 floor in `heatHandover.js` (now 0.35).
  */
 const HEAT_OPACITY = 0.92;
 const RADIUS_METRES = 7200;
 const RADIUS_MIN_PX = 30;
-const RADIUS_MAX_PX = 190;
+const RADIUS_MAX_PX = 400;
 const GRID = 6;
 const BLUR = 4;
 
@@ -88,6 +93,11 @@ const FIELD_BLOOM = 1;
  * coastline's own survey error would show as a visibly false coast. By then the field is already
  * close to `heatHandover.js`'s {@code FADE_TO} floor opacity, so an unclipped wash over water reads less wrong than a
  * hard edge in the wrong place (docs/design/map-tab-v2/README.md, "The heat field").
+ *
+ * <p>Re-checked 2026-10-02 after the floor rose to 0.35: the field now shows above this zoom and
+ * spills softly over the sea at the Northumberland coast. Extending the clip to zoom 14 was tried
+ * and rejected — at zoom 12 around Bamburgh the 1:50m coast cut straight diagonals through the
+ * water and across the headland, a visibly false coast, worse than a graded wash. Left at 11.5.
  */
 const LAND_CLIP_MAX_ZOOM = 11.5;
 
