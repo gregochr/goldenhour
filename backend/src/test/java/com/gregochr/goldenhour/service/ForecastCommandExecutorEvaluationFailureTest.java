@@ -4,7 +4,7 @@ import com.anthropic.errors.AnthropicServiceException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.TestAtmosphericData;
-import com.gregochr.goldenhour.config.ResilienceConfig;
+import com.gregochr.goldenhour.config.ProductionAnthropicBreaker;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
@@ -29,7 +29,6 @@ import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter;
 import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,7 +43,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -618,20 +616,13 @@ class ForecastCommandExecutorEvaluationFailureTest {
     }
 
     /**
-     * The "anthropic" breaker as production builds it: the window, threshold and wait come from YAML (pinned
-     * to these values by {@code ResilienceConfigTest.anthropicCircuitBreakerSettings}), the exception
-     * predicate from {@link ResilienceConfig}'s real customizer.
+     * The "anthropic" breaker as production builds it, with no hand-copied numbers: its settings are read
+     * from the committed {@code application-prod.yml} and the real {@code ResilienceConfig} customizer is
+     * applied on top ({@link ProductionAnthropicBreaker}). Not covered: the production host's gitignored
+     * {@code application.yml}, which this repository cannot see.
      */
     private static CircuitBreaker productionAnthropicBreaker() {
-        CircuitBreakerConfig.Builder builder = CircuitBreakerConfig.custom()
-                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
-                .slidingWindowSize(10)
-                .minimumNumberOfCalls(5)
-                .failureRateThreshold(50)
-                .waitDurationInOpenState(Duration.ofSeconds(60))
-                .permittedNumberOfCallsInHalfOpenState(3);
-        new ResilienceConfig().anthropicCircuitBreakerCustomizer().customize(builder);
-        return CircuitBreaker.of("anthropic", builder.build());
+        return ProductionAnthropicBreaker.newBreaker();
     }
 
     private static void awaitQuietly(CyclicBarrier barrier) {

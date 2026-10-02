@@ -1,4 +1,4 @@
-### Fixed — a rejected Claude API key no longer opens the circuit breaker, and failed calls say why
+### Fixed — a rejected Claude API key no longer opens the circuit breaker
 
 With a rejected key, the first wave of Claude calls answered 401 and the run stopped correctly, but
 those 401s also counted as failures toward the `anthropic` circuit breaker (10-call window, opens at
@@ -6,22 +6,19 @@ those 401s also counted as failures toward the `anthropic` circuit breaker (10-c
 reached Claude: every place read "Not attempted: Claude calls are paused after repeated failures.",
 the run was not stopped, and Retry was offered although the key was still wrong. A rejected key is
 a configuration fault, not an outage. HTTP 401 and 403 from Anthropic are now ignored by the breaker
-(neither a failure nor a success), through `ClaudeBreakerIgnorePredicate` wired by
-`ResilienceConfig.anthropicCircuitBreakerCustomizer()`, so no per-host `application.yml` needs
-editing. The definition of "rejected key" is shared with the run's stop-on-rejected-key rule, so the
-two cannot drift. Every other failure (400, 404, 429, 5xx, 529, connection failures) still counts.
+(neither a failure nor a success, and a half-open probe that is rejected returns its permit), through
+`ClaudeBreakerIgnorePredicate` wired by `ResilienceConfig.anthropicCircuitBreakerCustomizer()`, so no
+per-host `application.yml` needs editing. The definition of "rejected key" is shared with the run's
+stop-on-rejected-key rule, so the two cannot drift. Every other failure (400, 404, 429, 5xx, 529,
+connection failures) still counts.
 
-A weather prefetch refused by the Open-Meteo circuit breaker used to read "Forecast run failed - The
-run stopped unexpectedly. See the server log.". A refusal is now recognised by the breaker's name
-(`open-meteo` or `open-meteo-briefing`) and reads "Weather data (Open-Meteo) calls are paused after
-repeated failures; nothing was updated. Try again in a minute." A refusal by any other breaker keeps
-the generic reason.
-
-A failed synchronous Claude call (the forecast run and the aurora evaluation) was written to
-`api_call_log` with a hard-coded status 500 and no `error_type`. It now records the HTTP status
-Anthropic actually answered with (401, 403, 429, 529, 5xx, 400) and the `error_type` the run panel
-already uses (`anthropic_401`, `content_filter`, `refusal`, `reply_unreadable`, `circuit_open`, ...).
-A failure with no HTTP status of its own (a connection failure, an unreadable reply, a refusal, an open
-breaker) records a null status, the same as the batch path and the weather clients; every reader
-decides failure from `succeeded`, never from the status. The Job Runs detail's Failed Calls list shows
-the status and error type beside the service (the metrics endpoint now serves `statusCode`).
+Two consequences. The status page no longer shows a rejected key: its overall DEGRADED/DOWN comes
+from the circuit-breaker health, which stays CLOSED, and its Claude entry is the `claudeApi` probe,
+which counts any HTTP answer (401 and 403 included) as reachable. A rejected key is visible where it
+is reported: the stopped run's reason ("Claude rejected the API key."), the server log, and the failed
+call's row in the Job Runs detail (`ANTHROPIC · anthropic_401`). And the briefing's gloss and best-bet
+calls, which have no stop-on-rejected-key rule, used to be cut off by the open breaker after about ten
+calls: with a rejected key one briefing refresh now attempts every call (up to about 60 gloss calls, five
+days by two events by the regions, plus one best-bet call), on each of the two scheduled pipeline cycles
+a day (nightly and 14:00 UTC intraday, plus any admin briefing run); each is rejected unbilled, and each
+gloss call leaves one `api_call_log` row (a failed best-bet call logs none).

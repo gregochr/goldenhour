@@ -15,6 +15,16 @@ import java.util.function.Predicate;
  * making a run started after the key was fixed wait for the pause to lapse. The run itself already
  * stops on a rejected key (see {@code EvaluationFailure#stopsRun}).
  *
+ * <p><b>The trade-off.</b> A rejected key no longer opens the breaker, so anything derived from the
+ * breaker's state no longer reflects it: the status page's overall DEGRADED/DOWN comes from the actuator's
+ * circuit-breaker health, and its Claude entry is the {@code claudeApi} probe, which deliberately counts
+ * ANY HTTP answer (401 and 403 included) as reachable, so a revoked key shows Claude as UP there. A rejected key is
+ * visible where it is actually reported: a hand-started run stops with "Claude rejected the API key."
+ * (and logs an ERROR), and a failed call's {@code api_call_log} row carries the status and an
+ * {@code anthropic_401} / {@code anthropic_403} error type, which the Job Runs detail shows.
+ * Another consequence: callers with no stop-on-rejected-key rule of their own (the briefing's gloss and
+ * best-bet calls) used to be cut off by the open breaker after about ten calls and now attempt every call.
+ *
  * <p>Wired as the breaker's {@code ignoreException} predicate by
  * {@link ResilienceConfig#anthropicCircuitBreakerCustomizer()}. Every other exception keeps counting
  * as a failure, exactly as before: 400, 404, 429, 5xx, 529 and the SDK's I/O failures.

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.anthropic.errors.AnthropicIoException;
 import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.MessageCreateParams;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -125,6 +126,17 @@ class SyncFailureApiCallLogTest {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * Matches the request the engine sends. It cannot be named exactly: {@code evaluateNow} builds the
+     * {@link MessageCreateParams} itself from the prompt builder, the model and the task's weather, so the
+     * test has no instance to pass. What this test asserts is how a failure of that call is LOGGED, and the
+     * request's content is asserted where it is built ({@code EvaluationServiceImplTest}); the matcher still
+     * pins the argument's type. It is only ever used in stubbing, never in a {@code verify}.
+     */
+    private static MessageCreateParams anyRequest() {
+        return any(MessageCreateParams.class);
+    }
+
     private static AnthropicServiceException serviceError(int status, String message) {
         AnthropicServiceException svc = mock(AnthropicServiceException.class);
         when(svc.statusCode()).thenReturn(status);
@@ -164,7 +176,7 @@ class SyncFailureApiCallLogTest {
         stubJobRun(RunType.SHORT_TERM);
         EvaluationTask.Forecast task = forecastTask();
         when(batchRequestFactory.selectBuilder(eq(task.data()))).thenReturn(new PromptBuilder());
-        when(anthropicApiClient.createMessage(any())).thenThrow((RuntimeException) failure);
+        when(anthropicApiClient.createMessage(anyRequest())).thenThrow((RuntimeException) failure);
 
         EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.ADMIN);
 
@@ -218,7 +230,7 @@ class SyncFailureApiCallLogTest {
         Message noText = mock(Message.class);
         when(noText.stopReason()).thenReturn(Optional.empty());
         when(noText.content()).thenReturn(List.of());
-        when(anthropicApiClient.createMessage(any())).thenReturn(noText);
+        when(anthropicApiClient.createMessage(anyRequest())).thenReturn(noText);
 
         service.evaluateNow(task, BatchTriggerSource.ADMIN);
 
@@ -246,7 +258,7 @@ class SyncFailureApiCallLogTest {
         when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
                 .thenReturn("user-message");
         AnthropicServiceException rejected = serviceError(401, "invalid x-api-key");
-        when(anthropicApiClient.createMessage(any())).thenThrow(rejected);
+        when(anthropicApiClient.createMessage(anyRequest())).thenThrow(rejected);
 
         EvaluationResult result = service.evaluateNow(auroraTask(), BatchTriggerSource.SCHEDULED);
 
@@ -265,7 +277,7 @@ class SyncFailureApiCallLogTest {
         stubJobRun(RunType.AURORA_EVALUATION);
         when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
                 .thenReturn("user-message");
-        when(anthropicApiClient.createMessage(any())).thenThrow(new AnthropicIoException("timed out"));
+        when(anthropicApiClient.createMessage(anyRequest())).thenThrow(new AnthropicIoException("timed out"));
 
         service.evaluateNow(auroraTask(), BatchTriggerSource.SCHEDULED);
 

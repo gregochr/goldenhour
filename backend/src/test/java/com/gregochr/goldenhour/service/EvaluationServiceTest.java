@@ -3,9 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.entity.TargetType;
 
-import java.time.LocalDate;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -247,7 +245,8 @@ class EvaluationServiceTest {
                 org.mockito.ArgumentMatchers.eq(EvaluationModel.OPUS),
                 org.mockito.ArgumentMatchers.eq(new TokenUsage(200, 100, 500, 100)),
                 org.mockito.ArgumentMatchers.eq(false),
-                org.mockito.ArgumentMatchers.any(LocalDate.class),
-                org.mockito.ArgumentMatchers.any(TargetType.class));
+                org.mockito.ArgumentMatchers.eq(data.solarEventTime().toLocalDate()),
+                org.mockito.ArgumentMatchers.eq(data.targetType()),
+                org.mockito.ArgumentMatchers.isNull());
     }
 }

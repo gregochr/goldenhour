@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.service.JobRunService;
 
 import org.slf4j.Logger;
@@ -21,7 +22,8 @@ import org.slf4j.LoggerFactory;
  *   <li>Entry/exit logging with location, target type, date, and scores</li>
  *   <li>Duration measurement</li>
  *   <li>API call metrics recording via {@link JobRunService}</li>
- *   <li>Error logging with status code extraction for Anthropic exceptions</li>
+ *   <li>Error logging with the real HTTP status (null when the failure had none) and the
+ *       {@link EvaluationFailure} error type</li>
  *   <li>Content filter diagnostic logging</li>
  * </ul>
  *
@@ -70,7 +72,7 @@ public class MetricsLoggingDecorator implements EvaluationStrategy {
                     detail.evaluation().goldenHourPotential(), detail.durationMs(),
                     detail.tokenUsage().totalTokens());
 
-            logApiCall(detail.durationMs(), 200, null, true, detail.tokenUsage(), data);
+            logApiCall(detail.durationMs(), 200, null, null, true, detail.tokenUsage(), data);
             return detail;
         } catch (WeatherDataFetchException e) {
             LOG.error("Skipping Anthropic evaluation — weather data unavailable: {}",
@@ -91,12 +93,13 @@ public class MetricsLoggingDecorator implements EvaluationStrategy {
      * Logs a failed evaluation with appropriate status code extraction and diagnostics.
      */
     private void handleFailure(Exception e, AtmosphericData data) {
-        int statusCode = 500;
         String errorMessage = e.getMessage();
+        // The HTTP status Anthropic answered with, or null when the failure had none (an I/O failure,
+        // an open breaker, anything that is not an Anthropic service error): never a placeholder 500.
+        Integer statusCode = EvaluationFailure.httpStatusOf(e);
 
         if (e instanceof AnthropicServiceException serviceEx) {
-            statusCode = serviceEx.statusCode();
-            if (statusCode == 400 && errorMessage != null
+            if (serviceEx.statusCode() == 400 && errorMessage != null
                     && errorMessage.contains("content filtering")) {
                 LOG.warn("Anthropic content filter — final failure. "
                         + "Location: {}, Target: {}, Date: {}, Model: {}",
@@ -107,19 +110,20 @@ public class MetricsLoggingDecorator implements EvaluationStrategy {
         }
 
         LOG.error("Anthropic evaluation failed: {}", e.getMessage(), e);
-        logApiCall(0, statusCode, errorMessage, false, TokenUsage.EMPTY, data);
+        logApiCall(0, statusCode, EvaluationFailure.errorTypeOf(e), errorMessage, false,
+                TokenUsage.EMPTY, data);
     }
 
     /**
      * Records an API call to the metrics store.
      */
-    private void logApiCall(long durationMs, int statusCode, String errorMessage,
+    private void logApiCall(long durationMs, Integer statusCode, String errorType, String errorMessage,
             boolean succeeded, TokenUsage tokenUsage, AtmosphericData data) {
         if (jobRun != null && jobRunService != null) {
             jobRunService.logAnthropicApiCall(jobRun.getId(),
                     durationMs, statusCode, errorMessage, succeeded, errorMessage,
                     getEvaluationModel(), tokenUsage, false,
-                    data.solarEventTime().toLocalDate(), data.targetType());
+                    data.solarEventTime().toLocalDate(), data.targetType(), errorType);
         }
     }
 }
