@@ -12,7 +12,9 @@ import {
   runForecast,
 } from '../api/forecastApi.js';
 import createEventSource from '../utils/createEventSource.js';
-import { failedOutright, failureMessage, stoppedEarly } from '../utils/runOutcome.js';
+import {
+  completedWithFailures, failedOutright, failureMessage, stoppedEarly,
+} from '../utils/runOutcome.js';
 import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -327,6 +329,11 @@ export default function MarkerPopupContent({
               // Cut short after some places completed: what did update is real, so refresh it, and
               // still say why the rest did not.
               setForecastError(data.reason);
+              onForecastRun?.();
+            } else if (completedWithFailures(data)) {
+              // Some places updated and some failed: what did update is real, so refresh it, and say
+              // that part of it failed rather than that the whole run did.
+              setForecastError('Part of this forecast failed.');
               onForecastRun?.();
             } else if (data.failed > 0) {
               setForecastError('Forecast run failed');

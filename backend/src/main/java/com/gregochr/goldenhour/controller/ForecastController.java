@@ -645,8 +645,9 @@ public class ForecastController {
      * many slots the new run was given and {@code skipped} lists the failed slots left out (place
      * disabled, removed or no longer a sky location) with a reason each; 404 with no body when there
      * is nothing to retry (unknown or evicted run, no failures, or no failed slot that can still be
-     * run); and 409 with {@code {error}} when the run's failures cannot be retried (stopped on a
-     * rejected API key, or a light-pollution run), in which case nothing is started.
+     * run); and 409 with {@code {error}} when the run cannot be retried now (still going, already
+     * retried as another run, stopped on a rejected API key, or a light-pollution run), in which case
+     * nothing is started.
      *
      * @param runId the job run ID whose failed tasks to retry
      * @return 202 Accepted with the new job run ID, 404 when there is nothing to retry, or 409

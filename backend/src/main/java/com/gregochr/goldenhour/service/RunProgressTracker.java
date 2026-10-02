@@ -19,7 +19,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +38,15 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Listens for {@link LocationTaskEvent} application events, updates the
  * in-memory {@link RunProgress}, and pushes SSE messages to subscribed clients.
- * Stale entries are cleaned up after 30 minutes.
+ * Entries are evicted by {@link #cleanupStaleEntries()}, and only COMPLETED runs are:
+ * {@link #COMPLETED_RUN_RETENTION} after the run completed. <b>A run that has not completed is never
+ * evicted, however long it has been silent.</b> A live run has silent phases with no fixed ceiling (the
+ * weather and cloud prefetch records no progress while Open-Meteo is called in chunks, with a 61 s
+ * backoff on each rate-limit response), and an entry evicted while its run is alive would discard its
+ * later task events, never emit its {@code run-complete} and leave attached clients told it had expired.
+ * There is no leak to bound: every hand-started run reaches {@link #completeRun} or {@link #failRun}
+ * (the executor's guard covers {@code Exception} and {@code Error}), and if the JVM dies this
+ * in-memory tracker dies with it.
  *
  * <p>A subscriber that arrives after a run has finished is not left waiting for an event that
  * already went out: it is sent the retained task snapshots, the run summary and the SAME
@@ -59,7 +70,13 @@ import java.util.concurrent.TimeUnit;
 public class RunProgressTracker {
 
     private static final Logger LOG = LoggerFactory.getLogger(RunProgressTracker.class);
-    private static final long STALE_TTL_MS = 30 * 60 * 1000L;
+
+    /**
+     * How long a COMPLETED run's entry is kept, measured from when the run completed (never from when
+     * it started): the window in which a late subscriber is replayed the run and "Retry failed" can
+     * still read its failed tasks. Unchanged from the 30 minutes every run used to get from its start.
+     */
+    static final Duration COMPLETED_RUN_RETENTION = Duration.ofMinutes(30);
 
     /**
      * How long a subscriber to an id the tracker does not (yet) hold waits before being told the run
@@ -72,6 +89,7 @@ public class RunProgressTracker {
     private final DynamicSchedulerService dynamicSchedulerService;
     private final ScheduledExecutorService graceScheduler;
     private final long unknownRunGraceMs;
+    private final Clock clock;
 
     /**
      * The {@code run-complete} payload each finished run broadcast, kept until the run is evicted so a
@@ -106,7 +124,7 @@ public class RunProgressTracker {
     }
 
     /**
-     * Constructs the tracker with an explicit grace scheduler (tests supply their own).
+     * Constructs the tracker with an explicit grace scheduler (tests supply their own) and the system clock.
      *
      * @param dynamicSchedulerService the dynamic scheduler for job registration
      * @param graceScheduler          runs the unknown-run expiry check
@@ -114,9 +132,24 @@ public class RunProgressTracker {
      */
     RunProgressTracker(DynamicSchedulerService dynamicSchedulerService,
             ScheduledExecutorService graceScheduler, long unknownRunGraceMs) {
+        this(dynamicSchedulerService, graceScheduler, unknownRunGraceMs, Clock.systemUTC());
+    }
+
+    /**
+     * Constructs the tracker with an explicit grace scheduler and clock (tests supply their own).
+     *
+     * @param dynamicSchedulerService the dynamic scheduler for job registration
+     * @param graceScheduler          runs the unknown-run expiry check
+     * @param unknownRunGraceMs       the grace period before an unknown run is declared expired
+     * @param clock                   the time source for completion and activity instants, so eviction can
+     *                                be tested without sleeping
+     */
+    RunProgressTracker(DynamicSchedulerService dynamicSchedulerService,
+            ScheduledExecutorService graceScheduler, long unknownRunGraceMs, Clock clock) {
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.graceScheduler = graceScheduler;
         this.unknownRunGraceMs = unknownRunGraceMs;
+        this.clock = clock;
     }
 
     /**
@@ -200,6 +233,7 @@ public class RunProgressTracker {
                 return;
             }
             synchronized (progress.streamLock()) {
+                progress.markCompleted(clock.instant());
                 Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
                 completions.put(jobRunId, completeEvent);
                 broadcastRunComplete(jobRunId, completeEvent);
@@ -269,6 +303,7 @@ public class RunProgressTracker {
             RunProgress progress = activeRuns.computeIfAbsent(jobRunId, RunProgress::new);
             progress.markFailed(reason);
             synchronized (progress.streamLock()) {
+                progress.markCompleted(clock.instant());
                 Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
                 completions.put(jobRunId, completeEvent);
                 broadcastRunComplete(jobRunId, completeEvent);
@@ -284,13 +319,15 @@ public class RunProgressTracker {
      */
     public SseEmitter subscribe(long runId) {
         SseEmitter emitter = newEmitter();
-        CopyOnWriteArrayList<SseEmitter> emitters =
-                runEmitters.computeIfAbsent(runId, k -> new CopyOnWriteArrayList<>());
-        emitter.onCompletion(() -> emitters.remove(emitter));
-        emitter.onTimeout(() -> emitters.remove(emitter));
-        emitter.onError(e -> emitters.remove(emitter));
 
         synchronized (completionLock) {
+            // Taken under the completion lock, so cleanup (which drops a run's empty emitter list under
+            // the same lock) cannot remove the list between this lookup and the add below.
+            CopyOnWriteArrayList<SseEmitter> emitters =
+                    runEmitters.computeIfAbsent(runId, k -> new CopyOnWriteArrayList<>());
+            emitter.onCompletion(() -> emitters.remove(emitter));
+            emitter.onTimeout(() -> emitters.remove(emitter));
+            emitter.onError(e -> emitters.remove(emitter));
             emitters.add(emitter);
             RunProgress progress = activeRuns.get(runId);
             if (progress != null) {
@@ -380,13 +417,66 @@ public class RunProgressTracker {
     }
 
     /**
-     * Removes stale run entries older than 30 minutes.
+     * Whether a run has completed (normally, or through {@link #failRun}) and its entry is still held.
+     *
+     * @param jobRunId the job run ID
+     * @return {@code true} once the run's {@code run-complete} has been produced; {@code false} while it
+     *         is still going, and for an id the tracker does not hold
+     */
+    public boolean isComplete(long jobRunId) {
+        return completions.containsKey(jobRunId);
+    }
+
+    /**
+     * Evicts the entries that have outlived their keep.
+     *
+     * <p>A run that has completed is evicted {@link #COMPLETED_RUN_RETENTION} after it COMPLETED (so
+     * "Retry failed" is available for that long after the run finished, however long it ran). A run that
+     * has not completed is never evicted, whatever its age or silence: it stays until
+     * {@link #completeRun} or {@link #failRun} completes it.
+     *
+     * <p>Candidates are found without locking, then each is re-checked under the locks (completion lock,
+     * then the run's stream lock: the documented order), so an event or a completion that arrives in
+     * between saves the run.
      */
     public void cleanupStaleEntries() {
-        Instant cutoff = Instant.now().minusMillis(STALE_TTL_MS);
-        activeRuns.entrySet().removeIf(entry -> entry.getValue().getStartedAt().isBefore(cutoff));
-        completions.keySet().removeIf(id -> !activeRuns.containsKey(id));
-        runEmitters.entrySet().removeIf(entry -> !activeRuns.containsKey(entry.getKey()));
+        Instant now = clock.instant();
+        List<RunProgress> candidates = new ArrayList<>();
+        for (RunProgress progress : activeRuns.values()) {
+            if (isEvictable(progress, now)) {
+                candidates.add(progress);
+            }
+        }
+        for (RunProgress progress : candidates) {
+            evict(progress, now);
+        }
+        synchronized (completionLock) {
+            // Emitter lists of ids with no run: left empty by subscribers that have since been told the
+            // run is gone. A list still holding a subscriber is waiting out its grace period; leave it.
+            runEmitters.entrySet().removeIf(entry -> !activeRuns.containsKey(entry.getKey())
+                    && entry.getValue().isEmpty());
+        }
+    }
+
+    private static boolean isEvictable(RunProgress progress, Instant now) {
+        Instant completedAt = progress.getCompletedAt();
+        return completedAt != null && !now.isBefore(completedAt.plus(COMPLETED_RUN_RETENTION));
+    }
+
+    private void evict(RunProgress progress, Instant now) {
+        long jobRunId = progress.getJobRunId();
+        synchronized (completionLock) {
+            synchronized (progress.streamLock()) {
+                if (activeRuns.get(jobRunId) != progress || !isEvictable(progress, now)) {
+                    return;
+                }
+                activeRuns.remove(jobRunId, progress);
+                completions.remove(jobRunId);
+                // A completed run's subscribers were all ended by its run-complete.
+                runEmitters.remove(jobRunId);
+                LOG.info("Run progress for jobRunId={} evicted (completed, retention elapsed)", jobRunId);
+            }
+        }
     }
 
     /**

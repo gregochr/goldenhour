@@ -87,6 +87,7 @@ class FailedSlotRetryChainTest {
                     failed ? LocationTaskState.FAILED : LocationTaskState.COMPLETE,
                     failed ? "weather down" : null, null));
         }
+        tracker.completeRun(7L);
 
         LocationEntity durham = sky(1L, "Durham");
         LocationEntity bamburgh = sky(2L, "Bamburgh");

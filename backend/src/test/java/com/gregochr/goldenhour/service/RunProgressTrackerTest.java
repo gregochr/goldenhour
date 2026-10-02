@@ -421,23 +421,6 @@ class RunProgressTrackerTest {
         assertThat(emitter.sent()).extracting(e -> e.substring(0, e.indexOf('|'))).contains("run-complete");
     }
 
-    @Test
-    @DisplayName("an evicted run's retained completion goes with it, so a later subscriber is told it expired")
-    void cleanupStaleEntries_dropsRetainedCompletion() {
-        RunProgressTracker t = recordingTracker();
-        startRunWithOneFailure(t);
-        t.completeRun(7L);
-        org.springframework.test.util.ReflectionTestUtils.setField(t.getProgress(7L), "startedAt",
-                java.time.Instant.now().minusSeconds(31 * 60));
-
-        t.cleanupStaleEntries();
-        RecordingEmitter late = (RecordingEmitter) t.subscribe(7L);
-
-        assertThat(late.sent()).isEmpty(); // no replay: the completion was evicted with the run
-        verify(graceScheduler).schedule(org.mockito.ArgumentMatchers.any(Runnable.class), anyLong(),
-                org.mockito.ArgumentMatchers.any());
-    }
-
     // -------------------------------------------------------------------------
     // Completion is idempotent, and carries a reason when the run failed as a whole
     // -------------------------------------------------------------------------

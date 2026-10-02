@@ -32,6 +32,10 @@ public class RunProgress {
     private volatile String failureReason;
     private volatile boolean stopped;
     private final Object streamLock = new Object();
+    private final Object retryLock = new Object();
+    private volatile Instant completedAt;
+    private volatile Long retriedAs;
+    private volatile Instant retriedAt;
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -78,6 +82,66 @@ public class RunProgress {
      */
     public Object streamLock() {
         return streamLock;
+    }
+
+    /**
+     * The monitor that makes "retry this run's failures" a single decision: whoever holds it checks
+     * whether a retry has already been started from this run, starts one, and records it with
+     * {@link #recordRetry} before releasing it, so two requests cannot both start one. One per run.
+     *
+     * @return the run's retry lock
+     */
+    public Object retryLock() {
+        return retryLock;
+    }
+
+    /**
+     * Records the run that retried this one. Call it only while holding {@link #retryLock()}.
+     * Held in memory with this progress entry, so it is forgotten when the entry is evicted and does
+     * not survive a restart.
+     *
+     * @param retryJobRunId the job run id of the retry that was started
+     * @param at            when it was started
+     */
+    public void recordRetry(long retryJobRunId, Instant at) {
+        this.retriedAs = retryJobRunId;
+        this.retriedAt = at;
+    }
+
+    /**
+     * When the retry recorded by {@link #recordRetry} was started.
+     *
+     * @return the instant, or {@code null} when no retry has been started from this run
+     */
+    public Instant getRetriedAt() {
+        return retriedAt;
+    }
+
+    /**
+     * The job run that retried this run, if a retry has been started from it.
+     *
+     * @return the retry's job run id, or {@code null} when none has been started
+     */
+    public Long getRetriedAs() {
+        return retriedAs;
+    }
+
+    /**
+     * Records when the run completed, which starts the clock on how long its entry is retained.
+     *
+     * @param at the completion instant
+     */
+    public void markCompleted(Instant at) {
+        this.completedAt = at;
+    }
+
+    /**
+     * Returns when the run completed.
+     *
+     * @return the completion instant, or {@code null} while the run has not completed
+     */
+    public Instant getCompletedAt() {
+        return completedAt;
     }
 
     /**
