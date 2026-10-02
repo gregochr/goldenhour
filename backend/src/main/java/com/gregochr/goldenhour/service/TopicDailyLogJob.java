@@ -3,8 +3,6 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.AuroraForecastResultEntity;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
-import com.gregochr.goldenhour.entity.ForecastScoreEntity;
-import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.StormSurgeDetails;
@@ -16,7 +14,6 @@ import com.gregochr.goldenhour.entity.TopicDailyLogEntity;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
-import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
@@ -59,17 +56,36 @@ import java.util.Map;
  *       columns are written from {@code AtmosphericData} during augmentation, before triage or any
  *       Claude call ({@code ForecastService.buildEntity}), so they land on every evaluated row
  *       regardless of outcome.</li>
- *   <li><b>INVERSION</b> — {@code forecast_score} (survivor-only; the best available <em>here</em>).
- *       Unlike dust and surge, the persisted inversion score this job reads is Claude's own output
- *       ({@code InversionDetails} Javadoc: "Cloud inversion score returned by Claude"), so it is
- *       null on any row that never reached Claude — there is no unbiased population to read yet
- *       (plan §1/§7: "inversion rarity stays on the config fallback until P7's log exists"). This
- *       job is that log's first writer. ⚠️ An unbiased, complete-population column now exists —
- *       {@code slot_atmosphere.inversion_score} (V158, Phase 2 of "record conditions for every
- *       place", owner decision 2026-09-30) — the same deterministic calculator score
- *       {@link InversionHotTopicStrategy} and {@code ComingUpConditionsBuilder} moved onto, and it
- *       is the eventual source once this job (or a successor) is repointed at it; that repointing
- *       is a separate decision and deliberately not made here.</li>
+ *   <li><b>INVERSION_CALC</b> — {@code slot_atmosphere.inversion_score} (V158), the deterministic
+ *       {@code InversionScoreCalculator} score written for every inversion-eligible candidate the
+ *       pipeline fetched weather for, triaged or not — the unbiased, complete population the plan's
+ *       round-3 review (§14) asked for. SUNRISE rows only (a sea of cloud is a dawn phenomenon; a
+ *       SUNSET row's score is physically meaningless, see {@link InversionHotTopicStrategy}), and
+ *       only rows whose {@code inversion_scored} flag is {@code true} <em>and</em> whose score is
+ *       non-null: a score is a measurement, a null on a scored row means the location is not
+ *       inversion-eligible or the weather inputs were missing, and a row from before the flag
+ *       existed is not part of this population at all. Claude's echo
+ *       ({@code forecast_score}'s INVERSION component) is deliberately <b>never</b> consulted here,
+ *       not even as a fallback — it exists only for slots that reached Claude, which is exactly the
+ *       bias this log exists to avoid. Present at
+ *       {@link InversionHotTopicStrategy#STRONG_SCORE_INCLUSIVE} or above; intensity is the
+ *       region's highest score. A region with no measurement that night gets no row, and a night
+ *       with no readings at all logs nothing — unmeasured, never "no inversion" (the same
+ *       region-level rule SNOW follows; neither distinguishes "the pipeline did not run" from
+ *       "nothing happened" any more finely than that).
+ *       <p>⚠️ <b>The cutover.</b> Until the owner decision of 2026-10-02 this topic was logged as
+ *       {@value #TYPE_INVERSION_LEGACY} from {@code forecast_score} — the survivor-biased Claude
+ *       echo. Those rows stay in the table, are never rewritten, and are <b>not</b> comparable with
+ *       what is logged now. The table has no source or population column (and adding one would
+ *       need a migration), but {@code topic_type} is part of the unique key, so the two populations
+ *       are kept apart by NAME rather than by a cutover date that would have had to guess the
+ *       deploy day: this job writes {@value #TYPE_INVERSION}, which no earlier build ever wrote,
+ *       and {@value #TYPE_INVERSION_LEGACY} is no longer written at all. <b>A rarity computation
+ *       must read {@value #TYPE_INVERSION} alone and ignore {@value #TYPE_INVERSION_LEGACY};
+ *       averaging the two would blend a biased and an unbiased population.</b> Nothing reads either
+ *       yet: {@code ComingUpConditionsBuilder}'s inversion rarity stays pinned to the config
+ *       fallback by owner decision (2026-10-02) until enough of this log exists, and switching it
+ *       is a separate change.</li>
  *   <li><b>SNOW</b> — {@code slot_atmosphere} (survivor-only; the only source — the
  *       {@code forecast_evaluation} snow columns were dropped in V116). The plan's candidate list
  *       names one "SNOW" topic, but the codebase has two live snow strategies:
@@ -131,7 +147,20 @@ public class TopicDailyLogJob {
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     static final String TYPE_DUST = "DUST";
-    static final String TYPE_INVERSION = "INVERSION";
+    /**
+     * Inversion, logged from the calculator's own readings ({@code slot_atmosphere}) — the unbiased
+     * population. At 14 characters it fits {@code topic_type}'s {@code VARCHAR(20)}. See the class
+     * javadoc's cutover note: this is the ONLY inversion type a rarity computation may read.
+     */
+    static final String TYPE_INVERSION = "INVERSION_CALC";
+
+    /**
+     * Inversion as logged before 2026-10-02, from {@code forecast_score}'s Claude echo — a
+     * survivor-biased population. No longer written; rows under this name must be ignored by any
+     * rarity computation and never mixed with {@link #TYPE_INVERSION}.
+     */
+    static final String TYPE_INVERSION_LEGACY = "INVERSION";
+
     static final String TYPE_SPRING_TIDE = "SPRING_TIDE";
     static final String TYPE_KING_TIDE = "KING_TIDE";
     static final String TYPE_STORM_SURGE = "STORM_SURGE";
@@ -144,7 +173,6 @@ public class TopicDailyLogJob {
     private static final List<TargetType> EVENT_TARGET_TYPES = List.of(TargetType.SUNRISE, TargetType.SUNSET);
 
     private final ForecastEvaluationRepository forecastEvaluationRepository;
-    private final ForecastScoreRepository forecastScoreRepository;
     private final SlotAtmosphereRepository slotAtmosphereRepository;
     private final TideExtremeRepository tideExtremeRepository;
     private final TideService tideService;
@@ -161,8 +189,7 @@ public class TopicDailyLogJob {
      * Constructs the job.
      *
      * @param forecastEvaluationRepository  the complete-population source for DUST and STORM_SURGE
-     * @param forecastScoreRepository       the survivor-only source for INVERSION
-     * @param slotAtmosphereRepository  the survivor-only source for SNOW
+     * @param slotAtmosphereRepository      the readings source for INVERSION_CALC and SNOW
      * @param tideExtremeRepository         stored tide extremes for SPRING_TIDE/KING_TIDE
      * @param tideService                   per-location spring-tide height threshold
      * @param lunarPhaseService             decides the SPRING_TIDE vs KING_TIDE label (never height)
@@ -175,7 +202,6 @@ public class TopicDailyLogJob {
      * @param clock                         clock used to resolve "yesterday" on the UK civil calendar
      */
     public TopicDailyLogJob(ForecastEvaluationRepository forecastEvaluationRepository,
-            ForecastScoreRepository forecastScoreRepository,
             SlotAtmosphereRepository slotAtmosphereRepository,
             TideExtremeRepository tideExtremeRepository,
             TideService tideService,
@@ -188,7 +214,6 @@ public class TopicDailyLogJob {
             DynamicSchedulerService dynamicSchedulerService,
             Clock clock) {
         this.forecastEvaluationRepository = forecastEvaluationRepository;
-        this.forecastScoreRepository = forecastScoreRepository;
         this.slotAtmosphereRepository = slotAtmosphereRepository;
         this.tideExtremeRepository = tideExtremeRepository;
         this.tideService = tideService;
@@ -272,16 +297,22 @@ public class TopicDailyLogJob {
 
     /**
      * Sunrise rows only — an inversion "sea of clouds" is a dawn phenomenon, and a SUNSET row's
-     * score is physically meaningless (see {@link InversionHotTopicStrategy}'s Javadoc).
+     * score is physically meaningless (see {@link InversionHotTopicStrategy}'s Javadoc) — and only
+     * rows carrying a calculator measurement: {@code inversion_scored} true with a non-null score.
+     * Claude's echo is never read, so a slot that never reached Claude counts exactly like one that
+     * did. See the class javadoc for why this is a different topic type from the one logged before.
      */
     private void logInversion(LocalDate date) {
         try {
-            List<ForecastScoreEntity> rows =
-                    forecastScoreRepository.findComponentsByType(ForecastType.INVERSION.getId(), date, date);
+            List<SlotAtmosphereEntity> rows = slotAtmosphereRepository.findInDateRange(date, date);
             Map<Long, Reading> byRegion = new LinkedHashMap<>();
 
-            for (ForecastScoreEntity row : rows) {
-                if (row.getEventType() != TargetType.SUNRISE) {
+            for (SlotAtmosphereEntity row : rows) {
+                if (row.getEventType() != TargetType.SUNRISE || !row.isInversionScored()) {
+                    continue;
+                }
+                Double score = row.getInversionScore();
+                if (score == null) {
                     continue;
                 }
                 RegionEntity region = regionOf(row.getLocation());
@@ -289,14 +320,11 @@ public class TopicDailyLogJob {
                     continue;
                 }
                 Reading reading = byRegion.computeIfAbsent(region.getId(), id -> new Reading());
-                Integer score = row.getScore();
-                if (score != null && score >= InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
+                if (score >= InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
                     reading.present = true;
                     reading.landedOnWindow = Boolean.TRUE;
                 }
-                if (score != null) {
-                    reading.maxIntensity = maxOf(reading.maxIntensity, BigDecimal.valueOf(score));
-                }
+                reading.maxIntensity = maxOf(reading.maxIntensity, BigDecimal.valueOf(score));
             }
 
             persist(TYPE_INVERSION, date, byRegion);

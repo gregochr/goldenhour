@@ -247,8 +247,10 @@ public class ComingUpScoringProperties {
 
     /**
      * Valley inversion knobs. Rarity stays on {@link #fallbackMeanGapDays} unconditionally until
-     * P7's {@code topic_daily_log} accrues an unbiased population (plan D4/§1) — never upgraded
-     * from the survivor-biased {@code forecast_score} table. Magnitude reuses the same 0–10 scale
+     * enough of P7's unbiased {@code topic_daily_log} inversion series ({@code INVERSION_CALC}, from
+     * the calculator, started 2026-10-02) exists — owner decision 2026-10-02; never upgraded from
+     * the survivor-biased {@code forecast_score} table or the older {@code INVERSION} log rows.
+     * Magnitude reuses the same 0–10 scale
      * {@code InversionScoreCalculator}/{@code InversionHotTopicStrategy} already score on, so
      * {@link #magnitudeThresholdScore} defaults to the STRONG band's own floor.
      */

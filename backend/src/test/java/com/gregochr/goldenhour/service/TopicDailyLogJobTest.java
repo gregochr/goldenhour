@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AuroraForecastResultEntity;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
-import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.StormSurgeDetails;
@@ -14,7 +13,6 @@ import com.gregochr.goldenhour.entity.TopicDailyLogEntity;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
-import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
@@ -42,7 +40,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeast;
@@ -69,9 +66,6 @@ class TopicDailyLogJobTest {
 
     @Mock
     private ForecastEvaluationRepository forecastEvaluationRepository;
-
-    @Mock
-    private ForecastScoreRepository forecastScoreRepository;
 
     @Mock
     private SlotAtmosphereRepository slotAtmosphereRepository;
@@ -109,8 +103,6 @@ class TopicDailyLogJobTest {
     void setUp() {
         lenient().when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(any(), anyCollection()))
                 .thenReturn(List.of());
-        lenient().when(forecastScoreRepository.findComponentsByType(anyLong(), any(), any()))
-                .thenReturn(List.of());
         lenient().when(slotAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
         lenient().when(locationRepository.findCoastalLocations()).thenReturn(List.of());
         lenient().when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(any()))
@@ -120,7 +112,7 @@ class TopicDailyLogJobTest {
         // Default to a non-perigean date (SPRING label) unless a test says otherwise.
         lenient().when(lunarPhaseService.nearestSyzygyIsPerigean(any())).thenReturn(false);
 
-        job = new TopicDailyLogJob(forecastEvaluationRepository, forecastScoreRepository,
+        job = new TopicDailyLogJob(forecastEvaluationRepository,
                 slotAtmosphereRepository, tideExtremeRepository, tideService, lunarPhaseService,
                 locationRepository, auroraForecastResultRepository, nlcClarityService, regionService,
                 topicDailyLogRepository, dynamicSchedulerService, CLOCK);
@@ -261,48 +253,194 @@ class TopicDailyLogJobTest {
 
     // ---------------------------------------------------------------- INVERSION
 
-    @Test
-    @DisplayName("INVERSION fires at the STRONG band on a SUNRISE row and ignores a SUNSET row entirely")
-    void inversion_firesOnStrongSunriseOnly() {
-        RegionEntity region = region(1L);
-        LocationEntity location = locationWithRegion(10L, region);
-        ForecastScoreEntity sunrise = new ForecastScoreEntity();
-        sunrise.setLocation(location);
-        sunrise.setEventType(TargetType.SUNRISE);
-        sunrise.setScore(9);
-        ForecastScoreEntity sunset = new ForecastScoreEntity();
-        sunset.setLocation(location);
-        sunset.setEventType(TargetType.SUNSET);
-        sunset.setScore(10);
-        when(forecastScoreRepository.findComponentsByType(anyLong(), eq(YESTERDAY), eq(YESTERDAY)))
-                .thenReturn(List.of(sunrise, sunset));
-
-        job.runScheduled();
-
-        List<TopicDailyLogEntity> inversion = savedRowsOfType("INVERSION");
-        assertThat(inversion).hasSize(1);
-        assertThat(inversion.get(0).isPresent()).isTrue();
-        // The SUNSET row's score of 10 must not leak into the max even though it is the higher figure.
-        assertThat(inversion.get(0).getIntensity()).isEqualByComparingTo("9");
+    private static SlotAtmosphereEntity slot(LocationEntity location, TargetType event, boolean inversionScored,
+            Double inversionScore) {
+        SlotAtmosphereEntity row = new SlotAtmosphereEntity();
+        row.setLocation(location);
+        row.setEventType(event);
+        row.setInversionScored(inversionScored);
+        row.setInversionScore(inversionScore);
+        return row;
     }
 
     @Test
-    @DisplayName("a MODERATE sunrise score (below STRONG) logs present=false")
-    void inversion_moderateScore_logsFalsePresence() {
-        RegionEntity region = region(1L);
-        LocationEntity location = locationWithRegion(10L, region);
-        ForecastScoreEntity sunrise = new ForecastScoreEntity();
-        sunrise.setLocation(location);
-        sunrise.setEventType(TargetType.SUNRISE);
-        sunrise.setScore(7);
-        when(forecastScoreRepository.findComponentsByType(anyLong(), eq(YESTERDAY), eq(YESTERDAY)))
-                .thenReturn(List.of(sunrise));
+    @DisplayName("the inversion topic type is INVERSION_CALC, distinct from the legacy Claude-echo INVERSION, "
+            + "and fits topic_type's VARCHAR(20)")
+    void inversion_cutoverMarker_isPinned() {
+        assertThat(TopicDailyLogJob.TYPE_INVERSION).isEqualTo("INVERSION_CALC");
+        assertThat(TopicDailyLogJob.TYPE_INVERSION_LEGACY).isEqualTo("INVERSION");
+        assertThat(TopicDailyLogJob.TYPE_INVERSION).isNotEqualTo(TopicDailyLogJob.TYPE_INVERSION_LEGACY);
+        assertThat(TopicDailyLogJob.TYPE_INVERSION.length()).isLessThanOrEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("INVERSION_CALC logs a strong calculator score on a scored SUNRISE row, never a SUNSET row, "
+            + "and never writes the legacy INVERSION type")
+    void inversion_firesOnStrongSunriseOnly() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(
+                slot(location, TargetType.SUNRISE, true, 9.0),
+                slot(location, TargetType.SUNSET, true, 10.0)));
 
         job.runScheduled();
 
-        List<TopicDailyLogEntity> inversion = savedRowsOfType("INVERSION");
+        List<TopicDailyLogEntity> inversion = savedRowsOfType("INVERSION_CALC");
+        assertThat(inversion).hasSize(1);
+        assertThat(inversion.get(0).getRegionId()).isEqualTo(1L);
+        assertThat(inversion.get(0).isPresent()).isTrue();
+        assertThat(inversion.get(0).getLandedOnWindow()).isTrue();
+        // The SUNSET row's score of 10 must not leak into the max even though it is the higher figure.
+        assertThat(inversion.get(0).getIntensity()).isEqualByComparingTo("9");
+        assertThat(savedRowsOfType("INVERSION")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a strong score on a SUNSET row alone logs nothing")
+    void inversion_sunsetOnly_logsNothing() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY))
+                .thenReturn(List.of(slot(location, TargetType.SUNSET, true, 10.0)));
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("INVERSION_CALC")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a calculator score of 8 (below STRONG) logs present=false with the score as intensity")
+    void inversion_belowStrong_logsFalsePresence() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY))
+                .thenReturn(List.of(slot(location, TargetType.SUNRISE, true, 8.0)));
+
+        job.runScheduled();
+
+        List<TopicDailyLogEntity> inversion = savedRowsOfType("INVERSION_CALC");
         assertThat(inversion).hasSize(1);
         assertThat(inversion.get(0).isPresent()).isFalse();
+        assertThat(inversion.get(0).getLandedOnWindow()).isNull();
+        assertThat(inversion.get(0).getIntensity()).isEqualByComparingTo("8");
+    }
+
+    @Test
+    @DisplayName("a scored row with no calculator reading (ineligible place, or missing weather inputs) is "
+            + "unmeasured, so a Claude echo that may exist for the slot is never consulted and nothing is logged")
+    void inversion_scoredRowWithNullScore_isUnmeasured() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY))
+                .thenReturn(List.of(slot(location, TargetType.SUNRISE, true, null)));
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("INVERSION_CALC")).isEmpty();
+        assertThat(savedRowsOfType("INVERSION")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a row written before the inversion_scored flag existed is not in the population, "
+            + "even if it somehow carries a strong score")
+    void inversion_unscoredRow_isIgnoredEvenWithStrongScore() {
+        LocationEntity location = locationWithRegion(10L, region(1L));
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY))
+                .thenReturn(List.of(slot(location, TargetType.SUNRISE, false, 10.0)));
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("INVERSION_CALC")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a place with no region contributes nothing to INVERSION_CALC")
+    void inversion_locationWithNoRegion_isSkipped() {
+        LocationEntity location = locationWithRegion(10L, null);
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY))
+                .thenReturn(List.of(slot(location, TargetType.SUNRISE, true, 10.0)));
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("INVERSION_CALC")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("INVERSION_CALC across several places: per-region max, present on any strong place, "
+            + "and a region with no measurement gets no row")
+    void inversion_severalPlaces_perRegionMaxAndPresence() {
+        RegionEntity north = region(1L);
+        RegionEntity south = region(2L);
+        RegionEntity lowland = region(3L);
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(
+                slot(locationWithRegion(10L, north), TargetType.SUNRISE, true, 6.0),
+                slot(locationWithRegion(11L, north), TargetType.SUNRISE, true, 9.5),
+                slot(locationWithRegion(12L, north), TargetType.SUNSET, true, 10.0),
+                slot(locationWithRegion(20L, south), TargetType.SUNRISE, true, 8.0),
+                slot(locationWithRegion(21L, south), TargetType.SUNRISE, true, 3.0),
+                slot(locationWithRegion(30L, lowland), TargetType.SUNRISE, true, null),
+                slot(locationWithRegion(31L, lowland), TargetType.SUNRISE, false, 10.0)));
+
+        job.runScheduled();
+
+        List<TopicDailyLogEntity> inversion = savedRowsOfType("INVERSION_CALC");
+        assertThat(inversion).hasSize(2);
+        TopicDailyLogEntity northRow =
+                inversion.stream().filter(e -> e.getRegionId() == 1L).findFirst().orElseThrow();
+        TopicDailyLogEntity southRow =
+                inversion.stream().filter(e -> e.getRegionId() == 2L).findFirst().orElseThrow();
+        assertThat(northRow.isPresent()).isTrue();
+        assertThat(northRow.getIntensity()).isEqualByComparingTo("9.5");
+        assertThat(northRow.getLogDate()).isEqualTo(YESTERDAY);
+        assertThat(southRow.isPresent()).isFalse();
+        assertThat(southRow.getIntensity()).isEqualByComparingTo("8");
+    }
+
+    @Test
+    @DisplayName("a night with no slot rows at all logs no inversion row — unmeasured, never 'no inversion'")
+    void inversion_noRowsAtAll_logsNothing() {
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of());
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("INVERSION_CALC")).isEmpty();
+        assertThat(savedRowsOfType("INVERSION")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the slot_atmosphere read failing is caught for inversion and does not stop other topics")
+    void inversion_sourceFailure_isCaught() {
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY))
+                .thenThrow(new IllegalStateException("DB unavailable"));
+        when(regionService.findAll()).thenReturn(List.of(region(1L)));
+        when(nlcClarityService.isNlcSeason(YESTERDAY)).thenReturn(true);
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("INVERSION_CALC")).isEmpty();
+        assertThat(savedRowsOfType("NLC")).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("INVERSION_CALC sits beside the other topics without disturbing them: snow, dust and "
+            + "inversion from one night's rows")
+    void inversion_doesNotDisturbSnowAndDust() {
+        RegionEntity region = region(1L);
+        LocationEntity location = locationWithRegion(10L, region);
+        SlotAtmosphereEntity row = slot(location, TargetType.SUNRISE, true, 9.0);
+        row.setSnowDepthMetres(0.05);
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenReturn(List.of(row));
+        when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(eq(YESTERDAY), anyCollection()))
+                .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                        .location(location).aerosolOpticalDepth(new BigDecimal("0.55")).build()));
+
+        job.runScheduled();
+
+        List<TopicDailyLogEntity> snow = savedRowsOfType("SNOW");
+        assertThat(snow).hasSize(1);
+        assertThat(snow.get(0).isPresent()).isTrue();
+        assertThat(snow.get(0).getIntensity()).isEqualByComparingTo("0.05");
+        List<TopicDailyLogEntity> dust = savedRowsOfType("DUST");
+        assertThat(dust).hasSize(1);
+        assertThat(dust.get(0).isPresent()).isTrue();
+        assertThat(dust.get(0).getIntensity()).isEqualByComparingTo("0.55");
+        assertThat(savedRowsOfType("INVERSION_CALC")).hasSize(1);
     }
 
     // ---------------------------------------------------------------- SNOW
