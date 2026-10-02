@@ -368,14 +368,17 @@ public class ForecastController {
      * This is a recovery mechanism for when scheduled jobs fail.
      *
      * <p>If the request body is absent or its fields are {@code null}, defaults apply:
-     * {@code dates} defaults to today only; {@code location} defaults to all configured locations.
+     * {@code dates} defaults to today only; {@code location} defaults to all enabled <em>sky</em>
+     * locations (those {@code LocationEntity.hasColourTypes()} admits — hides and woods have no
+     * sunrise or sunset forecast to run), and {@code maxLocations} caps that sky list.
      *
      * @param request optional run parameters (dates and/or location)
      * @param maxDays maximum number of days to forecast (optional; if null, uses all dates)
-     * @param maxLocations maximum number of locations to process (optional; if null, uses all)
+     * @param maxLocations maximum number of sky locations to process (optional; if null, uses all)
      * @return 202 Accepted with status message
-     * @throws IllegalArgumentException if the specified location name is not configured,
-     *                                  or if any date string is not a valid ISO date
+     * @throws IllegalArgumentException if the specified location name is not configured or is not
+     *                                  a sky location, if no sky location is enabled, or if any
+     *                                  date string is not a valid ISO date
      */
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
@@ -417,11 +420,23 @@ public class ForecastController {
                         + "it has no sunrise or sunset forecast");
             }
         } else {
-            allLocations = locationService.findAllEnabled();
+            // Offer only sky subjects, BEFORE maxLocations truncates: capped on the whole roster,
+            // "run 10" would count hides and woods that ForecastCommandExecutor (the one
+            // enforcement point, which filters again) then drops, evaluating fewer than 10.
+            allLocations = locationService.findAllEnabled().stream()
+                    .filter(LocationEntity::hasColourTypes)
+                    .toList();
         }
         final List<LocationEntity> locations = (maxLocations != null && maxLocations > 0)
                 ? allLocations.stream().limit(maxLocations).toList()
                 : allLocations;
+        // A run that can evaluate nothing must not exist: no sky location is enabled. Refused as
+        // 400 {error}, the same IllegalArgumentException path as the unknown and non-sky names
+        // above, so no job_run row is created and the executor is never called.
+        if (locations.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "No enabled sky locations: there is nothing to run");
+        }
 
         // Build excluded slots from targetType (only evaluate the requested event type)
         Set<String> excludedSlots = Set.of();

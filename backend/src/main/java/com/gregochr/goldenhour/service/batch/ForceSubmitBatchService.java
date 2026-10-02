@@ -205,6 +205,8 @@ public class ForceSubmitBatchService {
      * @param date     the forecast date
      * @param event    SUNRISE or SUNSET
      * @return submission result summary
+     * @throws IllegalArgumentException if the region is unknown, or has no enabled sky location
+     *                                  (an empty region, or one of only hides and woods)
      */
     public ForceSubmitResult forceSubmit(Long regionId, LocalDate date, TargetType event) {
         RegionEntity region = regionRepository.findById(regionId).orElse(null);
@@ -215,11 +217,12 @@ public class ForceSubmitBatchService {
         List<LocationEntity> locations = enabledSkyLocations(loc -> loc.getRegion() != null
                 && loc.getRegion().getId().equals(regionId));
 
-        // A region holding only hides or woods reads as an empty one: there is no sky to forecast
-        // there, and nothing else this route could submit.
+        // An empty region and one holding only hides or woods share one refusal: either way there
+        // is no sky location to submit, and "no enabled sky locations" is true of both (the latter
+        // does have enabled locations, so the older "no enabled locations" wording was not).
         if (locations.isEmpty()) {
             throw new IllegalArgumentException(
-                    "No enabled locations found in region: " + region.getName());
+                    "No enabled sky locations found in region: " + region.getName());
         }
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);

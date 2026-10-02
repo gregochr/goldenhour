@@ -127,7 +127,7 @@ class ForceSubmitBatchServiceTest {
     }
 
     @Test
-    @DisplayName("forceSubmit throws when no enabled locations in region")
+    @DisplayName("forceSubmit throws when no enabled sky locations in region")
     void forceSubmit_noLocationsInRegion_throws() {
         RegionEntity region = buildRegion(7L, "Northumberland");
         when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
@@ -136,7 +136,7 @@ class ForceSubmitBatchServiceTest {
         assertThatThrownBy(() -> service.forceSubmit(7L,
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("No enabled locations");
+                .hasMessageContaining("No enabled sky locations");
         verifyNoInteractions(evaluationService);
     }
 
@@ -855,7 +855,7 @@ class ForceSubmitBatchServiceTest {
     }
 
     @Test
-    @DisplayName("forceSubmit treats a region of hides, woods and bluebell woods as an empty one")
+    @DisplayName("forceSubmit refuses a region of only hides, woods and bluebell woods, as it does an empty one")
     void forceSubmit_regionWithOnlyNonSkyLocations_behavesAsEmptyRegion() {
         RegionEntity region = buildRegion(7L, "Northumberland");
         when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
@@ -870,7 +870,7 @@ class ForceSubmitBatchServiceTest {
         assertThatThrownBy(() -> service.forceSubmit(7L,
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("No enabled locations found in region: Northumberland");
+                .hasMessage("No enabled sky locations found in region: Northumberland");
         verifyNoInteractions(forecastService);
         verifyNoInteractions(evaluationService);
     }

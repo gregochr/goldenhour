@@ -935,6 +935,12 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .build();
     }
 
+    private static LocationEntity landscapeTwo() {
+        return LocationEntity.builder().id(5L).name("Hadrian's Wall East").lat(55.0).lon(-2.1)
+                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.LANDSCAPE))
+                .build();
+    }
+
     @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run naming a wildlife-only location returns 400 and starts no run")
@@ -995,11 +1001,10 @@ class ForecastControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run for all locations hands the whole roster over — "
-            + "the executor, the one filter, drops the non-sky places")
-    void runForecast_allLocations_leavesTheFilterToTheExecutor() throws Exception {
-        LocationEntity hide = hide();
-        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide));
+    @DisplayName("POST /api/forecast/run for all locations offers only the sky ones "
+            + "(the executor filters again as the enforcement point)")
+    void runForecast_allLocations_offersOnlySkyLocations() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
 
         mockMvc.perform(post("/api/forecast/run"))
                 .andExpect(status().isAccepted());
@@ -1008,7 +1013,59 @@ class ForecastControllerTest extends AbstractControllerTest {
         ArgumentCaptor<List<LocationEntity>> locations = ArgumentCaptor.forClass(List.class);
         verify(commandFactory).create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM), eq(true),
                 locations.capture(), any(), any());
-        assertThat(locations.getValue()).containsExactly(DURHAM, hide);
+        assertThat(locations.getValue()).containsExactly(DURHAM);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run maxLocations=2 caps the sky list, not the whole roster")
+    void runForecast_maxLocations_countsOnlySkyLocations() throws Exception {
+        LocationEntity wall = landscape();
+        LocationEntity wood = LocationEntity.builder().id(4L).name("Canopy Wood").lat(55.2).lon(-1.9)
+                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.WOODLAND))
+                .build();
+        // The first two entries are not sky subjects: a cap applied to the whole roster would
+        // hand the command none of the sky places at all.
+        when(locationService.findAllEnabled())
+                .thenReturn(List.of(hide(), wood, DURHAM, wall, landscapeTwo()));
+
+        mockMvc.perform(post("/api/forecast/run").param("maxLocations", "2"))
+                .andExpect(status().isAccepted());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LocationEntity>> locations = ArgumentCaptor.forClass(List.class);
+        verify(commandFactory).create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM), eq(true),
+                locations.capture(), any(), any());
+        assertThat(locations.getValue()).containsExactly(DURHAM, wall);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run for all locations returns 400 and starts no run "
+            + "when no enabled location is a sky subject")
+    void runForecast_noSkyLocationEnabled_returns400AndStartsNothing() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of(hide()));
+
+        mockMvc.perform(post("/api/forecast/run"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("No enabled sky locations: there is nothing to run"));
+
+        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
+        verify(commandFactory, never()).create(any(), anyBoolean(), any(), any(), any());
+        verify(forecastCommandExecutor, never()).execute(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run returns 400 and starts no run when no location is enabled at all")
+    void runForecast_noLocationsEnabled_returns400AndStartsNothing() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/forecast/run"))
+                .andExpect(status().isBadRequest());
+
+        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
+        verify(forecastCommandExecutor, never()).execute(any(), any());
     }
 
     @Test

@@ -9,9 +9,12 @@ admits, in one place per engine, before any fetch — the same rule the three te
 JFDI batch already applied. Neither route has a woodland or bluebell lane, so nothing that worked
 is lost.
 
-What the caller sees: a "run for all locations" drops the non-sky places and logs how many; naming
-one non-sky place on `POST /api/forecast/run` answers 400 (`'<name>' is not a sky location: it has
-no sunrise or sunset forecast`) and starts no run or `job_run` row; `retry-failed` answers 404 when
-none of its failed places is a sky subject any more; `forceSubmit` on a region with no sky
-locations reads as an empty region. A hide named on these routes no longer gets a `slot_atmosphere`
+What the caller sees: a "run for all locations" offers only the sky places (so `maxLocations`
+counts sky places, not the whole roster) and the executor drops any other, logging how many;
+naming one non-sky place on `POST /api/forecast/run` answers 400 (`'<name>' is not a sky location:
+it has no sunrise or sunset forecast`), and so does "all locations" when no sky location is
+enabled (`No enabled sky locations: there is nothing to run`), neither starting a run or `job_run`
+row; `retry-failed` answers 404 when none of its failed places is a sky subject any more;
+`forceSubmit` on a region with no enabled sky location (empty, or only hides and woods) answers
+`No enabled sky locations found in region: <name>`. A hide named on these routes no longer gets a `slot_atmosphere`
 reading there, which closes the "known wrinkle" recorded in CLAUDE.md on 2026-10-02.
