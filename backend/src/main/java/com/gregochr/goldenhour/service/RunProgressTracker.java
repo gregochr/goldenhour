@@ -7,11 +7,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 // Note: ObjectMapper is created inline with JavaTimeModule rather than injected,
 // because this service only serialises SSE payloads and does not need the full
 // Spring-configured ObjectMapper.
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -22,6 +24,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Singleton service that tracks live progress of forecast runs and broadcasts
@@ -30,6 +35,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>Listens for {@link LocationTaskEvent} application events, updates the
  * in-memory {@link RunProgress}, and pushes SSE messages to subscribed clients.
  * Stale entries are cleaned up after 30 minutes.
+ *
+ * <p>A subscriber that arrives after a run has finished is not left waiting for an event that
+ * already went out: it is sent the retained task snapshots, the run summary and the SAME
+ * {@code run-complete} payload live subscribers received. A subscriber to an id the tracker does
+ * not hold (evicted, restarted away, or never a tracked run) is sent a terminal
+ * {@code run-expired} event once a short grace period shows it is not merely a run about to start.
  */
 @Service
 public class RunProgressTracker {
@@ -37,7 +48,27 @@ public class RunProgressTracker {
     private static final Logger LOG = LoggerFactory.getLogger(RunProgressTracker.class);
     private static final long STALE_TTL_MS = 30 * 60 * 1000L;
 
+    /**
+     * How long a subscriber to an id the tracker does not (yet) hold waits before being told the run
+     * is gone. A client subscribes the moment the run endpoint answers 202, and the executor thread
+     * registers the run with {@link #initRun} a moment after that, so an unknown id at subscribe
+     * time can be a run about to start; the grace tells the two apart.
+     */
+    static final long UNKNOWN_RUN_GRACE_MS = 5_000L;
+
     private final DynamicSchedulerService dynamicSchedulerService;
+    private final ScheduledExecutorService graceScheduler;
+    private final long unknownRunGraceMs;
+
+    /**
+     * The {@code run-complete} payload each finished run broadcast, kept until the run is evicted so a
+     * late subscriber is replayed exactly what live subscribers got (the payload's elapsed time is
+     * computed once, at completion, never again).
+     */
+    private final ConcurrentHashMap<Long, Map<String, Object>> completions = new ConcurrentHashMap<>();
+
+    /** Orders "run completes" against "subscriber arrives" so neither is sent the event twice or never. */
+    private final Object completionLock = new Object();
 
     private final ConcurrentHashMap<Long, RunProgress> activeRuns = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, CopyOnWriteArrayList<SseEmitter>> runEmitters =
@@ -52,8 +83,44 @@ public class RunProgressTracker {
      *
      * @param dynamicSchedulerService the dynamic scheduler for job registration
      */
+    @Autowired
     public RunProgressTracker(DynamicSchedulerService dynamicSchedulerService) {
+        this(dynamicSchedulerService, Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "run-progress-grace");
+            t.setDaemon(true);
+            return t;
+        }), UNKNOWN_RUN_GRACE_MS);
+    }
+
+    /**
+     * Constructs the tracker with an explicit grace scheduler (tests supply their own).
+     *
+     * @param dynamicSchedulerService the dynamic scheduler for job registration
+     * @param graceScheduler          runs the unknown-run expiry check
+     * @param unknownRunGraceMs       the grace period before an unknown run is declared expired
+     */
+    RunProgressTracker(DynamicSchedulerService dynamicSchedulerService,
+            ScheduledExecutorService graceScheduler, long unknownRunGraceMs) {
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.graceScheduler = graceScheduler;
+        this.unknownRunGraceMs = unknownRunGraceMs;
+    }
+
+    /**
+     * Stops the grace scheduler on shutdown.
+     */
+    @PreDestroy
+    void shutdown() {
+        graceScheduler.shutdownNow();
+    }
+
+    /**
+     * Creates the emitter handed to a subscriber (overridable so tests can observe what is sent).
+     *
+     * @return a new emitter with no timeout
+     */
+    SseEmitter newEmitter() {
+        return new SseEmitter(0L);
     }
 
     /**
@@ -106,7 +173,11 @@ public class RunProgressTracker {
         if (progress == null) {
             return;
         }
-        broadcastRunComplete(jobRunId, progress);
+        synchronized (completionLock) {
+            Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
+            completions.put(jobRunId, completeEvent);
+            broadcastRunComplete(jobRunId, completeEvent);
+        }
     }
 
     /**
@@ -116,33 +187,70 @@ public class RunProgressTracker {
      * @return the SSE emitter, or null if the run is not tracked
      */
     public SseEmitter subscribe(long runId) {
-        SseEmitter emitter = new SseEmitter(0L);
+        SseEmitter emitter = newEmitter();
         CopyOnWriteArrayList<SseEmitter> emitters =
                 runEmitters.computeIfAbsent(runId, k -> new CopyOnWriteArrayList<>());
-        emitters.add(emitter);
         emitter.onCompletion(() -> emitters.remove(emitter));
         emitter.onTimeout(() -> emitters.remove(emitter));
         emitter.onError(e -> emitters.remove(emitter));
 
-        // Send current state snapshot immediately
-        RunProgress progress = activeRuns.get(runId);
-        if (progress != null) {
-            try {
-                for (LocationTaskSnapshot snapshot : progress.getTasks().values()) {
+        synchronized (completionLock) {
+            emitters.add(emitter);
+            RunProgress progress = activeRuns.get(runId);
+            if (progress != null) {
+                try {
+                    for (LocationTaskSnapshot snapshot : progress.getTasks().values()) {
+                        emitter.send(SseEmitter.event()
+                                .name("task-update")
+                                .data(objectMapper.writeValueAsString(snapshot)));
+                    }
                     emitter.send(SseEmitter.event()
-                            .name("task-update")
-                            .data(objectMapper.writeValueAsString(snapshot)));
+                            .name("run-summary")
+                            .data(objectMapper.writeValueAsString(buildSummary(runId, progress))));
+                    Map<String, Object> completeEvent = completions.get(runId);
+                    if (completeEvent != null) {
+                        // Already finished: the live broadcast went out before this subscriber
+                        // existed, so replay the identical payload and end the stream as a live
+                        // completion does.
+                        emitter.send(SseEmitter.event()
+                                .name("run-complete")
+                                .data(objectMapper.writeValueAsString(completeEvent)));
+                        emitters.remove(emitter);
+                        emitter.complete();
+                    }
+                } catch (IOException e) {
+                    LOG.warn("Failed to send initial state to SSE subscriber: {}", e.getMessage());
+                    emitters.remove(emitter);
                 }
-                emitter.send(SseEmitter.event()
-                        .name("run-summary")
-                        .data(objectMapper.writeValueAsString(buildSummary(runId, progress))));
-            } catch (IOException e) {
-                LOG.warn("Failed to send initial state to SSE subscriber: {}", e.getMessage());
-                emitters.remove(emitter);
+            } else {
+                scheduleExpiry(runId, emitter, emitters);
             }
         }
 
         return emitter;
+    }
+
+    /**
+     * After the grace period, tells a subscriber whose run is still unknown that it is gone. A run
+     * that has been registered in the meantime is left alone: it is live and will broadcast to it.
+     */
+    private void scheduleExpiry(long runId, SseEmitter emitter, CopyOnWriteArrayList<SseEmitter> emitters) {
+        graceScheduler.schedule(() -> {
+            synchronized (completionLock) {
+                if (activeRuns.containsKey(runId) || !emitters.contains(emitter)) {
+                    return;
+                }
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("run-expired")
+                            .data(objectMapper.writeValueAsString(Map.of("jobRunId", runId))));
+                } catch (IOException e) {
+                    LOG.debug("run-expired not delivered for run {}: {}", runId, e.getMessage());
+                }
+                emitters.remove(emitter);
+                emitter.complete();
+            }
+        }, unknownRunGraceMs, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -175,6 +283,7 @@ public class RunProgressTracker {
     public void cleanupStaleEntries() {
         Instant cutoff = Instant.now().minusMillis(STALE_TTL_MS);
         activeRuns.entrySet().removeIf(entry -> entry.getValue().getStartedAt().isBefore(cutoff));
+        completions.keySet().removeIf(id -> !activeRuns.containsKey(id));
         runEmitters.entrySet().removeIf(entry -> !activeRuns.containsKey(entry.getKey()));
     }
 
@@ -205,9 +314,7 @@ public class RunProgressTracker {
         }
     }
 
-    private void broadcastRunComplete(long jobRunId, RunProgress progress) {
-        Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
-
+    private void broadcastRunComplete(long jobRunId, Map<String, Object> completeEvent) {
         // Send to run-specific emitters
         CopyOnWriteArrayList<SseEmitter> emitters = runEmitters.get(jobRunId);
         if (emitters != null) {

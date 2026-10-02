@@ -10,7 +10,7 @@ const TOKEN_KEY = 'goldenhour_token';
  * @param {Object} eventHandlers - { 'event-name': (parsedData) => void }
  * @param {Object} [options]
  * @param {Function} [options.onError] - Called on every connection error, whatever the readyState
- * @param {string} [options.closeOn] - Event name that triggers source.close() after handler fires
+ * @param {string|string[]} [options.closeOn] - Event name (or names) that trigger source.close() after the handler fires
  * @param {Function} [options.getToken] - Custom token getter (default: localStorage)
  * @param {boolean} [options.reconnectOnVisible] - Reconnect immediately when the tab becomes
  *   visible/focused if the connection has died. Background tabs have their timers throttled, so
@@ -42,14 +42,16 @@ export default function createEventSource(path, params = {}, eventHandlers = {},
     const url = `${BASE_URL}${path}?${qp.toString()}`;
     source = new EventSource(url);
 
+    const closeOn = [].concat(options.closeOn ?? []);
     for (const [eventName, handler] of Object.entries(eventHandlers)) {
+      if (typeof handler !== 'function') continue;
       source.addEventListener(eventName, (event) => {
         try {
           handler(JSON.parse(event.data));
         } catch {
           // ignore parse errors
         }
-        if (options.closeOn === eventName) {
+        if (closeOn.includes(eventName)) {
           closed = true;
           source.close();
         }

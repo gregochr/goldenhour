@@ -10,10 +10,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.mockito.ArgumentCaptor;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 /**
  * Unit tests for {@link RunProgressTracker}.
@@ -266,5 +275,166 @@ class RunProgressTrackerTest {
 
         assertThat(tracker.getProgress(1L).getCompleted()).isEqualTo(1);
         assertThat(tracker.getProgress(2L).getCompleted()).isZero();
+    }
+
+    // -------------------------------------------------------------------------
+    // Late and unknown subscribers
+    // -------------------------------------------------------------------------
+
+    /** An emitter that records every event sent to it as the text it would put on the wire. */
+    private static final class RecordingEmitter extends SseEmitter {
+        private final List<String> events = new ArrayList<>();
+        private boolean completed;
+
+        RecordingEmitter() {
+            super(0L);
+        }
+
+        @Override
+        public synchronized void send(SseEventBuilder builder) throws IOException {
+            StringBuilder text = new StringBuilder();
+            builder.build().forEach(part -> text.append(part.getData()));
+            events.add(text.toString());
+            super.send(builder);
+        }
+
+        @Override
+        public synchronized void complete() {
+            completed = true;
+            super.complete();
+        }
+
+        /** The sent events, each as {@code name|payload}. */
+        List<String> sent() {
+            return events.stream()
+                    .map(e -> e.replace("event:", "").replace("\ndata:", "|").replace("\n\n", ""))
+                    .toList();
+        }
+    }
+
+    private final List<RecordingEmitter> emitters = new ArrayList<>();
+    private ScheduledExecutorService graceScheduler;
+
+    /** A tracker whose emitters are recordable and whose unknown-run grace is the captured task. */
+    private RunProgressTracker recordingTracker() {
+        graceScheduler = mock(ScheduledExecutorService.class);
+        return new RunProgressTracker(dynamicSchedulerService, graceScheduler, 5_000L) {
+            @Override
+            SseEmitter newEmitter() {
+                RecordingEmitter emitter = new RecordingEmitter();
+                emitters.add(emitter);
+                return emitter;
+            }
+        };
+    }
+
+    private static final String SUNRISE_KEY = "Loc1|2026-03-15|SUNRISE";
+    private static final String SUNSET_KEY = "Loc1|2026-03-15|SUNSET";
+
+    private void startRunWithOneFailure(RunProgressTracker t) {
+        t.initRun(7L, tasks(
+                new String[]{SUNRISE_KEY, "Loc1", "2026-03-15", "SUNRISE"},
+                new String[]{SUNSET_KEY, "Loc1", "2026-03-15", "SUNSET"}));
+        t.onTaskEvent(new LocationTaskEvent(this, 7L, SUNRISE_KEY, "Loc1", "2026-03-15", "SUNRISE",
+                LocationTaskState.COMPLETE, null, null));
+        t.onTaskEvent(new LocationTaskEvent(this, 7L, SUNSET_KEY, "Loc1", "2026-03-15", "SUNSET",
+                LocationTaskState.FAILED, "weather down", "FETCHING_WEATHER"));
+    }
+
+    private static String eventNamed(RecordingEmitter emitter, String name) {
+        List<String> found = emitter.sent().stream().filter(e -> e.startsWith(name + "|")).toList();
+        assertThat(found).as("events named %s in %s", name, emitter.sent()).hasSize(1);
+        return found.get(0);
+    }
+
+    @Test
+    @DisplayName("a subscriber arriving after completion is replayed the snapshots, then the identical "
+            + "run-complete, and the stream ends")
+    void subscribe_afterCompletion_replaysSnapshotsThenIdenticalRunComplete() throws Exception {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+        t.completeRun(7L);
+        String liveComplete = eventNamed(live, "run-complete");
+        Thread.sleep(25); // an elapsed time recomputed at replay would now differ from the live one
+
+        RecordingEmitter late = (RecordingEmitter) t.subscribe(7L);
+
+        List<String> names = late.sent().stream().map(e -> e.substring(0, e.indexOf('|'))).toList();
+        assertThat(names).containsExactly("task-update", "task-update", "run-summary", "run-complete");
+        assertThat(eventNamed(late, "run-complete")).isEqualTo(liveComplete);
+        assertThat(liveComplete).contains("\"failed\":1").contains("\"completed\":1")
+                .contains("\"status\":\"PARTIAL\"").contains("\"jobRunId\":7")
+                .contains(SUNSET_KEY).contains("weather down");
+        assertThat(late.completed).isTrue();
+    }
+
+    @Test
+    @DisplayName("a live subscriber still gets run-complete once, and the stream ends")
+    void subscribe_beforeCompletion_getsRunCompleteOnce() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+        assertThat(live.sent()).extracting(e -> e.substring(0, e.indexOf('|')))
+                .containsExactly("task-update", "task-update", "run-summary");
+        assertThat(live.completed).isFalse();
+
+        t.completeRun(7L);
+
+        assertThat(live.sent()).extracting(e -> e.substring(0, e.indexOf('|')))
+                .containsExactly("task-update", "task-update", "run-summary", "run-complete");
+        assertThat(live.completed).isTrue();
+    }
+
+    @Test
+    @DisplayName("an unknown run id gets one run-expired event after the grace period, and the stream ends")
+    void subscribe_unknownRun_getsRunExpiredAfterGrace() {
+        RunProgressTracker t = recordingTracker();
+
+        RecordingEmitter emitter = (RecordingEmitter) t.subscribe(404L);
+
+        assertThat(emitter.sent()).isEmpty();
+        assertThat(emitter.completed).isFalse();
+        ArgumentCaptor<Runnable> expiry = ArgumentCaptor.forClass(Runnable.class);
+        verify(graceScheduler).schedule(expiry.capture(), org.mockito.ArgumentMatchers.eq(5_000L),
+                org.mockito.ArgumentMatchers.eq(TimeUnit.MILLISECONDS));
+        expiry.getValue().run();
+        assertThat(emitter.sent()).containsExactly("run-expired|{\"jobRunId\":404}");
+        assertThat(emitter.completed).isTrue();
+    }
+
+    @Test
+    @DisplayName("a run that is registered within the grace period is NOT declared expired")
+    void subscribe_runRegisteredDuringGrace_isNotExpired() {
+        RunProgressTracker t = recordingTracker();
+        RecordingEmitter emitter = (RecordingEmitter) t.subscribe(7L);
+        ArgumentCaptor<Runnable> expiry = ArgumentCaptor.forClass(Runnable.class);
+        verify(graceScheduler).schedule(expiry.capture(), anyLong(), org.mockito.ArgumentMatchers.any());
+
+        startRunWithOneFailure(t); // the executor thread registered the run after the client subscribed
+        expiry.getValue().run();
+
+        assertThat(emitter.sent()).extracting(e -> e.substring(0, e.indexOf('|')))
+                .doesNotContain("run-expired");
+        assertThat(emitter.completed).isFalse();
+        t.completeRun(7L);
+        assertThat(emitter.sent()).extracting(e -> e.substring(0, e.indexOf('|'))).contains("run-complete");
+    }
+
+    @Test
+    @DisplayName("an evicted run's retained completion goes with it, so a later subscriber is told it expired")
+    void cleanupStaleEntries_dropsRetainedCompletion() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        t.completeRun(7L);
+        org.springframework.test.util.ReflectionTestUtils.setField(t.getProgress(7L), "startedAt",
+                java.time.Instant.now().minusSeconds(31 * 60));
+
+        t.cleanupStaleEntries();
+        RecordingEmitter late = (RecordingEmitter) t.subscribe(7L);
+
+        assertThat(late.sent()).isEmpty(); // no replay: the completion was evicted with the run
+        verify(graceScheduler).schedule(org.mockito.ArgumentMatchers.any(Runnable.class), anyLong(),
+                org.mockito.ArgumentMatchers.any());
     }
 }
