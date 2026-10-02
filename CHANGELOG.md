@@ -5,6 +5,209 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.9] - 2026-10-02
+
+### Fixed — wildlife hides have an hourly comfort forecast again
+
+The hourly comfort table (temperature, feels-like, wind and rain between sunrise and sunset) for
+wildlife hides had no data source since 2026-02-27, when its scheduled trigger was commented out
+by accident in an unrelated commit and never replaced: production held no `HOURLY` rows at all, so
+every hide read "No hourly forecast available". A new job, `WildlifeComfortRefreshJob`
+(`wildlife_comfort_refresh`, seeded by V161), runs at 05:30 and 17:30 UTC for every enabled
+location whose only type is WILDLIFE, for today and the next five days. It makes one batched
+Open-Meteo forecast request for all hides, no air-quality request and no Claude call, and reads
+only the six comfort fields, so a missing cloud or visibility hour no longer costs a hide its
+table; an hour with no temperature is skipped on its own.
+
+Each run replaces the previous `HOURLY` rows for the place and date inside one transaction, so
+storage stays flat rather than growing about 230 rows a run. A failed fetch, a hide missing from
+the response or an empty extraction leaves the previous rows in place. This makes `HOURLY` rows the
+one exception to `forecast_evaluation` being insert-only; the delete is scoped to `HOURLY` in the
+query itself and cannot reach a scored sunrise or sunset row. Waterfalls are not included — the
+backend has never written waterfall hourly rows, and CLAUDE.md's claim that it did is corrected.
+
+The table is served by `GET /api/forecast` as before; drawing it on the Map tab is a separate
+change, so until that lands it appears only in the Plan-tab overlay popup. The old `RunType.WEATHER`
+engine is left in place, untriggered, for a follow-up to remove. The unbound
+`forecast.schedule.wildlife` keys are removed from `application-prod.yml` and `application-dev.yml`.
+
+### Added — a wildlife hide's hourly comfort forecast on the Map tab and in the location sheet
+
+A wildlife hide is never scored for sky colour, yet its Map tab card said "Not scored yet", and its
+hourly comfort forecast showed only on the Plan tab's map overlay. On the Map tab (desktop, tablet
+and phone) a hide's card now says "Comfort only" and "Wildlife hide: never scored for sky colour",
+with a short summary of the selected day: the temperature and feels-like range, the strongest wind
+and the highest rain chance with the hour each occurs, and the daylight hours covered. For today it
+covers only the hours still to come, and says so. On an astro or aurora night the card is as it was,
+with a line pointing at the daylight forecast. When no sunrise or sunset forecast exists at all (a forecast of hides alone), a selected hide still gets its card, for today while it has hours left and otherwise the next day with a forecast, and the map says so plainly instead of "No forecast to show.". The summary opens the location sheet (`Hour by hour
+›`), which for a hide now shows an hour-by-hour table for every day in place of its six empty
+windows. That sheet is the same one Plan search reaches, so the table appears there too. The rows
+are visible to every role.
+
+Also: a wind speed with no direction no longer prints "undefined" in the map popup, and a missing
+"feels like" is no longer shown as the air temperature.
+
+### Added — slot_atmosphere keeps 180 days and is pruned nightly
+
+The per-slot atmospheric readings table (`slot_atmosphere`: dust, AOD, PM2.5, surge, snow depth,
+freezing level, humidity, temperature and the inversion score) was never pruned, and since the
+"record conditions for every place" change it has taken a row for every candidate slot, roughly 500
+a day. A new job, `SlotAtmosphereCleanupJob` (`slot_atmosphere_cleanup`, seeded by V162, daily at
+03:45 UTC), deletes every row whose own slot date is more than `photocast.slot-atmosphere.retention-days`
+(default 180, documented in `application-example.yml`) before today's UK date. A row exactly 180 days
+old is kept. The longest reader looks back 60 days (the Coming up valley-inversions history), so no
+reader loses anything; the application refuses to start if the retention is set below that window,
+so shortening it can never silently delete history a reader depends on. No other table is pruned and
+the writer is unchanged.
+
+### Fix — a run that finishes with failures keeps its progress panel, so "Retry failed" can be pressed
+
+On Operations, Data, Job Runs, the run-progress panel was removed in the very tick its run completed,
+so the "Retry failed" button (shown only for a finished run with failures) was never on screen and
+the retry feature was unreachable from the UI. The panel now decides from the completion payload's own
+`failed` count: a run with none clears exactly as before; a run with failures stays, with its failed
+places, the Retry button and a "Dismiss" button, and the runs list still reloads. Starting another run
+replaces the kept panel, and none of the run buttons is blocked by it. A retry the server accepts
+becomes the active run: the panel follows it by id, it survives a tab switch like any run, and if it
+ends with failures it is kept with its own Retry and Dismiss. Dismissing puts focus on the "Forecast
+Runs" heading.
+
+Leaving the Job Runs tab and coming back no longer strands the panel: `RunProgressTracker.subscribe()`
+now replays the same `run-complete` event (kept until the run is evicted after 30 minutes) to a
+subscriber that arrives after the run finished, so a remounted panel completes exactly as a live one
+does (a clean run that finished while you were away clears itself; one with failures is kept). A
+subscriber to a run the tracker does not hold (evicted, or lost to a restart) is sent a terminal
+`run-expired` event after a 5-second grace period (long enough for a run that is only about to be
+registered) and sees "This run's progress is no longer available." with Dismiss. The panel's stream
+no longer re-opens on every parent render.
+
+### Fix — "Retry failed" now says why it did nothing
+
+On the admin run-progress panel, pressing "Retry failed" did nothing visible when the backend refused
+it (since #977 it answers 404 with an empty body when none of a run's failed places can be run again,
+for example because they are no longer sky locations). The panel now shows one plain line under the
+buttons: "Nothing to retry: this run's failed places can no longer be run again." for that 404, the
+server's own sentence for any other refusal that carries one, otherwise "Could not start the retry.".
+The line is announced once (`role="alert"`) and clears when the button is pressed again or a retry
+starts. The request now goes through the shared axios client, so an expired token is refreshed on the
+way (a kept panel can sit open for a long time) and a refusal is read the same way every other
+admin action's is. While a retry is out the Retry and Dismiss buttons are `aria-disabled` rather than
+`disabled`, so focus is not dropped, and a visually hidden "Starting retry…" status is announced; an
+accepted retry whose answer names no run says "Retry started." and offers no second press.
+
+### Documentation — which places `slot_atmosphere` records, and why some never are
+
+"Record conditions for every place" overclaimed. It means every candidate slot whose weather the
+pipeline fetches through `ForecastService.fetchWeatherAndTriage`, not every row in `locations`.
+WILDLIFE-only places, BLUEBELL-only places out of season, unregioned locations and disabled
+locations are never candidates and so never recorded. The owner decided on 2026-10-02 that this
+is deliberate: production has three WILDLIFE-only places, all in regions with many sky locations
+and none with an elevation, and every topic that reads these rows is shown per region, so their
+readings would change nothing a reader sees. The hand-started `POST /api/forecast/run` and
+`ForceSubmitBatchService.forceSubmit` apply no location-type filter, so a place named there is
+recorded whatever its type; that is recorded as known behaviour, not changed.
+
+CLAUDE.md, `SlotAtmosphereWriter`'s class javadoc and `BriefingService.isColourLocation`'s javadoc
+now say so. Documentation only, no code change.
+
+### Fixed — a day with only a wildlife hide's hourly forecast no longer adds an empty window to the Map tab
+
+Since the hourly comfort job was restored, wildlife hides carry forecast rows one day further than
+the sunrise and sunset forecasts do. The Map tab treated every day with any forecast row as a day
+to draw a Sunrise and Sunset window for, so the window control gained an empty pair for a day
+nothing rates. A day now gets windows only when a sunrise or sunset forecast stands behind it. The
+Map tab itself is still offered whenever any forecast exists, so a forecast made up of hides alone
+keeps its map.
+
+### Changed — the nightly topic log records inversions from the calculator, not Claude's echo
+
+`TopicDailyLogJob` used to log inversions from `forecast_score`, which only holds slots that reached
+Claude, so it could never become the unbiased history the Coming up tab's rarity figure needs. Since
+V158 `slot_atmosphere` carries the inversion calculator's own 0–10 score for every inversion-eligible
+place the pipeline fetched weather for, triaged or not, so the job now reads that: SUNRISE slots whose
+reading was written with `inversion_scored` true and a non-null score, present at 9 or above, intensity
+the region's highest score. Claude's echo is never consulted. A night with no readings logs nothing
+(unmeasured, not "no inversion"), as SNOW already did.
+
+The new series is written under the topic type `INVERSION_CALC`. The rows the job wrote before
+(`INVERSION`) came from the survivor-biased population, stay in the table untouched and are no longer
+written; the table has no source column and a migration was not needed, because the topic type is part
+of the unique key and keeps the two populations apart by name. A later rarity computation must read
+`INVERSION_CALC` alone. Nothing reads the table yet, and the inversion rarity on the Coming up tab stays
+on its config fallback by decision until enough of the new log has accumulated; no user-visible change.
+
+### Fixed — the Map tab's heat field stays visible at street-level zoom
+
+Zoomed in to about zoom 12 in Heat mode, the shading looked gone even where every chip read 3-4 stars.
+Two settings stacked: the field faded to a 12% floor across the handover band, and the kernel
+radius cap (190 px) shrank it into blobs around each chip instead of covering the countryside the
+7.2 km radius means. The floor is now 35% and the cap 400 px; the band itself is unchanged.
+
+### Fixed — hand-started runs no longer send hides, woods and bluebell woods to the sky prompt
+
+Two admin routes evaluated places that are not sky subjects with Claude's SKY prompt, spending
+real money and writing a meaningless rating that `GET /api/forecast` then served.
+`POST /api/forecast/run` (and `retry-failed`) always hands the engine an explicit location list,
+and the engine's `hasColourTypes` filter only ran on a defaulted one; `ForceSubmitBatchService
+.forceSubmit` filtered by region alone. Both now keep only places `LocationEntity.hasColourTypes()`
+admits, in one place per engine, before any fetch — the same rule the three term endpoints and the
+JFDI batch already applied. Neither route has a woodland or bluebell lane, so nothing that worked
+is lost.
+
+What the caller sees: a "run for all locations" offers only the sky places (so `maxLocations`
+counts sky places, not the whole roster) and the executor drops any other, logging how many;
+naming one non-sky place on `POST /api/forecast/run` answers 400 (`'<name>' is not a sky location:
+it has no sunrise or sunset forecast`), and so does "all locations" when no sky location is
+enabled (`No enabled sky locations: there is nothing to run`), neither starting a run or `job_run`
+row; `retry-failed` answers 404 when none of its failed places is a sky subject any more;
+`forceSubmit` on a region with no enabled sky location (empty, or only hides and woods) answers
+`No enabled sky locations found in region: <name>`. A hide named on these routes no longer gets a `slot_atmosphere`
+reading there, which closes the "known wrinkle" recorded in CLAUDE.md on 2026-10-02.
+
+### Changed — Checkstyle now fails a public type, method or constructor with no Javadoc
+
+`checkstyle.xml` said "Javadoc on all public classes and methods", but `JavadocMethod` and
+`JavadocType` only validate a Javadoc that exists, so nothing reported a missing one — which is how
+`BriefingSlot.withEvaluationGate` went two weeks undocumented. `MissingJavadocType` and
+`MissingJavadocMethod` (scope public; constructors and compact constructors included; bean
+getters/setters and `@Override` methods exempt) now enforce it in `src/main`. Test sources are
+exempt from those two checks only, through a new `backend/checkstyle-suppressions.xml` located by
+the pom's `suppressionsLocation` (and copied by `backend/Dockerfile`, whose build runs Checkstyle).
+The 18 existing gaps in 14 files are documented, and `GlobalExceptionHandler.handleUnexpected`'s
+Javadoc, which had drifted above the wrong method, now sits on it.
+
+### Fixed — withEvaluationGate's javadoc is back on its own method
+
+The javadoc for `BriefingSlot.withEvaluationGate` had been left stacked above `couldCarryRating()`'s
+own javadoc, so the javadoc tool silently discarded it and the wither was undocumented. A fix was
+written on 2026-09-17 but never left a local branch and no longer applied once the surrounding code
+moved. This moves the block, text unchanged, onto the method it describes; a comment move only, no
+code change.
+
+### Docs — `withEvaluationGate`'s javadoc says what is true today
+
+#971 put the method's javadoc back on it, in its 2026-09-17 wording. That wording predates the tide
+gate lift: it reads as though slots are still withheld. The block now says that `BriefingSlotBuilder`
+is the one production caller and never fires, since `HARD_CONSTRAINT_REASONS` has been empty since
+2026-09-18, that the method stays for the next hard physical constraint, that tests use it to
+fabricate a gated slot, and that `eclipse` is carried through by the canonical constructor. No
+behaviour change.
+
+### Fixed — a refused request shows the server's sentence, not "Request failed with status code 400"
+
+The backend answers every refusal with a JSON body whose key is `error`, but a dozen admin and map
+surfaces read `message` (or only axios's generic `err.message`), so the sentence the server wrote
+never reached the reader. The overlay popup's Run Forecast was the one that surfaced it: a 400 from
+`POST /api/forecast/run` for a wildlife hide ("'…' is not a sky location: it has no sunrise or
+sunset forecast") read as a bare "Request failed with status code 400". One helper,
+`apiErrorMessage(err, fallback)` in `utils/apiError.js`, now names the key in a single place: the
+server's `error` string, then `message`, then the caller's fallback. It tolerates a missing
+response and a non-object body (a proxy's HTML page is never shown). Moved onto it: the popup's Run
+Forecast, the forecast-data load, the outcome form, the drive-time refresh's 429 line, the
+optimisation-strategy toggle, the model, prompt, briefing-model and sky-rating test views, and the
+job-run, pipeline-run and API-call loads. Sites that already read `error` (login, registration,
+user, region and location management) and the status-keyed run-button lines are unchanged.
+
 ## [v2.22.8] - 2026-10-01
 
 ### Changed — release.sh ends with the post-deploy health check's own verdict
