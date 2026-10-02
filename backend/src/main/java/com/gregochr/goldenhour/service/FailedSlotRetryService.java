@@ -49,6 +49,15 @@ import java.util.stream.Collectors;
  *   <li><b>Never a slot dated before today.</b> The executor's already-past gate guards only today's slots,
  *       so a slot dated before today's UK civil date ({@link ForecastHorizon}) is left out here and listed
  *       in {@code skipped}; when every slot is past there is nothing to retry.</li>
+ *   <li><b>Only a finished run, and only once.</b> A run that is still going is refused (its failures
+ *       are not final, and the original run could still finish the very slots a retry would re-run),
+ *       and so is a run a retry has already been started from, with the retry's id in the sentence: a
+ *       run is retried at most once and further retries chain from the retry run. The "already
+ *       retried" fact is held on the run's {@link RunProgress} entry and recorded under
+ *       {@link RunProgress#retryLock()} together with the decision to start, so two concurrent
+ *       requests (a double press, two admins) cannot both start one. It lives and dies with the
+ *       tracker's entry: it does not survive a restart, and is forgotten when the entry is evicted
+ *       (after which the run answers 404 anyway).</li>
  *   <li><b>Never a rejected key, never a light-pollution run.</b> {@link RunProgress#getRetryBlock()}
  *       is the one answer the {@code run-complete} payload also carries, so the panel never offers a
  *       retry the server would refuse.</li>
@@ -74,6 +83,10 @@ public class FailedSlotRetryService {
     /** Why a run whose failed tasks are not forecast slots is not retried. */
     public static final String REFUSED_NOT_FORECAST_SLOTS =
             "This run's failed tasks are not forecast slots, so there is nothing to retry here.";
+
+    /** Why a run that has not finished is not retried. */
+    public static final String REFUSED_STILL_RUNNING =
+            "This run is still going. Retry is offered when it has finished.";
 
     /** Why a run of a type that does not evaluate forecast slots is not retried. */
     public static final String REFUSED_RUN_TYPE = "This kind of run cannot be retried here.";
@@ -175,9 +188,36 @@ public class FailedSlotRetryService {
      */
     public Outcome retry(long runId) {
         RunProgress progress = progressTracker.getProgress(runId);
-        if (progress == null || progress.getFailedTasks().isEmpty()) {
+        if (progress == null) {
             return new NothingToRetry();
         }
+        if (!progressTracker.isComplete(runId)) {
+            LOG.info("Retry of run {} refused: the run has not finished", runId);
+            return new Refused(REFUSED_STILL_RUNNING);
+        }
+        if (progress.getFailedTasks().isEmpty()) {
+            return new NothingToRetry();
+        }
+        // The check, the start and the record are one step: a second request waits here and then sees
+        // the first one's retry. Only a retry that STARTED is recorded, so a request that came to
+        // nothing (every slot past, a refusal, an error) leaves the run retryable.
+        synchronized (progress.retryLock()) {
+            Long alreadyRetriedAs = progress.getRetriedAs();
+            if (alreadyRetriedAs != null) {
+                LOG.info("Retry of run {} refused: already retried as run {}", runId, alreadyRetriedAs);
+                return new Refused("This run has already been retried as run " + alreadyRetriedAs
+                        + ". Retry that run's failures instead.");
+            }
+            Outcome outcome = startRetry(runId, progress);
+            if (outcome instanceof Started started) {
+                progress.recordRetry(started.jobRunId());
+            }
+            return outcome;
+        }
+    }
+
+    /** Works out the failed slots of a finished, not-yet-retried run and starts the retry (under the retry lock). */
+    private Outcome startRetry(long runId, RunProgress progress) {
         RunProgress.RetryBlock block = progress.getRetryBlock();
         if (block != null) {
             LOG.info("Retry of run {} refused: {}", runId, block);

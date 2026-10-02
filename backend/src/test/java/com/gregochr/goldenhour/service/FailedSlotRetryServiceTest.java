@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -26,12 +27,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -97,6 +104,12 @@ class FailedSlotRetryServiceTest {
 
     /** Registers a run's tasks as PENDING, then settles each one to the given state. */
     private void playRun(long runId, List<String[]> taskDescriptors, List<LocationTaskState> states) {
+        playRunUnfinished(runId, taskDescriptors, states);
+        tracker.completeRun(runId); // a retry is offered only for a run that has finished
+    }
+
+    /** As {@link #playRun}, but the run is left going: it has not completed. */
+    private void playRunUnfinished(long runId, List<String[]> taskDescriptors, List<LocationTaskState> states) {
         tracker.initRun(runId, taskDescriptors);
         for (int i = 0; i < taskDescriptors.size(); i++) {
             String[] t = taskDescriptors.get(i);
@@ -526,5 +539,175 @@ class FailedSlotRetryServiceTest {
         service.retry(404L);
 
         verify(jobRunService, never()).findRun(anyLong());
+    }
+
+    // ------------------------------------------------- only a finished run, and only once
+
+    @Test
+    @DisplayName("a run that is still going is refused with the literal sentence and nothing is started")
+    void retry_runStillGoing_refusedAndNothingStarted() {
+        playRunUnfinished(ORIGINAL_RUN,
+                List.of(task("Durham", "2026-10-03", "SUNSET"), task("Bamburgh", "2026-10-04", "SUNRISE")),
+                List.of(LocationTaskState.FAILED, LocationTaskState.EVALUATING));
+
+        FailedSlotRetryService.Outcome outcome = service.retry(ORIGINAL_RUN);
+
+        assertThat(outcome).isEqualTo(new FailedSlotRetryService.Refused(
+                "This run is still going. Retry is offered when it has finished."));
+        verifyNothingStarted();
+        verify(jobRunService, never()).findRun(anyLong());
+    }
+
+    @Test
+    @DisplayName("a second retry of the same run is refused with a sentence naming the first retry's run, "
+            + "and starts nothing")
+    void retry_twice_secondRefusedNamingTheFirstRetry() {
+        playEightSlotRunWithTwoFailed();
+        stubOriginalRunType(RunType.SHORT_TERM);
+        stubRoster(sky(1L, "Durham"), sky(2L, "Bamburgh"));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+        stubStart(RunType.SHORT_TERM);
+
+        FailedSlotRetryService.Outcome first = service.retry(ORIGINAL_RUN);
+        FailedSlotRetryService.Outcome second = service.retry(ORIGINAL_RUN);
+
+        assertThat(first).isEqualTo(new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 2, List.of()));
+        assertThat(second).isEqualTo(new FailedSlotRetryService.Refused(
+                "This run has already been retried as run 8. Retry that run's failures instead."));
+        verify(jobRunService, times(1)).startRun(RunType.SHORT_TERM, true, null, null);
+        executedCommand(); // verifies exactly one execution, of the new run
+    }
+
+    @Test
+    @DisplayName("two concurrent retry requests for one run start exactly ONE run; the other is refused "
+            + "naming it")
+    void retry_twoConcurrentRequests_startExactlyOneRun() throws Exception {
+        playEightSlotRunWithTwoFailed();
+        stubOriginalRunType(RunType.SHORT_TERM);
+        stubRoster(sky(1L, "Durham"), sky(2L, "Bamburgh"));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+        CountDownLatch insideFirstStart = new CountDownLatch(1);
+        CountDownLatch releaseStart = new CountDownLatch(1);
+        when(jobRunService.startRun(RunType.SHORT_TERM, true, null, null)).thenAnswer(invocation -> {
+            insideFirstStart.countDown();
+            releaseStart.await();
+            return jobRunRow(NEW_RUN, RunType.SHORT_TERM);
+        });
+        AtomicReference<FailedSlotRetryService.Outcome> fromFirst = new AtomicReference<>();
+        AtomicReference<FailedSlotRetryService.Outcome> fromSecond = new AtomicReference<>();
+        Thread first = new Thread(() -> fromFirst.set(service.retry(ORIGINAL_RUN)));
+        Thread second = new Thread(() -> fromSecond.set(service.retry(ORIGINAL_RUN)));
+
+        first.start();
+        assertThat(insideFirstStart.await(10, TimeUnit.SECONDS)).isTrue();
+        second.start();
+        // The second request is now racing the first, which is held inside the start of its run. Wait
+        // until the second has either finished or is parked (on the retry lock, or inside a second start).
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (second.getState() == Thread.State.NEW || second.getState() == Thread.State.RUNNABLE) {
+            assertThat(System.nanoTime()).isLessThan(deadline);
+            second.join(5);
+        }
+        releaseStart.countDown();
+        first.join(10_000);
+        second.join(10_000);
+
+        verify(jobRunService, times(1)).startRun(RunType.SHORT_TERM, true, null, null);
+        executedCommand(); // verifies exactly one execution, of the new run
+        assertThat(List.of(fromFirst.get(), fromSecond.get())).containsExactlyInAnyOrder(
+                new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 2, List.of()),
+                new FailedSlotRetryService.Refused(
+                        "This run has already been retried as run 8. Retry that run's failures instead."));
+    }
+
+    @Test
+    @DisplayName("a retry that came to nothing is not recorded: the run can still be retried afterwards")
+    void retry_thatStartedNothing_leavesTheRunRetryable() {
+        playEightSlotRunWithTwoFailed();
+        stubOriginalRunType(RunType.SHORT_TERM);
+        LocationEntity durham = sky(1L, "Durham");
+        LocationEntity bamburgh = sky(2L, "Bamburgh");
+        when(locationService.findAllEnabled()).thenReturn(List.of(), List.of(durham, bamburgh));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+        stubStart(RunType.SHORT_TERM);
+
+        FailedSlotRetryService.Outcome nothing = service.retry(ORIGINAL_RUN);
+        FailedSlotRetryService.Outcome later = service.retry(ORIGINAL_RUN);
+
+        assertThat(nothing).isEqualTo(new FailedSlotRetryService.NothingToRetry());
+        assertThat(later).isEqualTo(new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 2, List.of()));
+    }
+
+    @Test
+    @DisplayName("a retry of a retry still works after the original has been retried: it chains from the "
+            + "retry run")
+    void retry_chain_originalThenRetryRun_bothStart() {
+        playEightSlotRunWithTwoFailed();
+        stubOriginalRunType(RunType.SHORT_TERM);
+        stubRoster(sky(1L, "Durham"), sky(2L, "Bamburgh"));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+        when(jobRunService.startRun(RunType.SHORT_TERM, true, null, null))
+                .thenReturn(jobRunRow(NEW_RUN, RunType.SHORT_TERM), jobRunRow(9L, RunType.SHORT_TERM));
+        assertThat(service.retry(ORIGINAL_RUN))
+                .isEqualTo(new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 2, List.of()));
+        // The retry run (8) held the two retried slots, and one of them failed again.
+        playRun(NEW_RUN,
+                List.of(task("Durham", "2026-10-03", "SUNSET"), task("Bamburgh", "2026-10-04", "SUNRISE")),
+                List.of(LocationTaskState.COMPLETE, LocationTaskState.FAILED));
+        when(jobRunService.findRun(NEW_RUN)).thenReturn(Optional.of(jobRunRow(NEW_RUN, RunType.SHORT_TERM)));
+
+        FailedSlotRetryService.Outcome chained = service.retry(NEW_RUN);
+
+        assertThat(chained).isEqualTo(new FailedSlotRetryService.Started(9L, RunType.SHORT_TERM, 1, List.of()));
+    }
+
+    // ------------------------------------------------- the retry window follows COMPLETION
+
+    private MutableTestClock useClockedTracker() {
+        MutableTestClock trackerClock = new MutableTestClock(Instant.parse("2026-10-02T09:00:00Z"));
+        tracker = new RunProgressTracker(dynamicSchedulerService, mock(ScheduledExecutorService.class),
+                5_000L, trackerClock);
+        service = new FailedSlotRetryService(tracker, jobRunService, locationService, factory,
+                commandExecutor, Runnable::run, FIXED_CLOCK);
+        return trackerClock;
+    }
+
+    @Test
+    @DisplayName("a retry is still possible just before a completed run's eviction, 30 minutes after it "
+            + "finished, even though the run started far longer ago")
+    void retry_justBeforeEvictionOfACompletedRun_stillStarts() {
+        MutableTestClock trackerClock = useClockedTracker();
+        playRunUnfinished(ORIGINAL_RUN,
+                List.of(task("Durham", "2026-10-03", "SUNSET"), task("Bamburgh", "2026-10-04", "SUNRISE")),
+                List.of(LocationTaskState.FAILED, LocationTaskState.COMPLETE));
+        trackerClock.advance(Duration.ofMinutes(50)); // a long run
+        tracker.completeRun(ORIGINAL_RUN);
+        trackerClock.advance(Duration.ofMinutes(29).plusSeconds(59));
+        tracker.cleanupStaleEntries();
+        stubOriginalRunType(RunType.SHORT_TERM);
+        stubRoster(sky(1L, "Durham"), sky(2L, "Bamburgh"));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+        stubStart(RunType.SHORT_TERM);
+
+        FailedSlotRetryService.Outcome outcome = service.retry(ORIGINAL_RUN);
+
+        assertThat(outcome).isEqualTo(new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 1, List.of()));
+    }
+
+    @Test
+    @DisplayName("a retry just after a completed run's eviction answers nothing to retry (the 404)")
+    void retry_justAfterEvictionOfACompletedRun_nothingToRetry() {
+        MutableTestClock trackerClock = useClockedTracker();
+        playRunUnfinished(ORIGINAL_RUN,
+                List.of(task("Durham", "2026-10-03", "SUNSET"), task("Bamburgh", "2026-10-04", "SUNRISE")),
+                List.of(LocationTaskState.FAILED, LocationTaskState.COMPLETE));
+        tracker.completeRun(ORIGINAL_RUN);
+        trackerClock.advance(Duration.ofMinutes(30));
+        tracker.cleanupStaleEntries();
+
+        FailedSlotRetryService.Outcome outcome = service.retry(ORIGINAL_RUN);
+
+        assertThat(outcome).isEqualTo(new FailedSlotRetryService.NothingToRetry());
+        verifyNothingStarted();
     }
 }

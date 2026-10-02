@@ -32,6 +32,10 @@ public class RunProgress {
     private volatile String failureReason;
     private volatile boolean stopped;
     private final Object streamLock = new Object();
+    private final Object retryLock = new Object();
+    private volatile Instant lastActivityAt;
+    private volatile Instant completedAt;
+    private volatile Long retriedAs;
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -41,6 +45,7 @@ public class RunProgress {
     public RunProgress(long jobRunId) {
         this.jobRunId = jobRunId;
         this.startedAt = Instant.now();
+        this.lastActivityAt = this.startedAt;
     }
 
     /**
@@ -78,6 +83,74 @@ public class RunProgress {
      */
     public Object streamLock() {
         return streamLock;
+    }
+
+    /**
+     * The monitor that makes "retry this run's failures" a single decision: whoever holds it checks
+     * whether a retry has already been started from this run, starts one, and records it with
+     * {@link #recordRetry} before releasing it, so two requests cannot both start one. One per run.
+     *
+     * @return the run's retry lock
+     */
+    public Object retryLock() {
+        return retryLock;
+    }
+
+    /**
+     * Records the run that retried this one. Call it only while holding {@link #retryLock()}.
+     * Held in memory with this progress entry, so it is forgotten when the entry is evicted and does
+     * not survive a restart.
+     *
+     * @param retryJobRunId the job run id of the retry that was started
+     */
+    public void recordRetry(long retryJobRunId) {
+        this.retriedAs = retryJobRunId;
+    }
+
+    /**
+     * The job run that retried this run, if a retry has been started from it.
+     *
+     * @return the retry's job run id, or {@code null} when none has been started
+     */
+    public Long getRetriedAs() {
+        return retriedAs;
+    }
+
+    /**
+     * Notes that something happened to this run (a task changed, the phase moved), so it is not idle.
+     * Fed by the tracker's clock rather than the system's, so eviction can be tested without sleeping.
+     *
+     * @param at when the activity happened
+     */
+    public void touch(Instant at) {
+        this.lastActivityAt = at;
+    }
+
+    /**
+     * Returns when this run last did something: registered, changed a task or moved phase.
+     *
+     * @return the instant of the latest activity
+     */
+    public Instant getLastActivityAt() {
+        return lastActivityAt;
+    }
+
+    /**
+     * Records when the run completed, which starts the clock on how long its entry is retained.
+     *
+     * @param at the completion instant
+     */
+    public void markCompleted(Instant at) {
+        this.completedAt = at;
+    }
+
+    /**
+     * Returns when the run completed.
+     *
+     * @return the completion instant, or {@code null} while the run has not completed
+     */
+    public Instant getCompletedAt() {
+        return completedAt;
     }
 
     /**

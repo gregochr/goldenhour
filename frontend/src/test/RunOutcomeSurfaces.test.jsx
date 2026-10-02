@@ -6,7 +6,7 @@ import RunCompleteBanner from '../components/RunCompleteBanner.jsx';
 import { runForecast } from '../api/forecastApi.js';
 import createEventSource from '../utils/createEventSource.js';
 import {
-  needsAttention, failedOutright, stoppedEarly, failureMessage, RUN_FAILED_FALLBACK,
+  needsAttention, failedOutright, stoppedEarly, completedWithFailures, failureMessage, RUN_FAILED_FALLBACK,
 } from '../utils/runOutcome.js';
 import {
   NO_FAILURES, ONE_FAILURE, task, completeEvent, KEY_REJECTED_NOTHING_TRIAGED, KEY_REJECTED_TRIAGED, KEY_REJECTED_AFTER_ONE, KEY_REJECTED_RUN,
@@ -275,13 +275,40 @@ describe('app-wide run-complete banner', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves the existing "completed … N failed" wording alone for a mix of completed and failed places', () => {
-    render(<RunCompleteBanner run={completeEvent(9, [task('a|b', 'A', 'COMPLETE'), task('c|d', 'C', 'FAILED')])}
+  it('is amber, says "completed with failures", keeps the counts and offers Refresh for a mix of completed and failed places', () => {
+    const onRefresh = vi.fn();
+    const run = completeEvent(9, [task('a|b', 'A', 'COMPLETE'), task('c|d', 'C', 'FAILED')]);
+    render(<RunCompleteBanner run={run} onRefresh={onRefresh} />);
+
+    const banner = screen.getByTestId('run-complete-banner');
+    expect(run.status).toBe('PARTIAL');
+    expect(run.reason).toBeNull();
+    expect(banner.textContent).toBe('Forecast run completed with failures — 1 location updated, 1 failed. Refresh');
+    expect(banner.className).toContain('bg-amber-900/40');
+    expect(banner.className).toContain('border-amber-700');
+    expect(banner.className).not.toContain('bg-green');
+    expect(banner.className).not.toContain('bg-red');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('pluralises the updated count in the completed-with-failures line', () => {
+    render(<RunCompleteBanner
+      run={completeEvent(9, [task('a|b', 'A', 'COMPLETE'), task('e|f', 'E', 'COMPLETE'), task('c|d', 'C', 'FAILED')])}
       onRefresh={vi.fn()}
     />);
 
-    expect(screen.getByTestId('run-complete-banner'))
-      .toHaveTextContent('Forecast run completed — 1 location updated, 1 failed.');
+    expect(screen.getByTestId('run-complete-banner').textContent)
+      .toBe('Forecast run completed with failures — 2 locations updated, 1 failed. Refresh');
+  });
+
+  it('a clean run is green with no failures wording', () => {
+    render(<RunCompleteBanner run={completeEvent(9, NO_FAILURES)} onRefresh={vi.fn()} />);
+
+    const banner = screen.getByTestId('run-complete-banner');
+    expect(banner.textContent).toBe('Forecast run completed — 2 locations updated. Refresh');
+    expect(banner.className).toContain('bg-green-900/40');
+    expect(banner.className).not.toContain('bg-amber');
   });
 });
 
@@ -312,6 +339,15 @@ describe('runOutcome', () => {
     expect(stoppedEarly({ reason: 'x', completed: 0 })).toBe(false);
     expect(stoppedEarly({ status: 'COMPLETE', reason: 'x' })).toBe(false);
     expect(stoppedEarly(undefined)).toBe(false);
+  });
+
+  it('completedWithFailures is a failed place on a run that neither failed outright nor stopped early', () => {
+    expect(completedWithFailures({ status: 'PARTIAL', completed: 1, failed: 1, reason: null })).toBe(true);
+    expect(completedWithFailures({ status: 'COMPLETE', completed: 1, failed: 1 })).toBe(true);
+    expect(completedWithFailures({ status: 'COMPLETE', completed: 2, failed: 0 })).toBe(false);
+    expect(completedWithFailures({ status: 'FAILED', completed: 0, failed: 2 })).toBe(false);
+    expect(completedWithFailures({ status: 'PARTIAL', completed: 1, failed: 1, reason: UNEXPECTED })).toBe(false);
+    expect(completedWithFailures(null)).toBe(false);
   });
 
   it('failureMessage prefers the reason, then the fixed fallback', () => {

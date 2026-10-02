@@ -35,6 +35,19 @@ export const stoppedEarly = (data) => Boolean(data?.reason)
   && (data?.status === 'PARTIAL' || !data?.status);
 
 /**
+ * Whether the run finished, was not cut short, and still had places fail: a PARTIAL run with no
+ * run-level reason (some places updated, some failed). Any payload that reports a failed place and is
+ * neither failed outright nor stopped early. Such a run is not a clean success, so the banner shows it
+ * amber with the failed count and still offers Refresh, because what did complete was written.
+ *
+ * @param {object|null|undefined} data - The run-complete payload.
+ * @returns {boolean}
+ */
+export const completedWithFailures = (data) => data?.failed > 0
+  && !failedOutright(data)
+  && !stoppedEarly(data);
+
+/**
  * The sentence for a run that failed outright: the server's reason when present, else a fixed one.
  *
  * @param {object|null|undefined} data - The run-complete payload.
