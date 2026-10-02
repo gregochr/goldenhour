@@ -105,7 +105,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                 .map(ContentBlock::asText)
                 .map(TextBlock::text)
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Claude returned no text content"));
+                .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text content"));
 
         SunsetEvaluation result = parser.parseEvaluation(text, objectMapper);
         long durationMs = System.currentTimeMillis() - startMs;

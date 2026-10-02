@@ -697,19 +697,22 @@ class RunProgressTrackerTest {
         java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(16);
         java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
         List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
-        for (String[] task : all) {
-            futures.add(pool.submit(() -> {
-                go.await();
-                t.onTaskEvent(new LocationTaskEvent(this, 7L, task[0], task[1], task[2], task[3],
-                        LocationTaskState.FAILED, "x", "EVALUATING"));
-                return null;
-            }));
+        try {
+            for (String[] task : all) {
+                futures.add(pool.submit(() -> {
+                    go.await();
+                    t.onTaskEvent(new LocationTaskEvent(this, 7L, task[0], task[1], task[2], task[3],
+                            LocationTaskState.FAILED, "x", "EVALUATING"));
+                    return null;
+                }));
+            }
+            go.countDown();
+            for (java.util.concurrent.Future<?> f : futures) {
+                f.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
         }
-        go.countDown();
-        for (java.util.concurrent.Future<?> f : futures) {
-            f.get(30, java.util.concurrent.TimeUnit.SECONDS);
-        }
-        pool.shutdown();
 
         long failedDelivered = all.stream()
                 .filter(task -> live.sent().stream().anyMatch(e -> e.startsWith("task-update|")

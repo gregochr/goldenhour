@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, within } from '@testing-library/react';
 import RunProgressPanel from '../components/RunProgressPanel.jsx';
 import {
-  TWO_FAILURES, KEY_REJECTED_TASKS, KEY_REJECTED_AFTER_ONE, KEY_REJECTED_RUN, KEY_REJECTED_PLACE,
-  NOT_ATTEMPTED_PLACE, evaluationFailed, summaryEvent, completeEvent, createFeeds,
+  TWO_FAILURES, NO_FAILURES, KEY_REJECTED_NOTHING_TRIAGED, KEY_REJECTED_TRIAGED, KEY_REJECTED_AFTER_ONE, KEY_REJECTED_RUN, KEY_REJECTED_PLACE,
+  NOT_ATTEMPTED_PLACE, summaryEvent, completeEvent, createFeeds,
 } from './runProgressFixtures.js';
 
 // A run whose Claude API key is rejected stops: the places not yet evaluated are not attempted and
@@ -42,10 +42,10 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
     subscribeToRunProgress.mockImplementation(feed.subscribe);
   });
 
-  it('shows no Retry button, the one explanatory line, the run reason and Dismiss', async () => {
+  it('nothing triaged, nothing completed (status FAILED): no Retry button, the one explanatory line, the run reason and Dismiss', async () => {
     const handlers = renderPanel();
 
-    await playRun(5, KEY_REJECTED_TASKS, { reason: KEY_REJECTED_RUN, retryable: false });
+    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
 
     expect(screen.queryByTestId('retry-failed-btn')).toBeNull();
     expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
@@ -55,19 +55,19 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
     expect(handlers.onAutoClear).not.toHaveBeenCalled();
   });
 
-  it('puts the explanatory line in the same row as Dismiss, where the Retry button would be', async () => {
+  it('nothing triaged: puts the explanatory line in the same row as Dismiss, where the Retry button would be', async () => {
     renderPanel();
 
-    await playRun(5, KEY_REJECTED_TASKS, { reason: KEY_REJECTED_RUN, retryable: false });
+    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
 
     const row = screen.getByTestId('retry-not-offered').parentElement;
     expect(within(row).getByRole('button', { name: 'Dismiss run progress' })).toBeInTheDocument();
   });
 
-  it('renders the per-place phrases: the place that hit the rejection and those never attempted', async () => {
+  it('nothing triaged: renders the per-place phrases: the place that hit the rejection and those never attempted', async () => {
     renderPanel();
 
-    await playRun(5, KEY_REJECTED_TASKS, { reason: KEY_REJECTED_RUN, retryable: false });
+    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
 
     const rows = screen.getAllByTestId('run-progress-row');
     expect(rows).toHaveLength(3);
@@ -79,21 +79,23 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
     });
   });
 
-  it('reads as failed when nothing completed: the status word is Failed and nothing is counted complete', async () => {
+  it('nothing triaged, nothing completed: the header reads (Failed) and nothing is counted complete', async () => {
     renderPanel();
 
-    await playRun(5, KEY_REJECTED_TASKS, { reason: KEY_REJECTED_RUN, retryable: false });
+    await playRun(5, KEY_REJECTED_NOTHING_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
 
     expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Failed)');
+    expect(screen.getByTestId('run-progress-status')).not.toHaveTextContent('Stopped');
     expect(screen.getByText('3 failed')).toBeInTheDocument();
     expect(screen.queryByText(/complete$/)).toBeNull();
   });
 
-  it('a run stopped after a place had completed is kept, still shows no Retry, and still says why', async () => {
+  it('a run stopped after a place had completed is kept, reads (Stopped early), shows no Retry, and says why', async () => {
     renderPanel();
 
     await playRun(5, KEY_REJECTED_AFTER_ONE, { reason: KEY_REJECTED_RUN, retryable: false });
 
+    expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Stopped early)');
     expect(screen.getByText('1 complete')).toBeInTheDocument();
     expect(screen.getByText('2 failed')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
@@ -125,14 +127,74 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
     expect(screen.queryByTestId('retry-not-offered')).toBeNull();
   });
 
-  it('does not show the explanatory line while the run is still going', async () => {
+  it('does not show the explanatory line while the run is still going, even if a summary said retryable: false', async () => {
     renderPanel();
 
     await act(async () => {
-      feed.feeds[5].onTask(evaluationFailed('hill|a', 'Test Hill', KEY_REJECTED_PLACE));
-      feed.feeds[5].onSummary(summaryEvent(5, KEY_REJECTED_TASKS));
+      KEY_REJECTED_NOTHING_TRIAGED.forEach((t) => feed.feeds[5].onTask(t));
+      // Never what the server sends mid-run; it makes the line's own `complete` guard the only thing under test.
+      feed.feeds[5].onSummary({ ...summaryEvent(5, KEY_REJECTED_NOTHING_TRIAGED), retryable: false });
     });
 
+    expect(screen.queryByTestId('run-progress-status')).toBeNull();
+    expect(screen.queryByTestId('retry-not-offered')).toBeNull();
+  });
+
+  describe('the shape production sends: places triaged, so the status is PARTIAL rather than FAILED', () => {
+    const playReal = () => playRun(5, KEY_REJECTED_TRIAGED, { reason: KEY_REJECTED_RUN, retryable: false });
+
+    it('reads (Stopped early), not (Complete) or (Failed)', async () => {
+      renderPanel();
+
+      await playReal();
+
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Stopped early)');
+    });
+
+    it('counts 1 triaged, 2 failed and 1 skipped, and no place complete', async () => {
+      renderPanel();
+
+      await playReal();
+
+      expect(screen.getByText('1 triaged')).toBeInTheDocument();
+      expect(screen.getByText('2 failed')).toBeInTheDocument();
+      expect(screen.getByText('1 skipped')).toBeInTheDocument();
+      expect(screen.queryByText(/\d+ complete$/)).toBeNull();
+    });
+
+    it('shows the reason, the not-offered line and Dismiss, and no Retry', async () => {
+      const handlers = renderPanel();
+
+      await playReal();
+
+      expect(screen.getByTestId('run-progress-reason')).toHaveTextContent(KEY_REJECTED_RUN);
+      expect(screen.getByTestId('retry-not-offered')).toHaveTextContent(NOT_OFFERED);
+      expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Dismiss run progress' })).toBeInTheDocument();
+      expect(handlers.onAutoClear).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the status word of a finished run', () => {
+    it('is (Complete) for a clean run and for failed places with no run reason', async () => {
+      renderPanel();
+      await playRun(5, TWO_FAILURES);
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Complete)');
+    });
+
+    it('is (Complete) for a run in which everything finished cleanly', async () => {
+      renderPanel();
+      await playRun(5, NO_FAILURES);
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Complete)');
+    });
+  });
+
+  it('retryable: false with no failed place shows neither Retry nor the explanatory line', async () => {
+    renderPanel();
+
+    await playRun(5, NO_FAILURES, { retryable: false });
+
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
     expect(screen.queryByTestId('retry-not-offered')).toBeNull();
   });
 });

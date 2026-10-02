@@ -34,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -62,7 +63,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.lenient;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -181,39 +182,46 @@ class ForecastCommandExecutorEvaluationFailureTest {
                     }
                 },
                 weatherTriageEvaluator, tideAlignmentEvaluator, slotAtmosphereWriter, tracker, CLOCK);
+    }
 
-        lenient().when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.HAIKU);
-        lenient().when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
-        lenient().when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
-        lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(false);
-        lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
-        lenient().when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
-                .thenReturn(new java.util.LinkedHashMap<>());
-        lenient().when(openMeteoService.prefetchCloudBatch(anyList(), any()))
+    /** Stubs exactly what a pipeline run through the real {@link ForecastService} touches; no strategies. */
+    private void stubPipeline() {
+        stubPipeline(List.of());
+    }
+
+    private void stubPipeline(List<OptimisationStrategyEntity> strategies) {
+        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(strategies);
+        when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
+        when(locationService.shouldEvaluateSunrise(any())).thenReturn(false);
+        when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+        when(openMeteoService.prefetchWeatherBatch(anyList(), any())).thenReturn(new java.util.LinkedHashMap<>());
+        when(openMeteoService.prefetchCloudBatch(anyList(), any()))
                 .thenReturn(new CloudPointCache(java.util.Map.of()));
-        lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
                 .thenReturn(LocalDateTime.parse("2026-10-03T17:30:00"));
-        lenient().when(solarService.sunsetAzimuthDeg(anyDouble(), anyDouble(), any())).thenReturn(250);
-        lenient().when(augmentor.augmentWithDirectionalCloud(any(), anyDouble(), anyDouble(),
+        when(solarService.sunsetAzimuthDeg(anyDouble(), anyDouble(), any())).thenReturn(250);
+        when(augmentor.augmentWithDirectionalCloud(any(), anyDouble(), anyDouble(),
                 anyInt(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithCloudApproach(any(), anyDouble(), anyDouble(),
+        when(augmentor.augmentWithCloudApproach(any(), anyDouble(), anyDouble(),
                 anyInt(), any(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithTideData(any(), any(), any(), any(), anyDouble(), anyDouble(), any()))
+        when(augmentor.augmentWithTideData(any(), any(), any(), any(), anyDouble(), anyDouble(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithLocationOrientation(any(), any()))
+        when(augmentor.augmentWithLocationOrientation(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(augmentor.augmentWithStormSurge(any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithStormSurge(any(), any(), any(), any(), any()))
-                .thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean()))
-                .thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
+        when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean())).thenAnswer(inv -> inv.getArgument(0));
+        when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
         AtmosphericData data = TestAtmosphericData.builder().targetType(TargetType.SUNSET).build();
-        lenient().when(openMeteoService.getAtmosphericDataFromCache(any(), any(), any()))
+        when(openMeteoService.getAtmosphericDataFromCache(any(), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
-        lenient().when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
-        lenient().when(repository.save(any()))
-                .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(3).build());
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+    }
+
+    /** For the tests in which an evaluation is scored and saved. */
+    private void stubSave() {
+        when(repository.save(any())).thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(3).build());
     }
 
     private static JobRunEntity run(long id) {
@@ -273,8 +281,7 @@ class ForecastCommandExecutorEvaluationFailureTest {
 
     private static AnthropicServiceException serviceError(int status) {
         AnthropicServiceException ex = mock(AnthropicServiceException.class);
-        lenient().when(ex.statusCode()).thenReturn(status);
-        lenient().when(ex.getMessage()).thenReturn(RAW_SECRET);
+        when(ex.statusCode()).thenReturn(status);
         return ex;
     }
 
@@ -329,11 +336,14 @@ class ForecastCommandExecutorEvaluationFailureTest {
             "reply_unreadable|Claude's reply could not be read.",
             "refusal|Claude declined to evaluate this place.",
             "content_filter|Claude declined to evaluate this place.",
+            "circuit_open|Not attempted: Claude calls are paused after repeated failures. Try again in a minute.",
+            "bulkhead_full|Not attempted: too many Claude calls were already waiting.",
             "SomethingElse|Evaluation failed (see server log).",
     })
     @DisplayName("an errored evaluation publishes FAILED once with its fixed phrase and the EVALUATING step, "
             + "and the run is NOT stopped: every place is still attempted")
     void erroredEvaluation_publishedOnceWithItsPhrase_runNotStopped(String errorType, String phrase) {
+        stubPipeline();
         claudeAnswers(errored(errorType));
 
         executor(Runnable::run).execute(command(places(3)), jobRun);
@@ -360,6 +370,7 @@ class ForecastCommandExecutorEvaluationFailureTest {
     @DisplayName("an exception thrown by the evaluation call publishes FAILED once with the fallback phrase, "
             + "never the exception's message, and does not wait for the completion sweep")
     void exceptionFromEvaluationCall_publishedOnce() {
+        stubPipeline();
         when(engine.evaluateNow(any(EvaluationTask.class), any(BatchTriggerSource.class)))
                 .thenThrow(new IllegalStateException(RAW_SECRET));
 
@@ -380,6 +391,7 @@ class ForecastCommandExecutorEvaluationFailureTest {
     @DisplayName("a failure persisting a successfully scored result publishes FAILED once, and the place is "
             + "not left COMPLETE")
     void failurePersistingResult_publishedOnce() {
+        stubPipeline();
         claudeAnswers(scored());
         when(repository.save(any())).thenThrow(new IllegalStateException(RAW_SECRET));
 
@@ -404,12 +416,15 @@ class ForecastCommandExecutorEvaluationFailureTest {
     @DisplayName("a rejected key (401 or 403) stops the run: ONE Claude call out of eight places, the first place "
             + "reads the key reason, the other seven the not-attempted phrase, and nothing completed means FAILED")
     void rejectedKey_stopsTheRun_nothingCompleted(String errorType) {
+        stubPipeline();
         claudeAnswers(errored(errorType));
 
         executor(Runnable::run).execute(command(places(8)), jobRun);
 
         assertThat(claudeCalls).hasValue(1);
-        verify(engine).evaluateNow(any(EvaluationTask.class), any(BatchTriggerSource.class));
+        ArgumentCaptor<EvaluationTask> sent = ArgumentCaptor.forClass(EvaluationTask.class);
+        verify(engine).evaluateNow(sent.capture(), eq(BatchTriggerSource.ADMIN));
+        assertThat(((EvaluationTask.Forecast) sent.getValue()).location().getName()).isEqualTo("Place 1");
         assertThat(eventsFor(sunsetKey(1)).stream().filter(e -> e.getState() == LocationTaskState.FAILED))
                 .singleElement().satisfies(e -> {
                     assertThat(e.getErrorMessage()).isEqualTo(KEY_REJECTED);
@@ -440,6 +455,8 @@ class ForecastCommandExecutorEvaluationFailureTest {
     @Test
     @DisplayName("a rejected key after some places had completed is PARTIAL (stopped early) and still not retryable")
     void rejectedKey_afterSomeCompleted_isPartial() {
+        stubPipeline();
+        stubSave();
         claudeAnswers(scored(), scored(), errored("anthropic_401"));
 
         executor(Runnable::run).execute(command(places(8)), jobRun);
@@ -458,6 +475,7 @@ class ForecastCommandExecutorEvaluationFailureTest {
     @Test
     @DisplayName("a 401 thrown (not returned) by the evaluation call stops the run just the same")
     void rejectedKey_thrownRatherThanReturned_stopsTheRun() {
+        stubPipeline();
         AnthropicServiceException rejected = serviceError(401);
         when(engine.evaluateNow(any(EvaluationTask.class), any(BatchTriggerSource.class))).thenAnswer(inv -> {
             claudeCalls.incrementAndGet();
@@ -475,6 +493,7 @@ class ForecastCommandExecutorEvaluationFailureTest {
     @ValueSource(strings = {"anthropic_429", "anthropic_529", "anthropic_500"})
     @DisplayName("a rate limit, an overload or a server error does NOT stop the run")
     void transientFailures_doNotStopTheRun(String errorType) {
+        stubPipeline();
         claudeAnswers(errored(errorType));
 
         executor(Runnable::run).execute(command(places(6)), jobRun);
@@ -486,9 +505,11 @@ class ForecastCommandExecutorEvaluationFailureTest {
     }
 
     @Test
-    @DisplayName("the stop belongs to its own run: a second run started afterwards is not blocked, and a stopped "
-            + "run does not stop one that overlaps it")
-    void stop_isRunScoped_secondRunNotBlocked() {
+    @DisplayName("a run that was stopped does not block a run started afterwards (overlapping runs are pinned "
+            + "at the tracker: RunProgressTrackerTest.stopRun_isPerRun)")
+    void stoppedRun_doesNotBlockALaterRun() {
+        stubPipeline();
+        stubSave();
         claudeAnswers(errored("anthropic_401"));
         executor(Runnable::run).execute(command(places(4)), jobRun);
         assertThat(claudeCalls).hasValue(1);
@@ -524,7 +545,7 @@ class ForecastCommandExecutorEvaluationFailureTest {
         sentinel.setStrategyType(OptimisationStrategyType.SENTINEL_SAMPLING);
         sentinel.setEnabled(true);
         sentinel.setParamValue(2);
-        when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of(sentinel));
+        stubPipeline(List.of(sentinel));
         when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(inRegion.getFirst()));
         claudeAnswers(errored("anthropic_401"));
 
@@ -542,9 +563,33 @@ class ForecastCommandExecutorEvaluationFailureTest {
     }
 
     @Test
+    @DisplayName("a single-place run whose only sentinel gets the 401 leaves nothing for the full phase, and "
+            + "still completes in EARLY_STOP, not COMPLETE (the early-return exit)")
+    void rejectedKey_singlePlaceSentinel_completesInEarlyStop() {
+        RegionEntity north = RegionEntity.builder().id(1L).name("North").enabled(true).build();
+        LocationEntity only = location(1L, north);
+        OptimisationStrategyEntity sentinel = new OptimisationStrategyEntity();
+        sentinel.setStrategyType(OptimisationStrategyType.SENTINEL_SAMPLING);
+        sentinel.setEnabled(true);
+        sentinel.setParamValue(2);
+        stubPipeline(List.of(sentinel));
+        when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(only));
+        claudeAnswers(errored("anthropic_401"));
+
+        executor(Runnable::run).execute(command(List.of(only)), jobRun);
+
+        assertThat(claudeCalls).hasValue(1);
+        JsonNode complete = theOnlyRunComplete();
+        assertThat(complete.get("phase").asText()).isEqualTo("EARLY_STOP");
+        assertThat(complete.get("status").asText()).isEqualTo("FAILED");
+        assertThat(complete.get("retryable").asBoolean()).isFalse();
+    }
+
+    @Test
     @DisplayName("calls already in flight when the key is rejected finish on their own and report the key reason; "
             + "a place that had not started is not attempted")
     void inFlightCalls_finishAndReportTheKeyReason() throws Exception {
+        stubPipeline();
         CyclicBarrier bothInFlight = new CyclicBarrier(2);
         when(engine.evaluateNow(any(EvaluationTask.class), any(BatchTriggerSource.class))).thenAnswer(inv -> {
             claudeCalls.incrementAndGet();
@@ -571,11 +616,14 @@ class ForecastCommandExecutorEvaluationFailureTest {
     @DisplayName("a place the run never attempted never enters the evaluation engine, which is where each "
             + "evaluation's child job_run is created")
     void notAttempted_neverEntersTheEngine() {
+        stubPipeline();
         claudeAnswers(errored("anthropic_403"));
 
         executor(Runnable::run).execute(command(places(3)), jobRun);
 
         // Three places, one entry: the other two were stopped before the engine.
-        verify(engine, times(1)).evaluateNow(any(EvaluationTask.class), any(BatchTriggerSource.class));
+        ArgumentCaptor<EvaluationTask> sent = ArgumentCaptor.forClass(EvaluationTask.class);
+        verify(engine, times(1)).evaluateNow(sent.capture(), eq(BatchTriggerSource.ADMIN));
+        assertThat(((EvaluationTask.Forecast) sent.getValue()).location().getName()).isEqualTo("Place 1");
     }
 }

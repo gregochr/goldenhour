@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
+import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudPointCache;
@@ -54,6 +55,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,6 +70,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -1041,6 +1044,212 @@ class ForecastServiceTest {
 
         verify(repository, never()).save(any());
         verify(notificationDispatcher, never()).dispatch(any(), any(), any(), any());
+    }
+
+    // --- evaluateAndPersist: which layer publishes a failure, and the stop check ---
+    //
+    // These pin ForecastService ITSELF. The executor also publishes FAILED for a task still in progress
+    // (the same phrase), so an executor-level test cannot notice this class ceasing to publish.
+
+    @Nested
+    @DisplayName("evaluateAndPersist() publishes its own failures and honours the run's stop")
+    class EvaluationFailurePublication {
+
+        private static final String KEY_REJECTED = "Claude rejected the API key.";
+        private static final String NOT_ATTEMPTED =
+                "Not attempted: the run stopped because Claude rejected the API key.";
+        private static final long RUN_ID = 77L;
+
+        private final LocalDate date = LocalDate.of(2026, 6, 21);
+        private final LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        private final JobRunEntity jobRun = runWithId(RUN_ID);
+
+        private JobRunEntity runWithId(long id) {
+            JobRunEntity run = new JobRunEntity();
+            run.setId(id);
+            return run;
+        }
+
+        private ForecastPreEvalResult preEval(LocalDate on) {
+            return new ForecastPreEvalResult(
+                    false, null, buildAtmosphericData(sunset, TargetType.SUNSET), DURHAM_LOCATION, on,
+                    TargetType.SUNSET, sunset, 310, 1, EvaluationModel.SONNET, Set.of(),
+                    DURHAM + "|" + on + "|SUNSET", null);
+        }
+
+        private List<LocationTaskEvent> publishedEvents(int expected) {
+            ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+            verify(eventPublisher, times(expected)).publishEvent(captor.capture());
+            return captor.getAllValues();
+        }
+
+        @Test
+        @DisplayName("an Errored 401: exactly one FAILED event with the key phrase at EVALUATING, run stopped")
+        void erroredKeyRejected_publishesFailedOnce_andStopsTheRun() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(EvaluationFailedException.class);
+
+            List<LocationTaskEvent> events = publishedEvents(2);
+            assertThat(events.get(0).getState()).isEqualTo(LocationTaskState.EVALUATING);
+            assertThat(events.get(1).getState()).isEqualTo(LocationTaskState.FAILED);
+            assertThat(events.get(1).getErrorMessage()).isEqualTo(KEY_REJECTED);
+            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
+            assertThat(events.get(1).getJobRunId()).isEqualTo(RUN_ID);
+            verify(runProgressTracker).stopRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("an Errored 529: the overloaded phrase, and the run is NOT stopped")
+        void erroredOverloaded_publishesItsPhrase_doesNotStop() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("anthropic_529", "overloaded"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(EvaluationFailedException.class);
+
+            List<LocationTaskEvent> events = publishedEvents(2);
+            assertThat(events.get(1).getErrorMessage()).isEqualTo("Claude was overloaded.");
+            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
+            verify(runProgressTracker, never()).stopRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("an Errored circuit-breaker refusal: its own not-attempted phrase, and the run is NOT stopped")
+        void erroredCircuitOpen_publishesItsPhrase_doesNotStop() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("circuit_open", "CircuitBreaker is OPEN"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(EvaluationFailedException.class);
+
+            assertThat(publishedEvents(2).get(1).getErrorMessage())
+                    .isEqualTo("Not attempted: Claude calls are paused after repeated failures. "
+                            + "Try again in a minute.");
+            verify(runProgressTracker, never()).stopRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a failure saving the scored result: one FAILED event with the fallback phrase, no COMPLETE")
+        void saveFails_publishesFallbackPhrase() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(new SunsetEvaluation(null, 85, 78, "Great.")));
+            when(repository.save(any())).thenThrow(new IllegalStateException("jdbc:postgresql://secret/db"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(IllegalStateException.class);
+
+            List<LocationTaskEvent> events = publishedEvents(2);
+            assertThat(events.get(1).getState()).isEqualTo(LocationTaskState.FAILED);
+            assertThat(events.get(1).getErrorMessage()).isEqualTo("Evaluation failed (see server log).");
+            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
+            verify(runProgressTracker, never()).stopRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("an exception thrown by the evaluation call: one FAILED event with the fallback phrase")
+        void evaluationCallThrows_publishesFallbackPhrase() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenThrow(new IllegalStateException("password=hunter2"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(IllegalStateException.class);
+
+            LocationTaskEvent failed = publishedEvents(2).get(1);
+            assertThat(failed.getErrorMessage()).isEqualTo("Evaluation failed (see server log).");
+        }
+
+        @Test
+        @DisplayName("a stopped run: one not-attempted FAILED event, RunStoppedException, engine never called")
+        void stoppedRun_publishesNotAttempted_neverCallsTheEngine() {
+            when(runProgressTracker.isStopped(RUN_ID)).thenReturn(true);
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(RunStoppedException.class);
+
+            List<LocationTaskEvent> events = publishedEvents(1);
+            assertThat(events.get(0).getState()).isEqualTo(LocationTaskState.FAILED);
+            assertThat(events.get(0).getErrorMessage()).isEqualTo(NOT_ATTEMPTED);
+            assertThat(events.get(0).getFailedStep()).isEqualTo("EVALUATING");
+            verifyNoInteractions(engineEvaluationService);
+            verify(repository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("with no run id nothing is published and no stop is consulted (the failure still throws)")
+        void noRun_publishesNothing() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), null))
+                    .isInstanceOf(EvaluationFailedException.class);
+
+            verifyNoInteractions(eventPublisher);
+            verifyNoInteractions(runProgressTracker);
+        }
+
+        @Test
+        @DisplayName("the stop check is INSIDE the bulkhead: with one permit and five calls started together, the "
+                + "first answers 401 and the engine is called exactly once, every other call not attempted")
+        void stopCheck_isInsideTheBulkhead_oneEngineCallForFiveWaiters() throws Exception {
+            RunProgressTracker realTracker = new RunProgressTracker(mock(DynamicSchedulerService.class));
+            ForecastService service = new ForecastService(
+                    solarService, openMeteoService, augmentor, evaluationService, engineEvaluationService,
+                    repository, notificationDispatcher, eventPublisher, weatherTriageEvaluator,
+                    tideAlignmentEvaluator, slotAtmosphereWriter, realTracker, clock);
+            int calls = 5;
+            List<String[]> tasks = new ArrayList<>();
+            List<ForecastPreEvalResult> preEvals = new ArrayList<>();
+            for (int i = 0; i < calls; i++) {
+                ForecastPreEvalResult pre = preEval(date.plusDays(i));
+                preEvals.add(pre);
+                tasks.add(new String[] {pre.taskKey(), DURHAM, pre.date().toString(), "SUNSET"});
+            }
+            realTracker.initRun(RUN_ID, tasks);
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
+            io.github.resilience4j.bulkhead.Bulkhead bulkhead = io.github.resilience4j.bulkhead.Bulkhead.of(
+                    "claude", io.github.resilience4j.bulkhead.BulkheadConfig.custom()
+                            .maxConcurrentCalls(1).maxWaitDuration(java.time.Duration.ofSeconds(30)).build());
+            java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(calls);
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            try {
+                for (ForecastPreEvalResult pre : preEvals) {
+                    futures.add(pool.submit(() -> {
+                        go.await();
+                        try {
+                            io.github.resilience4j.bulkhead.Bulkhead.decorateSupplier(bulkhead,
+                                    () -> service.evaluateAndPersist(pre, jobRun)).get();
+                        } catch (RuntimeException expected) {
+                            // every call fails: one with the 401, the rest not attempted
+                        }
+                        return null;
+                    }));
+                }
+                go.countDown();
+                for (java.util.concurrent.Future<?> f : futures) {
+                    f.get(30, java.util.concurrent.TimeUnit.SECONDS);
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+
+            ArgumentCaptor<EvaluationTask> taskCaptor = ArgumentCaptor.forClass(EvaluationTask.class);
+            verify(engineEvaluationService, times(1)).evaluateNow(taskCaptor.capture(),
+                    eq(com.gregochr.goldenhour.service.batch.BatchTriggerSource.ADMIN));
+            assertThat(taskCaptor.getValue()).isInstanceOf(EvaluationTask.Forecast.class);
+            ArgumentCaptor<LocationTaskEvent> events = ArgumentCaptor.forClass(LocationTaskEvent.class);
+            verify(eventPublisher, times(calls + 1)).publishEvent(events.capture());
+            List<LocationTaskEvent> failed = events.getAllValues().stream()
+                    .filter(e -> e.getState() == LocationTaskState.FAILED).toList();
+            assertThat(failed).extracting(LocationTaskEvent::getErrorMessage)
+                    .containsExactlyInAnyOrder(KEY_REJECTED, NOT_ATTEMPTED, NOT_ATTEMPTED, NOT_ATTEMPTED,
+                            NOT_ATTEMPTED);
+            assertThat(failed).extracting(LocationTaskEvent::getTaskKey).doesNotHaveDuplicates();
+        }
     }
 
     // --- persistCannedResult tests ---

@@ -553,7 +553,8 @@ class ForecastCommandExecutorCompletionTest {
 
     @Test
     @DisplayName("an evaluation the claude bulkhead refuses (thrown before ForecastService publishes anything) is "
-            + "published FAILED once by the executor, with the fallback phrase and never the exception's message")
+            + "published FAILED once by the executor, with its own not-attempted phrase and never the exception's "
+            + "message")
     void bulkheadRefusal_executorPublishesFailedOnce() {
         stubModelAndStrategies(List.of());
         stubEvaluable();
@@ -578,12 +579,14 @@ class ForecastCommandExecutorCompletionTest {
         assertThat(failedEvents()).singleElement().satisfies(e -> {
             assertThat(e.getTaskKey()).isEqualTo(DURHAM_SUNSET);
             assertThat(e.getFailedStep()).isEqualTo("EVALUATING");
-            assertThat(e.getErrorMessage()).isEqualTo("Evaluation failed (see server log).");
+            assertThat(e.getErrorMessage()).isEqualTo("Not attempted: too many Claude calls were already waiting.");
         });
         JsonNode complete = theOnlyRunComplete();
         assertThat(complete.get("status").asText()).isEqualTo("PARTIAL");
         assertThat(complete.get("completed").asInt()).isEqualTo(1);
         assertThat(complete.get("failed").asInt()).isEqualTo(1);
+        assertThat(complete.get("retryable").asBoolean()).isTrue();
+        assertThat(complete.get("reason").isNull()).isTrue();
         verify(jobRunService).completeRun(jobRun, 1, 1, DATES);
     }
 

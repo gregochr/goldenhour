@@ -99,11 +99,26 @@ export const evaluationFailed = (taskKey, locationName, errorMessage) => task(
   { errorMessage, failedStep: 'EVALUATING' },
 );
 
-/** A run stopped on a rejected key with nothing completed: one place rejected, two never attempted. */
-export const KEY_REJECTED_TASKS = [
+/**
+ * A run stopped on a rejected key where nothing was triaged and nothing completed: one place rejected,
+ * two never attempted. Its status is FAILED. A REAL run is rarely this shape (see KEY_REJECTED_TRIAGED).
+ */
+export const KEY_REJECTED_NOTHING_TRIAGED = [
   evaluationFailed('hill|a', 'Test Hill', KEY_REJECTED_PLACE),
   evaluationFailed('east|b', 'East Fell', NOT_ATTEMPTED_PLACE),
   evaluationFailed('west|c', 'West Fell', NOT_ATTEMPTED_PLACE),
+];
+
+/**
+ * What production sends for a rejected key: places the weather triage stood down count as an outcome
+ * (a triaged row is written), so with nothing completed the status is PARTIAL, not FAILED. Taken from a
+ * real local run (completed 0, triaged 34, failed 66, skipped 20) at a size a test can read.
+ */
+export const KEY_REJECTED_TRIAGED = [
+  task('tri|a', 'Triaged Hill', 'TRIAGED', { errorMessage: null, failedStep: null }),
+  evaluationFailed('hill|b', 'Test Hill', KEY_REJECTED_PLACE),
+  evaluationFailed('east|c', 'East Fell', NOT_ATTEMPTED_PLACE),
+  task('skip|d', 'Skipped Fell', 'SKIPPED', { errorMessage: null, failedStep: null }),
 ];
 
 /** The same stop after one place had already completed: stopped early, not an outright failure. */

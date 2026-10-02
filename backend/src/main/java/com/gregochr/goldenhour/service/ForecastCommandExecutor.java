@@ -411,8 +411,7 @@ public class ForecastCommandExecutor {
         }
 
         if (fullEvalBatch.isEmpty()) {
-            RunPhase finalPhase = survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE;
-            progressTracker.setPhase(jobRun.getId(), finalPhase);
+            setFinalPhase(jobRun, survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE);
             runCompletion.complete(jobRun, succeeded, failed, dates);
             LOG.info("Forecast run complete — runType={}, model={}", runType, evaluationModel);
             return results;
@@ -431,7 +430,7 @@ public class ForecastCommandExecutor {
         }
 
         if (fullEvalBatch.isEmpty()) {
-            progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
+            setFinalPhase(jobRun, RunPhase.COMPLETE);
             runCompletion.complete(jobRun, succeeded, failed, dates);
             LOG.info("Forecast run complete — all remaining tasks filtered by stability");
             return results;
@@ -447,13 +446,20 @@ public class ForecastCommandExecutor {
         succeeded += fullResults.size();
         failed += fullEvalBatch.size() - fullResults.size();
 
-        // A run stopped on a rejected key did not run to the end: say so in the phase it completes in.
-        progressTracker.setPhase(jobRun.getId(),
-                progressTracker.isStopped(jobRun.getId()) ? RunPhase.EARLY_STOP : RunPhase.COMPLETE);
+        setFinalPhase(jobRun, RunPhase.COMPLETE);
         runCompletion.complete(jobRun, succeeded, failed, dates);
         LOG.info("Forecast run complete — runType={}, model={}", runType, evaluationModel);
 
         return results;
+    }
+
+    /**
+     * Sets the phase a run completes in. A run stopped on a rejected key did not run to the end, so it
+     * completes in {@link RunPhase#EARLY_STOP} whichever exit it took.
+     */
+    private void setFinalPhase(JobRunEntity jobRun, RunPhase normal) {
+        progressTracker.setPhase(jobRun.getId(),
+                progressTracker.isStopped(jobRun.getId()) ? RunPhase.EARLY_STOP : normal);
     }
 
     /**

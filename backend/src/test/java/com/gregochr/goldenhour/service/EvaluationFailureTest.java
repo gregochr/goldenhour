@@ -6,6 +6,8 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.exception.EvaluationFailedException;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.DisplayName;
@@ -53,7 +55,8 @@ class EvaluationFailureTest {
             "anthropic_400|Evaluation failed (see server log).",
             "anthropic_404|Evaluation failed (see server log).",
             "anthropic_abc|Evaluation failed (see server log).",
-            "CallNotPermittedException|Evaluation failed (see server log).",
+            "circuit_open|Not attempted: Claude calls are paused after repeated failures. Try again in a minute.",
+            "bulkhead_full|Not attempted: too many Claude calls were already waiting.",
             "IllegalStateException|Evaluation failed (see server log).",
             "unknown|Evaluation failed (see server log).",
     })
@@ -138,13 +141,35 @@ class EvaluationFailureTest {
     }
 
     @Test
-    @DisplayName("of() gives the fallback for an open circuit breaker: it has no HTTP status to read")
-    void of_circuitOpen_isFallback() {
+    @DisplayName("of() maps an open or half-open circuit breaker refusal to its own not-attempted phrase, "
+            + "and it does not stop the run")
+    void of_circuitOpen_isCircuitOpen() {
         CircuitBreaker breaker = CircuitBreaker.ofDefaults("anthropic");
         breaker.transitionToOpenState();
 
-        assertThat(EvaluationFailure.of(CallNotPermittedException.createCallNotPermittedException(breaker)))
-                .isEqualTo(EvaluationFailure.UNKNOWN);
+        CallNotPermittedException refused = CallNotPermittedException.createCallNotPermittedException(breaker);
+
+        EvaluationFailure kind = EvaluationFailure.of(refused);
+
+        assertThat(kind).isEqualTo(EvaluationFailure.CIRCUIT_OPEN);
+        assertThat(kind.reason())
+                .isEqualTo("Not attempted: Claude calls are paused after repeated failures. Try again in a minute.");
+        assertThat(kind.stopsRun()).isFalse();
+        assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo("circuit_open");
+    }
+
+    @Test
+    @DisplayName("of() maps a bulkhead refusal to its own not-attempted phrase, and it does not stop the run")
+    void of_bulkheadFull_isBulkheadFull() {
+        Bulkhead bulkhead = Bulkhead.ofDefaults("claude");
+        BulkheadFullException refused = BulkheadFullException.createBulkheadFullException(bulkhead);
+
+        EvaluationFailure kind = EvaluationFailure.of(refused);
+
+        assertThat(kind).isEqualTo(EvaluationFailure.BULKHEAD_FULL);
+        assertThat(kind.reason()).isEqualTo("Not attempted: too many Claude calls were already waiting.");
+        assertThat(kind.stopsRun()).isFalse();
+        assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo("bulkhead_full");
     }
 
     @Test

@@ -386,8 +386,10 @@ class EvaluationServiceImplTest {
         service.evaluateNow(task, BatchTriggerSource.ADMIN);
 
         ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor = ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
-        verify(forecastResultHandler).handleSyncResult(eq(task), outcomeCaptor.capture(), any(ResultContext.class));
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
+        verify(forecastResultHandler).handleSyncResult(eq(task), outcomeCaptor.capture(), contextCaptor.capture());
         assertThat(outcomeCaptor.getValue().succeeded()).isFalse();
+        assertThat(contextCaptor.getValue().triggerSource()).isEqualTo(BatchTriggerSource.ADMIN);
         return outcomeCaptor.getValue().errorType();
     }
 
@@ -417,12 +419,56 @@ class EvaluationServiceImplTest {
     }
 
     @Test
-    @DisplayName("evaluateNow: the content-filter 400 is reported as content_filter, any other 400 by status")
-    void evaluateNow_forecastContentFilter_isNamed() {
+    @DisplayName("evaluateNow: the content-filter 400 is reported as content_filter")
+    void evaluateNow_forecastContentFilter400_isNamed() {
         AnthropicServiceException filtered = serviceError(400, "Output blocked by content filtering policy");
 
         assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
                 .thenThrow(filtered))).isEqualTo("content_filter");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: any other 400 is reported by its status, not as a content filter")
+    void evaluateNow_forecastPlain400_reportedByStatus() {
+        AnthropicServiceException badRequest = serviceError(400, "max_tokens must be positive");
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenThrow(badRequest))).isEqualTo("anthropic_400");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: a call the circuit breaker refuses is reported as circuit_open (the real route: "
+            + "CallNotPermittedException thrown by the @CircuitBreaker proxy inside the engine's try)")
+    void evaluateNow_forecastCircuitOpen_isNamed() {
+        io.github.resilience4j.circuitbreaker.CircuitBreaker breaker =
+                io.github.resilience4j.circuitbreaker.CircuitBreaker.ofDefaults("anthropic");
+        breaker.transitionToOpenState();
+        RuntimeException refused = io.github.resilience4j.circuitbreaker.CallNotPermittedException
+                .createCallNotPermittedException(breaker);
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenThrow(refused))).isEqualTo("circuit_open");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: an aurora reply with no text block is reported as reply_unreadable, like a forecast's")
+    void evaluateNow_auroraNoText_isReplyUnreadable() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
+                .thenReturn("user-message");
+        Message noText = mock(Message.class);
+        when(noText.content()).thenReturn(List.of());
+        when(anthropicApiClient.createMessage(any())).thenReturn(noText);
+        when(auroraResultHandler.handleSyncResult(eq(task), any(ClaudeSyncOutcome.class), any(ResultContext.class)))
+                .thenReturn(new EvaluationResult.Errored("x", "x"));
+
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor = ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
+        verify(auroraResultHandler).handleSyncResult(eq(task), outcomeCaptor.capture(), contextCaptor.capture());
+        assertThat(outcomeCaptor.getValue().errorType()).isEqualTo("reply_unreadable");
+        assertThat(contextCaptor.getValue().triggerSource()).isEqualTo(BatchTriggerSource.SCHEDULED);
     }
 
     @Test

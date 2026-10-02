@@ -375,34 +375,50 @@ class RunCompletionTest {
         return progress;
     }
 
+    /**
+     * A {@link RunCompletion} over a REAL tracker holding {@link #progressWithOutcomes}' eight tasks, with
+     * each published event applied to it exactly as production does, so the counts asserted below are the
+     * ones a run would close with.
+     */
+    private RunCompletion completionOverARealTracker() {
+        RunProgressTracker real = new RunProgressTracker(org.mockito.Mockito.mock(DynamicSchedulerService.class));
+        String[][] outcomes = {
+                {"a", "COMPLETE"}, {"b", "COMPLETE"}, {"c", "FAILED"}, {"d", "FAILED"}, {"e", "FAILED"},
+                {"f", "TRIAGED"}, {"g", "SKIPPED"}, {"h", "EVALUATING"}};
+        List<String[]> tasks = new java.util.ArrayList<>();
+        for (String[] outcome : outcomes) {
+            tasks.add(new String[] {outcome[0] + "|2026-10-03|SUNSET", outcome[0], "2026-10-03", "SUNSET"});
+        }
+        real.initRun(RUN_ID, tasks);
+        for (String[] outcome : outcomes) {
+            real.onTaskEvent(new LocationTaskEvent(RunCompletionTest.class, RUN_ID,
+                    outcome[0] + "|2026-10-03|SUNSET", outcome[0], "2026-10-03", "SUNSET",
+                    LocationTaskState.valueOf(outcome[1]), null, null));
+        }
+        return new RunCompletion(jobRunService, real, event -> {
+            if (event instanceof LocationTaskEvent taskEvent) {
+                real.onTaskEvent(taskEvent);
+            }
+        });
+    }
+
     @Test
-    @DisplayName("the job_run closes with the tracker's completed and failed counts, not the caller's: a triaged "
-            + "or skipped task is neither, and the task still evaluating is failed by the sweep first")
+    @DisplayName("the job_run closes with the real tracker's completed and failed counts, not the caller's: a "
+            + "triaged or skipped task is neither, and the task still evaluating is failed by the sweep first")
     void complete_closesWithTheTrackersCounts() {
-        RunProgress progress = progressWithOutcomes();
-        when(progressTracker.getProgress(RUN_ID)).thenReturn(progress);
-        // The real tracker applies each published event to its progress; replay that here.
-        org.mockito.Mockito.doAnswer(inv -> {
-            progress.updateTask(inv.getArgument(0));
-            return null;
-        }).when(eventPublisher).publishEvent(org.mockito.ArgumentMatchers.any(LocationTaskEvent.class));
         List<LocalDate> dates = List.of(LocalDate.parse("2026-10-03"));
 
-        completion.complete(jobRun, 99, 99, dates);
+        completionOverARealTracker().complete(jobRun, 99, 99, dates);
 
         verify(jobRunService).completeRun(jobRun, 2, 4, dates);
     }
 
     @Test
-    @DisplayName("the date-less overload takes the tracker's counts too")
+    @DisplayName("the date-less overload takes the real tracker's counts too")
     void complete_withoutDates_closesWithTheTrackersCounts() {
-        RunProgress progress = progressWithOutcomes();
-        when(progressTracker.getProgress(RUN_ID)).thenReturn(progress);
+        completionOverARealTracker().complete(jobRun, 99, 99);
 
-        completion.complete(jobRun, 99, 99);
-
-        // The sweep's event goes to a mocked publisher here, so the EVALUATING task is not yet FAILED.
-        verify(jobRunService).completeRun(jobRun, 2, 3);
+        verify(jobRunService).completeRun(jobRun, 2, 4);
     }
 
     @Test

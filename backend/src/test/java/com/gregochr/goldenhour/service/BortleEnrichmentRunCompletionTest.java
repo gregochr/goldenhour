@@ -116,4 +116,41 @@ class BortleEnrichmentRunCompletionTest {
         assertThat(panel.events).noneMatch(e -> e.contains("secret"));
         verify(jobRunService).completeRun(jobRun, 1, 1);
     }
+
+    @Test
+    @DisplayName("a normal run: one place enriched, one that returned no data failed, and the job_run closes with "
+            + "the real tracker's counts, which are what run-complete reports")
+    void enrichAll_normalRun_closesWithTheRealTrackersCounts() throws Exception {
+        RunProgressTracker tracker = new RunProgressTracker(dynamicSchedulerService, graceScheduler, 5_000L) {
+            @Override
+            SseEmitter newEmitter() {
+                return new RecordingEmitter();
+            }
+        };
+        BortleEnrichmentService service = new BortleEnrichmentService(locationRepository, lightPollutionClient,
+                jobRunService, tracker, event -> {
+                    if (event instanceof LocationTaskEvent taskEvent) {
+                        tracker.onTaskEvent(taskEvent);
+                    }
+                });
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(1L);
+        when(locationRepository.findByBortleClassIsNull())
+                .thenReturn(List.of(location("Bamburgh", 55.6), location("Kielder", 55.2)));
+        when(lightPollutionClient.querySkyBrightness(55.6, -1.7, "key"))
+                .thenReturn(new SkyBrightnessResult(21.75, 3));
+        when(lightPollutionClient.querySkyBrightness(55.2, -1.7, "key")).thenReturn(null);
+        RecordingEmitter panel = (RecordingEmitter) tracker.subscribe(1L);
+
+        service.enrichAll("key", jobRun);
+
+        List<String> completes = panel.events.stream().filter(e -> e.startsWith("run-complete|")).toList();
+        assertThat(completes).hasSize(1);
+        JsonNode complete = JSON.readTree(completes.getFirst().substring("run-complete|".length()));
+        assertThat(complete.get("status").asText()).isEqualTo("PARTIAL");
+        assertThat(complete.get("completed").asInt()).isEqualTo(1);
+        assertThat(complete.get("failed").asInt()).isEqualTo(1);
+        assertThat(complete.get("reason").isNull()).isTrue();
+        verify(jobRunService).completeRun(jobRun, 1, 1);
+    }
 }

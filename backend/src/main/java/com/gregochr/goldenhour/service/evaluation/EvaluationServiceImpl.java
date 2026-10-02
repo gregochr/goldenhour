@@ -299,7 +299,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                     .map(ContentBlock::asText)
                     .map(TextBlock::text)
                     .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("Claude returned no text"));
+                    .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text"));
             outcome = ClaudeSyncOutcome.success(text, extractTokens(response),
                     task.model(), System.currentTimeMillis() - start);
         } catch (Exception e) {

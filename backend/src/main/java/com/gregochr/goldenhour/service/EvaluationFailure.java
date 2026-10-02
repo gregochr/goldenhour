@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.config.ClaudeRetryPredicate;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.exception.EvaluationFailedException;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 
 /**
  * The one mapping from "a Claude evaluation failed" to the fixed phrase an admin reads on the run
@@ -14,10 +16,12 @@ import com.gregochr.goldenhour.exception.EvaluationFailedException;
  * <ol>
  *   <li>{@link #errorTypeOf} names a thrown exception as a short {@code errorType} string — the
  *       vocabulary {@code EvaluationResult.Errored} already carried ({@code "anthropic_<status>"}, or
- *       the exception's simple name), plus four names for the cases that used to be told apart only
+ *       the exception's simple name), plus named types for the cases that used to be told apart only
  *       by their message text ({@value #TYPE_CONTENT_FILTER}, {@value #TYPE_REFUSAL},
- *       {@value #TYPE_REPLY_UNREADABLE}) or by a literal in another class
- *       ({@value #TYPE_PARSE_ERROR}).</li>
+ *       {@value #TYPE_REPLY_UNREADABLE}), by a literal in another class ({@value #TYPE_PARSE_ERROR}),
+ *       or by a Resilience4j class name ({@value #TYPE_CIRCUIT_OPEN}, {@value #TYPE_BULKHEAD_FULL}).
+ *       The string is never persisted for a synchronous call (it is not a column of
+ *       {@code api_call_log} on that path) and is read only by this class.</li>
  *   <li>{@link #fromErrorType} maps that string to one constant, which owns its phrase.</li>
  * </ol>
  *
@@ -26,8 +30,8 @@ import com.gregochr.goldenhour.exception.EvaluationFailedException;
  * connection, which the SDK does not distinguish from each other), a refusal stop reason, a content
  * filter 400, a truncated or empty reply, and a reply the parser rejected. It cannot tell a timeout
  * from a dropped connection, an authentication failure from a revoked key, or a spent credit balance
- * from a rejected request, and an open circuit breaker (it has no HTTP status) falls to
- * {@link #UNKNOWN}. Anything unrecognised is {@link #UNKNOWN}.
+ * from a rejected request. The two Resilience4j refusals, where no call was made at all, are their
+ * own kinds ({@link #CIRCUIT_OPEN}, {@link #BULKHEAD_FULL}). Anything unrecognised is {@link #UNKNOWN}.
  *
  * <p>The phrases are fixed text, never an exception message or class name: they reach every browser
  * subscribed to the run, and an SDK message can carry a response body.
@@ -55,6 +59,18 @@ public enum EvaluationFailure {
     /** A refusal stop reason, or the content-filter 400. */
     DECLINED("Claude declined to evaluate this place."),
 
+    /**
+     * The {@code anthropic} circuit breaker refused the call (open after repeated failures, or half-open
+     * with its permits taken): no request was made. Does not stop the run.
+     */
+    CIRCUIT_OPEN("Not attempted: Claude calls are paused after repeated failures. Try again in a minute."),
+
+    /**
+     * The {@code claude} bulkhead refused the call after its wait: no request was made. Does not stop
+     * the run.
+     */
+    BULKHEAD_FULL("Not attempted: too many Claude calls were already waiting."),
+
     /** Anything not recognised above. */
     UNKNOWN(EvaluationFailure.FALLBACK_REASON);
 
@@ -77,6 +93,12 @@ public enum EvaluationFailure {
 
     /** {@code errorType} for a truncated or empty reply. */
     public static final String TYPE_REPLY_UNREADABLE = "reply_unreadable";
+
+    /** {@code errorType} for a call the circuit breaker refused. */
+    public static final String TYPE_CIRCUIT_OPEN = "circuit_open";
+
+    /** {@code errorType} for a call the bulkhead refused. */
+    public static final String TYPE_BULKHEAD_FULL = "bulkhead_full";
 
     /** {@code errorType} for a reply the evaluation parser rejected. */
     public static final String TYPE_PARSE_ERROR = "parse_error";
@@ -137,6 +159,12 @@ public enum EvaluationFailure {
         if (e instanceof ClaudeReplyUnreadableException) {
             return TYPE_REPLY_UNREADABLE;
         }
+        if (e instanceof CallNotPermittedException) {
+            return TYPE_CIRCUIT_OPEN;
+        }
+        if (e instanceof BulkheadFullException) {
+            return TYPE_BULKHEAD_FULL;
+        }
         return e.getClass().getSimpleName();
     }
 
@@ -156,6 +184,8 @@ public enum EvaluationFailure {
         return switch (errorType) {
             case TYPE_CONTENT_FILTER, TYPE_REFUSAL -> DECLINED;
             case TYPE_PARSE_ERROR, TYPE_REPLY_UNREADABLE -> UNREADABLE;
+            case TYPE_CIRCUIT_OPEN -> CIRCUIT_OPEN;
+            case TYPE_BULKHEAD_FULL -> BULKHEAD_FULL;
             case "AnthropicIoException" -> UNREACHABLE;
             default -> UNKNOWN;
         };

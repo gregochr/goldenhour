@@ -14,10 +14,22 @@ reached.* (429), *Claude was overloaded.* (529), *Claude returned a server error
 *Claude could not be reached.* (the SDK's I/O exception, which does not tell a timeout from a dropped
 connection), *Claude's reply could not be read.* (a reply the parser rejected, a truncated reply, a
 reply with no text), *Claude declined to evaluate this place.* (a refusal stop reason, or the
-content-filter 400), and *Evaluation failed (see server log).* for anything else, including an open
-circuit breaker, which carries no HTTP status. Never an exception's message or class name. The
-refusal and unreadable-reply cases used to be told apart only by message text; they are now their own
-exception types (still `IllegalStateException`s). The completion sweep stays as the floor.
+content-filter 400), and *Evaluation failed (see server log).* for anything else. Never an exception's
+message or class name. The completion sweep stays as the floor. Two refusals where no request was made
+get their own phrases and do not stop the run: *Not attempted: Claude calls are paused after repeated
+failures. Try again in a minute.* when the circuit breaker refuses a call (it opens after the first
+wave of rejected calls and stays open for 60 s, so a rerun inside that minute meets it), and *Not
+attempted: too many Claude calls were already waiting.* when the `claude` bulkhead gives up after its
+wait.
+
+The engine's `errorType` vocabulary changed, and this is stated plainly: a content-filter 400 is now
+`content_filter` (it was `anthropic_400`), a refusal is `refusal` and a truncated, empty or no-text reply
+is `reply_unreadable` (all three were `IllegalStateException`), a call the circuit breaker refuses is
+`circuit_open` (it was `CallNotPermittedException`) and a bulkhead refusal is `bulkhead_full`. Refusal
+and unreadable replies are their own exception types (still `IllegalStateException`s), and the aurora
+and strategy engines' "no text" failures use the same type as the forecast engine's. The string is not
+persisted for a synchronous call (`api_call_log.error_type` is written only by the batch path, from the
+batch outcome) and nothing outside `EvaluationFailure` reads it, so no stored value or reader changes.
 
 A 401 or 403 from Claude stops that run (and only that run): the failure is recorded on the run's
 progress inside the `claude` bulkhead, before the permit is released, so each place that was waiting
@@ -42,6 +54,15 @@ for the newest both found the later one, so the earlier task's update was never 
 panel could show a place frozen on "Cloud". It showed up the moment the evaluation phase began
 publishing FAILED from parallel threads.
 
+A finished run's panel header reads "(Stopped early)" for a PARTIAL run that carries a reason (a real
+rejected-key run is PARTIAL, because triaged places count as an outcome, and used to read "(Complete)"
+above a red "the run was stopped" line); FAILED still reads "(Failed)". A stopped run ends in phase
+`EARLY_STOP` whichever exit the pipeline took.
+
+The legacy wildlife path (no trigger reaches it) now closes its `job_run` with tasks, not hourly rows,
+as its succeeded count.
+
 The progress panel does not offer Retry when `retryable` is false (re-running the failed places would
 fail them the same way) and says so in one line: "Retry is not offered: fix the API key, then start the
-run again." A payload without the field keeps the button.
+run again." (only on a run that has failed places; where Retry would have been). A payload without
+the field keeps the button.
