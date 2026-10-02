@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import ManageView from '../components/ManageView.jsx';
 import {
-  TWO_FAILURES, NO_FAILURES, ONE_FAILURE, task, summaryEvent, completeEvent, createFeeds,
+  TWO_FAILURES, NO_FAILURES, ONE_FAILURE, RETRY_ACCEPTED, task, summaryEvent, completeEvent, createFeeds,
 } from './runProgressFixtures.js';
 
 // The Job Runs flow is ManageView (which owns `activeRunId`) -> JobRunsMetricsView -> the panel.
@@ -366,6 +366,31 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
       expect(screen.getAllByTestId('run-progress-panel')).toHaveLength(1);
       expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
       expect(feed.subscriptions).toEqual([41]);
+    });
+
+    it('says what was started on the promoted panel, which holds only the retried slots', async () => {
+      retryFailed.mockResolvedValue(RETRY_ACCEPTED);
+      await renderJobRuns();
+      await startRun(41);
+      await playFinished(41, TWO_FAILURES);
+      await press(retryButton());
+
+      // The retry run (id 6 in the server's answer) holds exactly the two slots it was given.
+      await playRunning(6, [task('east|b', 'East Fell', 'EVALUATING'), task('hill|a', 'Test Hill', 'EVALUATING')]);
+
+      const panel = screen.getByRole('region', { name: 'Run progress' });
+      expect(within(panel).getByTestId('retry-run-note').textContent).toBe(
+        'Retrying 2 slots. Left out: West Fell 2026-10-03 sunrise (The place is disabled or no longer exists.)');
+      expect(within(panel).getAllByTestId('run-progress-row')).toHaveLength(2);
+      expect(feed.subscriptions).toEqual([41, 6]);
+    });
+
+    it('shows no "Retrying" line on a panel that is not a promoted retry run', async () => {
+      await renderJobRuns();
+      await startRun(41);
+      await playFinished(41, TWO_FAILURES);
+
+      expect(screen.queryByTestId('retry-run-note')).toBeNull();
     });
 
     it('cannot be orphaned by Dismiss while the retry request is out', async () => {

@@ -9,9 +9,9 @@ import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
-import com.gregochr.goldenhour.model.RunProgress;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.EvaluationViewService;
+import com.gregochr.goldenhour.service.FailedSlotRetryService;
 import com.gregochr.goldenhour.service.ForecastCommand;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
@@ -131,6 +131,7 @@ public class ForecastController {
     private final RunProgressTracker progressTracker;
     private final Executor forecastExecutor;
     private final Clock clock;
+    private final FailedSlotRetryService retryService;
 
     /**
      * Constructs a {@code ForecastController}.
@@ -147,6 +148,7 @@ public class ForecastController {
      * @param forecastExecutor          the executor used for async forecast runs
      * @param clock                     supplies "today" on the UK civil calendar, via
      *                                  {@link ForecastHorizon}
+     * @param retryService              starts "Retry failed" runs for exactly the slots that failed
      */
     public ForecastController(ForecastEvaluationRepository repository,
             LocationService locationService, ForecastCommandFactory commandFactory,
@@ -155,7 +157,7 @@ public class ForecastController {
             ForecastDtoMapper dtoMapper, EvaluationViewService evaluationViewService,
             JobRunService jobRunService,
             RunProgressTracker progressTracker, Executor forecastExecutor,
-            Clock clock) {
+            Clock clock, FailedSlotRetryService retryService) {
         this.repository = repository;
         this.locationService = locationService;
         this.commandFactory = commandFactory;
@@ -167,6 +169,7 @@ public class ForecastController {
         this.progressTracker = progressTracker;
         this.forecastExecutor = forecastExecutor;
         this.clock = clock;
+        this.retryService = retryService;
     }
 
     /**
@@ -633,52 +636,39 @@ public class ForecastController {
     }
 
     /**
-     * Retries failed tasks from a previous run. ADMIN only.
+     * Retries the failed tasks of a previous run: a new run that re-evaluates exactly the slots
+     * (location, date, sunrise/sunset) that are FAILED in the original run's progress, under the
+     * original run's type. ADMIN only. See {@link FailedSlotRetryService} for what "the original
+     * run's type" can and cannot mean.
+     *
+     * <p>Answers 202 with {@code {status, runType, jobRunId, slots, skipped}} — {@code slots} is how
+     * many slots the new run was given and {@code skipped} lists the failed slots left out (place
+     * disabled, removed or no longer a sky location) with a reason each; 404 with no body when there
+     * is nothing to retry (unknown or evicted run, no failures, or no failed slot that can still be
+     * run); and 409 with {@code {error}} when the run's failures cannot be retried (stopped on a
+     * rejected API key, or a light-pollution run), in which case nothing is started.
      *
      * @param runId the job run ID whose failed tasks to retry
-     * @return 202 Accepted with new job run ID, or 404 if the run is not found or has no failures
+     * @return 202 Accepted with the new job run ID, 404 when there is nothing to retry, or 409
      */
     @PostMapping("/run/{runId}/retry-failed")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> retryFailed(@PathVariable long runId) {
-        RunProgress progress = progressTracker.getProgress(runId);
-        if (progress == null || progress.getFailedTasks().isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        var failedTasks = progress.getFailedTasks();
-        List<String> locationNames = failedTasks.stream()
-                .map(t -> t.locationName())
-                .distinct()
-                .toList();
-
-        List<LocationEntity> locations = locationService.findAllEnabled().stream()
-                .filter(loc -> locationNames.contains(loc.getName()))
-                .toList();
-
-        // The executor keeps only sky locations (an explicit list included), so a failed task
-        // whose place has since stopped being a sky subject is dropped there. When that is every
-        // one of them there is nothing to retry — answer like the no-failures case rather than
-        // start a run (and a job_run row) that evaluates nothing.
-        if (locations.stream().noneMatch(LocationEntity::hasColourTypes)) {
-            LOG.info("POST /api/forecast/run/{}/retry-failed — no failed location is a sky subject "
-                    + "any more, nothing to retry", runId);
-            return ResponseEntity.notFound().build();
-        }
-
-        List<LocalDate> dates = failedTasks.stream()
-                .map(t -> LocalDate.parse(t.targetDate()))
-                .distinct()
-                .toList();
-
-        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true, locations, dates);
-        JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, null, null);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
-
-        LOG.info("POST /api/forecast/run/{}/retry-failed — retrying {} failed tasks",
-                runId, failedTasks.size());
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(buildRunResponse("Retry run started", "SHORT_TERM", jobRun.getId()));
+        FailedSlotRetryService.Outcome outcome = retryService.retry(runId);
+        return switch (outcome) {
+            case FailedSlotRetryService.NothingToRetry nothing -> ResponseEntity.notFound().build();
+            case FailedSlotRetryService.Refused refused -> ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", refused.message()));
+            case FailedSlotRetryService.Started started -> {
+                LOG.info("POST /api/forecast/run/{}/retry-failed — run {} started with {} slot(s)",
+                        runId, started.jobRunId(), started.slots());
+                Map<String, Object> body = buildRunResponse("Retry run started",
+                        started.runType().name(), started.jobRunId());
+                body.put("slots", started.slots());
+                body.put("skipped", started.skipped());
+                yield ResponseEntity.status(HttpStatus.ACCEPTED).body(body);
+            }
+        };
     }
 
     /**

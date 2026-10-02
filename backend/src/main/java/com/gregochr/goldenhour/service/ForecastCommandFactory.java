@@ -103,6 +103,32 @@ public class ForecastCommandFactory {
     }
 
     /**
+     * Creates a command that evaluates exactly the given slots and nothing else — what "Retry failed"
+     * hands the executor.
+     *
+     * <p>The model and strategy are those {@code runType} resolves to <em>now</em>
+     * ({@link #resolveStrategy}), so a retry of a Very-Short-Term run uses Very-Short-Term's
+     * configuration and not Short-Term's. The original run's own configuration is not recoverable:
+     * the per-run {@code active_strategies} snapshot is never written for a hand-started run and its
+     * {@code evaluation_model} is null, so "the original settings" can only mean the current ones for
+     * the original run type. The dates are the slots' distinct dates (the executor filters the
+     * places-by-dates product down to {@code slots}), and there are no exclusions: an excluded slot
+     * was never a task, so it can never have failed.
+     *
+     * @param runType   the original run's type
+     * @param manual    whether this was triggered manually
+     * @param locations the (already resolved) locations the slots belong to
+     * @param slots     the slots to evaluate; the command carries a copy
+     * @return a fully resolved command
+     */
+    public ForecastCommand createForSlots(RunType runType, boolean manual,
+            List<LocationEntity> locations, Set<ForecastSlot> slots) {
+        List<LocalDate> slotDates = slots.stream().map(ForecastSlot::date).distinct().sorted().toList();
+        return new ForecastCommand(runType, slotDates, locations, resolveStrategy(runType), manual,
+                Set.of(), Set.of(), Set.copyOf(slots));
+    }
+
+    /**
      * Returns the default dates for the given run type.
      *
      * <p>The range is anchored on the UK civil date, not UTC: every date it produces names a solar

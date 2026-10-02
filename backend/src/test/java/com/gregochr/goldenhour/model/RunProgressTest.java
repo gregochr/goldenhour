@@ -181,4 +181,63 @@ class RunProgressTest {
         assertThat(nothingCompleted.getStatus()).isEqualTo(RunProgress.RunStatus.FAILED);
         assertThat(someCompleted.getStatus()).isEqualTo(RunProgress.RunStatus.PARTIAL);
     }
+
+    private static RunProgress runWithOneFailedTask(String targetDate, String targetType) {
+        RunProgress progress = new RunProgress(1L);
+        String key = "Loc|" + targetDate + "|" + targetType;
+        progress.registerTask(key, "Loc", targetDate, targetType);
+        progress.updateTask(new LocationTaskEvent(RunProgressTest.class, 1L, key, "Loc",
+                targetDate, targetType, LocationTaskState.FAILED, "x", null));
+        return progress;
+    }
+
+    @Test
+    @DisplayName("a failed sunrise or sunset slot is retryable: there is no retry block")
+    void retryBlock_failedSkySlots_none() {
+        RunProgress sunset = runWithOneFailedTask("2026-10-03", "SUNSET");
+        RunProgress sunrise = runWithOneFailedTask("2026-10-03", "SUNRISE");
+
+        assertThat(sunset.getRetryBlock()).isNull();
+        assertThat(sunrise.getRetryBlock()).isNull();
+        assertThat(sunset.isRetryable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a run stopped on a rejected key is blocked as API_KEY_REJECTED")
+    void retryBlock_stoppedRun_apiKeyRejected() {
+        RunProgress progress = runWithOneFailedTask("2026-10-03", "SUNSET");
+
+        progress.stop(STOPPED);
+
+        assertThat(progress.getRetryBlock()).isEqualTo(RunProgress.RetryBlock.API_KEY_REJECTED);
+        assertThat(progress.isRetryable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a failed Bortle task (date \"–\", event BORTLE) is blocked as LIGHT_POLLUTION")
+    void retryBlock_bortleTask_lightPollution() {
+        RunProgress progress = runWithOneFailedTask("–", "BORTLE");
+
+        assertThat(progress.getRetryBlock()).isEqualTo(RunProgress.RetryBlock.LIGHT_POLLUTION);
+        assertThat(progress.isRetryable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a failed task of any other non-slot type (HOURLY) is blocked as NOT_FORECAST_SLOTS")
+    void retryBlock_hourlyTask_notForecastSlots() {
+        RunProgress progress = runWithOneFailedTask("2026-10-03", "HOURLY");
+
+        assertThat(progress.getRetryBlock()).isEqualTo(RunProgress.RetryBlock.NOT_FORECAST_SLOTS);
+    }
+
+    @Test
+    @DisplayName("only FAILED tasks decide the block: a completed Bortle task does not block")
+    void retryBlock_completedBortleTask_none() {
+        RunProgress progress = new RunProgress(1L);
+        progress.registerTask("Loc|–|BORTLE", "Loc", "–", "BORTLE");
+        progress.updateTask(new LocationTaskEvent(RunProgressTest.class, 1L, "Loc|–|BORTLE", "Loc",
+                "–", "BORTLE", LocationTaskState.COMPLETE, null, null));
+
+        assertThat(progress.getRetryBlock()).isNull();
+    }
 }

@@ -80,15 +80,16 @@ describe('RunProgressPanel with the real retryFailed', () => {
   });
 
   it('hands the retry run id from a 202 to the parent', async () => {
-    apiClient.post.mockResolvedValue({
-      data: { status: 'Retry run started', runType: 'SHORT_TERM', jobRunId: 77 },
-    });
+    const answer = {
+      status: 'Retry run started', runType: 'VERY_SHORT_TERM', jobRunId: 77, slots: 2, skipped: [],
+    };
+    apiClient.post.mockResolvedValue({ data: answer });
     const onRetryStarted = vi.fn();
     await renderKeptRun({ onRetryStarted });
 
     await pressRetry();
 
-    expect(onRetryStarted).toHaveBeenCalledExactlyOnceWith(77);
+    expect(onRetryStarted).toHaveBeenCalledExactlyOnceWith(77, answer);
   });
 
   it('treats a 2xx with an empty body as started, not failed', async () => {
@@ -100,6 +101,6 @@ describe('RunProgressPanel with the real retryFailed', () => {
 
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('status').textContent).toBe('Retry started.');
-    expect(onRetryStarted).toHaveBeenCalledExactlyOnceWith(undefined);
+    expect(onRetryStarted).toHaveBeenCalledExactlyOnceWith(undefined, '');
   });
 });

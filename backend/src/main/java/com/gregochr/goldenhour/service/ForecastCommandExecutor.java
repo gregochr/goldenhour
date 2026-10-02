@@ -254,8 +254,9 @@ public class ForecastCommandExecutor {
         } else {
             Set<String> excludedSlots = command.excludedSlots() != null
                     ? command.excludedSlots() : Set.of();
+            Set<ForecastSlot> slots = command.slots() != null ? command.slots() : Set.of();
             results = executeThreePhasePipeline(locations, dates, enabledStrategies,
-                    evaluationModel, runType, jobRun, excludedSlots,
+                    evaluationModel, runType, jobRun, excludedSlots, slots,
                     command.triggeredManually());
         }
 
@@ -278,9 +279,25 @@ public class ForecastCommandExecutor {
 
     private List<ForecastEvaluationEntity> executeThreePhasePipeline(
             List<LocationEntity> locations, List<LocalDate> dates,
-            List<OptimisationStrategyEntity> enabledStrategies,
+            List<OptimisationStrategyEntity> configuredStrategies,
             EvaluationModel evaluationModel, RunType runType, JobRunEntity jobRun,
-            Set<String> excludedSlots, boolean triggeredManually) {
+            Set<String> excludedSlots, Set<ForecastSlot> slots, boolean triggeredManually) {
+
+        // Sentinel sampling stands down for an explicit slot list. It evaluates a region's sentinel
+        // places first and, when they all rate low, writes a canned low result for the region's other
+        // slots without asking Claude. Over a handful of named slots that would pick a "sentinel" among
+        // them and then answer for the rest: a guess recorded as a result, which is the opposite of
+        // retrying what failed. Each named slot is evaluated. (Weather triage and TIDE_ALIGNMENT are
+        // per-slot checks, so they still apply; the stability filter is bypassed for a manual run.)
+        List<OptimisationStrategyEntity> enabledStrategies = slots.isEmpty()
+                ? configuredStrategies
+                : configuredStrategies.stream()
+                        .filter(s -> s.getStrategyType() != OptimisationStrategyType.SENTINEL_SAMPLING)
+                        .toList();
+        if (enabledStrategies.size() != configuredStrategies.size()) {
+            LOG.info("Run {}: sentinel sampling not applied to an explicit list of {} slot(s)",
+                    jobRun.getId(), slots.size());
+        }
 
         int succeeded = 0;
         int failed = 0;
@@ -310,6 +327,13 @@ public class ForecastCommandExecutor {
                 }
 
                 for (TargetType targetType : applicableTypes) {
+                    // An explicit slot list (a retry) makes the places-by-dates product a search space
+                    // and nothing more: a slot that is not named never becomes a task at all, so it is
+                    // neither evaluated nor shown as skipped in this run's progress.
+                    if (!slots.isEmpty() && !slots.contains(
+                            new ForecastSlot(location.getName(), targetDate, targetType))) {
+                        continue;
+                    }
                     String taskKey = location.getName() + "|" + targetDate + "|" + targetType;
                     allTaskKeys.add(new String[]{taskKey, location.getName(),
                             targetDate.toString(), targetType.name()});

@@ -490,7 +490,10 @@ public class RunProgressTracker {
         event.put("durationMs", progress.getElapsedMs());
         event.put("failedTasks", failedTasks);
         event.put("reason", progress.getFailureReason());
-        event.put("retryable", progress.isRetryable());
+        RunProgress.RetryBlock retryBlock = progress.getRetryBlock();
+        event.put("retryable", retryBlock == null);
+        // Why Retry is not offered, so the panel can say the right thing for each case: null when it is.
+        event.put("retryBlockedReason", retryBlock != null ? retryBlock.name() : null);
         return event;
     }
 }

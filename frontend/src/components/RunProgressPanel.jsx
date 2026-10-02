@@ -4,7 +4,7 @@ import { subscribeToRunProgress, retryFailed } from '../api/runProgressApi';
 import RunProgressRow from './RunProgressRow';
 import { apiErrorMessage } from '../utils/apiError.js';
 import { BUSY_BUTTON, BUSY_BUTTON_SECONDARY } from '../utils/busyButton.js';
-import { needsAttention, stoppedEarly } from '../utils/runOutcome.js';
+import { needsAttention, retryNotOfferedLine, stoppedEarly } from '../utils/runOutcome.js';
 
 /**
  * The backend answers 404 with an empty body both when the run is unknown (never started, evicted
@@ -16,8 +16,6 @@ const NOTHING_TO_RETRY = "Nothing to retry: this run's failed places can no long
 const RETRY_FALLBACK = 'Could not start the retry.';
 const RETRY_STARTED_UNNAMED = 'Retry started.';
 const RUN_EXPIRED = "This run's progress is no longer available.";
-/** Shown in the place of Retry when the server says re-running the failed places cannot help (a rejected API key). */
-const RETRY_NOT_OFFERED = 'Retry is not offered: fix the API key, then start the run again.';
 
 /** The word shown after the title of a finished run. */
 const statusWord = (payload) => {
@@ -35,8 +33,9 @@ const statusWord = (payload) => {
  * these removes itself through {@code onAutoClear}, as it always did; one that needs attention stays,
  * with its failed places, the run's reason and the Retry button (only when there are failed places to
  * retry and the payload does not say {@code retryable: false}, as it does for a run stopped on a
- * rejected API key; where that button would have been, one plain line says why it is not offered, so
- * a run with no failed place shows neither), until the admin presses Dismiss or the parent replaces
+ * rejected API key or a light-pollution run; where that button would have been, one plain line says why
+ * it is not offered, worded from the payload's {@code retryBlockedReason}, so a run with no failed
+ * place shows neither), until the admin presses Dismiss or the parent replaces
  * it. Both happen inside this component, so the parent never unmounts it in the tick it completes.
  *
  * <p>The status word after a finished run's title follows the payload: "(Failed)" for FAILED,
@@ -57,12 +56,15 @@ const statusWord = (payload) => {
  *   to refresh the job runs grid.
  * @param {function} [props.onAutoClear] - Called when the run completes with no failures: remove me.
  * @param {function} [props.onDismiss] - Called by the Dismiss button.
- * @param {function} [props.onRetryStarted] - Called with the retry run's job run id when a retry is
- *   accepted (or with undefined if the answer carried none), so the parent can make it the active run.
+ * @param {function} [props.onRetryStarted] - Called with the retry run's job run id and the server's whole
+ *   answer when a retry is accepted (the id is undefined if the answer carried none), so the parent can
+ *   make it the active run and tell its panel what was started.
  * @param {boolean} [props.focusOnMount] - Moves focus to the header on mount (a promoted retry run).
+ * @param {string} [props.startedNote] - What the retry that started THIS run was given ("Retrying 2
+ *   slots."), shown under the header of a promoted retry run.
  */
 const RunProgressPanel = ({
-  jobRunId, onComplete, onAutoClear, onDismiss, onRetryStarted, focusOnMount,
+  jobRunId, onComplete, onAutoClear, onDismiss, onRetryStarted, focusOnMount, startedNote,
 }) => {
   const [tasks, setTasks] = useState({});
   const [summary, setSummary] = useState(null);
@@ -121,11 +123,11 @@ const RunProgressPanel = ({
     try {
       const result = await retryFailed(jobRunId);
       if (result?.jobRunId) {
-        callbacks.current.onRetryStarted?.(result.jobRunId);
+        callbacks.current.onRetryStarted?.(result.jobRunId, result);
       } else {
         // Accepted but unnamed: not a failure, and nothing to follow. Say so, refuse a second press.
         setRetryStartedUnnamed(true);
-        callbacks.current.onRetryStarted?.(undefined);
+        callbacks.current.onRetryStarted?.(undefined, result);
       }
     } catch (err) {
       const message = err?.response?.status === 404
@@ -206,6 +208,13 @@ const RunProgressPanel = ({
         </p>
       </div>
 
+      {/* What the retry that started this run was given. Present only on a promoted retry run. */}
+      {startedNote && (
+        <p className="text-xs text-plex-text-secondary" role="status" data-testid="retry-run-note">
+          {startedNote}
+        </p>
+      )}
+
       {/* Progress bar */}
       <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden flex">
         {pctComplete > 0 && (
@@ -278,7 +287,7 @@ const RunProgressPanel = ({
         {complete && !retryable && failed > 0 && (
           // In the place of the Retry button: re-running the failed places would fail them the same way.
           <p className="text-xs text-plex-text-secondary self-center" data-testid="retry-not-offered">
-            {RETRY_NOT_OFFERED}
+            {retryNotOfferedLine(summary)}
           </p>
         )}
         {(complete || expired) && onDismiss && (
@@ -326,6 +335,7 @@ RunProgressPanel.propTypes = {
   onDismiss: PropTypes.func,
   onRetryStarted: PropTypes.func,
   focusOnMount: PropTypes.bool,
+  startedNote: PropTypes.string,
 };
 
 export default RunProgressPanel;

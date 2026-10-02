@@ -25,6 +25,7 @@ import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.CloudVerificationBackfillRunner;
 import com.gregochr.goldenhour.service.CloudVerificationService;
 import com.gregochr.goldenhour.service.ForecastCalibrationService;
+import com.gregochr.goldenhour.service.FailedSlotRetryService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
@@ -198,6 +199,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected RunProgressTracker progressTracker;
+
+    @MockitoBean
+    protected FailedSlotRetryService failedSlotRetryService;
 
     @MockitoBean
     protected ForceSubmitBatchService forceSubmitBatchService;
