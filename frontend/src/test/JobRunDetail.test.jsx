@@ -527,6 +527,42 @@ describe('JobRunDetail — Failed calls section', () => {
     expect(screen.getAllByText('OPEN_METEO').length).toBeGreaterThan(0);
     expect(screen.getByText('Timeout after 30s')).toBeInTheDocument();
   });
+
+  it('shows the HTTP status and the error type beside the service for a failed Claude call', async () => {
+    getApiCalls.mockResolvedValue({ data: [{
+      ...ANTHROPIC_CALL, id: 7, succeeded: false, statusCode: 401, errorType: 'anthropic_401',
+      errorMessage: 'invalid x-api-key',
+    }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('failed-call-heading')).toHaveTextContent('ANTHROPIC · 401 · anthropic_401');
+    expect(screen.getByText('invalid x-api-key')).toBeInTheDocument();
+  });
+
+  it('omits the status for a failure that had none and shows the error type alone', async () => {
+    getApiCalls.mockResolvedValue({ data: [{
+      ...ANTHROPIC_CALL, id: 8, succeeded: false, statusCode: null, errorType: 'circuit_open',
+      errorMessage: 'CircuitBreaker is OPEN',
+    }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('failed-call-heading').textContent).toBe('ANTHROPIC · circuit_open');
+  });
+
+  it('shows the service alone when a failed call carries neither a status nor an error type', async () => {
+    getApiCalls.mockResolvedValue({ data: [{
+      ...OPEN_METEO_CALL, id: 9, succeeded: false, errorMessage: 'Timeout after 30s',
+    }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('failed-call-heading').textContent).toBe('OPEN_METEO');
+  });
 });
 
 describe('JobRunDetail — Total Cost section', () => {

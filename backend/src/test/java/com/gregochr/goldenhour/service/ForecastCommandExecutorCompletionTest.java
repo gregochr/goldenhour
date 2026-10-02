@@ -19,6 +19,8 @@ import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -326,6 +328,51 @@ class ForecastCommandExecutorCompletionTest {
         assertThat(complete.get("reason").asText()).isEqualTo(GENERIC);
         assertThat(complete.get("failed").asInt()).isEqualTo(2);
         verify(jobRunService).completeRun(jobRun, 0, 2, DATES);
+    }
+
+    /** A refusal exactly as Resilience4j throws it: from an open breaker of the given name. */
+    private static CallNotPermittedException refusedBy(String breakerName) {
+        CircuitBreaker breaker = CircuitBreaker.ofDefaults(breakerName);
+        breaker.transitionToOpenState();
+        return CallNotPermittedException.createCallNotPermittedException(breaker);
+    }
+
+    @Test
+    @DisplayName("a weather prefetch the Open-Meteo circuit breaker refused reads as paused (not as a failure to "
+            + "fetch, and not as 'stopped unexpectedly'); each place keeps its own 'could not be fetched' line")
+    void prefetchRefusedByOpenMeteoBreaker_runCompletesWithThePausedReason() {
+        stubModelAndStrategies(List.of());
+        stubEvaluable();
+        when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun)))
+                .thenThrow(refusedBy("open-meteo"));
+        stubWeatherFailsPerTask();
+
+        executor().execute(twoLiveSunsets(), jobRun);
+
+        JsonNode complete = theOnlyRunComplete();
+        assertThat(complete.get("status").asText()).isEqualTo("FAILED");
+        assertThat(complete.get("reason").asText()).isEqualTo(
+                "Weather data (Open-Meteo) calls are paused after repeated failures; nothing was updated. "
+                        + "Try again in a minute.");
+        assertThat(complete.get("failed").asInt()).isEqualTo(2);
+        assertThat(failedEvents()).allSatisfy(e -> assertThat(e.getErrorMessage())
+                .isEqualTo("Weather data fetch failed for " + e.getLocationName() + " SUNSET: "
+                        + "Weather data could not be fetched."));
+        verify(jobRunService).completeRun(jobRun, 0, 2, DATES);
+    }
+
+    @Test
+    @DisplayName("a prefetch refused by some OTHER circuit breaker is not a weather failure: the generic reason")
+    void prefetchRefusedByAnotherBreaker_runCompletesWithTheGenericReason() {
+        stubModelAndStrategies(List.of());
+        stubEvaluable();
+        when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun)))
+                .thenThrow(refusedBy("anthropic"));
+        stubWeatherFailsPerTask();
+
+        executor().execute(twoLiveSunsets(), jobRun);
+
+        assertThat(theOnlyRunComplete().get("reason").asText()).isEqualTo(GENERIC);
     }
 
     // -------------------------------------------------------------------------

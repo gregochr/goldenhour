@@ -1333,7 +1333,7 @@ class ForecastResultHandlerTest {
                 eq(null), eq(true), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(DATE), eq(SUNRISE));
+                eq(DATE), eq(SUNRISE), eq(null));
     }
 
     @Test
@@ -1360,7 +1360,7 @@ class ForecastResultHandlerTest {
                 eq(null), eq(true), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(DATE), eq(SUNRISE));
+                eq(DATE), eq(SUNRISE), eq(null));
     }
 
     @Test
@@ -1381,11 +1381,11 @@ class ForecastResultHandlerTest {
         assertThat(err.errorType()).isEqualTo("overloaded_error");
         verify(briefingEvaluationService, never()).writeFromBatch(any(), any());
         verify(jobRunService).logAnthropicApiCall(
-                eq(99L), eq(1500L), eq(500),
+                eq(99L), eq(1500L), eq(null),
                 eq("busy"), eq(false), eq("busy"),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(DATE), eq(SUNRISE));
+                eq(DATE), eq(SUNRISE), eq("overloaded_error"));
     }
 
     @Test

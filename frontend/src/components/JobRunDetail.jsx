@@ -349,7 +349,11 @@ const JobRunDetail = ({ jobRun }) => {
               .filter((call) => !call.succeeded)
               .map((call) => (
                 <div key={call.id} className="text-xs text-red-400 bg-red-900/20 p-2 rounded">
-                  <div className="font-medium">{call.service}</div>
+                  <div className="font-medium" data-testid="failed-call-heading">
+                    {[call.service, call.statusCode, call.errorType]
+                      .filter((part) => part !== null && part !== undefined && part !== '')
+                      .join(' · ')}
+                  </div>
                   <div className="text-red-400">{call.errorMessage}</div>
                 </div>
               ))}

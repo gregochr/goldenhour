@@ -12,7 +12,6 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.TokenUsage;
-import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionService;
@@ -261,8 +260,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                     task.model(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             LOG.warn("evaluateNow forecast {} failed: {}", task.taskKey(), e.getMessage());
-            outcome = ClaudeSyncOutcome.failure(classifyError(e), e.getMessage(),
-                    task.model(), System.currentTimeMillis() - start);
+            outcome = ClaudeSyncOutcome.failure(e, task.model(), System.currentTimeMillis() - start);
         }
 
         EvaluationResult result = handler.handleSyncResult(task, outcome, context);
@@ -304,8 +302,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                     task.model(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             LOG.warn("evaluateNow aurora {} failed: {}", task.taskKey(), e.getMessage());
-            outcome = ClaudeSyncOutcome.failure(classifyError(e), e.getMessage(),
-                    task.model(), System.currentTimeMillis() - start);
+            outcome = ClaudeSyncOutcome.failure(e, task.model(), System.currentTimeMillis() - start);
         }
 
         EvaluationResult result = handler.handleSyncResult(task, outcome, context);
@@ -342,10 +339,6 @@ public class EvaluationServiceImpl implements EvaluationService {
                 u.outputTokens(),
                 u.cacheCreationInputTokens().orElse(0L),
                 u.cacheReadInputTokens().orElse(0L));
-    }
-
-    private String classifyError(Exception e) {
-        return EvaluationFailure.errorTypeOf(e);
     }
 
     // Narrows a homogeneous task list to its concrete type. submit() has already proven every

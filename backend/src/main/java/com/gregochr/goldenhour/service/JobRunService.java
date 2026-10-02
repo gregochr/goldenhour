@@ -35,6 +35,9 @@ public class JobRunService {
     /** Cap on diagnostic raw response bodies stored in {@code api_call_log.response_body}. */
     private static final int RESPONSE_BODY_MAX_CHARS = 16000;
 
+    /** {@code api_call_log.error_type} is {@code VARCHAR(100)} (V99). */
+    private static final int ERROR_TYPE_MAX_CHARS = 100;
+
     private final JobRunRepository jobRunRepository;
     private final ApiCallLogRepository apiCallLogRepository;
     private final ForecastBatchRepository forecastBatchRepository;
@@ -137,6 +140,38 @@ public class JobRunService {
             boolean succeeded, String errorMessage, EvaluationModel model,
             TokenUsage tokenUsage, boolean isBatch,
             LocalDate targetDate, TargetType targetType) {
+        return logAnthropicApiCall(jobRunId, durationMs, statusCode, responseBody, succeeded,
+                errorMessage, model, tokenUsage, isBatch, targetDate, targetType, null);
+    }
+
+    /**
+     * Records an Anthropic API call with token usage and, for a failure, why it failed.
+     *
+     * <p>{@code statusCode} is the HTTP status Anthropic answered with, or {@code null} when the
+     * call failed without one (a connection failure, an unreadable reply, a refusal, a circuit breaker
+     * refusing the call); {@code succeeded} is what says whether the call failed. {@code errorType} is
+     * the {@code EvaluationFailure} vocabulary ({@code anthropic_401}, {@code circuit_open}, …),
+     * capped to the column's 100 characters.
+     *
+     * @param jobRunId       the job run ID
+     * @param durationMs     duration in milliseconds
+     * @param statusCode     HTTP status code, or null when the failure carried none
+     * @param responseBody   response body on error, or null on success
+     * @param succeeded      true if the call succeeded
+     * @param errorMessage   brief error message if failed, or null
+     * @param model          evaluation model (HAIKU, SONNET, or OPUS)
+     * @param tokenUsage     token counts from the API response
+     * @param isBatch        whether this was a batch API call
+     * @param targetDate     target date for forecast evaluations, or null
+     * @param targetType     target type (SUNRISE/SUNSET), or null
+     * @param errorType      short classification of the failure, or null on success
+     * @return the newly created API call log entity
+     */
+    public ApiCallLogEntity logAnthropicApiCall(Long jobRunId,
+            long durationMs, Integer statusCode, String responseBody,
+            boolean succeeded, String errorMessage, EvaluationModel model,
+            TokenUsage tokenUsage, boolean isBatch,
+            LocalDate targetDate, TargetType targetType, String errorType) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage, isBatch);
 
@@ -162,6 +197,7 @@ public class JobRunService {
                 .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
                 .isBatch(isBatch)
                 .costMicroDollars(costMicroDollars)
+                .errorType(truncate(errorType, ERROR_TYPE_MAX_CHARS))
                 .build();
         return apiCallLogRepository.save(log);
     }

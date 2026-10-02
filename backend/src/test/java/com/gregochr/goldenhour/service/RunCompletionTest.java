@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunProgress;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -84,6 +86,52 @@ class RunCompletionTest {
                 .isEqualTo("Weather data (Open-Meteo) could not be fetched; nothing was updated.");
         assertThat(RunCompletion.reasonForForecastRun(
                 new IllegalStateException("wrapper", new ResourceAccessException("I/O error"))))
+                .isEqualTo("Weather data (Open-Meteo) could not be fetched; nothing was updated.");
+    }
+
+    private static final String PAUSED = "Weather data (Open-Meteo) calls are paused after repeated failures; "
+            + "nothing was updated. Try again in a minute.";
+
+    /** A refusal exactly as Resilience4j throws it: from an open breaker of the given name. */
+    private static CallNotPermittedException refusedBy(String breakerName) {
+        CircuitBreaker breaker = CircuitBreaker.ofDefaults(breakerName);
+        breaker.transitionToOpenState();
+        return CallNotPermittedException.createCallNotPermittedException(breaker);
+    }
+
+    @Test
+    @DisplayName("a refusal by the Open-Meteo breaker, identified by the breaker's name, gets the paused reason")
+    void reasonForForecastRun_openMeteoBreakerRefusal_getsPausedReason() {
+        assertThat(RunCompletion.reasonForForecastRun(refusedBy("open-meteo"))).isEqualTo(PAUSED);
+        assertThat(RunCompletion.reasonForForecastRun(refusedBy("open-meteo-briefing"))).isEqualTo(PAUSED);
+    }
+
+    @Test
+    @DisplayName("the Open-Meteo refusal is found wherever it sits in the cause chain, and beats the weather-failure "
+            + "wrapper around it")
+    void reasonForForecastRun_openMeteoBreakerRefusalInChain_getsPausedReason() {
+        assertThat(RunCompletion.reasonForForecastRun(
+                new WeatherDataFetchException("x", "Durham", "SUNSET", refusedBy("open-meteo"))))
+                .isEqualTo(PAUSED);
+        assertThat(RunCompletion.reasonForForecastRun(
+                new IllegalStateException("wrapper", refusedBy("open-meteo"))))
+                .isEqualTo(PAUSED);
+    }
+
+    @Test
+    @DisplayName("a refusal by any OTHER breaker keeps the generic reason: it is not a weather failure")
+    void reasonForForecastRun_otherBreakerRefusal_keepsGenericReason() {
+        assertThat(RunCompletion.reasonForForecastRun(refusedBy("anthropic")))
+                .isEqualTo("The run stopped unexpectedly. See the server log.");
+        assertThat(RunCompletion.reasonForForecastRun(new IllegalStateException("wrapper", refusedBy("anthropic"))))
+                .isEqualTo("The run stopped unexpectedly. See the server log.");
+    }
+
+    @Test
+    @DisplayName("another breaker's refusal wrapped in a weather failure still reads as a weather failure, not paused")
+    void reasonForForecastRun_otherBreakerRefusalInsideWeatherFailure_getsWeatherReason() {
+        assertThat(RunCompletion.reasonForForecastRun(
+                new WeatherDataFetchException("x", "Durham", "SUNSET", refusedBy("anthropic"))))
                 .isEqualTo("Weather data (Open-Meteo) could not be fetched; nothing was updated.");
     }
 
