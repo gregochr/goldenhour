@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
@@ -223,6 +224,52 @@ class BortleEnrichmentServiceTest {
         verify(jobRunService, never()).logApiCall(
                 anyLong(), eq(ServiceName.LIGHT_POLLUTION), anyString(),
                 anyString(), isNull(), anyLong(), any(), isNull(), anyBoolean(), anyString());
+    }
+
+    @Test
+    @DisplayName("enrichAll completes the job_run and the tracker once each on a normal run")
+    void enrichAll_normalRun_completesJobRunAndTrackerOnce() {
+        var loc = locationEntity("Bamburgh", 55.6, -1.7);
+        when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc));
+        when(lightPollutionClient.querySkyBrightness(55.6, -1.7, "key"))
+                .thenReturn(new SkyBrightnessResult(21.75, 3));
+
+        service.enrichAll("key", stubJobRun);
+
+        verify(jobRunService, times(1)).completeRun(stubJobRun, 1, 0);
+        verify(progressTracker, times(1)).completeRun(1L);
+        verify(progressTracker, never()).failRun(anyLong(), anyString());
+    }
+
+    @Test
+    @DisplayName("a throw part-way through is not silent: the tracker is told the run failed with the fixed "
+            + "reason and the job_run is closed, and nothing escapes")
+    void enrichAll_clientThrows_runStillCompletes() {
+        var loc = locationEntity("Bamburgh", 55.6, -1.7);
+        when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc));
+        when(lightPollutionClient.querySkyBrightness(55.6, -1.7, "key"))
+                .thenThrow(new IllegalStateException("socket reset key=secret"));
+
+        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key", stubJobRun);
+
+        assertThat(result.enriched()).isZero();
+        verify(progressTracker).failRun(1L, "The run stopped unexpectedly. See the server log.");
+        verify(jobRunService).completeRun(stubJobRun, 0, 0);
+        verify(progressTracker, never()).completeRun(anyLong());
+    }
+
+    @Test
+    @DisplayName("an Error part-way through gets the same completion and is rethrown")
+    void enrichAll_errorThrown_runCompletedThenRethrown() {
+        var loc = locationEntity("Bamburgh", 55.6, -1.7);
+        when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc));
+        AssertionError error = new AssertionError("boom");
+        when(lightPollutionClient.querySkyBrightness(55.6, -1.7, "key")).thenThrow(error);
+
+        assertThatThrownBy(() -> service.enrichAll("key", stubJobRun)).isSameAs(error);
+
+        verify(progressTracker).failRun(1L, "The run stopped unexpectedly. See the server log.");
+        verify(jobRunService).completeRun(stubJobRun, 0, 0);
     }
 
     // -------------------------------------------------------------------------

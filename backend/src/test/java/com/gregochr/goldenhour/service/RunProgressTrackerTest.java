@@ -437,4 +437,133 @@ class RunProgressTrackerTest {
         verify(graceScheduler).schedule(org.mockito.ArgumentMatchers.any(Runnable.class), anyLong(),
                 org.mockito.ArgumentMatchers.any());
     }
+
+    // -------------------------------------------------------------------------
+    // Completion is idempotent, and carries a reason when the run failed as a whole
+    // -------------------------------------------------------------------------
+
+    private static final String GENERIC_REASON = "The run stopped unexpectedly. See the server log.";
+
+    private static long runCompleteCount(RecordingEmitter emitter) {
+        return emitter.sent().stream().filter(e -> e.startsWith("run-complete|")).count();
+    }
+
+    @Test
+    @DisplayName("a second completeRun is a no-op: run-complete is broadcast once and the payload is unchanged")
+    void completeRun_twice_broadcastsOnce() throws Exception {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+
+        t.completeRun(7L);
+        String first = eventNamed(live, "run-complete");
+        t.completeRun(7L);
+
+        assertThat(runCompleteCount(live)).isEqualTo(1);
+        assertThat(eventNamed(live, "run-complete")).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("a normal completion carries a null reason, in the live and the retained payload")
+    void completeRun_normal_reasonIsNull() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+
+        t.completeRun(7L);
+        RecordingEmitter late = (RecordingEmitter) t.subscribe(7L);
+
+        assertThat(eventNamed(live, "run-complete")).contains("\"reason\":null");
+        assertThat(eventNamed(late, "run-complete")).contains("\"reason\":null");
+    }
+
+    @Test
+    @DisplayName("failRun on a run the tracker never held registers it and emits run-complete FAILED with the "
+            + "reason to a subscriber who was waiting")
+    void failRun_unregisteredRun_emitsFailedWithReason() {
+        RunProgressTracker t = recordingTracker();
+        RecordingEmitter waiting = (RecordingEmitter) t.subscribe(9L);
+
+        t.failRun(9L, GENERIC_REASON);
+
+        String complete = eventNamed(waiting, "run-complete");
+        assertThat(complete).contains("\"status\":\"FAILED\"").contains("\"total\":0")
+                .contains("\"failed\":0").contains("\"jobRunId\":9")
+                .contains("\"reason\":\"" + GENERIC_REASON + "\"");
+        assertThat(waiting.sent()).extracting(e -> e.substring(0, e.indexOf('|')))
+                .doesNotContain("run-expired");
+        assertThat(waiting.completed).isTrue();
+        assertThat(t.getProgress(9L).getStatus()).isEqualTo(RunProgress.RunStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("a subscriber arriving after failRun is replayed the identical run-complete, reason included")
+    void failRun_lateSubscriber_isReplayedTheReason() {
+        RunProgressTracker t = recordingTracker();
+        t.failRun(9L, GENERIC_REASON);
+
+        RecordingEmitter late = (RecordingEmitter) t.subscribe(9L);
+
+        assertThat(late.sent()).extracting(e -> e.substring(0, e.indexOf('|')))
+                .containsExactly("run-summary", "run-complete");
+        assertThat(eventNamed(late, "run-complete")).contains("\"status\":\"FAILED\"")
+                .contains("\"reason\":\"" + GENERIC_REASON + "\"");
+        assertThat(late.completed).isTrue();
+    }
+
+    @Test
+    @DisplayName("failRun on a registered run with a completed task reports PARTIAL with the reason")
+    void failRun_registeredRunWithCompletedTask_isPartial() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+
+        t.failRun(7L, GENERIC_REASON);
+
+        assertThat(eventNamed(live, "run-complete")).contains("\"status\":\"PARTIAL\"")
+                .contains("\"completed\":1").contains("\"failed\":1")
+                .contains("\"reason\":\"" + GENERIC_REASON + "\"");
+    }
+
+    @Test
+    @DisplayName("failRun after a completion is a no-op: first completion wins")
+    void failRun_afterCompleteRun_isNoOp() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+        t.completeRun(7L);
+        String first = eventNamed(live, "run-complete");
+
+        t.failRun(7L, GENERIC_REASON);
+
+        assertThat(runCompleteCount(live)).isEqualTo(1);
+        assertThat(eventNamed(live, "run-complete")).isEqualTo(first);
+        assertThat(t.getProgress(7L).getFailureReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("noteFailure sets the reason that a later completeRun carries")
+    void noteFailure_thenCompleteRun_carriesReason() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+
+        t.noteFailure(7L, GENERIC_REASON);
+        assertThat(runCompleteCount(live)).isZero(); // noting is not completing
+
+        t.completeRun(7L);
+
+        assertThat(eventNamed(live, "run-complete"))
+                .contains("\"reason\":\"" + GENERIC_REASON + "\"").contains("\"status\":\"PARTIAL\"");
+    }
+
+    @Test
+    @DisplayName("noteFailure on an unknown run is a no-op and does not register it")
+    void noteFailure_unknownRun_noOp() {
+        RunProgressTracker t = recordingTracker();
+
+        t.noteFailure(404L, GENERIC_REASON);
+
+        assertThat(t.getProgress(404L)).isNull();
+    }
 }

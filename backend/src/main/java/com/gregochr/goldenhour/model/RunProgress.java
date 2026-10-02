@@ -29,6 +29,7 @@ public class RunProgress {
     private final ConcurrentHashMap<String, LocationTaskSnapshot> tasks = new ConcurrentHashMap<>();
     private final Instant startedAt;
     private volatile RunPhase phase = RunPhase.TRIAGE;
+    private volatile String failureReason;
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -180,19 +181,50 @@ public class RunProgress {
     }
 
     /**
-     * Derives the run status from the aggregated task states.
+     * Records that the run as a whole failed, independent of what its tasks say.
+     *
+     * <p>A run can fail before it has any task (the tracker then holds zero tasks, which would
+     * otherwise read as a clean {@link RunStatus#COMPLETE}) or part-way through. Once set,
+     * {@link #getStatus()} never reports {@code COMPLETE} or {@code RUNNING} for this run.
+     *
+     * @param reason a fixed, safe phrase describing why the run stopped (never a raw exception message)
+     */
+    public void markFailed(String reason) {
+        this.failureReason = reason;
+    }
+
+    /**
+     * Returns the run-level failure reason, or null if the run did not fail as a whole.
+     *
+     * @return the reason, or null
+     */
+    public String getFailureReason() {
+        return failureReason;
+    }
+
+    /**
+     * Derives the run status from the aggregated task states and any run-level failure.
+     *
+     * <p>With a run-level failure the status is {@code PARTIAL} when some task completed or was
+     * triaged before the run stopped, otherwise {@code FAILED} (including a run with no tasks).
+     * Without one, every task must be finished for the run to leave {@code RUNNING}; a run in which
+     * something failed is {@code FAILED} when nothing completed or was triaged (a skipped slot is
+     * not an outcome, so skips alongside failures do not soften it) and {@code PARTIAL} otherwise.
      *
      * @return the derived run status
      */
     public RunStatus getStatus() {
+        int completed = getCompleted();
+        int triaged = getTriaged();
+        if (failureReason != null) {
+            return completed == 0 && triaged == 0 ? RunStatus.FAILED : RunStatus.PARTIAL;
+        }
         int total = getTotal();
         if (total == 0) {
             return RunStatus.COMPLETE;
         }
-        int completed = getCompleted();
         int failed = getFailed();
         int skipped = getSkipped();
-        int triaged = getTriaged();
         int finished = completed + failed + skipped + triaged;
 
         if (finished < total) {
@@ -201,7 +233,7 @@ public class RunProgress {
         if (failed == 0) {
             return RunStatus.COMPLETE;
         }
-        if (completed == 0 && skipped == 0 && triaged == 0) {
+        if (completed == 0 && triaged == 0) {
             return RunStatus.FAILED;
         }
         return RunStatus.PARTIAL;

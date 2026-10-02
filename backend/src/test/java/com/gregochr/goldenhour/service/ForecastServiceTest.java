@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
+import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.ForecastRequest;
@@ -54,6 +55,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -497,6 +499,92 @@ class ForecastServiceTest {
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather service returned null");
         verifyNoInteractions(slotAtmosphereWriter);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() with an empty prefetch (the weather batch failed) publishes FAILED "
+            + "saying that, instead of the old no-pre-fetched-data text")
+    void fetchWeatherAndTriage_emptyPrefetch_failsSayingWeatherCouldNotBeFetched() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(42L);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+
+        assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, true, jobRun,
+                Map.of(), new CloudPointCache(Map.of())))
+                .isInstanceOf(WeatherDataFetchException.class);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        LocationTaskEvent failed = eventCaptor.getAllValues().get(1);
+        assertThat(failed.getState()).isEqualTo(LocationTaskState.FAILED);
+        assertThat(failed.getFailedStep()).isEqualTo("FETCHING_WEATHER");
+        assertThat(failed.getErrorMessage()).isEqualTo("Weather data fetch failed for " + DURHAM
+                + " SUNSET: Weather data could not be fetched.");
+        verify(openMeteoService, never()).getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any());
+    }
+
+    @Test
+    @DisplayName("runForecasts() also publishes a raw exception message capped at 200 characters, while the "
+            + "thrown exception keeps the whole of it")
+    void runForecasts_longExceptionMessage_publishedTruncated() {
+        LocalDate date = LocalDate.of(2026, 2, 20);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(42L);
+        String raw = "y".repeat(500);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenThrow(new RuntimeException(raw));
+
+        assertThatThrownBy(() -> forecastService.runForecasts(
+                DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(), EvaluationModel.SONNET, jobRun))
+                .isInstanceOf(WeatherDataFetchException.class)
+                .hasMessageContaining(raw);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        LocationTaskEvent failed = eventCaptor.getAllValues().get(1);
+        assertThat(failed.getState()).isEqualTo(LocationTaskState.FAILED);
+        assertThat(failed.getErrorMessage()).hasSize(200)
+                .startsWith("Weather data fetch failed for " + DURHAM + " SUNRISE: yyy").endsWith("yyy...");
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() publishes a raw exception message capped at 200 characters, "
+            + "while the thrown exception keeps the whole of it")
+    void fetchWeatherAndTriage_longExceptionMessage_publishedTruncated() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(42L);
+        String raw = "x".repeat(500);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenThrow(new RuntimeException(raw));
+
+        assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, true, jobRun))
+                .isInstanceOf(WeatherDataFetchException.class)
+                .hasMessageContaining(raw);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        String published = eventCaptor.getAllValues().get(1).getErrorMessage();
+        assertThat(published).hasSize(200).startsWith("Weather data fetch failed for " + DURHAM + " SUNSET: xxx")
+                .endsWith("xxx...");
+    }
+
+    @Test
+    @DisplayName("truncateForPanel() leaves 200 characters alone, shortens 201 to 200 ending '...', "
+            + "and passes null through")
+    void truncateForPanel_boundaries() {
+        assertThat(ForecastService.truncateForPanel("a".repeat(199))).isEqualTo("a".repeat(199));
+        assertThat(ForecastService.truncateForPanel("a".repeat(200))).isEqualTo("a".repeat(200));
+        assertThat(ForecastService.truncateForPanel("a".repeat(201))).isEqualTo("a".repeat(197) + "...");
+        assertThat(ForecastService.truncateForPanel(null)).isNull();
     }
 
     // ── Record conditions for every place — the seam (P1 fix, 2026-09-30) ──────────────────────

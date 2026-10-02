@@ -4,6 +4,7 @@ import { subscribeToRunProgress, retryFailed } from '../api/runProgressApi';
 import RunProgressRow from './RunProgressRow';
 import { apiErrorMessage } from '../utils/apiError.js';
 import { BUSY_BUTTON, BUSY_BUTTON_SECONDARY } from '../utils/busyButton.js';
+import { needsAttention } from '../utils/runOutcome.js';
 
 /**
  * The backend answers 404 with an empty body both when the run is unknown (never started, evicted
@@ -20,11 +21,13 @@ const RUN_EXPIRED = "This run's progress is no longer available.";
  * Live progress panel for a forecast run. Subscribes to SSE and displays
  * per-location task states with a summary progress bar.
  *
- * <p>Who decides whether the panel stays: the panel, from the completion payload's own {@code failed}
- * count (the server's count of FAILED tasks, the same set {@code retry-failed} acts on). A run with
- * none removes itself through {@code onAutoClear}, as it always did; a run with failures stays, with
- * its failed places and the Retry button, until the admin presses Dismiss or the parent replaces it.
- * Both happen inside this component, so the parent never unmounts it in the tick it completes.
+ * <p>Who decides whether the panel stays: the panel, from the completion payload ({@code needsAttention} in {@code utils/runOutcome.js}:
+ * its {@code failed} count, which is what {@code retry-failed} acts on, or a FAILED/PARTIAL status or a
+ * {@code reason}, which a run that failed before it had any task carries instead). A run with none of
+ * these removes itself through {@code onAutoClear}, as it always did; one that needs attention stays,
+ * with its failed places, the run's reason and the Retry button (only when there are failed places to
+ * retry), until the admin presses Dismiss or the parent replaces it. Both happen inside this
+ * component, so the parent never unmounts it in the tick it completes.
  *
  * <p>The server replays {@code run-complete} to a subscriber that arrives after the run finished, so
  * a panel remounted after a tab switch completes exactly as a live one does; and tells a subscriber
@@ -51,6 +54,7 @@ const RunProgressPanel = ({
   const [summary, setSummary] = useState(null);
   const [complete, setComplete] = useState(false);
   const [expired, setExpired] = useState(false);
+  const [reason, setReason] = useState(null);
   const [retrying, setRetrying] = useState(false);
   const [retryStartedUnnamed, setRetryStartedUnnamed] = useState(false);
   const [retryError, setRetryError] = useState(null);
@@ -79,11 +83,12 @@ const RunProgressPanel = ({
       (data) => {
         completeRef.current = true;
         setSummary(data);
+        setReason(data?.reason || null);
         setComplete(true);
         callbacks.current.onComplete?.(data);
-        // The completion payload's own count, not the task events': it is what the server's
+        // The completion payload's own say-so, not the task events': it is what the server's
         // retry-failed endpoint will act on, and it is one value rather than a tally this panel kept.
-        if (!(data?.failed > 0)) callbacks.current.onAutoClear?.();
+        if (!needsAttention(data)) callbacks.current.onAutoClear?.();
       },
       () => {}, // onError — silently handle
       () => setExpired(true),
@@ -172,13 +177,15 @@ const RunProgressPanel = ({
           Run Progress{' '}
           {complete ? (
             // The only text that says a kept panel has finished, so it is not the muted colour.
-            <span className="text-plex-text-secondary" data-testid="run-progress-status">(Complete)</span>
+            <span className="text-plex-text-secondary" data-testid="run-progress-status">
+              {summary?.status === 'FAILED' ? '(Failed)' : '(Complete)'}
+            </span>
           ) : phase ? `(${phase.replace(/_/g, ' ')})` : ''}
         </p>
         <p className="text-xs text-plex-text-muted">
           {complete ? `${durationSec || elapsedSec}s` : `${elapsedSec}s`}
-          {' | '}
-          {completed + failed + skipped + triaged}/{total}
+          {/* A run that failed before it had any task has no count to show: "0/0" would read as a result. */}
+          {!(complete && total === 0) && ` | ${completed + failed + skipped + triaged}/${total}`}
         </p>
       </div>
 
@@ -210,6 +217,15 @@ const RunProgressPanel = ({
         {failed > 0 && <span className="text-red-400">{failed} failed</span>}
         {skipped > 0 && <span className="text-slate-400">{skipped} skipped</span>}
       </div>
+
+      {/* Why the run failed as a whole, when the server says so. `reason` is set only by the completion
+          payload, in the same handler that sets `complete`, so it needs no separate guard. role="alert"
+          like the retry error below: it answers a run the admin started and is not otherwise announced. */}
+      {reason && (
+        <p className="text-xs text-red-400" role="alert" data-testid="run-progress-reason">
+          {reason}
+        </p>
+      )}
 
       {/* Task list */}
       <div className="max-h-64 overflow-y-auto divide-y divide-plex-border/30">

@@ -63,6 +63,12 @@ public class ForecastService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastService.class);
 
+    /** Longest task error message published to the progress panel (the full text stays in the log). */
+    static final int PANEL_MESSAGE_LIMIT = 200;
+
+    /** Marks a published message that was cut to {@link #PANEL_MESSAGE_LIMIT}. */
+    private static final String ELLIPSIS = "...";
+
     private final SolarService solarService;
     private final OpenMeteoService openMeteoService;
     private final ForecastDataAugmentor augmentor;
@@ -176,7 +182,7 @@ public class ForecastService {
                 String msg = "Weather data fetch failed for " + locationName + " " + type + ": " + e.getMessage();
                 LOG.error(msg);
                 publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                        LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
+                        LocationTaskState.FAILED, truncateForPanel(msg), "FETCHING_WEATHER");
                 throw new WeatherDataFetchException(msg, locationName, type.name(), e);
             }
 
@@ -334,7 +340,8 @@ public class ForecastService {
                 extraction = openMeteoService.getAtmosphericDataFromCache(
                         request, eventTime, prefetchedWeather);
                 if (extraction == null) {
-                    throw new RuntimeException("No pre-fetched data for " + locationName);
+                    throw new RuntimeException(
+                            "Weather data could not be fetched.");
                 }
             } else {
                 extraction = openMeteoService.getAtmosphericDataWithResponse(
@@ -345,7 +352,7 @@ public class ForecastService {
                     + ": " + e.getMessage();
             LOG.error(msg);
             publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
-                    LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
+                    LocationTaskState.FAILED, truncateForPanel(msg), "FETCHING_WEATHER");
             throw new WeatherDataFetchException(msg, locationName, targetType.name(), e);
         }
 
@@ -654,6 +661,21 @@ public class ForecastService {
         LOG.info("Forecast saved (WILDLIFE hourly comfort): {} {} (T+{}) — {} slot(s)",
                 locationName, date, daysAhead, results.size());
         return results;
+    }
+
+    /**
+     * Caps a task error message at {@link #PANEL_MESSAGE_LIMIT} characters before it is published,
+     * because it can carry a raw exception message (an HTTP client's can run to hundreds of
+     * characters). The full message stays in the server log.
+     *
+     * @param message the full message
+     * @return the message, shortened with a trailing ellipsis if it was over the limit
+     */
+    static String truncateForPanel(String message) {
+        if (message == null || message.length() <= PANEL_MESSAGE_LIMIT) {
+            return message;
+        }
+        return message.substring(0, PANEL_MESSAGE_LIMIT - ELLIPSIS.length()) + ELLIPSIS;
     }
 
     /**
