@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -9,6 +10,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.util.List;
 import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -36,6 +38,10 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @BeforeEach
     void setUp() {
         when(turnstileService.verify(any())).thenReturn(true);
+        // POST /api/forecast/run is only the vehicle for the exceptions below, and it refuses to
+        // start a run with no sky location to offer, so give it one (untyped = a sky subject).
+        when(locationService.findAllEnabled()).thenReturn(List.of(
+                LocationEntity.builder().id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build()));
     }
 
     @Test

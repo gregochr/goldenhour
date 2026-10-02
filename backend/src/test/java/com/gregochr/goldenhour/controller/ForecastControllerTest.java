@@ -923,6 +923,192 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.status").value("Forecast run started"));
     }
 
+    private static LocationEntity hide() {
+        return LocationEntity.builder().id(2L).name("Reserve Hide").lat(55.1).lon(-1.6)
+                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.WILDLIFE))
+                .build();
+    }
+
+    private static LocationEntity landscape() {
+        return LocationEntity.builder().id(3L).name("Hadrian's Wall").lat(55.0).lon(-2.3)
+                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.LANDSCAPE))
+                .build();
+    }
+
+    private static LocationEntity landscapeTwo() {
+        return LocationEntity.builder().id(5L).name("Hadrian's Wall East").lat(55.0).lon(-2.1)
+                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.LANDSCAPE))
+                .build();
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run naming a wildlife-only location returns 400 and starts no run")
+    void runForecast_namedWildlifeOnlyLocation_returns400AndStartsNothing() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
+
+        mockMvc.perform(post("/api/forecast/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"location\":\"Reserve Hide\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(
+                        "'Reserve Hide' is not a sky location: it has no sunrise or sunset forecast"));
+
+        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
+        verify(commandFactory, never()).create(any(), anyBoolean(), any(), any(), any());
+        verify(forecastCommandExecutor, never()).execute(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run naming a woodland-only location returns 400 and starts no run")
+    void runForecast_namedWoodlandOnlyLocation_returns400AndStartsNothing() throws Exception {
+        LocationEntity wood = LocationEntity.builder().id(4L).name("Canopy Wood").lat(55.2).lon(-1.9)
+                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.WOODLAND))
+                .build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, wood));
+
+        mockMvc.perform(post("/api/forecast/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"location\":\"Canopy Wood\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(
+                        "'Canopy Wood' is not a sky location: it has no sunrise or sunset forecast"));
+
+        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run naming a sky location still starts a run for exactly that place")
+    void runForecast_namedSkyLocation_startsRunForThatPlace() throws Exception {
+        LocationEntity wall = landscape();
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide(), wall));
+
+        mockMvc.perform(post("/api/forecast/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"location\":\"Hadrian's Wall\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LocationEntity>> locations = ArgumentCaptor.forClass(List.class);
+        verify(commandFactory).create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM), eq(true),
+                locations.capture(), any(), any());
+        assertThat(locations.getValue()).containsExactly(wall);
+        verify(jobRunService, times(1)).startRun(any(), anyBoolean(), any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run for all locations offers only the sky ones "
+            + "(the executor filters again as the enforcement point)")
+    void runForecast_allLocations_offersOnlySkyLocations() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
+
+        mockMvc.perform(post("/api/forecast/run"))
+                .andExpect(status().isAccepted());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LocationEntity>> locations = ArgumentCaptor.forClass(List.class);
+        verify(commandFactory).create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM), eq(true),
+                locations.capture(), any(), any());
+        assertThat(locations.getValue()).containsExactly(DURHAM);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run maxLocations=2 caps the sky list, not the whole roster")
+    void runForecast_maxLocations_countsOnlySkyLocations() throws Exception {
+        LocationEntity wall = landscape();
+        LocationEntity wood = LocationEntity.builder().id(4L).name("Canopy Wood").lat(55.2).lon(-1.9)
+                .locationType(java.util.Set.of(com.gregochr.goldenhour.entity.LocationType.WOODLAND))
+                .build();
+        // The first two entries are not sky subjects: a cap applied to the whole roster would
+        // hand the command none of the sky places at all.
+        when(locationService.findAllEnabled())
+                .thenReturn(List.of(hide(), wood, DURHAM, wall, landscapeTwo()));
+
+        mockMvc.perform(post("/api/forecast/run").param("maxLocations", "2"))
+                .andExpect(status().isAccepted());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LocationEntity>> locations = ArgumentCaptor.forClass(List.class);
+        verify(commandFactory).create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM), eq(true),
+                locations.capture(), any(), any());
+        assertThat(locations.getValue()).containsExactly(DURHAM, wall);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run for all locations returns 400 and starts no run "
+            + "when no enabled location is a sky subject")
+    void runForecast_noSkyLocationEnabled_returns400AndStartsNothing() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of(hide()));
+
+        mockMvc.perform(post("/api/forecast/run"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("No enabled sky locations: there is nothing to run"));
+
+        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
+        verify(commandFactory, never()).create(any(), anyBoolean(), any(), any(), any());
+        verify(forecastCommandExecutor, never()).execute(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run returns 400 and starts no run when no location is enabled at all")
+    void runForecast_noLocationsEnabled_returns400AndStartsNothing() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/forecast/run"))
+                .andExpect(status().isBadRequest());
+
+        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
+        verify(forecastCommandExecutor, never()).execute(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 and starts no run "
+            + "when every failed place has stopped being a sky subject")
+    void retryFailed_onlyNonSkyLocations_returns404AndStartsNothing() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
+        LocationTaskSnapshot failedTask = new LocationTaskSnapshot(
+                "Reserve Hide|2026-03-20|SUNSET", "Reserve Hide", "2026-03-20", "SUNSET",
+                LocationTaskState.FAILED, "error", "step", Instant.now());
+        RunProgress progress = mock(RunProgress.class);
+        when(progress.getFailedTasks()).thenReturn(List.of(failedTask));
+        when(progressTracker.getProgress(1L)).thenReturn(progress);
+
+        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
+                .andExpect(status().isNotFound());
+
+        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
+        verify(forecastCommandExecutor, never()).execute(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed retries when a failed place is a sky subject")
+    void retryFailed_skyAndNonSkyFailures_stillRetries() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
+        LocationTaskSnapshot skyFailure = new LocationTaskSnapshot(
+                "Durham UK|2026-03-20|SUNSET", "Durham UK", "2026-03-20", "SUNSET",
+                LocationTaskState.FAILED, "error", "step", Instant.now());
+        LocationTaskSnapshot hideFailure = new LocationTaskSnapshot(
+                "Reserve Hide|2026-03-20|SUNSET", "Reserve Hide", "2026-03-20", "SUNSET",
+                LocationTaskState.FAILED, "error", "step", Instant.now());
+        RunProgress progress = mock(RunProgress.class);
+        when(progress.getFailedTasks()).thenReturn(List.of(skyFailure, hideFailure));
+        when(progressTracker.getProgress(1L)).thenReturn(progress);
+
+        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
+                .andExpect(status().isAccepted());
+
+        verify(jobRunService, times(1)).startRun(any(), anyBoolean(), any(), any());
+    }
+
     private ForecastEvaluationEntity buildEntity(LocationEntity location, LocalDate targetDate) {
         return ForecastEvaluationEntity.builder()
                 .id(1L)

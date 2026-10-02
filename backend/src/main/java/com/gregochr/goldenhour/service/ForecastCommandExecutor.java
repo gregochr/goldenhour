@@ -177,12 +177,7 @@ public class ForecastCommandExecutor {
                 : jobRunService.startRun(runType, command.triggeredManually(),
                         evaluationModel, strategiesAudit);
 
-        // Resolve locations
-        List<LocationEntity> locations = command.locations() != null
-                ? command.locations()
-                : locationService.findAllEnabled().stream()
-                .filter(loc -> isWildlife ? isPureWildlife(loc) : loc.hasColourTypes())
-                .toList();
+        List<LocationEntity> locations = resolveLocations(command, isWildlife);
 
         // Apply drive-time exclusions (locations the user chose to skip this run)
         Set<String> excludedLocations = command.excludedLocations() != null
@@ -754,6 +749,45 @@ public class ForecastCommandExecutor {
                 || runType == RunType.LONG_TERM;
     }
 
+
+    /**
+     * Resolves the locations a run evaluates — the one place this engine decides which places
+     * are sky subjects.
+     *
+     * <p>A colour (sky) run keeps only locations for which {@link LocationEntity#hasColourTypes()}
+     * holds, whether the command named its locations or left them to be defaulted to every enabled
+     * one. The filter used to apply to the defaulted list alone, so {@code POST /api/forecast/run}
+     * (which always hands over an explicit list) sent a wildlife hide, a canopy wood or an
+     * out-of-season bluebell wood to the SKY prompt. WOODLAND and BLUEBELL places are not lost by
+     * this: this engine has never had a woodland or bluebell lane (those exist only in the
+     * scheduled batch pipeline), so they only ever reached the sky prompt by mistake here.
+     *
+     * <p>The wildlife branch is unchanged: an explicit list is used as given, the default is
+     * {@link #isPureWildlife}.
+     *
+     * @param command    the command being executed
+     * @param isWildlife whether the command's strategy is the wildlife one
+     * @return the locations to run, never null
+     */
+    private List<LocationEntity> resolveLocations(ForecastCommand command, boolean isWildlife) {
+        if (isWildlife) {
+            return command.locations() != null
+                    ? command.locations()
+                    : locationService.findAllEnabled().stream().filter(this::isPureWildlife).toList();
+        }
+        List<LocationEntity> candidates = command.locations() != null
+                ? command.locations()
+                : locationService.findAllEnabled();
+        List<LocationEntity> skyLocations = candidates.stream()
+                .filter(LocationEntity::hasColourTypes)
+                .toList();
+        int excluded = candidates.size() - skyLocations.size();
+        if (excluded > 0) {
+            LOG.info("Sky run excluded {} location(s) that are not sky subjects "
+                    + "(wildlife, woodland or bluebell only)", excluded);
+        }
+        return skyLocations;
+    }
 
     /**
      * Returns {@code true} if the location is exclusively a WILDLIFE location

@@ -55,9 +55,13 @@ import java.time.LocalDate;
  * WILDLIFE-only place, a BLUEBELL-only place out of season (both decided by
  * {@code BriefingService.isColourLocation}), an unregioned location, and a disabled one. This is deliberate, not a gap
  * to close — every topic reading these rows is shown per region, so a hide's reading would change
- * nothing a reader sees. The one known wrinkle: the hand-started {@code POST /api/forecast/run}
- * and {@code ForceSubmitBatchService.forceSubmit} apply no location-type filter, so a place named
- * there is recorded whatever its type.
+ * nothing a reader sees. The one wrinkle this had is closed (2026-10-02): the hand-started
+ * {@code POST /api/forecast/run} and {@code ForceSubmitBatchService.forceSubmit} used to apply no
+ * location-type filter, so a place named there was recorded whatever its type. Both now keep only
+ * sky subjects ({@code LocationEntity.hasColourTypes()}) before any fetch — the executor's
+ * {@code resolveLocations} for the former, {@code ForceSubmitBatchService.enabledSkyLocations} for
+ * the latter — so a hide, a wood or a bluebell wood named there never reaches
+ * {@code fetchWeatherAndTriage} and is not recorded.
  *
  * <p><b>Why submission time, not result time.</b> The atmospheric readings (aerosol, surge,
  * snow, humidity) live on the {@link AtmosphericData} computed at collection/submission and are
