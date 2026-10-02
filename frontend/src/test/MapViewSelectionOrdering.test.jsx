@@ -277,6 +277,20 @@ describe('MapView — a forecast of wildlife hides alone (no map event at all)',
       .toHaveTextContent('No sunrise or sunset forecast to show. Wildlife hides still carry a comfort forecast.');
   });
 
+  it('⚠️ the empty-state pill is for the UNSELECTED state: gone while the day card is up, back when it closes', async () => {
+    // The card paints over the pill and leaves its two ends sticking out from behind it.
+    await renderMap({ locations: [hide()], heat: noEvents(), forecastDates: [] });
+    expect(screen.getByTestId('wf-map-no-forecast')).toBeInTheDocument();
+
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-no-forecast')).toBeNull();
+
+    clickBackground();
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+    expect(screen.getByTestId('wf-map-no-forecast')).toBeInTheDocument();
+  });
+
   it('⚠️ a SKY location with no event keeps "No forecast to show." and gets no card', async () => {
     await renderMap({ locations: [makeLocation()], heat: noEvents(), forecastDates: [] });
     expect(screen.getByTestId('wf-map-no-forecast')).toHaveTextContent('No forecast to show.');

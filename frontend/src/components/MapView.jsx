@@ -5889,7 +5889,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 top-right key slot beside "This event is not scored yet"; on a map that is
                 genuinely blank the corner is not where the eye goes, which is the whole reason
                 this surface has to speak at all. */}
-            {noForecastLineShown && (
+            {/* Not while a day-mode card is up (`hideDayCard`): the reader has the comfort forecast in
+                front of them, the sentence is for the UNSELECTED state, and the card paints over a
+                centred or low pill and leaves its two ends sticking out from behind it. It returns
+                when the selection closes. No live region is involved either way — the pill is a plain
+                div, and the one status region on this tab is `map-status` (`statusLine`), which this
+                never touches — and it is a `MapLabels` obstacle only while it is in the DOM. */}
+            {noForecastLineShown && !hideDayCard && (
               <div className={hidesOnlyForecast ? 'wf-map-empty wf-map-empty-low' : 'wf-map-empty'}>
                 <div
                   data-testid="wf-map-no-forecast"
