@@ -1378,6 +1378,52 @@ describe('MapView heat — the counts footer', () => {
     expect(screen.getByTestId('wf-map-counts-rated')).toHaveTextContent('4 rated');
   });
 
+  it('⚠️ a hide\'s hourly comfort rows change nothing the footer says — rendered with and without, compared', async () => {
+    // The comfort forecast now shows on the callout and the sheet, and its HOURLY rows ride the same
+    // per-date entry the sunrise/sunset rows do. Nothing that paints the field, a pin or a chip reads
+    // `hourly`; this pins that by rendering the SAME roster twice — the hide with a full day of
+    // hourly rows (a wind and a rain figure each), then with none — and comparing what the footer
+    // says. (`heatSpots.test` pins that the hide's own scores stay withheld.)
+    const withHourly = (hourly) => {
+      const locations = makeLocations();
+      locations[0] = {
+        ...locations[0],
+        locationType: ['WILDLIFE'],
+        forecastsByDate: new Map([[TODAY, {
+          sunset: { solarEventTime: `${TODAY}T16:12:00` },
+          sunrise: { solarEventTime: `${TODAY}T08:24:00` },
+          hourly,
+        }]]),
+      };
+      return locations;
+    };
+    const hourly = [8, 9, 10, 11, 12].map((hour) => ({
+      solarEventTime: `${TODAY}T${String(hour).padStart(2, '0')}:00:00`,
+      temperatureCelsius: 9,
+      apparentTemperatureCelsius: 7,
+      windSpeed: 5,
+      windDirection: 180,
+      precipitationProbabilityPercent: 40,
+    }));
+    const footerFor = async (locations) => {
+      let view;
+      await act(async () => {
+        view = render(
+          <MapView locations={locations} date={TODAY} autoEventType={null} heat={heatProp()} />,
+        );
+      });
+      const foot = (await screen.findByTestId('wf-map-counts-footer')).textContent;
+      view.unmount();
+      return foot;
+    };
+
+    const without = await footerFor(withHourly([]));
+    const withRows = await footerFor(withHourly(hourly));
+
+    expect(without).toContain('5 of 5 shown');
+    expect(withRows).toBe(without);
+  });
+
   it('withholds the rated count when every drawn location is rated — never `5 of 5 · 5 rated`', async () => {
     // The codebase's own rule for a second number (`reachLens.formatLensCount`): with nothing
     // trimmed, a count equal to the one beside it is "a count dressed as a comparison".

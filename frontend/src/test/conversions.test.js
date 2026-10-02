@@ -10,6 +10,7 @@ import {
   formatRelativeTimeUk,
   formatElapsedSince,
   groupForecastsByDate,
+  colourForecastDates,
   bortleLabel,
   formatTideHighlight,
   moonIlluminationStyle,
@@ -388,6 +389,44 @@ describe('groupForecastsByDate', () => {
   it('returns null for missing type', () => {
     const result = groupForecastsByDate([sunrise]);
     expect(result.get('2026-02-20').sunset).toBeNull();
+  });
+});
+
+describe('colourForecastDates', () => {
+  // A wildlife hide's hourly comfort rows reach a day (T+5) further than the colour pipeline
+  // evaluates. `groupForecastsByDate` opens an entry for ANY row, so before this a date holding only
+  // those rows became a Sunrise/Sunset window on the Map tab that nothing rated.
+  const hourly = (date, time) => ({
+    targetDate: date, targetType: 'HOURLY', solarEventTime: `${date}T${time}`, forecastRunAt: `${date}T05:00:00Z`,
+  });
+  const sunset = (date) => ({
+    targetDate: date, targetType: 'SUNSET', forecastRunAt: `${date}T05:00:00Z`, rating: 3,
+  });
+
+  it('does not count a date that holds only hourly rows', () => {
+    const hide = { forecastsByDate: groupForecastsByDate([hourly('2026-10-07', '08:00:00')]) };
+    expect(hide.forecastsByDate.has('2026-10-07')).toBe(true);
+    expect(colourForecastDates([hide])).toEqual([]);
+  });
+
+  it('counts a date once a sunrise or a sunset stands behind it, for any location', () => {
+    const sky = { forecastsByDate: groupForecastsByDate([sunset('2026-10-04')]) };
+    const sunriseOnly = {
+      forecastsByDate: groupForecastsByDate([{
+        targetDate: '2026-10-05', targetType: 'SUNRISE', forecastRunAt: '2026-10-05T05:00:00Z',
+      }]),
+    };
+    expect(colourForecastDates([sky, sunriseOnly])).toEqual(['2026-10-04', '2026-10-05']);
+  });
+
+  it('drops the hide-only T+5 day while keeping the sky dates, deduplicated and sorted', () => {
+    const sky = { forecastsByDate: groupForecastsByDate([sunset('2026-10-04'), sunset('2026-10-03')]) };
+    const hide = {
+      forecastsByDate: groupForecastsByDate([
+        hourly('2026-10-03', '08:00:00'), hourly('2026-10-04', '08:00:00'), hourly('2026-10-08', '08:00:00'),
+      ]),
+    };
+    expect(colourForecastDates([hide, sky])).toEqual(['2026-10-03', '2026-10-04']);
   });
 });
 

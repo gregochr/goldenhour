@@ -2,7 +2,7 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import LocationFourDaySheet from '../components/LocationFourDaySheet.jsx';
 import {
   buildEclipseIndex, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex,
@@ -1337,5 +1337,200 @@ describe('LocationFourDaySheet — the eclipse spot line (L7)', () => {
     expect(line.textContent).not.toContain('up');
     expect(line.textContent).not.toContain('throughout');
     expect(line.textContent).not.toContain('not visible');
+  });
+});
+
+/**
+ * A pure wildlife hide on the sheet — its hourly comfort forecast REPLACES the window rows.
+ *
+ * <p><b>What breaks if these fail:</b> a hide's sheet goes back to a column of "Not scored yet"
+ * windows with nothing under them; the table loses its structure (headers, a row header per hour)
+ * and becomes a run of loose text; a day the hourly job has not written stops saying so; or a SKY
+ * location's sheet changes, which this must not touch.
+ */
+describe('LocationFourDaySheet — a wildlife hide shows its hourly comfort forecast', () => {
+  const HIDE_SPOT = { id: 21, name: 'Gosforth Nature Reserve', regionName: 'Northumberland' };
+
+  // UTC instants on BST dates: the sheet prints the UK clock, one hour on.
+  const hourly = (date, time, t, feels, windSpeed, windDirection, rain) => ({
+    solarEventTime: `${date}T${time}:00`,
+    temperatureCelsius: t,
+    apparentTemperatureCelsius: feels,
+    windSpeed,
+    windDirection,
+    precipitationProbabilityPercent: rain,
+  });
+  const day = (date, rows) => [date, { sunrise: null, sunset: null, hourly: rows }];
+
+  const HIDE = {
+    id: 21,
+    name: 'Gosforth Nature Reserve',
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map([
+      // Yesterday's rows — a finished day answers nothing and is not listed.
+      day('2026-08-13', [hourly('2026-08-13', '08:00', 11, 9, 4, 180, 0)]),
+      day('2026-08-14', [
+        hourly('2026-08-14', '08:00', 12, 10, 4, 270, 10),
+        hourly('2026-08-14', '09:00', 14, 12, 6, 250, 30),
+      ]),
+      day('2026-08-15', [hourly('2026-08-15', '08:00', 13, 11, 5, 180, 20)]),
+      // The 16th is a window the sheet spans, with no hourly rows: it must say so.
+      // The 19th is held up by hourly rows alone (T+5): listed, though no window names it.
+      day('2026-08-19', [hourly('2026-08-19', '08:00', 15, 13, 3, 90, 5)]),
+    ]),
+  };
+
+  const hideSetup = (props = {}) => setup({
+    spot: HIDE_SPOT, location: HIDE, scoreIndex: null, slotIndex: null, ...props,
+  });
+
+  const dayBlock = (date) => screen.getAllByTestId('location-sheet-hourly-day')
+    .find((el) => el.dataset.date === date);
+
+  it('is named for what it shows, not for a count of windows it does not have', () => {
+    hideSetup();
+    expect(screen.getByRole('dialog', { name: 'Gosforth Nature Reserve — hourly comfort forecast' }))
+      .toBeInTheDocument();
+  });
+
+  it('says what the place is, so the table is not mistaken for a sky read', () => {
+    hideSetup();
+    expect(screen.getByTestId('location-sheet-hide-note'))
+      .toHaveTextContent('Wildlife hide: never scored for sky colour.');
+  });
+
+  it('renders one table per day with rows, in date order, from today, and none for a finished day', () => {
+    hideSetup();
+    expect(screen.getAllByTestId('location-sheet-hourly-day').map((el) => el.dataset.date))
+      .toEqual(['2026-08-14', '2026-08-15', '2026-08-16', '2026-08-19']);
+    expect(within(dayBlock('2026-08-14')).getByRole('heading', { name: 'Fri 14 Aug' })).toBeInTheDocument();
+    expect(within(dayBlock('2026-08-19')).getByRole('heading', { name: 'Wed 19 Aug' })).toBeInTheDocument();
+  });
+
+  it('draws the day\'s hours as a real table: named, with column headers and a row header per hour', () => {
+    hideSetup();
+    const table = within(dayBlock('2026-08-14')).getByRole('table', {
+      name: 'Hourly comfort at Gosforth Nature Reserve, Fri 14 Aug',
+    });
+    // Visible short forms on a phone, but the accessible NAME of each header is the full word.
+    for (const name of ['Time', 'Temperature', 'Wind', 'Rain chance']) {
+      expect(within(table).getByRole('columnheader', { name })).toBeInTheDocument();
+    }
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(4);
+    // 08:00 and 09:00 UTC are 09:00 and 10:00 BST.
+    expect(within(table).getAllByRole('rowheader').map((th) => th.textContent)).toEqual(['09:00', '10:00']);
+    const [first, second] = within(table).getAllByTestId('hourly-comfort-row');
+    expect(first).toHaveTextContent('12°C · feels 10°C');
+    expect(first).toHaveTextContent('8.9 mph W');
+    expect(first).toHaveTextContent('10%');
+    expect(second).toHaveTextContent('14°C · feels 12°C');
+    expect(second).toHaveTextContent('13.4 mph W');
+    expect(second).toHaveTextContent('30%');
+  });
+
+  it('shows the column headers, not hides them — the popup keeps them for assistive technology only', () => {
+    hideSetup();
+    const table = within(dayBlock('2026-08-14')).getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Wind' }).firstChild)
+      .not.toHaveClass('sr-only');
+  });
+
+  it('says so, in words, for a day the sheet spans that holds no hourly rows', () => {
+    hideSetup();
+    const block = dayBlock('2026-08-16');
+    expect(within(block).getByTestId('location-sheet-hourly-day-none'))
+      .toHaveTextContent('No hourly forecast for this day yet.');
+    expect(within(block).queryByRole('table')).toBeNull();
+  });
+
+  it('draws no window rows, no lead line and no "not scored" for a place that is never scored', () => {
+    hideSetup({ scoreIndex: SCORES, slotIndex: SLOTS });
+    expect(screen.queryAllByTestId('location-sheet-row')).toEqual([]);
+    expect(screen.queryByTestId('location-sheet-lead')).toBeNull();
+    expect(screen.queryByText(/Not scored/)).toBeNull();
+    expect(screen.queryByTestId('location-sheet-empty')).toBeNull();
+  });
+
+  it('keeps the footer\'s way onto the map — the sheet\'s two doors are the place\'s own', () => {
+    const { onShowOnMap } = hideSetup();
+    fireEvent.click(screen.getByRole('button', { name: /Show on map/ }));
+    expect(onShowOnMap).toHaveBeenCalledTimes(1);
+  });
+
+  it('says there is no hourly forecast yet when there are no rows and no windows to name a day', () => {
+    hideSetup({ windows: [], location: { ...HIDE, forecastsByDate: new Map() } });
+    expect(screen.getByTestId('location-sheet-hourly-none')).toHaveTextContent('No hourly forecast yet.');
+    expect(screen.queryAllByTestId('location-sheet-hourly-day')).toEqual([]);
+    // ⚠️ And NOT the sky sheet's "No forecast loaded yet." — a hide with no windows is not waiting
+    // for window rows it will never have (deleting the `!hourlyBody` guard on it fails this).
+    expect(screen.queryByTestId('location-sheet-empty')).toBeNull();
+  });
+
+  it('makes the one scroller a named, focusable region for a hide — nothing inside a table takes focus', () => {
+    hideSetup();
+    const region = screen.getByRole('region', { name: 'Gosforth Nature Reserve hourly comfort forecast' });
+    expect(region).toBe(screen.getByTestId('location-sheet-rows'));
+    expect(region).toHaveAttribute('tabindex', '0');
+  });
+
+  it('⚠️ gives a sky location\'s scroller no tab stop or region role — its row buttons are the stops', () => {
+    setup();
+    const scroller = screen.getByTestId('location-sheet-rows');
+    expect(scroller).not.toHaveAttribute('tabindex');
+    expect(screen.queryByRole('region')).toBeNull();
+  });
+
+  describe('a hide opened before its roster record joins (Plan search: the heat spot carries skySubject)', () => {
+    const PENDING_SPOT = { ...HIDE_SPOT, skySubject: false };
+
+    it('paints NO window rows while the record is unknown — never six "Not scored yet" for a hide', () => {
+      hideSetup({ spot: PENDING_SPOT, location: null });
+      expect(screen.queryAllByTestId('location-sheet-row')).toEqual([]);
+      expect(screen.queryByText(/Not scored/)).toBeNull();
+      expect(screen.getByTestId('location-sheet-hide-pending')).toHaveTextContent('Loading this place…');
+    });
+
+    it('swaps to the hourly section when the record arrives, and focus is never dropped to <body>', async () => {
+      const handlers = { onClose: vi.fn(), onShowOnMap: vi.fn() };
+      const props = {
+        spot: PENDING_SPOT, windows: WINDOWS, scoreIndex: null, slotIndex: null, scoresKnown: true,
+        todayStr: TODAY, ...handlers,
+      };
+      const { rerender } = render(<LocationFourDaySheet {...props} location={null} />);
+      const dialog = screen.getByRole('dialog');
+      await waitFor(() => expect(dialog).toHaveFocus());
+      rerender(<LocationFourDaySheet {...props} location={HIDE} />);
+      expect(screen.getAllByTestId('location-sheet-hourly-day').length).toBeGreaterThan(0);
+      expect(screen.queryByTestId('location-sheet-hide-pending')).toBeNull();
+      expect(screen.queryAllByTestId('location-sheet-row')).toEqual([]);
+      // There was never a row to tab onto, so nothing unmounted under the reader: focus stays inside.
+      expect(document.activeElement).not.toBe(document.body);
+      expect(dialog).toContainElement(document.activeElement);
+    });
+
+    it('does NOT withhold rows from a place with ratings, or from a spot that is not flagged', () => {
+      // A flagged spot with a rated row (a rated wood, say) keeps its rows; so does an unflagged one.
+      setup({ spot: { ...SPOT, skySubject: false }, location: null });
+      expect(screen.getAllByTestId('location-sheet-row').length).toBeGreaterThan(0);
+    });
+
+    it('leaves a spot with no flag exactly as before — a popup chip, which comes from the joined roster', () => {
+      setup({ spot: HIDE_SPOT, scoreIndex: null, slotIndex: null, location: null });
+      expect(screen.getAllByTestId('location-sheet-row').length).toBeGreaterThan(0);
+      expect(screen.queryByTestId('location-sheet-hide-pending')).toBeNull();
+    });
+  });
+
+  it('⚠️ leaves a sky location\'s sheet exactly as it was: window rows, no hourly section', () => {
+    setup();
+    expect(screen.getAllByTestId('location-sheet-row')).toHaveLength(4);
+    expect(screen.queryByTestId('location-sheet-hourly')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Bamburgh — the next 4 windows' })).toBeInTheDocument();
+  });
+
+  it('treats a place that is a hide AND a landscape as a sky location — window rows, no hourly section', () => {
+    setup({ location: { ...HIDE, id: 7, locationType: ['WILDLIFE', 'LANDSCAPE'] } });
+    expect(screen.getAllByTestId('location-sheet-row')).toHaveLength(4);
+    expect(screen.queryByTestId('location-sheet-hourly')).toBeNull();
   });
 });

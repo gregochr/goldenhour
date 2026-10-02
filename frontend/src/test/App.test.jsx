@@ -1351,6 +1351,60 @@ describe('App — wires the loaded map tide mode into the Map pane', () => {
   });
 });
 
+describe('App — a wildlife hide\'s hourly rows add no window to the Map pane\'s date domain', () => {
+  // A hide's comfort forecast is written for today..T+5, a day further than the colour pipeline
+  // evaluates. Its HOURLY rows put date keys on `forecastsByDate`, and the pane builds a
+  // Sunrise/Sunset window row for every date it is handed — so a date holding only hourly rows
+  // would show a window nothing rates.
+  const HIDE_META = {
+    id: 21, name: 'Gosforth Nature Reserve', lat: 55.0, lon: -1.62, enabled: true,
+    locationType: ['WILDLIFE'], tideType: [], solarEventType: [],
+    bortleClass: 5, region: { name: 'Northumberland' },
+  };
+  const HIDE_ONLY_DATE = ukDateStrOffset(5);
+  const hourlyRow = (date) => ({
+    locationName: HIDE_META.name,
+    locationLat: String(HIDE_META.lat),
+    locationLon: String(HIDE_META.lon),
+    targetDate: date,
+    targetType: 'HOURLY',
+    solarEventTime: `${date}T09:00:00`,
+    forecastRunAt: '2026-01-01T06:00:00',
+    temperatureCelsius: 8,
+  });
+
+  it('hands the pane the colour-forecast dates only, never a date held up by hourly rows alone', async () => {
+    fetchLocations.mockResolvedValue([...LOCATION_META, HIDE_META]);
+    fetchForecasts.mockResolvedValue([
+      ...FORECASTS, hourlyRow(TOMORROW), hourlyRow(HIDE_ONLY_DATE),
+    ]);
+    renderApp();
+    await openMapPane();
+
+    expect(mapPaneProps.last.dates).toEqual([TOMORROW]);
+    expect(mapPaneProps.last.dates).not.toContain(HIDE_ONLY_DATE);
+  });
+
+  it('⚠️ a roster of hides ONLY keeps the Map tab (data exists) yet hands it no date to draw a window for', async () => {
+    // "Is there any forecast data" gates the pane; "which dates get windows" is a separate question.
+    // Folding them together made the Map tab vanish while a hide's rows existed.
+    fetchLocations.mockResolvedValue([HIDE_META]);
+    fetchForecasts.mockResolvedValue([hourlyRow(TOMORROW), hourlyRow(HIDE_ONLY_DATE)]);
+    renderApp();
+    await openMapPane();
+
+    expect(mapPaneProps.last.dates).toEqual([]);
+    expect(typeof mapPaneProps.last.selectedDate).toBe('string');
+  });
+
+  it('still withholds the Map tab when no visible location has any forecast row at all', async () => {
+    fetchForecasts.mockResolvedValue([]);
+    renderApp();
+    await screen.findByRole('tab', { name: 'Plan' });
+    expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+  });
+});
+
 // ── One line of colour saves for the page, across the dialog's openings ────────────────────
 //
 // The colour radios stay live while a save is out — a radio in a fieldset disabled mid-save drops

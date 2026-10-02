@@ -214,18 +214,6 @@ export function groupForecastsByLocation(forecasts) {
 }
 
 /**
- * Groups an array of forecast evaluations by date, keeping only the most
- * recent run for each date+type combination.
- *
- * HOURLY rows (WILDLIFE model) are collected into a sorted {@code hourly} array
- * keyed by the full UTC hour timestamp. Only the most-recent run per hour slot
- * is kept.
- *
- * @param {Array<object>} forecasts - Raw forecast evaluations from the API.
- * @returns {Map<string, {sunrise: object|null, sunset: object|null, hourly: Array<object>}>}
- *   A map keyed by date string (YYYY-MM-DD).
- */
-/**
  * Tests whether an ISO date string (YYYY-MM-DD) falls inside any travel range.
  *
  * <p>Ranges are inclusive of both bounds. ISO date strings sort lexicographically
@@ -240,6 +228,23 @@ export function isTravelDate(dateStr, ranges) {
   return ranges.some((r) => dateStr >= r.startDate && dateStr <= r.endDate);
 }
 
+/**
+ * Groups an array of forecast evaluations by date, keeping only the most
+ * recent run for each date+type combination.
+ *
+ * HOURLY rows (WILDLIFE model) are collected into a sorted {@code hourly} array
+ * keyed by the full UTC hour timestamp. Only the most-recent run per hour slot
+ * is kept.
+ *
+ * <p>⚠️ **The returned keys include HOURLY-ONLY dates.** A wildlife hide's comfort rows run
+ * today..T+5, a day beyond the colour pipeline, and a date entry opens for ANY row — with `sunrise`
+ * and `sunset` both null. Never read the keys as "the dates that have a forecast window": use
+ * {@link colourForecastDates}, which counts a date only when a sunrise or sunset stands behind it.
+ *
+ * @param {Array<object>} forecasts - Raw forecast evaluations from the API.
+ * @returns {Map<string, {sunrise: object|null, sunset: object|null, hourly: Array<object>}>}
+ *   A map keyed by date string (YYYY-MM-DD).
+ */
 export function groupForecastsByDate(forecasts) {
   const map = new Map();
   // Intermediate: collect most-recent HOURLY row per hour slot
@@ -287,6 +292,31 @@ export function groupForecastsByDate(forecasts) {
   }
 
   return map;
+}
+
+/**
+ * Every date on which at least one location carries a sunrise or sunset (COLOUR) forecast, sorted.
+ *
+ * <p>This is the app's forecast-date domain — what the Map tab derives its window rows, its night
+ * previews and its date rules from — and it must NOT take in a date that holds only HOURLY rows.
+ * `groupForecastsByDate` opens a per-date entry for any row, so a wildlife hide's comfort forecast
+ * (written today..T+5, a day further than the colour pipeline evaluates) puts a date key on
+ * `forecastsByDate` that no sunrise or sunset was ever evaluated for. Counting those keys made the
+ * Map tab's window control draw an empty Sunrise/Sunset pair for a day nothing rates, and could
+ * make an app with only hides look like it had a map to open. A date counts only when a colour row
+ * stands behind it.
+ *
+ * @param {Array<{forecastsByDate: ?Map<string, {sunrise: ?object, sunset: ?object}>}>} locations
+ * @returns {string[]} the dates, ascending
+ */
+export function colourForecastDates(locations) {
+  const dates = new Set();
+  for (const loc of locations) {
+    for (const [date, entry] of loc.forecastsByDate) {
+      if (entry?.sunrise || entry?.sunset) dates.add(date);
+    }
+  }
+  return [...dates].sort();
 }
 
 /**
@@ -413,6 +443,8 @@ export function computeAutoSelection(locations, now) {
 
   let earliestSunset = null;
   for (const loc of locations) {
+    // ⚠️ Not `isWildlifeOnly`: `.every` with no length guard, so an UNTYPED location also skips here.
+    // Left as it was (a known divergent site, named in `isWildlifeOnly`'s JSDoc).
     if ((loc.locationType ?? []).every((t) => t === 'WILDLIFE')) continue;
     const sunsetTime = loc.forecastsByDate.get(todayStr)?.sunset?.solarEventTime;
     if (sunsetTime) {

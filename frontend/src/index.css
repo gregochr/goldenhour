@@ -5895,6 +5895,23 @@ button.wf-hc.also.on:hover {
 .wf-map-empty .wf-map-key {
   pointer-events: none;
 }
+/* The hides-only sentence is two clauses long, so it wraps and centres inside a narrower, rounded box
+   rather than running off a phone's edge as a one-line capsule would. The one-line "No forecast to
+   show." keeps the plain capsule. */
+/* Low, not centred, for the two-line hides-only sentence: the hides it speaks for are drawn at the
+   map's centre, and `MapLabels` treats this box as an obstacle, so a centred one swallowed the very
+   chip a reader is meant to press. Above the counts footer, and above the phone's collapsed peek
+   sheet (`--psh`, unset off the phone). */
+.wf-map-empty.wf-map-empty-low {
+  align-items: flex-end;
+  padding-bottom: calc(var(--psh, 0px) + 52px);
+}
+.wf-map-empty .wf-map-key.wf-map-key-wrap {
+  max-width: min(90%, 24rem);
+  text-align: center;
+  border-radius: 14px;
+  line-height: 1.4;
+}
 
 .wf-map-key {
   display: flex;
@@ -6879,6 +6896,184 @@ button.wf-hc.also.on:hover {
   color: var(--color-badge-tide);
 }
 
+/* A wildlife hide's body on the callout — what it is, then its comfort forecast for the window's
+   day. The note is the callout gate's own register (mono, secondary, `margin: 0` because the body is
+   a flex column with an 8px gap — see `.wf-callout-gate`). The comfort block is a BUTTON into the
+   four-day sheet, dressed like `.wf-callout-reason` (same focus ring, same unselectable-in-Firefox
+   fix) but mono rather than serif italic, because it is a set of readings, not generated prose, and
+   NOT line-clamped: it is two to five short lines, and clamping a figure away is worse than a longer
+   card (the card scrolls its own body at the band ceiling). */
+/* The hide's verdict label — its own class, NOT `.wf-callout-verdict-score.unscored`, which sky
+   locations share and which stays muted. "Comfort only" is a permanent label rather than a waiting
+   state, so it takes the secondary text token (the muted one measures ~3.5:1 on the card). */
+.wf-callout-verdict-comfort {
+  background: none;
+  color: var(--color-plex-text-secondary);
+  font-weight: 500;
+  white-space: normal;
+}
+.wf-callout-hide {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+}
+.wf-callout-comfort {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 3px 4px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-callout-comfort:hover,
+.wf-callout-comfort:focus-visible {
+  color: var(--color-plex-text);
+}
+/* ⚠️ An INSET ring: the button is `width: 100%` inside `.wf-callout-body`, which scrolls
+   (`overflow-y: auto` clips on both axes) and has no horizontal padding, so an outset 2px ring at 2px
+   offset is cut off left and right. (`.wf-callout-reason` above has the same geometry and the same
+   clipping; it is left as it was.) */
+.wf-callout-comfort:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+  border-radius: 3px;
+}
+/* The caption names the day ("Comfort for the rest of today", "Comfort forecast · Sat 3 Oct") and
+   sits inside the button's accessible name, so it is NOT uppercased by CSS — a transformed word can
+   be spelt out as an initialism by a screen reader (the note at `.wf-loc-why-region` below). */
+.wf-callout-comfort-k {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-plex-text-secondary);
+}
+.wf-callout-comfort-line {
+  display: block;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* The hourly comfort table (`components/HourlyComfortTable.jsx`) — one table for the Plan-tab
+   overlay's popup and the Map tab's four-day sheet. The popup's look is what it was when this was a
+   run of `display: table` divs: 11px, the time column muted, 8px between columns, 3px under a row.
+   `th`/`td` are reset to left-aligned normal weight because the UA gives a `th` bold centred text. */
+.wf-hourly {
+  width: 100%;
+  font-size: 11px;
+  border-collapse: collapse;
+}
+/* `vertical-align: baseline` is what the popup's old `display: table-cell` divs had (a table-cell's
+   initial value); real `<td>`/`<th>` inherit `middle` from the UA's `tbody`, which would move the
+   frozen popup's rows by a pixel against its icons. */
+.wf-hourly th,
+.wf-hourly td {
+  text-align: left;
+  font-weight: normal;
+  padding: 0 8px 3px 0;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.wf-hourly th:last-child,
+.wf-hourly td:last-child {
+  padding-right: 0;
+}
+.wf-hourly-time {
+  color: var(--color-plex-text-muted);
+}
+.wf-hourly-cell {
+  display: inline-flex;
+  align-items: center;
+}
+/* Visible column headers (the sheet). Mixed-case mono at the sheet's caption size, never uppercased:
+   these are the names a screen reader announces for the cells beneath them. */
+.wf-hourly-head th {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+/* Headers kept for assistive technology only (the popup, whose own heading says what the table is):
+   the header cells are emptied visually by `sr-only` on their text, and this collapses what is left
+   so the table takes no row of its own. */
+/* ⚠️ `.wf-hourly` in the selector, so this wins by SPECIFICITY over `.wf-hourly-head th` above rather
+   than by coming later in the file — the popup's hidden header must survive a reorder. */
+.wf-hourly .wf-hourly-head-off th {
+  padding: 0;
+  border: 0;
+  height: 0;
+  line-height: 0;
+}
+/* A long and a short visible header for the two columns that have one: the short form is for the
+   phone sheet, where the longest header ("Rain chance") sets a column's width. The full word stays
+   in the accessible name (a third, `sr-only` span in each header). */
+.wf-hourly-h-short {
+  display: none;
+}
+/* The inline weather glyphs (`components/WeatherIcons.jsx`) — what `ICON_STYLE` was inline. */
+.wf-wx-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+  margin-right: 3px;
+  flex-shrink: 0;
+}
+
+/* The four-day sheet's hourly section for a wildlife hide (`LocationFourDaySheet`) — one block per
+   day under a small weekday heading, in the sheet's own mono register. */
+.wf-loc-hourly {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wf-loc-hourly-day {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-plex-text);
+}
+.wf-loc-hourly .wf-loc-note {
+  padding-bottom: 0;
+}
+/* The sheet's table reads as ONE row only if its columns stay near each other: unbounded, an 880px
+   dialog spread four columns ~200px apart. Capped, the slack is spent on the right, where there is
+   nothing to track. The popup keeps `width: 100%` of its own (auto-sized) container. */
+.wf-loc-hourly .wf-hourly {
+  max-width: 28rem;
+}
+/* Time is a row header here, and on the sheet's dark ground the muted token is ~3.5:1: secondary. */
+.wf-loc-hourly .wf-hourly-time {
+  color: var(--color-plex-text-secondary);
+}
+/* The sheet's one scroller is a named, focusable region for a hide (nothing inside it takes focus). */
+.wf-loc-rows[tabindex]:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* 639px, this arm's single breakpoint (`useIsMobile`'s own boundary). At 320px the sheet's body is
+   286px wide and the table's nowrap content measures 315px at 11px type with 8px gutters, which
+   made the whole body scroll sideways — and a reader at 400% zoom lands exactly there. The three
+   glyphs go (the visible column headers already name each column, and the glyphs are `aria-hidden`
+   repeats of them) and the type and gutters tighten, measured in the browser at 320px and 375px
+   rather than derived. */
+@media (max-width: 639px) {
+  .wf-loc-hourly .wf-hourly { font-size: 10px; }
+  .wf-loc-hourly .wf-hourly th,
+  .wf-loc-hourly .wf-hourly td { padding-right: 6px; }
+  .wf-loc-hourly .wf-hourly th:last-child,
+  .wf-loc-hourly .wf-hourly td:last-child { padding-right: 0; }
+  .wf-loc-hourly .wf-wx-icon { display: none; }
+  .wf-loc-hourly .wf-hourly-h-long { display: none; }
+  .wf-loc-hourly .wf-hourly-h-short { display: inline; }
+}
 
 .wf-callout-facts {
   display: flex;

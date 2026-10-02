@@ -349,7 +349,7 @@ function formatNightTime(instant, formatTimeUk) {
  *
  * @param {object} args
  * @param {Array<{date: string}>} [args.solarWindows] served solar windows (`heat.windows`)
- * @param {string[]} [args.forecastDates] every date `GET /api/forecast` returned
+ * @param {string[]} [args.forecastDates] every date with a sunrise or sunset row (`colourForecastDates`)
  * @param {string} args.todayStr the UK civil today — dates before it are excluded
  * @returns {string[]} sorted, deduplicated dates, `>= todayStr`
  */
@@ -473,7 +473,7 @@ function hasSolarRow(servedWindow, inForecastDomain, date, todayStr) {
  * @param {object} args
  * @param {Array<{date: string, targetType: string}>} [args.solarWindows] served solar windows
  *   (`heat.windows`)
- * @param {string[]} [args.forecastDates] every date `GET /api/forecast` returned
+ * @param {string[]} [args.forecastDates] every date with a sunrise or sunset row (`colourForecastDates`)
  * @param {string} args.todayStr the UK civil today
  * @returns {(date: string, targetType: string) => boolean}
  */
@@ -514,7 +514,7 @@ export function isNightOffered(eventType, date, { todayStr, currentNightDate = n
  * @param {Array<{date: string, targetType: 'SUNRISE'|'SUNSET', label: string, time: string,
  *   bestRating: ?number, confidenceTier: ?string, badges: ?Array}>} args.solarWindows the served
  *   solar windows — `WindowFirstMapPane`'s `heat.windows`, chronological
- * @param {string[]} args.forecastDates every date `GET /api/forecast` returned (`allDates`),
+ * @param {string[]} args.forecastDates every date with a sunrise or sunset row (`colourForecastDates`) (`allDates`),
  *   sorted — the map's own full browsable domain (D-13) and the EV-ownership forwarding test
  * @param {string} args.todayStr today's UK calendar date
  * @param {string} args.tomorrowStr tomorrow's UK calendar date

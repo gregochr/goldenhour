@@ -4,7 +4,6 @@ import {
   formatEventTimeUk,
   formatGeneratedAtFull,
   mpsToMph,
-  degreesToCompass,
 } from '../utils/conversions.js';
 import {
   getForecastDetail,
@@ -17,6 +16,11 @@ import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
 import ScoreBar from './ScoreBar.jsx';
+import HourlyComfortTable from './HourlyComfortTable.jsx';
+import { formatCompass } from '../utils/hourlyComfort.js';
+import {
+  ThermometerIcon, WindIcon, RainIcon, DropletIcon,
+} from './WeatherIcons.jsx';
 import { resolveStandDown } from '../utils/standDown.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../utils/locationTypes.js';
 
@@ -114,48 +118,6 @@ function buildGeneratedFooter(forecast, detail, triageSuperseded = false) {
   return model
     ? `Forecast generated: ${base} by ${model}`
     : `Forecast generated: ${base}`;
-}
-
-/** Inline SVG weather icons for comfort rows. */
-const ICON_STYLE = { width: '14px', height: '14px', verticalAlign: 'middle', marginRight: '3px', flexShrink: 0 };
-
-/** @returns {React.ReactElement} Thermometer SVG icon. */
-function ThermometerIcon() {
-  return (
-    <svg style={ICON_STYLE} viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" />
-    </svg>
-  );
-}
-
-/** @returns {React.ReactElement} Wind SVG icon. */
-function WindIcon() {
-  return (
-    <svg style={ICON_STYLE} viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" />
-      <path d="M9.6 4.6A2 2 0 1 1 11 8H2" />
-      <path d="M12.6 19.4A2 2 0 1 0 14 16H2" />
-    </svg>
-  );
-}
-
-/** @returns {React.ReactElement} Rain cloud SVG icon. */
-function RainIcon() {
-  return (
-    <svg style={ICON_STYLE} viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
-      <path d="M16 14v6" /><path d="M8 14v6" /><path d="M12 16v6" />
-    </svg>
-  );
-}
-
-/** @returns {React.ReactElement} Droplet SVG icon. */
-function DropletIcon() {
-  return (
-    <svg style={ICON_STYLE} viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />
-    </svg>
-  );
 }
 
 /**
@@ -301,7 +263,6 @@ StandDownBadge.propTypes = {
  * @param {Array} props.hourlyData - Hourly comfort data rows.
  * @param {string} props.eventType - 'SUNRISE' or 'SUNSET'.
  * @param {boolean} props.isPureWildlife - True if all location types are WILDLIFE.
- * @param {boolean} [props.showComfortRows=false] - True to show hourly comfort alongside colour forecast (e.g. WATERFALL).
  * @param {string} props.role - User role (ADMIN, PRO_USER, LITE_USER).
  * @param {string} props.date - Selected date string (YYYY-MM-DD).
  * @param {function} props.onTideFetchedAt - Called with fetchedAt timestamp from TideIndicator.
@@ -316,7 +277,6 @@ export default function MarkerPopupContent({
   hourlyData,
   eventType,
   isPureWildlife,
-  showComfortRows = false,
   role,
   date,
   onTideFetchedAt,
@@ -461,24 +421,13 @@ export default function MarkerPopupContent({
             <div style={{ fontSize: '11px', fontWeight: '700', color: '#16a34a', marginBottom: '6px' }}>
               🐾 Hourly comfort during daylight hours
             </div>
-            <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
-              {hourlyData.map((h) => (
-                <div key={h.solarEventTime} style={{ display: 'table-row' }}>
-                  <div style={{ display: 'table-cell', color: 'var(--color-plex-text-muted)', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                    {formatEventTimeUk(h.solarEventTime)}
-                  </div>
-                  <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center' }}><ThermometerIcon />{h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C · feels ${Math.round(h.apparentTemperatureCelsius ?? h.temperatureCelsius)}°C` : '—'}</span>
-                  </div>
-                  <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center' }}><WindIcon />{h.windSpeed != null ? `${mpsToMph(h.windSpeed)} mph ${degreesToCompass(h.windDirection)}` : '—'}</span>
-                  </div>
-                  <div style={{ display: 'table-cell', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center' }}><RainIcon />{h.precipitationProbabilityPercent != null ? `${h.precipitationProbabilityPercent}%` : '—'}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {/* The one hourly table, shared with the Map tab's location sheet. The popup's own
+                heading above says what it is, so its column headers stay visually hidden. */}
+            <HourlyComfortTable
+              rows={hourlyData}
+              label={`Hourly comfort for ${location.name}`}
+              testId="popup-hourly-table"
+            />
           </div>
         ) : (
           <div style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', fontStyle: 'italic' }}>
@@ -918,7 +867,7 @@ export default function MarkerPopupContent({
               {forecast.temperatureCelsius != null && (
                 <div style={{ borderTop: `1px solid var(--color-plex-border)`, paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: 'var(--color-plex-text-secondary)', lineHeight: '1.8' }}>
                   <div style={{ display: 'flex', alignItems: 'center' }}><ThermometerIcon /><strong>{Math.round(forecast.temperatureCelsius)}°C</strong>&nbsp;· feels like {Math.round(forecast.apparentTemperatureCelsius ?? forecast.temperatureCelsius)}°C</div>
-                  <div style={{ display: 'flex', alignItems: 'center' }}><WindIcon /><strong>{mpsToMph(forecast.windSpeed)} mph</strong>&nbsp;{degreesToCompass(forecast.windDirection)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}><WindIcon /><strong>{mpsToMph(forecast.windSpeed)} mph</strong>&nbsp;{formatCompass(forecast.windDirection)}</div>
                   <div style={{ display: 'flex', alignItems: 'center' }}><RainIcon /><strong>{forecast.precipitationProbabilityPercent ?? 0}%</strong>&nbsp;rain chance</div>
                   {parseFloat(forecast.precipitation ?? 0) > 0 && (
                     <div style={{ display: 'flex', alignItems: 'center' }}><DropletIcon /><strong>{parseFloat(forecast.precipitation).toFixed(1)} mm</strong>&nbsp;precip</div>
@@ -933,33 +882,6 @@ export default function MarkerPopupContent({
                 </div>
               )}
             </>
-          )}
-
-          {/* Hourly comfort rows for waterfall locations */}
-          {showComfortRows && hourlyData.length > 0 && (
-            <div style={{ borderTop: `1px solid var(--color-plex-border)`, paddingTop: '6px', marginTop: '6px' }}>
-              <div style={{ fontSize: '11px', fontWeight: '700', color: '#38bdf8', marginBottom: '6px' }}>
-                💦 Hourly comfort during daylight hours
-              </div>
-              <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
-                {hourlyData.map((h) => (
-                  <div key={h.solarEventTime} style={{ display: 'table-row' }}>
-                    <div style={{ display: 'table-cell', color: 'var(--color-plex-text-muted)', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                      {formatEventTimeUk(h.solarEventTime)}
-                    </div>
-                    <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center' }}><ThermometerIcon />{h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C · feels ${Math.round(h.apparentTemperatureCelsius ?? h.temperatureCelsius)}°C` : '—'}</span>
-                    </div>
-                    <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center' }}><WindIcon />{h.windSpeed != null ? `${mpsToMph(h.windSpeed)} mph ${degreesToCompass(h.windDirection)}` : '—'}</span>
-                    </div>
-                    <div style={{ display: 'table-cell', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center' }}><RainIcon />{h.precipitationProbabilityPercent != null ? `${h.precipitationProbabilityPercent}%` : '—'}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
           )}
 
           {/* Footer: always visible for ADMIN */}
@@ -1204,7 +1126,6 @@ MarkerPopupContent.propTypes = {
   hourlyData: PropTypes.array.isRequired,
   eventType: PropTypes.oneOf(['SUNRISE', 'SUNSET']).isRequired,
   isPureWildlife: PropTypes.bool.isRequired,
-  showComfortRows: PropTypes.bool,
   role: PropTypes.string.isRequired,
   date: PropTypes.string.isRequired,
   onTideFetchedAt: PropTypes.func,

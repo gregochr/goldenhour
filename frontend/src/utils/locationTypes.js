@@ -161,3 +161,34 @@ export function subjectWordsOf(types) {
   const list = Array.isArray(types) ? types : (types == null ? [] : [types]);
   return DISPLAY_TYPES.filter((t) => list.includes(t)).map((t) => locationTypeLabel(t));
 }
+
+/**
+ * Whether a location is a pure wildlife hide: it carries at least one type and every one of them is
+ * WILDLIFE.
+ *
+ * <p>The client definition for "which places get a comfort forecast". It was written out as `types.length > 0 && types.every((t) => t ===
+ * 'WILDLIFE')` in three places in `MapView.jsx` (the marker's colour, the stand-down exemption, the
+ * rating floor's exemption) and once in `PromptTestView`, and it now also decides which locations
+ * get a comfort forecast in place of a sky verdict (`MapCallout`, `LocationFourDaySheet`). It
+ * matches the backend's `LocationEntity.isWildlifeOnly()`, the predicate the hourly comfort job
+ * selects on: a hide that is ALSO a landscape or seascape is a sky location and is not matched.
+ * An untyped location is not a hide — the opposite of {@link isSkyPromptCandidate}, where untyped
+ * counts as a sky candidate.
+ *
+ * <p>⚠️ **Change it in lockstep with `LocationEntity.isWildlifeOnly()` and
+ * `WildlifeComfortRefreshJob`** (the backend rule that decides whose rows exist at all). It is NOT
+ * `JobRunsMetricsView`'s `isPureWildlife`, which is the broader backend `isPureWildlife` rule
+ * (WILDLIFE+WOODLAND/BLUEBELL count) — two names, two sets.
+ *
+ * <p>Known DIVERGENT sites, deliberately left as they were (an untyped location counts as a hide at
+ * both, since `[].every(...)` is true): `conversions.computeAutoSelection` and `MapView`'s
+ * `getNextEventType`. Both only skip such a place when choosing a default solar event, so the
+ * difference is invisible for any real, typed location.
+ *
+ * @param {?string|?Array<string>} types the record's {@code locationType}, array or bare string
+ * @returns {boolean} true when the location is a pure wildlife hide
+ */
+export function isWildlifeOnly(types) {
+  const list = Array.isArray(types) ? types : (types == null ? [] : [types]);
+  return list.length > 0 && list.every((t) => t === 'WILDLIFE');
+}
