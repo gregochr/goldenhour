@@ -371,3 +371,42 @@ describe('MapView (tab) — map-touch collapse (map-mobile-sheet-plan.md §3 M2 
     expect(screen.getByTestId('wf-win-listbox')).toBeInTheDocument();
   });
 });
+
+describe('MapView (tab, phone) — a forecast of wildlife hides alone still gives a selected hide its card', () => {
+  // No event at all (`heat.windows` empty, no forecast dates), so the callout used to be unmounted
+  // behind `activeMapEvent` and the phone's selection surface — the callout; the peek sheet holds no
+  // selected-place facts — had nothing to show for the one place a hide-only forecast is about.
+  const HIDE = {
+    ...makeLocation(),
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map([[TODAY, {
+      sunrise: null,
+      sunset: null,
+      hourly: [{
+        solarEventTime: `${TODAY}T08:00:00`, temperatureCelsius: 8, apparentTemperatureCelsius: 6,
+        windSpeed: 4, windDirection: 180, precipitationProbabilityPercent: 20,
+      }],
+    }]]),
+  };
+  const noEvents = () => ({ ...heatProp(), windows: [] });
+
+  it('mounts the callout for a selected hide on the phone, beside the peek sheet', async () => {
+    mockIsMobile = true;
+    const result = await renderMap({ locations: [HIDE], heat: noEvents(), forecastDates: [] });
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    await rerenderMap(result, {
+      locations: [HIDE], heat: noEvents(), forecastDates: [], handoffLocationName: SPOT.name, handoffNonce: 1,
+    });
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent(SPOT.name);
+    expect(screen.getByTestId('wf-map-peek')).toBeInTheDocument();
+  });
+
+  it('⚠️ mounts none for a SKY location with no event on the phone', async () => {
+    mockIsMobile = true;
+    const result = await renderMap({ heat: noEvents(), forecastDates: [] });
+    await rerenderMap(result, {
+      heat: noEvents(), forecastDates: [], handoffLocationName: SPOT.name, handoffNonce: 1,
+    });
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+  });
+});

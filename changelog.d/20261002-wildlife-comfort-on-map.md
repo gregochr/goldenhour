@@ -6,7 +6,7 @@ and phone) a hide's card now says "Comfort only" and "Wildlife hide: never score
 with a short summary of the selected day: the temperature and feels-like range, the strongest wind
 and the highest rain chance with the hour each occurs, and the daylight hours covered. For today it
 covers only the hours still to come, and says so. On an astro or aurora night the card is as it was,
-with a line pointing at the daylight forecast. The summary opens the location sheet (`Hour by hour
+with a line pointing at the daylight forecast. When no sunrise or sunset forecast exists at all (a forecast of hides alone), a selected hide still gets its card, for today while it has hours left and otherwise the next day with a forecast, and the map says so plainly instead of "No forecast to show.". The summary opens the location sheet (`Hour by hour
 ›`), which for a hide now shows an hour-by-hour table for every day in place of its six empty
 windows. That sheet is the same one Plan search reaches, so the table appears there too. The rows
 are visible to every role.

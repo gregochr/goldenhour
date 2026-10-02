@@ -4189,6 +4189,28 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const noForecastLineShown = activeMapEvent == null && !unscoredLineShown;
 
   /**
+   * A forecast of wildlife hides ALONE: the EV list is empty (no sunrise or sunset row exists, so
+   * `buildMapEvents` drew no window and there is no `activeMapEvent`), yet at least one hide carries
+   * hourly comfort rows. Two consequences, both only in that state and never for a roster with a
+   * single event:
+   * <ul>
+   *   <li>{@code hideDayCard} — a SELECTED pure-wildlife hide still gets its callout, in day mode
+   *       (`MapCallout`'s `dayMode`): the card that is mounted behind `activeMapEvent` everywhere
+   *       else, which left the tab open onto a dead end where a hide could be picked and nothing
+   *       came of it. A sky location with no event still gets no card.</li>
+   *   <li>{@code hidesOnlyForecast} — "No forecast to show." is false for those places, so the
+   *       empty-state sentence says what is true instead.</li>
+   * </ul>
+   * Not a synthetic event: nothing here invents a window, a verdict or a sunset.
+   */
+  const hideDayCard = mapEvents.length === 0 && selectedLoc != null
+    && isWildlifeOnly(selectedLoc.locationType);
+  const hidesOnlyForecast = mapEvents.length === 0 && locations.some((loc) => (
+    isWildlifeOnly(loc.locationType)
+    && Array.from(loc.forecastsByDate.values()).some((entry) => entry?.hourly?.length > 0)
+  ));
+
+  /**
    * The Regions jump list (map-tab-v2-plan.md §3 P11, `docs/design/map-tab-v2/README.md` §2).
    *
    * <p><b>The drive map is EITHER the away region-base matrix OR the per-user home reach, never
@@ -5668,11 +5690,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               tab's ONLY selection surface now (no Leaflet popup left to fall back to). ⚠️ Said "a
               marker click" until the medallions stopped being visible on the tab at all — their
               `click` handler is still bound but unreachable through `pointer-events: none`. */}
-          {!overlayMode && selectedLoc && activeMapEvent && (
+          {!overlayMode && selectedLoc && (activeMapEvent || hideDayCard) && (
             <MapCallout
               location={selectedLoc}
               rating={getRatingForLocation(selectedLoc)}
               event={activeMapEvent}
+              dayMode={hideDayCard}
               driveMinutes={driveMinutesFor(selectedLoc.id)}
               distanceMiles={distanceMilesFor(selectedLoc.id)}
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
@@ -5696,7 +5719,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               // wildlife place only (`isWildlifeOnly`). Straight off the per-date entry, so the
               // array is stable between ordinary renders (a poll rebuilds it); `null`, not a fresh
               // `[]`, when the date holds none.
-              hourlyRows={activeMapEvent.kind === 'solar'
+              hourlyRows={activeMapEvent?.kind === 'solar'
                 ? (selectedLoc.forecastsByDate.get(activeMapEvent.date)?.hourly ?? null)
                 : null}
               onSelectEv={selectEvRow}
@@ -5867,9 +5890,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 genuinely blank the corner is not where the eye goes, which is the whole reason
                 this surface has to speak at all. */}
             {noForecastLineShown && (
-              <div className="wf-map-empty">
-                <div data-testid="wf-map-no-forecast" className="wf-map-key">
-                  No forecast to show.
+              <div className={hidesOnlyForecast ? 'wf-map-empty wf-map-empty-low' : 'wf-map-empty'}>
+                <div
+                  data-testid="wf-map-no-forecast"
+                  className={hidesOnlyForecast ? 'wf-map-key wf-map-key-wrap' : 'wf-map-key'}
+                >
+                  {hidesOnlyForecast
+                    ? 'No sunrise or sunset forecast to show. Wildlife hides still carry a comfort forecast.'
+                    : 'No forecast to show.'}
                 </div>
               </div>
             )}

@@ -5895,6 +5895,23 @@ button.wf-hc.also.on:hover {
 .wf-map-empty .wf-map-key {
   pointer-events: none;
 }
+/* The hides-only sentence is two clauses long, so it wraps and centres inside a narrower, rounded box
+   rather than running off a phone's edge as a one-line capsule would. The one-line "No forecast to
+   show." keeps the plain capsule. */
+/* Low, not centred, for the two-line hides-only sentence: the hides it speaks for are drawn at the
+   map's centre, and `MapLabels` treats this box as an obstacle, so a centred one swallowed the very
+   chip a reader is meant to press. Above the counts footer, and above the phone's collapsed peek
+   sheet (`--psh`, unset off the phone). */
+.wf-map-empty.wf-map-empty-low {
+  align-items: flex-end;
+  padding-bottom: calc(var(--psh, 0px) + 52px);
+}
+.wf-map-empty .wf-map-key.wf-map-key-wrap {
+  max-width: min(90%, 24rem);
+  text-align: center;
+  border-radius: 14px;
+  line-height: 1.4;
+}
 
 .wf-map-key {
   display: flex;

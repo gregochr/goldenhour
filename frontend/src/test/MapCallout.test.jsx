@@ -1684,3 +1684,120 @@ describe('MapCallout — a wildlife hide: night windows, the rest of today, the 
     });
   });
 });
+
+/**
+ * DAY mode: a wildlife hide's card when the tab has no map event at all.
+ *
+ * <p><b>What breaks if these fail:</b> a forecast of hides alone leaves the Map tab open onto a dead
+ * end — the hide can be picked and nothing comes of it; or the card invents a window (a sunset chip,
+ * a verdict) it has no event for; or a SKY location with no event starts getting a card; or the card
+ * speaks for a day that has nothing left in it while a later day holds the forecast.
+ */
+describe('MapCallout — day mode: a wildlife hide with no map event at all', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  // UTC hours on BST dates (08:00..17:00 UK is 07:00..16:00 UTC).
+  const row = (date, hourUtc, rain) => ({
+    solarEventTime: `${date}T${String(hourUtc).padStart(2, '0')}:00:00`,
+    temperatureCelsius: 10 + hourUtc / 10,
+    apparentTemperatureCelsius: 8,
+    windSpeed: 3,
+    windDirection: 90,
+    precipitationProbabilityPercent: rain,
+  });
+  const dayOf = (date) => [row(date, 7, 70), row(date, 10, 20), row(date, 13, 30), row(date, 16, 10)];
+  const entry = (hourly) => ({ sunrise: null, sunset: null, hourly });
+  const hide = (byDate) => ({
+    id: 21, name: 'Gosforth Nature Reserve', lat: 55.0, lon: -1.62, regionName: 'Northumberland',
+    tideType: [], locationType: ['WILDLIFE'], forecastsByDate: new Map(byDate),
+  });
+  // 12:30Z = 13:30 UK on the 15th: the 07:00 and 10:00 UTC rows are gone, 13:00 and 16:00 are to come.
+  const MIDDAY = new Date(`${TODAY}T12:30:00Z`);
+  const mountDay = (location, extra = {}) => mount({
+    location, event: null, dayMode: true, rating: null, now: MIDDAY, ...extra,
+  });
+
+  it('⚠️ renders the card with NO event: no verdict row, no every-event strip, no window label', async () => {
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]));
+    expect(screen.getByTestId('map-callout')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-callout-verdict')).toBeNull();
+    expect(screen.queryByTestId('map-callout-score')).toBeNull();
+    expect(screen.queryByTestId('map-callout-strip-toggle')).toBeNull();
+    expect(screen.queryByText(/Not scored|Loading/)).toBeNull();
+    expect(screen.getByTestId('map-callout-hide-note')).toHaveTextContent('Wildlife hide: never scored for sky colour.');
+  });
+
+  it('speaks for TODAY while it has hours left: the rest of today, from the start of the current hour', async () => {
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))], ['2026-06-16', entry(dayOf('2026-06-16'))]]));
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort for the rest of today');
+    expect(screen.getAllByTestId('map-callout-comfort-line').map((el) => el.textContent.trim())).toEqual([
+      '11 to 12°C, feels like 8°C.',
+      'Wind up to 6.7 mph E at 14:00.',
+      'Rain chance up to 30% at 14:00.',
+      'Daylight hours left, 14:00 to 17:00.',
+    ]);
+  });
+
+  it('⚠️ names the FIRST LATER day with rows when today has none left — and says which day', async () => {
+    const gone = [row(TODAY, 7, 70), row(TODAY, 10, 20)];
+    await mountDay(hide([[TODAY, entry(gone)], ['2026-06-17', entry(dayOf('2026-06-17'))]]));
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort forecast · Wed 17 Jun');
+    expect(screen.getAllByTestId('map-callout-comfort-line').at(-1)).toHaveTextContent('Daylight hours 08:00 to 17:00.');
+  });
+
+  it('says today\'s daylight has passed when it is the only day with rows', async () => {
+    const gone = [row(TODAY, 7, 70), row(TODAY, 10, 20)];
+    await mountDay(hide([[TODAY, entry(gone)]]));
+    expect(screen.getByTestId('map-callout-comfort-none')).toHaveTextContent('Today’s daylight hours have passed.');
+  });
+
+  it('names no day, and says so plainly, when the hide has no rows from today on', async () => {
+    await mountDay(hide([['2026-06-10', entry(dayOf('2026-06-10'))]]));
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent(/^Comfort forecast$/);
+    expect(screen.getByTestId('map-callout-comfort-none')).toHaveTextContent('No hourly forecast yet.');
+  });
+
+  it('keeps the route into the sheet, named for its destination, and takes focus on the press', async () => {
+    const onOpenSheet = vi.fn();
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]), { onOpenSheet });
+    const button = screen.getByTestId('map-callout-comfort');
+    expect(button).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(button).toHaveAccessibleName(/Gosforth Nature Reserve — hourly comfort forecast$/);
+    fireEvent.click(button);
+    // The sheet's `useDialogFocus` restores focus to whatever held it when it opened: the button.
+    expect(document.activeElement).toBe(button);
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the card\'s close button and actions, so the selection can be dismissed and the place zoomed to', async () => {
+    const onClose = vi.fn();
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]), { onClose });
+    fireEvent.click(screen.getByTestId('map-callout-close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('map-callout-zoom')).toBeInTheDocument();
+  });
+
+  it('⚠️ gives a SKY location with no event NO card — day mode is for a hide only', async () => {
+    await mountDay({ ...LOCATION, forecastsByDate: new Map([[TODAY, entry(dayOf(TODAY))]]) });
+    expect(screen.queryByTestId('map-callout')).toBeNull();
+  });
+
+  it('⚠️ ignores day mode when an event IS present — the window card is unchanged', async () => {
+    await mount({
+      location: hide([[TODAY, entry(dayOf(TODAY))]]), event: SUNSET_EVENT, dayMode: true, rating: null,
+      ratingKnown: true, hourlyRows: dayOf(TODAY), now: new Date('2026-06-12T09:00:00Z'),
+    });
+    expect(screen.getByTestId('map-callout-verdict')).toBeInTheDocument();
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort forecast · Mon 15 Jun');
+    expect(screen.getByTestId('map-callout-strip-toggle')).toBeInTheDocument();
+  });
+
+  it('renders the same day card on the phone, at 266px', async () => {
+    mockIsMobile = true;
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]));
+    expect(screen.getByTestId('map-callout').style.width).toBe('266px');
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort for the rest of today');
+  });
+});

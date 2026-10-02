@@ -12,7 +12,9 @@ import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
 import { subjectWordsOf, isWildlifeOnly } from '../../utils/locationTypes.js';
-import { comfortLines, comfortSummary, rowsFromNow } from '../../utils/hourlyComfort.js';
+import {
+  comfortDayOf, comfortLines, comfortSummary, rowsFromNow,
+} from '../../utils/hourlyComfort.js';
 import { formatDateLabel } from '../../utils/conversions.js';
 import { ukDateStr } from '../../utils/mapDates.js';
 import { nextAlignedRow } from '../../utils/mapTideFit.js';
@@ -240,6 +242,13 @@ function kindShort(event) {
  *        plus a one-line pointer to the daylight forecast, and these rows are not read. Ignored for
  *        every other location, whose card is untouched. Null or empty for a hide renders "No
  *        hourly forecast for this day yet."
+ * @param {boolean} [props.dayMode] the card for a wildlife hide when the tab has NO map event at all
+ *        (a forecast of hides alone — no sunrise or sunset row, so no window to name). `event` is
+ *        then null, the verdict row, the every-event strip and the window-scoped blocks are not
+ *        drawn, and the card speaks for ONE DAY chosen from the hide's own served rows
+ *        (`hourlyComfort.comfortDayOf`: today while it has hours left, else the first later day
+ *        with rows). Honoured only for a pure wildlife hide — a sky location with no event gets no
+ *        card, as before — and never synthesises an event
  * @param {?Date} [props.now] the instant "today's remaining hours" is measured from; defaults to the
  *        wall clock read at render (the same clock `MapView`'s `ukDateStr()` reads). Injected by
  *        tests; the card re-reads it on any repaint, not on a timer
@@ -262,7 +271,7 @@ export default function MapCallout({
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
-  tideStripHeight = null, hourlyRows = null, now = null,
+  tideStripHeight = null, hourlyRows = null, now = null, dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
   const map = useMap();
@@ -499,7 +508,10 @@ export default function MapCallout({
     fallbackRef: stripToggleRef,
   });
 
-  if (!location || !event || !chromeRoot) return null;
+  // A wildlife hide with no event at all is the ONE card that may exist without one (`dayMode`).
+  const isHide = isWildlifeOnly(location?.locationType);
+  const isDay = !event && dayMode && isHide;
+  if (!location || (!event && !isDay) || !chromeRoot) return null;
 
   const isMeasured = placement?.frame === frame;
   const box = isMeasured ? placement.box : null;
@@ -523,9 +535,9 @@ export default function MapCallout({
   // The kind chip beside this already reads SUNRISE/SUNSET — `dayLabel`, never `event.label`
   // (kind-chip dedup). Falls back to `label` for a caller that predates the field (e.g. a fixture
   // built before `utils/mapEvents.js` started emitting it).
-  const eventDayLabel = event.dayLabel ?? event.label;
+  const eventDayLabel = event?.dayLabel ?? event?.label;
 
-  const scoreEntry = event.kind === 'solar'
+  const scoreEntry = event?.kind === 'solar'
     ? lookupForWindow(scoreIndex, location.id, location.name, event.date, event.eventType)
     : null;
   // Reason prose: this location's own served summary first, a region gloss second — plan §3 P9's
@@ -533,7 +545,7 @@ export default function MapCallout({
   // the gloss index is built from solar `eventSummaries` alone), which is the honest degrade: this
   // phase does not invent a narrative for astro/aurora (plan §4.6).
   const ownReason = scoreEntry?.summary ?? null;
-  const regionReason = ownReason != null || event.kind !== 'solar'
+  const regionReason = ownReason != null || event?.kind !== 'solar'
     ? null
     : regionGlossFor(regionGlossIndex, event.date, event.eventType, location.regionName);
   const reason = ownReason ?? regionReason;
@@ -550,12 +562,12 @@ export default function MapCallout({
   // to remove. The sheet this opens reads the batch scores alone, so on a slot only the
   // synchronous engine rated, the two surfaces CAN differ — that is the dual-engine gap CLAUDE.md
   // records ("Where a rating lives"), not something this line can close.
-  const gateEntry = event.kind === 'solar'
+  const gateEntry = event?.kind === 'solar'
     ? lookupForWindow(evaluationGateIndex, location.id, location.name, event.date, event.eventType)
     : null;
   const gate = rating == null && scoreEntry?.rating == null ? (gateEntry?.gate ?? null) : null;
 
-  const eventTimeIso = eventInstantOf(scoreEntry, event.eventType);
+  const eventTimeIso = eventInstantOf(scoreEntry, event?.eventType);
   const facts = calloutFacts({
     driveMinutes,
     distanceMiles,
@@ -564,7 +576,7 @@ export default function MapCallout({
   });
 
   const coastalTidal = isCoastalTidalLocation(location);
-  const topics = filterCalloutTopics(event.badges, coastalTidal);
+  const topics = filterCalloutTopics(event?.badges, coastalTidal);
 
   // The tide-fit block's jump (T5, tide-window-plan.md §1 #11) — the first LATER solar row where
   // THIS location is served aligned, to ANY of its wants (no `want` argument: "the callout's
@@ -572,7 +584,7 @@ export default function MapCallout({
   // never needs it, and a null `tideOnLight` never reaches `TideFitBlock` at all (below).
   // `evRows.findIndex` rather than a caller-supplied index: this component already receives
   // `evRows` and `event` and is the one place that knows where "now" sits in that list.
-  const evIndex = Array.isArray(evRows) ? evRows.findIndex((row) => row.id === event.id) : -1;
+  const evIndex = Array.isArray(evRows) ? evRows.findIndex((row) => row.id === event?.id) : -1;
   const nextFitRow = tideOnLight && !tideOnLight.aligned
     ? nextAlignedRow(evRows, tideAlignmentIndex, { id: location.id ?? null, name: location.name }, evIndex)
     : -1;
@@ -616,7 +628,7 @@ export default function MapCallout({
   // night in progress — and an ended night still on screen — are in the preview since D-14:
   // `mapEvents.nightPreviewDates`.)
   const stripRows = (Array.isArray(evRows) ? evRows : []).map((row) => {
-    if (row.id === event.id) return { row, rowRating: rating, rowKnown: ratingKnown };
+    if (row.id === event?.id) return { row, rowRating: rating, rowKnown: ratingKnown };
     if (row.kind === 'solar') {
       const entry = lookupForWindow(scoreIndex, location.id, location.name, row.date, row.eventType);
       return { row, rowRating: entry?.rating ?? null, rowKnown: scoresKnown };
@@ -644,8 +656,7 @@ export default function MapCallout({
   // headline daylight figures "for this day" (and, at 02:00 on a night dated yesterday, a finished
   // day). A hide on a night window renders what it always did — its rating if one is served, the
   // unscored line otherwise — plus a pointer to the daylight forecast.
-  const isHide = isWildlifeOnly(location.locationType);
-  const comfortDay = isHide && event.kind === 'solar';
+  const comfortDay = isHide && (event?.kind === 'solar' || isDay);
   const comfortNight = isHide && !comfortDay;
   // A rating that IS served is never covered by "never scored": the star wins the verdict slot (below)
   // and the note is withheld. A hide with a solar rating should not exist; this keeps the card honest
@@ -654,16 +665,24 @@ export default function MapCallout({
   // The one clock read: the caller's `now`, else the wall clock. TODAY is the UK civil date, the
   // calendar every window date is keyed to; the util it feeds (`rowsFromNow`) reads no clock itself.
   const nowDate = now ?? new Date();
-  const isToday = comfortDay && event.date === ukDateStr(nowDate);
-  const dayRows = isToday ? rowsFromNow(hourlyRows, nowDate) : hourlyRows;
+  //
+  // Day mode has no window to take a date or rows from, so it picks both from the hide's own served
+  // rows (`comfortDayOf`); with a window, they are the window's.
+  const picked = isDay ? comfortDayOf(location.forecastsByDate, nowDate) : null;
+  const comfortDate = isDay ? picked.date : event?.date;
+  const comfortRows = isDay ? picked.rows : hourlyRows;
+  const isToday = comfortDay && comfortDate != null && comfortDate === ukDateStr(nowDate);
+  const dayRows = isToday ? rowsFromNow(comfortRows, nowDate) : comfortRows;
   const comfort = comfortDay ? comfortLines(comfortSummary(dayRows), { rest: isToday }) : [];
-  const hadRows = Array.isArray(hourlyRows) && hourlyRows.length > 0;
-  const comfortCaption = isToday
-    ? 'Comfort for the rest of today'
-    : `Comfort forecast · ${formatDateLabel(event.date, nowDate, true)}`;
-  const comfortNone = isToday && hadRows
-    ? 'Today’s daylight hours have passed.'
-    : 'No hourly forecast for this day yet.';
+  const hadRows = Array.isArray(comfortRows) && comfortRows.length > 0;
+  let comfortCaption = 'Comfort forecast';
+  if (isToday) comfortCaption = 'Comfort for the rest of today';
+  else if (comfortDate != null) {
+    comfortCaption = `Comfort forecast · ${formatDateLabel(comfortDate, nowDate, true)}`;
+  }
+  let comfortNone = 'No hourly forecast for this day yet.';
+  if (isToday && hadRows) comfortNone = 'Today’s daylight hours have passed.';
+  else if (comfortDate == null) comfortNone = 'No hourly forecast yet.';
 
   return createPortal(
     <>
@@ -722,6 +741,8 @@ export default function MapCallout({
           </button>
         </div>
 
+        {/* No verdict row in day mode: there is no window whose verdict it could state. */}
+        {!isDay && (
         <div
           className="wf-callout-verdict"
           data-testid="map-callout-verdict"
@@ -765,6 +786,7 @@ export default function MapCallout({
             </span>
           )}
         </div>
+        )}
         {/* ⚠️ No status region here, deliberately: the failure line is announced by `MapView`'s
             own (`statusLine`). A region inside this card would be mounted by the selection, so a
             night that failed before a place was picked arrived in it already announced-to-nobody —
@@ -945,6 +967,9 @@ export default function MapCallout({
           </div>
         )}
 
+        {/* No every-event strip in day mode: there are no events. */}
+        {!isDay && (
+          <>
         <button
           ref={stripToggleRef}
           type="button"
@@ -1000,6 +1025,8 @@ export default function MapCallout({
             })}
           </div>
         )}
+          </>
+        )}
 
         </div>
 
@@ -1036,6 +1063,8 @@ MapCallout.propTypes = {
     bortleClass: PropTypes.number,
     tideType: PropTypes.arrayOf(PropTypes.string),
     locationType: PropTypes.oneOfType([PropTypes.string, PropTypes.arrayOf(PropTypes.string)]),
+    /** The record's per-date forecasts — read only in day mode, to pick a hide's day. */
+    forecastsByDate: PropTypes.instanceOf(Map),
   }),
   rating: PropTypes.number,
   event: PropTypes.shape({
@@ -1086,6 +1115,8 @@ MapCallout.propTypes = {
   tideStripHeight: PropTypes.number,
   /** A hide's served hourly comfort rows for the active window's date — see the JSDoc above. */
   hourlyRows: PropTypes.arrayOf(PropTypes.object),
+  /** A wildlife hide's card when the tab has no map event at all — see the JSDoc above. */
+  dayMode: PropTypes.bool,
   /** The instant "the rest of today" is measured from — tests inject it; see the JSDoc above. */
   now: PropTypes.instanceOf(Date),
   onSelectEv: PropTypes.func,

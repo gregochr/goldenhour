@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  comfortLines, comfortSummary, formatCompass, formatWind, hourlyDaysOf, rowsFromNow,
+  comfortDayOf, comfortLines, comfortSummary, formatCompass, formatWind, hourlyDaysOf, rowsFromNow,
 } from '../utils/hourlyComfort.js';
 
 /** One served HOURLY row, in the shape `groupForecastsByDate` hands the component. */
@@ -307,5 +307,42 @@ describe('hourlyDaysOf', () => {
 
   it('lists every date it holds when no first date is given', () => {
     expect(hourlyDaysOf(MAP).map((d) => d.date)).toEqual(['2026-02-09', '2026-02-10', '2026-02-12']);
+  });
+});
+
+describe('comfortDayOf — the day a hide speaks for when there is no window to name one', () => {
+  const day = (date, hours) => [date, { sunrise: null, sunset: null, hourly: hours.map((h) => row(`${String(h).padStart(2, '0')}:00`, 5, 3, 2, 90, 10, date)) }];
+  const at = (iso) => new Date(iso);
+
+  it('picks TODAY while it still has hours to come', () => {
+    const map = new Map([day('2026-02-10', [7, 12, 16]), day('2026-02-11', [7])]);
+    expect(comfortDayOf(map, at('2026-02-10T11:30:00Z')).date).toBe('2026-02-10');
+  });
+
+  it('keeps today in its last daylight hour (the hour in progress still counts)', () => {
+    const map = new Map([day('2026-02-10', [7, 12, 16]), day('2026-02-11', [7])]);
+    expect(comfortDayOf(map, at('2026-02-10T16:59:00Z')).date).toBe('2026-02-10');
+  });
+
+  it('moves to the first LATER day with rows once today\'s hours are gone', () => {
+    const map = new Map([day('2026-02-10', [7, 12]), day('2026-02-12', [8]), day('2026-02-11', [9])]);
+    const picked = comfortDayOf(map, at('2026-02-10T17:00:00Z'));
+    expect(picked.date).toBe('2026-02-11');
+    expect(picked.rows).toHaveLength(1);
+  });
+
+  it('returns today (so the card can say it has passed) when it is the only day with rows', () => {
+    expect(comfortDayOf(new Map([day('2026-02-10', [7, 12])]), at('2026-02-10T17:00:00Z')).date).toBe('2026-02-10');
+  });
+
+  it('names no day when the rows are all for days already over, or there are none', () => {
+    expect(comfortDayOf(new Map([day('2026-02-09', [7])]), at('2026-02-10T08:00:00Z'))).toEqual({ date: null, rows: [] });
+    expect(comfortDayOf(new Map(), at('2026-02-10T08:00:00Z'))).toEqual({ date: null, rows: [] });
+    expect(comfortDayOf(null, at('2026-02-10T08:00:00Z'))).toEqual({ date: null, rows: [] });
+  });
+
+  it('judges TODAY on the UK civil date: 23:30 UTC in June is already the next UK day', () => {
+    const map = new Map([day('2026-06-15', [7, 12]), day('2026-06-16', [8])]);
+    expect(comfortDayOf(map, at('2026-06-15T23:30:00Z')).date).toBe('2026-06-16');
   });
 });

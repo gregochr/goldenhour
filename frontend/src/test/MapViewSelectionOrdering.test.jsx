@@ -100,6 +100,8 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
       <span data-testid="probe-callout-name">{props.location?.name ?? ''}</span>
       <span data-testid="probe-callout-rating">{JSON.stringify(props.rating ?? null)}</span>
       <span data-testid="probe-callout-hourly">{JSON.stringify(props.hourlyRows ?? null)}</span>
+      <span data-testid="probe-callout-daymode">{String(Boolean(props.dayMode))}</span>
+      <span data-testid="probe-callout-event">{props.event?.id ?? 'none'}</span>
       {(props.evRows ?? []).map((row) => (
         <button
           key={row.id}
@@ -243,6 +245,59 @@ afterEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+
+describe('MapView — a forecast of wildlife hides alone (no map event at all)', () => {
+  // `heat.windows` empty and no forecast dates: `buildMapEvents` draws nothing, there is no
+  // `activeMapEvent`, and until this the only selection surface (the callout) was mounted behind it —
+  // a hide could be picked and nothing came of it.
+  const hourly = (date) => [{
+    solarEventTime: `${date}T08:00:00`, temperatureCelsius: 8, apparentTemperatureCelsius: 6,
+    windSpeed: 4, windDirection: 180, precipitationProbabilityPercent: 20,
+  }];
+  const hide = (extra = {}) => ({
+    ...makeLocation(),
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map([[TODAY, { sunrise: null, sunset: null, hourly: hourly(TODAY) }]]),
+    ...extra,
+  });
+  const noEvents = () => ({ ...heatProp(), windows: [] });
+
+  it('⚠️ mounts the callout in DAY mode for a selected hide — with no event, and no synthetic one', async () => {
+    await renderMap({ locations: [hide()], heat: noEvents(), forecastDates: [] });
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-callout-daymode')).toHaveTextContent('true');
+    expect(screen.getByTestId('probe-callout-event')).toHaveTextContent('none');
+  });
+
+  it('says what is true in place of "No forecast to show." when hides carry a forecast', async () => {
+    await renderMap({ locations: [hide()], heat: noEvents(), forecastDates: [] });
+    expect(screen.getByTestId('wf-map-no-forecast'))
+      .toHaveTextContent('No sunrise or sunset forecast to show. Wildlife hides still carry a comfort forecast.');
+  });
+
+  it('⚠️ a SKY location with no event keeps "No forecast to show." and gets no card', async () => {
+    await renderMap({ locations: [makeLocation()], heat: noEvents(), forecastDates: [] });
+    expect(screen.getByTestId('wf-map-no-forecast')).toHaveTextContent('No forecast to show.');
+    await selectTheSpot();
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+  });
+
+  it('a hide with NO hourly rows at all keeps "No forecast to show." — nothing true to add', async () => {
+    await renderMap({
+      locations: [hide({ forecastsByDate: new Map() })], heat: noEvents(), forecastDates: [],
+    });
+    expect(screen.getByTestId('wf-map-no-forecast')).toHaveTextContent('No forecast to show.');
+  });
+
+  it('⚠️ a roster WITH an event never takes day mode, for a hide or anything else', async () => {
+    await renderMap({ locations: [hide()] });
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout-daymode')).toHaveTextContent('false');
+    expect(screen.getByTestId('probe-callout-event')).not.toHaveTextContent('none');
+    expect(screen.queryByText(/Wildlife hides still carry/)).toBeNull();
+  });
 });
 
 describe('MapView — a selected place\'s hourly comfort rows reach the callout for the ACTIVE window\'s date', () => {

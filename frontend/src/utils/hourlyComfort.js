@@ -21,6 +21,7 @@
  * display label with a throwaway `new Date()`, never a "what is today" decision).
  */
 import { formatDateLabel, formatEventTimeUk, mpsToMph, degreesToCompass, parseUtcInstant } from './conversions.js';
+import { ukDateStr } from './mapDates.js';
 
 /** A row's instant as a number, for ordering. Unparseable sorts as 0, ahead of everything. */
 function instantOf(row) {
@@ -210,6 +211,38 @@ export function comfortLines(summary, { rest = false } = {}) {
     }
   }
   return lines;
+}
+
+/**
+ * Which day a hide's callout speaks for when the Map tab has NO window to name one (a forecast of
+ * hides alone: no sunrise or sunset row exists, so there is no event to take a date from).
+ *
+ * <p>A selection over the hide's own served rows, nothing computed: TODAY (the UK civil date of
+ * `now`) when it still has hours to come; otherwise the first LATER date holding rows; otherwise
+ * today again if it holds only hours already gone (so the card can say so); otherwise null — rows
+ * only for days already over name no day at all. The caller owns the clock and passes it in.
+ *
+ * @param {?Map<string, {hourly: ?Array<object>}>} forecastsByDate the location's per-date forecasts
+ * @param {Date} now the instant to measure from
+ * @returns {{date: ?string, rows: Array<object>}} the chosen date and that date's rows
+ */
+export function comfortDayOf(forecastsByDate, now) {
+  const today = ukDateStr(now);
+  const withRows = [];
+  if (forecastsByDate instanceof Map) {
+    for (const [date, entry] of forecastsByDate) {
+      if (date >= today && Array.isArray(entry?.hourly) && entry.hourly.length > 0) withRows.push(date);
+    }
+  }
+  withRows.sort();
+  const rowsOf = (date) => forecastsByDate.get(date).hourly;
+  if (withRows.includes(today) && rowsFromNow(rowsOf(today), now).length > 0) {
+    return { date: today, rows: rowsOf(today) };
+  }
+  const later = withRows.find((date) => date > today);
+  if (later) return { date: later, rows: rowsOf(later) };
+  if (withRows.includes(today)) return { date: today, rows: rowsOf(today) };
+  return { date: null, rows: [] };
 }
 
 /**
