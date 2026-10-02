@@ -6,13 +6,18 @@ import { formatTimestampUk } from '../utils/conversions';
 /**
  * Displays alerts for locations with consecutive failures or that have been auto-disabled.
  *
+ * A location is listed when it has a failure count above zero OR carries a disabled reason: the
+ * scheduled-cycle auto-disable stores a reason, and a place switched off that way must stay
+ * listed (with its Re-enable button) even if its counter was reset elsewhere. Re-enable calls the
+ * reset endpoint, which also sets `enabled` back for a place that has a disabled reason.
+ *
  * @param {object} props
  * @param {Array<object>} props.locations - All locations with failure tracking fields.
  * @param {function} props.onReenabledLocation - Called when a location is re-enabled.
  */
 export default function LocationAlerts({ locations = [], onReenabledLocation = () => {} }) {
   const failingLocations = useMemo(
-    () => locations.filter((loc) => loc.consecutiveFailures > 0),
+    () => locations.filter((loc) => loc.consecutiveFailures > 0 || Boolean(loc.disabledReason)),
     [locations],
   );
 
@@ -37,13 +42,17 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
       </h3>
       <div className="space-y-2">
         {failingLocations.map((loc) => (
-          <div key={loc.name} className="flex items-start justify-between gap-3 p-3 bg-amber-900/10 rounded border border-amber-700/30">
+          <div
+            key={loc.name}
+            data-testid={`location-alert-${loc.name}`}
+            className="flex items-start justify-between gap-3 p-3 bg-amber-900/10 rounded border border-amber-700/30"
+          >
             <div className="flex-1 min-w-0">
               <div className="font-medium text-plex-text">{loc.name}</div>
               <div className="text-xs text-plex-text-secondary mt-1">
                 {loc.disabledReason ? (
                   <>
-                    <div>{loc.disabledReason}</div>
+                    <div data-testid="location-alert-reason">{loc.disabledReason}</div>
                     {loc.lastFailureAt && (
                       <div className="mt-1">
                         Last failure: {formatTimestampUk(loc.lastFailureAt)}
@@ -67,6 +76,7 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
             {loc.disabledReason && (
               <button
                 type="button"
+                data-testid={`reenable-${loc.name}`}
                 onClick={() => handleReenableLocation(loc.name)}
                 className="flex-shrink-0 px-3 py-1 text-xs font-medium bg-amber-700 text-amber-100 hover:bg-amber-600 rounded transition-colors"
               >

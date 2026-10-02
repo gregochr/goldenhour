@@ -1,106 +1,199 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.ApiCallLogEntity;
+import com.gregochr.goldenhour.entity.CycleType;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.repository.ApiCallLogRepository;
+import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Date;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration test demonstrating location failure tracking and dead-letter mechanism.
+ * End-to-end test of location failure tracking against the real wiring and an H2 database: seeded
+ * {@code forecast_batch}, {@code api_call_log} and {@code forecast_run_disposition} rows for a
+ * scheduled cycle go through the real {@link CycleLocationOutcomeResolver} and
+ * {@link LocationFailureService} and the repository's column-scoped writes, then the admin
+ * "re-enable" path ({@link LocationService#resetFailures}) undoes an auto-disable.
  */
 @SpringBootTest
 class LocationFailureTrackingTest {
+
+    private static final LocalDate DATE = LocalDate.of(2026, 10, 2);
+
+    /** Pipeline run ids must keep increasing: the service ignores a cycle it already settled. */
+    private static final AtomicLong NEXT_RUN_ID = new AtomicLong(700_000L);
 
     @Autowired
     private LocationService locationService;
 
     @Autowired
+    private LocationFailureService locationFailureService;
+
+    @Autowired
     private LocationRepository locationRepository;
+
+    @Autowired
+    private ForecastBatchRepository forecastBatchRepository;
+
+    @Autowired
+    private ApiCallLogRepository apiCallLogRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    private LocationEntity angel;
+    private LocationEntity keswick;
 
     @BeforeEach
     void setUp() {
-        // Ensure test locations exist and reset failure state for a clean test
-        LocationEntity angel = locationRepository.findByName("Angel of the North")
-                .orElseGet(() -> locationRepository.save(LocationEntity.builder()
-                        .name("Angel of the North")
-                        .lat(54.9141).lon(-1.5895)
-                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                        .build()));
-        angel.setConsecutiveFailures(0);
-        angel.setLastFailureAt(null);
-        angel.setDisabledReason(null);
-        locationRepository.save(angel);
-
-        LocationEntity keswick = locationRepository.findByName("Keswick")
-                .orElseGet(() -> locationRepository.save(LocationEntity.builder()
-                        .name("Keswick")
-                        .lat(54.6).lon(-3.13)
-                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                        .build()));
-        keswick.setConsecutiveFailures(0);
-        keswick.setLastFailureAt(null);
-        keswick.setDisabledReason(null);
-        locationRepository.save(keswick);
+        angel = freshLocation("Angel of the North", 54.9141, -1.5895);
+        keswick = freshLocation("Keswick", 54.6, -3.13);
     }
 
-    @Test
-    @DisplayName("Location failure tracking: auto-disable after 3 consecutive failures")
-    void testLocationAutoDisableAfterThreeFailures() {
-        LocationEntity location = locationRepository.findByName("Angel of the North")
-                .orElseThrow(() -> new IllegalStateException("Test location not found"));
-
-        // Simulate first failure
-        location.setConsecutiveFailures(1);
-        location.setLastFailureAt(LocalDateTime.now(ZoneOffset.UTC));
-        locationRepository.save(location);
-        assertThat(location.getConsecutiveFailures()).isEqualTo(1);
-        assertThat(location.getDisabledReason()).isNull();
-
-        // Simulate second failure
-        location.setConsecutiveFailures(2);
-        location.setLastFailureAt(LocalDateTime.now(ZoneOffset.UTC));
-        locationRepository.save(location);
-        assertThat(location.getConsecutiveFailures()).isEqualTo(2);
-        assertThat(location.getDisabledReason()).isNull();
-
-        // Simulate third failure - triggers auto-disable
-        location.setConsecutiveFailures(3);
-        location.setLastFailureAt(LocalDateTime.now(ZoneOffset.UTC));
-        location.setDisabledReason("Auto-disabled after 3 consecutive failures");
-        locationRepository.save(location);
-        assertThat(location.getConsecutiveFailures()).isEqualTo(3);
-        assertThat(location.getDisabledReason()).isNotNull();
-
-        // Test re-enable functionality
-        LocationEntity reenabledLocation = locationService.resetFailures(location.getName());
-        assertThat(reenabledLocation.getConsecutiveFailures()).isEqualTo(0);
-        assertThat(reenabledLocation.getDisabledReason()).isNull();
-        assertThat(reenabledLocation.getLastFailureAt()).isNull();
-    }
-
-    @Test
-    @DisplayName("Success resets consecutive failure counter")
-    void testSuccessResetsFailureCounter() {
-        LocationEntity location = locationRepository.findByName("Keswick")
-                .orElseThrow(() -> new IllegalStateException("Test location not found"));
-
-        // Set location to have some failures
-        location.setConsecutiveFailures(2);
-        location.setLastFailureAt(LocalDateTime.now(ZoneOffset.UTC));
-        locationRepository.save(location);
-        assertThat(location.getConsecutiveFailures()).isEqualTo(2);
-
-        // Simulate success - resets counter
+    private LocationEntity freshLocation(String name, double lat, double lon) {
+        LocationEntity location = locationRepository.findByName(name)
+                .orElseGet(() -> locationRepository.save(LocationEntity.builder()
+                        .name(name).lat(lat).lon(lon)
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                        .build()));
+        location.setEnabled(true);
         location.setConsecutiveFailures(0);
-        locationRepository.save(location);
-        assertThat(location.getConsecutiveFailures()).isEqualTo(0);
+        location.setLastFailureAt(null);
+        location.setDisabledReason(null);
+        return locationRepository.save(location);
+    }
+
+    private LocationEntity reload(LocationEntity location) {
+        return locationRepository.findById(location.getId()).orElseThrow();
+    }
+
+    private void setCounter(LocationEntity location, int failures) {
+        LocationEntity current = reload(location);
+        current.setConsecutiveFailures(failures);
+        locationRepository.save(current);
+    }
+
+    /**
+     * Seeds one scheduled cycle holding one batch and one result per given outcome, then settles it.
+     *
+     * @param angelGotThrough   whether Angel's request succeeded (otherwise it errored)
+     * @param keswickGotThrough whether Keswick's request succeeded (otherwise it errored)
+     */
+    private void runCycle(boolean angelGotThrough, boolean keswickGotThrough) {
+        long runId = NEXT_RUN_ID.incrementAndGet();
+        String batchId = "msgbatch_tracking_" + runId;
+        ForecastBatchEntity batch = new ForecastBatchEntity(
+                batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
+        batch.setPipelineRunId(runId);
+        batch.setJobRunId(runId);
+        forecastBatchRepository.save(batch);
+        seedResult(batchId, runId, angel, angelGotThrough);
+        seedResult(batchId, runId, keswick, keswickGotThrough);
+        jdbcTemplate.update(
+                "INSERT INTO forecast_run_disposition (job_run_id, location_id, location_name, "
+                        + "evaluation_date, event_type, disposition, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                runId, angel.getId(), angel.getName(), Date.valueOf(DATE), "SUNSET", "EVALUATED",
+                Timestamp.from(Instant.parse("2026-10-02T01:00:00Z")));
+
+        PipelineRunEntity run = new PipelineRunEntity(
+                CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z"));
+        run.setId(runId);
+        locationFailureService.settleCycle(run);
+    }
+
+    private void seedResult(String batchId, long runId, LocationEntity location, boolean succeeded) {
+        apiCallLogRepository.save(ApiCallLogEntity.builder()
+                .jobRunId(runId)
+                .service(ServiceName.ANTHROPIC)
+                .calledAt(LocalDateTime.of(2026, 10, 2, 1, 5))
+                .succeeded(succeeded)
+                .isBatch(true)
+                .batchId(batchId)
+                .customId(CustomIdFactory.forForecast(location.getId(), DATE, TargetType.SUNSET))
+                .errorType(succeeded ? null : "errored")
+                .build());
+    }
+
+    @Test
+    @DisplayName("a place whose request errors in three scheduled cycles in a row, while another "
+            + "place gets through each time, is auto-disabled with the fixed-shape reason; the "
+            + "admin's Re-enable (resetFailures) then puts it back on the roster")
+    void threeConsecutiveFailedCycles_autoDisable_thenReEnable() {
+        runCycle(false, true);
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(1);
+        assertThat(reload(angel).isEnabled()).isTrue();
+
+        runCycle(false, true);
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
+        assertThat(reload(angel).isEnabled()).isTrue();
+        assertThat(reload(angel).getDisabledReason()).isNull();
+
+        runCycle(false, true);
+        LocationEntity disabled = reload(angel);
+        assertThat(disabled.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(disabled.isEnabled()).isFalse();
+        assertThat(disabled.getLastFailureAt()).isNotNull();
+        assertThat(disabled.getDisabledReason()).startsWith(
+                "Auto-disabled after 3 consecutive failed scheduled runs (last ");
+        assertThat(disabled.getDisabledReason()).endsWith(
+                ": the Claude evaluation request failed).");
+        assertThat(reload(keswick).isEnabled()).isTrue();
+        assertThat(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .extracting(LocationEntity::getName).doesNotContain("Angel of the North");
+
+        LocationEntity reenabled = locationService.resetFailures("Angel of the North");
+        assertThat(reenabled.isEnabled()).isTrue();
+        assertThat(reenabled.getConsecutiveFailures()).isZero();
+        assertThat(reenabled.getDisabledReason()).isNull();
+        assertThat(reenabled.getLastFailureAt()).isNull();
+        assertThat(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .extracting(LocationEntity::getName).contains("Angel of the North");
+    }
+
+    @Test
+    @DisplayName("a place at 2 failures that gets through a scheduled cycle goes back to 0")
+    void gettingThrough_resetsCounter() {
+        setCounter(keswick, 2);
+
+        runCycle(true, true);
+
+        assertThat(reload(keswick).getConsecutiveFailures()).isZero();
+        assertThat(reload(keswick).isEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a cycle in which both attempted places fail counts for neither: for each, none "
+            + "of the other attempted places got through")
+    void everythingFailed_countsForNobody() {
+        setCounter(angel, 2);
+        setCounter(keswick, 1);
+
+        runCycle(false, false);
+
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
+        assertThat(reload(angel).isEnabled()).isTrue();
+        assertThat(reload(keswick).getConsecutiveFailures()).isEqualTo(1);
     }
 }

@@ -223,4 +223,100 @@ class AdminAlertServiceTest {
         String body = (String) message.getContent();
         assertThat(body).contains("Trigger time: unknown");
     }
+
+    private static final String DISABLED_REASON =
+            "Auto-disabled after 3 consecutive failed scheduled runs "
+                    + "(last 2026-10-02: weather data could not be fetched).";
+
+    @Test
+    @DisplayName("the auto-disabled alert goes to every enabled admin with the literal subject "
+            + "and a body listing each place with its reason")
+    void autoDisabledAlert_literalSubjectAndBody() throws Exception {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
+                admin("alice", "alice@example.com", true)));
+        MimeMessage message = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(message);
+
+        enabledService().sendLocationsAutoDisabledAlert(300L, CycleType.NIGHTLY, TRIGGER,
+                List.of(new AdminAlertService.DisabledLocation("Bamburgh", DISABLED_REASON),
+                        new AdminAlertService.DisabledLocation("Alnwick", DISABLED_REASON)));
+
+        verify(mailSender).send(message);
+        assertThat(message.getSubject())
+                .isEqualTo("PhotoCast: 2 locations auto-disabled after pipeline run 300");
+        assertThat((String) message.getContent()).isEqualTo(
+                "Pipeline run 300 (NIGHTLY) auto-disabled 2 locations.\n\n"
+                        + "Trigger time: 2026-09-29 14:00 UTC\n\n"
+                        + "- Bamburgh: " + DISABLED_REASON + "\n"
+                        + "- Alnwick: " + DISABLED_REASON + "\n\n"
+                        + "These places no longer appear in any forecast. Re-enable each one from "
+                        + "Manage > Locations (Location Issues) once the cause is fixed.\n");
+    }
+
+    @Test
+    @DisplayName("a single disabled place reads in the singular")
+    void autoDisabledAlert_singular() throws Exception {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
+                admin("alice", "alice@example.com", true)));
+        MimeMessage message = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(message);
+
+        enabledService().sendLocationsAutoDisabledAlert(300L, CycleType.INTRADAY, TRIGGER,
+                List.of(new AdminAlertService.DisabledLocation("Bamburgh", DISABLED_REASON)));
+
+        assertThat(message.getSubject())
+                .isEqualTo("PhotoCast: 1 location auto-disabled after pipeline run 300");
+        assertThat((String) message.getContent())
+                .startsWith("Pipeline run 300 (INTRADAY) auto-disabled 1 location.\n");
+    }
+
+    @Test
+    @DisplayName("the cap alert says none was disabled and names every qualifying place")
+    void capAlert_literalSubjectAndBody() throws Exception {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
+                admin("alice", "alice@example.com", true)));
+        MimeMessage message = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(message);
+
+        enabledService().sendLocationDisableCapAlert(300L, CycleType.NIGHTLY, TRIGGER,
+                List.of("A", "B", "C", "D", "E", "F"), 5);
+
+        verify(mailSender).send(message);
+        assertThat(message.getSubject()).isEqualTo(
+                "PhotoCast: 6 locations failed repeatedly on pipeline run 300 — none disabled");
+        assertThat((String) message.getContent()).isEqualTo(
+                "Pipeline run 300 (NIGHTLY): 6 locations reached the consecutive-failure "
+                        + "threshold in this one cycle, more than the cap of 5 disabled per "
+                        + "cycle.\n\n"
+                        + "That points at something systemic rather than that many broken places, "
+                        + "so NONE was disabled.\n\n"
+                        + "Trigger time: 2026-09-29 14:00 UTC\n\n"
+                        + "Locations: A, B, C, D, E, F\n");
+    }
+
+    @Test
+    @DisplayName("with admin alerts disabled neither location alert touches the repository or the "
+            + "mail sender")
+    void locationAlerts_disabled_skipEntirely() {
+        AdminAlertService service = new AdminAlertService(mailSender, appUserRepository, false);
+
+        service.sendLocationsAutoDisabledAlert(300L, CycleType.NIGHTLY, TRIGGER,
+                List.of(new AdminAlertService.DisabledLocation("Bamburgh", DISABLED_REASON)));
+        service.sendLocationDisableCapAlert(300L, CycleType.NIGHTLY, TRIGGER, List.of("A"), 5);
+
+        verify(appUserRepository, never()).findByRoleAndEnabledTrue(any());
+        verify(mailSender, never()).createMimeMessage();
+    }
+
+    @Test
+    @DisplayName("a location alert whose recipient lookup throws never escapes the method")
+    void locationAlert_repositoryThrows_neverEscapes() {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN))
+                .thenThrow(new RuntimeException("DB unavailable"));
+
+        enabledService().sendLocationDisableCapAlert(300L, CycleType.NIGHTLY, TRIGGER,
+                List.of("A"), 5);
+
+        verify(mailSender, never()).createMimeMessage();
+    }
 }

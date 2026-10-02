@@ -408,7 +408,15 @@ public class LocationService {
     }
 
     /**
-     * Resets the consecutive failure counter and disabled reason for a location.
+     * Resets the consecutive failure counter, last-failure time and disabled reason for a
+     * location — and re-enables it if it was auto-disabled.
+     *
+     * <p>This is what the admin Locations alert's "Re-enable" button calls. A place is treated as
+     * auto-disabled when it carries a {@code disabledReason}: only the scheduled-cycle auto-disable
+     * (see {@link LocationFailureService}) writes one, whereas an admin's own disable through
+     * {@link #setEnabled} leaves it null. So a reason means "re-enable it" and the place goes back
+     * on the roster ({@code enabled = true}); a place with no reason that is disabled was switched
+     * off by an admin on purpose and stays disabled, with only its counters cleared.
      *
      * @param name the location name to reset
      * @return the updated {@link LocationEntity}
@@ -416,6 +424,9 @@ public class LocationService {
      */
     public LocationEntity resetFailures(String name) {
         LocationEntity location = findByName(name);
+        if (location.getDisabledReason() != null) {
+            location.setEnabled(true);
+        }
         location.setConsecutiveFailures(0);
         location.setDisabledReason(null);
         location.setLastFailureAt(null);

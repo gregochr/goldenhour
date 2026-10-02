@@ -2,9 +2,12 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -132,4 +135,53 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      */
     @Query("SELECT MAX(l.createdAt) FROM LocationEntity l")
     LocalDateTime findMaxCreatedAt();
+
+    /**
+     * Records one counted failed scheduled cycle against an enabled location: sets the consecutive
+     * failure count and the time of the failure and touches no other column.
+     *
+     * <p>Column-scoped on purpose. A whole-entity {@code save} would write every column, including
+     * the tide, type and solar-event sets, from whatever copy the caller held, so it could undo an
+     * admin's concurrent edit of the same place. The {@code enabled = true} guard makes the update
+     * a no-op for a place an admin disabled mid-cycle.
+     *
+     * @param id            the location id
+     * @param failureCount  the new consecutive failure count
+     * @param lastFailureAt UTC time of this failure
+     * @return rows updated (0 or 1)
+     */
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.consecutiveFailures = :failureCount, "
+            + "l.lastFailureAt = :lastFailureAt WHERE l.id = :id AND l.enabled = true")
+    int recordFailure(@Param("id") Long id, @Param("failureCount") int failureCount,
+            @Param("lastFailureAt") LocalDateTime lastFailureAt);
+
+    /**
+     * Auto-disables an enabled location: sets {@code enabled = false}, the reason, the consecutive
+     * failure count and the time of the last failure, and touches no other column.
+     *
+     * @param id            the location id
+     * @param failureCount  the consecutive failure count that tripped the disable
+     * @param lastFailureAt UTC time of the failure that tripped it
+     * @param reason        the fixed-shape reason shown on the admin Locations alerts
+     * @return rows updated (0 or 1)
+     */
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.enabled = false, l.consecutiveFailures = :failureCount, "
+            + "l.lastFailureAt = :lastFailureAt, l.disabledReason = :reason "
+            + "WHERE l.id = :id AND l.enabled = true")
+    int autoDisable(@Param("id") Long id, @Param("failureCount") int failureCount,
+            @Param("lastFailureAt") LocalDateTime lastFailureAt, @Param("reason") String reason);
+
+    /**
+     * Resets the consecutive failure count to zero for every enabled location in the given set
+     * whose count is above zero. The time of the last failure is left as the historical fact it is.
+     *
+     * @param ids the location ids that got through a scheduled cycle
+     * @return rows updated
+     */
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.consecutiveFailures = 0 "
+            + "WHERE l.id IN :ids AND l.enabled = true AND l.consecutiveFailures > 0")
+    int resetFailureCounts(@Param("ids") Collection<Long> ids);
 }

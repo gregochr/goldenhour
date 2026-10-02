@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.model.BatchCallOutcome;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -70,4 +71,22 @@ public interface ApiCallLogRepository extends JpaRepository<ApiCallLogEntity, Lo
      */
     @Query("SELECT a.customId FROM ApiCallLogEntity a WHERE a.batchId = :batchId")
     List<String> findCustomIdsByBatchId(@Param("batchId") String batchId);
+
+    /**
+     * Returns the outcome of every individual request logged against the given Anthropic batches,
+     * succeeded and failed alike, projected to the three columns a caller needs so the (potentially
+     * large) response bodies are never loaded.
+     *
+     * <p>Used by {@code CycleLocationOutcomeResolver} to decide, per place, whether a scheduled
+     * cycle's requests got through. Rows without a {@code custom_id} cannot be attributed to a
+     * place and are excluded here rather than in every caller.
+     *
+     * @param batchIds Anthropic batch ids ({@code msgbatch_*}) belonging to one pipeline cycle
+     * @return one {@link BatchCallOutcome} per logged request
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.BatchCallOutcome("
+            + "a.customId, a.succeeded, a.errorType) "
+            + "FROM ApiCallLogEntity a "
+            + "WHERE a.isBatch = true AND a.batchId IN :batchIds AND a.customId IS NOT NULL")
+    List<BatchCallOutcome> findBatchCallOutcomes(@Param("batchIds") Collection<String> batchIds);
 }

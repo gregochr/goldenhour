@@ -878,6 +878,45 @@ class LocationServiceTest {
     }
 
     @Test
+    @DisplayName("resetFailures() re-enables a place that was auto-disabled (it carries a "
+            + "disabled reason) and clears its counters")
+    void resetFailures_autoDisabledPlace_isReEnabled() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        entity.setConsecutiveFailures(3);
+        entity.setDisabledReason("Auto-disabled after 3 consecutive failed scheduled runs "
+                + "(last 2026-10-02: weather data could not be fetched).");
+        entity.setLastFailureAt(java.time.LocalDateTime.of(2026, 10, 2, 3, 0));
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
+        when(locationRepository.save(entity)).thenReturn(entity);
+
+        LocationEntity result = locationService.resetFailures("Durham UK");
+
+        assertThat(result.isEnabled()).isTrue();
+        assertThat(result.getConsecutiveFailures()).isZero();
+        assertThat(result.getDisabledReason()).isNull();
+        assertThat(result.getLastFailureAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("resetFailures() leaves a place an admin disabled on purpose (no disabled "
+            + "reason) disabled, clearing only its counters")
+    void resetFailures_manuallyDisabledPlace_staysDisabled() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        entity.setConsecutiveFailures(1);
+        entity.setLastFailureAt(java.time.LocalDateTime.of(2026, 10, 2, 3, 0));
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
+        when(locationRepository.save(entity)).thenReturn(entity);
+
+        LocationEntity result = locationService.resetFailures("Durham UK");
+
+        assertThat(result.isEnabled()).isFalse();
+        assertThat(result.getConsecutiveFailures()).isZero();
+        assertThat(result.getLastFailureAt()).isNull();
+    }
+
+    @Test
     @DisplayName("resetFailures() throws NoSuchElementException for unknown name")
     void resetFailures_notFound_throwsNoSuchElementException() {
         when(locationRepository.findByName("Unknown"))

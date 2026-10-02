@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.LocationFailureService;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
@@ -122,6 +123,7 @@ public class PipelineOrchestrator {
     private final PipelineRunPickService pipelineRunPickService;
     private final BatchRetryService batchRetryService;
     private final AdminAlertService adminAlertService;
+    private final LocationFailureService locationFailureService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -142,6 +144,7 @@ public class PipelineOrchestrator {
      * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
+     * @param locationFailureService          settles each cycle's per-place failure counting
      */
     @Autowired
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -153,13 +156,14 @@ public class PipelineOrchestrator {
             DynamicSchedulerService dynamicSchedulerService,
             PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
-            AdminAlertService adminAlertService) {
+            AdminAlertService adminAlertService,
+            LocationFailureService locationFailureService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService,
-                adminAlertService);
+                adminAlertService, locationFailureService);
     }
 
     /**
@@ -181,6 +185,8 @@ public class PipelineOrchestrator {
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED;
      *                                        tests may pass {@code null} to skip alerting
+     * @param locationFailureService          settles each cycle's per-place failure counting;
+     *                                        tests may pass {@code null} to skip it
      */
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
@@ -193,7 +199,8 @@ public class PipelineOrchestrator {
             DynamicSchedulerService dynamicSchedulerService,
             PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
-            AdminAlertService adminAlertService) {
+            AdminAlertService adminAlertService,
+            LocationFailureService locationFailureService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -206,6 +213,7 @@ public class PipelineOrchestrator {
         this.adminAlertService = adminAlertService;
         this.pipelineRunPickService = pipelineRunPickService;
         this.batchRetryService = batchRetryService;
+        this.locationFailureService = locationFailureService;
     }
 
     /**
@@ -501,6 +509,7 @@ public class PipelineOrchestrator {
             // republished briefing is harmless), and persistPicksForCycle upserts.
             if (!atOrPastBrief) {
                 pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
+                settleLocationFailures(run);
             }
             try {
                 briefingService.refreshBriefing();
@@ -529,6 +538,40 @@ public class PipelineOrchestrator {
         } catch (RuntimeException e) {
             LOG.error("Pipeline run {}: wait/brief tail failed — {}", runId, e.getMessage(), e);
             pipelineRunService.failRun(runId, "Wait/brief tail failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Settles this cycle's per-place failure counting: the one place a scheduled cycle's outcomes
+     * are turned into consecutive-failure counts and, eventually, auto-disables
+     * ({@link LocationFailureService}).
+     *
+     * <p><b>Why here.</b> After the wait, so every batch result has landed or the safety timeout
+     * has thrown (a timed-out cycle never reaches this line, so nothing is counted for a cycle whose
+     * results are unknown); after RETRY_FAILED, so a request the retry recovered counts as a success;
+     * and immediately after the BRIEFING phase row is started, not before it. The phase row is the
+     * durable record a restart resumes from: a run resumed mid-BRIEFING skips this call, so a restart
+     * can lose a settle (a missed count, the safe direction) but can never repeat one, which is what
+     * lets the service's idempotence marker live in memory. It is before {@code refreshBriefing()} so
+     * a briefing failure, which returns early, cannot skip it, and so a place just disabled is already
+     * gone from the briefing built next. A result for this cycle arriving after this point cannot
+     * count: the settle has run and the service ignores a cycle it has already settled.
+     *
+     * <p>Best-effort: counting is housekeeping, never a reason to fail the briefing. A hand-started
+     * run never reaches this method: only {@link #waitAndBriefPhase} calls it, and that runs only
+     * for a pipeline cycle.
+     *
+     * @param run the pipeline run whose batches have just completed
+     */
+    private void settleLocationFailures(PipelineRunEntity run) {
+        if (locationFailureService == null) {
+            return;
+        }
+        try {
+            locationFailureService.settleCycle(run);
+        } catch (RuntimeException e) {
+            LOG.warn("Pipeline run {}: location failure settle raised an exception, logged and "
+                    + "ignored (the briefing continues): {}", run.getId(), e.getMessage(), e);
         }
     }
 
