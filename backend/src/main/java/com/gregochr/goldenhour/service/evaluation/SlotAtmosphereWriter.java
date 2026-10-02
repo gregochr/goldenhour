@@ -82,6 +82,9 @@ import java.time.LocalDate;
  * additionally wraps the call so a thrown exception is logged and {@code fetchWeatherAndTriage}
  * proceeds to its triage checks regardless.
  *
+ * <p><b>Retention.</b> This writer never prunes; rows older than 180 days by slot date are deleted
+ * nightly by {@code SlotAtmosphereCleanupJob} (owner decision 2026-10-02).
+ *
  * <p><b>Feature flag.</b> {@code photocast.slot-atmosphere.write} (default {@code true}).
  * Flag off = no rows written; the additive-table rollback path, no redeploy. There is deliberately
  * no separate flag gating "every candidate" vs "survivors only" — owner decision 2026-09-30 is that

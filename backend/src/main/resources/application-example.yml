@@ -296,6 +296,13 @@ photocast:
                                    # photocast.survivor-atmosphere.write in V159 (2026-09-30); the old
                                    # key was read as a legacy alias for the rest of that day only and
                                    # is no longer read at all.
+    retention-days: 180            # the nightly slot_atmosphere_cleanup job (03:45 UTC) deletes rows
+                                   # whose evaluation_date (the slot's own date) is more than this
+                                   # many days before today's UK date; a row exactly this old is
+                                   # kept. Owner decision 2026-10-02. Startup REFUSES a value below
+                                   # the longest reader window (coming-up.scoring.recurrent.
+                                   # trailing-window-days, default 60) — pruning must never delete
+                                   # history a reader still asks for.
   season:
     bluebell:
       start: "04-18"               # bluebell season first active day (MM-dd, inclusive).

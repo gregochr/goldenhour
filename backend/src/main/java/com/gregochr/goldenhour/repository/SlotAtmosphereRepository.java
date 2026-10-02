@@ -3,9 +3,11 @@ package com.gregochr.goldenhour.repository;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -25,7 +27,8 @@ import java.util.Optional;
  * <p>Written through by {@code SlotAtmosphereWriter} at collection/submission/evaluation time:
  * {@link #findByLocationIdAndEvaluationDateAndEventType} is the upsert's lookup. Read by the
  * unified read model ({@code SlotSignalReader}) on behalf of the atmospheric hot-topic
- * detectors.
+ * detectors. Rows older than 180 days by {@code evaluation_date} are deleted nightly through
+ * {@link #deleteByEvaluationDateBefore} (owner decision 2026-10-02).
  */
 @Repository
 public interface SlotAtmosphereRepository
@@ -56,4 +59,19 @@ public interface SlotAtmosphereRepository
             + "WHERE s.evaluationDate BETWEEN :from AND :to")
     List<SlotAtmosphereEntity> findInDateRange(
             @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /**
+     * Deletes every row whose {@code evaluation_date} — the slot's own date, not its write time —
+     * is strictly before the cutoff, in one bulk statement the {@code idx_slot_atmosphere_date}
+     * index serves. A row dated exactly at the cutoff is KEPT. Called by the nightly
+     * {@code slot_atmosphere_cleanup} job ({@code SlotAtmosphereCleanupJob}), which supplies
+     * {@code today - retention-days}; runs in its own transaction.
+     *
+     * @param cutoff the first date to keep — rows dated before it are deleted
+     * @return the number of rows deleted
+     */
+    @Transactional
+    @Modifying
+    @Query("DELETE FROM SlotAtmosphereEntity s WHERE s.evaluationDate < :cutoff")
+    int deleteByEvaluationDateBefore(@Param("cutoff") LocalDate cutoff);
 }
