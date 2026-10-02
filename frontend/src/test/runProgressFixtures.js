@@ -40,7 +40,7 @@ const statusOf = (tasks) => {
   return 'PARTIAL';
 };
 
-/** RunTracker.buildSummary for the given tasks. */
+/** RunProgressTracker.buildSummary for the given tasks. */
 export const summaryEvent = (jobRunId, tasks, { phase = 'FULL_EVALUATION', elapsedMs = 1200 } = {}) => ({
   jobRunId,
   phase,
