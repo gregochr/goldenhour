@@ -449,6 +449,20 @@ public class PromptBuilder {
         return PromptUtils.insertBeforeSuffix(base, getPromptSuffix(), surgeBlock);
     }
 
+    /**
+     * Builds the user message for a single location and solar event from its atmospheric data.
+     *
+     * <p>Always emits the location, cloud, visibility, humidity, dew point, boundary-layer and
+     * aerosol lines. Further blocks are appended only when their data exists or their condition
+     * holds: location orientation, directional cloud (with the thin-strip and far-corridor labels),
+     * cloud approach risk, the mist/visibility trend, Saharan dust context, cloud inversion
+     * forecast and forecast reliability. The fixed prompt suffix always closes the message.
+     * Storm surge is not included here; use the four-argument overload for that.
+     *
+     * @param data the atmospheric forecast data; its cloud, weather, aerosol and comfort
+     *             components must be non-null
+     * @return the formatted user message string
+     */
     public String buildUserMessage(AtmosphericData data) {
         var cloud = data.cloud();
         var w = data.weather();

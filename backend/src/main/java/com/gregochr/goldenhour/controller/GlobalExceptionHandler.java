@@ -109,16 +109,6 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Catch-all for unhandled runtime exceptions — logs the full stack trace and returns 500.
-     *
-     * <p>{@link AccessDeniedException} is re-thrown so Spring Security's filter chain
-     * can convert it to a 403 response.
-     *
-     * @param ex the exception
-     * @return a 500 response with a structured error body
-     * @throws AccessDeniedException if the exception is a security authorisation failure
-     */
-    /**
      * Silently ignores client-disconnect notifications on async/SSE responses.
      *
      * <p>These fire when the browser closes the connection before the response is complete
@@ -145,6 +135,16 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(ex.getReason()));
     }
 
+    /**
+     * Catch-all for unhandled runtime exceptions — logs the full stack trace and returns 500.
+     *
+     * <p>{@link AccessDeniedException} is re-thrown so Spring Security's filter chain
+     * can convert it to a 403 response.
+     *
+     * @param ex the exception
+     * @return a 500 response with a structured error body
+     * @throws AccessDeniedException if the exception is a security authorisation failure
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex) throws AccessDeniedException {
         if (ex instanceof AccessDeniedException ade) {

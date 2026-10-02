@@ -86,10 +86,22 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
      * @param failureReason short reason on failure, else {@code null}
      */
     public record AuroraBatchOutcome(boolean success, int scoredCount, String failureReason) {
+        /**
+         * Outcome for a response whose scores reached the cache.
+         *
+         * @param scoredCount number of scored locations written
+         * @return a successful outcome carrying that count and no failure reason
+         */
         public static AuroraBatchOutcome ok(int scoredCount) {
             return new AuroraBatchOutcome(true, scoredCount, null);
         }
 
+        /**
+         * Outcome for a response that a gate stopped from updating the cache.
+         *
+         * @param reason short description of why nothing was written
+         * @return an unsuccessful outcome with zero scored locations and that reason
+         */
         public static AuroraBatchOutcome failure(String reason) {
             return new AuroraBatchOutcome(false, 0, reason);
         }

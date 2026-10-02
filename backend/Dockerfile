@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn dependency:go-offline -B
 
 # Layer 2: Copy config files and source code, then build
-COPY backend/checkstyle.xml backend/spotbugs-exclude.xml backend/dependency-check-suppressions.xml ./
+COPY backend/checkstyle.xml backend/checkstyle-suppressions.xml backend/spotbugs-exclude.xml backend/dependency-check-suppressions.xml ./
 COPY backend/src src
 # Note: not using -o (offline). dependency:go-offline above misses some transitives
 # (e.g. org.jetbrains:annotations:13.0 via anthropic-java → kotlin-stdlib), which

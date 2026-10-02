@@ -83,6 +83,10 @@ public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer topRarityRank,
         @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide) {
 
+    /**
+     * Canonical constructor: takes an immutable copy of {@code badges}, and reads a null list as
+     * empty so the client can rely on "never null, often empty".
+     */
     public BriefingWindow {
         badges = badges == null ? List.of() : List.copyOf(badges);
     }
@@ -214,6 +218,10 @@ public record BriefingWindow(
             @JsonInclude(JsonInclude.Include.NON_NULL) String rarityNote,
             @JsonInclude(JsonInclude.Include.NON_NULL) String safetyNote) {
 
+        /**
+         * Canonical constructor: takes an immutable copy of {@code facts}, and reads a null list as
+         * empty so the client's "has facts" test is a length check, never a null check.
+         */
         public Badge {
             facts = facts == null ? List.of() : List.copyOf(facts);
         }

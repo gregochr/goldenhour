@@ -49,6 +49,10 @@ public record BriefingDayPeak(
         List<TargetType> events,
         List<PeakRegion> regions) {
 
+    /**
+     * Canonical constructor: takes immutable copies of {@code events} and {@code regions}, reading
+     * a null list as empty (a STAND_DOWN day legitimately has no regions).
+     */
     public BriefingDayPeak {
         events = events == null ? List.of() : List.copyOf(events);
         regions = regions == null ? List.of() : List.copyOf(regions);

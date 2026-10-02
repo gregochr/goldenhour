@@ -113,6 +113,11 @@ public record BriefingWindowTide(
         @JsonInclude(JsonInclude.Include.NON_NULL) List<Extreme> extremes,
         @JsonInclude(JsonInclude.Include.NON_NULL) String heightAtWindow) {
 
+    /**
+     * Canonical constructor: takes immutable copies of {@code curve} (a null curve reads as empty)
+     * and {@code extremes} (a null list stays null, because null there means "not served", which is
+     * different from "no extremes").
+     */
     public BriefingWindowTide {
         curve = curve == null ? List.of() : List.copyOf(curve);
         extremes = extremes == null ? null : List.copyOf(extremes);
