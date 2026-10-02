@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.anthropic.errors.AnthropicServiceException;
+import com.gregochr.goldenhour.config.ClaudeBreakerIgnorePredicate;
 import com.gregochr.goldenhour.config.ClaudeRetryPredicate;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
@@ -20,8 +21,8 @@ import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
  *       by their message text ({@value #TYPE_CONTENT_FILTER}, {@value #TYPE_REFUSAL},
  *       {@value #TYPE_REPLY_UNREADABLE}), by a literal in another class ({@value #TYPE_PARSE_ERROR}),
  *       or by a Resilience4j class name ({@value #TYPE_CIRCUIT_OPEN}, {@value #TYPE_BULKHEAD_FULL}).
- *       The string is never persisted for a synchronous call (it is not a column of
- *       {@code api_call_log} on that path) and is read only by this class.</li>
+ *       A synchronous call's failure is logged with this string as the {@code api_call_log}'s
+ *       {@code error_type}, beside {@link #httpStatusOf}'s status, so a failed row says why.</li>
  *   <li>{@link #fromErrorType} maps that string to one constant, which owns its phrase.</li>
  * </ol>
  *
@@ -104,8 +105,6 @@ public enum EvaluationFailure {
     public static final String TYPE_PARSE_ERROR = "parse_error";
 
     private static final String ANTHROPIC_PREFIX = "anthropic_";
-    private static final int HTTP_UNAUTHORIZED = 401;
-    private static final int HTTP_FORBIDDEN = 403;
     private static final int HTTP_RATE_LIMITED = 429;
     private static final int HTTP_OVERLOADED = 529;
     private static final int HTTP_SERVER_ERROR_FIRST = 500;
@@ -169,6 +168,22 @@ public enum EvaluationFailure {
     }
 
     /**
+     * The HTTP status Anthropic answered with, when the failure is an Anthropic service error.
+     *
+     * <p>{@code null} for everything that has no HTTP status of its own: the SDK's I/O failure (the
+     * request never got an answer), a refusal or an unreadable reply (the HTTP call itself returned
+     * 200, and a 200 on a failed row would read as a success), and a call a Resilience4j breaker or
+     * bulkhead refused (nothing was sent). {@code null} is also what the batch path writes for its
+     * failures, and what the column's own documentation says for a non-HTTP call.
+     *
+     * @param e what the Claude call or its reply handling threw
+     * @return the HTTP status, or {@code null} when the failure carried none
+     */
+    public static Integer httpStatusOf(Throwable e) {
+        return e instanceof AnthropicServiceException svc ? svc.statusCode() : null;
+    }
+
+    /**
      * Maps an {@code errorType} string to a failure kind.
      *
      * @param errorType the engine's short classification; may be null
@@ -219,7 +234,7 @@ public enum EvaluationFailure {
         } catch (NumberFormatException e) {
             return UNKNOWN;
         }
-        if (code == HTTP_UNAUTHORIZED || code == HTTP_FORBIDDEN) {
+        if (ClaudeBreakerIgnorePredicate.isKeyRejection(code)) {
             return KEY_REJECTED;
         }
         if (code == HTTP_RATE_LIMITED) {

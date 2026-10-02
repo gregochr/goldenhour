@@ -4,6 +4,7 @@ import com.anthropic.errors.AnthropicServiceException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.config.ProductionAnthropicBreaker;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
@@ -27,6 +28,7 @@ import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter;
 import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -610,6 +613,80 @@ class ForecastCommandExecutorEvaluationFailureTest {
         assertThat(messages).containsExactlyInAnyOrder(NOT_ATTEMPTED, KEY_REJECTED, KEY_REJECTED);
         assertThat(theOnlyRunComplete().get("reason").asText()).isEqualTo(RUN_STOPPED);
         verify(jobRunService).completeRun(jobRun, 0, 3, DATES);
+    }
+
+    /**
+     * The "anthropic" breaker as production builds it, with no hand-copied numbers: its settings are read
+     * from the committed {@code application-prod.yml} and the real {@code ResilienceConfig} customizer is
+     * applied on top ({@link ProductionAnthropicBreaker}). Not covered: the production host's gitignored
+     * {@code application.yml}, which this repository cannot see.
+     */
+    private static CircuitBreaker productionAnthropicBreaker() {
+        return ProductionAnthropicBreaker.newBreaker();
+    }
+
+    private static void awaitQuietly(CyclicBarrier barrier) {
+        try {
+            barrier.await(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
+    @DisplayName("a rejected key does not open the Claude circuit breaker: a run started right after one that was "
+            + "stopped on the key still reaches Claude and stops with the KEY reason, not 'calls are paused'")
+    void rejectedKey_twoRunsInARow_bothStopWithTheKeyReason() throws Exception {
+        stubPipeline();
+        CircuitBreaker breaker = productionAnthropicBreaker();
+        AnthropicServiceException rejected = serviceError(401);
+        AtomicInteger reachedClaude = new AtomicInteger();
+        AtomicBoolean firstWave = new AtomicBoolean(true);
+        CyclicBarrier sixInFlight = new CyclicBarrier(6);
+        // The engine as production has it: the call goes through the breaker, and a failure comes back as an
+        // Errored result classified by EvaluationFailure (a refused call is circuit_open, a 401 anthropic_401).
+        when(engine.evaluateNow(any(EvaluationTask.class), any(BatchTriggerSource.class))).thenAnswer(inv -> {
+            try {
+                breaker.executeSupplier(() -> {
+                    reachedClaude.incrementAndGet();
+                    if (firstWave.get()) {
+                        awaitQuietly(sixInFlight);
+                    }
+                    throw rejected;
+                });
+                return scored();
+            } catch (Exception e) {
+                return new EvaluationResult.Errored(EvaluationFailure.errorTypeOf(e), e.getMessage());
+            }
+        });
+
+        // Run 1: the first wave. All six places are in flight together, so six 401s are on the breaker's
+        // books before the run's stop is seen — more than its minimum of five calls at a 50% rate.
+        ExecutorService sixThreads = Executors.newFixedThreadPool(6);
+        try {
+            executor(sixThreads).execute(command(places(6)), jobRun);
+        } finally {
+            sixThreads.shutdownNow();
+        }
+        assertThat(reachedClaude).hasValue(6);
+        assertThat(tracker.getProgress(1L).getFailureReason()).isEqualTo(RUN_STOPPED);
+        assertThat(breaker.getState()).as("six rejected calls are not an outage")
+                .isEqualTo(CircuitBreaker.State.CLOSED);
+
+        // Run 2, started straight away: it must reach Claude, be rejected, and stop for the same reason.
+        firstWave.set(false);
+        JobRunEntity second = run(2L);
+        executor(Runnable::run).execute(command(places(4)), second);
+
+        assertThat(reachedClaude).as("the second run's first call was not refused by the breaker").hasValue(7);
+        assertThat(tracker.isStopped(2L)).isTrue();
+        assertThat(tracker.getProgress(2L).getFailureReason()).isEqualTo(RUN_STOPPED);
+        assertThat(tracker.getProgress(2L).isRetryable()).isFalse();
+        assertThat(eventsFor(sunsetKey(1)).stream().filter(e -> e.getState() == LocationTaskState.FAILED
+                && KEY_REJECTED.equals(e.getErrorMessage()))).isNotEmpty();
+        assertThat(failedEvents().stream().map(LocationTaskEvent::getErrorMessage))
+                .noneMatch(m -> m != null && m.contains("paused"));
+        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
     }
 
     @Test

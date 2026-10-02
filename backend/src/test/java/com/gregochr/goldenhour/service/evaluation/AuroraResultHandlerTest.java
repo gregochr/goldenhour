@@ -273,7 +273,7 @@ class AuroraResultHandlerTest {
                 eq(null), eq(true), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(null), eq(null));
+                eq(null), eq(null), eq(null));
     }
 
     @Test
@@ -294,11 +294,11 @@ class AuroraResultHandlerTest {
         assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
         verify(auroraStateCache, never()).updateScores(any());
         verify(jobRunService).logAnthropicApiCall(
-                eq(99L), eq(1500L), eq(500),
+                eq(99L), eq(1500L), eq(null),
                 eq("busy"), eq(false), eq("busy"),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(null), eq(null));
+                eq(null), eq(null), eq("overloaded_error"));
     }
 
     @Test

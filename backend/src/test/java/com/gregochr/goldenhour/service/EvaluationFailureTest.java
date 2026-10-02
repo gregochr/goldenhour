@@ -172,6 +172,30 @@ class EvaluationFailureTest {
         assertThat(EvaluationFailure.errorTypeOf(refused)).isEqualTo("bulkhead_full");
     }
 
+    @ParameterizedTest(name = "HTTP {0} -> status {0}")
+    @CsvSource({"401", "403", "429", "500", "529", "400"})
+    @DisplayName("httpStatusOf() is the HTTP status of an Anthropic service error, content-filter 400 included")
+    void httpStatusOf_anthropicServiceError_isItsStatus(int status) {
+        assertThat(EvaluationFailure.httpStatusOf(serviceError(status, "x"))).isEqualTo(status);
+    }
+
+    @Test
+    @DisplayName("httpStatusOf() is null for every failure that has no HTTP status of its own: a connection "
+            + "failure, a refusal, an unreadable reply, an open breaker, a full bulkhead, anything else")
+    void httpStatusOf_everythingElse_isNull() {
+        CircuitBreaker breaker = CircuitBreaker.ofDefaults("anthropic");
+        breaker.transitionToOpenState();
+
+        assertThat(EvaluationFailure.httpStatusOf(new AnthropicIoException("timed out"))).isNull();
+        assertThat(EvaluationFailure.httpStatusOf(new ClaudeRefusalException("no"))).isNull();
+        assertThat(EvaluationFailure.httpStatusOf(new ClaudeReplyUnreadableException("empty"))).isNull();
+        assertThat(EvaluationFailure.httpStatusOf(CallNotPermittedException.createCallNotPermittedException(breaker)))
+                .isNull();
+        assertThat(EvaluationFailure.httpStatusOf(
+                BulkheadFullException.createBulkheadFullException(Bulkhead.ofDefaults("claude")))).isNull();
+        assertThat(EvaluationFailure.httpStatusOf(new IllegalStateException("boom"))).isNull();
+    }
+
     @Test
     @DisplayName("a phrase never contains the exception's message or class name, even a hostile one")
     void reason_neverCarriesTheRawMessage() {

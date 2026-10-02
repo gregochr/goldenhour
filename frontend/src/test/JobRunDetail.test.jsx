@@ -527,6 +527,74 @@ describe('JobRunDetail — Failed calls section', () => {
     expect(screen.getAllByText('OPEN_METEO').length).toBeGreaterThan(0);
     expect(screen.getByText('Timeout after 30s')).toBeInTheDocument();
   });
+
+  async function headingFor(call) {
+    getApiCalls.mockResolvedValue({ data: [{ ...call, succeeded: false }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    return screen.getByTestId('failed-call-heading').textContent;
+  }
+
+  it('shows the error type beside the service for a failed Claude call, without repeating the status', async () => {
+    const heading = await headingFor({
+      ...ANTHROPIC_CALL, id: 7, statusCode: 401, errorType: 'anthropic_401',
+      errorMessage: 'invalid x-api-key',
+    });
+
+    expect(heading).toBe('ANTHROPIC · anthropic_401');
+    expect(screen.getByText('invalid x-api-key')).toBeInTheDocument();
+  });
+
+  it('shows no status for a Claude row written before the real status was recorded (placeholder 500, no type)',
+    async () => {
+      const heading = await headingFor({
+        ...ANTHROPIC_CALL, id: 10, statusCode: 500, errorType: null, errorMessage: 'old failure',
+      });
+
+      expect(heading).toBe('ANTHROPIC');
+    });
+
+  it('shows the status for a weather row, which is always a real HTTP status', async () => {
+    const heading = await headingFor({
+      ...OPEN_METEO_CALL, id: 11, statusCode: 503, errorType: null, errorMessage: 'unavailable',
+    });
+
+    expect(heading).toBe('OPEN_METEO · 503');
+  });
+
+  it('shows the error type for a batch row, which has a type and no status', async () => {
+    const heading = await headingFor({
+      ...ANTHROPIC_CALL, id: 12, statusCode: null, errorType: 'overloaded_error',
+      customId: 'fc-1-2026-01-01-SUNSET', errorMessage: 'busy',
+    });
+
+    expect(heading).toBe('ANTHROPIC · overloaded_error');
+  });
+
+  it('omits the status for a failure that had none and shows the error type alone', async () => {
+    getApiCalls.mockResolvedValue({ data: [{
+      ...ANTHROPIC_CALL, id: 8, succeeded: false, statusCode: null, errorType: 'circuit_open',
+      errorMessage: 'CircuitBreaker is OPEN',
+    }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('failed-call-heading').textContent).toBe('ANTHROPIC · circuit_open');
+  });
+
+  it('shows the service alone when a failed call carries neither a status nor an error type', async () => {
+    getApiCalls.mockResolvedValue({ data: [{
+      ...OPEN_METEO_CALL, id: 9, succeeded: false, errorMessage: 'Timeout after 30s',
+    }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('failed-call-heading').textContent).toBe('OPEN_METEO');
+  });
 });
 
 describe('JobRunDetail — Total Cost section', () => {

@@ -215,6 +215,49 @@ class JobRunServiceTest {
             assertThat(logged.getCacheCreationInputTokens()).isEqualTo(200L);
             assertThat(logged.getCacheReadInputTokens()).isEqualTo(100L);
             assertThat(logged.getIsBatch()).isFalse();
+            assertThat(logged.getErrorType()).as("the 11-argument form writes no error type").isNull();
+        }
+
+        @Test
+        @DisplayName("a failed call keeps the status and error type it was given, and a null status stays null")
+        void logAnthropicApiCall_failure_writesStatusAndErrorType() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.SONNET),
+                    any(TokenUsage.class), eq(false))).thenReturn(0L);
+
+            jobRunService.logAnthropicApiCall(
+                    1L, 250L, 401, "invalid x-api-key", false, "invalid x-api-key",
+                    EvaluationModel.SONNET, TokenUsage.EMPTY, false,
+                    LocalDate.of(2026, 3, 2), TargetType.SUNSET, "anthropic_401");
+            jobRunService.logAnthropicApiCall(
+                    1L, 250L, null, "timed out", false, "timed out",
+                    EvaluationModel.SONNET, TokenUsage.EMPTY, false,
+                    LocalDate.of(2026, 3, 2), TargetType.SUNSET, "AnthropicIoException");
+
+            List<ApiCallLogEntity> rows = captor.getAllValues();
+            assertThat(rows).hasSize(2);
+            assertThat(rows.get(0).getStatusCode()).isEqualTo(401);
+            assertThat(rows.get(0).getErrorType()).isEqualTo("anthropic_401");
+            assertThat(rows.get(0).getSucceeded()).isFalse();
+            assertThat(rows.get(1).getStatusCode()).isNull();
+            assertThat(rows.get(1).getErrorType()).isEqualTo("AnthropicIoException");
+            assertThat(rows.get(1).getSucceeded()).isFalse();
+        }
+
+        @Test
+        @DisplayName("an error type longer than the column (VARCHAR 100) is cut to fit, never rejected")
+        void logAnthropicApiCall_overlongErrorType_isTruncatedToTheColumn() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.SONNET),
+                    any(TokenUsage.class), eq(false))).thenReturn(0L);
+
+            jobRunService.logAnthropicApiCall(
+                    1L, 250L, null, null, false, "x",
+                    EvaluationModel.SONNET, TokenUsage.EMPTY, false, null, null, "E".repeat(150));
+
+            assertThat(captor.getValue().getErrorType()).hasSize(100);
         }
     }
 

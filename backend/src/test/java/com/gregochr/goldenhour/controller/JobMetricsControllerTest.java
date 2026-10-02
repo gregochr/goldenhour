@@ -206,6 +206,34 @@ class JobMetricsControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/metrics/api-calls serves a failed call's HTTP status and error type, and a null status "
+            + "as null")
+    @WithMockUser(roles = "ADMIN")
+    void getApiCalls_servesStatusAndErrorType() throws Exception {
+        com.gregochr.goldenhour.entity.ApiCallLogEntity rejected =
+                com.gregochr.goldenhour.entity.ApiCallLogEntity.builder()
+                        .id(1L).jobRunId(1L)
+                        .service(com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC)
+                        .succeeded(false).statusCode(401).errorType("anthropic_401")
+                        .build();
+        com.gregochr.goldenhour.entity.ApiCallLogEntity refused =
+                com.gregochr.goldenhour.entity.ApiCallLogEntity.builder()
+                        .id(2L).jobRunId(1L)
+                        .service(com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC)
+                        .succeeded(false).errorType("circuit_open")
+                        .build();
+        when(jobRunService.getApiCallsForRun(1L)).thenReturn(List.of(rejected, refused));
+
+        mockMvc.perform(get("/api/metrics/api-calls?jobRunId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].statusCode").value(401))
+                .andExpect(jsonPath("$[0].errorType").value("anthropic_401"))
+                .andExpect(jsonPath("$[1].statusCode").doesNotExist())
+                .andExpect(jsonPath("$[1].errorType").value("circuit_open"));
+    }
+
+    @Test
     @DisplayName("GET /api/metrics/api-calls requires ADMIN role")
     @WithMockUser(roles = "PRO_USER")
     void getApiCalls_requiresAdminRole() throws Exception {

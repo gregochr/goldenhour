@@ -233,12 +233,13 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
                     ? outcome.tokenUsage() : TokenUsage.EMPTY;
             jobRunService.logAnthropicApiCall(
                     context.jobRunId(), outcome.durationMs(),
-                    outcome.succeeded() ? 200 : 500,
+                    outcome.loggedStatusCode(),
                     outcome.succeeded() ? null : outcome.errorMessage(),
                     outcome.succeeded(), outcome.errorMessage(),
                     task.model(), tokens,
                     false,
-                    null, null);
+                    null, null,
+                    outcome.errorType());
         } catch (Exception e) {
             LOG.warn("Aurora sync: failed to persist api_call_log for {}: {}",
                     task.taskKey(), e.getMessage());

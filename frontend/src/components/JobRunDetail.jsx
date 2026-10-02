@@ -21,6 +21,30 @@ import { apiErrorMessage } from '../utils/apiError.js';
  */
 const BATCH_RUN_TYPES = new Set(['SCHEDULED_BATCH', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM']);
 
+/**
+ * The heading of a failed call: the service, then what is known about why it failed.
+ *
+ * - An error type, when the row has one, follows the service. It already carries the status
+ *   (`anthropic_401`), so the status is not printed a second time.
+ * - Otherwise a status follows the service, but NOT for a Claude row. Every Claude call logged before
+ *   the real status was recorded carries a placeholder 500 with no error type; showing that bare
+ *   status would read last week's rejected key as an Anthropic server error. For those rows the
+ *   heading is the service alone. A weather row's status is always a real HTTP status.
+ *
+ * @param {{service: string, statusCode?: number|null, errorType?: string|null}} call
+ * @returns {string}
+ */
+function failedCallHeading(call) {
+  const has = (value) => value !== null && value !== undefined && value !== '';
+  if (has(call.errorType)) {
+    return `${call.service} · ${call.errorType}`;
+  }
+  if (has(call.statusCode) && call.service !== 'ANTHROPIC') {
+    return `${call.service} · ${call.statusCode}`;
+  }
+  return call.service;
+}
+
 const JobRunDetail = ({ jobRun }) => {
   const [apiCalls, setApiCalls] = useState([]);
   const [batchSummary, setBatchSummary] = useState(null);
@@ -349,7 +373,9 @@ const JobRunDetail = ({ jobRun }) => {
               .filter((call) => !call.succeeded)
               .map((call) => (
                 <div key={call.id} className="text-xs text-red-400 bg-red-900/20 p-2 rounded">
-                  <div className="font-medium">{call.service}</div>
+                  <div className="font-medium" data-testid="failed-call-heading">
+                    {failedCallHeading(call)}
+                  </div>
                   <div className="text-red-400">{call.errorMessage}</div>
                 </div>
               ))}
