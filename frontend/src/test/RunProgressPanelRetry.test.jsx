@@ -282,8 +282,9 @@ describe('RunProgressPanel completion', () => {
   it('treats a payload with neither a failed count nor a failing status as no failures: it auto-clears and offers no Retry', async () => {
     const onAutoClear = vi.fn();
     render(<RunProgressPanel jobRunId={5} onAutoClear={onAutoClear} />);
-    // The keep/clear decision reads the status as well as the count, so the fixture's own derived
-    // PARTIAL has to go too for this payload to be the legacy shape the test is about.
+    // A hand-built payload (the server always sends both fields): the keep/clear decision reads the
+    // status as well as the count, so the fixture's own derived PARTIAL has to go too for this
+    // payload to say nothing at all about failure.
     const { failed, status, ...withoutFailed } = completeEvent(5, TWO_FAILURES);
     expect(failed).toBe(2);
     expect(status).toBe('PARTIAL');
@@ -291,6 +292,21 @@ describe('RunProgressPanel completion', () => {
     await act(async () => { feed.feeds[5].onComplete(withoutFailed); });
 
     expect(onAutoClear).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
+  });
+
+  it('keeps a PARTIAL payload that is missing its failed count: no auto-clear, Dismiss shown, no Retry', async () => {
+    const onAutoClear = vi.fn();
+    render(<RunProgressPanel jobRunId={5} onAutoClear={onAutoClear} onDismiss={vi.fn()} />);
+    const { failed, ...withoutFailed } = completeEvent(5, TWO_FAILURES);
+    expect(failed).toBe(2);
+    expect(withoutFailed.status).toBe('PARTIAL');
+
+    await act(async () => { feed.feeds[5].onComplete(withoutFailed); });
+
+    expect(onAutoClear).not.toHaveBeenCalled();
+    expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Complete)');
+    expect(screen.getByRole('button', { name: 'Dismiss run progress' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
   });
 

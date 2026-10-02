@@ -12,7 +12,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.client.RestClientException;
 
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * The one way a hand-started run (forecast or Bortle enrichment) ends, so that it always tells the
@@ -29,10 +33,13 @@ import java.util.List;
  *       that), then close the {@code job_run} if it is still open.</li>
  * </ul>
  *
- * <p>Both ends are idempotent against each other: the tracker ignores a second completion, and
- * {@link #abort} skips a {@code job_run} that is already closed. {@link #complete} completes the
- * tracker even when closing the {@code job_run} throws (the exception then still propagates to the
- * caller's guard, which retries the close), so the admin hears the run is over whichever step fails.
+ * <p>Closing the {@code job_run} is attempted twice and never throws: a failed first attempt is
+ * logged at WARN and retried once, and if the retry fails too that is logged at ERROR and the run
+ * still completes toward the admin (the tracker is told regardless). The helper does NOT take the
+ * entity's {@code completedAt} as proof the row was closed ({@code JobRunService.completeRun} sets it
+ * in memory before the save that can fail), so it remembers which runs it actually closed: {@link
+ * #abort} skips those, and tries to close any other, even one whose in-memory {@code completedAt} is
+ * set. The tracker ignores a second completion, so the two ends never double-report.
  *
  * <p>The reasons published here are fixed phrases, never exception messages: they reach every
  * browser subscribed to the run.
@@ -60,6 +67,17 @@ public class RunCompletion {
 
     /** How far down a cause chain {@link #reasonForForecastRun} looks (it also bounds a cyclic chain). */
     private static final int MAX_CAUSE_DEPTH = 10;
+
+    /** How many closed run ids are remembered (enough for any run that can still reach {@link #abort}). */
+    private static final int REMEMBERED_CLOSED_RUNS = 256;
+
+    private final Set<Long> closedRuns = Collections.synchronizedSet(Collections.newSetFromMap(
+            new LinkedHashMap<Long, Boolean>() {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<Long, Boolean> eldest) {
+                    return size() > REMEMBERED_CLOSED_RUNS;
+                }
+            }));
 
     private final JobRunService jobRunService;
     private final RunProgressTracker progressTracker;
@@ -109,13 +127,8 @@ public class RunCompletion {
      */
     public void complete(JobRunEntity jobRun, int succeeded, int failed, List<LocalDate> dates) {
         sweepUnfinished(jobRun.getId(), false);
-        try {
-            jobRunService.completeRun(jobRun, succeeded, failed, dates);
-        } finally {
-            // The admin watches the tracker: it must hear the run is over even when closing the
-            // job_run threw. The exception still propagates, to the executor's guard.
-            progressTracker.completeRun(jobRun.getId());
-        }
+        closeJobRun(jobRun, () -> jobRunService.completeRun(jobRun, succeeded, failed, dates));
+        progressTracker.completeRun(jobRun.getId());
     }
 
     /**
@@ -127,17 +140,15 @@ public class RunCompletion {
      */
     public void complete(JobRunEntity jobRun, int succeeded, int failed) {
         sweepUnfinished(jobRun.getId(), false);
-        try {
-            jobRunService.completeRun(jobRun, succeeded, failed);
-        } finally {
-            progressTracker.completeRun(jobRun.getId());
-        }
+        closeJobRun(jobRun, () -> jobRunService.completeRun(jobRun, succeeded, failed));
+        progressTracker.completeRun(jobRun.getId());
     }
 
     /**
      * Ends a run that threw. Best-effort and never throws: (a) every unfinished task is published
      * FAILED, (b) the tracker is told the run failed (registering it first if it never got that far),
-     * (c) the {@code job_run} is closed unless something already closed it. The {@code job_run}'s
+     * (c) the {@code job_run} is closed unless this helper already closed it (twice-tried, see the class
+     * comment). The {@code job_run}'s
      * counts are the tracker's completed and failed task counts, or zero when the tracker never held
      * the run.
      *
@@ -152,16 +163,35 @@ public class RunCompletion {
         } catch (RuntimeException e) {
             LOG.warn("Run {} abort: could not complete the progress tracker: {}", id, e.getMessage(), e);
         }
-        try {
-            if (jobRun.getCompletedAt() == null) {
-                RunProgress progress = progressTracker.getProgress(id);
-                int succeeded = progress != null ? progress.getCompleted() : 0;
-                int failed = progress != null ? progress.getFailed() : 0;
-                jobRunService.completeRun(jobRun, succeeded, failed);
-            }
-        } catch (RuntimeException e) {
-            LOG.warn("Run {} abort: could not close the job_run: {}", id, e.getMessage(), e);
+        if (!closedRuns.contains(id)) {
+            RunProgress progress = progressTracker.getProgress(id);
+            int succeeded = progress != null ? progress.getCompleted() : 0;
+            int failed = progress != null ? progress.getFailed() : 0;
+            closeJobRun(jobRun, () -> jobRunService.completeRun(jobRun, succeeded, failed));
         }
+    }
+
+    /**
+     * Closes the {@code job_run}, trying twice. Returns whether a close succeeded; never throws.
+     * A failed first attempt is a WARN, a failed retry an ERROR with the cause (the row stays open).
+     */
+    private boolean closeJobRun(JobRunEntity jobRun, Runnable close) {
+        long id = jobRun.getId();
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                close.run();
+                closedRuns.add(id);
+                return true;
+            } catch (RuntimeException e) {
+                if (attempt == 1) {
+                    LOG.warn("Run {}: closing the job_run failed, retrying once: {}", id, e.toString());
+                } else {
+                    LOG.error("Run {}: the job_run could not be closed after two attempts and stays open",
+                            id, e);
+                }
+            }
+        }
+        return false;
     }
 
     /**

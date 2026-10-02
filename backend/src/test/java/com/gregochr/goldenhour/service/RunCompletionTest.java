@@ -21,8 +21,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -97,6 +97,29 @@ class RunCompletionTest {
         assertThat(reason).doesNotContain("hunter2").doesNotContain("IllegalStateException");
     }
 
+    /** A chain of plain exceptions with a RestClientException at {@code index} (0 = the outermost). */
+    private static Throwable chainWithWeatherCauseAt(int index) {
+        Throwable inner = new ResourceAccessException("I/O error");
+        for (int i = index - 1; i >= 0; i--) {
+            inner = new IllegalStateException("level " + i, inner);
+        }
+        return inner;
+    }
+
+    @Test
+    @DisplayName("a RestClientException at chain index 9 is found")
+    void reasonForForecastRun_weatherCauseAtDepthNine_isFound() {
+        assertThat(RunCompletion.reasonForForecastRun(chainWithWeatherCauseAt(9)))
+                .isEqualTo("Weather data (Open-Meteo) could not be fetched; nothing was updated.");
+    }
+
+    @Test
+    @DisplayName("a RestClientException at chain index 10 is beyond the search depth and not found")
+    void reasonForForecastRun_weatherCauseAtDepthTen_isNotFound() {
+        assertThat(RunCompletion.reasonForForecastRun(chainWithWeatherCauseAt(10)))
+                .isEqualTo("The run stopped unexpectedly. See the server log.");
+    }
+
     @Test
     @DisplayName("a cause chain that loops back on itself still terminates")
     void reasonForForecastRun_cyclicCauseChain_terminates() {
@@ -159,9 +182,13 @@ class RunCompletionTest {
         completion.complete(jobRun, 3, 1, dates);
 
         InOrder order = inOrder(eventPublisher, jobRunService, progressTracker);
-        order.verify(eventPublisher, times(5)).publishEvent(any(LocationTaskEvent.class));
+        ArgumentCaptor<LocationTaskEvent> swept = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        order.verify(eventPublisher, times(5)).publishEvent(swept.capture());
         order.verify(jobRunService).completeRun(jobRun, 3, 1, dates);
         order.verify(progressTracker).completeRun(RUN_ID);
+        assertThat(swept.getAllValues()).extracting(LocationTaskEvent::getFailedStep)
+                .containsExactlyInAnyOrder("PENDING", "FETCHING_WEATHER", "FETCHING_CLOUD",
+                        "FETCHING_TIDES", "EVALUATING");
     }
 
     @Test
@@ -173,29 +200,99 @@ class RunCompletionTest {
         verify(progressTracker).completeRun(RUN_ID);
     }
 
+    /**
+     * A {@code completeRun} that behaves like the real one: it stamps {@code completedAt} on the
+     * in-memory entity and THEN the save fails, so the entity claims to be closed while the row is not.
+     */
+    private void failsAfterStampingCompletedAt(JobRunEntity entity, int succeeded, int failed,
+            List<LocalDate> dates) {
+        doAnswer(inv -> {
+            JobRunEntity run = inv.getArgument(0);
+            run.setCompletedAt(LocalDateTime.parse("2026-10-02T09:00:00"));
+            throw new IllegalStateException("save failed");
+        }).doAnswer(inv -> {
+            JobRunEntity run = inv.getArgument(0);
+            run.setCompletedAt(LocalDateTime.parse("2026-10-02T09:00:01"));
+            return null;
+        }).when(jobRunService).completeRun(entity, succeeded, failed, dates);
+    }
+
     @Test
-    @DisplayName("when closing the job_run throws on the normal path the tracker is still completed, and the "
-            + "exception still propagates to the caller's guard")
-    void complete_jobRunCloseThrows_trackerStillCompletedAndExceptionPropagates() {
+    @DisplayName("a close whose save fails after completedAt was stamped is retried once, succeeds, and the "
+            + "tracker is completed without the failure reaching the caller")
+    void complete_saveFailsAfterStampingCompletedAt_isRetriedOnce() {
         List<LocalDate> dates = List.of(LocalDate.parse("2026-10-03"));
-        doThrow(new IllegalStateException("db gone"))
-                .when(jobRunService).completeRun(jobRun, 1, 0, dates);
+        failsAfterStampingCompletedAt(jobRun, 1, 0, dates);
 
-        assertThatThrownBy(() -> completion.complete(jobRun, 1, 0, dates))
-                .isInstanceOf(IllegalStateException.class).hasMessage("db gone");
+        completion.complete(jobRun, 1, 0, dates);
 
+        verify(jobRunService, times(2)).completeRun(jobRun, 1, 0, dates);
+        verify(progressTracker).completeRun(RUN_ID);
+        assertThat(jobRun.getCompletedAt()).isEqualTo(LocalDateTime.parse("2026-10-02T09:00:01"));
+    }
+
+    @Test
+    @DisplayName("when the retry fails too the close is logged at ERROR and abandoned (two attempts, no more), "
+            + "the tracker is still completed, and nothing propagates")
+    void complete_saveFailsTwice_trackerStillCompletedAndNothingPropagates() {
+        List<LocalDate> dates = List.of(LocalDate.parse("2026-10-03"));
+        doAnswer(inv -> {
+            JobRunEntity run = inv.getArgument(0);
+            run.setCompletedAt(LocalDateTime.parse("2026-10-02T09:00:00"));
+            throw new IllegalStateException("db gone");
+        }).when(jobRunService).completeRun(jobRun, 1, 0, dates);
+
+        completion.complete(jobRun, 1, 0, dates); // must not throw
+
+        verify(jobRunService, times(2)).completeRun(jobRun, 1, 0, dates);
         verify(progressTracker).completeRun(RUN_ID);
     }
 
     @Test
-    @DisplayName("the date-less overload also completes the tracker when closing the job_run throws")
-    void complete_withoutDates_jobRunCloseThrows_trackerStillCompleted() {
-        doThrow(new IllegalStateException("db gone")).when(jobRunService).completeRun(jobRun, 1, 0);
+    @DisplayName("the date-less overload retries a failed close once and completes the tracker")
+    void complete_withoutDates_closeFailsOnce_retriedAndTrackerCompleted() {
+        doThrow(new IllegalStateException("db gone")).doNothing()
+                .when(jobRunService).completeRun(jobRun, 1, 0);
 
-        assertThatThrownBy(() -> completion.complete(jobRun, 1, 0))
-                .isInstanceOf(IllegalStateException.class);
+        completion.complete(jobRun, 1, 0);
 
+        verify(jobRunService, times(2)).completeRun(jobRun, 1, 0);
         verify(progressTracker).completeRun(RUN_ID);
+    }
+
+    @Test
+    @DisplayName("abort does not close again a job_run this helper already closed")
+    void abort_afterSuccessfulComplete_doesNotCloseAgain() {
+        completion.complete(jobRun, 2, 1);
+
+        completion.abort(jobRun, "reason");
+
+        verify(jobRunService, times(1)).completeRun(jobRun, 2, 1);
+        verify(jobRunService, never()).completeRun(jobRun, 0, 0);
+    }
+
+    @Test
+    @DisplayName("abort closes a job_run that merely CLAIMS to be closed: an in-memory completedAt is not "
+            + "proof the row was saved")
+    void abort_inMemoryCompletedAtIsNotProofOfClosure() {
+        jobRun.setCompletedAt(LocalDateTime.parse("2026-10-02T09:00:00"));
+
+        completion.abort(jobRun, "reason");
+
+        verify(progressTracker).failRun(RUN_ID, "reason");
+        verify(jobRunService).completeRun(jobRun, 0, 0);
+    }
+
+    @Test
+    @DisplayName("a close that failed during complete() is tried again by a later abort, because it never succeeded")
+    void abort_afterCompleteWhoseCloseNeverSucceeded_triesAgain() {
+        doThrow(new IllegalStateException("db gone")).when(jobRunService).completeRun(jobRun, 2, 1);
+        completion.complete(jobRun, 2, 1);
+        verify(jobRunService, times(2)).completeRun(jobRun, 2, 1);
+
+        completion.abort(jobRun, "reason");
+
+        verify(jobRunService).completeRun(jobRun, 0, 0); // abort made its own attempt: nothing had closed the row
     }
 
     @Test
@@ -233,17 +330,6 @@ class RunCompletionTest {
     }
 
     @Test
-    @DisplayName("abort does not touch a job_run that is already closed")
-    void abort_closedJobRun_isNotClosedAgain() {
-        jobRun.setCompletedAt(LocalDateTime.parse("2026-10-02T09:00:00"));
-
-        completion.abort(jobRun, "reason");
-
-        verify(progressTracker).failRun(RUN_ID, "reason");
-        verify(jobRunService, never()).completeRun(any(JobRunEntity.class), any(int.class), any(int.class));
-    }
-
-    @Test
     @DisplayName("each abort step is independent: failures publishing, completing the tracker and closing "
             + "the job_run are each survived, and every step is still attempted")
     void abort_eachStepSurvivesTheOthersFailing() {
@@ -251,14 +337,18 @@ class RunCompletionTest {
         doThrow(new IllegalStateException("publisher down"))
                 .when(eventPublisher).publishEvent(any(LocationTaskEvent.class));
         doThrow(new IllegalStateException("tracker down")).when(progressTracker).failRun(RUN_ID, "reason");
-        doThrow(new IllegalStateException("db down")).when(jobRunService).completeRun(any(JobRunEntity.class),
-                any(int.class), any(int.class));
+        doThrow(new IllegalStateException("db down")).when(jobRunService).completeRun(jobRun, 1, 1);
 
         completion.abort(jobRun, "reason"); // must not throw
 
         // one failed publish did not stop the other four
-        verify(eventPublisher, times(5)).publishEvent(any(LocationTaskEvent.class));
+        ArgumentCaptor<LocationTaskEvent> attempted = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(5)).publishEvent(attempted.capture());
+        assertThat(attempted.getAllValues()).extracting(LocationTaskEvent::getFailedStep)
+                .containsExactlyInAnyOrder("PENDING", "FETCHING_WEATHER", "FETCHING_CLOUD",
+                        "FETCHING_TIDES", "EVALUATING");
         verify(progressTracker).failRun(RUN_ID, "reason");
-        verify(jobRunService).completeRun(jobRun, 1, 1); // the fixture holds one COMPLETE and one FAILED task
+        // the fixture holds one COMPLETE and one FAILED task; the failing close is tried twice
+        verify(jobRunService, times(2)).completeRun(jobRun, 1, 1);
     }
 }

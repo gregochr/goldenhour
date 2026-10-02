@@ -503,8 +503,8 @@ class ForecastServiceTest {
 
     @Test
     @DisplayName("fetchWeatherAndTriage() with an empty prefetch (the weather batch failed) publishes FAILED "
-            + "saying why, instead of 'No pre-fetched data'")
-    void fetchWeatherAndTriage_emptyPrefetch_failsWithOpenMeteoReason() {
+            + "saying that, instead of the old no-pre-fetched-data text")
+    void fetchWeatherAndTriage_emptyPrefetch_failsSayingWeatherCouldNotBeFetched() {
         LocalDate date = LocalDate.of(2026, 6, 21);
         LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
         JobRunEntity jobRun = new JobRunEntity();
@@ -522,8 +522,34 @@ class ForecastServiceTest {
         assertThat(failed.getState()).isEqualTo(LocationTaskState.FAILED);
         assertThat(failed.getFailedStep()).isEqualTo("FETCHING_WEATHER");
         assertThat(failed.getErrorMessage()).isEqualTo("Weather data fetch failed for " + DURHAM
-                + " SUNSET: Weather data could not be fetched (Open-Meteo unavailable).");
+                + " SUNSET: Weather data could not be fetched.");
         verify(openMeteoService, never()).getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any());
+    }
+
+    @Test
+    @DisplayName("runForecasts() also publishes a raw exception message capped at 200 characters, while the "
+            + "thrown exception keeps the whole of it")
+    void runForecasts_longExceptionMessage_publishedTruncated() {
+        LocalDate date = LocalDate.of(2026, 2, 20);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(42L);
+        String raw = "y".repeat(500);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenThrow(new RuntimeException(raw));
+
+        assertThatThrownBy(() -> forecastService.runForecasts(
+                DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(), EvaluationModel.SONNET, jobRun))
+                .isInstanceOf(WeatherDataFetchException.class)
+                .hasMessageContaining(raw);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        LocationTaskEvent failed = eventCaptor.getAllValues().get(1);
+        assertThat(failed.getState()).isEqualTo(LocationTaskState.FAILED);
+        assertThat(failed.getErrorMessage()).hasSize(200)
+                .startsWith("Weather data fetch failed for " + DURHAM + " SUNRISE: yyy").endsWith("yyy...");
     }
 
     @Test

@@ -73,14 +73,6 @@ describe('RunProgressPanel run-level reason', () => {
     expect(screen.getByRole('button', { name: 'Retry 2 failed' })).toBeInTheDocument();
   });
 
-  it('does not show the reason while the run is still going, only once it completes', async () => {
-    renderPanel();
-
-    await playRun(5, [task('hill|a', 'Test Hill', 'EVALUATING')], {}, { complete: false });
-
-    expect(screen.queryByTestId('run-progress-reason')).toBeNull();
-  });
-
   describe('a run that failed before it had any task (total 0, failed 0, status FAILED)', () => {
     it('is KEPT with its reason and Dismiss, and is not auto-cleared', async () => {
       const handlers = renderPanel();
@@ -116,7 +108,7 @@ describe('RunProgressPanel run-level reason', () => {
   });
 
   describe('the keep/clear decision reads the status and the reason as well as the failed count', () => {
-    it('keeps a PARTIAL run even when it reports no failed tasks', async () => {
+    it('keeps a PARTIAL run even when it reports no failed tasks, finished and dismissible, with no Retry', async () => {
       const handlers = renderPanel();
 
       await act(async () => {
@@ -124,6 +116,9 @@ describe('RunProgressPanel run-level reason', () => {
       });
 
       expect(handlers.onAutoClear).not.toHaveBeenCalled();
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Complete)');
+      expect(screen.getByRole('button', { name: 'Dismiss run progress' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
     });
 
     it('keeps a run that carries a reason even when its status and failed count read clean', async () => {
@@ -156,6 +151,74 @@ describe('RunProgressPanel run-level reason', () => {
 
       expect(handlers.onAutoClear).toHaveBeenCalledTimes(1);
       expect(screen.queryByRole('alert')).toBeNull();
+    });
+  });
+
+  describe('the header of a finished run', () => {
+    it('reads "(Failed)", not "(Complete)", when the run failed, and omits the 0/0 count of a zero-task run', async () => {
+      renderPanel();
+
+      await playRun(5, [], { reason: UNEXPECTED, durationMs: 1500 });
+
+      const header = screen.getByTestId('run-progress-status');
+      expect(header).toHaveTextContent('(Failed)');
+      expect(header).not.toHaveTextContent('Complete');
+      expect(screen.getByText('1.5s')).toBeInTheDocument();
+      expect(screen.queryByText(/0\/0/)).toBeNull();
+    });
+
+    it('reads "(Failed)" for a run whose every task failed, and still shows its count', async () => {
+      renderPanel();
+
+      await playRun(5, [task('a|b', 'A', 'FAILED'), task('c|d', 'C', 'FAILED')]);
+
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Failed)');
+      expect(screen.getByText(/2\/2/)).toBeInTheDocument();
+    });
+
+    it('keeps "(Complete)" for a PARTIAL run', async () => {
+      renderPanel();
+
+      await playRun(5, TWO_FAILURES);
+
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Complete)');
+    });
+
+    it('keeps "(Complete)" for a COMPLETE run kept for some other reason, with its count', async () => {
+      renderPanel();
+
+      await act(async () => {
+        feed.feeds[5].onComplete({ ...completeEvent(5, NO_FAILURES), reason: UNEXPECTED });
+      });
+
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Complete)');
+      expect(screen.getByText(/3\/3/)).toBeInTheDocument(); // 2 complete + 1 skipped of 3
+    });
+
+    it('still shows "0/0" while a zero-task run has not completed', async () => {
+      renderPanel();
+
+      await act(async () => { feed.feeds[5].onSummary(summaryEvent(5, [])); });
+
+      expect(screen.getByText(/0\/0/)).toBeInTheDocument();
+    });
+  });
+
+  describe('a replayed completion after a remount', () => {
+    it('shows the reason again when the server replays run-complete to the new subscription', async () => {
+      const first = render(<RunProgressPanel jobRunId={5} onAutoClear={vi.fn()} />);
+      await playRun(5, [], { reason: OPEN_METEO });
+      expect(screen.getByRole('alert')).toHaveTextContent(OPEN_METEO);
+      first.unmount();
+      expect(screen.queryByRole('alert')).toBeNull();
+
+      render(<RunProgressPanel jobRunId={5} onAutoClear={vi.fn()} onDismiss={vi.fn()} />);
+      await playRun(5, [], { reason: OPEN_METEO });
+
+      expect(feed.subscriptions).toEqual([5, 5]);
+      expect(screen.getByRole('alert')).toHaveTextContent(OPEN_METEO);
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Failed)');
+      expect(screen.getByRole('button', { name: 'Dismiss run progress' })).toBeInTheDocument();
     });
   });
 });

@@ -66,6 +66,9 @@ public class ForecastService {
     /** Longest task error message published to the progress panel (the full text stays in the log). */
     static final int PANEL_MESSAGE_LIMIT = 200;
 
+    /** Marks a published message that was cut to {@link #PANEL_MESSAGE_LIMIT}. */
+    private static final String ELLIPSIS = "...";
+
     private final SolarService solarService;
     private final OpenMeteoService openMeteoService;
     private final ForecastDataAugmentor augmentor;
@@ -338,7 +341,7 @@ public class ForecastService {
                         request, eventTime, prefetchedWeather);
                 if (extraction == null) {
                     throw new RuntimeException(
-                            "Weather data could not be fetched (Open-Meteo unavailable).");
+                            "Weather data could not be fetched.");
                 }
             } else {
                 extraction = openMeteoService.getAtmosphericDataWithResponse(
@@ -672,7 +675,7 @@ public class ForecastService {
         if (message == null || message.length() <= PANEL_MESSAGE_LIMIT) {
             return message;
         }
-        return message.substring(0, PANEL_MESSAGE_LIMIT - 3) + "...";
+        return message.substring(0, PANEL_MESSAGE_LIMIT - ELLIPSIS.length()) + ELLIPSIS;
     }
 
     /**

@@ -16,6 +16,7 @@ import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from '
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
+import RunCompleteBanner from './components/RunCompleteBanner.jsx';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
@@ -585,25 +586,13 @@ function AppInner() {
         </div>
 
         {showRunBanner && lastCompletedRun && (
-          <div
-            className="bg-green-900/40 border-b border-green-700 py-3"
-            data-testid="run-complete-banner"
-          >
-            <p className="max-w-4xl mx-auto px-4 text-sm text-green-300 text-center">
-              Forecast run completed — {lastCompletedRun.completed} location{lastCompletedRun.completed !== 1 ? 's' : ''} updated
-              {lastCompletedRun.failed > 0 && `, ${lastCompletedRun.failed} failed`}.
-              {' '}
-              <button
-                className="underline font-medium hover:text-green-100"
-                onClick={() => {
-                  refresh();
-                  setShowRunBanner(false);
-                }}
-              >
-                Refresh
-              </button>
-            </p>
-          </div>
+          <RunCompleteBanner
+            run={lastCompletedRun}
+            onRefresh={() => {
+              refresh();
+              setShowRunBanner(false);
+            }}
+          />
         )}
 
         {isDown && (
