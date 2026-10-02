@@ -25,17 +25,30 @@ const BUSY_BUTTON = 'aria-disabled:opacity-40 aria-disabled:cursor-not-allowed a
  * Live progress panel for a forecast run. Subscribes to SSE and displays
  * per-location task states with a summary progress bar.
  *
+ * <p>Who decides whether the panel stays: the panel, from the completion payload's own {@code failed}
+ * count (the server's count of FAILED tasks, the same set {@code retry-failed} acts on). A run with
+ * none removes itself through {@code onAutoClear}, as it always did; a run with failures stays, with
+ * its failed places and the Retry button, until the admin presses Dismiss or the parent replaces it.
+ * Both happen inside this component, so the parent never unmounts it in the tick it completes.
+ *
  * @param {object} props - Component props.
  * @param {number} props.jobRunId - The job run ID to track.
- * @param {function} props.onComplete - Called when the run completes (to refresh job runs grid).
+ * @param {function} [props.onComplete] - Called with the completion payload whenever this run (or a
+ *   retry run nested under it) completes, to refresh the job runs grid.
+ * @param {function} [props.onAutoClear] - Called when this run completes with no failures: remove me.
+ * @param {function} [props.onDismiss] - Called by the Dismiss button. Only the outermost panel is
+ *   given one; a retry run's panel sits inside it and is removed with it.
+ * @param {boolean} [props.focusOnMount] - Moves focus to the header on mount (a retry run's panel
+ *   takes focus from the Retry button that unmounts when it starts).
  */
-const RunProgressPanel = ({ jobRunId, onComplete }) => {
+const RunProgressPanel = ({ jobRunId, onComplete, onAutoClear, onDismiss, focusOnMount }) => {
   const [tasks, setTasks] = useState({});
   const [summary, setSummary] = useState(null);
   const [complete, setComplete] = useState(false);
   const [retrying, setRetrying] = useState(false);
   // A ref as well as state: two presses in one tick both see the same render's `retrying`.
   const retryInFlight = useRef(false);
+  const headerRef = useRef(null);
   const [retryRunId, setRetryRunId] = useState(null);
   // Tagged with the run it belongs to, so a line from one run is never shown for another (the
   // panel is reused when jobRunId changes) and a late failure cannot land on the wrong run.
@@ -52,8 +65,15 @@ const RunProgressPanel = ({ jobRunId, onComplete }) => {
   const handleRunComplete = useCallback((data) => {
     setSummary(data);
     setComplete(true);
-    onComplete?.();
-  }, [onComplete]);
+    onComplete?.(data);
+    // The completion payload's own count, not the task events': it is what the server's
+    // retry-failed endpoint will act on, and it is one value rather than a tally this panel kept.
+    if (!(data?.failed > 0)) onAutoClear?.();
+  }, [onComplete, onAutoClear]);
+
+  useEffect(() => {
+    if (focusOnMount) headerRef.current?.focus();
+  }, [focusOnMount]);
 
   useEffect(() => {
     if (!jobRunId) return;
@@ -124,7 +144,11 @@ const RunProgressPanel = ({ jobRunId, onComplete }) => {
     <div className="card space-y-3" data-testid="run-progress-panel">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide">
+        <p
+          ref={headerRef}
+          tabIndex={focusOnMount ? -1 : undefined}
+          className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide focus-visible:outline-2 focus-visible:outline-plex-gold"
+        >
           Run Progress {complete ? '(Complete)' : phase ? `(${phase.replace(/_/g, ' ')})` : ''}
         </p>
         <p className="text-xs text-plex-text-muted">
@@ -195,12 +219,28 @@ const RunProgressPanel = ({ jobRunId, onComplete }) => {
         </p>
       )}
 
-      {/* Retry run progress — recurse */}
+      {/* Retry run progress — recurse. It follows the retry run by id, reports its completion
+          (grid refresh) and stays after it, whatever the outcome: the admin asked for this run and
+          wants its result. It is given no onAutoClear or onDismiss — Dismiss below removes both. */}
       {retryRunId && (
         <RunProgressPanel
           jobRunId={retryRunId}
           onComplete={onComplete}
+          focusOnMount
         />
+      )}
+
+      {/* Dismiss: a finished run with failures is kept until the admin is done with it. */}
+      {complete && onDismiss && (
+        <button
+          type="button"
+          className="btn-secondary text-xs"
+          onClick={onDismiss}
+          aria-label="Dismiss run progress"
+          data-testid="run-progress-dismiss"
+        >
+          Dismiss
+        </button>
       )}
     </div>
   );
@@ -209,6 +249,9 @@ const RunProgressPanel = ({ jobRunId, onComplete }) => {
 RunProgressPanel.propTypes = {
   jobRunId: PropTypes.number.isRequired,
   onComplete: PropTypes.func,
+  onAutoClear: PropTypes.func,
+  onDismiss: PropTypes.func,
+  focusOnMount: PropTypes.bool,
 };
 
 export default RunProgressPanel;

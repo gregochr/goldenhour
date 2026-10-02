@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
@@ -320,6 +320,22 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const handleLoadMore = () => {
     loadJobRuns(page);
   };
+
+  // Dismissing a kept panel removes the thing that held focus, so focus goes to the heading of the
+  // section that started the run; the run buttons it came from are many, and any one would be a
+  // guess. Only a Dismiss moves focus: a clean run clearing itself leaves it where it was.
+  const runsHeadingRef = useRef(null);
+  const focusRunsHeading = useRef(false);
+  const handleDismissRun = () => {
+    focusRunsHeading.current = true;
+    onActiveRunClear();
+  };
+  useEffect(() => {
+    if (!activeRunId && focusRunsHeading.current) {
+      focusRunsHeading.current = false;
+      runsHeadingRef.current?.focus();
+    }
+  }, [activeRunId]);
 
   const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningLightPollution || runningBriefing || runningScheduledBatch || runningJfdiBatch;
 
@@ -648,7 +664,14 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       {isAdmin && (
         <div className="card space-y-4">
           <div>
-            <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Forecast Runs</p>
+            <p
+              ref={runsHeadingRef}
+              tabIndex={-1}
+              className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2 focus-visible:outline-2 focus-visible:outline-plex-gold"
+              data-testid="forecast-runs-heading"
+            >
+              Forecast Runs
+            </p>
             <div className="flex flex-wrap gap-2">
               <button
                 className="btn-primary text-sm"
@@ -771,11 +794,13 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       {/* Live run progress */}
       {activeRunId && (
         <RunProgressPanel
+          // key: starting another run while a finished one is kept must replace the panel, not
+          // hand a new run id to a panel still holding the old run's tasks, summary and retry.
+          key={activeRunId}
           jobRunId={activeRunId}
-          onComplete={() => {
-            onActiveRunClear();
-            loadJobRuns(0);
-          }}
+          onComplete={() => loadJobRuns(0)}
+          onAutoClear={onActiveRunClear}
+          onDismiss={handleDismissRun}
         />
       )}
 
