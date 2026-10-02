@@ -29,6 +29,11 @@ public record BriefingEventSummary(
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime solarEventTime,
         @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindow window) {
 
+    /**
+     * Canonical constructor: takes immutable copies of {@code regions} and {@code unregioned}, so a
+     * caller's later changes to the lists it passed cannot alter this summary. A null list is
+     * rejected with a {@link NullPointerException}.
+     */
     public BriefingEventSummary {
         regions = List.copyOf(regions);
         unregioned = List.copyOf(unregioned);

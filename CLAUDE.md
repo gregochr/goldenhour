@@ -1155,7 +1155,7 @@ runs mutations.
 ## Code Standards
 
 ### Backend
-- Checkstyle: Javadoc on public classes/methods, no unused imports, 4-space indent, 120-char lines
+- Checkstyle: every public type, method and constructor in `src/main` must carry Javadoc (`MissingJavadocType`/`MissingJavadocMethod`; bean getters/setters and `@Override` methods exempt, test sources exempt via `backend/checkstyle-suppressions.xml`, which the pom's `suppressionsLocation` finds from any directory and `backend/Dockerfile` must `COPY`), no unused imports, 4-space indent, 120-char lines
 - SpotBugs: `High` threshold (`<threshold>High</threshold>` in `backend/pom.xml`), FindSecBugs plugin, bound to `verify`
 - No business logic in controllers; no magic numbers; graceful error handling
 

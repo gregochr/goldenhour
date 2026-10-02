@@ -133,6 +133,11 @@ public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) String evaluationGate,
         @JsonInclude(JsonInclude.Include.NON_NULL) EclipseSight eclipse) {
 
+    /**
+     * Canonical constructor: takes an immutable copy of {@code flags}, so a caller's later changes
+     * to the list it passed cannot alter this slot. A null {@code flags} is rejected with a
+     * {@link NullPointerException}.
+     */
     public BriefingSlot {
         flags = List.copyOf(flags);
     }
@@ -671,6 +676,10 @@ public record BriefingSlot(
             String race,
             List<LightStop> stops) {
 
+        /**
+         * Canonical constructor: takes an immutable copy of {@code stops}, and reads a null list as
+         * empty so a payload without gradient stops still yields a usable sight.
+         */
         public EclipseSight {
             stops = stops == null ? List.of() : List.copyOf(stops);
         }

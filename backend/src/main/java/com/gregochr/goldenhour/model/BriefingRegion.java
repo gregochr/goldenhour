@@ -260,6 +260,11 @@ public record BriefingRegion(
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean sampleSufficient,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean forcedSample) {
 
+    /**
+     * Canonical constructor: takes immutable copies of {@code tideHighlights} and {@code slots}, so
+     * a caller's later changes to the lists it passed cannot alter this region. A null list is
+     * rejected with a {@link NullPointerException}.
+     */
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);
         slots = List.copyOf(slots);

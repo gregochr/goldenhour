@@ -227,6 +227,16 @@ public class LocationEntity {
                 && !locationType.contains(LocationType.WATERFALL);
     }
 
+    /**
+     * Whether this location is photographed at the given kind of solar event.
+     *
+     * <p>A location with no solar event types configured, or one carrying {@code ALLDAY}, supports
+     * every target type. Otherwise {@code SUNRISE} and {@code SUNSET} must each be listed, and
+     * {@code HOURLY} (the wildlife/comfort forecast, not tied to one event) is always supported.
+     *
+     * @param targetType the event being asked about
+     * @return true if the location should be evaluated for that event
+     */
     public boolean supportsTargetType(TargetType targetType) {
         if (solarEventType == null || solarEventType.isEmpty()
                 || solarEventType.contains(SolarEventType.ALLDAY)) {

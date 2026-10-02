@@ -62,6 +62,11 @@ public final class BriefingRatingStats {
     public record Stats(int count, long highRated, long mediumRated, double averageRating,
             int minRating, int maxRating) {
 
+        /**
+         * Statistics for a region with no valid ratings: every count and figure zero.
+         *
+         * @return a zeroed instance, for which {@link #isEmpty()} is true
+         */
         public static Stats empty() {
             return new Stats(0, 0L, 0L, 0.0, 0, 0);
         }

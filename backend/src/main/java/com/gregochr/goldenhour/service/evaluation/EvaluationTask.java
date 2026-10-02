@@ -140,6 +140,17 @@ public sealed interface EvaluationTask
             WOODLAND
         }
 
+        /**
+         * Canonical constructor: rejects a task that could not be submitted or written back.
+         *
+         * <p>{@code location}, {@code date}, {@code targetType}, {@code model}, {@code data},
+         * {@code writeTarget} and {@code promptKind} must all be non-null, and the location must
+         * already be persisted (non-null id) because the id is embedded in the batch custom id.
+         * {@code evalRowId} is deliberately nullable and {@code forced} is a primitive.
+         *
+         * @throws NullPointerException     if any of the seven required components is null
+         * @throws IllegalArgumentException if {@code location} has a null id
+         */
         public Forecast {
             Objects.requireNonNull(location, "location");
             if (location.getId() == null) {
@@ -263,6 +274,18 @@ public sealed interface EvaluationTask
             TonightWindow tonightWindow
     ) implements EvaluationTask {
 
+        /**
+         * Canonical constructor: rejects a task that could not produce a meaningful aurora request.
+         *
+         * <p>{@code alertLevel}, {@code date}, {@code model}, {@code viableLocations},
+         * {@code cloudByLocation}, {@code spaceWeather} and {@code triggerType} must be non-null,
+         * and {@code viableLocations} must not be empty (one task is one request listing every
+         * viable location, so an empty list has nothing to score). {@code tonightWindow} is
+         * deliberately nullable, since real-time triggers omit it.
+         *
+         * @throws NullPointerException     if any of the seven required components is null
+         * @throws IllegalArgumentException if {@code viableLocations} is empty
+         */
         public Aurora {
             Objects.requireNonNull(alertLevel, "alertLevel");
             Objects.requireNonNull(date, "date");
