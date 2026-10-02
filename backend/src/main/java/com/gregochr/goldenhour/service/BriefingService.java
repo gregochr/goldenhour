@@ -838,6 +838,10 @@ public class BriefingService {
      * <p>A location with no types at all still qualifies — an untyped location is treated as a
      * plain colour location rather than silently dropped from the briefing.
      *
+     * <p>Exclusion here also means no {@code slot_atmosphere} reading is recorded for the place,
+     * because the scheduled collector is briefing-driven; that is deliberate (owner decision
+     * 2026-10-02), not an omission.
+     *
      * @param location the location to check
      * @param date     the date being briefed, tested against the bluebell {@link SeasonalWindow}
      * @return true if the location is a colour candidate on that date
