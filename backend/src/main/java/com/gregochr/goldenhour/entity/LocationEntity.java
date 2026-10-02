@@ -228,6 +228,30 @@ public class LocationEntity {
     }
 
     /**
+     * True when WILDLIFE is this location's one and only type.
+     *
+     * <p>The rule behind the scheduled hourly comfort forecast ({@code WildlifeComfortRefreshJob}).
+     * It is deliberately <em>narrower</em> than {@code ForecastCommandExecutor.isPureWildlife},
+     * which admits any location carrying WILDLIFE and no colour type — and since
+     * {@link #hasColourTypes()} omits WOODLAND and BLUEBELL on purpose, that older test also
+     * admits WILDLIFE+WOODLAND and WILDLIFE+BLUEBELL. This one does not, for two reasons. The
+     * frontend decides which popup draws the comfort table with
+     * {@code types.every(t => t === 'WILDLIFE')}, so the writer and the only renderer agree on
+     * which places carry the rows; and a WILDLIFE+WOODLAND place is briefed as a canopy site, a
+     * sky-forecast surface in its own right, not a hide.
+     *
+     * <p>An empty or null type set is <em>not</em> wildlife-only: an unclassified place is
+     * assumed to want colour (see {@link #hasColourTypes()}).
+     *
+     * @return true if the type set is non-empty and holds nothing but {@link LocationType#WILDLIFE}
+     */
+    public boolean isWildlifeOnly() {
+        return locationType != null
+                && !locationType.isEmpty()
+                && locationType.stream().allMatch(t -> t == LocationType.WILDLIFE);
+    }
+
+    /**
      * Whether this location is photographed at the given kind of solar event.
      *
      * <p>A location with no solar event types configured, or one carrying {@code ALLDAY}, supports

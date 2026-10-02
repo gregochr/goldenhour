@@ -49,8 +49,6 @@ forecast:
       cron: "0 0 0 1 1 ?"
     haiku:
       cron: "0 0 0 1 1 ?"
-    wildlife:
-      cron: "0 0 0 1 1 ?"
 tide:
   schedule:
     cron: "0 0 0 1 1 ?"

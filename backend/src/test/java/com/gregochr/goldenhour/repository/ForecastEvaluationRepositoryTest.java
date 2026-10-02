@@ -721,4 +721,67 @@ class ForecastEvaluationRepositoryTest {
                 .recordedAt(LocalDateTime.of(2026, 5, 11, 9, 0))
                 .build();
     }
+
+    // --- deleteHourlyByLocationIdAndTargetDate: the one place this insert-only table loses rows ---
+
+    @Test
+    @DisplayName("deleteHourly removes only HOURLY rows for that place and date, never a solar row")
+    void deleteHourly_touchesOnlyHourlyRowsForThatPlaceAndDate() {
+        LocalDate day = LocalDate.of(2026, 10, 2);
+        LocalDateTime run = LocalDateTime.of(2026, 10, 2, 5, 30);
+        // Targets: two HOURLY rows for Durham on the day.
+        repository.save(buildHourlyEvaluation(durham, day, day.atTime(9, 0), run));
+        repository.save(buildHourlyEvaluation(durham, day, day.atTime(10, 0), run));
+        // Bystanders: Durham's SUNRISE and SUNSET that same day (carrying a rating), Durham's HOURLY
+        // the next day, and Edinburgh's HOURLY the same day.
+        repository.save(buildSonnetEvaluation(durham, day, TargetType.SUNRISE, run, 0));
+        repository.save(buildSonnetEvaluation(durham, day, TargetType.SUNSET, run, 0));
+        repository.save(buildHourlyEvaluation(durham, day.plusDays(1), day.plusDays(1).atTime(9, 0), run));
+        repository.save(buildHourlyEvaluation(edinburgh, day, day.atTime(9, 0), run));
+
+        int deleted = repository.deleteHourlyByLocationIdAndTargetDate(durham.getId(), day);
+
+        assertThat(deleted).isEqualTo(2);
+        assertThat(repository.findAll())
+                .extracting(e -> e.getLocationName() + "|" + e.getTargetDate() + "|" + e.getTargetType())
+                .containsExactlyInAnyOrder(
+                        "Durham UK|2026-10-02|SUNRISE",
+                        "Durham UK|2026-10-02|SUNSET",
+                        "Durham UK|2026-10-03|HOURLY",
+                        "Edinburgh UK|2026-10-02|HOURLY");
+    }
+
+    @Test
+    @DisplayName("deleteHourly on a place-date with no HOURLY rows deletes nothing")
+    void deleteHourly_withNothingToDelete_returnsZero() {
+        LocalDate day = LocalDate.of(2026, 10, 2);
+        repository.save(buildSonnetEvaluation(durham, day, TargetType.SUNRISE,
+                LocalDateTime.of(2026, 10, 2, 5, 30), 0));
+
+        assertThat(repository.deleteHourlyByLocationIdAndTargetDate(durham.getId(), day)).isZero();
+        assertThat(repository.count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("after a delete-then-insert replace, findLatestRunPerSlot returns exactly one row per hour")
+    void findLatestRunPerSlot_afterReplace_returnsOneRowPerHour() {
+        LocalDate day = LocalDate.of(2026, 10, 2);
+        LocalDateTime morning = LocalDateTime.of(2026, 10, 2, 5, 30);
+        LocalDateTime evening = LocalDateTime.of(2026, 10, 2, 17, 30);
+        repository.save(buildHourlyEvaluation(durham, day, day.atTime(9, 0), morning));
+        repository.save(buildHourlyEvaluation(durham, day, day.atTime(10, 0), morning));
+
+        repository.deleteHourlyByLocationIdAndTargetDate(durham.getId(), day);
+        repository.save(buildHourlyEvaluation(durham, day, day.atTime(9, 0), evening));
+        repository.save(buildHourlyEvaluation(durham, day, day.atTime(10, 0), evening));
+        repository.save(buildHourlyEvaluation(durham, day, day.atTime(11, 0), evening));
+
+        List<ForecastEvaluationEntity> served = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId()), day, day.plusDays(5));
+
+        assertThat(repository.count()).as("the superseded rows are gone, not merely outranked").isEqualTo(3);
+        assertThat(served).extracting(ForecastEvaluationEntity::getSolarEventTime)
+                .containsExactlyInAnyOrder(day.atTime(9, 0), day.atTime(10, 0), day.atTime(11, 0));
+        assertThat(served).allMatch(e -> e.getForecastRunAt().equals(evening));
+    }
 }
