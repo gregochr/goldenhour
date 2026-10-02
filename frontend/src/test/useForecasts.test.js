@@ -284,6 +284,18 @@ describe('useForecasts', () => {
     await waitFor(() => expect(fetchForecasts).toHaveBeenCalledTimes(1));
   });
 
+  it("surfaces the server's error sentence, not axios's generic message, on a refused cold load", async () => {
+    const refused = Object.assign(new Error('Request failed with status code 502'), {
+      response: { status: 502, data: { error: 'Upstream API error: 503' } },
+    });
+    fetchForecasts.mockRejectedValue(refused);
+    fetchLocations.mockRejectedValue(refused);
+
+    const { result } = renderHook(() => useForecasts());
+
+    await waitFor(() => expect(result.current.error).toBe('Upstream API error: 503'));
+  });
+
   it('keeps the stale map on a failed revalidation instead of blanking it', async () => {
     writeSwrCache('forecasts:PRO_USER', {
       forecasts: [BAMBURGH_FORECAST],

@@ -466,7 +466,7 @@ describe('UserSettingsModal', () => {
 
   it('shows refresh error on 429', async () => {
     getSettings.mockResolvedValue(PRO_SETTINGS);
-    refreshDriveTimes.mockRejectedValue({ response: { status: 429, data: { message: 'Rate limited' } } });
+    refreshDriveTimes.mockRejectedValue({ response: { status: 429, data: { error: 'Rate limited' } } });
     renderModal();
     await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('settings-refresh-drive-btn'));
@@ -559,7 +559,7 @@ describe('UserSettingsModal', () => {
   it('refresh button stays enabled after failed refresh (postcode still differs)', async () => {
     // No prior calculation — button starts enabled
     getSettings.mockResolvedValue(PRO_SETTINGS);
-    refreshDriveTimes.mockRejectedValue({ response: { status: 429, data: { message: 'Rate limited' } } });
+    refreshDriveTimes.mockRejectedValue({ response: { status: 429, data: { error: 'Rate limited' } } });
     renderModal();
     await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).not.toBeDisabled());
     fireEvent.click(screen.getByTestId('settings-refresh-drive-btn'));
@@ -1357,7 +1357,7 @@ describe('UserSettingsModal — where focus goes when a step removes what the re
     it('⚠️ lands them back on Refresh drive times when it fails, described by the error', async () => {
       const { request } = await pressRefresh();
 
-      await land(() => request.reject({ response: { status: 429, data: { message: 'Rate limited' } } }));
+      await land(() => request.reject({ response: { status: 429, data: { error: 'Rate limited' } } }));
 
       const refresh = screen.getByRole('button', { name: 'Refresh drive times' });
       expect(refresh).toHaveFocus();

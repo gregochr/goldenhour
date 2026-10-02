@@ -8,6 +8,7 @@ import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import Modal from './shared/Modal.jsx';
 import { isSkyPromptCandidate } from '../utils/locationTypes.js';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -70,7 +71,7 @@ const ModelTestView = () => {
       const response = await getModelTestRuns();
       setRuns(response.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load test runs');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load test runs'));
     } finally {
       setLoading(false);
     }
@@ -88,7 +89,7 @@ const ModelTestView = () => {
       const response = await getModelTestResults(runId);
       setResults(response.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load results');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load results'));
     } finally {
       setLoadingResults(false);
     }
@@ -134,7 +135,7 @@ const ModelTestView = () => {
           setSelectedRunId(newRun.id);
           loadResults(newRun.id);
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Model test failed.');
+          setError(apiErrorMessage(err, err?.message || 'Model test failed.'));
         } finally {
           setRunning(false);
         }
@@ -175,7 +176,7 @@ const ModelTestView = () => {
       setSelectedRunId(newRun.id);
       loadResults(newRun.id);
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || 'Single-location test failed.');
+      setError(apiErrorMessage(err, err?.message || 'Single-location test failed.'));
     } finally {
       setRunningLocation(false);
     }
@@ -206,7 +207,7 @@ const ModelTestView = () => {
           loadResults(newRun.id);
           setParentResults([]);
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Re-run failed.');
+          setError(apiErrorMessage(err, err?.message || 'Re-run failed.'));
         } finally {
           setRerunning(false);
         }
@@ -249,7 +250,7 @@ const ModelTestView = () => {
               .catch(() => setParentResults([]));
           }
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Determinism re-run failed.');
+          setError(apiErrorMessage(err, err?.message || 'Determinism re-run failed.'));
         } finally {
           setRerunningDeterministic(false);
         }

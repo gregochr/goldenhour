@@ -3,6 +3,7 @@ import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecas
 import { groupForecastsByLocation } from '../utils/conversions.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /** Stale-while-revalidate window for the cached forecast payload — matches the briefing cache. */
 const FORECASTS_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
@@ -150,11 +151,7 @@ export function useForecasts() {
       // feedback, so a failure must show an error/retry rather than silently leave stale numbers.
       // A silent BACKGROUND revalidation failure still keeps the stale map (the intended SWR trade).
       if (!hasDataRef.current || userInitiated) {
-        setError(
-          err.response?.data?.message ||
-            err.message ||
-            'Failed to load forecast data. Please try again.'
-        );
+        setError(apiErrorMessage(err, err?.message || 'Failed to load forecast data. Please try again.'));
       }
     } finally {
       setLoading(false);

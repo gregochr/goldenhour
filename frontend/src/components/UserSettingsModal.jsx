@@ -8,6 +8,7 @@ import {
 } from '../api/settingsApi';
 import { resolveMode } from '../utils/scoreRamp.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
+import { apiErrorMessage } from '../utils/apiError.js';
 import { colourAfterRead, createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
 const ROLE_LABELS = {
@@ -403,7 +404,7 @@ export default function UserSettingsModal({
     } catch (err) {
       const status = err?.response?.status;
       if (status === 429) {
-        setRefreshError(err.response?.data?.message || 'Drive times were refreshed recently. Please wait before trying again.');
+        setRefreshError(apiErrorMessage(err, 'Drive times were refreshed recently. Please wait before trying again.'));
       } else if (status === 400) {
         setRefreshError('Set a home location first.');
       } else {

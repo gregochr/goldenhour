@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { getApiCalls, getBatchSummary } from '../api/metricsApi';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
 import DispositionBreakdown from './DispositionBreakdown.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /**
  * Expandable detail view for a job run showing all API calls.
@@ -55,7 +56,7 @@ const JobRunDetail = ({ jobRun }) => {
           setApiCalls(response.data || []);
         }
       } catch (err) {
-        setError(err.message || 'Failed to load API calls');
+        setError(apiErrorMessage(err, err?.message || 'Failed to load API calls'));
       } finally {
         setLoading(false);
       }

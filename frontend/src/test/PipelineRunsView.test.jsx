@@ -246,6 +246,35 @@ describe('PipelineRunsView', () => {
     expect(onSelectRun).toHaveBeenCalledWith(42);
   });
 
+  it("shows the server's error sentence, not axios's generic message, when the list is refused", async () => {
+    fetchPipelineRuns.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 500'),
+      { response: { status: 500, data: { error: 'An unexpected error occurred' } } },
+    ));
+
+    render(
+      <PipelineRunsView activeRunId={null} onSelectRun={() => {}} onCloseDetail={() => {}} />,
+    );
+
+    const banner = await screen.findByTestId('pipeline-runs-error');
+    expect(banner).toHaveTextContent('An unexpected error occurred');
+    expect(banner).not.toHaveTextContent('Request failed with status code 500');
+  });
+
+  it("shows the server's error sentence, not axios's generic message, when a run's detail is refused", async () => {
+    fetchPipelineRunDetail.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 404'),
+      { response: { status: 404, data: { error: 'Pipeline run 42 not found' } } },
+    ));
+
+    render(
+      <PipelineRunsView activeRunId={42} onSelectRun={() => {}} onCloseDetail={() => {}} />,
+    );
+
+    expect(await screen.findByText('Pipeline run 42 not found')).toBeInTheDocument();
+    expect(screen.queryByText(/Request failed with status code 404/)).toBeNull();
+  });
+
   it('renders the detail panel with phase timeline + batches when activeRunId is set', async () => {
     fetchPipelineRunDetail.mockResolvedValue(MOCK_DETAIL);
 

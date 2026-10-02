@@ -23,6 +23,7 @@ import {
 } from './WeatherIcons.jsx';
 import { resolveStandDown } from '../utils/standDown.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../utils/locationTypes.js';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /**
  * Resolves the full detail object for a (slim) forecast slot with the precedence:
@@ -334,7 +335,7 @@ export default function MarkerPopupContent({
       );
     } catch (err) {
       setRunningForecast(false);
-      setForecastError(err.response?.data?.message || err.message || 'Failed to start forecast run');
+      setForecastError(apiErrorMessage(err, err?.message || 'Failed to start forecast run'));
     }
   };
   const onToggleExpanded = () => setIsExpanded((prev) => !prev);
