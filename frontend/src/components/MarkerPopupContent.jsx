@@ -12,7 +12,7 @@ import {
   runForecast,
 } from '../api/forecastApi.js';
 import createEventSource from '../utils/createEventSource.js';
-import { failedOutright, failureMessage } from '../utils/runOutcome.js';
+import { failedOutright, failureMessage, stoppedEarly } from '../utils/runOutcome.js';
 import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -323,6 +323,11 @@ export default function MarkerPopupContent({
               // The run failed as a whole (possibly before it had any task, so `failed` reads 0):
               // say why, and do not refresh the map as though something had been updated.
               setForecastError(failureMessage(data));
+            } else if (stoppedEarly(data)) {
+              // Cut short after some places completed: what did update is real, so refresh it, and
+              // still say why the rest did not.
+              setForecastError(data.reason);
+              onForecastRun?.();
             } else if (data.failed > 0) {
               setForecastError('Forecast run failed');
             } else {

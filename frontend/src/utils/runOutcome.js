@@ -7,13 +7,32 @@
 export const RUN_FAILED_FALLBACK = 'The forecast run failed.';
 
 /**
- * Whether the run failed as a whole: the server marked it FAILED, or gave a run-level reason. The
- * popup and the banner treat this, and only this, as "show an error, not a success".
+ * Whether the run failed outright: nothing it did stands. That is the server's FAILED status, and
+ * only that. A PARTIAL run that carries a reason (the backend aborted it after some places had already
+ * completed) is NOT outright: what completed was written and must still be refreshed into view.
+ *
+ * <p>A payload with a reason and no status at all (the real backend always sends one, so this is a
+ * hand-built or foreign payload) is outright only when it reports no completed place.
  *
  * @param {object|null|undefined} data - The run-complete payload.
  * @returns {boolean}
  */
-export const failedOutright = (data) => data?.status === 'FAILED' || Boolean(data?.reason);
+export const failedOutright = (data) => {
+  if (data?.status === 'FAILED') return true;
+  if (data?.status) return false;
+  return Boolean(data?.reason) && !(data?.completed > 0);
+};
+
+/**
+ * Whether the run was cut short by a run-level failure after some places had completed: it carries a
+ * reason and is not outright-failed. The popup and banner show the reason AND keep the refresh.
+ *
+ * @param {object|null|undefined} data - The run-complete payload.
+ * @returns {boolean}
+ */
+export const stoppedEarly = (data) => Boolean(data?.reason)
+  && !failedOutright(data)
+  && (data?.status === 'PARTIAL' || !data?.status);
 
 /**
  * The sentence for a run that failed outright: the server's reason when present, else a fixed one.

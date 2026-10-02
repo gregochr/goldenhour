@@ -37,3 +37,9 @@ as if something had updated, and the app-wide banner is a red "Forecast run fail
 a green "completed — 0 locations updated". A run in which every non-skipped place failed now reads
 FAILED rather than PARTIAL when other slots were merely skipped. Classifying Claude failures and
 aligning `job_run` counts with the tracker are separate follow-ups.
+
+A run that is cut short after some places had already completed (status PARTIAL with a reason) is
+not treated as an outright failure: the banner reads "Forecast run stopped early — N locations
+updated, M failed." with the reason and keeps Refresh, and the map popup refreshes what did update
+while still showing the reason. A FAILED run with no reason now reads "Forecast run failed." (with the
+failed-place count when there is one) instead of repeating the fixed fallback sentence.

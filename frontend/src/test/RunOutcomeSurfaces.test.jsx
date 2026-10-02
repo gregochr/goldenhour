@@ -6,7 +6,7 @@ import RunCompleteBanner from '../components/RunCompleteBanner.jsx';
 import { runForecast } from '../api/forecastApi.js';
 import createEventSource from '../utils/createEventSource.js';
 import {
-  needsAttention, failedOutright, failureMessage, RUN_FAILED_FALLBACK,
+  needsAttention, failedOutright, stoppedEarly, failureMessage, RUN_FAILED_FALLBACK,
 } from '../utils/runOutcome.js';
 import {
   NO_FAILURES, ONE_FAILURE, task, completeEvent,
@@ -26,6 +26,9 @@ vi.mock('../components/TideIndicator.jsx', () => ({
 }));
 
 const UNEXPECTED = 'The run stopped unexpectedly. See the server log.';
+/** One place completed, one failed: what a run aborted part-way reports (PARTIAL). */
+const STOPPED_EARLY = [task('a|b', 'A', 'COMPLETE'), task('c|d', 'C', 'FAILED')];
+
 const OPEN_METEO = 'Weather data (Open-Meteo) could not be fetched; nothing was updated.';
 
 const LOCATION = {
@@ -85,15 +88,24 @@ describe('map popup Run Forecast: how a finished run reads', () => {
     expect(onForecastRun).not.toHaveBeenCalled();
   });
 
-  it('shows the reason, not the success refresh, for any run that carries one', async () => {
+  it('keeps showing the reason for a FAILED run that carries one, with no refresh', async () => {
     const { handlers, onForecastRun } = await startRun();
 
     await act(async () => {
-      handlers['run-complete'](completeEvent(9, ONE_FAILURE, { reason: OPEN_METEO }));
+      handlers['run-complete'](completeEvent(9, [task('a|b', 'A', 'FAILED')], { reason: OPEN_METEO }));
     });
 
     expect(screen.getByText(OPEN_METEO)).toBeInTheDocument();
     expect(onForecastRun).not.toHaveBeenCalled();
+  });
+
+  it('refreshes exactly once AND shows the reason for a PARTIAL run that carries one (stopped early)', async () => {
+    const { handlers, onForecastRun } = await startRun();
+
+    await act(async () => { handlers['run-complete'](completeEvent(9, STOPPED_EARLY, { reason: UNEXPECTED })); });
+
+    expect(onForecastRun).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(UNEXPECTED)).toBeInTheDocument();
   });
 
   it('keeps the existing sentence for a run with failed tasks and no reason', async () => {
@@ -129,10 +141,56 @@ describe('app-wide run-complete banner', () => {
     expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
   });
 
-  it('uses the fixed fallback when the run failed outright with no reason', () => {
+  it('reads just "Forecast run failed." for a FAILED run with no reason and no failed places', () => {
     render(<RunCompleteBanner run={{ ...completeEvent(9, []), status: 'FAILED', reason: null }} onRefresh={vi.fn()} />);
 
-    expect(screen.getByTestId('run-complete-banner')).toHaveTextContent(`Forecast run failed — ${RUN_FAILED_FALLBACK}`);
+    expect(screen.getByTestId('run-complete-banner').textContent).toBe('Forecast run failed.');
+  });
+
+  it('adds the failed count for a FAILED run with no reason', () => {
+    const sixtyFive = Array.from({ length: 65 }, (_, i) => task(`k${i}|x`, `Place ${i}`, 'FAILED'));
+    render(<RunCompleteBanner run={completeEvent(9, sixtyFive)} onRefresh={vi.fn()} />);
+
+    expect(screen.getByTestId('run-complete-banner').textContent)
+      .toBe('Forecast run failed — 65 places failed.');
+  });
+
+  it('says "1 place failed." in the singular', () => {
+    render(<RunCompleteBanner run={completeEvent(9, [task('a|b', 'A', 'FAILED')])} onRefresh={vi.fn()} />);
+
+    expect(screen.getByTestId('run-complete-banner').textContent)
+      .toBe('Forecast run failed — 1 place failed.');
+  });
+
+  it('keeps "Forecast run failed — <reason>" for a FAILED run with a reason, and no Refresh', () => {
+    render(<RunCompleteBanner run={completeEvent(9, [], { reason: OPEN_METEO })} onRefresh={vi.fn()} />);
+
+    expect(screen.getByTestId('run-complete-banner').textContent)
+      .toBe(`Forecast run failed — ${OPEN_METEO}`);
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  });
+
+  it('for a PARTIAL run with a reason says it stopped early, keeps the count and the reason, and Refresh works', () => {
+    const onRefresh = vi.fn();
+    render(<RunCompleteBanner run={completeEvent(9, STOPPED_EARLY, { reason: UNEXPECTED })} onRefresh={onRefresh} />);
+
+    const banner = screen.getByTestId('run-complete-banner');
+    expect(banner.textContent)
+      .toBe(`Forecast run stopped early — 1 location updated, 1 failed. ${UNEXPECTED} Refresh`);
+    expect(banner.className).toContain('bg-amber-900/40');
+    expect(banner.className).not.toContain('bg-green');
+    expect(banner.className).not.toContain('bg-red');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits ", 0 failed" when a run stopped early with nothing failed', () => {
+    render(<RunCompleteBanner run={{ ...completeEvent(9, NO_FAILURES, { reason: UNEXPECTED }), status: 'PARTIAL' }}
+      onRefresh={vi.fn()}
+    />);
+
+    expect(screen.getByTestId('run-complete-banner').textContent)
+      .toBe(`Forecast run stopped early — 2 locations updated. ${UNEXPECTED} Refresh`);
   });
 
   it('keeps the green completed wording, and Refresh, for a clean run', () => {
@@ -157,12 +215,32 @@ describe('app-wide run-complete banner', () => {
 });
 
 describe('runOutcome', () => {
-  it('failedOutright is true for FAILED or a reason, false for everything else', () => {
+  it('failedOutright is true only for FAILED: a reason on a PARTIAL or COMPLETE run is not outright', () => {
     expect(failedOutright({ status: 'FAILED' })).toBe(true);
-    expect(failedOutright({ status: 'COMPLETE', reason: 'x' })).toBe(true);
+    expect(failedOutright({ status: 'FAILED', reason: 'x', completed: 3 })).toBe(true);
+    expect(failedOutright({ status: 'PARTIAL', reason: 'x', completed: 1 })).toBe(false);
+    expect(failedOutright({ status: 'COMPLETE', reason: 'x' })).toBe(false);
     expect(failedOutright({ status: 'PARTIAL', failed: 3 })).toBe(false);
     expect(failedOutright({ status: 'COMPLETE', reason: null })).toBe(false);
     expect(failedOutright(null)).toBe(false);
+  });
+
+  it('with no status at all, a reason is outright only when nothing completed', () => {
+    expect(failedOutright({ reason: 'x' })).toBe(true);
+    expect(failedOutright({ reason: 'x', completed: 0 })).toBe(true);
+    expect(failedOutright({ reason: 'x', completed: 2 })).toBe(false);
+    expect(failedOutright({ completed: 0 })).toBe(false);
+    expect(failedOutright({})).toBe(false);
+  });
+
+  it('stoppedEarly is a reason on a PARTIAL run (or a status-less one with completions), never FAILED or clean', () => {
+    expect(stoppedEarly({ status: 'PARTIAL', reason: 'x' })).toBe(true);
+    expect(stoppedEarly({ reason: 'x', completed: 2 })).toBe(true);
+    expect(stoppedEarly({ status: 'PARTIAL', reason: null })).toBe(false);
+    expect(stoppedEarly({ status: 'FAILED', reason: 'x' })).toBe(false);
+    expect(stoppedEarly({ reason: 'x', completed: 0 })).toBe(false);
+    expect(stoppedEarly({ status: 'COMPLETE', reason: 'x' })).toBe(false);
+    expect(stoppedEarly(undefined)).toBe(false);
   });
 
   it('failureMessage prefers the reason, then the fixed fallback', () => {
