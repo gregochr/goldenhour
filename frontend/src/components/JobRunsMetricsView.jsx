@@ -21,6 +21,7 @@ import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { latestSolarEventTimes, hasEventPassed } from '../utils/solarEventTimes.js';
 import { parseUtcInstant } from '../utils/conversions.js';
 import { apiErrorMessage } from '../utils/apiError.js';
+import { retryStartedNote } from '../utils/runOutcome.js';
 
 /**
  * Human-readable labels for optimisation strategies shown in the run confirmation dialog — the two
@@ -227,7 +228,9 @@ LocationSummary.propTypes = {
  * - Pageable job runs grid with filtering
  * - Per-run API call details
  */
-const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }) => {
+const JobRunsMetricsView = ({
+  activeRunId, onActiveRunChange, onActiveRunClear, retryNote, onRetryNoteChange,
+}) => {
   const { isAdmin } = useAuth();
   const [runs, setRuns] = useState([]);
   const [allApiCalls, setAllApiCalls] = useState([]);
@@ -326,11 +329,13 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   // guess. Only a Dismiss moves focus: a clean run clearing itself leaves it where it was.
   const [promotedRunId, setPromotedRunId] = useState(null);
   // A retry the server accepted becomes THE active run: the panel for it follows it by id like any
-  // run, survives a tab switch (the id lives in ManageView), and if it ends with failures is kept
-  // with its own Retry and Dismiss. The list reloads so the grid shows the run that just started.
-  const handleRetryStarted = (retryRunId) => {
+  // run, survives a tab switch (the id lives in ManageView, and so does the note of what the retry was
+  // given, `retryNote`), and if it ends with failures is kept with its own Retry and Dismiss. The list
+  // reloads so the grid shows the run that just started. The note is shown only on the run it names.
+  const handleRetryStarted = (retryRunId, result) => {
     if (retryRunId) {
       setPromotedRunId(retryRunId);
+      onRetryNoteChange?.({ runId: retryRunId, text: retryStartedNote(result) });
       onActiveRunChange(retryRunId);
     }
     loadJobRuns(0);
@@ -815,6 +820,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           onDismiss={handleDismissRun}
           onRetryStarted={handleRetryStarted}
           focusOnMount={promotedRunId === activeRunId}
+          startedNote={(retryNote?.runId === activeRunId && retryNote.text) || undefined}
         />
       )}
 
@@ -1114,6 +1120,8 @@ JobRunsMetricsView.propTypes = {
   activeRunId: PropTypes.number,
   onActiveRunChange: PropTypes.func.isRequired,
   onActiveRunClear: PropTypes.func.isRequired,
+  retryNote: PropTypes.shape({ runId: PropTypes.number, text: PropTypes.string }),
+  onRetryNoteChange: PropTypes.func,
 };
 
 export default JobRunsMetricsView;

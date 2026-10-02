@@ -589,6 +589,40 @@ class RunProgressTrackerTest {
     }
 
     @Test
+    @DisplayName("a run-complete payload names no retry block for a retryable run, and API_KEY_REJECTED "
+            + "for a stopped one")
+    void completeRun_retryBlockedReason_nullOrApiKeyRejected() {
+        RunProgressTracker normal = recordingTracker();
+        startRunWithOneFailure(normal);
+        RecordingEmitter normalLive = (RecordingEmitter) normal.subscribe(7L);
+        normal.completeRun(7L);
+        RunProgressTracker stopped = recordingTracker();
+        startRunWithOneFailure(stopped);
+        RecordingEmitter stoppedLive = (RecordingEmitter) stopped.subscribe(7L);
+        stopped.stopRun(7L);
+        stopped.completeRun(7L);
+
+        assertThat(eventNamed(normalLive, "run-complete")).contains("\"retryBlockedReason\":null");
+        assertThat(eventNamed(stoppedLive, "run-complete"))
+                .contains("\"retryBlockedReason\":\"API_KEY_REJECTED\"");
+    }
+
+    @Test
+    @DisplayName("a light-pollution run with a failed place completes with retryable: false and LIGHT_POLLUTION")
+    void completeRun_bortleFailure_isNotRetryable() {
+        RunProgressTracker t = recordingTracker();
+        t.initRun(9L, tasks(new String[]{"Hill|BORTLE", "Hill", "–", "BORTLE"}));
+        t.onTaskEvent(new LocationTaskEvent(this, 9L, "Hill|BORTLE", "Hill", "–", "BORTLE",
+                LocationTaskState.FAILED, "API returned no data", null));
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(9L);
+
+        t.completeRun(9L);
+
+        assertThat(eventNamed(live, "run-complete")).contains("\"retryable\":false")
+                .contains("\"retryBlockedReason\":\"LIGHT_POLLUTION\"").contains("\"failed\":1");
+    }
+
+    @Test
     @DisplayName("stopRun records the run-level reason, flips isStopped, and broadcasts nothing until completion")
     void stopRun_recordsReasonAndBroadcastsNothing() {
         RunProgressTracker t = recordingTracker();

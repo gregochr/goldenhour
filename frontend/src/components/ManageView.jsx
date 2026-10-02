@@ -72,6 +72,9 @@ export default function ManageView({ onComplete }) {
   const [activeTab, setActiveTabState] = useState(initial.tab);
   const [activeRunId, setActiveRunId] = useState(null);
   const clearActiveRun = useCallback(() => setActiveRunId(null), []);
+  // What the retry that started a run was given ({ runId, text }), held beside `activeRunId` for the
+  // same reason: the Job Runs tab unmounts on a tab switch and the promoted panel must keep it.
+  const [retryNote, setRetryNote] = useState(null);
   const [activePipelineRunId, setActivePipelineRunId] = useState(null);
   const clearActivePipelineRun = useCallback(() => setActivePipelineRunId(null), []);
   const [waitlistCount, setWaitlistCount] = useState(null);
@@ -197,6 +200,8 @@ export default function ManageView({ onComplete }) {
               activeRunId={activeRunId}
               onActiveRunChange={setActiveRunId}
               onActiveRunClear={clearActiveRun}
+              retryNote={retryNote}
+              onRetryNoteChange={setRetryNote}
             />
           </div>
         )}

@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
+import com.gregochr.goldenhour.service.FailedSlotRetryService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -90,6 +91,9 @@ class ForecastWindowAnchorTest {
     private RunProgressTracker progressTracker;
 
     @Mock
+    private FailedSlotRetryService retryService;
+
+    @Mock
     private BriefingEvaluationService briefingEvaluationService;
 
     private ForecastController forecastController;
@@ -103,7 +107,8 @@ class ForecastWindowAnchorTest {
     void setUp() {
         forecastController = new ForecastController(repository, locationService, commandFactory,
                 commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
-                jobRunService, progressTracker, Runnable::run, LATE_BST_EVENING);
+                jobRunService, progressTracker, Runnable::run, LATE_BST_EVENING,
+                retryService);
         briefingEvaluationController = new BriefingEvaluationController(
                 briefingEvaluationService, evaluationViewService, LATE_BST_EVENING);
     }

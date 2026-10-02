@@ -31,6 +31,7 @@ public class RunProgress {
     private volatile RunPhase phase = RunPhase.TRIAGE;
     private volatile String failureReason;
     private volatile boolean stopped;
+    private final Object streamLock = new Object();
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -64,6 +65,19 @@ public class RunProgress {
      */
     public void updateTask(LocationTaskEvent event) {
         tasks.put(event.getTaskKey(), LocationTaskSnapshot.fromEvent(event));
+    }
+
+    /**
+     * The monitor that orders this run's per-task broadcasts against a subscriber's replay: every
+     * "update a task and tell the subscribers" and every "copy the tasks and replay them to a new
+     * subscriber" holds it, so a subscriber sees each task's states in the order they happened. One
+     * per run, never shared between runs. See {@code RunProgressTracker}'s class javadoc for the lock
+     * order against its completion lock.
+     *
+     * @return the run's stream lock
+     */
+    public Object streamLock() {
+        return streamLock;
     }
 
     /**
@@ -227,14 +241,52 @@ public class RunProgress {
     }
 
     /**
-     * Whether "Retry failed" can do any good for this run: not once it was stopped on a rejected key,
-     * because the places it would re-run fail the same way until the key is fixed and a new run is
-     * started.
+     * Why "Retry failed" is not offered for this run; the one answer both the {@code run-complete}
+     * payload and the retry endpoint read, so the panel and the server cannot disagree.
+     */
+    public enum RetryBlock {
+        /** The run was stopped on a rejected API key: re-running its places fails them the same way. */
+        API_KEY_REJECTED,
+        /** A light-pollution (Bortle) run: its failed tasks are locations, not forecast slots. */
+        LIGHT_POLLUTION,
+        /** Some other run whose failed tasks are not sunrise/sunset slots, so there is no slot to re-run. */
+        NOT_FORECAST_SLOTS
+    }
+
+    /**
+     * Why "Retry failed" cannot do any good for this run, or {@code null} when it can.
      *
-     * @return {@code false} for a stopped run, otherwise {@code true}
+     * <p>Blocked when the run was stopped on a rejected key (the places it would re-run fail the same
+     * way until the key is fixed and a new run is started), and when a failed task is not a forecast
+     * slot: retry re-runs (location, date, sunrise/sunset) triples, and a Bortle task has a location
+     * and no date or event.
+     *
+     * @return the reason retry is not offered, or {@code null}
+     */
+    public RetryBlock getRetryBlock() {
+        if (stopped) {
+            return RetryBlock.API_KEY_REJECTED;
+        }
+        RetryBlock block = null;
+        for (LocationTaskSnapshot task : getFailedTasks()) {
+            String type = task.targetType();
+            if ("BORTLE".equals(type)) {
+                return RetryBlock.LIGHT_POLLUTION;
+            }
+            if (!"SUNRISE".equals(type) && !"SUNSET".equals(type)) {
+                block = RetryBlock.NOT_FORECAST_SLOTS;
+            }
+        }
+        return block;
+    }
+
+    /**
+     * Whether "Retry failed" can do any good for this run.
+     *
+     * @return {@code true} when {@link #getRetryBlock()} is {@code null}
      */
     public boolean isRetryable() {
-        return !stopped;
+        return getRetryBlock() == null;
     }
 
     /**

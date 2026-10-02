@@ -224,20 +224,22 @@ describe('RunProgressPanel retry', () => {
   });
 
   describe('a retry the server accepted', () => {
-    it('hands the retry run\'s id to the parent and does not mount a second panel', async () => {
-      retryFailed.mockResolvedValue({ status: 'Retry run started', runType: 'SHORT_TERM', jobRunId: 77 });
+    it('hands the retry run\'s id and the server\'s answer to the parent and does not mount a second panel', async () => {
+      const answer = { status: 'Retry run started', runType: 'SHORT_TERM', jobRunId: 77 };
+      retryFailed.mockResolvedValue(answer);
       const onRetryStarted = vi.fn();
       await renderFinishedRun({ onRetryStarted });
 
       await press();
 
       expect(retryFailed).toHaveBeenCalledWith(5);
-      expect(onRetryStarted).toHaveBeenCalledExactlyOnceWith(77);
+      expect(onRetryStarted).toHaveBeenCalledExactlyOnceWith(77, answer);
       expect(screen.getAllByTestId('run-progress-panel')).toHaveLength(1);
     });
 
     it('says "Retry started." and offers no second press when the answer names no run', async () => {
-      retryFailed.mockResolvedValue({ status: 'Retry run started' });
+      const answer = { status: 'Retry run started' };
+      retryFailed.mockResolvedValue(answer);
       const onRetryStarted = vi.fn();
       await renderFinishedRun({ onRetryStarted });
 
@@ -246,7 +248,7 @@ describe('RunProgressPanel retry', () => {
       expect(screen.getByRole('status').textContent).toBe(STARTED_UNNAMED);
       expect(screen.queryByRole('alert')).toBeNull();
       expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
-      expect(onRetryStarted).toHaveBeenCalledExactlyOnceWith(undefined);
+      expect(onRetryStarted).toHaveBeenCalledExactlyOnceWith(undefined, answer);
     });
   });
 });

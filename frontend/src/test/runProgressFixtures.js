@@ -6,8 +6,10 @@
 //                   skipped, status, elapsedMs
 //   run-complete <- buildRunCompleteEvent: jobRunId, status, phase, total, completed, triaged,
 //                   failed, skipped, durationMs, failedTasks[{taskKey, locationName, errorMessage}],
-//                   reason (null unless the run failed as a whole), retryable (false only for a run
-//                   stopped on a rejected API key) (NO inProgress)
+//                   reason (null unless the run failed as a whole), retryable (false for a run stopped
+//                   on a rejected API key and for a light-pollution run), retryBlockedReason (null when
+//                   retryable; otherwise API_KEY_REJECTED, LIGHT_POLLUTION or NOT_FORECAST_SLOTS)
+//                   (NO inProgress)
 // and the counters and status are derived from the tasks the way RunProgress derives them.
 
 const FINISHED = ['COMPLETE', 'FAILED', 'SKIPPED', 'TRIAGED'];
@@ -64,6 +66,8 @@ export const completeEvent = (
   tasks,
   {
     phase = 'FULL_EVALUATION', durationMs = 2100, reason = null, retryable = true,
+    // A run that is not retryable is, by default, the one that was stopped on a rejected key.
+    retryBlockedReason = retryable ? null : 'API_KEY_REJECTED',
   } = {},
 ) => ({
   jobRunId,
@@ -82,6 +86,7 @@ export const completeEvent = (
   })),
   reason,
   retryable,
+  retryBlockedReason,
 });
 
 /** What the server says when a run stopped because Claude rejected the API key. */
@@ -127,6 +132,43 @@ export const KEY_REJECTED_AFTER_ONE = [
   evaluationFailed('hill|b', 'Test Hill', KEY_REJECTED_PLACE),
   evaluationFailed('east|c', 'East Fell', NOT_ATTEMPTED_PLACE),
 ];
+
+/** A light-pollution (Bortle) task as the server registers it: no date, event BORTLE. */
+export const bortleTask = (locationName, state, extra = {}) => task(
+  `${locationName}|–|BORTLE`,
+  locationName,
+  state,
+  {
+    targetDate: '–',
+    targetType: 'BORTLE',
+    errorMessage: state === 'FAILED' ? 'API returned no data' : null,
+    failedStep: null,
+    ...extra,
+  },
+);
+
+/** A light-pollution run in which one place got no answer from the light-pollution service. */
+export const LIGHT_POLLUTION_ONE_FAILURE = [
+  bortleTask('Test Hill', 'COMPLETE'),
+  bortleTask('East Fell', 'FAILED'),
+];
+
+/** What the server sends for that run: not retryable, because its failed tasks are not forecast slots. */
+export const LIGHT_POLLUTION_COMPLETE_OPTIONS = { retryable: false, retryBlockedReason: 'LIGHT_POLLUTION' };
+
+/** The server's 202 for a retry that was given two slots and left one failed slot out. */
+export const RETRY_ACCEPTED = {
+  status: 'Retry run started',
+  runType: 'VERY_SHORT_TERM',
+  jobRunId: 6,
+  slots: 2,
+  skipped: [{
+    locationName: 'West Fell',
+    date: '2026-10-03',
+    targetType: 'SUNRISE',
+    reason: 'The place is disabled or no longer exists.',
+  }],
+};
 
 /** A run with one rated place and two that failed to fetch weather. */
 export const TWO_FAILURES = [

@@ -651,6 +651,16 @@ public class JobRunService {
     }
 
     /**
+     * Looks up one job run by id.
+     *
+     * @param jobRunId the job run ID
+     * @return the run, or empty if no such row exists
+     */
+    public Optional<JobRunEntity> findRun(long jobRunId) {
+        return jobRunRepository.findById(jobRunId);
+    }
+
+    /**
      * Retrieves recent job runs for a given run type, ordered by start time descending.
      *
      * @param runType the run type to filter by

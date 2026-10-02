@@ -839,7 +839,22 @@ Two consequences worth stating plainly:
 > applied `ForecastDtoMapper`'s role-based score selection, which they keep as defence in depth.
 
 ### Forecast runs (ADMIN)
-`POST /api/forecast/run` | `POST /api/forecast/run/very-short-term|short-term|long-term` | `POST /api/forecast/run/tide` | `POST /api/forecast/run/tide/backfill`
+`POST /api/forecast/run` | `POST /api/forecast/run/very-short-term|short-term|long-term` | `POST /api/forecast/run/tide` | `POST /api/forecast/run/tide/backfill` | `POST /api/forecast/run/{runId}/retry-failed`
+
+> **`POST /api/forecast/run/{runId}/retry-failed` re-runs exactly the slots that FAILED**, not the failed
+> places over the failed dates over both events. `FailedSlotRetryService` reads the (location, date,
+> sunrise/sunset) triples that are FAILED in the original run's progress-tracker entry and hands the
+> executor that list (`ForecastCommand.slots`); it runs under the original run's own `run_type`, taken
+> from its `job_run` row. ⚠️ That means the CURRENT model and strategy configuration of that run type:
+> a hand-started run stores no `active_strategies` snapshot and a null `evaluation_model`, so what it ran
+> under is not recoverable. Sentinel sampling is off for a retry (it would answer for unnamed slots with
+> canned results); weather triage and tide alignment still apply and the stability filter stays bypassed.
+> **409 `{error}`**, nothing started, for a run stopped on a rejected API key, a light-pollution run, or a
+> run whose failed tasks are not forecast slots; **404** with no body when nothing is left to run
+> (unknown or evicted run, no failures, or every failed slot left out). A failed slot that cannot be run
+> (place disabled, renamed or deleted, no longer a sky location, dated before today's UK civil date) is
+> listed in the 202's `skipped` with a reason; `slots` is how many the new run holds. The panel reads the
+> same answer from the `run-complete` payload's `retryBlockedReason`.
 
 > **`POST /api/forecast/run/tide` answers 409 while a tide refresh is running from any route** — the
 > Monday `tide_refresh` schedule, the Scheduler's Run Now, or an earlier press. One `AtomicBoolean` in

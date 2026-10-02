@@ -53,3 +53,58 @@ export const needsAttention = (data) => data?.failed > 0
   || data?.status === 'FAILED'
   || data?.status === 'PARTIAL'
   || Boolean(data?.reason);
+
+/** The line shown where Retry would be when the run was stopped on a rejected API key. */
+export const RETRY_NOT_OFFERED_KEY = 'Retry is not offered: fix the API key, then start the run again.';
+/** The line shown where Retry would be for a light-pollution run, whose failures are not forecast slots. */
+export const RETRY_NOT_OFFERED_LIGHT_POLLUTION = 'Retry is not offered: press Refresh Light Pollution again.';
+/** The line shown where Retry would be for any other run the server will not retry. */
+export const RETRY_NOT_OFFERED_GENERIC = 'Retry is not offered for this run.';
+
+/**
+ * The line that says why Retry is not offered, from the completion payload's `retryBlockedReason`
+ * (the server's one answer, which its retry endpoint also reads). A payload that says
+ * `retryable: false` and names no reason is the earlier shape, which only ever meant a rejected
+ * key. Any reason this does not know reads as the generic line: Retry is withdrawn either way.
+ *
+ * @param {object|null|undefined} data - The run-complete payload.
+ * @returns {string}
+ */
+export const retryNotOfferedLine = (data) => {
+  const reason = data?.retryBlockedReason;
+  if (!reason || reason === 'API_KEY_REJECTED') return RETRY_NOT_OFFERED_KEY;
+  if (reason === 'LIGHT_POLLUTION') return RETRY_NOT_OFFERED_LIGHT_POLLUTION;
+  return RETRY_NOT_OFFERED_GENERIC;
+};
+
+/** How many left-out slots the note names before saying "and N more". */
+const MAX_LEFT_OUT_NAMED = 3;
+
+/** One left-out slot as "Place 2026-10-03 sunrise (reason)", leaving out any part the server did not send. */
+const leftOutEntry = (slot) => {
+  const present = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+  const place = present(slot?.locationName) ?? 'A place';
+  const when = [present(slot?.date), present(slot?.targetType)?.toLowerCase()].filter(Boolean).join(' ');
+  const reason = present(slot?.reason)?.replace(/\.+$/, '');
+  return `${place}${when ? ` ${when}` : ''}${reason ? ` (${reason})` : ''}`;
+};
+
+/**
+ * What the server's 202 for a retry says was started: "Retrying 2 slots.", plus the failed slots it
+ * left out (their place is disabled, gone or no longer a sky location) with the server's reason each.
+ * Null when the answer carries no slot count (an older server), so nothing is claimed.
+ *
+ * @param {object|null|undefined} result - The retry-failed response body.
+ * @returns {string|null}
+ */
+export const retryStartedNote = (result) => {
+  const slots = result?.slots;
+  if (!Number.isInteger(slots)) return null;
+  const started = `Retrying ${slots} ${slots === 1 ? 'slot' : 'slots'}.`;
+  const skipped = Array.isArray(result.skipped) ? result.skipped : [];
+  if (skipped.length === 0) return started;
+  const named = skipped.slice(0, MAX_LEFT_OUT_NAMED).map(leftOutEntry);
+  const more = skipped.length - named.length;
+  if (more > 0) named.push(`and ${more} more`);
+  return `${started} Left out: ${named.join('; ')}.`;
+};

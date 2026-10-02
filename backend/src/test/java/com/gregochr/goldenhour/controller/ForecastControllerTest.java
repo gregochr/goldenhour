@@ -7,11 +7,9 @@ import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
-import com.gregochr.goldenhour.model.LocationTaskSnapshot;
-import com.gregochr.goldenhour.model.LocationTaskState;
-import com.gregochr.goldenhour.model.RunProgress;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.service.FailedSlotRetryService;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,13 +39,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -855,41 +853,78 @@ class ForecastControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 when run not found")
-    void retryFailed_nullProgress_returns404() throws Exception {
-        when(progressTracker.getProgress(anyLong())).thenReturn(null);
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 with no body when there is nothing to retry")
+    void retryFailed_nothingToRetry_returns404() throws Exception {
+        when(failedSlotRetryService.retry(99L)).thenReturn(new FailedSlotRetryService.NothingToRetry());
 
         mockMvc.perform(post("/api/forecast/run/99/retry-failed"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(content().string(""));
     }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 when run has no failures")
-    void retryFailed_emptyFailedTasks_returns404() throws Exception {
-        RunProgress progress = mock(RunProgress.class);
-        when(progress.getFailedTasks()).thenReturn(List.of());
-        when(progressTracker.getProgress(1L)).thenReturn(progress);
-
-        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 202 when run has failures")
-    void retryFailed_withFailedTasks_returns202() throws Exception {
-        LocationTaskSnapshot failedTask = new LocationTaskSnapshot(
-                "Durham UK|2026-03-20|SUNSET", "Durham UK", "2026-03-20", "SUNSET",
-                LocationTaskState.FAILED, "error", "step", Instant.now());
-        RunProgress progress = mock(RunProgress.class);
-        when(progress.getFailedTasks()).thenReturn(List.of(failedTask));
-        when(progressTracker.getProgress(1L)).thenReturn(progress);
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 202 with the new run, the original run "
+            + "type, how many slots it was given and which failed slots were left out")
+    void retryFailed_started_returns202WithSlotsAndSkipped() throws Exception {
+        when(failedSlotRetryService.retry(1L)).thenReturn(new FailedSlotRetryService.Started(
+                8L, com.gregochr.goldenhour.entity.RunType.VERY_SHORT_TERM, 2,
+                List.of(new FailedSlotRetryService.SkippedSlot("Bamburgh", "2026-10-04", "SUNRISE",
+                        "The place is disabled or no longer exists."))));
 
         mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value("Retry run started"))
-                .andExpect(jsonPath("$.runType").value("SHORT_TERM"));
+                .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"))
+                .andExpect(jsonPath("$.jobRunId").value(8))
+                .andExpect(jsonPath("$.slots").value(2))
+                .andExpect(jsonPath("$.skipped[0].locationName").value("Bamburgh"))
+                .andExpect(jsonPath("$.skipped[0].date").value("2026-10-04"))
+                .andExpect(jsonPath("$.skipped[0].targetType").value("SUNRISE"))
+                .andExpect(jsonPath("$.skipped[0].reason").value("The place is disabled or no longer exists."));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 409 with a plain {error} sentence "
+            + "when the run's failures cannot be retried")
+    void retryFailed_refused_returns409WithError() throws Exception {
+        when(failedSlotRetryService.retry(1L)).thenReturn(new FailedSlotRetryService.Refused(
+                "Light-pollution failures are retried by pressing Refresh Light Pollution again."));
+
+        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error")
+                        .value("Light-pollution failures are retried by pressing Refresh Light Pollution again."));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed is forbidden for LITE_USER and starts nothing")
+    void retryFailed_liteUser_returns403() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
+                .andExpect(status().isForbidden());
+
+        verify(failedSlotRetryService, never()).retry(anyLong());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed is forbidden for PRO_USER and starts nothing")
+    void retryFailed_proUser_returns403() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
+                .andExpect(status().isForbidden());
+
+        verify(failedSlotRetryService, never()).retry(anyLong());
+    }
+
+    @Test
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed is rejected for an anonymous caller and starts nothing")
+    void retryFailed_anonymous_isRejected() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
+                .andExpect(status().isUnauthorized());
+
+        verify(failedSlotRetryService, never()).retry(anyLong());
     }
 
     @Test
@@ -1066,47 +1101,6 @@ class ForecastControllerTest extends AbstractControllerTest {
 
         verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
         verify(forecastCommandExecutor, never()).execute(any(), any());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 and starts no run "
-            + "when every failed place has stopped being a sky subject")
-    void retryFailed_onlyNonSkyLocations_returns404AndStartsNothing() throws Exception {
-        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
-        LocationTaskSnapshot failedTask = new LocationTaskSnapshot(
-                "Reserve Hide|2026-03-20|SUNSET", "Reserve Hide", "2026-03-20", "SUNSET",
-                LocationTaskState.FAILED, "error", "step", Instant.now());
-        RunProgress progress = mock(RunProgress.class);
-        when(progress.getFailedTasks()).thenReturn(List.of(failedTask));
-        when(progressTracker.getProgress(1L)).thenReturn(progress);
-
-        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().isNotFound());
-
-        verify(jobRunService, never()).startRun(any(), anyBoolean(), any(), any());
-        verify(forecastCommandExecutor, never()).execute(any(), any());
-    }
-
-    @Test
-    @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/{runId}/retry-failed retries when a failed place is a sky subject")
-    void retryFailed_skyAndNonSkyFailures_stillRetries() throws Exception {
-        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, hide()));
-        LocationTaskSnapshot skyFailure = new LocationTaskSnapshot(
-                "Durham UK|2026-03-20|SUNSET", "Durham UK", "2026-03-20", "SUNSET",
-                LocationTaskState.FAILED, "error", "step", Instant.now());
-        LocationTaskSnapshot hideFailure = new LocationTaskSnapshot(
-                "Reserve Hide|2026-03-20|SUNSET", "Reserve Hide", "2026-03-20", "SUNSET",
-                LocationTaskState.FAILED, "error", "step", Instant.now());
-        RunProgress progress = mock(RunProgress.class);
-        when(progress.getFailedTasks()).thenReturn(List.of(skyFailure, hideFailure));
-        when(progressTracker.getProgress(1L)).thenReturn(progress);
-
-        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
-                .andExpect(status().isAccepted());
-
-        verify(jobRunService, times(1)).startRun(any(), anyBoolean(), any(), any());
     }
 
     private ForecastEvaluationEntity buildEntity(LocationEntity location, LocalDate targetDate) {
