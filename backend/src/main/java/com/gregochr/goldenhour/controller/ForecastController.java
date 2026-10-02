@@ -656,7 +656,7 @@ public class ForecastController {
     public ResponseEntity<Map<String, Object>> retryFailed(@PathVariable long runId) {
         FailedSlotRetryService.Outcome outcome = retryService.retry(runId);
         return switch (outcome) {
-            case FailedSlotRetryService.NothingToRetry nothing -> ResponseEntity.notFound().build();
+            case FailedSlotRetryService.NothingToRetry ignored -> ResponseEntity.notFound().build();
             case FailedSlotRetryService.Refused refused -> ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", refused.message()));
             case FailedSlotRetryService.Started started -> {
