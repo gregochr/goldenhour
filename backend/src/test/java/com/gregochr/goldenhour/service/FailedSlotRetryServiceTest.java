@@ -776,6 +776,23 @@ class FailedSlotRetryServiceTest {
     }
 
     @Test
+    @DisplayName("a run still going after 10 silent hours is still refused as still going, never nothing-to-retry")
+    void retry_unfinishedRunAfterTenSilentHours_stillGoing() {
+        MutableTestClock trackerClock = useClockedTracker();
+        playRunUnfinished(ORIGINAL_RUN,
+                List.of(task("Durham", "2026-10-03", "SUNSET"), task("Bamburgh", "2026-10-04", "SUNRISE")),
+                List.of(LocationTaskState.FAILED, LocationTaskState.EVALUATING));
+        trackerClock.advance(Duration.ofHours(10));
+        tracker.cleanupStaleEntries();
+
+        FailedSlotRetryService.Outcome outcome = service.retry(ORIGINAL_RUN);
+
+        assertThat(outcome).isEqualTo(new FailedSlotRetryService.Refused(
+                "This run is still going. Retry is offered when it has finished."));
+        verifyNothingStarted();
+    }
+
+    @Test
     @DisplayName("a retry just after a completed run's eviction answers nothing to retry (the 404)")
     void retry_justAfterEvictionOfACompletedRun_nothingToRetry() {
         MutableTestClock trackerClock = useClockedTracker();

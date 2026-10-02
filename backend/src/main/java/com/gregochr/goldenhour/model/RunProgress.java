@@ -33,7 +33,6 @@ public class RunProgress {
     private volatile boolean stopped;
     private final Object streamLock = new Object();
     private final Object retryLock = new Object();
-    private volatile Instant lastActivityAt;
     private volatile Instant completedAt;
     private volatile Long retriedAs;
     private volatile Instant retriedAt;
@@ -46,7 +45,6 @@ public class RunProgress {
     public RunProgress(long jobRunId) {
         this.jobRunId = jobRunId;
         this.startedAt = Instant.now();
-        this.lastActivityAt = this.startedAt;
     }
 
     /**
@@ -126,25 +124,6 @@ public class RunProgress {
      */
     public Long getRetriedAs() {
         return retriedAs;
-    }
-
-    /**
-     * Notes that something happened to this run (a task changed, the phase moved), so it is not idle.
-     * Fed by the tracker's clock rather than the system's, so eviction can be tested without sleeping.
-     *
-     * @param at when the activity happened
-     */
-    public void touch(Instant at) {
-        this.lastActivityAt = at;
-    }
-
-    /**
-     * Returns when this run last did something: registered, changed a task or moved phase.
-     *
-     * @return the instant of the latest activity
-     */
-    public Instant getLastActivityAt() {
-        return lastActivityAt;
     }
 
     /**

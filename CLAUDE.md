@@ -866,9 +866,11 @@ Two consequences worth stating plainly:
 > has not yet registered itself is not mistaken for a missing one), the original can be retried again; a
 > run N that ran, even with its own failures, still takes the retry.
 > **Eviction** (`RunProgressTracker.cleanupStaleEntries`, run every 5 minutes by the `run_progress_cleanup`
-> job): a COMPLETED run is kept 30 minutes from when it COMPLETED (the Retry window), a run that has not
-> completed is never evicted while it is active and is evicted only after 3 hours with no task event or
-> phase change (the weather and cloud prefetch records nothing and can be slow under rate limiting), and a subscriber still attached to such a run is sent `run-expired` and its stream ended.
+> job): only a COMPLETED run is evicted, 30 minutes from when it COMPLETED (the Retry window). A run that
+> has not completed is never evicted, however long it has been silent (the weather and cloud prefetch
+> records no progress and can wait a minute on each rate-limited chunk), so "still going" 409s for as long
+> as the entry is unfinished; every hand-started run reaches `completeRun` or `failRun`, and a dead JVM
+> takes the in-memory tracker with it, so there is nothing to leak.
 
 > **`POST /api/forecast/run/tide` answers 409 while a tide refresh is running from any route** — the
 > Monday `tide_refresh` schedule, the Scheduler's Run Now, or an earlier press. One `AtomicBoolean` in

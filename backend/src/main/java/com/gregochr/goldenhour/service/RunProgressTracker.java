@@ -38,9 +38,15 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Listens for {@link LocationTaskEvent} application events, updates the
  * in-memory {@link RunProgress}, and pushes SSE messages to subscribed clients.
- * Entries are evicted by {@link #cleanupStaleEntries()}: a COMPLETED run
- * {@link #COMPLETED_RUN_RETENTION} after it completed, and a run that never completed
- * {@link #IDLE_RUN_TTL} after its last activity. A run that is still active is never evicted.
+ * Entries are evicted by {@link #cleanupStaleEntries()}, and only COMPLETED runs are:
+ * {@link #COMPLETED_RUN_RETENTION} after the run completed. <b>A run that has not completed is never
+ * evicted, however long it has been silent.</b> A live run has silent phases with no fixed ceiling (the
+ * weather and cloud prefetch records no progress while Open-Meteo is called in chunks, with a 61 s
+ * backoff on each rate-limit response), and an entry evicted while its run is alive would discard its
+ * later task events, never emit its {@code run-complete} and leave attached clients told it had expired.
+ * There is no leak to bound: every hand-started run reaches {@link #completeRun} or {@link #failRun}
+ * (the executor's guard covers {@code Exception} and {@code Error}), and if the JVM dies this
+ * in-memory tracker dies with it.
  *
  * <p>A subscriber that arrives after a run has finished is not left waiting for an event that
  * already went out: it is sent the retained task snapshots, the run summary and the SAME
@@ -71,27 +77,6 @@ public class RunProgressTracker {
      * still read its failed tasks. Unchanged from the 30 minutes every run used to get from its start.
      */
     static final Duration COMPLETED_RUN_RETENTION = Duration.ofMinutes(30);
-
-    /**
-     * How long a run that has NOT completed may go without any activity (a task event or a phase
-     * change) before its entry is evicted; the only way such a run is ever evicted, since a run that is
-     * still active is never evicted on age.
-     *
-     * <p>Deliberately long, because an entry evicted while its run is alive never gets its
-     * {@code run-complete}. A live run has two silent phases. Between {@code initRun} and the first
-     * {@code setPhase(TRIAGE)} the weather and cloud prefetch runs and records nothing: Open-Meteo is
-     * called in small chunks with a 3 s gap and a 61 s backoff on each rate-limit response, so a large
-     * prefetch under repeated 429s can be silent for a long time. During evaluation the silence is one
-     * task's wait for a permit on the {@code claude} bulkhead (120 s) plus one call (90 s call timeout,
-     * up to four attempts), about 8 minutes. The prefetch is the one with no tight ceiling, so the bound
-     * is three hours rather than a multiple of the evaluation figure.
-     *
-     * <p>A generous bound costs nothing: a run always completes (its executor completes it whatever
-     * happens), unless the JVM dies, and then the in-memory tracker is gone as well, so an entry that
-     * never completes is almost impossible and this only bounds the memory of a leaked one. Cleanup runs
-     * every five minutes, so eviction can be that much late.
-     */
-    static final Duration IDLE_RUN_TTL = Duration.ofHours(3);
 
     /**
      * How long a subscriber to an id the tracker does not (yet) hold waits before being told the run
@@ -201,7 +186,6 @@ public class RunProgressTracker {
      */
     public void initRun(long jobRunId, List<String[]> tasks) {
         RunProgress progress = new RunProgress(jobRunId);
-        progress.touch(clock.instant());
         for (String[] task : tasks) {
             progress.registerTask(task[0], task[1], task[2], task[3]);
         }
@@ -225,7 +209,6 @@ public class RunProgressTracker {
         // same lock across "copy the tasks, send them", so it can never send a task's older copy AFTER
         // this event's newer one.
         synchronized (progress.streamLock()) {
-            progress.touch(clock.instant());
             progress.updateTask(event);
             broadcastTaskUpdate(event.getJobRunId(), progress, event.getTaskKey());
         }
@@ -449,9 +432,8 @@ public class RunProgressTracker {
      *
      * <p>A run that has completed is evicted {@link #COMPLETED_RUN_RETENTION} after it COMPLETED (so
      * "Retry failed" is available for that long after the run finished, however long it ran). A run that
-     * has not completed is never evicted while it is active; it is evicted only after
-     * {@link #IDLE_RUN_TTL} with no task event or phase change, and any subscriber still attached to it
-     * is sent {@code run-expired} and its stream ended, so no panel is left waiting.
+     * has not completed is never evicted, whatever its age or silence: it stays until
+     * {@link #completeRun} or {@link #failRun} completes it.
      *
      * <p>Candidates are found without locking, then each is re-checked under the locks (completion lock,
      * then the run's stream lock: the documented order), so an event or a completion that arrives in
@@ -478,10 +460,7 @@ public class RunProgressTracker {
 
     private static boolean isEvictable(RunProgress progress, Instant now) {
         Instant completedAt = progress.getCompletedAt();
-        if (completedAt != null) {
-            return !now.isBefore(completedAt.plus(COMPLETED_RUN_RETENTION));
-        }
-        return !now.isBefore(progress.getLastActivityAt().plus(IDLE_RUN_TTL));
+        return completedAt != null && !now.isBefore(completedAt.plus(COMPLETED_RUN_RETENTION));
     }
 
     private void evict(RunProgress progress, Instant now) {
@@ -491,33 +470,13 @@ public class RunProgressTracker {
                 if (activeRuns.get(jobRunId) != progress || !isEvictable(progress, now)) {
                     return;
                 }
-                boolean completed = progress.getCompletedAt() != null;
                 activeRuns.remove(jobRunId, progress);
                 completions.remove(jobRunId);
-                CopyOnWriteArrayList<SseEmitter> emitters = runEmitters.remove(jobRunId);
-                if (!completed && emitters != null) {
-                    // A completed run's subscribers were all ended by its run-complete; only a run that
-                    // never completed can have a panel still waiting.
-                    expireSubscribers(jobRunId, emitters);
-                }
-                LOG.info("Run progress for jobRunId={} evicted ({})", jobRunId,
-                        completed ? "completed, retention elapsed" : "idle, never completed");
+                // A completed run's subscribers were all ended by its run-complete.
+                runEmitters.remove(jobRunId);
+                LOG.info("Run progress for jobRunId={} evicted (completed, retention elapsed)", jobRunId);
             }
         }
-    }
-
-    private void expireSubscribers(long jobRunId, CopyOnWriteArrayList<SseEmitter> emitters) {
-        for (SseEmitter emitter : emitters) {
-            try {
-                emitter.send(SseEmitter.event()
-                        .name("run-expired")
-                        .data(objectMapper.writeValueAsString(Map.of("jobRunId", jobRunId))));
-            } catch (IOException | IllegalStateException e) {
-                LOG.debug("run-expired not delivered for run {}: {}", jobRunId, e.getMessage());
-            }
-            emitter.complete();
-        }
-        emitters.clear();
     }
 
     /**
@@ -611,7 +570,6 @@ public class RunProgressTracker {
             // Under the stream lock: the phase change re-sends the most recently updated task from a
             // copy, which must not be older than a task event another worker is broadcasting.
             synchronized (progress.streamLock()) {
-                progress.touch(clock.instant());
                 progress.setPhase(phase);
                 broadcastTaskUpdate(jobRunId, progress);
             }

@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
-import com.gregochr.goldenhour.model.RunPhase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,8 +27,7 @@ import static org.mockito.Mockito.verify;
 /**
  * Eviction rules of {@link RunProgressTracker#cleanupStaleEntries()}, driven by a clock the test
  * moves: a run still going is never evicted on its age; a completed run is evicted a fixed time after
- * it COMPLETED (not after it started); a run that never completed is evicted only after a long idle
- * period, and its subscribers are told.
+ * it COMPLETED (not after it started); a run that has not completed is never evicted, however silent.
  */
 @ExtendWith(MockitoExtension.class)
 class RunProgressTrackerEvictionTest {
@@ -160,60 +158,51 @@ class RunProgressTrackerEvictionTest {
     }
 
     @Test
-    @DisplayName("a run that never completed is evicted after 3 idle hours, and its subscriber is sent "
-            + "run-expired and its stream ended")
-    void idleNeverCompletedRun_evictedAfterIdleBound_subscriberToldAndCompleted() {
-        RecordingEmitter waiting = (RecordingEmitter) tracker.subscribe(RUN);
-        clock.advance(Duration.ofMinutes(10));
-        taskEvent(LocationTaskState.EVALUATING); // the last activity
+    @DisplayName("an unfinished run that has been silent for 10 hours (the prefetch can be) is never evicted, "
+            + "and its completion is still delivered to the subscriber attached throughout")
+    void silentUnfinishedRun_survivesAnyAgeAndCompletes() {
+        RecordingEmitter live = (RecordingEmitter) tracker.subscribe(RUN);
 
-        clock.advance(Duration.ofHours(2).plusMinutes(59).plusSeconds(59));
-        tracker.cleanupStaleEntries();
+        for (int hour = 1; hour <= 10; hour++) {
+            clock.advance(Duration.ofHours(1)); // no task event and no phase change at all
+            tracker.cleanupStaleEntries();
+        }
+
         assertThat(tracker.getProgress(RUN)).isNotNull();
-        assertThat(waiting.names()).doesNotContain("run-expired");
-        assertThat(waiting.completed).isFalse();
+        assertThat(live.names()).doesNotContain("run-expired");
+        assertThat(live.completed).isFalse();
+        taskEvent(LocationTaskState.COMPLETE); // an event after the silence is applied, not discarded
+        assertThat(tracker.getProgress(RUN).getCompleted()).isEqualTo(1);
+        tracker.completeRun(RUN);
 
-        clock.advance(Duration.ofSeconds(1));
-        tracker.cleanupStaleEntries();
-
-        assertThat(tracker.getProgress(RUN)).isNull();
-        assertThat(waiting.sent()).contains("run-expired|{\"jobRunId\":7}");
-        assertThat(waiting.names()).doesNotContain("run-complete");
-        assertThat(waiting.completed).isTrue();
+        assertThat(live.names()).contains("run-complete").doesNotContain("run-expired");
+        assertThat(live.sent().stream().filter(e -> e.startsWith("run-complete|")).findFirst().orElseThrow())
+                .contains("\"status\":\"COMPLETE\"").contains("\"jobRunId\":7");
+        assertThat(live.completed).isTrue();
+        assertThat(tracker.isComplete(RUN)).isTrue();
     }
 
     @Test
-    @DisplayName("a phase change is activity: it keeps an otherwise silent run from being evicted")
-    void phaseChange_countsAsActivity() {
-        clock.advance(Duration.ofMinutes(150));
-        tracker.setPhase(RUN, RunPhase.FULL_EVALUATION);
+    @DisplayName("an unfinished run is not evicted whether or not anything is subscribed, so a retry of it "
+            + "stays 'still going' rather than falling to nothing-to-retry")
+    void silentUnfinishedRunWithNoSubscribers_survives() {
+        clock.advance(Duration.ofHours(10));
 
-        clock.advance(Duration.ofMinutes(150)); // 5 hours since the start, 2.5 since the phase change
         tracker.cleanupStaleEntries();
 
         assertThat(tracker.getProgress(RUN)).isNotNull();
-    }
-
-    @Test
-    @DisplayName("an idle run with nobody subscribed is evicted quietly")
-    void idleRunWithNoSubscribers_evicted() {
-        clock.advance(Duration.ofHours(3));
-
-        tracker.cleanupStaleEntries();
-
-        assertThat(tracker.getProgress(RUN)).isNull();
+        assertThat(tracker.isComplete(RUN)).isFalse();
         assertThat(emitters).isEmpty();
     }
 
     @Test
-    @DisplayName("evicting one run leaves another that is still active")
+    @DisplayName("evicting a completed run leaves another run that is still unfinished")
     void eviction_isPerRun() {
         tracker.initRun(8L, List.<String[]>of(new String[]{"Loc2|2026-10-03|SUNSET", "Loc2", "2026-10-03",
                 "SUNSET"}));
-        clock.advance(Duration.ofHours(2).plusMinutes(59));
-        tracker.onTaskEvent(new LocationTaskEvent(this, 8L, "Loc2|2026-10-03|SUNSET", "Loc2", "2026-10-03",
-                "SUNSET", LocationTaskState.EVALUATING, null, null));
-        clock.advance(Duration.ofMinutes(1));
+        taskEvent(LocationTaskState.COMPLETE);
+        tracker.completeRun(RUN);
+        clock.advance(Duration.ofMinutes(30));
 
         tracker.cleanupStaleEntries();
 
@@ -222,7 +211,7 @@ class RunProgressTrackerEvictionTest {
     }
 
     @Test
-    @DisplayName("an aborted run (failRun) is evicted 30 minutes after it FAILED, not after the idle bound")
+    @DisplayName("an aborted run (failRun) is evicted 30 minutes after it FAILED, not before")
     void failedRun_evictedThirtyMinutesAfterFailure() {
         clock.advance(Duration.ofMinutes(5));
         tracker.failRun(RUN, "The run stopped unexpectedly. See the server log.");

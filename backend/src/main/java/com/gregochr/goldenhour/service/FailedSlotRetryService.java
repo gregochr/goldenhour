@@ -52,7 +52,9 @@ import java.util.stream.Collectors;
  *       so a slot dated before today's UK civil date ({@link ForecastHorizon}) is left out here and listed
  *       in {@code skipped}; when every slot is past there is nothing to retry.</li>
  *   <li><b>Only a finished run, and only once.</b> A run that is still going is refused (its failures
- *       are not final, and the original run could still finish the very slots a retry would re-run),
+ *       are not final, and the original run could still finish the very slots a retry would re-run; this
+ *       stands for as long as the run's tracker entry is unfinished, since an unfinished entry is never
+ *       evicted),
  *       and so is a run a retry has already been started from, with the retry's id in the sentence: a
  *       run is retried at most once and further retries chain from the retry run. The "already
  *       retried" fact is held on the run's {@link RunProgress} entry and recorded under
