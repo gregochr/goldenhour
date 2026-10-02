@@ -615,7 +615,18 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 11. **The callout carries a reduced fact set by design**; the full forecast detail (tide
     indicator, comfort rows, score bars, inversion/dust badges) stays one step away in the Plan
     popup/location sheet and the overlay popup. Anything later judged missing is added to the
-    callout deliberately, not by porting `MarkerPopupContent` across.
+    callout deliberately, not by porting `MarkerPopupContent` across. ⚠️ **"Comfort rows … one step
+    away in the Plan popup/location sheet" was false until 2026-10-02.** The only renderer of a
+    hide's hourly comfort rows was `MarkerPopupContent`'s pure-wildlife branch, mounted only in the
+    frozen overlay; the location sheet had none, and the Map tab callout said "Not scored yet" for a
+    place that never will be. It is true now, by two deliberate additions rather than a port: a
+    pure wildlife hide's callout (`isWildlifeOnly`) shows "Comfort only" and a short summary of the
+    selected window's day — filter/min/max over the served rows (`utils/hourlyComfort.js`), no rule
+    about what is comfortable — as the press-to-peek route into the sheet, and the sheet shows the
+    full hourly table for every day in place of its window rows. Both mount the one shared
+    `HourlyComfortTable` the overlay popup uses. The phone shows the same 266px callout (the peek
+    sheet holds no selected-place facts), so nothing was added to the peek sheet. A waterfall has
+    never had hourly rows; the dead `showComfortRows` branch that implied it did was removed.
 12. **`m2hm`'s silent midnight wrap is not ported** — a leave-by that crosses midnight is either
     marked or suppressed.
 13. **Menu/jump swatches sample at whole stars of the labelled best**, replacing the prototype's

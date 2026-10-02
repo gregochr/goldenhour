@@ -6879,6 +6879,138 @@ button.wf-hc.also.on:hover {
   color: var(--color-badge-tide);
 }
 
+/* A wildlife hide's body on the callout — what it is, then its comfort forecast for the window's
+   day. The note is the callout gate's own register (mono, secondary, `margin: 0` because the body is
+   a flex column with an 8px gap — see `.wf-callout-gate`). The comfort block is a BUTTON into the
+   four-day sheet, dressed like `.wf-callout-reason` (same focus ring, same unselectable-in-Firefox
+   fix) but mono rather than serif italic, because it is a set of readings, not generated prose, and
+   NOT line-clamped: it is two to five short lines, and clamping a figure away is worse than a longer
+   card (the card scrolls its own body at the band ceiling). */
+.wf-callout-hide {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+}
+.wf-callout-comfort {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-callout-comfort:hover,
+.wf-callout-comfort:focus-visible {
+  color: var(--color-plex-text);
+}
+.wf-callout-comfort:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.wf-callout-comfort-k {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+}
+.wf-callout-comfort-line {
+  display: block;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* The hourly comfort table (`components/HourlyComfortTable.jsx`) — one table for the Plan-tab
+   overlay's popup and the Map tab's four-day sheet. The popup's look is what it was when this was a
+   run of `display: table` divs: 11px, the time column muted, 8px between columns, 3px under a row.
+   `th`/`td` are reset to left-aligned normal weight because the UA gives a `th` bold centred text. */
+.wf-hourly {
+  width: 100%;
+  font-size: 11px;
+  border-collapse: collapse;
+}
+.wf-hourly th,
+.wf-hourly td {
+  text-align: left;
+  font-weight: normal;
+  padding: 0 8px 3px 0;
+  white-space: nowrap;
+}
+.wf-hourly td:last-child {
+  padding-right: 0;
+}
+.wf-hourly-time {
+  color: var(--color-plex-text-muted);
+}
+.wf-hourly-cell {
+  display: inline-flex;
+  align-items: center;
+}
+/* Visible column headers (the sheet). Mixed-case mono at the sheet's caption size, never uppercased:
+   these are the names a screen reader announces for the cells beneath them. */
+.wf-hourly-head th {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+/* Headers kept for assistive technology only (the popup, whose own heading says what the table is):
+   the header cells are emptied visually by `sr-only` on their text, and this collapses what is left
+   so the table takes no row of its own. */
+.wf-hourly-head-off th {
+  padding: 0;
+  border: 0;
+  height: 0;
+  line-height: 0;
+}
+/* The inline weather glyphs (`components/WeatherIcons.jsx`) — what `ICON_STYLE` was inline. */
+.wf-wx-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+  margin-right: 3px;
+  flex-shrink: 0;
+}
+
+/* The four-day sheet's hourly section for a wildlife hide (`LocationFourDaySheet`) — one block per
+   day under a small weekday heading, in the sheet's own mono register. */
+.wf-loc-hourly {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wf-loc-hourly-day {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-plex-text);
+}
+.wf-loc-hourly .wf-loc-note {
+  padding-bottom: 0;
+}
+/* 639px, this arm's single breakpoint (`useIsMobile`'s own boundary). At 320px the sheet's body is
+   286px wide and the table's nowrap content measures 315px at 11px type with 8px gutters, which
+   made the whole body scroll sideways — and a reader at 400% zoom lands exactly there. The three
+   glyphs go (the visible column headers already name each column, and the glyphs are `aria-hidden`
+   repeats of them) and the type and gutters tighten, measured in the browser at 320px and 375px
+   rather than derived. */
+@media (max-width: 639px) {
+  .wf-loc-hourly .wf-hourly { font-size: 10px; }
+  .wf-loc-hourly .wf-hourly th,
+  .wf-loc-hourly .wf-hourly td { padding-right: 6px; }
+  .wf-loc-hourly .wf-hourly td:last-child { padding-right: 0; }
+  .wf-loc-hourly .wf-wx-icon { display: none; }
+}
 
 .wf-callout-facts {
   display: flex;

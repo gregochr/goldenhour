@@ -11,6 +11,9 @@ import { buildLocationSheet, lookupForWindow } from '../utils/locationSheet.js';
 import { nextAlignedRow } from '../utils/mapTideFit.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
+import { isWildlifeOnly } from '../utils/locationTypes.js';
+import { hourlyDaysOf } from '../utils/hourlyComfort.js';
+import HourlyComfortTable from './HourlyComfortTable.jsx';
 
 /**
  * The star rating at or below which a row is de-emphasised — the design's "2★ or below".
@@ -261,13 +264,36 @@ export default function LocationFourDaySheet({
     drive && originLabel ? `${drive} from ${originLabel}` : drive,
   ].filter(Boolean);
 
+  // ⚠️ A pure wildlife hide REPLACES the window rows with its hourly comfort forecast rather than
+  // adding a section under them. Its six window rows would each read "Not scored yet" forever — a
+  // hide is never scored for sky colour — with nothing under them but the region's sky gloss, a read
+  // of colour it was never given; the lead line would say "none at 4★+" about a place that cannot
+  // have one. What the hide HAS is the table, so the table is the sheet. The head, the meta row and
+  // the footer (plan-from, show-on-map) are the place's own and stay. Every other location takes the
+  // window rows exactly as before: `shownRows` is `sheet.rows` itself for them.
+  const isHide = isWildlifeOnly(location?.locationType);
+  const shownRows = isHide ? [] : sheet.rows;
+  // The days listed: every day that has rows, plus the days the sheet's own windows span, so a day
+  // the forecast covers but the hourly job has not written yet says so instead of not existing.
+  const hourlyDays = useMemo(
+    () => (isHide
+      ? hourlyDaysOf(location?.forecastsByDate, {
+        fromDate: todayStr, alsoDates: sheet.rows.map((row) => row.date),
+      })
+      : []),
+    [isHide, location, todayStr, sheet.rows],
+  );
+
   return (
     <Modal
       // Counted, never asserted: `heatStripCards` folds `upcomingEvents`, which shortens as the day
       // burns down and is uncapped on the degrade path — so "the next six windows" was a number the
       // payload does not guarantee, and it is this dialog's ENTIRE accessible name, invisible to a
-      // sighted check. A four-window fixture was announcing six.
-      label={`${sheet.name} — the next ${sheet.rows.length} window${sheet.rows.length === 1 ? '' : 's'}`}
+      // sighted check. A four-window fixture was announcing six. A hide has no windows to count: it
+      // names what it shows.
+      label={isHide
+        ? `${sheet.name} — hourly comfort forecast`
+        : `${sheet.name} — the next ${sheet.rows.length} window${sheet.rows.length === 1 ? '' : 's'}`}
       onClose={onClose}
       bare
       // Nothing here is lost by dismissing: rows of forecast the page behind still holds.
@@ -350,11 +376,11 @@ export default function LocationFourDaySheet({
             </div>
           )}
 
-          {sheet.lead && (
+          {sheet.lead && !isHide && (
             <p data-testid="location-sheet-lead" className="wf-loc-lead font-mono">{sheet.lead}</p>
           )}
 
-          {sheet.rows.length === 0 && (
+          {sheet.rows.length === 0 && !isHide && (
             // Reachable: the roster and the briefing arrive over two independent fetches, and search
             // reads the roster — so a sheet can be opened before there are any windows to show. It
             // says so rather than rendering a title over an empty card with no footer.
@@ -366,7 +392,37 @@ export default function LocationFourDaySheet({
             </p>
           )}
 
-          {sheet.rows.map((row, rowIndex) => {
+          {isHide && (
+            <section data-testid="location-sheet-hourly" className="wf-loc-hourly">
+              <p data-testid="location-sheet-hide-note" className="wf-loc-note font-mono">
+                Wildlife hide: never scored for sky colour. Its hourly comfort forecast, by day, in UK time.
+              </p>
+              {hourlyDays.length === 0 && (
+                <p data-testid="location-sheet-hourly-none" className="wf-loc-note font-mono">
+                  No hourly forecast yet.
+                </p>
+              )}
+              {hourlyDays.map((day) => (
+                <div key={day.date} data-testid="location-sheet-hourly-day" data-date={day.date}>
+                  <h3 className="wf-loc-hourly-day font-mono">{day.label}</h3>
+                  {day.rows.length > 0 ? (
+                    <HourlyComfortTable
+                      rows={day.rows}
+                      label={`Hourly comfort at ${sheet.name}, ${day.label}`}
+                      headersVisible
+                      testId="location-sheet-hourly-table"
+                    />
+                  ) : (
+                    <p data-testid="location-sheet-hourly-day-none" className="wf-loc-note font-mono">
+                      No hourly forecast for this day yet.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </section>
+          )}
+
+          {shownRows.map((row, rowIndex) => {
             const badge = spotBadgeStyle(row.rating);
             const treatment = confidenceTreatment(row.confidence);
             const expanded = open.has(row.key);
@@ -749,6 +805,8 @@ LocationFourDaySheet.propTypes = {
     locationType: PropTypes.oneOfType([PropTypes.string, PropTypes.arrayOf(PropTypes.string)]),
     bortleClass: PropTypes.number,
     tideType: PropTypes.arrayOf(PropTypes.string),
+    /** The record's per-date forecasts — read only for a wildlife hide's hourly comfort rows. */
+    forecastsByDate: PropTypes.instanceOf(Map),
   }),
   /**
    * {@code date:targetType} of the window the reader arrived on — the map callout's route only.

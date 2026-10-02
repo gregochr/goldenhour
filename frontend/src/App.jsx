@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { computeAutoSelection } from './utils/conversions.js';
+import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
 import { buildMapOverlay, normalizeMapTrigger } from './utils/mapOverlay.js';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
@@ -262,11 +262,12 @@ function AppInner() {
     [sortedLocations],
   );
 
-  // All dates available across any visible (enabled) location, sorted, for the map date strip.
+  // All dates with a sunrise or sunset forecast for any visible (enabled) location, sorted — the
+  // map's forecast-date domain. ⚠️ Not simply every `forecastsByDate` key: a wildlife hide's hourly
+  // comfort rows reach a day further than the colour pipeline evaluates, and a date holding only
+  // those would otherwise become a Sunrise/Sunset window nothing rates (`colourForecastDates`).
   const allDates = useMemo(
-    () => [...new Set(
-      visibleLocations.flatMap((loc) => Array.from(loc.forecastsByDate.keys()))
-    )].sort(),
+    () => colourForecastDates(visibleLocations),
     [visibleLocations],
   );
 

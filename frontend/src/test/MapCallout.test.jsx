@@ -1363,3 +1363,154 @@ describe('MapCallout — evaluation gate', () => {
     expect(screen.queryByTestId('map-callout-gate')).toBeNull();
   });
 });
+
+/**
+ * A pure wildlife hide on the callout — its comfort forecast in place of "Not scored yet".
+ *
+ * <p><b>What breaks if these fail:</b> a hide's card goes back to saying "Not scored yet" for a
+ * place that never will be; the comfort figures printed are not the served rows' (a different
+ * hour's wind, a different tie-break); a hide loses its way into the four-day sheet that holds the
+ * full table; or — the half that matters most — a SKY location's card changes, which this change
+ * must not touch.
+ */
+describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not scored yet"', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const HIDE = {
+    id: 21,
+    name: 'Gosforth Nature Reserve',
+    lat: 55.0,
+    lon: -1.62,
+    regionName: 'Northumberland',
+    tideType: [],
+    locationType: ['WILDLIFE'],
+  };
+
+  // UTC instants on a BST date: the card prints the UK clock, one hour on.
+  const hourlyRow = (time, t, feels, windSpeed, windDirection, rain) => ({
+    solarEventTime: `${TODAY}T${time}:00`,
+    temperatureCelsius: t,
+    apparentTemperatureCelsius: feels,
+    windSpeed,
+    windDirection,
+    precipitationProbabilityPercent: rain,
+  });
+  // Wind peaks at 6 m/s twice (08:00 and 09:00 UTC) and rain at 40 % twice (09:00 and 10:00 UTC):
+  // the card must name the EARLIER hour in each case.
+  const HOURS = [
+    hourlyRow('07:00', 2.4, -0.6, 3, 270, 10),
+    hourlyRow('08:00', 4.0, 1.2, 6, 250, 10),
+    hourlyRow('09:00', 6.6, 4.4, 6, 240, 40),
+    hourlyRow('10:00', 7.1, 5.0, 4, 240, 40),
+  ];
+
+  const lines = () => screen.getAllByTestId('map-callout-comfort-line').map((el) => el.textContent.trim());
+
+  it('says what it is and what it carries, in place of "Not scored yet"', async () => {
+    // `ratingKnown: true` is the state in which a sky location with no rating reads "Not scored
+    // yet" — the very line a hide must not get.
+    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
+    expect(screen.getByTestId('map-callout-hide-note'))
+      .toHaveTextContent('Wildlife hide: never scored for sky colour.');
+    expect(screen.queryByText('Not scored yet')).toBeNull();
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+
+  it('is not "Loading…" either while the rating\'s own source has not answered — nothing is coming', async () => {
+    await mount({ location: HIDE, rating: null, ratingKnown: false, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+
+  it('prints the served rows\' temperature, wind, rain and span, ties going to the earliest hour', async () => {
+    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    expect(lines()).toEqual([
+      '2 to 7°C, feels like -1 to 5°C.',
+      // 08:00 UTC is 09:00 BST; the 09:00 UTC tie is not the one named.
+      'Wind up to 13.4 mph W at 09:00.',
+      'Rain chance up to 40% at 10:00.',
+      'Daylight hours 08:00 to 11:00.',
+    ]);
+  });
+
+  it('says plainly there is no hourly forecast when the day holds no rows', async () => {
+    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: null });
+    expect(screen.getByTestId('map-callout-comfort-none'))
+      .toHaveTextContent('No hourly forecast for this day yet.');
+    expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+    expect(screen.queryByText('Not scored yet')).toBeNull();
+  });
+
+  it('treats an empty array as no rows, the same as null', async () => {
+    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: [] });
+    expect(screen.getByTestId('map-callout-comfort-none')).toBeInTheDocument();
+  });
+
+  it('is a button into the four-day sheet, named for its destination, and takes focus on the press', async () => {
+    // The peek route, exactly as the reason prose has it: sheet OVER the map, tab unmoved, and the
+    // button focuses itself first so the sheet has somewhere to return focus to.
+    const onOpenSheet = vi.fn();
+    const onOpenInPlan = vi.fn();
+    await mount({
+      location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS, onOpenSheet, onOpenInPlan,
+    });
+    const button = screen.getByRole('button', { name: /Gosforth Nature Reserve — four days here/ });
+    expect(button).toBe(screen.getByTestId('map-callout-comfort'));
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(button);
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    expect(onOpenInPlan).not.toHaveBeenCalled();
+  });
+
+  it('keeps that route when the day holds no rows — the other days may', async () => {
+    const onOpenSheet = vi.fn();
+    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: null, onOpenSheet });
+    fireEvent.click(screen.getByTestId('map-callout-comfort'));
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not borrow the region\'s SKY gloss — a read of colour a hide was never given', async () => {
+    const scoreIndex = buildScoreIndex([{
+      locationId: HIDE.id, locationName: HIDE.name, date: TODAY, targetType: 'SUNSET',
+      rating: null, summary: 'A warm, layered sky with a clean sea horizon.',
+    }]);
+    await mount({ location: HIDE, rating: null, ratingKnown: true, scoreIndex, hourlyRows: HOURS });
+    expect(screen.queryByTestId('map-callout-reason')).toBeNull();
+    expect(screen.queryByText(/layered sky/)).toBeNull();
+  });
+
+  it('renders the same card on the phone — the callout IS the phone\'s selection surface', async () => {
+    // The peek sheet holds no selected-place facts (its three sections are windows, tide and
+    // layers), so the comfort summary has to live on the 266px card and nowhere else.
+    mockIsMobile = true;
+    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout').style.width).toBe('266px');
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
+    expect(lines()[1]).toBe('Wind up to 13.4 mph W at 09:00.');
+  });
+
+  it('⚠️ leaves a sky location exactly as it was: "Not scored yet", no comfort block, rows ignored', async () => {
+    await mount({ rating: null, ratingKnown: true, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+    expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+    expect(screen.queryByTestId('map-callout-hide-note')).toBeNull();
+  });
+
+  it('⚠️ leaves a rated sky location\'s verdict path alone even when rows are handed in', async () => {
+    await mount({ rating: 4, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('4★ Worth it');
+    expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+  });
+
+  it('treats a place that is a hide AND a landscape as a sky location — it is rated, so it keeps its verdict', async () => {
+    await mount({
+      location: { ...HIDE, locationType: ['WILDLIFE', 'LANDSCAPE'] },
+      rating: null, ratingKnown: true, hourlyRows: HOURS,
+    });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+    expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+  });
+});

@@ -21,7 +21,9 @@ import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingS
 import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
 import { isNightOver, resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
-import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from '../utils/locationTypes.js';
+import {
+  LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, isWildlifeOnly,
+} from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import WindowControl from './map/WindowControl.jsx';
@@ -3059,7 +3061,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const isStandDownLocation = useCallback((loc) => {
     if (eventType === 'AURORA') return false;
     const types = loc.locationType ?? [];
-    const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
+    const isPureWildlife = isWildlifeOnly(types);
     if (isPureWildlife) return false;
     // Same gate as the rating below, and for the same reason: "this window was triaged" is a
     // claim about a window, so a window the EV list has no row for has no triage to report
@@ -3261,7 +3263,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // toggle regardless, which is the exact defect this item exists to fix.
       if (getTideOnLightForLocation(loc)) return true;
       const types = loc.locationType ?? [];
-      const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
+      const isPureWildlife = isWildlifeOnly(types);
       const rating = getRatingForLocation(loc);
       if (rating == null) {
         // Wildlife has no sky rating by design, so the sky-quality threshold must not
@@ -3835,14 +3837,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const forecast = dayData?.[solarType];
     const hourlyData = dayData?.hourly ?? [];
     const types = loc.locationType ?? [];
-    const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
-    const isWaterfall = types.includes('WATERFALL');
+    const isPureWildlife = isWildlifeOnly(types);
     // A canopy site's rating answers a different question from every other pin's. Excluded from
     // cluster averages for the same reason WATERFALL is: a wood rated 5 on a flat overcast misty
     // evening would drag its cluster's grey→gold ramp toward gold on precisely the nights the sky
     // is at its worst. The two are ORed into one flag because the cluster only asks "does this
     // score mean sky colour", and for both the answer is no.
-    return { forecast, hourlyData, isPureWildlife, isWaterfall };
+    return { forecast, hourlyData, isPureWildlife };
   }
 
   // Active (non-default) filters drive the collapsed pill summary and its highlight — and, in the
@@ -5547,7 +5548,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
           <>
             {visibleLocations.map((loc) => {
-              const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
+              const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
               // Look up briefing evaluation score for this location (if any)
               // ⚠️ Gated, and read through the SHARED accessors rather than re-derived here.
               // This block used to carry its own copy of the briefing-then-forecast precedence and
@@ -5639,7 +5640,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                           hourlyData={hourlyData}
                           eventType={isAuroraMode || isAstroMode ? 'SUNSET' : eventType}
                           isPureWildlife={isPureWildlife}
-                          showComfortRows={isWaterfall}
                           role={role}
                           date={date}
                           travelDay={isTravelDayForDate}
@@ -5689,6 +5689,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               auroraResultsByDate={auroraResultsByDate}
               pendingNightRowIds={pendingNightRowIds}
               tideStripHeight={tideStripHeight}
+              // A wildlife hide's hourly comfort rows for the ACTIVE WINDOW's date — the callout
+              // reads them for a pure-wildlife place only (`isWildlifeOnly`) and ignores them for
+              // every other. Straight off the per-date entry, so the identity is stable between
+              // renders; `null`, not a fresh `[]`, when the date holds none.
+              hourlyRows={selectedLoc.forecastsByDate.get(activeMapEvent.date)?.hourly ?? null}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
@@ -6403,7 +6408,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       {overlayMode && isMobile && selectedLocationName && (() => {
         const loc = visibleLocations.find((l) => l.name === selectedLocationName);
         if (!loc) return null;
-        const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
+        const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
         const briefingScore = !isAuroraMode ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
         return (
           <BottomSheet
@@ -6420,7 +6425,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 hourlyData={hourlyData}
                 eventType={isAuroraMode || isAstroMode ? 'SUNSET' : eventType}
                 isPureWildlife={isPureWildlife}
-                showComfortRows={isWaterfall}
                 role={role}
                 date={date}
                 travelDay={isTravelDayForDate}

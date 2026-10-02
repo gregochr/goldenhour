@@ -9,7 +9,7 @@ import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import Modal from './shared/Modal.jsx';
 import MarkerPopupContent from './MarkerPopupContent';
-import { isSkyPromptCandidate } from '../utils/locationTypes.js';
+import { isSkyPromptCandidate, isWildlifeOnly } from '../utils/locationTypes.js';
 
 const USD_TO_GBP = 0.79;
 const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
@@ -898,7 +898,7 @@ const PromptTestView = () => {
       {/* Preview popup modal */}
       {previewResult && (() => {
         const loc = locations.find((l) => l.id === previewResult.locationId) || { name: previewResult.locationName, locationType: [], solarEventType: [], tideType: [] };
-        const isPureWildlife = (loc.locationType || []).length > 0 && (loc.locationType || []).every((t) => t === 'WILDLIFE');
+        const isPureWildlife = isWildlifeOnly(loc.locationType);
         const forecast = mapResultToForecast(previewResult);
         const eventType = previewResult.targetType === 'SUNRISE' ? 'SUNRISE' : 'SUNSET';
         return (

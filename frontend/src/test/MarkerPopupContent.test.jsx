@@ -417,6 +417,48 @@ describe('MarkerPopupContent', () => {
       renderPopup({ role: 'PRO_USER', isPureWildlife: true, hourlyData: [] });
       expect(screen.getByText('No hourly forecast available')).toBeInTheDocument();
     });
+
+    it('draws the hours with the shared table — a named table, a row header per hour, the same cell text', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        isPureWildlife: true,
+        hourlyData: [
+          { solarEventTime: '2026-03-03T08:00:00Z', temperatureCelsius: 6, apparentTemperatureCelsius: 3, windSpeed: 5, windDirection: 180, precipitationProbabilityPercent: 20 },
+          { solarEventTime: '2026-03-03T09:00:00Z', temperatureCelsius: 7.4, apparentTemperatureCelsius: null, windSpeed: null, windDirection: null, precipitationProbabilityPercent: null },
+        ],
+      });
+      const table = screen.getByRole('table', { name: 'Hourly comfort for Bamburgh' });
+      expect(screen.getAllByRole('rowheader').map((th) => th.textContent)).toEqual(['08:00', '09:00']);
+      const [first, second] = screen.getAllByTestId('hourly-comfort-row');
+      expect(first).toHaveTextContent('6°C · feels 3°C');
+      expect(first).toHaveTextContent('11.2 mph S');
+      expect(first).toHaveTextContent('20%');
+      // A missing feels-like falls back to the air temperature, as it always has; a missing wind or
+      // rain figure is a dash, never the word "undefined".
+      expect(second).toHaveTextContent('7°C · feels 7°C');
+      expect(second.textContent).not.toContain('undefined');
+      expect(table).toBeInTheDocument();
+    });
+  });
+
+  describe('waterfall locations', () => {
+    // The hourly comfort job has only ever written rows for pure-wildlife hides, so a waterfall
+    // popup carries none and the branch that once drew a table under its colour forecast was dead.
+    // It is gone: even handed rows (and the old prop), a waterfall popup draws no comfort table.
+    it('draws no hourly comfort table even when hourly rows are present', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        location: { ...BASE_LOCATION, name: 'High Force', locationType: ['WATERFALL'] },
+        showComfortRows: true,
+        hourlyData: [
+          { solarEventTime: '2026-03-03T08:00:00Z', temperatureCelsius: 6, apparentTemperatureCelsius: 3, windSpeed: 5, windDirection: 180, precipitationProbabilityPercent: 20 },
+        ],
+      });
+      expect(screen.queryByRole('table')).toBeNull();
+      expect(screen.queryByText(/Hourly comfort/)).toBeNull();
+      // The colour forecast the waterfall does have is untouched.
+      expect(screen.getByText('4/5')).toBeInTheDocument();
+    });
   });
 
   it('shows no-forecast message when forecast is null', () => {

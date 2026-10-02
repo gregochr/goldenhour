@@ -290,6 +290,31 @@ export function groupForecastsByDate(forecasts) {
 }
 
 /**
+ * Every date on which at least one location carries a sunrise or sunset (COLOUR) forecast, sorted.
+ *
+ * <p>This is the app's forecast-date domain — what the Map tab derives its window rows, its night
+ * previews and its date rules from — and it must NOT take in a date that holds only HOURLY rows.
+ * `groupForecastsByDate` opens a per-date entry for any row, so a wildlife hide's comfort forecast
+ * (written today..T+5, a day further than the colour pipeline evaluates) puts a date key on
+ * `forecastsByDate` that no sunrise or sunset was ever evaluated for. Counting those keys made the
+ * Map tab's window control draw an empty Sunrise/Sunset pair for a day nothing rates, and could
+ * make an app with only hides look like it had a map to open. A date counts only when a colour row
+ * stands behind it.
+ *
+ * @param {Array<{forecastsByDate: ?Map<string, {sunrise: ?object, sunset: ?object}>}>} locations
+ * @returns {string[]} the dates, ascending
+ */
+export function colourForecastDates(locations) {
+  const dates = new Set();
+  for (const loc of locations) {
+    for (const [date, entry] of loc.forecastsByDate) {
+      if (entry?.sunrise || entry?.sunset) dates.add(date);
+    }
+  }
+  return [...dates].sort();
+}
+
+/**
  * Formats a UTC timestamp as a full UK local date+time string.
  *
  * Returns a string like "2 Apr 2026, 14:31:12 BST" for display in admin grids and alerts.

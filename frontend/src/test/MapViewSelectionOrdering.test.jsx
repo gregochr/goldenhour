@@ -99,6 +99,7 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
     <div data-testid="probe-callout">
       <span data-testid="probe-callout-name">{props.location?.name ?? ''}</span>
       <span data-testid="probe-callout-rating">{JSON.stringify(props.rating ?? null)}</span>
+      <span data-testid="probe-callout-hourly">{JSON.stringify(props.hourlyRows ?? null)}</span>
       {(props.evRows ?? []).map((row) => (
         <button
           key={row.id}
@@ -242,6 +243,32 @@ afterEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+
+describe('MapView — a selected place\'s hourly comfort rows reach the callout for the ACTIVE window\'s date', () => {
+  // The callout reads them for a pure wildlife hide only; MapView's job is to hand it the rows of
+  // the date on screen, straight off the per-date entry, and null when there are none.
+  const hourly = (date) => [{
+    solarEventTime: `${date}T08:00:00`, temperatureCelsius: 8, apparentTemperatureCelsius: 6,
+    windSpeed: 4, windDirection: 180, precipitationProbabilityPercent: 20,
+  }];
+  const withHourly = (byDate) => ({
+    ...makeLocation(),
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map(byDate.map(([date, rows]) => [date, { sunrise: null, sunset: null, hourly: rows }])),
+  });
+
+  it('hands over the rows served for the window\'s own date', async () => {
+    await renderMap({ locations: [withHourly([[TODAY, hourly(TODAY)]])] });
+    await selectTheSpot();
+    expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(TODAY));
+  });
+
+  it('hands over null, not another day\'s rows, when the window\'s date holds none', async () => {
+    await renderMap({ locations: [withHourly([['2026-01-16', hourly('2026-01-16')]])] });
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout-hourly')).toHaveTextContent('null');
+  });
 });
 
 describe('MapView — a background click deselects, and closes no panel (L3)', () => {
