@@ -61,18 +61,18 @@ import java.util.Optional;
  * #getTrailingWindowDays()}-day arrival count, replayed over the <b>complete</b>
  * {@code forecast_evaluation} population — never a survivor surface, which would understate
  * presence and inflate rarity toward over-promotion (plan D4, external-review finding §14 round 3).
- * Inversion rarity stays on the config fallback until P7's {@code topic_daily_log} accrues an
- * unbiased population — that is unaffected by V158 (Phase 2 of "record conditions for every
- * place", owner decision 2026-09-30) and by {@link SlotSignals#effectiveInversionScore()}'s
- * calculator-first, echo-fallback rule: neither changes the RARITY number, only which SOURCE a
- * display occurrence's SCORE is drawn from. ⚠️ <b>A more complete population exists now, but it is
- * not a clean "calculator alone" population</b> — {@code slot_atmosphere.inversion_score}
- * carries the deterministic calculator's own score for every inversion-eligible candidate whose
- * weather was actually fetched this cycle, triaged-out and Gate-4-stood-down ones included, but a
- * region skipped by {@code BriefingCandidateCollector}'s {@code SKIPPED_CACHED} gate (up to 36
- * hours on a SETTLED region) never reaches that write at all, so even a forward date can fall back
- * to Claude's echo (see {@code effectiveInversionScore}'s own javadoc). Switching the RARITY term
- * onto either population is a separate decision, not made here, and
+ * Inversion rarity stays on the config fallback — by owner decision (2026-10-02), until enough of
+ * an unbiased log exists. ⚠️ <b>That log has started</b>: since 2026-10-02 {@code TopicDailyLogJob}
+ * writes inversion to {@code topic_daily_log} under the topic type {@code INVERSION_CALC}, from
+ * {@code slot_atmosphere.inversion_score} (the calculator's own score, SUNRISE rows, scored rows
+ * only, Claude's echo never read). The older type {@code INVERSION} holds the survivor-biased
+ * Claude-echo rows logged before that and is no longer written. <b>Switching this rarity onto the
+ * log is a separate change, and it must read {@code INVERSION_CALC} alone and ignore
+ * {@code INVERSION}</b> — averaging the two would blend a biased and an unbiased population — and
+ * must say how many logged nights are enough before it trusts the rate. Neither V158 (Phase 2 of
+ * "record conditions for every place", owner decision 2026-09-30) nor
+ * {@link SlotSignals#effectiveInversionScore()}'s calculator-first, echo-fallback rule changes the
+ * RARITY number: they only change which SOURCE a display occurrence's SCORE is drawn from.
  * {@code inversionRarityNeverUpgrades} still pins the config fallback.
  *
  * <h2>Coastal tides reuses P2's scoring machinery, never a second formula</h2>
@@ -585,9 +585,13 @@ public class ComingUpConditionsBuilder {
         LocalDate windowStart = yesterday.minusDays(windowDays - 1L);
         ComingUpScoringProperties.Inversion inversionConfig = scoringProperties.getRecurrent().getInversion();
 
-        // Rarity NEVER upgrades for inversion — no unbiased population exists until P7's
-        // topic_daily_log matures (plan D4/§1). The historical occurrences below are shown for
-        // display only ("nothing is discarded"); they must not feed this number.
+        // Rarity stays on the config fallback by owner decision (2026-10-02). An unbiased log has
+        // started — TopicDailyLogJob writes topic type INVERSION_CALC (calculator readings only) to
+        // topic_daily_log from 2026-10-02 — but the rarity figure is deliberately not switched onto
+        // it until enough of it exists. A later change must read INVERSION_CALC alone and ignore
+        // the older INVERSION rows (Claude-echo, survivor-biased), never average them. The
+        // historical occurrences below are shown for display only ("nothing is discarded"); they
+        // must not feed this number.
         double rarityBits = SurpriseScore.rarity(inversionConfig.getFallbackMeanGapDays());
 
         Map<LocalDate, Double> maxScoreByDate = new LinkedHashMap<>();

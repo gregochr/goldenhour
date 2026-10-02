@@ -117,9 +117,10 @@ public record SlotSignals(
      * {@code slot_atmosphere} write has not happened yet this cycle (a region skipped by
      * {@code BriefingCandidateCollector}'s {@code SKIPPED_CACHED} gate before
      * {@code fetchWeatherAndTriage} ever runs, which can hold for up to 36 hours on a SETTLED
-     * region at T+2 or beyond). {@code TopicDailyLogJob}'s future-population log reads
-     * {@code forecast_score} directly, bypassing this composite entirely — see that class's own
-     * javadoc.
+     * region at T+2 or beyond). {@code TopicDailyLogJob}'s inversion log (topic type
+     * {@code INVERSION_CALC}, since 2026-10-02) does NOT use this fallback: it reads
+     * {@code slot_atmosphere}'s calculator readings alone, because its purpose is an unbiased
+     * population — see that class's own javadoc.
      *
      * @param inversion       cloud inversion score 0–10 (Claude's echo), or null
      * @param inversionBand   the inversion row's stored classification (NONE/MODERATE/STRONG), or
