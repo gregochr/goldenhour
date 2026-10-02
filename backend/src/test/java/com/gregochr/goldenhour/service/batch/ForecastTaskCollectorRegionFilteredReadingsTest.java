@@ -25,6 +25,7 @@ import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.EvaluationService;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
 import com.gregochr.goldenhour.service.LocationService;
@@ -166,7 +167,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 solarService, openMeteoService, augmentor, legacyEvaluationService,
                 engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
                 eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                slotAtmosphereWriter, CLOCK);
+                slotAtmosphereWriter, org.mockito.Mockito.mock(RunProgressTracker.class), CLOCK);
 
         collector = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,

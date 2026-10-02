@@ -58,6 +58,22 @@ class ClaudeRetryPredicateTest {
     }
 
     @Test
+    @DisplayName("Returns false for 401 (rejected key) and 403: retrying cannot fix them")
+    void test_401and403_returnFalse() {
+        assertThat(predicate.test(buildException(401, "invalid x-api-key"))).isFalse();
+        assertThat(predicate.test(buildException(403, "permission denied"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("isContentFilter is true only for a 400 naming content filtering")
+    void isContentFilter_only400WithMessage() {
+        assertThat(ClaudeRetryPredicate.isContentFilter(buildException(400, "blocked by content filtering")))
+                .isTrue();
+        assertThat(ClaudeRetryPredicate.isContentFilter(buildException(400, "bad request"))).isFalse();
+        assertThat(ClaudeRetryPredicate.isContentFilter(buildException(500, "content filtering"))).isFalse();
+    }
+
+    @Test
     @DisplayName("Returns false for non-AnthropicServiceException")
     void test_otherException_returnsFalse() {
         assertThat(predicate.test(new RuntimeException("timeout"))).isFalse();

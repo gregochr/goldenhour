@@ -52,8 +52,12 @@ public class RunCompletion {
     public static final String REASON_RUN_STOPPED =
             "Did not finish: the run stopped before this place was evaluated.";
 
-    /** Reason on a task left in EVALUATING when the run otherwise completed. */
-    public static final String REASON_EVALUATION_FAILED = "Evaluation failed (see server log).";
+    /**
+     * Reason on a task left in EVALUATING when the run otherwise completed — the sweep's floor. A task
+     * whose evaluation failed is published FAILED with its own reason when it fails, so this is
+     * reached only when that publication was itself lost.
+     */
+    public static final String REASON_EVALUATION_FAILED = EvaluationFailure.FALLBACK_REASON;
 
     /** Reason on a task left in any other non-terminal state when the run otherwise completed. */
     public static final String REASON_NOT_FINISHED = "Did not finish (see server log).";
@@ -120,28 +124,57 @@ public class RunCompletion {
      * Ends a run normally: fails any task still in progress, closes the {@code job_run}, then emits
      * the tracker completion.
      *
+     * <p>⚠️ <b>The {@code job_run}'s counts are the tracker's, not the caller's.</b> After the sweep
+     * the tracker holds the run's final picture, and the row is closed with its completed and failed
+     * task counts, so the Job Runs grid and the progress panel cannot disagree. {@code succeeded} and
+     * {@code failed} are only the fallback for a run the tracker does not hold. A triaged or skipped
+     * task is neither succeeded nor failed. The run-level reason, if any, is written to the row's
+     * {@code notes}.
+     *
      * @param jobRun    the run
-     * @param succeeded the {@code job_run} success count
-     * @param failed    the {@code job_run} failure count
+     * @param succeeded the success count to use only if the tracker does not hold the run
+     * @param failed    the failure count to use only if the tracker does not hold the run
      * @param dates     the target dates evaluated, or null
      */
     public void complete(JobRunEntity jobRun, int succeeded, int failed, List<LocalDate> dates) {
         sweepUnfinished(jobRun.getId(), false);
-        closeJobRun(jobRun, () -> jobRunService.completeRun(jobRun, succeeded, failed, dates));
+        RunProgress progress = progressTracker.getProgress(jobRun.getId());
+        int closedSucceeded = progress != null ? progress.getCompleted() : succeeded;
+        int closedFailed = progress != null ? progress.getFailed() : failed;
+        noteReason(jobRun, progress != null ? progress.getFailureReason() : null);
+        LOG.info("Run {} closing: {} succeeded, {} failed", jobRun.getId(), closedSucceeded, closedFailed);
+        closeJobRun(jobRun, () -> jobRunService.completeRun(jobRun, closedSucceeded, closedFailed, dates));
         progressTracker.completeRun(jobRun.getId());
     }
 
     /**
-     * Ends a run normally, without date tracking.
+     * Ends a run normally, without date tracking. Counts are the tracker's, exactly as for
+     * {@link #complete(JobRunEntity, int, int, List)}.
      *
      * @param jobRun    the run
-     * @param succeeded the {@code job_run} success count
-     * @param failed    the {@code job_run} failure count
+     * @param succeeded the success count to use only if the tracker does not hold the run
+     * @param failed    the failure count to use only if the tracker does not hold the run
      */
     public void complete(JobRunEntity jobRun, int succeeded, int failed) {
         sweepUnfinished(jobRun.getId(), false);
-        closeJobRun(jobRun, () -> jobRunService.completeRun(jobRun, succeeded, failed));
+        RunProgress progress = progressTracker.getProgress(jobRun.getId());
+        int closedSucceeded = progress != null ? progress.getCompleted() : succeeded;
+        int closedFailed = progress != null ? progress.getFailed() : failed;
+        noteReason(jobRun, progress != null ? progress.getFailureReason() : null);
+        LOG.info("Run {} closing: {} succeeded, {} failed", jobRun.getId(), closedSucceeded, closedFailed);
+        closeJobRun(jobRun, () -> jobRunService.completeRun(jobRun, closedSucceeded, closedFailed));
         progressTracker.completeRun(jobRun.getId());
+    }
+
+    /**
+     * Records the run-level reason on the {@code job_run}'s {@code notes} (the row's existing short
+     * free-text column), so it is still readable on the Job Runs screen after the in-memory progress
+     * is gone. A run with no reason leaves {@code notes} as it was.
+     */
+    private static void noteReason(JobRunEntity jobRun, String reason) {
+        if (reason != null) {
+            jobRun.setNotes(reason);
+        }
     }
 
     /**
@@ -150,7 +183,7 @@ public class RunCompletion {
      * (c) the {@code job_run} is closed unless this helper already closed it (twice-tried, see the class
      * comment). The {@code job_run}'s
      * counts are the tracker's completed and failed task counts, or zero when the tracker never held
-     * the run.
+     * the run, and its {@code notes} carry the run-level reason.
      *
      * @param jobRun the run
      * @param reason a fixed, safe phrase for the reader
@@ -167,6 +200,10 @@ public class RunCompletion {
             RunProgress progress = progressTracker.getProgress(id);
             int succeeded = progress != null ? progress.getCompleted() : 0;
             int failed = progress != null ? progress.getFailed() : 0;
+            // The tracker's reason, not the argument: a run already stopped on a rejected key keeps
+            // the more specific one.
+            noteReason(jobRun, progress != null && progress.getFailureReason() != null
+                    ? progress.getFailureReason() : reason);
             closeJobRun(jobRun, () -> jobRunService.completeRun(jobRun, succeeded, failed));
         }
     }
@@ -223,7 +260,7 @@ public class RunCompletion {
         }
     }
 
-    private static boolean isTerminal(LocationTaskState state) {
+    static boolean isTerminal(LocationTaskState state) {
         return state == LocationTaskState.COMPLETE
                 || state == LocationTaskState.FAILED
                 || state == LocationTaskState.SKIPPED

@@ -6,7 +6,8 @@
 //                   skipped, status, elapsedMs
 //   run-complete <- buildRunCompleteEvent: jobRunId, status, phase, total, completed, triaged,
 //                   failed, skipped, durationMs, failedTasks[{taskKey, locationName, errorMessage}],
-//                   reason (null unless the run failed as a whole) (NO inProgress)
+//                   reason (null unless the run failed as a whole), retryable (false only for a run
+//                   stopped on a rejected API key) (NO inProgress)
 // and the counters and status are derived from the tasks the way RunProgress derives them.
 
 const FINISHED = ['COMPLETE', 'FAILED', 'SKIPPED', 'TRIAGED'];
@@ -61,7 +62,9 @@ export const summaryEvent = (jobRunId, tasks, { phase = 'FULL_EVALUATION', elaps
 export const completeEvent = (
   jobRunId,
   tasks,
-  { phase = 'FULL_EVALUATION', durationMs = 2100, reason = null } = {},
+  {
+    phase = 'FULL_EVALUATION', durationMs = 2100, reason = null, retryable = true,
+  } = {},
 ) => ({
   jobRunId,
   status: statusOf(tasks, reason),
@@ -78,7 +81,52 @@ export const completeEvent = (
     errorMessage: t.errorMessage ?? '',
   })),
   reason,
+  retryable,
 });
+
+/** What the server says when a run stopped because Claude rejected the API key. */
+export const KEY_REJECTED_RUN = 'Claude rejected the API key. The run was stopped; no further places were attempted.';
+/** The per-place phrase for the places that did hit the rejection. */
+export const KEY_REJECTED_PLACE = 'Claude rejected the API key.';
+/** The per-place phrase for the places the stopped run never attempted. */
+export const NOT_ATTEMPTED_PLACE = 'Not attempted: the run stopped because Claude rejected the API key.';
+
+/** A FAILED task at the evaluating step, as the server publishes it for a Claude failure. */
+export const evaluationFailed = (taskKey, locationName, errorMessage) => task(
+  taskKey,
+  locationName,
+  'FAILED',
+  { errorMessage, failedStep: 'EVALUATING' },
+);
+
+/**
+ * A run stopped on a rejected key where nothing was triaged and nothing completed: one place rejected,
+ * two never attempted. Its status is FAILED. A REAL run is rarely this shape (see KEY_REJECTED_TRIAGED).
+ */
+export const KEY_REJECTED_NOTHING_TRIAGED = [
+  evaluationFailed('hill|a', 'Test Hill', KEY_REJECTED_PLACE),
+  evaluationFailed('east|b', 'East Fell', NOT_ATTEMPTED_PLACE),
+  evaluationFailed('west|c', 'West Fell', NOT_ATTEMPTED_PLACE),
+];
+
+/**
+ * What production sends for a rejected key: places the weather triage stood down count as an outcome
+ * (a triaged row is written), so with nothing completed the status is PARTIAL, not FAILED. Taken from a
+ * real local run (completed 0, triaged 34, failed 66, skipped 20) at a size a test can read.
+ */
+export const KEY_REJECTED_TRIAGED = [
+  task('tri|a', 'Triaged Hill', 'TRIAGED', { errorMessage: null, failedStep: null }),
+  evaluationFailed('hill|b', 'Test Hill', KEY_REJECTED_PLACE),
+  evaluationFailed('east|c', 'East Fell', NOT_ATTEMPTED_PLACE),
+  task('skip|d', 'Skipped Fell', 'SKIPPED', { errorMessage: null, failedStep: null }),
+];
+
+/** The same stop after one place had already completed: stopped early, not an outright failure. */
+export const KEY_REJECTED_AFTER_ONE = [
+  task('done|a', 'Done Hill', 'COMPLETE'),
+  evaluationFailed('hill|b', 'Test Hill', KEY_REJECTED_PLACE),
+  evaluationFailed('east|c', 'East Fell', NOT_ATTEMPTED_PLACE),
+];
 
 /** A run with one rated place and two that failed to fetch weather. */
 export const TWO_FAILURES = [

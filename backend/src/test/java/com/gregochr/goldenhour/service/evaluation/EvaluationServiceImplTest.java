@@ -44,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -372,6 +373,139 @@ class EvaluationServiceImplTest {
         ClaudeSyncOutcome outcome = outcomeCaptor.getValue();
         assertThat(outcome.succeeded()).isFalse();
         assertThat(outcome.errorMessage()).contains("stop_reason=max_tokens");
+    }
+
+    /** Runs the forecast sync path against a failing Claude call and returns the errorType it reported. */
+    private String forecastErrorTypeWhen(java.util.function.Consumer<EvaluationTask.Forecast> stubClaude) {
+        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
+        when(batchRequestFactory.selectBuilder(eq(task.data()))).thenReturn(new PromptBuilder());
+        stubClaude.accept(task);
+        when(forecastResultHandler.handleSyncResult(eq(task), any(ClaudeSyncOutcome.class),
+                any(ResultContext.class))).thenReturn(new EvaluationResult.Errored("x", "x"));
+
+        service.evaluateNow(task, BatchTriggerSource.ADMIN);
+
+        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor = ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
+        verify(forecastResultHandler).handleSyncResult(eq(task), outcomeCaptor.capture(), contextCaptor.capture());
+        assertThat(outcomeCaptor.getValue().succeeded()).isFalse();
+        assertThat(contextCaptor.getValue().triggerSource()).isEqualTo(BatchTriggerSource.ADMIN);
+        return outcomeCaptor.getValue().errorType();
+    }
+
+    private static AnthropicServiceException serviceError(int status, String message) {
+        AnthropicServiceException svc = mock(AnthropicServiceException.class);
+        when(svc.statusCode()).thenReturn(status);
+        when(svc.getMessage()).thenReturn(message);
+        return svc;
+    }
+
+    @Test
+    @DisplayName("evaluateNow: a 401 is reported as anthropic_401 (a stop-the-run kind)")
+    void evaluateNow_forecastRejectedKey_reportedByStatus() {
+        AnthropicServiceException rejected = serviceError(401, "invalid x-api-key");
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenThrow(rejected))).isEqualTo("anthropic_401");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: a 403 is reported as anthropic_403")
+    void evaluateNow_forecastForbidden_reportedByStatus() {
+        AnthropicServiceException forbidden = serviceError(403, "not permitted");
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenThrow(forbidden))).isEqualTo("anthropic_403");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: the content-filter 400 is reported as content_filter")
+    void evaluateNow_forecastContentFilter400_isNamed() {
+        AnthropicServiceException filtered = serviceError(400, "Output blocked by content filtering policy");
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenThrow(filtered))).isEqualTo("content_filter");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: any other 400 is reported by its status, not as a content filter")
+    void evaluateNow_forecastPlain400_reportedByStatus() {
+        AnthropicServiceException badRequest = serviceError(400, "max_tokens must be positive");
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenThrow(badRequest))).isEqualTo("anthropic_400");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: a call the circuit breaker refuses is reported as circuit_open (the real route: "
+            + "CallNotPermittedException thrown by the @CircuitBreaker proxy inside the engine's try)")
+    void evaluateNow_forecastCircuitOpen_isNamed() {
+        io.github.resilience4j.circuitbreaker.CircuitBreaker breaker =
+                io.github.resilience4j.circuitbreaker.CircuitBreaker.ofDefaults("anthropic");
+        breaker.transitionToOpenState();
+        RuntimeException refused = io.github.resilience4j.circuitbreaker.CallNotPermittedException
+                .createCallNotPermittedException(breaker);
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenThrow(refused))).isEqualTo("circuit_open");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: an aurora reply with no text block is reported as reply_unreadable, like a forecast's")
+    void evaluateNow_auroraNoText_isReplyUnreadable() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
+                .thenReturn("user-message");
+        Message noText = mock(Message.class);
+        when(noText.content()).thenReturn(List.of());
+        when(anthropicApiClient.createMessage(any())).thenReturn(noText);
+        when(auroraResultHandler.handleSyncResult(eq(task), any(ClaudeSyncOutcome.class), any(ResultContext.class)))
+                .thenReturn(new EvaluationResult.Errored("x", "x"));
+
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor = ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
+        verify(auroraResultHandler).handleSyncResult(eq(task), outcomeCaptor.capture(), contextCaptor.capture());
+        assertThat(outcomeCaptor.getValue().errorType()).isEqualTo("reply_unreadable");
+        assertThat(contextCaptor.getValue().triggerSource()).isEqualTo(BatchTriggerSource.SCHEDULED);
+    }
+
+    @Test
+    @DisplayName("evaluateNow: a timeout or connection failure surfaces as the SDK's I/O exception by name")
+    void evaluateNow_forecastIoFailure_reportedByName() {
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenThrow(new com.anthropic.errors.AnthropicIoException("timed out"))))
+                .isEqualTo("AnthropicIoException");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: a refusal stop reason is reported as refusal")
+    void evaluateNow_forecastRefusal_isNamed() {
+        Message refusal = mockMessageWithStopReason(StopReason.REFUSAL);
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenReturn(refusal))).isEqualTo("refusal");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: a truncated reply is reported as reply_unreadable")
+    void evaluateNow_forecastTruncated_isReplyUnreadable() {
+        Message truncated = mockMessageWithStopReason(StopReason.MAX_TOKENS);
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any()))
+                .thenReturn(truncated))).isEqualTo("reply_unreadable");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: a reply with no text block is reported as reply_unreadable")
+    void evaluateNow_forecastNoText_isReplyUnreadable() {
+        Message noText = mock(Message.class);
+        when(noText.stopReason()).thenReturn(Optional.empty());
+        when(noText.content()).thenReturn(List.of());
+
+        assertThat(forecastErrorTypeWhen(t -> when(anthropicApiClient.createMessage(any())).thenReturn(noText)))
+                .isEqualTo("reply_unreadable");
     }
 
     @Test

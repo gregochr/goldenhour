@@ -122,4 +122,63 @@ class RunProgressTest {
 
         assertThat(progress.getStatus()).isEqualTo(RunProgress.RunStatus.COMPLETE);
     }
+
+    private static final String STOPPED = "Claude rejected the API key. The run was stopped; no further places "
+            + "were attempted.";
+
+    @Test
+    @DisplayName("a run starts unstopped and retryable")
+    void newRun_isNotStopped_andRetryable() {
+        RunProgress progress = new RunProgress(1L);
+
+        assertThat(progress.isStopped()).isFalse();
+        assertThat(progress.isRetryable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("stop sets the reason, stops the run and makes it non-retryable; only the first call stops it")
+    void stop_setsReasonAndIsNotRetryable_firstCallWins() {
+        RunProgress progress = runWithTasks(LocationTaskState.FAILED);
+
+        assertThat(progress.stop(STOPPED)).isTrue();
+        assertThat(progress.stop("another reason")).isFalse();
+
+        assertThat(progress.isStopped()).isTrue();
+        assertThat(progress.isRetryable()).isFalse();
+        assertThat(progress.getFailureReason()).isEqualTo(STOPPED);
+    }
+
+    @Test
+    @DisplayName("markFailed after a stop does not replace the stop reason")
+    void markFailed_afterStop_keepsStopReason() {
+        RunProgress progress = new RunProgress(1L);
+        progress.stop(STOPPED);
+
+        progress.markFailed(REASON);
+
+        assertThat(progress.getFailureReason()).isEqualTo(STOPPED);
+    }
+
+    @Test
+    @DisplayName("markFailed on a run that was not stopped leaves it retryable")
+    void markFailed_withoutStop_isStillRetryable() {
+        RunProgress progress = new RunProgress(1L);
+
+        progress.markFailed(REASON);
+
+        assertThat(progress.isRetryable()).isTrue();
+        assertThat(progress.isStopped()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a stopped run reads FAILED when nothing completed and PARTIAL when something did")
+    void stoppedRun_status_failedOrPartial() {
+        RunProgress nothingCompleted = runWithTasks(LocationTaskState.FAILED, LocationTaskState.FAILED);
+        nothingCompleted.stop(STOPPED);
+        RunProgress someCompleted = runWithTasks(LocationTaskState.COMPLETE, LocationTaskState.FAILED);
+        someCompleted.stop(STOPPED);
+
+        assertThat(nothingCompleted.getStatus()).isEqualTo(RunProgress.RunStatus.FAILED);
+        assertThat(someCompleted.getStatus()).isEqualTo(RunProgress.RunStatus.PARTIAL);
+    }
 }

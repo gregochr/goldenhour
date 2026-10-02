@@ -102,6 +102,7 @@ class ClaudeEvaluationStrategyTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("no text content");
     }
@@ -116,6 +117,7 @@ class ClaudeEvaluationStrategyTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeRefusalException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("refused")
                 .hasMessageContaining("stop_reason=refusal");
@@ -132,6 +134,7 @@ class ClaudeEvaluationStrategyTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("context window")
                 .hasMessageContaining("stop_reason=model_context_window_exceeded");
@@ -168,6 +171,7 @@ class ClaudeEvaluationStrategyTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("truncated")
                 .hasMessageContaining("stop_reason=max_tokens");

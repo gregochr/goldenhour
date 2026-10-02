@@ -14,7 +14,9 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
+import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
+import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.CloudPointCache;
@@ -374,21 +376,14 @@ public class ForecastCommandExecutor {
         LOG.info("Triage phase complete — {} triaged, {} survivors", triagedCount, survivors.size());
 
         if (survivors.isEmpty()) {
-            // Everything was triaged — early stop
+            // No task survived triage — early stop. Each one was triaged away or failed at weather
+            // (every one of them, when the prefetch failed); the job_run closes with the tracker's
+            // counts, so those weather failures are in its failed count.
             progressTracker.setPhase(jobRun.getId(), RunPhase.EARLY_STOP);
-            if (weatherPrefetchFailed) {
-                // Not "all triaged": weather could not be fetched, so every live task failed. Close the
-                // job_run with that failed count (the tracker's, as abort does); the general alignment
-                // of job_run counts with the tracker is a separate change.
-                RunProgress progress = progressTracker.getProgress(jobRun.getId());
-                int weatherFailed = progress != null ? progress.getFailed() : nonSkippedTasks.size();
-                runCompletion.complete(jobRun, succeeded, weatherFailed, dates);
-                LOG.info("Forecast run ended — weather could not be fetched, {} task(s) failed",
-                        weatherFailed);
-            } else {
-                runCompletion.complete(jobRun, succeeded, failed, dates);
-                LOG.info("Forecast run early-stopped — all tasks triaged");
-            }
+            runCompletion.complete(jobRun, succeeded, failed, dates);
+            LOG.info(weatherPrefetchFailed
+                    ? "Forecast run ended — weather could not be fetched"
+                    : "Forecast run early-stopped — no task survived triage");
             return results;
         }
 
@@ -416,11 +411,9 @@ public class ForecastCommandExecutor {
         }
 
         if (fullEvalBatch.isEmpty()) {
-            RunPhase finalPhase = survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE;
-            progressTracker.setPhase(jobRun.getId(), finalPhase);
+            setFinalPhase(jobRun, survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE);
             runCompletion.complete(jobRun, succeeded, failed, dates);
-            LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
-                    runType, evaluationModel, succeeded, failed);
+            LOG.info("Forecast run complete — runType={}, model={}", runType, evaluationModel);
             return results;
         }
 
@@ -437,7 +430,7 @@ public class ForecastCommandExecutor {
         }
 
         if (fullEvalBatch.isEmpty()) {
-            progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
+            setFinalPhase(jobRun, RunPhase.COMPLETE);
             runCompletion.complete(jobRun, succeeded, failed, dates);
             LOG.info("Forecast run complete — all remaining tasks filtered by stability");
             return results;
@@ -453,12 +446,20 @@ public class ForecastCommandExecutor {
         succeeded += fullResults.size();
         failed += fullEvalBatch.size() - fullResults.size();
 
-        progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
+        setFinalPhase(jobRun, RunPhase.COMPLETE);
         runCompletion.complete(jobRun, succeeded, failed, dates);
-        LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
-                runType, evaluationModel, succeeded, failed);
+        LOG.info("Forecast run complete — runType={}, model={}", runType, evaluationModel);
 
         return results;
+    }
+
+    /**
+     * Sets the phase a run completes in. A run stopped on a rejected key did not run to the end, so it
+     * completes in {@link RunPhase#EARLY_STOP} whichever exit it took.
+     */
+    private void setFinalPhase(JobRunEntity jobRun, RunPhase normal) {
+        progressTracker.setPhase(jobRun.getId(),
+                progressTracker.isStopped(jobRun.getId()) ? RunPhase.EARLY_STOP : normal);
     }
 
     /**
@@ -619,9 +620,7 @@ public class ForecastCommandExecutor {
                         allSentinelsLow = false;
                     }
                 } catch (Exception e) {
-                    LOG.error("Sentinel evaluation failed for {} {} on {}: {}",
-                            sentinel.location().getName(), sentinel.targetType(),
-                            sentinel.date(), e.getMessage(), e);
+                    onEvaluationFailure("Sentinel", sentinel, jobRun, e);
                     failed++;
                     allSentinelsLow = false; // Don't skip region on error
                 }
@@ -662,9 +661,51 @@ public class ForecastCommandExecutor {
             JobRunEntity jobRun) {
         return submitParallel(tasks,
                 task -> forecastService.evaluateAndPersist(task, jobRun),
-                (task, e) -> LOG.error("Full evaluation failed for {} {} on {}: {}",
-                        task.location().getName(), task.targetType(),
-                        task.date(), e.getMessage(), e));
+                (task, e) -> onEvaluationFailure("Full", task, jobRun, e));
+    }
+
+    /**
+     * Logs an evaluation that threw and makes sure its task ends FAILED exactly once.
+     *
+     * <p>{@link ForecastService#evaluateAndPersist} publishes the FAILED outcome itself (with the
+     * Claude-specific reason) for everything that goes wrong after it starts, so this normally finds
+     * the task already FAILED and publishes nothing. What it catches is a failure that never got that
+     * far — the {@code claude} bulkhead refusing the call after its wait, a proxy failure — which would
+     * otherwise leave the task for the completion sweep. A place the run never attempted
+     * ({@link RunStoppedException}) is already published and is not worth a log line each.
+     *
+     * @param phase  "Sentinel" or "Full", for the log line
+     * @param task   the task whose evaluation threw
+     * @param jobRun the run
+     * @param e      what was thrown
+     */
+    private void onEvaluationFailure(String phase, ForecastPreEvalResult task, JobRunEntity jobRun,
+            Exception e) {
+        if (e instanceof RunStoppedException) {
+            LOG.debug("{} evaluation not attempted for {} {} on {}: run stopped",
+                    phase, task.location().getName(), task.targetType(), task.date());
+            return;
+        }
+        LOG.error("{} evaluation failed for {} {} on {} [{}]: {}", phase,
+                task.location().getName(), task.targetType(), task.date(), task.model(),
+                e.getMessage(), e);
+        publishFailedIfUnreported(task, jobRun, e);
+    }
+
+    /**
+     * Publishes FAILED for a task that is still in a non-terminal state, with the fixed phrase for
+     * what was thrown. A task the tracker does not hold, or that has already finished, is left alone.
+     */
+    private void publishFailedIfUnreported(ForecastPreEvalResult task, JobRunEntity jobRun, Exception e) {
+        RunProgress progress = progressTracker.getProgress(jobRun.getId());
+        LocationTaskSnapshot snapshot = progress != null ? progress.getTasks().get(task.taskKey()) : null;
+        if (snapshot == null || RunCompletion.isTerminal(snapshot.state())) {
+            return;
+        }
+        eventPublisher.publishEvent(new LocationTaskEvent(
+                this, jobRun.getId(), task.taskKey(), task.location().getName(),
+                task.date().toString(), task.targetType().name(), LocationTaskState.FAILED,
+                EvaluationFailure.of(e).reason(), LocationTaskState.EVALUATING.name()));
     }
 
     /**

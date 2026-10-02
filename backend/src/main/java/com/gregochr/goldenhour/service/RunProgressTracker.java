@@ -161,7 +161,7 @@ public class RunProgressTracker {
             return;
         }
         progress.updateTask(event);
-        broadcastTaskUpdate(event.getJobRunId(), progress);
+        broadcastTaskUpdate(event.getJobRunId(), progress, event.getTaskKey());
     }
 
     /**
@@ -201,6 +201,33 @@ public class RunProgressTracker {
         if (progress != null) {
             progress.markFailed(reason);
         }
+    }
+
+    /**
+     * Stops a run because Claude rejected the API key: records the run-level reason (carried by the
+     * eventual {@code run-complete}, which then reports the run as not retryable) and makes
+     * {@link #isStopped} true so no further Claude call is made for this run. Nothing is broadcast
+     * until the run completes. No-op for an unknown run, and for a run already stopped.
+     *
+     * @param jobRunId the job run ID
+     * @return {@code true} if this call stopped the run; {@code false} if it was already stopped or
+     *         is not tracked
+     */
+    public boolean stopRun(long jobRunId) {
+        RunProgress progress = activeRuns.get(jobRunId);
+        return progress != null && progress.stop(EvaluationFailure.REASON_RUN_STOPPED);
+    }
+
+    /**
+     * Whether a run has been stopped on a rejected key. Run-scoped: it reads this run's own progress,
+     * so another run, or a run started later, is not affected.
+     *
+     * @param jobRunId the job run ID
+     * @return {@code true} if the run is tracked and stopped
+     */
+    public boolean isStopped(long jobRunId) {
+        RunProgress progress = activeRuns.get(jobRunId);
+        return progress != null && progress.isStopped();
     }
 
     /**
@@ -335,10 +362,34 @@ public class RunProgressTracker {
         runEmitters.entrySet().removeIf(entry -> !activeRuns.containsKey(entry.getKey()));
     }
 
+    /**
+     * Broadcasts the most recently updated task (used for a phase change, which names no task).
+     */
     private void broadcastTaskUpdate(long jobRunId, RunProgress progress) {
-        LocationTaskSnapshot latestSnapshot = progress.getTasks().values().stream()
-                .max((a, b) -> a.lastUpdated().compareTo(b.lastUpdated()))
-                .orElse(null);
+        broadcastTaskUpdate(jobRunId, progress, null);
+    }
+
+    /**
+     * Broadcasts the task an event just changed, with the run summary.
+     *
+     * <p>⚠️ <b>The event's OWN task, not "the most recently updated one".</b> Events are published from
+     * many threads at once (the evaluation phase runs in parallel), and each handler used to broadcast
+     * whichever snapshot had the newest timestamp when it got to the broadcast. Two threads that each
+     * put a task and then looked for the newest would both find the later one, and the earlier task's
+     * update was never sent: a finished run's panel then showed that place frozen in the state before
+     * its last event (seen as a place left on "Cloud" in a run that had completed). Broadcasting the
+     * event's own snapshot means every event is delivered once, whatever the interleaving.
+     *
+     * @param taskKey the task the event changed, or null to broadcast the most recently updated one
+     */
+    private void broadcastTaskUpdate(long jobRunId, RunProgress progress, String taskKey) {
+        Map<String, LocationTaskSnapshot> snapshots = progress.getTasks();
+        LocationTaskSnapshot latestSnapshot = taskKey != null ? snapshots.get(taskKey) : null;
+        if (latestSnapshot == null) {
+            latestSnapshot = snapshots.values().stream()
+                    .max((a, b) -> a.lastUpdated().compareTo(b.lastUpdated()))
+                    .orElse(null);
+        }
         if (latestSnapshot == null) {
             return;
         }
@@ -439,6 +490,7 @@ public class RunProgressTracker {
         event.put("durationMs", progress.getElapsedMs());
         event.put("failedTasks", failedTasks);
         event.put("reason", progress.getFailureReason());
+        event.put("retryable", progress.isRetryable());
         return event;
     }
 }

@@ -184,7 +184,8 @@ class RunCompletionTest {
         InOrder order = inOrder(eventPublisher, jobRunService, progressTracker);
         ArgumentCaptor<LocationTaskEvent> swept = ArgumentCaptor.forClass(LocationTaskEvent.class);
         order.verify(eventPublisher, times(5)).publishEvent(swept.capture());
-        order.verify(jobRunService).completeRun(jobRun, 3, 1, dates);
+        // The tracker's own counts (one COMPLETE task, one FAILED task), not the 3 and 1 passed in.
+        order.verify(jobRunService).completeRun(jobRun, 1, 1, dates);
         order.verify(progressTracker).completeRun(RUN_ID);
         assertThat(swept.getAllValues()).extracting(LocationTaskEvent::getFailedStep)
                 .containsExactlyInAnyOrder("PENDING", "FETCHING_WEATHER", "FETCHING_CLOUD",
@@ -350,5 +351,113 @@ class RunCompletionTest {
         verify(progressTracker).failRun(RUN_ID, "reason");
         // the fixture holds one COMPLETE and one FAILED task; the failing close is tried twice
         verify(jobRunService, times(2)).completeRun(jobRun, 1, 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // job_run counts are the tracker's; the run-level reason goes to notes
+    // -------------------------------------------------------------------------
+
+    private static final String KEY_REJECTED_RUN =
+            "Claude rejected the API key. The run was stopped; no further places were attempted.";
+
+    /** Two COMPLETE, three FAILED, one TRIAGED, one SKIPPED, and one task still EVALUATING. */
+    private static RunProgress progressWithOutcomes() {
+        RunProgress progress = new RunProgress(RUN_ID);
+        String[][] outcomes = {
+                {"a", "COMPLETE"}, {"b", "COMPLETE"}, {"c", "FAILED"}, {"d", "FAILED"}, {"e", "FAILED"},
+                {"f", "TRIAGED"}, {"g", "SKIPPED"}, {"h", "EVALUATING"}};
+        for (String[] outcome : outcomes) {
+            String key = outcome[0] + "|2026-10-03|SUNSET";
+            progress.registerTask(key, outcome[0], "2026-10-03", "SUNSET");
+            progress.updateTask(new LocationTaskEvent(RunCompletionTest.class, RUN_ID, key, outcome[0],
+                    "2026-10-03", "SUNSET", LocationTaskState.valueOf(outcome[1]), null, null));
+        }
+        return progress;
+    }
+
+    /**
+     * A {@link RunCompletion} over a REAL tracker holding {@link #progressWithOutcomes}' eight tasks, with
+     * each published event applied to it exactly as production does, so the counts asserted below are the
+     * ones a run would close with.
+     */
+    private RunCompletion completionOverARealTracker() {
+        RunProgressTracker real = new RunProgressTracker(org.mockito.Mockito.mock(DynamicSchedulerService.class));
+        String[][] outcomes = {
+                {"a", "COMPLETE"}, {"b", "COMPLETE"}, {"c", "FAILED"}, {"d", "FAILED"}, {"e", "FAILED"},
+                {"f", "TRIAGED"}, {"g", "SKIPPED"}, {"h", "EVALUATING"}};
+        List<String[]> tasks = new java.util.ArrayList<>();
+        for (String[] outcome : outcomes) {
+            tasks.add(new String[] {outcome[0] + "|2026-10-03|SUNSET", outcome[0], "2026-10-03", "SUNSET"});
+        }
+        real.initRun(RUN_ID, tasks);
+        for (String[] outcome : outcomes) {
+            real.onTaskEvent(new LocationTaskEvent(RunCompletionTest.class, RUN_ID,
+                    outcome[0] + "|2026-10-03|SUNSET", outcome[0], "2026-10-03", "SUNSET",
+                    LocationTaskState.valueOf(outcome[1]), null, null));
+        }
+        return new RunCompletion(jobRunService, real, event -> {
+            if (event instanceof LocationTaskEvent taskEvent) {
+                real.onTaskEvent(taskEvent);
+            }
+        });
+    }
+
+    @Test
+    @DisplayName("the job_run closes with the real tracker's completed and failed counts, not the caller's: a "
+            + "triaged or skipped task is neither, and the task still evaluating is failed by the sweep first")
+    void complete_closesWithTheTrackersCounts() {
+        List<LocalDate> dates = List.of(LocalDate.parse("2026-10-03"));
+
+        completionOverARealTracker().complete(jobRun, 99, 99, dates);
+
+        verify(jobRunService).completeRun(jobRun, 2, 4, dates);
+    }
+
+    @Test
+    @DisplayName("the date-less overload takes the real tracker's counts too")
+    void complete_withoutDates_closesWithTheTrackersCounts() {
+        completionOverARealTracker().complete(jobRun, 99, 99);
+
+        verify(jobRunService).completeRun(jobRun, 2, 4);
+    }
+
+    @Test
+    @DisplayName("a run-level reason is written to the job_run's notes")
+    void complete_writesTheRunReasonToNotes() {
+        RunProgress progress = new RunProgress(RUN_ID);
+        progress.stop(KEY_REJECTED_RUN);
+        when(progressTracker.getProgress(RUN_ID)).thenReturn(progress);
+
+        completion.complete(jobRun, 0, 0, null);
+
+        assertThat(jobRun.getNotes()).isEqualTo(KEY_REJECTED_RUN);
+    }
+
+    @Test
+    @DisplayName("a run with no reason leaves the job_run's notes as they were")
+    void complete_withoutReason_leavesNotes() {
+        jobRun.setNotes("existing note");
+        when(progressTracker.getProgress(RUN_ID)).thenReturn(progressWithOutcomes());
+
+        completion.complete(jobRun, 0, 0, null);
+
+        assertThat(jobRun.getNotes()).isEqualTo("existing note");
+    }
+
+    @Test
+    @DisplayName("abort writes its reason to notes, and keeps the tracker's reason when the run was already stopped")
+    void abort_writesReasonToNotes() {
+        completion.abort(jobRun, "The run stopped unexpectedly. See the server log.");
+        assertThat(jobRun.getNotes()).isEqualTo("The run stopped unexpectedly. See the server log.");
+
+        JobRunEntity stoppedRun = new JobRunEntity();
+        stoppedRun.setId(RUN_ID + 1);
+        RunProgress stopped = new RunProgress(RUN_ID + 1);
+        stopped.stop(KEY_REJECTED_RUN);
+        when(progressTracker.getProgress(RUN_ID + 1)).thenReturn(stopped);
+
+        completion.abort(stoppedRun, "The run stopped unexpectedly. See the server log.");
+
+        assertThat(stoppedRun.getNotes()).isEqualTo(KEY_REJECTED_RUN);
     }
 }
