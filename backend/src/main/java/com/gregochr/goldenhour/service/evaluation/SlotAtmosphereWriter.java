@@ -48,6 +48,17 @@ import java.time.LocalDate;
  * {@code Survivor*} originals in V159 (2026-09-30) — a mechanical rename, no behaviour change; see
  * that migration's header comment and the changelog entry for the full file list.
  *
+ * <p><b>Which slots reach it, and which never do (owner decision 2026-10-02).</b> "Every place"
+ * means every candidate slot whose weather the pipeline fetches through
+ * {@code fetchWeatherAndTriage}, not every row in {@code locations}. A place outside the briefing
+ * is never a candidate on the scheduled or region-filtered paths, so it is never recorded: a
+ * WILDLIFE-only place, a BLUEBELL-only place out of season (both decided by
+ * {@code BriefingService.isColourLocation}), an unregioned location, and a disabled one. This is deliberate, not a gap
+ * to close — every topic reading these rows is shown per region, so a hide's reading would change
+ * nothing a reader sees. The one known wrinkle: the hand-started {@code POST /api/forecast/run}
+ * and {@code ForceSubmitBatchService.forceSubmit} apply no location-type filter, so a place named
+ * there is recorded whatever its type.
+ *
  * <p><b>Why submission time, not result time.</b> The atmospheric readings (aerosol, surge,
  * snow, humidity) live on the {@link AtmosphericData} computed at collection/submission and are
  * rendered into the Claude prompt text — they are NOT carried across the async Anthropic batch
