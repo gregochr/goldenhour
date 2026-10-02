@@ -800,6 +800,109 @@ class ForceSubmitBatchServiceTest {
 
     // ── helpers ───────────────────────────────────────────────────────────
 
+    // ── Sky subjects only: neither route has a lane for a hide, a wood or a bluebell wood ──────
+
+    private LocationEntity buildTypedLocation(Long id, String name, RegionEntity region,
+            com.gregochr.goldenhour.entity.LocationType type) {
+        LocationEntity loc = buildLocation(id, name, region);
+        loc.setLocationType(Set.of(type));
+        return loc;
+    }
+
+    private ForecastPreEvalResult preEvalFor(LocationEntity loc, AtmosphericData data) {
+        return new ForecastPreEvalResult(
+                false, null, data, loc,
+                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
+                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
+                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
+    }
+
+    @Test
+    @DisplayName("forceSubmit builds one task and fetches weather once for a region holding "
+            + "one sky location and one hide")
+    void forceSubmit_regionWithSkyLocationAndHide_submitsOnlyTheSkyLocation() {
+        RegionEntity region = buildRegion(7L, "Northumberland");
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
+        LocationEntity sky = buildTypedLocation(10L, "Bamburgh Castle", region,
+                com.gregochr.goldenhour.entity.LocationType.SEASCAPE);
+        LocationEntity hide = buildTypedLocation(11L, "Reserve Hide", region,
+                com.gregochr.goldenhour.entity.LocationType.WILDLIFE);
+        when(locationService.findAllEnabled()).thenReturn(List.of(hide, sky));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEvalFor(sky, mock(AtmosphericData.class)));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_sky_only", 1));
+
+        ForceSubmitResult result = service.forceSubmit(7L,
+                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
+
+        assertThat(result.locationsAttempted()).isEqualTo(1);
+        assertThat(result.requestCount()).isEqualTo(1);
+        verify(forecastService, times(1)).fetchWeatherAndTriage(
+                eq(sky), eq(LocalDate.of(2026, 4, 16)), eq(TargetType.SUNSET), eq(sky.getTideType()),
+                eq(EvaluationModel.HAIKU), eq(false), isNull());
+        verify(forecastService, never()).fetchWeatherAndTriage(
+                eq(hide), any(), any(), any(), any(), any(Boolean.class), any());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.FORCE));
+        assertThat(taskCaptor.getValue()).hasSize(1);
+        assertThat(taskCaptor.getValue().get(0).location()).isEqualTo(sky);
+    }
+
+    @Test
+    @DisplayName("forceSubmit treats a region of hides, woods and bluebell woods as an empty one")
+    void forceSubmit_regionWithOnlyNonSkyLocations_behavesAsEmptyRegion() {
+        RegionEntity region = buildRegion(7L, "Northumberland");
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
+        when(locationService.findAllEnabled()).thenReturn(List.of(
+                buildTypedLocation(11L, "Reserve Hide", region,
+                        com.gregochr.goldenhour.entity.LocationType.WILDLIFE),
+                buildTypedLocation(12L, "Canopy Wood", region,
+                        com.gregochr.goldenhour.entity.LocationType.WOODLAND),
+                buildTypedLocation(13L, "Bluebell Wood", region,
+                        com.gregochr.goldenhour.entity.LocationType.BLUEBELL)));
+
+        assertThatThrownBy(() -> service.forceSubmit(7L,
+                LocalDate.of(2026, 4, 16), TargetType.SUNSET))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("No enabled locations found in region: Northumberland");
+        verifyNoInteractions(forecastService);
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("submitJfdiBatch still skips a hide and builds tasks for the sky location only")
+    void submitJfdiBatch_regionWithSkyLocationAndHide_skipsTheHide() {
+        RegionEntity region = buildRegion(7L, "Northumberland");
+        LocationEntity sky = buildTypedLocation(10L, "Bamburgh Castle", region,
+                com.gregochr.goldenhour.entity.LocationType.LANDSCAPE);
+        LocationEntity hide = buildTypedLocation(11L, "Reserve Hide", region,
+                com.gregochr.goldenhour.entity.LocationType.WILDLIFE);
+        when(locationService.findAllEnabled()).thenReturn(List.of(hide, sky));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEvalFor(sky, mock(AtmosphericData.class)));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_jfdi_sky", 8));
+
+        service.submitJfdiBatch(List.of(7L));
+
+        verify(forecastService, never()).fetchWeatherAndTriage(
+                eq(hide), any(), any(), any(), any(), any(Boolean.class), any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.JFDI));
+        assertThat(taskCaptor.getValue()).hasSize(8);
+        assertThat(taskCaptor.getValue()).allMatch(t -> t.location() == sky);
+    }
+
     private RegionEntity buildRegion(Long id, String name) {
         RegionEntity region = new RegionEntity();
         region.setId(id);

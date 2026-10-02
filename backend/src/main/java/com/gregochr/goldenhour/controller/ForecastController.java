@@ -407,6 +407,15 @@ public class ForecastController {
                 throw new IllegalArgumentException(
                         "No configured location named '" + request.location() + "'");
             }
+            // The executor drops non-sky places from a run silently, which is right for "all
+            // locations" but would turn a request that names ONE of them into a 202 for a run
+            // that evaluates nothing (and a job_run row to match). Refuse it here, as 400 — the
+            // same convention as the unknown-name refusal just above.
+            LocationEntity named = allLocations.get(0);
+            if (!named.hasColourTypes()) {
+                throw new IllegalArgumentException("'" + named.getName() + "' is not a sky location: "
+                        + "it has no sunrise or sunset forecast");
+            }
         } else {
             allLocations = locationService.findAllEnabled();
         }
@@ -631,6 +640,16 @@ public class ForecastController {
         List<LocationEntity> locations = locationService.findAllEnabled().stream()
                 .filter(loc -> locationNames.contains(loc.getName()))
                 .toList();
+
+        // The executor keeps only sky locations (an explicit list included), so a failed task
+        // whose place has since stopped being a sky subject is dropped there. When that is every
+        // one of them there is nothing to retry — answer like the no-failures case rather than
+        // start a run (and a job_run row) that evaluates nothing.
+        if (locations.stream().noneMatch(LocationEntity::hasColourTypes)) {
+            LOG.info("POST /api/forecast/run/{}/retry-failed — no failed location is a sky subject "
+                    + "any more, nothing to retry", runId);
+            return ResponseEntity.notFound().build();
+        }
 
         List<LocalDate> dates = failedTasks.stream()
                 .map(t -> LocalDate.parse(t.targetDate()))

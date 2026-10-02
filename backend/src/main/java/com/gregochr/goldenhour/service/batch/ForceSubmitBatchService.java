@@ -28,6 +28,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Submits a force-test batch to the Anthropic Batch API, bypassing all gates
@@ -107,12 +108,8 @@ public class ForceSubmitBatchService {
         java.util.Set<Long> regionFilter = (regionIds != null && !regionIds.isEmpty())
                 ? new java.util.HashSet<>(regionIds) : null;
 
-        List<LocationEntity> locations = locationService.findAllEnabled().stream()
-                .filter(loc -> loc.getRegion() != null)
-                .filter(loc -> regionFilter == null
-                        || regionFilter.contains(loc.getRegion().getId()))
-                .filter(LocationEntity::hasColourTypes)
-                .toList();
+        List<LocationEntity> locations = enabledSkyLocations(loc -> loc.getRegion() != null
+                && (regionFilter == null || regionFilter.contains(loc.getRegion().getId())));
 
         if (locations.isEmpty()) {
             LOG.warn("[JFDI BATCH] No eligible locations found");
@@ -184,7 +181,25 @@ public class ForceSubmitBatchService {
     }
 
     /**
-     * Submits a force-test batch for all locations in a region, bypassing all gates.
+     * The one place both entry points choose their locations: enabled, inside the caller's scope,
+     * and a sky subject by the same {@link LocationEntity#hasColourTypes()} predicate the
+     * synchronous engine and the scheduled batch use. Both routes build SKY-prompt tasks only, and
+     * neither has a woodland or bluebell lane, so a wildlife hide, a canopy wood or a bluebell wood
+     * has nothing here to be evaluated for. Filtering before any fetch also means such a place is
+     * never sent to {@code fetchWeatherAndTriage}.
+     *
+     * @param inScope the caller's own region test
+     * @return the enabled sky locations the caller's scope admits
+     */
+    private List<LocationEntity> enabledSkyLocations(Predicate<LocationEntity> inScope) {
+        return locationService.findAllEnabled().stream()
+                .filter(inScope)
+                .filter(LocationEntity::hasColourTypes)
+                .toList();
+    }
+
+    /**
+     * Submits a force-test batch for all sky locations in a region, bypassing all gates.
      *
      * @param regionId the database ID of the target region
      * @param date     the forecast date
@@ -197,11 +212,11 @@ public class ForceSubmitBatchService {
             throw new IllegalArgumentException("Region not found: " + regionId);
         }
 
-        List<LocationEntity> locations = locationService.findAllEnabled().stream()
-                .filter(loc -> loc.getRegion() != null
-                        && loc.getRegion().getId().equals(regionId))
-                .toList();
+        List<LocationEntity> locations = enabledSkyLocations(loc -> loc.getRegion() != null
+                && loc.getRegion().getId().equals(regionId));
 
+        // A region holding only hides or woods reads as an empty one: there is no sky to forecast
+        // there, and nothing else this route could submit.
         if (locations.isEmpty()) {
             throw new IllegalArgumentException(
                     "No enabled locations found in region: " + region.getName());
