@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.RunCompletion;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +44,7 @@ public class BortleEnrichmentService {
     private final JobRunService jobRunService;
     private final RunProgressTracker progressTracker;
     private final ApplicationEventPublisher eventPublisher;
+    private final RunCompletion runCompletion;
 
     /**
      * Constructs the service with repository, HTTP client, and job run dependencies.
@@ -63,6 +65,7 @@ public class BortleEnrichmentService {
         this.jobRunService = jobRunService;
         this.progressTracker = progressTracker;
         this.eventPublisher = eventPublisher;
+        this.runCompletion = new RunCompletion(jobRunService, progressTracker, eventPublisher);
     }
 
     /**
@@ -79,6 +82,22 @@ public class BortleEnrichmentService {
      * @return a summary of results
      */
     public EnrichmentResult enrichAll(String apiKey, JobRunEntity jobRun) {
+        try {
+            return runEnrichment(apiKey, jobRun);
+        } catch (RuntimeException e) {
+            // The controller discards the future this runs on, so nothing else would ever see the
+            // failure: without this the panel would sit at "running" and the job_run stay open.
+            LOG.error("Bortle enrichment run {} aborted: {}", jobRun.getId(), e.toString(), e);
+            runCompletion.abort(jobRun, RunCompletion.REASON_UNEXPECTED);
+            return new EnrichmentResult(0, List.of());
+        } catch (Error e) {
+            LOG.error("Bortle enrichment run {} aborted: {}", jobRun.getId(), e.toString(), e);
+            runCompletion.abort(jobRun, RunCompletion.REASON_UNEXPECTED);
+            throw e;
+        }
+    }
+
+    private EnrichmentResult runEnrichment(String apiKey, JobRunEntity jobRun) {
         List<LocationEntity> pending = locationRepository.findByBortleClassIsNull();
         LOG.info("Bortle enrichment starting: {} location(s) to process", pending.size());
 
@@ -127,8 +146,7 @@ public class BortleEnrichmentService {
 
         LOG.info("Bortle enrichment complete: {} enriched, {} failed", enriched, failed.size());
         EnrichmentResult result = new EnrichmentResult(enriched, failed);
-        jobRunService.completeRun(jobRun, enriched, failed.size());
-        progressTracker.completeRun(jobRun.getId());
+        runCompletion.complete(jobRun, enriched, failed.size());
         return result;
     }
 

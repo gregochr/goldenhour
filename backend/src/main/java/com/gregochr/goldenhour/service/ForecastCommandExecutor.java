@@ -39,6 +39,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
@@ -76,6 +77,7 @@ public class ForecastCommandExecutor {
     private final AstroConditionsService astroConditionsService;
     private final OpenMeteoService openMeteoService;
     private final Clock clock;
+    private final RunCompletion runCompletion;
 
     /**
      * Shared classifier + snapshot producer, wrapping the injected classifier and
@@ -130,6 +132,7 @@ public class ForecastCommandExecutor {
         this.astroConditionsService = astroConditionsService;
         this.openMeteoService = openMeteoService;
         this.clock = clock;
+        this.runCompletion = new RunCompletion(jobRunService, progressTracker, eventPublisher);
         this.gridCellStabilityService =
                 new GridCellStabilityService(stabilityClassifier, stabilitySnapshotProvider);
     }
@@ -150,12 +153,50 @@ public class ForecastCommandExecutor {
      * <p>When {@code preCreatedJobRun} is non-null, it is used instead of creating a new one.
      * This allows the controller to return the job run ID synchronously before execution starts.
      *
+     * <p>⚠️ <b>This is the one guard every hand-started run passes through</b> (all five
+     * {@code ForecastController} endpoints discard the future this runs on, so nothing else can
+     * see a failure). Whatever escapes the pipeline, the run is still told to the admin and
+     * closed: unfinished tasks are published FAILED, the tracker emits {@code run-complete}
+     * (registering the run first if it failed before {@code initRun}), and the {@code job_run} is
+     * closed unless a normal completion already did. An {@link Exception} is logged once at ERROR
+     * and swallowed, returning no results; an {@link Error} gets the same best-effort completion
+     * and is rethrown. If no job run exists yet (none was pre-created and creating one is what
+     * failed) there is nothing to complete, and the exception propagates.
+     *
      * @param command           the command to execute
      * @param preCreatedJobRun  a pre-created job run entity, or null to create one internally
      * @return all saved evaluation entities produced by the run
      */
     public List<ForecastEvaluationEntity> execute(ForecastCommand command,
             JobRunEntity preCreatedJobRun) {
+        AtomicReference<JobRunEntity> runRef = new AtomicReference<>(preCreatedJobRun);
+        try {
+            return executePipeline(command, runRef);
+        } catch (Exception e) {
+            if (runRef.get() == null) {
+                throw e;
+            }
+            abortRun(runRef.get(), e);
+            return List.of();
+        } catch (Error e) {
+            if (runRef.get() != null) {
+                abortRun(runRef.get(), e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Logs a run that threw — once, at ERROR, with the stack trace — then completes it.
+     */
+    private void abortRun(JobRunEntity jobRun, Throwable cause) {
+        LOG.error("Forecast run {} aborted: {}", jobRun.getId(), cause.toString(), cause);
+        runCompletion.abort(jobRun, RunCompletion.reasonForForecastRun(cause));
+    }
+
+    private List<ForecastEvaluationEntity> executePipeline(ForecastCommand command,
+            AtomicReference<JobRunEntity> runRef) {
+        JobRunEntity preCreatedJobRun = runRef.get();
         RunType runType = command.runType();
         EvaluationModel evaluationModel = commandFactory.resolveEvaluationModel(command);
         // Null-safe like the `instanceof` this replaced: ForecastCommand.strategy is
@@ -176,6 +217,7 @@ public class ForecastCommandExecutor {
                 ? preCreatedJobRun
                 : jobRunService.startRun(runType, command.triggeredManually(),
                         evaluationModel, strategiesAudit);
+        runRef.set(jobRun);
 
         List<LocationEntity> locations = resolveLocations(command, isWildlife);
 
@@ -288,13 +330,28 @@ public class ForecastCommandExecutor {
         boolean tideAlignmentEnabled = enabledStrategies.stream()
                 .anyMatch(s -> s.getStrategyType() == OptimisationStrategyType.TIDE_ALIGNMENT);
 
-        // Pre-fetch all weather data in batch (2 API calls instead of 2N)
-        Map<String, WeatherExtractionResult> prefetchedWeather = prefetchWeather(
-                nonSkippedTasks, jobRun);
+        // Pre-fetch all weather data in batch (2 API calls instead of 2N). A failed prefetch
+        // degrades instead of aborting the run, as the cloud prefetch below and the batch
+        // pipeline's resilient prefetch already do: an empty (non-null) map makes triage read the
+        // cache with no network call, so every task fails through the ordinary weather FAILED path,
+        // the run completes, and "Retry failed" has failed tasks to retry.
+        Map<String, WeatherExtractionResult> prefetchedWeather;
+        boolean weatherPrefetchFailed = false;
+        try {
+            prefetchedWeather = prefetchWeather(nonSkippedTasks, jobRun);
+        } catch (Exception e) {
+            LOG.warn("Weather prefetch failed — every task of this run will fail individually: {}",
+                    e.toString());
+            prefetchedWeather = Map.of();
+            weatherPrefetchFailed = true;
+            progressTracker.noteFailure(jobRun.getId(), RunCompletion.REASON_OPEN_METEO);
+        }
 
-        // Pre-fetch all cloud sampling points in 1 batch call (~300 calls → 1)
-        CloudPointCache cloudCache = prefetchCloudPoints(
-                nonSkippedTasks, prefetchedWeather, jobRun);
+        // Pre-fetch all cloud sampling points in 1 batch call (~300 calls → 1). Pointless when the
+        // weather prefetch just failed: every task fails at weather before it would read this.
+        CloudPointCache cloudCache = weatherPrefetchFailed
+                ? new CloudPointCache(Map.of())
+                : prefetchCloudPoints(nonSkippedTasks, prefetchedWeather, jobRun);
 
         // Phase 1: TRIAGE (uses pre-fetched data — no individual API calls)
         progressTracker.setPhase(jobRun.getId(), RunPhase.TRIAGE);
@@ -309,8 +366,7 @@ public class ForecastCommandExecutor {
         if (survivors.isEmpty()) {
             // Everything was triaged — early stop
             progressTracker.setPhase(jobRun.getId(), RunPhase.EARLY_STOP);
-            jobRunService.completeRun(jobRun, succeeded, failed, dates);
-            progressTracker.completeRun(jobRun.getId());
+            runCompletion.complete(jobRun, succeeded, failed, dates);
             LOG.info("Forecast run early-stopped — all tasks triaged");
             return results;
         }
@@ -341,8 +397,7 @@ public class ForecastCommandExecutor {
         if (fullEvalBatch.isEmpty()) {
             RunPhase finalPhase = survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE;
             progressTracker.setPhase(jobRun.getId(), finalPhase);
-            jobRunService.completeRun(jobRun, succeeded, failed, dates);
-            progressTracker.completeRun(jobRun.getId());
+            runCompletion.complete(jobRun, succeeded, failed, dates);
             LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
                     runType, evaluationModel, succeeded, failed);
             return results;
@@ -361,8 +416,7 @@ public class ForecastCommandExecutor {
 
         if (fullEvalBatch.isEmpty()) {
             progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
-            jobRunService.completeRun(jobRun, succeeded, failed, dates);
-            progressTracker.completeRun(jobRun.getId());
+            runCompletion.complete(jobRun, succeeded, failed, dates);
             LOG.info("Forecast run complete — all remaining tasks filtered by stability");
             return results;
         }
@@ -378,8 +432,7 @@ public class ForecastCommandExecutor {
         failed += fullEvalBatch.size() - fullResults.size();
 
         progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
-        jobRunService.completeRun(jobRun, succeeded, failed, dates);
-        progressTracker.completeRun(jobRun.getId());
+        runCompletion.complete(jobRun, succeeded, failed, dates);
         LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
                 runType, evaluationModel, succeeded, failed);
 
@@ -730,8 +783,7 @@ public class ForecastCommandExecutor {
             }
         }
 
-        jobRunService.completeRun(jobRun, succeeded, failed, dates);
-        progressTracker.completeRun(jobRun.getId());
+        runCompletion.complete(jobRun, succeeded, failed, dates);
         return results;
     }
 

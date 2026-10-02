@@ -279,11 +279,14 @@ describe('RunProgressPanel completion', () => {
     expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
   });
 
-  it('treats a payload with no failed count as no failures: it auto-clears and offers no Retry', async () => {
+  it('treats a payload with neither a failed count nor a failing status as no failures: it auto-clears and offers no Retry', async () => {
     const onAutoClear = vi.fn();
     render(<RunProgressPanel jobRunId={5} onAutoClear={onAutoClear} />);
-    const { failed, ...withoutFailed } = completeEvent(5, TWO_FAILURES);
+    // The keep/clear decision reads the status as well as the count, so the fixture's own derived
+    // PARTIAL has to go too for this payload to be the legacy shape the test is about.
+    const { failed, status, ...withoutFailed } = completeEvent(5, TWO_FAILURES);
     expect(failed).toBe(2);
+    expect(status).toBe('PARTIAL');
 
     await act(async () => { feed.feeds[5].onComplete(withoutFailed); });
 

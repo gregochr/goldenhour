@@ -5,8 +5,8 @@
 //   run-summary  <- buildSummary: jobRunId, phase, total, completed, triaged, failed, inProgress,
 //                   skipped, status, elapsedMs
 //   run-complete <- buildRunCompleteEvent: jobRunId, status, phase, total, completed, triaged,
-//                   failed, skipped, durationMs, failedTasks[{taskKey, locationName, errorMessage}]
-//                   (NO inProgress)
+//                   failed, skipped, durationMs, failedTasks[{taskKey, locationName, errorMessage}],
+//                   reason (null unless the run failed as a whole) (NO inProgress)
 // and the counters and status are derived from the tasks the way RunProgress derives them.
 
 const FINISHED = ['COMPLETE', 'FAILED', 'SKIPPED', 'TRIAGED'];
@@ -26,18 +26,21 @@ export const task = (taskKey, locationName, state, extra = {}) => ({
 
 const count = (tasks, state) => tasks.filter((t) => t.state === state).length;
 
-/** RunProgress.getStatus(). */
-const statusOf = (tasks) => {
+/**
+ * RunProgress.getStatus(). With a run-level failure `reason`: PARTIAL when something completed or
+ * was triaged, otherwise FAILED (a run with no tasks included); without one, the task-derived status,
+ * where skipped slots beside failures do not soften FAILED.
+ */
+const statusOf = (tasks, reason = null) => {
   const total = tasks.length;
+  const nothingLanded = count(tasks, 'COMPLETE') === 0 && count(tasks, 'TRIAGED') === 0;
+  if (reason) return nothingLanded ? 'FAILED' : 'PARTIAL';
   if (total === 0) return 'COMPLETE';
   const finished = tasks.filter((t) => FINISHED.includes(t.state)).length;
   if (finished < total) return 'RUNNING';
   const failed = count(tasks, 'FAILED');
   if (failed === 0) return 'COMPLETE';
-  if (count(tasks, 'COMPLETE') === 0 && count(tasks, 'SKIPPED') === 0 && count(tasks, 'TRIAGED') === 0) {
-    return 'FAILED';
-  }
-  return 'PARTIAL';
+  return nothingLanded ? 'FAILED' : 'PARTIAL';
 };
 
 /** RunProgressTracker.buildSummary for the given tasks. */
@@ -55,9 +58,13 @@ export const summaryEvent = (jobRunId, tasks, { phase = 'FULL_EVALUATION', elaps
 });
 
 /** RunProgressTracker.buildRunCompleteEvent for the given tasks. */
-export const completeEvent = (jobRunId, tasks, { phase = 'FULL_EVALUATION', durationMs = 2100 } = {}) => ({
+export const completeEvent = (
   jobRunId,
-  status: statusOf(tasks),
+  tasks,
+  { phase = 'FULL_EVALUATION', durationMs = 2100, reason = null } = {},
+) => ({
+  jobRunId,
+  status: statusOf(tasks, reason),
   phase,
   total: tasks.length,
   completed: count(tasks, 'COMPLETE'),
@@ -70,6 +77,7 @@ export const completeEvent = (jobRunId, tasks, { phase = 'FULL_EVALUATION', dura
     locationName: t.locationName,
     errorMessage: t.errorMessage ?? '',
   })),
+  reason,
 });
 
 /** A run with one rated place and two that failed to fetch weather. */

@@ -20,6 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -166,6 +167,10 @@ public class RunProgressTracker {
     /**
      * Marks a run as complete and broadcasts the final run-complete event.
      *
+     * <p>Idempotent: a run that has already completed (normally, or through {@link #failRun}) is
+     * left exactly as it was and nothing is broadcast a second time, so the executor's normal
+     * completion and its abort guard can both call this without coordinating.
+     *
      * @param jobRunId the job run ID
      */
     public void completeRun(long jobRunId) {
@@ -174,6 +179,49 @@ public class RunProgressTracker {
             return;
         }
         synchronized (completionLock) {
+            if (completions.containsKey(jobRunId)) {
+                return;
+            }
+            Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
+            completions.put(jobRunId, completeEvent);
+            broadcastRunComplete(jobRunId, completeEvent);
+        }
+    }
+
+    /**
+     * Records a run-level failure reason on a run that carries on (the run is not completed, and
+     * nothing is broadcast until it is). Used when a shared step failed but the run can still
+     * finish task by task, so the eventual {@code run-complete} says why. No-op for an unknown run.
+     *
+     * @param jobRunId the job run ID
+     * @param reason   a fixed, safe phrase for the reader
+     */
+    public void noteFailure(long jobRunId, String reason) {
+        RunProgress progress = activeRuns.get(jobRunId);
+        if (progress != null) {
+            progress.markFailed(reason);
+        }
+    }
+
+    /**
+     * Marks a run as having failed as a whole and broadcasts the final run-complete event carrying
+     * that failure.
+     *
+     * <p>Works whether or not the run was ever registered: a run that failed before
+     * {@link #initRun} is registered here with no tasks, so the panel is told the run failed
+     * rather than being left to the {@code run-expired} path. A run that has already completed is
+     * left untouched (first completion wins).
+     *
+     * @param jobRunId the job run ID
+     * @param reason   a fixed, safe phrase for the reader (never a raw exception message)
+     */
+    public void failRun(long jobRunId, String reason) {
+        synchronized (completionLock) {
+            if (completions.containsKey(jobRunId)) {
+                return;
+            }
+            RunProgress progress = activeRuns.computeIfAbsent(jobRunId, RunProgress::new);
+            progress.markFailed(reason);
             Map<String, Object> completeEvent = buildRunCompleteEvent(jobRunId, progress);
             completions.put(jobRunId, completeEvent);
             broadcastRunComplete(jobRunId, completeEvent);
@@ -379,17 +427,18 @@ public class RunProgressTracker {
                         "errorMessage", t.errorMessage() != null ? t.errorMessage() : ""))
                 .toList();
 
-        return Map.ofEntries(
-                Map.entry("jobRunId", jobRunId),
-                Map.entry("status", progress.getStatus().name()),
-                Map.entry("phase", progress.getPhase().name()),
-                Map.entry("total", progress.getTotal()),
-                Map.entry("completed", progress.getCompleted()),
-                Map.entry("triaged", progress.getTriaged()),
-                Map.entry("failed", progress.getFailed()),
-                Map.entry("skipped", progress.getSkipped()),
-                Map.entry("durationMs", progress.getElapsedMs()),
-                Map.entry("failedTasks", failedTasks)
-        );
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("jobRunId", jobRunId);
+        event.put("status", progress.getStatus().name());
+        event.put("phase", progress.getPhase().name());
+        event.put("total", progress.getTotal());
+        event.put("completed", progress.getCompleted());
+        event.put("triaged", progress.getTriaged());
+        event.put("failed", progress.getFailed());
+        event.put("skipped", progress.getSkipped());
+        event.put("durationMs", progress.getElapsedMs());
+        event.put("failedTasks", failedTasks);
+        event.put("reason", progress.getFailureReason());
+        return event;
     }
 }
