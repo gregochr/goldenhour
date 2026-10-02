@@ -206,6 +206,29 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             Pageable pageable);
 
     /**
+     * Deletes one place's {@code HOURLY} (wildlife comfort) rows for one target date — the
+     * "replace" half of {@code WildlifeComfortRefreshJob}'s delete-then-insert, and the single
+     * exception to this table being insert-only.
+     *
+     * <p>⚠️ The {@code HOURLY} literal is part of the query text, not a parameter, so no caller can
+     * point this at a {@code SUNRISE} or {@code SUNSET} row: the scored forecast rows, their
+     * {@code cloud_verification} dependants and the calibration join all stay out of its reach.
+     * Callers must delete only inside the transaction that inserts the replacement rows, and only
+     * once those rows exist — see {@code WildlifeComfortWriter}.
+     *
+     * @param locationId the location primary key
+     * @param targetDate the target date whose {@code HOURLY} rows are superseded
+     * @return the number of rows deleted
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM ForecastEvaluationEntity e WHERE e.location.id = :locationId"
+            + " AND e.targetDate = :targetDate"
+            + " AND e.targetType = com.gregochr.goldenhour.entity.TargetType.HOURLY")
+    int deleteHourlyByLocationIdAndTargetDate(@Param("locationId") Long locationId,
+            @Param("targetDate") LocalDate targetDate);
+
+    /**
      * R7(a) event-driven abandonment: stamps {@code ABANDONED} every still-{@code PENDING} row
      * among the given primary keys. A no-op for any id already {@code SCORED} (the batch result
      * beat the sweep) or already {@code ABANDONED} (an R6 retry precursor stamp beat it here) —

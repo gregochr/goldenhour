@@ -689,6 +689,14 @@ public class ForecastCommandExecutor {
     // Wildlife (bypass pipeline)
     // -------------------------------------------------------------------------
 
+    /**
+     * Runs the legacy wildlife comfort engine: two un-batched Open-Meteo calls per location per
+     * date, inserting rows without replacing any.
+     *
+     * <p>No trigger reaches this any more — {@code RunType.WEATHER}'s only schedule was removed on
+     * 2026-02-27 — and {@code WildlifeComfortRefreshJob} has superseded it with a batched,
+     * replace-in-place refresh of the same {@code HOURLY} rows.
+     */
     private List<ForecastEvaluationEntity> executeWildlife(List<LocationEntity> locations,
             List<LocalDate> dates, JobRunEntity jobRun) {
         int succeeded = 0;

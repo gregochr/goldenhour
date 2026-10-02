@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudData;
 import com.gregochr.goldenhour.model.ComfortData;
+import com.gregochr.goldenhour.model.HourlyComfort;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
@@ -20,7 +21,9 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Pure parsing of raw Open-Meteo forecast/air-quality responses into the domain records
@@ -296,6 +299,77 @@ public final class OpenMeteoResponseParser {
 
         return new UpwindCloudSample(distanceKm, windFromBearing,
                 currentLowCloud, eventLowCloud);
+    }
+
+    /**
+     * Extracts the comfort-only reading for every full UTC hour from {@code from} to {@code to}
+     * (both truncated to the hour, both inclusive) — the six figures a wildlife hide's hourly
+     * table shows, and nothing else.
+     *
+     * <p><b>Tolerant by design, unlike {@link #extractAtmosphericData}.</b> That method needs a
+     * complete colour reading, so one missing cloud or visibility hour throws and loses the whole
+     * slot, and it dereferences the air-quality response unguarded. Neither belongs here: the
+     * comfort table has no use for cloud, visibility, humidity, boundary-layer height or aerosols,
+     * and a hole in one of those series must not cost a hide its table. This method reads only
+     * the six comfort series, matches each hour by its exact timestamp rather than the nearest
+     * slot, and:
+     * <ul>
+     *   <li>skips an hour that is not in the response at all, or whose temperature is null — a
+     *       row with no temperature is not a comfort reading;</li>
+     *   <li>keeps an hour whose other readings are null, leaving them null.</li>
+     * </ul>
+     * Wind speed and precipitation are rounded to two decimals, HALF_UP, exactly as
+     * {@code extractAtmosphericData} rounds them, so a comfort row is field-for-field what the
+     * strict path stored.
+     *
+     * @param forecast the Open-Meteo forecast response; a null response or hourly block yields none
+     * @param from     start of the window (truncated to the hour)
+     * @param to       end of the window (truncated to the hour)
+     * @return one reading per hour that has a temperature, in time order; empty if none do
+     */
+    public static List<HourlyComfort> extractComfortHours(OpenMeteoForecastResponse forecast,
+            LocalDateTime from, LocalDateTime to) {
+        if (forecast == null || forecast.getHourly() == null || forecast.getHourly().getTime() == null) {
+            return List.of();
+        }
+        OpenMeteoForecastResponse.Hourly h = forecast.getHourly();
+        Map<LocalDateTime, Integer> indexByHour = new HashMap<>();
+        List<String> times = h.getTime();
+        for (int i = 0; i < times.size(); i++) {
+            try {
+                indexByHour.put(LocalDateTime.parse(times.get(i)), i);
+            } catch (RuntimeException e) {
+                // An unparseable timestamp is simply an hour that cannot be matched.
+                continue;
+            }
+        }
+
+        List<HourlyComfort> readings = new ArrayList<>();
+        LocalDateTime end = to.truncatedTo(ChronoUnit.HOURS);
+        for (LocalDateTime hour = from.truncatedTo(ChronoUnit.HOURS); !hour.isAfter(end);
+                hour = hour.plusHours(1)) {
+            Integer idx = indexByHour.get(hour);
+            if (idx == null) {
+                continue;
+            }
+            Double temperature = getDoubleValue(h.getTemperature2m(), idx);
+            if (temperature == null) {
+                continue;
+            }
+            Double windSpeed = getDoubleValue(h.getWindSpeed10m(), idx);
+            Double precipitation = getDoubleValue(h.getPrecipitation(), idx);
+            readings.add(new HourlyComfort(
+                    hour,
+                    temperature,
+                    getDoubleValue(h.getApparentTemperature(), idx),
+                    getIntegerValue(h.getPrecipitationProbability(), idx),
+                    windSpeed == null ? null : BigDecimal.valueOf(windSpeed)
+                            .setScale(WIND_SPEED_SCALE, RoundingMode.HALF_UP),
+                    getIntegerValue(h.getWindDirection10m(), idx),
+                    precipitation == null ? null : BigDecimal.valueOf(precipitation)
+                            .setScale(PRECIP_SCALE, RoundingMode.HALF_UP)));
+        }
+        return readings;
     }
 
     private static Double getAirQualityValue(List<Double> values, int idx) {

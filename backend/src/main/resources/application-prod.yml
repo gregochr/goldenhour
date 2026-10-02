@@ -385,9 +385,6 @@ forecast:
     haiku:
       # Every 12 hours: 6, 18 UTC
       cron: "${FORECAST_HAIKU_CRON:0 0 6,18 * * *}"
-    wildlife:
-      # Every 12 hours: 6, 18 UTC
-      cron: "${FORECAST_WILDLIFE_CRON:0 0 6,18 * * *}"
 
 tide:
   schedule:

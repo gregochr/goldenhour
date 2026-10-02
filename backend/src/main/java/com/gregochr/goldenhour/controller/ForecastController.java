@@ -77,8 +77,10 @@ public class ForecastController {
      * <p>Was 7, added by f58621f0 together with the DateStrip's dimmed past chips (the DateStrip
      * has since been retired). Reduced to 2 because the payload is cached client-side for instant
      * paint and the past half of it was the larger half: past days are fully dense (every one was
-     * scored when it was T+0, and WILDLIFE/WATERFALL locations carry ~16 HOURLY rows each per day)
-     * while T+4 and beyond are never batch-evaluated.
+     * scored when it was T+0, and each WILDLIFE-only hide carries one HOURLY comfort row per
+     * daylight hour — roughly 8 to 18 a day — written for today through T+5 by
+     * {@code WildlifeComfortRefreshJob}, so a past day's rows are whatever the last refresh left;
+     * waterfalls never carry any) while T+4 and beyond are never batch-evaluated.
      *
      * <p><b>Not zero, for two reasons the frontend depends on</b> — neither visible from here:
      *
