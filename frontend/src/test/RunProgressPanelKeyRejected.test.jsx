@@ -176,10 +176,10 @@ describe('RunProgressPanel for a run stopped on a rejected API key', () => {
   });
 
   describe('the status word of a finished run', () => {
-    it('is (Complete) for a clean run and for failed places with no run reason', async () => {
+    it('is (Completed with failures) for failed places with no run reason', async () => {
       renderPanel();
       await playRun(5, TWO_FAILURES);
-      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Complete)');
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Completed with failures)');
     });
 
     it('is (Complete) for a run in which everything finished cleanly', async () => {

@@ -6,7 +6,7 @@ import RunCompleteBanner from '../components/RunCompleteBanner.jsx';
 import { runForecast } from '../api/forecastApi.js';
 import createEventSource from '../utils/createEventSource.js';
 import {
-  needsAttention, failedOutright, stoppedEarly, completedWithFailures, failureMessage, RUN_FAILED_FALLBACK,
+  needsAttention, failedOutright, stoppedEarly, completedWithFailures, runCountsLine, failureMessage, RUN_FAILED_FALLBACK,
 } from '../utils/runOutcome.js';
 import {
   NO_FAILURES, ONE_FAILURE, task, completeEvent, KEY_REJECTED_NOTHING_TRIAGED, KEY_REJECTED_TRIAGED, KEY_REJECTED_AFTER_ONE, KEY_REJECTED_RUN,
@@ -145,12 +145,45 @@ describe('map popup Run Forecast: how a finished run reads', () => {
     expect(screen.getByText(KEY_REJECTED_RUN)).toBeInTheDocument();
   });
 
-  it('keeps the existing sentence for a run with failed tasks and no reason', async () => {
+  it('a run with a failed task and no reason (it completed with failures) is not called failed', async () => {
     const { handlers, onForecastRun } = await startRun();
 
     await act(async () => { handlers['run-complete'](completeEvent(9, ONE_FAILURE)); });
 
-    expect(screen.getByText('Forecast run failed')).toBeInTheDocument();
+    expect(screen.queryByText('Forecast run failed')).toBeNull();
+    expect(onForecastRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('a run that completed with failures refreshes once and says part of it failed', async () => {
+    const { handlers, onForecastRun } = await startRun();
+
+    await act(async () => {
+      handlers['run-complete'](completeEvent(9, [task('a|b', 'A', 'COMPLETE'), task('c|d', 'C', 'FAILED')]));
+    });
+
+    expect(onForecastRun).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Part of this forecast failed.')).toBeInTheDocument();
+  });
+
+  it('a run whose places were triaged or completed and some failed also refreshes once and says part failed', async () => {
+    const { handlers, onForecastRun } = await startRun();
+
+    await act(async () => {
+      handlers['run-complete'](completeEvent(9, [task('a|b', 'A', 'TRIAGED'), task('c|d', 'C', 'FAILED')]));
+    });
+
+    expect(onForecastRun).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Part of this forecast failed.')).toBeInTheDocument();
+  });
+
+  it('a run with failed places and nothing completed or triaged keeps "failed" and does not refresh', async () => {
+    const { handlers, onForecastRun } = await startRun();
+
+    await act(async () => {
+      handlers['run-complete'](completeEvent(9, [task('c|d', 'C', 'FAILED'), task('e|f', 'E', 'FAILED')]));
+    });
+
+    expect(screen.queryByText('Part of this forecast failed.')).toBeNull();
     expect(onForecastRun).not.toHaveBeenCalled();
   });
 
@@ -249,7 +282,7 @@ describe('app-wide run-complete banner', () => {
     const banner = screen.getByTestId('run-complete-banner');
     expect(run.status).toBe('PARTIAL');
     expect(banner.textContent)
-      .toBe(`Forecast run stopped early — 0 locations updated, 2 failed. ${KEY_REJECTED_RUN} Refresh`);
+      .toBe(`Forecast run stopped early — 0 locations updated, 1 triaged, 2 failed. ${KEY_REJECTED_RUN} Refresh`);
     expect(banner.className).toContain('bg-amber-900/40');
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
@@ -290,6 +323,42 @@ describe('app-wide run-complete banner', () => {
     expect(banner.className).not.toContain('bg-red');
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the triaged places in the completed-with-failures line, between updated and failed', () => {
+    render(<RunCompleteBanner
+      run={completeEvent(9, [task('a|b', 'A', 'TRIAGED'), task('e|f', 'E', 'TRIAGED'), task('c|d', 'C', 'FAILED')])}
+      onRefresh={vi.fn()}
+    />);
+
+    const banner = screen.getByTestId('run-complete-banner');
+    expect(banner.textContent).toBe('Forecast run completed with failures — 0 locations updated, 2 triaged, 1 failed. Refresh');
+    expect(banner.className).toContain('bg-amber-900/40');
+  });
+
+  it('names completed and triaged places together in the completed-with-failures line', () => {
+    render(<RunCompleteBanner
+      run={completeEvent(9, [task('a|b', 'A', 'COMPLETE'), task('e|f', 'E', 'TRIAGED'), task('c|d', 'C', 'FAILED')])}
+      onRefresh={vi.fn()}
+    />);
+
+    expect(screen.getByTestId('run-complete-banner').textContent)
+      .toBe('Forecast run completed with failures — 1 location updated, 1 triaged, 1 failed. Refresh');
+  });
+
+  it('names the triaged places in the stopped-early line, and omits them when there are none', () => {
+    const { unmount } = render(<RunCompleteBanner
+      run={completeEvent(9, [task('a|b', 'A', 'COMPLETE'), task('e|f', 'E', 'TRIAGED'), task('c|d', 'C', 'FAILED')],
+        { reason: UNEXPECTED })}
+      onRefresh={vi.fn()}
+    />);
+    expect(screen.getByTestId('run-complete-banner').textContent)
+      .toBe(`Forecast run stopped early — 1 location updated, 1 triaged, 1 failed. ${UNEXPECTED} Refresh`);
+    unmount();
+
+    render(<RunCompleteBanner run={completeEvent(9, STOPPED_EARLY, { reason: UNEXPECTED })} onRefresh={vi.fn()} />);
+    expect(screen.getByTestId('run-complete-banner').textContent)
+      .toBe(`Forecast run stopped early — 1 location updated, 1 failed. ${UNEXPECTED} Refresh`);
   });
 
   it('pluralises the updated count in the completed-with-failures line', () => {
@@ -348,6 +417,24 @@ describe('runOutcome', () => {
     expect(completedWithFailures({ status: 'FAILED', completed: 0, failed: 2 })).toBe(false);
     expect(completedWithFailures({ status: 'PARTIAL', completed: 1, failed: 1, reason: UNEXPECTED })).toBe(false);
     expect(completedWithFailures(null)).toBe(false);
+  });
+
+  it('completedWithFailures: no status, RUNNING, triaged-only, and PARTIAL with nothing completed', () => {
+    // No status (a foreign payload): needs something that stood; nothing done is not "completed".
+    expect(completedWithFailures({ completed: 1, triaged: 0, failed: 1 })).toBe(true);
+    expect(completedWithFailures({ completed: 0, triaged: 0, failed: 2 })).toBe(false);
+    // Still RUNNING is not a finished run.
+    expect(completedWithFailures({ status: 'RUNNING', completed: 1, failed: 1 })).toBe(false);
+    // Triaged places alone, with no failed place, are a clean run.
+    expect(completedWithFailures({ status: 'COMPLETE', completed: 0, triaged: 3, failed: 0 })).toBe(false);
+    // PARTIAL with nothing completed: triaged places stood, so it is completed with failures.
+    expect(completedWithFailures({ status: 'PARTIAL', completed: 0, triaged: 2, failed: 1, reason: null })).toBe(true);
+  });
+
+  it('runCountsLine reads "N locations updated, T triaged, M failed", leaving out zero triaged and zero failed', () => {
+    expect(runCountsLine({ completed: 2, triaged: 0, failed: 0 })).toBe('2 locations updated');
+    expect(runCountsLine({ completed: 1, triaged: 0, failed: 3 })).toBe('1 location updated, 3 failed');
+    expect(runCountsLine({ completed: 0, triaged: 4, failed: 1 })).toBe('0 locations updated, 4 triaged, 1 failed');
   });
 
   it('failureMessage prefers the reason, then the fixed fallback', () => {

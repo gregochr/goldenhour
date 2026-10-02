@@ -36,6 +36,7 @@ public class RunProgress {
     private volatile Instant lastActivityAt;
     private volatile Instant completedAt;
     private volatile Long retriedAs;
+    private volatile Instant retriedAt;
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -102,9 +103,20 @@ public class RunProgress {
      * not survive a restart.
      *
      * @param retryJobRunId the job run id of the retry that was started
+     * @param at            when it was started
      */
-    public void recordRetry(long retryJobRunId) {
+    public void recordRetry(long retryJobRunId, Instant at) {
         this.retriedAs = retryJobRunId;
+        this.retriedAt = at;
+    }
+
+    /**
+     * When the retry recorded by {@link #recordRetry} was started.
+     *
+     * @return the instant, or {@code null} when no retry has been started from this run
+     */
+    public Instant getRetriedAt() {
+        return retriedAt;
     }
 
     /**

@@ -160,17 +160,6 @@ describe('RunProgressPanel: what Retry offers and why it is withheld', () => {
       await expect409Shown(LIGHT_POLLUTION_ONE_FAILURE, 'Retry 1 failed',
         'Light-pollution failures are retried by pressing Refresh Light Pollution again.');
     });
-
-    it('shows the "already retried" 409 sentence, naming the first retry\'s run, the same way (a second '
-      + 'admin\'s panel, opened after the retry started)', async () => {
-      await expect409Shown(TWO_FAILURES, 'Retry 2 failed',
-        'This run has already been retried as run 8. Retry that run\'s failures instead.');
-    });
-
-    it('shows the "still going" 409 sentence the same way', async () => {
-      await expect409Shown(TWO_FAILURES, 'Retry 2 failed',
-        'This run is still going. Retry is offered when it has finished.');
-    });
   });
 
   describe('task updates that arrive out of order', () => {

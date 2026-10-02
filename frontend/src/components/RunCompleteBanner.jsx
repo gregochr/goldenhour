@@ -1,6 +1,8 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { completedWithFailures, failedOutright, stoppedEarly } from '../utils/runOutcome.js';
+import {
+  completedWithFailures, failedOutright, runCountsLine, stoppedEarly,
+} from '../utils/runOutcome.js';
 
 /** "Forecast run failed" with whatever the payload can say about why. */
 const failureText = (run) => {
@@ -44,8 +46,7 @@ const RunCompleteBanner = ({ run, onRefresh }) => {
     return (
       <div className="bg-amber-900/40 border-b border-amber-700 py-3" data-testid="run-complete-banner">
         <p className="max-w-4xl mx-auto px-4 text-sm text-amber-300 text-center">
-          Forecast run stopped early — {run.completed} location{run.completed !== 1 ? 's' : ''} updated
-          {run.failed > 0 && `, ${run.failed} failed`}.
+          Forecast run stopped early — {runCountsLine(run)}.
           {' '}{run.reason}
           {' '}
           <button
@@ -62,8 +63,7 @@ const RunCompleteBanner = ({ run, onRefresh }) => {
     return (
       <div className="bg-amber-900/40 border-b border-amber-700 py-3" data-testid="run-complete-banner">
         <p className="max-w-4xl mx-auto px-4 text-sm text-amber-300 text-center">
-          Forecast run completed with failures — {run.completed} location{run.completed !== 1 ? 's' : ''} updated,
-          {' '}{run.failed} failed.
+          Forecast run completed with failures — {runCountsLine(run)}.
           {' '}
           <button
             className="underline font-medium hover:text-amber-100"

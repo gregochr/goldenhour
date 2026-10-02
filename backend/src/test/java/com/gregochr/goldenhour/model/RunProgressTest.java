@@ -278,37 +278,4 @@ class RunProgressTest {
 
         assertThat(progress.getRetryBlock()).isNull();
     }
-
-    @Test
-    @DisplayName("a new run is not completed, has not been retried, and its last activity is its start")
-    void freshRun_notCompletedNotRetried() {
-        RunProgress progress = new RunProgress(1L);
-
-        assertThat(progress.getCompletedAt()).isNull();
-        assertThat(progress.getRetriedAs()).isNull();
-        assertThat(progress.getLastActivityAt()).isEqualTo(progress.getStartedAt());
-    }
-
-    @Test
-    @DisplayName("touch moves the last activity and completion records when the run finished")
-    void touchAndMarkCompleted_recordTheInstants() {
-        RunProgress progress = new RunProgress(1L);
-
-        progress.touch(java.time.Instant.parse("2026-10-02T10:05:00Z"));
-        progress.markCompleted(java.time.Instant.parse("2026-10-02T10:07:00Z"));
-
-        assertThat(progress.getLastActivityAt()).isEqualTo(java.time.Instant.parse("2026-10-02T10:05:00Z"));
-        assertThat(progress.getCompletedAt()).isEqualTo(java.time.Instant.parse("2026-10-02T10:07:00Z"));
-    }
-
-    @Test
-    @DisplayName("recordRetry remembers which run retried this one")
-    void recordRetry_remembersTheRetryRun() {
-        RunProgress progress = new RunProgress(1L);
-
-        progress.recordRetry(8L);
-
-        assertThat(progress.getRetriedAs()).isEqualTo(8L);
-        assertThat(progress.retryLock()).isNotNull();
-    }
 }

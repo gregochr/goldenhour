@@ -75,13 +75,23 @@ public class RunProgressTracker {
     /**
      * How long a run that has NOT completed may go without any activity (a task event or a phase
      * change) before its entry is evicted; the only way such a run is ever evicted, since a run that is
-     * still active is never evicted on age. Generous on purpose: the longest silence a healthy run can
-     * have is one evaluation's wait for a permit on the {@code claude} bulkhead (120 s) plus one call
-     * (the client's 90 s call timeout, up to four attempts with 1 s, 2 s and 4 s of backoff: about 8
-     * minutes together), so an hour is several times that, while still bounding the memory of a run
-     * whose thread hung or was lost. Cleanup runs every five minutes, so eviction can be that much late.
+     * still active is never evicted on age.
+     *
+     * <p>Deliberately long, because an entry evicted while its run is alive never gets its
+     * {@code run-complete}. A live run has two silent phases. Between {@code initRun} and the first
+     * {@code setPhase(TRIAGE)} the weather and cloud prefetch runs and records nothing: Open-Meteo is
+     * called in small chunks with a 3 s gap and a 61 s backoff on each rate-limit response, so a large
+     * prefetch under repeated 429s can be silent for a long time. During evaluation the silence is one
+     * task's wait for a permit on the {@code claude} bulkhead (120 s) plus one call (90 s call timeout,
+     * up to four attempts), about 8 minutes. The prefetch is the one with no tight ceiling, so the bound
+     * is three hours rather than a multiple of the evaluation figure.
+     *
+     * <p>A generous bound costs nothing: a run always completes (its executor completes it whatever
+     * happens), unless the JVM dies, and then the in-memory tracker is gone as well, so an entry that
+     * never completes is almost impossible and this only bounds the memory of a leaked one. Cleanup runs
+     * every five minutes, so eviction can be that much late.
      */
-    static final Duration IDLE_RUN_TTL = Duration.ofMinutes(60);
+    static final Duration IDLE_RUN_TTL = Duration.ofHours(3);
 
     /**
      * How long a subscriber to an id the tracker does not (yet) hold waits before being told the run

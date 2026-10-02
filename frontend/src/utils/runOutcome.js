@@ -36,16 +36,38 @@ export const stoppedEarly = (data) => Boolean(data?.reason)
 
 /**
  * Whether the run finished, was not cut short, and still had places fail: a PARTIAL run with no
- * run-level reason (some places updated, some failed). Any payload that reports a failed place and is
- * neither failed outright nor stopped early. Such a run is not a clean success, so the banner shows it
- * amber with the failed count and still offers Refresh, because what did complete was written.
+ * run-level reason (some places updated or triaged, some failed). It reports a failed place, is
+ * neither failed outright nor stopped early, is not still RUNNING, and something stands: the server
+ * says PARTIAL, or a place completed or was triaged. A run with failed places and nothing completed
+ * or triaged is FAILED and is not this. Such a run is not a clean success, so the banner, the panel
+ * header and the map popup treat it alike: amber, the failed count, and a refresh, because what did
+ * complete was written.
  *
  * @param {object|null|undefined} data - The run-complete payload.
  * @returns {boolean}
  */
 export const completedWithFailures = (data) => data?.failed > 0
+  && data?.status !== 'RUNNING'
   && !failedOutright(data)
-  && !stoppedEarly(data);
+  && !stoppedEarly(data)
+  && (data?.status === 'PARTIAL' || data?.completed > 0 || data?.triaged > 0);
+
+/**
+ * The counts of a finished run that did some work, in the progress panel's own vocabulary and order:
+ * "N locations updated, T triaged, M failed", leaving out ", T triaged" and ", M failed" when zero.
+ * Triaged places are named because a run in which triage stood many places down would otherwise read
+ * "0 locations updated" and hide what it did.
+ *
+ * @param {object} data - The run-complete payload.
+ * @returns {string}
+ */
+export const runCountsLine = (data) => {
+  const completed = data?.completed ?? 0;
+  const parts = [`${completed} location${completed !== 1 ? 's' : ''} updated`];
+  if (data?.triaged > 0) parts.push(`${data.triaged} triaged`);
+  if (data?.failed > 0) parts.push(`${data.failed} failed`);
+  return parts.join(', ');
+};
 
 /**
  * The sentence for a run that failed outright: the server's reason when present, else a fixed one.

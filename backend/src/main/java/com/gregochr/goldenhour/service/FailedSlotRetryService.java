@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -57,7 +59,9 @@ import java.util.stream.Collectors;
  *       {@link RunProgress#retryLock()} together with the decision to start, so two concurrent
  *       requests (a double press, two admins) cannot both start one. It lives and dies with the
  *       tracker's entry: it does not survive a restart, and is forgotten when the entry is evicted
- *       (after which the run answers 404 anyway).</li>
+ *       (after which the run answers 404 anyway). A recorded retry that never ran does not block: if
+ *       the retry run completed with no task at all, or its entry is gone, the original may be
+ *       retried again.</li>
  *   <li><b>Never a rejected key, never a light-pollution run.</b> {@link RunProgress#getRetryBlock()}
  *       is the one answer the {@code run-complete} payload also carries, so the panel never offers a
  *       retry the server would refuse.</li>
@@ -103,6 +107,9 @@ public class FailedSlotRetryService {
 
     /** Why a failed slot was left out of the retry: its task does not name a date and event. */
     public static final String SKIPPED_MALFORMED = "The failed task does not name a date and event.";
+
+    /** How long a started retry may go unregistered in the tracker before its entry is taken as gone. */
+    static final Duration RETRY_REGISTRATION_GRACE = Duration.ofMinutes(5);
 
     /** The run types whose slots a retry can re-evaluate (the colour pipeline's). */
     private static final Set<RunType> RETRYABLE_RUN_TYPES =
@@ -204,16 +211,36 @@ public class FailedSlotRetryService {
         synchronized (progress.retryLock()) {
             Long alreadyRetriedAs = progress.getRetriedAs();
             if (alreadyRetriedAs != null) {
-                LOG.info("Retry of run {} refused: already retried as run {}", runId, alreadyRetriedAs);
-                return new Refused("This run has already been retried as run " + alreadyRetriedAs
-                        + ". Retry that run's failures instead.");
+                if (retryRunStands(alreadyRetriedAs, progress.getRetriedAt())) {
+                    LOG.info("Retry of run {} refused: already retried as run {}", runId, alreadyRetriedAs);
+                    return new Refused("This run has already been retried as run " + alreadyRetriedAs
+                            + ". Retry that run's failures instead.");
+                }
+                LOG.info("Run {} was retried as run {}, which never ran; retrying it again", runId,
+                        alreadyRetriedAs);
             }
             Outcome outcome = startRetry(runId, progress);
             if (outcome instanceof Started started) {
-                progress.recordRetry(started.jobRunId());
+                progress.recordRetry(started.jobRunId(), clock.instant());
             }
             return outcome;
         }
+    }
+
+    /**
+     * Whether a retry recorded for a run still stands, so the run is not retried again. It does not
+     * when the retry never ran, and the failures would otherwise be unretryable for the whole retention
+     * window: the retry run completed holding no task at all (it failed before it registered its tasks,
+     * and a retry always has at least one slot), or its tracker entry is gone. An entry is only taken
+     * as gone once {@link #RETRY_REGISTRATION_GRACE} has passed since the retry was started, because
+     * the run registers itself on the executor thread a moment after the request returns.
+     */
+    private boolean retryRunStands(long retryRunId, Instant startedAt) {
+        RunProgress retry = progressTracker.getProgress(retryRunId);
+        if (retry == null) {
+            return startedAt == null || clock.instant().isBefore(startedAt.plus(RETRY_REGISTRATION_GRACE));
+        }
+        return !(progressTracker.isComplete(retryRunId) && retry.getTotal() == 0);
     }
 
     /** Works out the failed slots of a finished, not-yet-retried run and starts the retry (under the retry lock). */

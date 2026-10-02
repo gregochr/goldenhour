@@ -661,6 +661,87 @@ class FailedSlotRetryServiceTest {
         assertThat(chained).isEqualTo(new FailedSlotRetryService.Started(9L, RunType.SHORT_TERM, 1, List.of()));
     }
 
+    // ------------------------------------------------- a retry that never ran does not block
+
+    private void stubTwoStarts() {
+        stubOriginalRunType(RunType.SHORT_TERM);
+        stubRoster(sky(1L, "Durham"), sky(2L, "Bamburgh"));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+        when(jobRunService.startRun(RunType.SHORT_TERM, true, null, null))
+                .thenReturn(jobRunRow(NEW_RUN, RunType.SHORT_TERM), jobRunRow(9L, RunType.SHORT_TERM));
+    }
+
+    @Test
+    @DisplayName("a retry run that failed before it registered any task (completed with no task) does not "
+            + "block: the original can be retried again")
+    void retry_afterTheRetryRunFailedBeforeItHadAnyTask_originalIsRetriedAgain() {
+        playEightSlotRunWithTwoFailed();
+        stubTwoStarts();
+        assertThat(service.retry(ORIGINAL_RUN))
+                .isEqualTo(new FailedSlotRetryService.Started(NEW_RUN, RunType.SHORT_TERM, 2, List.of()));
+        // The executor never got as far as initRun for run 8: its guard registers it failed, with no tasks.
+        tracker.failRun(NEW_RUN, "The run stopped unexpectedly. See the server log.");
+
+        FailedSlotRetryService.Outcome again = service.retry(ORIGINAL_RUN);
+
+        assertThat(again).isEqualTo(new FailedSlotRetryService.Started(9L, RunType.SHORT_TERM, 2, List.of()));
+        verify(jobRunService, times(2)).startRun(RunType.SHORT_TERM, true, null, null);
+    }
+
+    @Test
+    @DisplayName("a retry run that ran and has failures of its own still takes the retry: the 409 stands")
+    void retry_afterTheRetryRunRanWithFailures_stillRefused() {
+        playEightSlotRunWithTwoFailed();
+        stubTwoStarts();
+        service.retry(ORIGINAL_RUN);
+        playRun(NEW_RUN,
+                List.of(task("Durham", "2026-10-03", "SUNSET"), task("Bamburgh", "2026-10-04", "SUNRISE")),
+                List.of(LocationTaskState.COMPLETE, LocationTaskState.FAILED));
+
+        FailedSlotRetryService.Outcome again = service.retry(ORIGINAL_RUN);
+
+        assertThat(again).isEqualTo(new FailedSlotRetryService.Refused(
+                "This run has already been retried as run 8. Retry that run's failures instead."));
+        verify(jobRunService, times(1)).startRun(RunType.SHORT_TERM, true, null, null);
+    }
+
+    @Test
+    @DisplayName("a retry run that is registered and still going still takes the retry: the 409 stands")
+    void retry_whileTheRetryRunIsGoing_stillRefused() {
+        playEightSlotRunWithTwoFailed();
+        stubTwoStarts();
+        service.retry(ORIGINAL_RUN);
+        playRunUnfinished(NEW_RUN,
+                List.of(task("Durham", "2026-10-03", "SUNSET"), task("Bamburgh", "2026-10-04", "SUNRISE")),
+                List.of(LocationTaskState.EVALUATING, LocationTaskState.PENDING));
+
+        FailedSlotRetryService.Outcome again = service.retry(ORIGINAL_RUN);
+
+        assertThat(again).isEqualTo(new FailedSlotRetryService.Refused(
+                "This run has already been retried as run 8. Retry that run's failures instead."));
+    }
+
+    @Test
+    @DisplayName("a retry run whose tracker entry is gone blocks only during the registration grace period "
+            + "(5 minutes), then the original can be retried again")
+    void retry_afterTheRetryRunsEntryIsGone_originalIsRetriedAgainOnceTheGracePasses() {
+        MutableTestClock serviceClock = new MutableTestClock(Instant.parse("2026-10-02T09:00:00Z"));
+        service = new FailedSlotRetryService(tracker, jobRunService, locationService, factory,
+                commandExecutor, Runnable::run, serviceClock);
+        playEightSlotRunWithTwoFailed();
+        stubTwoStarts();
+        service.retry(ORIGINAL_RUN); // the mocked executor never registers run 8 in the tracker
+
+        serviceClock.advance(Duration.ofMinutes(4).plusSeconds(59));
+        FailedSlotRetryService.Outcome withinGrace = service.retry(ORIGINAL_RUN);
+        serviceClock.advance(Duration.ofSeconds(1));
+        FailedSlotRetryService.Outcome afterGrace = service.retry(ORIGINAL_RUN);
+
+        assertThat(withinGrace).isEqualTo(new FailedSlotRetryService.Refused(
+                "This run has already been retried as run 8. Retry that run's failures instead."));
+        assertThat(afterGrace).isEqualTo(new FailedSlotRetryService.Started(9L, RunType.SHORT_TERM, 2, List.of()));
+    }
+
     // ------------------------------------------------- the retry window follows COMPLETION
 
     private MutableTestClock useClockedTracker() {

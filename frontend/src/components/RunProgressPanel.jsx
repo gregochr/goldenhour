@@ -4,11 +4,13 @@ import { subscribeToRunProgress, retryFailed } from '../api/runProgressApi';
 import RunProgressRow from './RunProgressRow';
 import { apiErrorMessage } from '../utils/apiError.js';
 import { BUSY_BUTTON, BUSY_BUTTON_SECONDARY } from '../utils/busyButton.js';
-import { needsAttention, retryNotOfferedLine, stoppedEarly } from '../utils/runOutcome.js';
+import {
+  completedWithFailures, needsAttention, retryNotOfferedLine, stoppedEarly,
+} from '../utils/runOutcome.js';
 
 /**
  * The backend answers 404 with an empty body both when the run is unknown (never started, evicted
- * after 30 minutes, or lost to a restart) and when none of its failed places can be run again (no
+ * 30 minutes after it finished, or lost to a restart) and when none of its failed places can be run again (no
  * failures recorded, or none is a sky location any more). The two are indistinguishable, so the
  * sentence is worded to be true of each.
  */
@@ -22,7 +24,8 @@ const RUN_EXPIRED ="This run's progress is no longer available.";
 /** The word shown after the title of a finished run. */
 const statusWord = (payload) => {
   if (payload?.status === 'FAILED') return '(Failed)';
-  return stoppedEarly(payload) ? '(Stopped early)' : '(Complete)';
+  if (stoppedEarly(payload)) return '(Stopped early)';
+  return completedWithFailures(payload) ? '(Completed with failures)' : '(Complete)';
 };
 
 /**
@@ -42,7 +45,8 @@ const statusWord = (payload) => {
  *
  * <p>The status word after a finished run's title follows the payload: "(Failed)" for FAILED,
  * "(Stopped early)" for a PARTIAL run that carries a reason ({@code stoppedEarly}, the one rule the
- * banner and popup use), otherwise "(Complete)".
+ * banner and popup use), "(Completed with failures)" for a run that finished with some places failed
+ * and was neither ({@code completedWithFailures}, likewise shared), otherwise "(Complete)".
  *
  * <p>The server replays {@code run-complete} to a subscriber that arrives after the run finished, so
  * a panel remounted after a tab switch completes exactly as a live one does; and tells a subscriber

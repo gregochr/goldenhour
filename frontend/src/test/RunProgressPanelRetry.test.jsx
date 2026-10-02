@@ -325,11 +325,11 @@ describe('RunProgressPanel completion', () => {
       .toHaveTextContent('Complete');
   });
 
-  it('shows the status word "(Complete)" in a stronger colour than the muted header', async () => {
+  it('shows the status word in a stronger colour than the muted header', async () => {
     await renderFinishedRun();
 
     const status = screen.getByTestId('run-progress-status');
-    expect(status.textContent).toBe('(Complete)');
+    expect(status.textContent).toBe('(Completed with failures)');
     expect(status).toHaveClass('text-plex-text-secondary');
     expect(status).not.toHaveClass('text-plex-text-muted');
   });

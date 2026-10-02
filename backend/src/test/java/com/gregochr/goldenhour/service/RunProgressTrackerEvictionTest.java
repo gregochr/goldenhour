@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -17,9 +18,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 /**
  * Eviction rules of {@link RunProgressTracker#cleanupStaleEntries()}, driven by a clock the test
@@ -38,6 +42,7 @@ class RunProgressTrackerEvictionTest {
     private DynamicSchedulerService dynamicSchedulerService;
 
     private MutableTestClock clock;
+    private ScheduledExecutorService graceScheduler;
     private RunProgressTracker tracker;
     private final List<RecordingEmitter> emitters = new ArrayList<>();
 
@@ -78,8 +83,8 @@ class RunProgressTrackerEvictionTest {
     @BeforeEach
     void setUp() {
         clock = new MutableTestClock(T0);
-        tracker = new RunProgressTracker(dynamicSchedulerService, mock(ScheduledExecutorService.class),
-                5_000L, clock) {
+        graceScheduler = mock(ScheduledExecutorService.class);
+        tracker = new RunProgressTracker(dynamicSchedulerService, graceScheduler, 5_000L, clock) {
             @Override
             SseEmitter newEmitter() {
                 RecordingEmitter emitter = new RecordingEmitter();
@@ -155,14 +160,14 @@ class RunProgressTrackerEvictionTest {
     }
 
     @Test
-    @DisplayName("a run that never completed is evicted after 60 idle minutes, and its subscriber is sent "
+    @DisplayName("a run that never completed is evicted after 3 idle hours, and its subscriber is sent "
             + "run-expired and its stream ended")
     void idleNeverCompletedRun_evictedAfterIdleBound_subscriberToldAndCompleted() {
         RecordingEmitter waiting = (RecordingEmitter) tracker.subscribe(RUN);
         clock.advance(Duration.ofMinutes(10));
         taskEvent(LocationTaskState.EVALUATING); // the last activity
 
-        clock.advance(Duration.ofMinutes(59).plusSeconds(59));
+        clock.advance(Duration.ofHours(2).plusMinutes(59).plusSeconds(59));
         tracker.cleanupStaleEntries();
         assertThat(tracker.getProgress(RUN)).isNotNull();
         assertThat(waiting.names()).doesNotContain("run-expired");
@@ -180,10 +185,10 @@ class RunProgressTrackerEvictionTest {
     @Test
     @DisplayName("a phase change is activity: it keeps an otherwise silent run from being evicted")
     void phaseChange_countsAsActivity() {
-        clock.advance(Duration.ofMinutes(45));
+        clock.advance(Duration.ofMinutes(150));
         tracker.setPhase(RUN, RunPhase.FULL_EVALUATION);
 
-        clock.advance(Duration.ofMinutes(45)); // 90 minutes since the start, 45 since the phase change
+        clock.advance(Duration.ofMinutes(150)); // 5 hours since the start, 2.5 since the phase change
         tracker.cleanupStaleEntries();
 
         assertThat(tracker.getProgress(RUN)).isNotNull();
@@ -192,7 +197,7 @@ class RunProgressTrackerEvictionTest {
     @Test
     @DisplayName("an idle run with nobody subscribed is evicted quietly")
     void idleRunWithNoSubscribers_evicted() {
-        clock.advance(Duration.ofMinutes(60));
+        clock.advance(Duration.ofHours(3));
 
         tracker.cleanupStaleEntries();
 
@@ -205,7 +210,7 @@ class RunProgressTrackerEvictionTest {
     void eviction_isPerRun() {
         tracker.initRun(8L, List.<String[]>of(new String[]{"Loc2|2026-10-03|SUNSET", "Loc2", "2026-10-03",
                 "SUNSET"}));
-        clock.advance(Duration.ofMinutes(59));
+        clock.advance(Duration.ofHours(2).plusMinutes(59));
         tracker.onTaskEvent(new LocationTaskEvent(this, 8L, "Loc2|2026-10-03|SUNSET", "Loc2", "2026-10-03",
                 "SUNSET", LocationTaskState.EVALUATING, null, null));
         clock.advance(Duration.ofMinutes(1));
@@ -214,5 +219,40 @@ class RunProgressTrackerEvictionTest {
 
         assertThat(tracker.getProgress(RUN)).isNull();
         assertThat(tracker.getProgress(8L)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("an aborted run (failRun) is evicted 30 minutes after it FAILED, not after the idle bound")
+    void failedRun_evictedThirtyMinutesAfterFailure() {
+        clock.advance(Duration.ofMinutes(5));
+        tracker.failRun(RUN, "The run stopped unexpectedly. See the server log.");
+
+        clock.advance(Duration.ofMinutes(29).plusSeconds(59));
+        tracker.cleanupStaleEntries();
+        assertThat(tracker.getProgress(RUN)).isNotNull();
+        assertThat(tracker.isComplete(RUN)).isTrue();
+
+        clock.advance(Duration.ofSeconds(1));
+        tracker.cleanupStaleEntries();
+        assertThat(tracker.getProgress(RUN)).isNull();
+    }
+
+    @Test
+    @DisplayName("a subscriber arriving AFTER a completed run was evicted is, once the grace period "
+            + "passes, sent run-expired and its stream ended")
+    void subscriberAfterEviction_isToldRunExpired() {
+        taskEvent(LocationTaskState.FAILED);
+        tracker.completeRun(RUN);
+        clock.advance(Duration.ofMinutes(30));
+        tracker.cleanupStaleEntries();
+
+        RecordingEmitter late = (RecordingEmitter) tracker.subscribe(RUN);
+
+        assertThat(late.sent()).isEmpty();
+        ArgumentCaptor<Runnable> expiry = ArgumentCaptor.forClass(Runnable.class);
+        verify(graceScheduler).schedule(expiry.capture(), eq(5_000L), eq(TimeUnit.MILLISECONDS));
+        expiry.getValue().run();
+        assertThat(late.sent()).containsExactly("run-expired|{\"jobRunId\":7}");
+        assertThat(late.completed).isTrue();
     }
 }

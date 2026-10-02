@@ -176,12 +176,20 @@ describe('RunProgressPanel run-level reason', () => {
       expect(screen.getByText(/2\/2/)).toBeInTheDocument();
     });
 
-    it('keeps "(Complete)" for a PARTIAL run', async () => {
+    it('reads "(Completed with failures)" for a PARTIAL run with no reason, the banner\'s own rule', async () => {
       renderPanel();
 
       await playRun(5, TWO_FAILURES);
 
-      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Complete)');
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Completed with failures)');
+    });
+
+    it('reads "(Completed with failures)" for a run whose other places were all triaged', async () => {
+      renderPanel();
+
+      await playRun(5, [task('a|b', 'A', 'TRIAGED'), task('c|d', 'C', 'FAILED')]);
+
+      expect(screen.getByTestId('run-progress-status')).toHaveTextContent('(Completed with failures)');
     });
 
     it('keeps "(Complete)" for a COMPLETE run kept for some other reason, with its count', async () => {
