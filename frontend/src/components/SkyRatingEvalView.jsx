@@ -9,6 +9,7 @@ import { formatCostUsd } from '../utils/formatCost';
 import { formatInstantUk } from '../utils/conversions.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 
 const MODELS = ['HAIKU', 'SONNET', 'OPUS'];
@@ -63,7 +64,7 @@ const SkyRatingEvalView = () => {
       setRuns(runsRes.data || []);
       setTrend(trendRes.data || []);
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || 'Failed to load eval data');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load eval data'));
     } finally {
       setLoading(false);
     }
@@ -126,7 +127,7 @@ const SkyRatingEvalView = () => {
           startPolling(newRun.id);
         } catch (err) {
           setRunning(false);
-          setError(err?.response?.data?.message || err.message || 'Eval run failed.');
+          setError(apiErrorMessage(err, err?.message || 'Eval run failed.'));
         }
       },
     });

@@ -513,6 +513,19 @@ describe('ModelSelectionView', () => {
     });
   });
 
+  it("shows the server's error sentence when a strategy change is refused", async () => {
+    updateOptimisationStrategy.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 400'),
+      { response: { status: 400, data: { error: 'Unknown optimisation strategy: TIDE_ALIGNMENT' } } },
+    ));
+    render(<ModelSelectionView />);
+
+    fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+
+    expect(await screen.findByText('Unknown optimisation strategy: TIDE_ALIGNMENT')).toBeInTheDocument();
+    expect(screen.queryByText(/Request failed with status code 400/)).toBeNull();
+  });
+
   it('shows loading state initially', () => {
     getAvailableModels.mockReturnValue(new Promise(() => {})); // never resolves
     render(<ModelSelectionView />);

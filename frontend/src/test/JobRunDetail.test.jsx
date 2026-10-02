@@ -77,6 +77,16 @@ describe('JobRunDetail — loading and error states', () => {
     });
   });
 
+  it("shows the server's error sentence, not axios's generic message, when the request is refused", async () => {
+    getApiCalls.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 404'),
+      { response: { status: 404, data: { error: 'Job run not found' } } },
+    ));
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    expect(await screen.findByText('Error: Job run not found')).toBeInTheDocument();
+    expect(screen.queryByText(/Request failed with status code 404/)).toBeNull();
+  });
+
   it('uses fallback error text when rejection has no message', async () => {
     getApiCalls.mockRejectedValue({});
     render(<JobRunDetail jobRun={BASE_JOB_RUN} />);

@@ -6,6 +6,7 @@ import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import { RUN_TYPE_RANGES } from '../utils/runTypeRanges.js';
 import { isWildlifeOnly } from '../utils/locationTypes.js';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 const CONFIG_TABS = [
   { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)', tip: 'Imminent forecasts — today and tomorrow. Use a high-accuracy model here.' },
@@ -244,8 +245,7 @@ export default function ModelSelectionView() {
       const info = STRATEGY_INFO[strategyType];
       setSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
     } catch (err) {
-      const msg = err.response?.data?.message || err.response?.data || `Failed to update ${strategyType}`;
-      setError(typeof msg === 'string' ? msg : `Failed to update ${strategyType}`);
+      setError(apiErrorMessage(err, `Failed to update ${strategyType}`));
       console.error(err);
     }
   };

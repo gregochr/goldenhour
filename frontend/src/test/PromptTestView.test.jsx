@@ -198,6 +198,19 @@ describe('PromptTestView', () => {
     });
   });
 
+  it("shows the server's error sentence, not axios's generic message, when a request is refused", async () => {
+    getPromptTestRuns.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 502'),
+      { response: { status: 502, data: { error: 'Upstream API error: 503' } } },
+    ));
+
+    render(<PromptTestView />);
+
+    const banner = await screen.findByTestId('prompt-test-error');
+    expect(banner).toHaveTextContent('Upstream API error: 503');
+    expect(banner).not.toHaveTextContent('Request failed with status code 502');
+  });
+
   it('allows selecting a different model', async () => {
     render(<PromptTestView />);
     await waitFor(() => {

@@ -2,6 +2,7 @@ import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { recordOutcome } from '../api/forecastApi.js';
 import Modal from './shared/Modal.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /**
  * Modal dialog for recording an actual observed sunrise/sunset outcome.
@@ -47,7 +48,7 @@ export default function OutcomeModal({
       setTimeout(onSaved, 1500);
       return null;
     } catch (err) {
-      return err.response?.data?.message || err.message || 'Failed to save outcome.';
+      return apiErrorMessage(err, err?.message || 'Failed to save outcome.');
     }
   }, null);
 

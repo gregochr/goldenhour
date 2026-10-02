@@ -9,6 +9,7 @@ import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost.
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 const MODELS = ['HAIKU', 'SONNET', 'SONNET_ET', 'OPUS', 'OPUS_ET'];
 
@@ -43,7 +44,7 @@ export default function BriefingModelTestView() {
       const response = await getBriefingModelTestRuns();
       setRuns(response.data || []);
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || 'Failed to load test runs');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load test runs'));
     } finally {
       setLoading(false);
     }
@@ -55,7 +56,7 @@ export default function BriefingModelTestView() {
       const response = await getBriefingModelTestResults(runId);
       setResults(response.data || []);
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || 'Failed to load results');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load results'));
     } finally {
       setLoadingResults(false);
     }
@@ -82,7 +83,7 @@ export default function BriefingModelTestView() {
           setSelectedRunId(response.data.id);
           await loadResults(response.data.id);
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Failed to run comparison');
+          setError(apiErrorMessage(err, err?.message || 'Failed to run comparison'));
         } finally {
           setRunning(false);
         }

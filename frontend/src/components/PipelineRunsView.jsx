@@ -7,6 +7,7 @@ import {
   formatElapsedSince,
 } from '../utils/conversions';
 import DispositionBreakdown from './DispositionBreakdown.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /** Poll interval while a RUNNING cycle is visible — fast enough to see waitingOn ticking. */
 const RUNNING_POLL_INTERVAL_MS = 15_000;
@@ -113,7 +114,7 @@ export default function PipelineRunsView({ activeRunId, onSelectRun, onCloseDeta
       const data = await fetchPipelineRuns();
       setRuns(data);
     } catch (e) {
-      setError(e.message || 'Failed to load pipeline runs');
+      setError(apiErrorMessage(e, e?.message || 'Failed to load pipeline runs'));
     } finally {
       setLoading(false);
     }
@@ -348,7 +349,7 @@ function PipelineRunDetail({ runId, onClose }) {
       const data = await fetchPipelineRunDetail(runId);
       setDetail(data);
     } catch (e) {
-      setError(e.message || 'Failed to load pipeline run detail');
+      setError(apiErrorMessage(e, e?.message || 'Failed to load pipeline run detail'));
     } finally {
       setLoading(false);
     }

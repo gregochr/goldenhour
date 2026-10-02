@@ -144,4 +144,17 @@ describe('SkyRatingEvalView', () => {
     expect(screen.getByTestId('sky-eval-chart-strong-clearing-canvas')).toBeInTheDocument();
     expect(screen.queryByTestId('sky-eval-chart-flat-grey-overcast')).not.toBeInTheDocument();
   });
+
+  it("shows the server's error sentence, not axios's generic message, when the load is refused", async () => {
+    getSkyRatingEvalRuns.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 502'),
+      { response: { status: 502, data: { error: 'Upstream API error: 503' } } },
+    ));
+
+    render(<SkyRatingEvalView />);
+
+    const banner = await screen.findByTestId('sky-eval-error');
+    expect(banner).toHaveTextContent('Upstream API error: 503');
+    expect(banner).not.toHaveTextContent('Request failed with status code 502');
+  });
 });

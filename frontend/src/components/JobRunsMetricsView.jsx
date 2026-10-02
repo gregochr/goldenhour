@@ -20,6 +20,7 @@ import { isSkyPromptCandidate } from '../utils/locationTypes.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { latestSolarEventTimes, hasEventPassed } from '../utils/solarEventTimes.js';
 import { parseUtcInstant } from '../utils/conversions.js';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /**
  * Human-readable labels for optimisation strategies shown in the run confirmation dialog — the two
@@ -302,7 +303,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       setPage(pageNum + 1);
       setHasMore(newRuns.length === PAGE_SIZE);
     } catch (err) {
-      setError(err.message || 'Failed to load job runs');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load job runs'));
     } finally {
       setLoading(false);
     }

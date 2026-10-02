@@ -10,6 +10,7 @@ import ErrorBanner from './shared/ErrorBanner.jsx';
 import Modal from './shared/Modal.jsx';
 import MarkerPopupContent from './MarkerPopupContent';
 import { isSkyPromptCandidate, isWildlifeOnly } from '../utils/locationTypes.js';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 const USD_TO_GBP = 0.79;
 const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
@@ -91,7 +92,7 @@ const PromptTestView = () => {
       const response = await getPromptTestRuns();
       setRuns(response.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load test runs');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load test runs'));
     } finally {
       setLoading(false);
     }
@@ -109,7 +110,7 @@ const PromptTestView = () => {
       const response = await getPromptTestResults(runId);
       setResults(response.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load results');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load results'));
     } finally {
       setLoadingResults(false);
     }
@@ -225,7 +226,7 @@ const PromptTestView = () => {
           startPolling(newRun.id);
         } catch (err) {
           setRunning(false);
-          setError(err?.response?.data?.message || err.message || 'Prompt test failed.');
+          setError(apiErrorMessage(err, err?.message || 'Prompt test failed.'));
         }
       },
     });
@@ -268,7 +269,7 @@ const PromptTestView = () => {
           startPolling(newRun.id);
         } catch (err) {
           setReplaying(false);
-          setError(err?.response?.data?.message || err.message || 'Replay failed.');
+          setError(apiErrorMessage(err, err?.message || 'Replay failed.'));
         }
       },
     });
