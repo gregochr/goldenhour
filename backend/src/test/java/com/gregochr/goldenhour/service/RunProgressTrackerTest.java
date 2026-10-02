@@ -566,4 +566,155 @@ class RunProgressTrackerTest {
 
         assertThat(t.getProgress(404L)).isNull();
     }
+
+    // -------------------------------------------------------------------------
+    // Stopping a run on a rejected key, and the retryable flag
+    // -------------------------------------------------------------------------
+
+    private static final String RUN_STOPPED =
+            "Claude rejected the API key. The run was stopped; no further places were attempted.";
+
+    @Test
+    @DisplayName("every run-complete payload carries retryable: true, live and replayed, unless the run was stopped")
+    void completeRun_normal_isRetryable() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+
+        t.completeRun(7L);
+        RecordingEmitter late = (RecordingEmitter) t.subscribe(7L);
+
+        assertThat(eventNamed(live, "run-complete")).contains("\"retryable\":true");
+        assertThat(eventNamed(late, "run-complete")).contains("\"retryable\":true");
+    }
+
+    @Test
+    @DisplayName("stopRun records the run-level reason, flips isStopped, and broadcasts nothing until completion")
+    void stopRun_recordsReasonAndBroadcastsNothing() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+
+        boolean stopped = t.stopRun(7L);
+
+        assertThat(stopped).isTrue();
+        assertThat(t.isStopped(7L)).isTrue();
+        assertThat(t.getProgress(7L).getFailureReason()).isEqualTo(RUN_STOPPED);
+        assertThat(runCompleteCount(live)).isZero();
+    }
+
+    @Test
+    @DisplayName("the completion after a stop carries the stop reason and retryable: false, live and replayed")
+    void stopRun_thenCompleteRun_carriesReasonAndNotRetryable() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+
+        t.stopRun(7L);
+        t.completeRun(7L);
+        RecordingEmitter late = (RecordingEmitter) t.subscribe(7L);
+
+        assertThat(eventNamed(live, "run-complete")).contains("\"reason\":\"" + RUN_STOPPED + "\"")
+                .contains("\"retryable\":false").contains("\"status\":\"PARTIAL\"");
+        assertThat(eventNamed(late, "run-complete")).isEqualTo(eventNamed(live, "run-complete"));
+    }
+
+    @Test
+    @DisplayName("a second stopRun is a no-op that reports it did not stop the run")
+    void stopRun_twice_secondIsNoOp() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+
+        assertThat(t.stopRun(7L)).isTrue();
+        assertThat(t.stopRun(7L)).isFalse();
+    }
+
+    @Test
+    @DisplayName("stopRun and isStopped on a run the tracker does not hold are false and register nothing")
+    void stopRun_unknownRun_isFalse() {
+        RunProgressTracker t = recordingTracker();
+
+        assertThat(t.stopRun(404L)).isFalse();
+        assertThat(t.isStopped(404L)).isFalse();
+        assertThat(t.getProgress(404L)).isNull();
+    }
+
+    @Test
+    @DisplayName("a stop belongs to one run: another run held at the same time is not stopped")
+    void stopRun_isPerRun() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        t.initRun(8L, tasks(new String[]{"Loc2|2026-03-15|SUNSET", "Loc2", "2026-03-15", "SUNSET"}));
+
+        t.stopRun(7L);
+
+        assertThat(t.isStopped(7L)).isTrue();
+        assertThat(t.isStopped(8L)).isFalse();
+        assertThat(t.getProgress(8L).getFailureReason()).isNull();
+        assertThat(t.getProgress(8L).isRetryable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("failRun after a stop keeps the stop reason (the more specific one) and the run stays non-retryable")
+    void failRun_afterStop_keepsStopReason() {
+        RunProgressTracker t = recordingTracker();
+        startRunWithOneFailure(t);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+        t.stopRun(7L);
+
+        t.failRun(7L, GENERIC_REASON);
+
+        assertThat(eventNamed(live, "run-complete")).contains("\"reason\":\"" + RUN_STOPPED + "\"")
+                .contains("\"retryable\":false");
+    }
+
+    @Test
+    @DisplayName("a stopped run with nothing completed or triaged reports FAILED")
+    void stopRun_nothingCompleted_isFailed() {
+        RunProgressTracker t = recordingTracker();
+        t.initRun(8L, tasks(new String[]{"Loc2|2026-03-15|SUNSET", "Loc2", "2026-03-15", "SUNSET"}));
+        t.onTaskEvent(new LocationTaskEvent(this, 8L, "Loc2|2026-03-15|SUNSET", "Loc2", "2026-03-15", "SUNSET",
+                LocationTaskState.FAILED, "x", "EVALUATING"));
+
+        t.stopRun(8L);
+
+        assertThat(t.getProgress(8L).getStatus()).isEqualTo(RunProgress.RunStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("events published from many threads at once are each delivered to the subscriber: none is "
+            + "overtaken by a newer task's broadcast")
+    void onTaskEvent_concurrentPublishers_everyTaskUpdateIsDelivered() throws Exception {
+        RunProgressTracker t = recordingTracker();
+        int count = 300;
+        List<String[]> all = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            all.add(new String[]{"Loc" + i + "|2026-03-15|SUNSET", "Loc" + i, "2026-03-15", "SUNSET"});
+        }
+        t.initRun(7L, all);
+        RecordingEmitter live = (RecordingEmitter) t.subscribe(7L);
+
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(16);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+        for (String[] task : all) {
+            futures.add(pool.submit(() -> {
+                go.await();
+                t.onTaskEvent(new LocationTaskEvent(this, 7L, task[0], task[1], task[2], task[3],
+                        LocationTaskState.FAILED, "x", "EVALUATING"));
+                return null;
+            }));
+        }
+        go.countDown();
+        for (java.util.concurrent.Future<?> f : futures) {
+            f.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        }
+        pool.shutdown();
+
+        long failedDelivered = all.stream()
+                .filter(task -> live.sent().stream().anyMatch(e -> e.startsWith("task-update|")
+                        && e.contains("\"taskKey\":\"" + task[0] + "\"") && e.contains("\"state\":\"FAILED\"")))
+                .count();
+        assertThat(failedDelivered).isEqualTo(count);
+    }
 }

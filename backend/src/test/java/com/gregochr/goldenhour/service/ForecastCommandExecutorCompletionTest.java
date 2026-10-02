@@ -12,7 +12,6 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
@@ -520,10 +519,11 @@ class ForecastCommandExecutorCompletionTest {
                     ForecastPreEvalResult pre = inv.getArgument(0);
                     publish(pre.location(), pre.targetType(), LocationTaskState.EVALUATING, null, null);
                     if (pre.location() == durham || whitbyAlsoFails) {
-                        // What evaluateAndPersist does on an errored evaluation: EVALUATING, then throws,
-                        // publishing no FAILED.
-                        throw new EvaluationFailedException("anthropic_401", "invalid x-api-key",
-                                pre.location().getName(), pre.targetType(), pre.date());
+                        // An evaluation that ends with the task still EVALUATING and no exception for the
+                        // executor to react to (so only the completion sweep can finish it): evaluateAndPersist
+                        // itself now publishes FAILED before it throws, and the executor publishes one when
+                        // something else throws, so a bare null return is the floor's one remaining caller.
+                        return null;
                     }
                     publish(pre.location(), pre.targetType(), LocationTaskState.COMPLETE, null, null);
                     return ForecastEvaluationEntity.builder().id(1L).rating(3).build();
@@ -548,6 +548,42 @@ class ForecastCommandExecutorCompletionTest {
         assertThat(complete.get("completed").asInt()).isEqualTo(1);
         assertThat(complete.get("failed").asInt()).isEqualTo(1);
         assertThat(complete.get("reason").isNull()).isTrue();
+        verify(jobRunService).completeRun(jobRun, 1, 1, DATES);
+    }
+
+    @Test
+    @DisplayName("an evaluation the claude bulkhead refuses (thrown before ForecastService publishes anything) is "
+            + "published FAILED once by the executor, with the fallback phrase and never the exception's message")
+    void bulkheadRefusal_executorPublishesFailedOnce() {
+        stubModelAndStrategies(List.of());
+        stubEvaluable();
+        when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
+        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        stubTriageSurvives();
+        when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun)))
+                .thenAnswer(inv -> {
+                    ForecastPreEvalResult pre = inv.getArgument(0);
+                    if (pre.location() == durham) {
+                        // The proxy refused the call: nothing was published for this task, it is still
+                        // in FETCHING_CLOUD, and the message is one an admin must never be shown.
+                        throw io.github.resilience4j.bulkhead.BulkheadFullException.createBulkheadFullException(
+                                io.github.resilience4j.bulkhead.Bulkhead.ofDefaults("secret-bulkhead-name"));
+                    }
+                    publish(pre.location(), pre.targetType(), LocationTaskState.COMPLETE, null, null);
+                    return ForecastEvaluationEntity.builder().id(1L).rating(3).build();
+                });
+
+        executor().execute(twoLiveSunsets(), jobRun);
+
+        assertThat(failedEvents()).singleElement().satisfies(e -> {
+            assertThat(e.getTaskKey()).isEqualTo(DURHAM_SUNSET);
+            assertThat(e.getFailedStep()).isEqualTo("EVALUATING");
+            assertThat(e.getErrorMessage()).isEqualTo("Evaluation failed (see server log).");
+        });
+        JsonNode complete = theOnlyRunComplete();
+        assertThat(complete.get("status").asText()).isEqualTo("PARTIAL");
+        assertThat(complete.get("completed").asInt()).isEqualTo(1);
+        assertThat(complete.get("failed").asInt()).isEqualTo(1);
         verify(jobRunService).completeRun(jobRun, 1, 1, DATES);
     }
 
@@ -687,6 +723,7 @@ class ForecastCommandExecutorCompletionTest {
         assertThat(complete.get("skipped").asInt()).isEqualTo(3);
         assertThat(complete.get("failed").asInt()).isZero();
         verify(forecastService, times(1)).evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun));
+        verify(jobRunService).completeRun(jobRun, 1, 0, DATES); // the three SKIPPED tasks are neither
     }
 
     @Test
@@ -706,5 +743,119 @@ class ForecastCommandExecutorCompletionTest {
         assertThat(complete.get("skipped").asInt()).isEqualTo(4);
         assertThat(complete.get("failed").asInt()).isZero();
         verify(forecastService, never()).evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun));
+        verify(jobRunService).completeRun(jobRun, 0, 0, DATES);
+    }
+
+    // -------------------------------------------------------------------------
+    // job_run counts: whatever the path, the row closes with the tracker's completed and failed counts
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("early stop with one triaged task and one that failed at weather: the job_run closes 0 succeeded, "
+            + "1 failed (the weather failure is counted, the triaged task is neither), as the panel shows")
+    void counts_earlyStop_triagedAndWeatherFailed() {
+        stubModelAndStrategies(List.of());
+        stubEvaluable();
+        when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
+        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(forecastService.fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
+                any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), eq(jobRun),
+                any(), any(CloudPointCache.class)))
+                .thenAnswer(inv -> {
+                    LocationEntity loc = inv.getArgument(0);
+                    TargetType type = inv.getArgument(2);
+                    if (loc == durham) {
+                        publish(loc, type, LocationTaskState.TRIAGED, null, null);
+                        return preEval(loc, inv.getArgument(1), type, true);
+                    }
+                    publish(loc, type, LocationTaskState.FAILED, "Weather data fetch failed for Whitby SUNSET",
+                            "FETCHING_WEATHER");
+                    throw new WeatherDataFetchException("x", "Whitby", "SUNSET", null);
+                });
+
+        executor().execute(twoLiveSunsets(), jobRun);
+
+        JsonNode complete = theOnlyRunComplete();
+        assertThat(complete.get("completed").asInt()).isZero();
+        assertThat(complete.get("failed").asInt()).isEqualTo(1);
+        assertThat(complete.get("triaged").asInt()).isEqualTo(1);
+        verify(jobRunService).completeRun(jobRun, 0, 1, DATES);
+    }
+
+    @Test
+    @DisplayName("early stop with every task triaged: the job_run closes 0 succeeded, 0 failed, and the panel "
+            + "agrees (triaged is neither)")
+    void counts_earlyStop_allTriaged() {
+        stubModelAndStrategies(List.of());
+        stubEvaluable();
+        when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
+        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(forecastService.fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
+                any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), eq(jobRun),
+                any(), any(CloudPointCache.class)))
+                .thenAnswer(inv -> {
+                    LocationEntity loc = inv.getArgument(0);
+                    TargetType type = inv.getArgument(2);
+                    publish(loc, type, LocationTaskState.TRIAGED, null, null);
+                    return preEval(loc, inv.getArgument(1), type, true);
+                });
+
+        executor().execute(twoLiveSunsets(), jobRun);
+
+        JsonNode complete = theOnlyRunComplete();
+        assertThat(complete.get("triaged").asInt()).isEqualTo(2);
+        assertThat(complete.get("completed").asInt()).isZero();
+        assertThat(complete.get("failed").asInt()).isZero();
+        verify(jobRunService).completeRun(jobRun, 0, 0, DATES);
+    }
+
+    @Test
+    @DisplayName("sentinel path: the sentinel completes and the canned remainder is SKIPPED, so the job_run closes "
+            + "1 succeeded, 0 failed")
+    void counts_sentinelPath_cannedRemainderIsNeitherSucceededNorFailed() {
+        stubModelAndStrategies(List.of(sentinelStrategy()));
+        stubEvaluable();
+        when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
+        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        stubTriageSurvives();
+        when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(durham));
+        when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun)))
+                .thenAnswer(inv -> {
+                    ForecastPreEvalResult pre = inv.getArgument(0);
+                    publish(pre.location(), pre.targetType(), LocationTaskState.COMPLETE, null, null);
+                    return ForecastEvaluationEntity.builder().id(1L).rating(1).build();
+                });
+        when(forecastService.persistCannedResult(any(ForecastPreEvalResult.class), any(String.class), eq(jobRun)))
+                .thenAnswer(inv -> {
+                    ForecastPreEvalResult pre = inv.getArgument(0);
+                    publish(pre.location(), pre.targetType(), LocationTaskState.SKIPPED, null, null);
+                    return ForecastEvaluationEntity.builder().id(2L).build();
+                });
+
+        executor().execute(twoLiveSunsets(), jobRun);
+
+        JsonNode complete = theOnlyRunComplete();
+        assertThat(complete.get("completed").asInt()).isEqualTo(1);
+        assertThat(complete.get("failed").asInt()).isZero();
+        verify(jobRunService).completeRun(jobRun, 1, 0, DATES);
+    }
+
+    @Test
+    @DisplayName("a wildlife task that produced three hourly rows counts as ONE succeeded task, as the panel "
+            + "shows, not three")
+    void counts_wildlife_tasksNotRows() {
+        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.WILDLIFE);
+        ForecastCommand command = wildlifeCommand();
+        stubWildlifeResult(durham, List.of(ForecastEvaluationEntity.builder().id(1L).build(),
+                ForecastEvaluationEntity.builder().id(2L).build(),
+                ForecastEvaluationEntity.builder().id(3L).build()));
+        stubWildlifeResult(whitby, List.of());
+
+        executor().execute(command, jobRun);
+
+        JsonNode complete = theOnlyRunComplete();
+        assertThat(complete.get("completed").asInt()).isEqualTo(1);
+        assertThat(complete.get("failed").asInt()).isEqualTo(1);
+        verify(jobRunService).completeRun(jobRun, 1, 1, DATES);
     }
 }

@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
@@ -531,9 +532,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             LOG.warn("Forecast sync evaluation: parse failed for {}: {}",
                     task.taskKey(), e.getMessage());
             ClaudeSyncOutcome parseFailure = ClaudeSyncOutcome.failure(
-                    "parse_error", e.getMessage(), task.model(), outcome.durationMs());
+                    EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage(), task.model(), outcome.durationMs());
             persistSyncLog(context, parseFailure, task);
-            return new EvaluationResult.Errored("parse_error", e.getMessage());
+            return new EvaluationResult.Errored(EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage());
         }
 
         BriefingEvaluationResult result = buildResult(

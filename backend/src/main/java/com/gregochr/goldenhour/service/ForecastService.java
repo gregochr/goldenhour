@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.EvaluationFailedException;
+import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudPointCache;
@@ -81,6 +82,7 @@ public class ForecastService {
     private final TideAlignmentEvaluator tideAlignmentEvaluator;
     private final com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
             slotAtmosphereWriter;
+    private final RunProgressTracker runProgressTracker;
     private final Clock clock;
 
     /**
@@ -101,6 +103,9 @@ public class ForecastService {
      *                                 weather is fetched — called from inside
      *                                 {@link #fetchWeatherAndTriage}, the one seam every caller
      *                                 of this service shares
+     * @param runProgressTracker      the live-progress tracker: {@link #evaluateAndPersist} asks it whether
+     *                                the run was stopped on a rejected key before each Claude call, and
+     *                                tells it when a call shows the key was rejected
      * @param clock                   supplies "today" for the {@code daysAhead} horizon, resolved in
      *                                {@code Europe/London} by {@link ForecastHorizon}
      */
@@ -113,6 +118,7 @@ public class ForecastService {
             TideAlignmentEvaluator tideAlignmentEvaluator,
             com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
                     slotAtmosphereWriter,
+            RunProgressTracker runProgressTracker,
             Clock clock) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
@@ -125,6 +131,7 @@ public class ForecastService {
         this.weatherTriageEvaluator = weatherTriageEvaluator;
         this.tideAlignmentEvaluator = tideAlignmentEvaluator;
         this.slotAtmosphereWriter = slotAtmosphereWriter;
+        this.runProgressTracker = runProgressTracker;
         this.clock = clock;
     }
 
@@ -477,6 +484,21 @@ public class ForecastService {
      * produced by {@link #fetchWeatherAndTriage}, which is the one seam that records it, so every
      * caller of this method reaches the write before ever getting here.
      *
+     * <p>⚠️ <b>This is where an evaluation's outcome is published, exactly once.</b> A failure of any
+     * kind after the evaluating step — Claude's error answered as an {@code Errored} result, an
+     * exception thrown by the evaluation call, a failure persisting the result — publishes the task
+     * FAILED (step {@code EVALUATING}, a fixed phrase from {@link EvaluationFailure}, never the
+     * exception's message) and then rethrows, so the caller's own bookkeeping is unchanged. Without
+     * this the task stayed in EVALUATING until the completion sweep gave it a placeholder reason.
+     *
+     * <p>⚠️ <b>The stop check is here, inside the {@code claude} bulkhead, on purpose.</b> The
+     * executor starts every evaluation at once and the bulkhead lets six through; a check made before
+     * the call into this method would see no stop for any of them. Made here, a place that waited for a
+     * permit looks at the run after the evaluation that held the permit before it has finished, so a
+     * rejected key stops the run after the first wave rather than after all of it. When the run is
+     * stopped the place is published FAILED ("not attempted"), no Claude call is made, no child
+     * {@code job_run} is created, and {@link RunStoppedException} is thrown.
+     *
      * @param preEval the pre-evaluation result from the triage phase
      * @param jobRun  parent job run for metrics
      * @return the saved evaluation entity
@@ -486,29 +508,42 @@ public class ForecastService {
             JobRunEntity jobRun) {
         Long runId = jobRun != null ? jobRun.getId() : null;
 
+        if (runId != null && runProgressTracker.isStopped(runId)) {
+            publishEvaluationFailed(runId, preEval, EvaluationFailure.REASON_NOT_ATTEMPTED);
+            throw new RunStoppedException("Run " + runId + " was stopped; "
+                    + preEval.taskKey() + " was not attempted");
+        }
+
         publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
                 preEval.date().toString(), preEval.targetType().name(),
                 LocationTaskState.EVALUATING);
 
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                preEval.location(), preEval.date(), preEval.targetType(),
-                preEval.model(), preEval.atmosphericData(),
-                EvaluationTask.Forecast.WriteTarget.NONE);
-        EvaluationResult outcome = engineEvaluationService.evaluateNow(
-                task, BatchTriggerSource.ADMIN);
-        SunsetEvaluation evaluation = switch (outcome) {
-            case EvaluationResult.Scored s -> (SunsetEvaluation) s.payload();
-            case EvaluationResult.Errored e -> throw new EvaluationFailedException(
-                    e.errorType(), e.message(), preEval.location().getName(),
-                    preEval.targetType(), preEval.date());
-        };
+        SunsetEvaluation evaluation;
+        ForecastEvaluationEntity saved;
+        try {
+            EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                    preEval.location(), preEval.date(), preEval.targetType(),
+                    preEval.model(), preEval.atmosphericData(),
+                    EvaluationTask.Forecast.WriteTarget.NONE);
+            EvaluationResult outcome = engineEvaluationService.evaluateNow(
+                    task, BatchTriggerSource.ADMIN);
+            evaluation = switch (outcome) {
+                case EvaluationResult.Scored s -> (SunsetEvaluation) s.payload();
+                case EvaluationResult.Errored e -> throw new EvaluationFailedException(
+                        e.errorType(), e.message(), preEval.location().getName(),
+                        preEval.targetType(), preEval.date());
+            };
 
-        ForecastEvaluationEntity entity = buildEntity(
-                preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
-                preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
-                preEval.azimuth(), preEval.atmosphericData(), evaluation, preEval.model());
+            ForecastEvaluationEntity entity = buildEntity(
+                    preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
+                    preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
+                    preEval.azimuth(), preEval.atmosphericData(), evaluation, preEval.model());
 
-        ForecastEvaluationEntity saved = repository.save(entity);
+            saved = repository.save(entity);
+        } catch (RuntimeException e) {
+            reportEvaluationFailure(runId, preEval, e);
+            throw e;
+        }
 
         // No slot_atmosphere write here — it already happened inside fetchWeatherAndTriage,
         // which every preEval this method is called with was produced by. Writing again here
@@ -661,6 +696,34 @@ public class ForecastService {
         LOG.info("Forecast saved (WILDLIFE hourly comfort): {} {} (T+{}) — {} slot(s)",
                 locationName, date, daysAhead, results.size());
         return results;
+    }
+
+    /**
+     * Publishes the FAILED outcome for an evaluation that threw, and stops the run when the failure
+     * is a rejected key.
+     *
+     * <p>The stop is recorded BEFORE the FAILED event, and before this method returns to the
+     * bulkhead that releases the permit, so the next place to take that permit already sees it.
+     * Logs the failure kind (never the exception's message or class: the evaluation engine's own
+     * WARN line carries the message) and, once per run, that the run stopped.
+     */
+    private void reportEvaluationFailure(Long runId, ForecastPreEvalResult preEval, RuntimeException e) {
+        EvaluationFailure failure = EvaluationFailure.of(e);
+        LOG.warn("Evaluation failed for {} (run {}): {}", preEval.taskKey(), runId, failure);
+        if (runId != null && failure.stopsRun() && runProgressTracker.stopRun(runId)) {
+            LOG.error("Run {} stopped: Claude rejected the API key; the places not yet evaluated "
+                    + "will not be attempted", runId);
+        }
+        publishEvaluationFailed(runId, preEval, failure.reason());
+    }
+
+    /**
+     * Publishes FAILED for a task at the evaluating step with a fixed phrase.
+     */
+    private void publishEvaluationFailed(Long runId, ForecastPreEvalResult preEval, String reason) {
+        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
+                preEval.date().toString(), preEval.targetType().name(),
+                LocationTaskState.FAILED, reason, LocationTaskState.EVALUATING.name());
     }
 
     /**

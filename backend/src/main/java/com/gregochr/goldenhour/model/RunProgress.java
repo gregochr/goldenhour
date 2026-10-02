@@ -30,6 +30,7 @@ public class RunProgress {
     private final Instant startedAt;
     private volatile RunPhase phase = RunPhase.TRIAGE;
     private volatile String failureReason;
+    private volatile boolean stopped;
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -189,8 +190,51 @@ public class RunProgress {
      *
      * @param reason a fixed, safe phrase describing why the run stopped (never a raw exception message)
      */
-    public void markFailed(String reason) {
+    public synchronized void markFailed(String reason) {
+        if (stopped) {
+            return; // the stop reason names what ended the run, and nothing later is more specific
+        }
         this.failureReason = reason;
+    }
+
+    /**
+     * Stops this run: Claude rejected the API key, so every further evaluation would fail the same
+     * way and none is attempted. Sets the run-level failure reason (which {@link #markFailed} will not
+     * overwrite from here on) and makes the run non-retryable.
+     *
+     * <p>Scoped to this one run's progress object, so two overlapping runs do not affect each other
+     * and a later run starts unstopped.
+     *
+     * @param reason a fixed, safe phrase describing why the run stopped
+     * @return {@code true} if this call stopped the run, {@code false} if it was already stopped
+     */
+    public synchronized boolean stop(String reason) {
+        if (stopped) {
+            return false;
+        }
+        this.failureReason = reason;
+        this.stopped = true;
+        return true;
+    }
+
+    /**
+     * Whether the run was stopped because Claude rejected the API key.
+     *
+     * @return {@code true} once {@link #stop} has been called
+     */
+    public boolean isStopped() {
+        return stopped;
+    }
+
+    /**
+     * Whether "Retry failed" can do any good for this run: not once it was stopped on a rejected key,
+     * because the places it would re-run fail the same way until the key is fixed and a new run is
+     * started.
+     *
+     * @return {@code false} for a stopped run, otherwise {@code true}
+     */
+    public boolean isRetryable() {
+        return !stopped;
     }
 
     /**

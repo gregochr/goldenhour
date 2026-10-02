@@ -9,7 +9,7 @@ import {
   needsAttention, failedOutright, stoppedEarly, failureMessage, RUN_FAILED_FALLBACK,
 } from '../utils/runOutcome.js';
 import {
-  NO_FAILURES, ONE_FAILURE, task, completeEvent,
+  NO_FAILURES, ONE_FAILURE, task, completeEvent, KEY_REJECTED_TASKS, KEY_REJECTED_AFTER_ONE, KEY_REJECTED_RUN,
 } from './runProgressFixtures.js';
 
 // A run can fail before it has any task: the server then sends `status: FAILED, total: 0,
@@ -108,6 +108,30 @@ describe('map popup Run Forecast: how a finished run reads', () => {
     expect(screen.getByText(UNEXPECTED)).toBeInTheDocument();
   });
 
+  it('reads a run stopped on a rejected key with nothing completed as failed: the reason, and no refresh', async () => {
+    const { handlers, onForecastRun } = await startRun();
+
+    await act(async () => {
+      handlers['run-complete'](completeEvent(9, KEY_REJECTED_TASKS, { reason: KEY_REJECTED_RUN, retryable: false }));
+    });
+
+    expect(screen.getByText(KEY_REJECTED_RUN)).toBeInTheDocument();
+    expect(onForecastRun).not.toHaveBeenCalled();
+  });
+
+  it('reads a run stopped on a rejected key after a place completed as stopped early: refresh once, and the reason', async () => {
+    const { handlers, onForecastRun } = await startRun();
+
+    await act(async () => {
+      handlers['run-complete'](
+        completeEvent(9, KEY_REJECTED_AFTER_ONE, { reason: KEY_REJECTED_RUN, retryable: false }),
+      );
+    });
+
+    expect(onForecastRun).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(KEY_REJECTED_RUN)).toBeInTheDocument();
+  });
+
   it('keeps the existing sentence for a run with failed tasks and no reason', async () => {
     const { handlers, onForecastRun } = await startRun();
 
@@ -182,6 +206,26 @@ describe('app-wide run-complete banner', () => {
     expect(banner.className).not.toContain('bg-red');
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a red failure line with the key reason for a run stopped on a rejected key with nothing completed', () => {
+    const run = completeEvent(9, KEY_REJECTED_TASKS, { reason: KEY_REJECTED_RUN, retryable: false });
+    render(<RunCompleteBanner run={run} onRefresh={vi.fn()} />);
+
+    const banner = screen.getByTestId('run-complete-banner');
+    expect(banner.textContent).toBe(`Forecast run failed — ${KEY_REJECTED_RUN}`);
+    expect(banner.className).toContain('bg-red-900/40');
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  });
+
+  it('is an amber stopped-early line, with Refresh, for a rejected-key stop after a place completed', () => {
+    const run = completeEvent(9, KEY_REJECTED_AFTER_ONE, { reason: KEY_REJECTED_RUN, retryable: false });
+    render(<RunCompleteBanner run={run} onRefresh={vi.fn()} />);
+
+    const banner = screen.getByTestId('run-complete-banner');
+    expect(banner.textContent)
+      .toBe(`Forecast run stopped early — 1 location updated, 2 failed. ${KEY_REJECTED_RUN} Refresh`);
+    expect(banner.className).toContain('bg-amber-900/40');
   });
 
   it('omits ", 0 failed" when a run stopped early with nothing failed', () => {

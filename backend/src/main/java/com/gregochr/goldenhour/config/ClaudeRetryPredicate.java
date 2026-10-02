@@ -21,11 +21,22 @@ public class ClaudeRetryPredicate implements Predicate<Throwable> {
         if (throwable instanceof AnthropicServiceException ex) {
             boolean isServerError = ex.statusCode() == 500;
             boolean isOverloaded = ex.statusCode() == 529;
-            boolean isContentFilter = ex.statusCode() == 400
-                    && ex.getMessage() != null
-                    && ex.getMessage().contains("content filtering");
-            return isServerError || isOverloaded || isContentFilter;
+            return isServerError || isOverloaded || isContentFilter(ex);
         }
         return false;
+    }
+
+    /**
+     * Whether an Anthropic error is the intermittent output content-filter rejection (HTTP 400 whose
+     * message names "content filtering"). Shared with the failure classifier so the retry rule and the
+     * reason an admin reads can never disagree about what a content-filter failure is.
+     *
+     * @param ex the Anthropic service error
+     * @return {@code true} for a content-filter 400
+     */
+    public static boolean isContentFilter(AnthropicServiceException ex) {
+        return ex.statusCode() == 400
+                && ex.getMessage() != null
+                && ex.getMessage().contains("content filtering");
     }
 }

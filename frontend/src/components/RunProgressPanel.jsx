@@ -16,6 +16,8 @@ const NOTHING_TO_RETRY = "Nothing to retry: this run's failed places can no long
 const RETRY_FALLBACK = 'Could not start the retry.';
 const RETRY_STARTED_UNNAMED = 'Retry started.';
 const RUN_EXPIRED = "This run's progress is no longer available.";
+/** Shown in the place of Retry when the server says re-running the failed places cannot help (a rejected API key). */
+const RETRY_NOT_OFFERED = 'Retry is not offered: fix the API key, then start the run again.';
 
 /**
  * Live progress panel for a forecast run. Subscribes to SSE and displays
@@ -26,7 +28,8 @@ const RUN_EXPIRED = "This run's progress is no longer available.";
  * {@code reason}, which a run that failed before it had any task carries instead). A run with none of
  * these removes itself through {@code onAutoClear}, as it always did; one that needs attention stays,
  * with its failed places, the run's reason and the Retry button (only when there are failed places to
- * retry), until the admin presses Dismiss or the parent replaces it. Both happen inside this
+ * retry and the payload does not say {@code retryable: false}, as it does for a run stopped on a
+ * rejected API key; one plain line stands in its place), until the admin presses Dismiss or the parent replaces it. Both happen inside this
  * component, so the parent never unmounts it in the tick it completes.
  *
  * <p>The server replays {@code run-complete} to a subscriber that arrives after the run finished, so
@@ -144,6 +147,9 @@ const RunProgressPanel = ({
   const skipped = summary?.skipped || 0;
   const triaged = summary?.triaged || 0;
   const inProgress = summary?.inProgress || 0;
+  // Only an explicit `false` withdraws Retry: a payload from before the field existed (or any that
+  // omits it) keeps the button, exactly as it was.
+  const retryable = summary?.retryable !== false;
   const phase = summary?.phase || null;
   const pending = total - completed - failed - skipped - triaged - inProgress;
 
@@ -247,7 +253,7 @@ const RunProgressPanel = ({
       {/* The two buttons share one row, and the line that answers a press sits BELOW it, so
           neither button moves when it appears. */}
       <div className="flex flex-wrap gap-2">
-        {complete && failed > 0 && !retryStartedUnnamed && (
+        {complete && failed > 0 && !retryStartedUnnamed && retryable && (
           <button
             type="button"
             className={`btn-primary text-xs ${BUSY_BUTTON}`}
@@ -257,6 +263,12 @@ const RunProgressPanel = ({
           >
             {retrying ? 'Retrying...' : `Retry ${failed} failed`}
           </button>
+        )}
+        {complete && !retryable && (
+          // In the place of the Retry button: re-running the failed places would fail them the same way.
+          <p className="text-xs text-plex-text-secondary self-center" data-testid="retry-not-offered">
+            {RETRY_NOT_OFFERED}
+          </p>
         )}
         {(complete || expired) && onDismiss && (
           <button

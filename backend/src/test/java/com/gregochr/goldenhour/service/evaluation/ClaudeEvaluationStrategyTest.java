@@ -116,6 +116,7 @@ class ClaudeEvaluationStrategyTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeRefusalException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("refused")
                 .hasMessageContaining("stop_reason=refusal");

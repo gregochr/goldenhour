@@ -109,6 +109,8 @@ class ForecastServiceTest {
     @Mock
     private com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
             slotAtmosphereWriter;
+    @Mock
+    private RunProgressTracker runProgressTracker;
 
     /**
      * 2026-08-11 12:00 UTC — midday, where the UTC and Europe/London dates agree, so the
@@ -723,7 +725,7 @@ class ForecastServiceTest {
         ForecastService serviceWithFlagOff = new ForecastService(
                 solarService, openMeteoService, augmentor, evaluationService,
                 engineEvaluationService, repository, notificationDispatcher, eventPublisher,
-                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, clock);
+                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, runProgressTracker, clock);
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
@@ -2237,7 +2239,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    slotAtmosphereWriter, at);
+                    slotAtmosphereWriter, runProgressTracker, at);
 
             service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);
@@ -2267,7 +2269,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    slotAtmosphereWriter, at);
+                    slotAtmosphereWriter, runProgressTracker, at);
 
             return service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);

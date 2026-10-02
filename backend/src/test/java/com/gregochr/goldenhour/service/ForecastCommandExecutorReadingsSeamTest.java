@@ -121,7 +121,7 @@ class ForecastCommandExecutorReadingsSeamTest {
                 solarService, openMeteoService, augmentor, legacyEvaluationService,
                 engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
                 eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                slotAtmosphereWriter, CLOCK);
+                slotAtmosphereWriter, progressTracker, CLOCK);
 
         executor = new ForecastCommandExecutor(
                 realForecastService, locationService, jobRunService, solarService,

@@ -10,7 +10,9 @@ import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionService;
@@ -254,7 +256,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                     .map(ContentBlock::asText)
                     .map(TextBlock::text)
                     .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("Claude returned no text"));
+                    .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text"));
             outcome = ClaudeSyncOutcome.success(text, extractTokens(response),
                     task.model(), System.currentTimeMillis() - start);
         } catch (Exception e) {
@@ -343,10 +345,7 @@ public class EvaluationServiceImpl implements EvaluationService {
     }
 
     private String classifyError(Exception e) {
-        if (e instanceof com.anthropic.errors.AnthropicServiceException svc) {
-            return "anthropic_" + svc.statusCode();
-        }
-        return e.getClass().getSimpleName();
+        return EvaluationFailure.errorTypeOf(e);
     }
 
     // Narrows a homogeneous task list to its concrete type. submit() has already proven every
