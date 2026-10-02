@@ -267,8 +267,8 @@ describe('MapHeatLayer — the paint', () => {
     expect(opts.grid).toBe(6);
     expect(opts.blur).toBe(4);
     expect(opts.conf).toBe(0.5);
-    // P4 RE-PIN: 8500/34/240 → 7200/30/190 (map-tab-v2-plan.md §3 P4).
-    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 190);
+    // P4 RE-PIN: 8500/34/240 → 7200/30/190 (map-tab-v2-plan.md §3 P4); cap 190 → 400 on 2026-10-02.
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 400);
   });
 
   it('sizes the radius in real distance, so a mile means a mile at every zoom', async () => {
@@ -423,9 +423,9 @@ describe('MapHeatLayer — throttle, never debounce', () => {
     });
     expect(drawTiles).toHaveBeenCalledTimes(2);
     // The FIELD's own opacity is what tracks the last zoom now (the markers are simply off at
-    // both) — 13 is past `fadeAt`'s band, so the field is at its 0.12 floor. A repaint that kept
+    // both) — 13 is past `fadeAt`'s band, so the field is at its 0.35 floor. A repaint that kept
     // zoom 11's frame would show 1 − 0.88×0.375 = 0.67 here.
-    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.12, 5);
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.35, 5);
   });
 
   it('keeps ONE Leaflet subscription across a window change', async () => {
@@ -487,16 +487,16 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     // is the Legend indicator's progress fraction now and nothing renders at it; the field's own
     // `heat` half is the one the canvas still reads. (It used to read "above it the markers are
     // whole" — the sentence this change falsified.) Below the band the field is whole;
-    // and the field settles to a 12% wash rather than vanishing — the regional answer is still
+    // and the field settles to a 35% wash rather than vanishing — the regional answer is still
     // true at street level.
     expect(fadeAt(9)).toEqual({ markers: 0, heat: 1 });
     expect(fadeAt(10.4)).toEqual({ markers: 0, heat: 1 });
     expect(fadeAt(12.0).markers).toBe(1);
-    expect(fadeAt(12.0).heat).toBeCloseTo(0.12, 5);
+    expect(fadeAt(12.0).heat).toBeCloseTo(0.35, 5);
     expect(fadeAt(19).markers).toBe(1);
     const mid = fadeAt(11.2);
     expect(mid.markers).toBeCloseTo(0.5, 5);
-    expect(mid.heat).toBeCloseTo(1 - 0.88 * 0.5, 5);
+    expect(mid.heat).toBeCloseTo(1 - 0.65 * 0.5, 5);
   });
 
   it('multiplies the field’s own 0.92 by the zoom fade rather than replacing it', async () => {
@@ -507,9 +507,9 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     currentMap = makeMap({ zoom: 13, panes: markerPanes() });
     drawTiles.mockClear();
     await mount();
-    // P4 RE-PIN: floor 0.17 → 0.12 (map-tab-v2-plan.md §3 P4).
+    // P4 RE-PIN: floor 0.17 → 0.12 (map-tab-v2-plan.md §3 P4); 0.12 → 0.35 on 2026-10-02.
     // 2026-09-03: base opacity corrected 0.9 → 0.92 (drift repair, map-tab-v2-plan.md §4).
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.12, 5);
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.35, 5);
   });
 
   it('hides the marker panes wholesale at the zoom the tab opens at', async () => {
@@ -631,7 +631,7 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     // the new 10.4→12.0 band (that's 11.2 — see "computes the two opacities" above), so the
     // expected value here is recomputed from the formula at this same zoom rather than copied
     // from the old band's coincidentally-round 0.585: t = (11.4−10.4)/1.6 = 0.625,
-    // heat = 1 − 0.88×0.625 = 0.45.
+    // heat = 1 − 0.88×0.625 = 0.45 (floor 0.35 since 2026-10-02: 1 − 0.65×0.625 = 0.59375).
     //
     // ⚠️ The MARKER half of this pin is gone with the medallion fade — the markers are simply off
     // mid-band now, which is what the assertion below says. `fadeAt`'s own `markers` component is
@@ -640,7 +640,7 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     await mount();
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     // 2026-09-03: base opacity corrected 0.9 → 0.92 (drift repair, map-tab-v2-plan.md §4).
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.45, 5);
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.59375, 5);
   });
 
   it('keeps the medallions hidden even while a location is OPEN', async () => {
@@ -756,22 +756,28 @@ describe('MapHeatLayer — the land clip (map-tab-v2-plan.md §3 P4)', () => {
     HTMLCanvasElement.prototype.getContext = () => makeCanvasCtxStub();
   });
 
-  it('re-tunes the field to the P4 dials — 7200m / 30–190px', async () => {
+  it('re-tunes the field to 7200m / 30–400px (cap 190 → 400, 2026-10-02)', async () => {
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     await mount();
-    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 190);
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 400);
   });
 
-  it('re-tunes the field/marker handover band to 10.4→12.0, floor 0.12', () => {
+  it('keeps the field at the 0.35 floor from zoom 12 up, and whole below the band (2026-10-02)', () => {
+    expect(fadeAt(10).heat).toBe(1);
+    expect(fadeAt(12).heat).toBeCloseTo(0.35, 5);
+    expect(fadeAt(14).heat).toBeCloseTo(0.35, 5);
+  });
+
+  it('re-tunes the field/marker handover band to 10.4→12.0 (floor since raised to 0.35)', () => {
     // Pinned as pure numbers on `fadeAt` itself, the same idiom as the pre-existing D8 suite
     // (which still pins the OLD 10.6/12.2/0.17 band — see this phase's own report on that).
     expect(fadeAt(10.4)).toEqual({ markers: 0, heat: 1 });
     expect(fadeAt(12.0).markers).toBe(1);
-    expect(fadeAt(12.0).heat).toBeCloseTo(0.12, 5);
+    expect(fadeAt(12.0).heat).toBeCloseTo(0.35, 5);
     // The midpoint of the NEW band (11.2, not the old band's 11.4) is where the two curves cross.
     const mid = fadeAt(11.2);
     expect(mid.markers).toBeCloseTo(0.5, 5);
-    expect(mid.heat).toBeCloseTo(1 - 0.88 * 0.5, 5);
+    expect(mid.heat).toBeCloseTo(1 - 0.65 * 0.5, 5);
   });
 
   it('passes the clip keyed to the map’s own pixel origin, below zoom 11.5', async () => {

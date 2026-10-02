@@ -242,6 +242,8 @@ The fix for the founding complaint ("heat sits in the sea"), in `MapHeatLayer.js
 - Re-tune the field constants: radius **7200 m / 30–190 px** (from 8500/34–240), fade band
   **10.4 → 12.0**, floor **0.12** (from 10.6→12.2/0.17). One commit, because radius and clip were
   co-tuned — the old radius is part of why the field swam offshore.
+  *(2026-10-02 note: floor later raised 0.12 → 0.35 and the radius cap 190 → 400 px — owner report,
+  field invisible at zoom ~12 with 4★ chips; the two stacked. Band and 7200 m unchanged.)*
 - **Verification #1 (measured, not by eye)**: sample the heat canvas alpha at every location's own
   lat/lng at the regional glance and at county zoom; **none near zero** (bundle's floor: min 173 /
   154). Script it in the browser console via the exposed canvas; paste the min into the PR. This
