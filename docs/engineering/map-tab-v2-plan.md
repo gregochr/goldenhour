@@ -609,7 +609,7 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 9. **The Plan-tab overlay keeps the old map wholesale** — popup, medallions,
    ForecastTypeSelector. The bundle redesigns "the Map tab"; the overlay is a different surface
    with a different job. Convergence is O-6. ⚠️ **Clustering was struck from this list on
-   2026-09-04 (item 20) — the one place the overlay's freeze has been deliberately broken.**
+   2026-09-04 (item 20) — the first place the overlay's freeze has been deliberately broken.** ⚠️ **It was broken a SECOND time on 2026-10-02** (the hourly comfort forecast): the frozen popup's pure-wildlife block was rewritten as the shared `HourlyComfortTable` — a real `<table>`, the column headers kept for assistive technology only (`sr-only` text, so the popup's look is what it was), a missing figure a dash plus a hidden "not forecast", no "feels" invented from the air temperature, no "undefined" compass word, the inline icon styles moved to `.wf-wx-icon` and the icons extracted to `WeatherIcons.jsx` — and the dead waterfall comfort block was removed. Its visible look is intended to be unchanged.
 10. **Keyboard shortcuts are pane-scoped**, not document-global — the prototype had no other
     focusable surfaces; the app does.
 11. **The callout carries a reduced fact set by design**; the full forecast detail (tide
@@ -1161,7 +1161,7 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   is the never-cached per-user endpoint, which is the exit for CLAUDE.md's licensed client classes
   (including the Map tab's own, added at map-landing L7). Two plans, two O-4s, unrelated.
 - **O-5** Azimuth lines on the redesigned tab.
-- **O-6** Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). One
+- **O-6** Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). ⚠️ What in `HourlyComfortTable` exists only for the frozen popup: the default hidden-header mode (`headersVisible` false, the `.wf-hourly-head-off` rule and its `sr-only` header text), and the popup's `label`/`popup-hourly-table` test id; when the overlay converges, delete that mode. One
   producer has already moved off the overlay: the location sheet's `Show on map` footer button now
   opens the Map tab directly (`plan-to-map-doors-plan.md` doors D3, #764), landing on the sheet's
   own window with the location's callout up. Every other producer (`WindowPickDialog`'s two

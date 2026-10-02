@@ -427,17 +427,42 @@ describe('MarkerPopupContent', () => {
           { solarEventTime: '2026-03-03T09:00:00Z', temperatureCelsius: 7.4, apparentTemperatureCelsius: null, windSpeed: null, windDirection: null, precipitationProbabilityPercent: null },
         ],
       });
-      const table = screen.getByRole('table', { name: 'Hourly comfort for Bamburgh' });
+      screen.getByRole('table', { name: 'Hourly comfort for Bamburgh' });
       expect(screen.getAllByRole('rowheader').map((th) => th.textContent)).toEqual(['08:00', '09:00']);
       const [first, second] = screen.getAllByTestId('hourly-comfort-row');
       expect(first).toHaveTextContent('6°C · feels 3°C');
       expect(first).toHaveTextContent('11.2 mph S');
       expect(first).toHaveTextContent('20%');
-      // A missing feels-like falls back to the air temperature, as it always has; a missing wind or
-      // rain figure is a dash, never the word "undefined".
-      expect(second).toHaveTextContent('7°C · feels 7°C');
+      // A missing feels-like prints no "feels" at all (it used to present the air temperature as one);
+      // a missing wind or rain figure is a dash with a hidden "not forecast", never "undefined".
+      expect(second).toHaveTextContent('7°C');
+      expect(second.textContent).not.toContain('feels');
       expect(second.textContent).not.toContain('undefined');
-      expect(table).toBeInTheDocument();
+    });
+
+    it('keeps the popup\'s column headers hidden — the frozen overlay\'s look is unchanged — yet named', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        isPureWildlife: true,
+        hourlyData: [
+          { solarEventTime: '2026-03-03T08:00:00Z', temperatureCelsius: 6, apparentTemperatureCelsius: 3, windSpeed: null, windDirection: null, precipitationProbabilityPercent: null },
+        ],
+      });
+      for (const name of ['Time', 'Temperature', 'Wind', 'Rain chance']) {
+        // The sr-only pattern: present in the accessibility tree, invisible on screen.
+        expect(screen.getByRole('columnheader', { name }).firstChild).toHaveClass('sr-only');
+      }
+      // A missing wind and a missing rain figure each expose "not forecast" to a screen reader.
+      expect(screen.getAllByText('not forecast')).toHaveLength(2);
+    });
+
+    it('prints a solar-row wind with no direction as speed alone, in the popup\'s detail block too', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: { ...BASE_FORECAST, windSpeed: 4.2, windDirection: null },
+      });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.queryByText(/undefined/)).toBeNull();
     });
   });
 

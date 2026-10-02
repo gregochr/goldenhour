@@ -1384,6 +1384,25 @@ describe('App — a wildlife hide\'s hourly rows add no window to the Map pane\'
     expect(mapPaneProps.last.dates).toEqual([TOMORROW]);
     expect(mapPaneProps.last.dates).not.toContain(HIDE_ONLY_DATE);
   });
+
+  it('⚠️ a roster of hides ONLY keeps the Map tab (data exists) yet hands it no date to draw a window for', async () => {
+    // "Is there any forecast data" gates the pane; "which dates get windows" is a separate question.
+    // Folding them together made the Map tab vanish while a hide's rows existed.
+    fetchLocations.mockResolvedValue([HIDE_META]);
+    fetchForecasts.mockResolvedValue([hourlyRow(TOMORROW), hourlyRow(HIDE_ONLY_DATE)]);
+    renderApp();
+    await openMapPane();
+
+    expect(mapPaneProps.last.dates).toEqual([]);
+    expect(typeof mapPaneProps.last.selectedDate).toBe('string');
+  });
+
+  it('still withholds the Map tab when no visible location has any forecast row at all', async () => {
+    fetchForecasts.mockResolvedValue([]);
+    renderApp();
+    await screen.findByRole('tab', { name: 'Plan' });
+    expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+  });
 });
 
 // ── One line of colour saves for the page, across the dialog's openings ────────────────────

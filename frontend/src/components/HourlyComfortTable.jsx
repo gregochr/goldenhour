@@ -6,6 +6,10 @@ import { ThermometerIcon, WindIcon, RainIcon } from './WeatherIcons.jsx';
 /** The column headers, in column order. */
 const HEADERS = ['Time', 'Temperature', 'Wind', 'Rain chance'];
 
+/** What the header says where the column is narrow (phone): the visible word is shorter, the
+ * accessible name stays the full {@link HEADERS} entry. */
+const SHORT_HEADERS = { Temperature: 'Temp', 'Rain chance': 'Rain' };
+
 /**
  * The hourly comfort table — one row per daylight hour: time, temperature with feels-like, wind
  * with its compass point, and rain chance.
@@ -43,7 +47,15 @@ export default function HourlyComfortTable({
         <tr>
           {HEADERS.map((header) => (
             <th key={header} scope="col">
-              <span className={headersVisible ? undefined : 'sr-only'}>{header}</span>
+              {headersVisible && SHORT_HEADERS[header] ? (
+                <>
+                  <span className="wf-hourly-h-long" aria-hidden="true">{header}</span>
+                  <span className="wf-hourly-h-short" aria-hidden="true">{SHORT_HEADERS[header]}</span>
+                  <span className="sr-only">{header}</span>
+                </>
+              ) : (
+                <span className={headersVisible ? undefined : 'sr-only'}>{header}</span>
+              )}
             </th>
           ))}
         </tr>
@@ -57,9 +69,7 @@ export default function HourlyComfortTable({
               <td>
                 <span className="wf-hourly-cell">
                   <ThermometerIcon />
-                  {h.temperatureCelsius != null
-                    ? `${Math.round(h.temperatureCelsius)}°C · feels ${Math.round(h.apparentTemperatureCelsius ?? h.temperatureCelsius)}°C`
-                    : <Missing />}
+                  {temperatureText(h) ?? <Missing />}
                 </span>
               </td>
               <td>
@@ -82,6 +92,23 @@ export default function HourlyComfortTable({
       </tbody>
     </table>
   );
+}
+
+/**
+ * One hour's temperature cell: "6°C · feels 4°C". "feels" is printed ONLY when a feels-like was
+ * served — an earlier form fell back to the air temperature and printed it as "feels", inventing a
+ * figure the callout's summary (which omits it) then disagreed with. Both round with
+ * `Math.round`, as the summary does, so the two cannot diverge on a `.5`.
+ *
+ * @param {object} h an hourly row
+ * @returns {?string} the text, or null when neither figure was served
+ */
+function temperatureText(h) {
+  const air = h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C` : null;
+  const feels = h.apparentTemperatureCelsius != null
+    ? `feels ${Math.round(h.apparentTemperatureCelsius)}°C` : null;
+  if (air && feels) return `${air} · ${feels}`;
+  return air ?? feels;
 }
 
 /** An absent figure: a dash for the eye, a phrase for the ear. */

@@ -4,7 +4,6 @@ import {
   formatEventTimeUk,
   formatGeneratedAtFull,
   mpsToMph,
-  degreesToCompass,
 } from '../utils/conversions.js';
 import {
   getForecastDetail,
@@ -18,6 +17,7 @@ import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
 import ScoreBar from './ScoreBar.jsx';
 import HourlyComfortTable from './HourlyComfortTable.jsx';
+import { formatCompass } from '../utils/hourlyComfort.js';
 import {
   ThermometerIcon, WindIcon, RainIcon, DropletIcon,
 } from './WeatherIcons.jsx';
@@ -867,7 +867,7 @@ export default function MarkerPopupContent({
               {forecast.temperatureCelsius != null && (
                 <div style={{ borderTop: `1px solid var(--color-plex-border)`, paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: 'var(--color-plex-text-secondary)', lineHeight: '1.8' }}>
                   <div style={{ display: 'flex', alignItems: 'center' }}><ThermometerIcon /><strong>{Math.round(forecast.temperatureCelsius)}°C</strong>&nbsp;· feels like {Math.round(forecast.apparentTemperatureCelsius ?? forecast.temperatureCelsius)}°C</div>
-                  <div style={{ display: 'flex', alignItems: 'center' }}><WindIcon /><strong>{mpsToMph(forecast.windSpeed)} mph</strong>&nbsp;{degreesToCompass(forecast.windDirection)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}><WindIcon /><strong>{mpsToMph(forecast.windSpeed)} mph</strong>&nbsp;{formatCompass(forecast.windDirection)}</div>
                   <div style={{ display: 'flex', alignItems: 'center' }}><RainIcon /><strong>{forecast.precipitationProbabilityPercent ?? 0}%</strong>&nbsp;rain chance</div>
                   {parseFloat(forecast.precipitation ?? 0) > 0 && (
                     <div style={{ display: 'flex', alignItems: 'center' }}><DropletIcon /><strong>{parseFloat(forecast.precipitation).toFixed(1)} mm</strong>&nbsp;precip</div>

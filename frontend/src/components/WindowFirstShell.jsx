@@ -235,7 +235,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * {@code App} ({@code utils/initialTab.js}, a pure viewport read) and handed down as
  * {@code initialTab}. This component stays device-agnostic — it never reads a media query itself —
  * and models the opening tab as a PREFERENCE that stands until the reader makes an actual choice,
- * because the Map pane does not exist at first render (`App.jsx`'s `allDates.length > 0` gate) and
+ * because the Map pane does not exist at first render (`App.jsx`'s `hasForecastData` gate) and
  * so cannot simply be selected up front. {@code activeTab} is {@code null} until then; see its own
  * Javadoc, {@code commitTabInForce} and {@code PREFERRED_TAB_GRACE_MS} for how the preference is
  * allowed to resolve to Map once, and never moves the tab under a reader who has done anything at
@@ -473,7 +473,7 @@ export default function WindowFirstShell({
    * {@code tabIndex={0}}, which is the whole keyboard entry point, and every panel would be hidden.
    * Falling back to the first tab is the only state that is always coherent — and on a desktop this
    * is exactly what gives the intended first-render Plan / later-render Map sequence (§4.3): the Map
-   * pane is absent at first paint (`App.jsx`'s `allDates.length > 0` gate), so this fallback lands
+   * pane is absent at first paint (`App.jsx`'s `hasForecastData` gate), so this fallback lands
    * on Plan until it arrives, then resolves to Map the moment it does — but only while
    * {@code activeTab} is still {@code null}.
    */
@@ -530,7 +530,7 @@ export default function WindowFirstShell({
    *
    * <p>⚠️ Reads `effectiveTabRef`, not a closed-over `effectiveTab` — found in review. The timer is
    * armed once at MOUNT, when `effectiveTab` is necessarily still Plan (the Map pane has not
-   * arrived — App.jsx's `allDates.length > 0` gate). A version that called a `commitTabInForce`
+   * arrived — App.jsx's `hasForecastData` gate). A version that called a `commitTabInForce`
    * closed over that mount-render value would commit PLAN at 1500 ms even after the Map pane
    * arrived at, say, 300 ms and the preference had already resolved to Map — silently yanking the
    * reader back to Plan a second and a half into reading it. Reading the ref at fire time is what
@@ -2357,7 +2357,7 @@ export default function WindowFirstShell({
             //
             // ⚠️ WITHHELD, not just unwired, when there is no map door: `App` hands this shell
             // `undefined` for `onOpenMapTab` whenever there is nothing to map
-            // (`allDates.length === 0`; this component's own default parameter is `null`, but no
+            // (no `hasForecastData`; this component's own default parameter is `null`, but no
             // production caller ever omits the prop, so `App`'s value is the one that reaches here),
             // and passing a function regardless would leave the sheet's `handoff && onShowOnMap`
             // gate rendering a button that calls nothing — the dead-control ban the sheet's own
@@ -2457,7 +2457,7 @@ WindowFirstShell.propTypes = {
    * The map doors' shared entry (doors D2, `plan-to-map-doors-plan.md` §3) — `App.jsx`'s
    * `openMapTabFromPlan`, called by the shell's own `openMapTab(door)` wrapper (which closes the
    * popup/window sheet first and merges in the live lens values). Absent whenever there is nothing
-   * to map (`App`'s own `allDates.length === 0` gate) — no door renders without it, mirroring
+   * to map (`App`'s own `hasForecastData` gate) — no door renders without it, mirroring
    * `onOpenFullMap`'s identical withholding rule on the overlay's own hatch.
    */
   onOpenMapTab: PropTypes.func,

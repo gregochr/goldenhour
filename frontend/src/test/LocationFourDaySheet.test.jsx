@@ -2,7 +2,7 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import LocationFourDaySheet from '../components/LocationFourDaySheet.jsx';
 import {
   buildEclipseIndex, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex,
@@ -1412,8 +1412,11 @@ describe('LocationFourDaySheet — a wildlife hide shows its hourly comfort fore
     const table = within(dayBlock('2026-08-14')).getByRole('table', {
       name: 'Hourly comfort at Gosforth Nature Reserve, Fri 14 Aug',
     });
-    expect(within(table).getAllByRole('columnheader').map((th) => th.textContent))
-      .toEqual(['Time', 'Temperature', 'Wind', 'Rain chance']);
+    // Visible short forms on a phone, but the accessible NAME of each header is the full word.
+    for (const name of ['Time', 'Temperature', 'Wind', 'Rain chance']) {
+      expect(within(table).getByRole('columnheader', { name })).toBeInTheDocument();
+    }
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(4);
     // 08:00 and 09:00 UTC are 09:00 and 10:00 BST.
     expect(within(table).getAllByRole('rowheader').map((th) => th.textContent)).toEqual(['09:00', '10:00']);
     const [first, second] = within(table).getAllByTestId('hourly-comfort-row');
@@ -1458,6 +1461,64 @@ describe('LocationFourDaySheet — a wildlife hide shows its hourly comfort fore
     hideSetup({ windows: [], location: { ...HIDE, forecastsByDate: new Map() } });
     expect(screen.getByTestId('location-sheet-hourly-none')).toHaveTextContent('No hourly forecast yet.');
     expect(screen.queryAllByTestId('location-sheet-hourly-day')).toEqual([]);
+    // ⚠️ And NOT the sky sheet's "No forecast loaded yet." — a hide with no windows is not waiting
+    // for window rows it will never have (deleting the `!hourlyBody` guard on it fails this).
+    expect(screen.queryByTestId('location-sheet-empty')).toBeNull();
+  });
+
+  it('makes the one scroller a named, focusable region for a hide — nothing inside a table takes focus', () => {
+    hideSetup();
+    const region = screen.getByRole('region', { name: 'Gosforth Nature Reserve hourly comfort forecast' });
+    expect(region).toBe(screen.getByTestId('location-sheet-rows'));
+    expect(region).toHaveAttribute('tabindex', '0');
+  });
+
+  it('⚠️ gives a sky location\'s scroller no tab stop or region role — its row buttons are the stops', () => {
+    setup();
+    const scroller = screen.getByTestId('location-sheet-rows');
+    expect(scroller).not.toHaveAttribute('tabindex');
+    expect(screen.queryByRole('region')).toBeNull();
+  });
+
+  describe('a hide opened before its roster record joins (Plan search: the heat spot carries skySubject)', () => {
+    const PENDING_SPOT = { ...HIDE_SPOT, skySubject: false };
+
+    it('paints NO window rows while the record is unknown — never six "Not scored yet" for a hide', () => {
+      hideSetup({ spot: PENDING_SPOT, location: null });
+      expect(screen.queryAllByTestId('location-sheet-row')).toEqual([]);
+      expect(screen.queryByText(/Not scored/)).toBeNull();
+      expect(screen.getByTestId('location-sheet-hide-pending')).toHaveTextContent('Loading this place…');
+    });
+
+    it('swaps to the hourly section when the record arrives, and focus is never dropped to <body>', async () => {
+      const handlers = { onClose: vi.fn(), onShowOnMap: vi.fn() };
+      const props = {
+        spot: PENDING_SPOT, windows: WINDOWS, scoreIndex: null, slotIndex: null, scoresKnown: true,
+        todayStr: TODAY, ...handlers,
+      };
+      const { rerender } = render(<LocationFourDaySheet {...props} location={null} />);
+      const dialog = screen.getByRole('dialog');
+      await waitFor(() => expect(dialog).toHaveFocus());
+      rerender(<LocationFourDaySheet {...props} location={HIDE} />);
+      expect(screen.getAllByTestId('location-sheet-hourly-day').length).toBeGreaterThan(0);
+      expect(screen.queryByTestId('location-sheet-hide-pending')).toBeNull();
+      expect(screen.queryAllByTestId('location-sheet-row')).toEqual([]);
+      // There was never a row to tab onto, so nothing unmounted under the reader: focus stays inside.
+      expect(document.activeElement).not.toBe(document.body);
+      expect(dialog).toContainElement(document.activeElement);
+    });
+
+    it('does NOT withhold rows from a place with ratings, or from a spot that is not flagged', () => {
+      // A flagged spot with a rated row (a rated wood, say) keeps its rows; so does an unflagged one.
+      setup({ spot: { ...SPOT, skySubject: false }, location: null });
+      expect(screen.getAllByTestId('location-sheet-row').length).toBeGreaterThan(0);
+    });
+
+    it('leaves a spot with no flag exactly as before — a popup chip, which comes from the joined roster', () => {
+      setup({ spot: HIDE_SPOT, scoreIndex: null, slotIndex: null, location: null });
+      expect(screen.getAllByTestId('location-sheet-row').length).toBeGreaterThan(0);
+      expect(screen.queryByTestId('location-sheet-hide-pending')).toBeNull();
+    });
   });
 
   it('⚠️ leaves a sky location\'s sheet exactly as it was: window rows, no hourly section', () => {

@@ -1,20 +1,15 @@
-### Added — a wildlife hide's hourly comfort forecast on the Map tab, the phone and the four-day sheet
+### Added — a wildlife hide's hourly comfort forecast on the Map tab and in the location sheet
 
-A pure wildlife hide is never scored for sky colour, so its callout on the Map tab said "Not scored
-yet" for a place that never will be, and nothing showed its hourly comfort forecast anywhere but the
-Plan-tab map overlay's popup. The callout now says "Comfort only" and "Wildlife hide: never scored
-for sky colour", with a short summary of the selected window's day (temperature and feels-like
-range, the strongest wind and the highest rain chance each with the hour it occurs, the daylight
-hours covered), read straight off the served hourly rows. A day with no rows says "No hourly
-forecast for this day yet." The summary is the way into the four-day sheet, which for a hide now
-shows the full hourly table for every day in the served window in place of six empty window rows.
-The phone shows the same callout, since the phone's peek sheet holds no selected-place facts. The
-table is one shared component, a real table with column headers, used by the overlay popup and the
-sheet; a wind speed with no direction no longer prints "undefined". The rows are visible to every
-role, as the API already served them to LITE.
+A wildlife hide is never scored for sky colour, yet its Map tab card said "Not scored yet", and its
+hourly comfort forecast showed only on the Plan tab's map overlay. On the Map tab (desktop, tablet
+and phone) a hide's card now says "Comfort only" and "Wildlife hide: never scored for sky colour",
+with a short summary of the selected day: the temperature and feels-like range, the strongest wind
+and the highest rain chance with the hour each occurs, and the daylight hours covered. For today it
+covers only the hours still to come, and says so. On an astro or aurora night the card is as it was,
+with a line pointing at the daylight forecast. The summary opens the location sheet (`Hour by hour
+›`), which for a hide now shows an hour-by-hour table for every day in place of its six empty
+windows. That sheet is the same one Plan search reaches, so the table appears there too. The rows
+are visible to every role.
 
-Also: `isWildlifeOnly` is now the one client definition of a pure hide (it was written out in
-`MapView` three times and once in `PromptTestView`); the dead waterfall comfort branch in the
-marker popup is removed (no waterfall has ever had hourly rows); and a date held up by hourly rows
-alone no longer reaches the Map pane's date domain, where it would have drawn a Sunrise/Sunset
-window nothing rates.
+Also: a wind speed with no direction no longer prints "undefined" in the map popup, and a missing
+"feels like" is no longer shown as the air temperature.

@@ -1378,6 +1378,10 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
   beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
   afterEach(() => restore());
 
+  // The callout's clock, injected. The window under test is 2026-06-15, so this makes it TOMORROW and
+  // every figure below is a whole-day figure; the "rest of today" tests inject a clock ON the day.
+  const DAY_BEFORE = new Date('2026-06-14T12:00:00Z');
+
   const HIDE = {
     id: 21,
     name: 'Gosforth Nature Reserve',
@@ -1411,7 +1415,7 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
   it('says what it is and what it carries, in place of "Not scored yet"', async () => {
     // `ratingKnown: true` is the state in which a sky location with no rating reads "Not scored
     // yet" — the very line a hide must not get.
-    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
     expect(screen.getByTestId('map-callout-hide-note'))
       .toHaveTextContent('Wildlife hide: never scored for sky colour.');
@@ -1420,13 +1424,13 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
   });
 
   it('is not "Loading…" either while the rating\'s own source has not answered — nothing is coming', async () => {
-    await mount({ location: HIDE, rating: null, ratingKnown: false, hourlyRows: HOURS });
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: false, hourlyRows: HOURS });
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
     expect(screen.queryByText('Loading…')).toBeNull();
   });
 
   it('prints the served rows\' temperature, wind, rain and span, ties going to the earliest hour', async () => {
-    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
     expect(lines()).toEqual([
       '2 to 7°C, feels like -1 to 5°C.',
       // 08:00 UTC is 09:00 BST; the 09:00 UTC tie is not the one named.
@@ -1437,7 +1441,7 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
   });
 
   it('says plainly there is no hourly forecast when the day holds no rows', async () => {
-    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: null });
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: null });
     expect(screen.getByTestId('map-callout-comfort-none'))
       .toHaveTextContent('No hourly forecast for this day yet.');
     expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
@@ -1445,7 +1449,7 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
   });
 
   it('treats an empty array as no rows, the same as null', async () => {
-    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: [] });
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: [] });
     expect(screen.getByTestId('map-callout-comfort-none')).toBeInTheDocument();
   });
 
@@ -1455,10 +1459,19 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
     const onOpenSheet = vi.fn();
     const onOpenInPlan = vi.fn();
     await mount({
-      location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS, onOpenSheet, onOpenInPlan,
+      now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS, onOpenSheet, onOpenInPlan,
     });
-    const button = screen.getByRole('button', { name: /Gosforth Nature Reserve — four days here/ });
-    expect(button).toBe(screen.getByTestId('map-callout-comfort'));
+    const button = screen.getByTestId('map-callout-comfort');
+    expect(button.tagName).toBe('BUTTON');
+    expect(button).toHaveAttribute('aria-haspopup', 'dialog');
+    // The FULL accessible name: the caption naming the day, the figures, then the destination — and
+    // NOT the aria-hidden "Hour by hour ›" caption, and not the sky locations' "four days".
+    expect(button).toHaveAccessibleName(
+      /^Comfort forecast · Mon 15 Jun 2 to 7°C, feels like -1 to 5°C\. Wind up to 13\.4 mph W at 09:00\. Rain chance up to 40% at 10:00\. Daylight hours 08:00 to 11:00\. Gosforth Nature Reserve — hourly comfort forecast$/,
+    );
+    expect(screen.getByRole('button', { name: /Gosforth Nature Reserve — hourly comfort forecast/ })).toBe(button);
+    expect(screen.queryByRole('button', { name: /four days here/ })).toBeNull();
+    expect(screen.getByText('Hour by hour ›')).toBeInTheDocument();
     fireEvent.click(button);
     expect(document.activeElement).toBe(button);
     expect(onOpenSheet).toHaveBeenCalledTimes(1);
@@ -1467,7 +1480,7 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
 
   it('keeps that route when the day holds no rows — the other days may', async () => {
     const onOpenSheet = vi.fn();
-    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: null, onOpenSheet });
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: null, onOpenSheet });
     fireEvent.click(screen.getByTestId('map-callout-comfort'));
     expect(onOpenSheet).toHaveBeenCalledTimes(1);
   });
@@ -1477,7 +1490,7 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
       locationId: HIDE.id, locationName: HIDE.name, date: TODAY, targetType: 'SUNSET',
       rating: null, summary: 'A warm, layered sky with a clean sea horizon.',
     }]);
-    await mount({ location: HIDE, rating: null, ratingKnown: true, scoreIndex, hourlyRows: HOURS });
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, scoreIndex, hourlyRows: HOURS });
     expect(screen.queryByTestId('map-callout-reason')).toBeNull();
     expect(screen.queryByText(/layered sky/)).toBeNull();
   });
@@ -1486,7 +1499,7 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
     // The peek sheet holds no selected-place facts (its three sections are windows, tide and
     // layers), so the comfort summary has to live on the 266px card and nowhere else.
     mockIsMobile = true;
-    await mount({ location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
     expect(screen.getByTestId('map-callout').style.width).toBe('266px');
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
     expect(lines()[1]).toBe('Wind up to 13.4 mph W at 09:00.');
@@ -1505,12 +1518,169 @@ describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not sc
     expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
   });
 
-  it('treats a place that is a hide AND a landscape as a sky location — it is rated, so it keeps its verdict', async () => {
+  it('treats a place that is a hide AND a landscape as a sky location — it keeps the sky verdict path, here the unscored line', async () => {
     await mount({
+      now: DAY_BEFORE,
       location: { ...HIDE, locationType: ['WILDLIFE', 'LANDSCAPE'] },
       rating: null, ratingKnown: true, hourlyRows: HOURS,
     });
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
     expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+  });
+});
+
+/**
+ * A hide on the callout: night windows, the rest of today, the day named, the rating order.
+ *
+ * <p><b>What breaks if these fail:</b> an astro or aurora night headlines daylight figures "for this
+ * day" (at 02:00 on a night dated yesterday, a finished day); an afternoon callout leads with a rain
+ * chance from 08:00; a screen reader hears a sunset and then whole-day figures with no date; or a
+ * real star ends up under "never scored for sky colour".
+ */
+describe('MapCallout — a wildlife hide: night windows, the rest of today, the named day', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const HIDE = {
+    id: 21, name: 'Gosforth Nature Reserve', lat: 55.0, lon: -1.62,
+    regionName: 'Northumberland', tideType: [], locationType: ['WILDLIFE'],
+  };
+  // UTC hours on a BST date: 08:00..17:00 UK is 07:00..16:00 UTC.
+  const row = (hourUtc, rain) => ({
+    solarEventTime: `${TODAY}T${String(hourUtc).padStart(2, '0')}:00:00`,
+    temperatureCelsius: 10 + hourUtc / 10,
+    apparentTemperatureCelsius: 8,
+    windSpeed: 3,
+    windDirection: 90,
+    precipitationProbabilityPercent: rain,
+  });
+  // Rain peaks at 70 % at 07:00 UTC (08:00 UK) — a figure that must vanish once that hour has passed.
+  const DAY_ROWS = [row(7, 70), row(10, 20), row(13, 30), row(16, 10)];
+  const lines = () => screen.getAllByTestId('map-callout-comfort-line').map((el) => el.textContent.trim());
+
+  describe('on a NIGHT window (astro or aurora)', () => {
+    it('renders what a hide always did: "Not scored yet", no comfort summary, no "never scored" note', async () => {
+      await mount({
+        location: HIDE, event: ASTRO_EVENT, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+      expect(screen.queryByText('Comfort only')).toBeNull();
+      expect(screen.queryByTestId('map-callout-hide-note')).toBeNull();
+      expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+      expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+    });
+
+    it('keeps a genuine night rating — a dark-sky hide may carry a real star, and no note sits under it', async () => {
+      await mount({
+        location: HIDE, event: ASTRO_EVENT, rating: 4, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('4★ Worth it');
+      expect(screen.queryByTestId('map-callout-hide-note')).toBeNull();
+      expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+    });
+
+    it('points at the daylight forecast through the sheet route, with one plain line', async () => {
+      const onOpenSheet = vi.fn();
+      await mount({
+        location: HIDE, event: ASTRO_EVENT, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS, onOpenSheet,
+      });
+      const pointer = screen.getByTestId('map-callout-comfort-night');
+      expect(pointer).toHaveTextContent('Comfort forecast covers daylight hours.');
+      expect(pointer).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(pointer).toHaveAccessibleName(
+        /^Comfort forecast covers daylight hours\. Gosforth Nature Reserve — hourly comfort forecast$/,
+      );
+      fireEvent.click(pointer);
+      expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not read the rows at all: an aurora night dated yesterday never summarises a finished day', async () => {
+      const aurora = { ...ASTRO_EVENT, id: `aurora:${TODAY}:AURORA`, kind: 'aurora', eventType: 'AURORA' };
+      await mount({
+        now: new Date(`${TODAY}T01:00:00Z`), location: HIDE, event: aurora, rating: null,
+        ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+      expect(screen.queryByTestId('map-callout-comfort-none')).toBeNull();
+    });
+
+    it('leaves a sky location\'s night card without any comfort pointer', async () => {
+      await mount({ event: ASTRO_EVENT, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS });
+      expect(screen.queryByTestId('map-callout-comfort-night')).toBeNull();
+    });
+  });
+
+  describe('on TODAY — only the hours still to come', () => {
+    it('drops the elapsed hours: at 13:30 UK the 08:00 rain peak is gone and the caption says so', async () => {
+      // 12:30 UTC = 13:30 BST: the 07:00 and 10:00 UTC rows have started, 13:00 UTC has not ended.
+      await mount({
+        now: new Date(`${TODAY}T12:30:00Z`), location: HIDE, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort for the rest of today');
+      expect(lines()).toEqual([
+        '11 to 12°C, feels like 8°C.',
+        'Wind up to 6.7 mph E at 14:00.',
+        'Rain chance up to 30% at 14:00.',
+        'Daylight hours left, 14:00 to 17:00.',
+      ]);
+    });
+
+    it('keeps the current hour: at exactly the start of an hour that hour is still counted', async () => {
+      await mount({
+        now: new Date(`${TODAY}T16:00:00Z`), location: HIDE, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(lines().at(-1)).toBe('Only the 17:00 hour is left.');
+    });
+
+    it('says so, and keeps the route, once every daylight hour has passed', async () => {
+      const onOpenSheet = vi.fn();
+      await mount({
+        now: new Date(`${TODAY}T18:00:00Z`), location: HIDE, rating: null, ratingKnown: true,
+        hourlyRows: DAY_ROWS, onOpenSheet,
+      });
+      expect(screen.getByTestId('map-callout-comfort-none')).toHaveTextContent('Today’s daylight hours have passed.');
+      expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+      fireEvent.click(screen.getByTestId('map-callout-comfort'));
+      expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not claim hours "have passed" when there were never any rows today', async () => {
+      await mount({
+        now: new Date(`${TODAY}T12:30:00Z`), location: HIDE, rating: null, ratingKnown: true, hourlyRows: [],
+      });
+      expect(screen.getByTestId('map-callout-comfort-none')).toHaveTextContent('No hourly forecast for this day yet.');
+    });
+
+    it('measures TODAY on the UK civil date: 23:30 UTC in June is already tomorrow in the UK', async () => {
+      // The window's date is the 15th; at 23:30Z on the 15th the UK date is the 16th, so the 15th is
+      // a PAST day, not today — it takes the whole-day caption, not "the rest of today".
+      await mount({
+        now: new Date(`${TODAY}T23:30:00Z`), location: HIDE, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-comfort-caption')).not.toHaveTextContent('rest of today');
+    });
+  });
+
+  describe('naming the day', () => {
+    it('names a later day by weekday and date, never "Today" or "Tomorrow"', async () => {
+      await mount({
+        now: new Date('2026-06-12T09:00:00Z'), location: HIDE, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort forecast · Mon 15 Jun');
+      expect(lines().at(-1)).toBe('Daylight hours 08:00 to 17:00.');
+    });
+  });
+
+  describe('the verdict slot order: a served star always wins', () => {
+    it('a hide with a SOLAR rating shows the star, no "never scored" note, and still its comfort summary', async () => {
+      await mount({
+        now: new Date('2026-06-12T09:00:00Z'), location: HIDE, rating: 3, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('3★ Maybe');
+      expect(screen.queryByText('Comfort only')).toBeNull();
+      expect(screen.queryByTestId('map-callout-hide-note')).toBeNull();
+      expect(screen.getAllByTestId('map-callout-comfort-line').length).toBeGreaterThan(0);
+    });
   });
 });

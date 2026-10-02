@@ -6886,6 +6886,15 @@ button.wf-hc.also.on:hover {
    fix) but mono rather than serif italic, because it is a set of readings, not generated prose, and
    NOT line-clamped: it is two to five short lines, and clamping a figure away is worse than a longer
    card (the card scrolls its own body at the band ceiling). */
+/* The hide's verdict label — its own class, NOT `.wf-callout-verdict-score.unscored`, which sky
+   locations share and which stays muted. "Comfort only" is a permanent label rather than a waiting
+   state, so it takes the secondary text token (the muted one measures ~3.5:1 on the card). */
+.wf-callout-verdict-comfort {
+  background: none;
+  color: var(--color-plex-text-secondary);
+  font-weight: 500;
+  white-space: normal;
+}
 .wf-callout-hide {
   margin: 0;
   font-family: var(--font-mono);
@@ -6897,7 +6906,7 @@ button.wf-hc.also.on:hover {
   display: block;
   width: 100%;
   margin: 0;
-  padding: 0;
+  padding: 3px 4px;
   border: 0;
   background: none;
   text-align: left;
@@ -6911,17 +6920,23 @@ button.wf-hc.also.on:hover {
 .wf-callout-comfort:focus-visible {
   color: var(--color-plex-text);
 }
+/* ⚠️ An INSET ring: the button is `width: 100%` inside `.wf-callout-body`, which scrolls
+   (`overflow-y: auto` clips on both axes) and has no horizontal padding, so an outset 2px ring at 2px
+   offset is cut off left and right. (`.wf-callout-reason` above has the same geometry and the same
+   clipping; it is left as it was.) */
 .wf-callout-comfort:focus-visible {
   outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
+  outline-offset: -2px;
   border-radius: 3px;
 }
+/* The caption names the day ("Comfort for the rest of today", "Comfort forecast · Sat 3 Oct") and
+   sits inside the button's accessible name, so it is NOT uppercased by CSS — a transformed word can
+   be spelt out as an initialism by a screen reader (the note at `.wf-loc-why-region` below). */
 .wf-callout-comfort-k {
   display: block;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-plex-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-plex-text-secondary);
 }
 .wf-callout-comfort-line {
   display: block;
@@ -6938,13 +6953,18 @@ button.wf-hc.also.on:hover {
   font-size: 11px;
   border-collapse: collapse;
 }
+/* `vertical-align: baseline` is what the popup's old `display: table-cell` divs had (a table-cell's
+   initial value); real `<td>`/`<th>` inherit `middle` from the UA's `tbody`, which would move the
+   frozen popup's rows by a pixel against its icons. */
 .wf-hourly th,
 .wf-hourly td {
   text-align: left;
   font-weight: normal;
   padding: 0 8px 3px 0;
   white-space: nowrap;
+  vertical-align: baseline;
 }
+.wf-hourly th:last-child,
 .wf-hourly td:last-child {
   padding-right: 0;
 }
@@ -6960,18 +6980,26 @@ button.wf-hc.also.on:hover {
 .wf-hourly-head th {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--color-plex-text-muted);
+  color: var(--color-plex-text-secondary);
   padding-bottom: 4px;
   border-bottom: 1px solid var(--color-plex-border);
 }
 /* Headers kept for assistive technology only (the popup, whose own heading says what the table is):
    the header cells are emptied visually by `sr-only` on their text, and this collapses what is left
    so the table takes no row of its own. */
-.wf-hourly-head-off th {
+/* ⚠️ `.wf-hourly` in the selector, so this wins by SPECIFICITY over `.wf-hourly-head th` above rather
+   than by coming later in the file — the popup's hidden header must survive a reorder. */
+.wf-hourly .wf-hourly-head-off th {
   padding: 0;
   border: 0;
   height: 0;
   line-height: 0;
+}
+/* A long and a short visible header for the two columns that have one: the short form is for the
+   phone sheet, where the longest header ("Rain chance") sets a column's width. The full word stays
+   in the accessible name (a third, `sr-only` span in each header). */
+.wf-hourly-h-short {
+  display: none;
 }
 /* The inline weather glyphs (`components/WeatherIcons.jsx`) — what `ICON_STYLE` was inline. */
 .wf-wx-icon {
@@ -6998,6 +7026,21 @@ button.wf-hc.also.on:hover {
 .wf-loc-hourly .wf-loc-note {
   padding-bottom: 0;
 }
+/* The sheet's table reads as ONE row only if its columns stay near each other: unbounded, an 880px
+   dialog spread four columns ~200px apart. Capped, the slack is spent on the right, where there is
+   nothing to track. The popup keeps `width: 100%` of its own (auto-sized) container. */
+.wf-loc-hourly .wf-hourly {
+  max-width: 28rem;
+}
+/* Time is a row header here, and on the sheet's dark ground the muted token is ~3.5:1: secondary. */
+.wf-loc-hourly .wf-hourly-time {
+  color: var(--color-plex-text-secondary);
+}
+/* The sheet's one scroller is a named, focusable region for a hide (nothing inside it takes focus). */
+.wf-loc-rows[tabindex]:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
 /* 639px, this arm's single breakpoint (`useIsMobile`'s own boundary). At 320px the sheet's body is
    286px wide and the table's nowrap content measures 315px at 11px type with 8px gutters, which
    made the whole body scroll sideways — and a reader at 400% zoom lands exactly there. The three
@@ -7008,8 +7051,11 @@ button.wf-hc.also.on:hover {
   .wf-loc-hourly .wf-hourly { font-size: 10px; }
   .wf-loc-hourly .wf-hourly th,
   .wf-loc-hourly .wf-hourly td { padding-right: 6px; }
+  .wf-loc-hourly .wf-hourly th:last-child,
   .wf-loc-hourly .wf-hourly td:last-child { padding-right: 0; }
   .wf-loc-hourly .wf-wx-icon { display: none; }
+  .wf-loc-hourly .wf-hourly-h-long { display: none; }
+  .wf-loc-hourly .wf-hourly-h-short { display: inline; }
 }
 
 .wf-callout-facts {

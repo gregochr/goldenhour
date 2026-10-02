@@ -272,7 +272,18 @@ export default function LocationFourDaySheet({
   // the footer (plan-from, show-on-map) are the place's own and stay. Every other location takes the
   // window rows exactly as before: `shownRows` is `sheet.rows` itself for them.
   const isHide = isWildlifeOnly(location?.locationType);
-  const shownRows = isHide ? [] : sheet.rows;
+  // ⚠️ A hide opened BEFORE its roster record joins. `isHide` is false while `location` is null, which
+  // would paint six "Not scored yet" rows and then swap them for the table when the record arrives —
+  // a panel replacing a panel, with focus dropped to `<body>` for a reader who had tabbed onto a
+  // row. The opener knows something the sheet does not: a heat spot (Plan search's result, the one
+  // route that can reach a place before the roster) carries `skySubject: false` for a place that is
+  // not a sky subject. So, with no record, no rated row and that flag, the sheet says it is loading
+  // and draws NO window rows; with any other spot shape (a popup chip, which comes from the joined
+  // roster) it behaves exactly as before. Never the window rows for a hide.
+  const hidePending = location == null && spot?.skySubject === false
+    && sheet.rows.every((row) => row.rating == null);
+  const hourlyBody = isHide || hidePending;
+  const shownRows = hourlyBody ? [] : sheet.rows;
   // The days listed: every day that has rows, plus the days the sheet's own windows span, so a day
   // the forecast covers but the hourly job has not written yet says so instead of not existing.
   const hourlyDays = useMemo(
@@ -291,7 +302,7 @@ export default function LocationFourDaySheet({
       // payload does not guarantee, and it is this dialog's ENTIRE accessible name, invisible to a
       // sighted check. A four-window fixture was announcing six. A hide has no windows to count: it
       // names what it shows.
-      label={isHide
+      label={hourlyBody
         ? `${sheet.name} — hourly comfort forecast`
         : `${sheet.name} — the next ${sheet.rows.length} window${sheet.rows.length === 1 ? '' : 's'}`}
       onClose={onClose}
@@ -345,7 +356,21 @@ export default function LocationFourDaySheet({
             unshrinkable band the head, lead and footer together exceeded a 320×256 viewport and the
             map action clipped with nothing able to scroll. `WindowPickDialog` records the same
             defect and the same three-band shape. */}
-        <div data-testid="location-sheet-rows" className="wf-loc-rows">
+        {/* ⚠️ For a hide the one scroller holds no focusable element (a table has none), so a keyboard
+            reader — Safari in particular, whose Tab skips scrollable containers that hold nothing
+            focusable — could never reach the later days. It is made a named, focusable region only
+            then; a sky location's scroller holds its row buttons and needs nothing. Dialog focus
+            still lands on the dialog root (`useDialogFocus`), so this is reached by Tab after the
+            Close button and steals nothing. */}
+        <div
+          data-testid="location-sheet-rows"
+          className="wf-loc-rows"
+          {...(hourlyBody ? {
+            tabIndex: 0,
+            role: 'region',
+            'aria-label': `${sheet.name} hourly comfort forecast`,
+          } : {})}
+        >
           {/* The v3 lead block: the design's gold wash and its mono kicker treatment, carrying the
               SAME sentence P8 built. Omitted rather than zeroed when the ratings are unknown —
               `leadLine` carries why — and it states no denominator, which is the P8 lesson the plan
@@ -376,11 +401,11 @@ export default function LocationFourDaySheet({
             </div>
           )}
 
-          {sheet.lead && !isHide && (
+          {sheet.lead && !hourlyBody && (
             <p data-testid="location-sheet-lead" className="wf-loc-lead font-mono">{sheet.lead}</p>
           )}
 
-          {sheet.rows.length === 0 && !isHide && (
+          {sheet.rows.length === 0 && !hourlyBody && (
             // Reachable: the roster and the briefing arrive over two independent fetches, and search
             // reads the roster — so a sheet can be opened before there are any windows to show. It
             // says so rather than rendering a title over an empty card with no footer.
@@ -389,6 +414,12 @@ export default function LocationFourDaySheet({
             // loaded" as the design's headline — emphasis on the one line that is an admission.
             <p data-testid="location-sheet-empty" className="wf-loc-note font-mono">
               No forecast loaded yet.
+            </p>
+          )}
+
+          {hidePending && (
+            <p data-testid="location-sheet-hide-pending" className="wf-loc-note font-mono">
+              Loading this place…
             </p>
           )}
 
@@ -774,6 +805,9 @@ LocationFourDaySheet.propTypes = {
     id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     name: PropTypes.string,
     regionName: PropTypes.string,
+    /** Set by `buildHeatSpots`: false for a place that is not a sky subject (a hide, a wood) —
+     * read only to avoid painting window rows for one before its roster record has joined. */
+    skySubject: PropTypes.bool,
   }).isRequired,
   windows: PropTypes.arrayOf(PropTypes.object),
   scoreIndex: PropTypes.object,

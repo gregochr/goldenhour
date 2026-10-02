@@ -31,8 +31,11 @@ describe('HourlyComfortTable', () => {
 
   it('names its four columns, and each hour by its time', () => {
     render(<HourlyComfortTable rows={ROWS} label="Hourly comfort" />);
-    expect(screen.getAllByRole('columnheader').map((th) => th.textContent))
-      .toEqual(['Time', 'Temperature', 'Wind', 'Rain chance']);
+    // The accessible NAME of each header is the full word, whatever the visible form is.
+    expect(screen.getAllByRole('columnheader').map((th) => th.textContent.length > 0)).toEqual([true, true, true, true]);
+    for (const name of ['Time', 'Temperature', 'Wind', 'Rain chance']) {
+      expect(screen.getByRole('columnheader', { name })).toBeInTheDocument();
+    }
     expect(screen.getAllByRole('rowheader').map((th) => th.textContent)).toEqual(['07:00', '08:00']);
   });
 
@@ -48,9 +51,33 @@ describe('HourlyComfortTable', () => {
     expect(second).toHaveTextContent('0%');
   });
 
-  it('falls back to the air temperature when feels-like is missing', () => {
+  it('prints "feels" ONLY when a feels-like was served — it never presents the air temperature as one', () => {
     render(<HourlyComfortTable rows={[{ ...ROWS[0], apparentTemperatureCelsius: null }]} label="x" />);
-    expect(screen.getByTestId('hourly-comfort-row')).toHaveTextContent('2°C · feels 2°C');
+    const rowEl = screen.getByTestId('hourly-comfort-row');
+    expect(rowEl).toHaveTextContent('2°C');
+    expect(rowEl.textContent).not.toContain('feels');
+  });
+
+  it('prints a feels-like alone when no air temperature was served', () => {
+    render(<HourlyComfortTable rows={[{ ...ROWS[0], temperatureCelsius: null }]} label="x" />);
+    expect(screen.getByTestId('hourly-comfort-row')).toHaveTextContent('feels -1°C');
+  });
+
+  it('prints a 0°C hour and a half-degree exactly as the callout summary rounds them (Math.round)', () => {
+    render(
+      <HourlyComfortTable
+        rows={[{ ...ROWS[0], temperatureCelsius: 2.5, apparentTemperatureCelsius: 0.5 }, { ...ROWS[1], temperatureCelsius: 0, apparentTemperatureCelsius: -3 }]}
+        label="x"
+      />,
+    );
+    const [first, second] = screen.getAllByTestId('hourly-comfort-row');
+    expect(first).toHaveTextContent('3°C · feels 1°C');
+    expect(second).toHaveTextContent('0°C · feels -3°C');
+  });
+
+  it('keeps the compass word for a wind from 0 degrees', () => {
+    render(<HourlyComfortTable rows={[{ ...ROWS[0], windDirection: 0 }]} label="x" />);
+    expect(screen.getByTestId('hourly-comfort-row')).toHaveTextContent('6.7 mph N');
   });
 
   it('marks every missing figure with a dash for the eye and "not forecast" for the ear, never "undefined"', () => {
@@ -83,6 +110,13 @@ describe('HourlyComfortTable', () => {
   it('shows its column headers when asked', () => {
     render(<HourlyComfortTable rows={ROWS} label="x" headersVisible />);
     expect(screen.getByRole('columnheader', { name: 'Wind' }).firstChild).not.toHaveClass('sr-only');
+  });
+
+  it('gives the two long headers a short phone form, while the accessible name stays the full word', () => {
+    render(<HourlyComfortTable rows={ROWS} label="x" headersVisible />);
+    const header = screen.getByRole('columnheader', { name: 'Rain chance' });
+    expect(within(header).getByText('Rain chance', { selector: '.wf-hourly-h-long' })).toBeInTheDocument();
+    expect(within(header).getByText('Rain', { selector: '.wf-hourly-h-short' })).toBeInTheDocument();
   });
 
   it('takes its test id from its caller, so two hosts can be told apart', () => {

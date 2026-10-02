@@ -1378,39 +1378,50 @@ describe('MapView heat — the counts footer', () => {
     expect(screen.getByTestId('wf-map-counts-rated')).toHaveTextContent('4 rated');
   });
 
-  it('⚠️ a hide\'s hourly comfort rows change nothing the field or the footer says — drawn, unrated, '
-      + 'no rating borrowed from a row that carries none', async () => {
-    // The comfort forecast now shows on the callout and the sheet, and its HOURLY rows ride the
-    // same per-date entry the sunrise/sunset rows do. Nothing that paints the field, a pin or a chip
-    // reads `hourly`; this pins that by giving the hide a full day of hourly rows (with a wind and
-    // rain figure each) and asserting the counts are exactly those of the hide with none.
-    const locations = makeLocations();
-    locations[0] = {
-      ...locations[0],
-      locationType: ['WILDLIFE'],
-      forecastsByDate: new Map([[TODAY, {
-        sunset: { solarEventTime: `${TODAY}T16:12:00` },
-        sunrise: { solarEventTime: `${TODAY}T08:24:00` },
-        hourly: [8, 9, 10, 11, 12].map((hour) => ({
-          solarEventTime: `${TODAY}T${String(hour).padStart(2, '0')}:00:00`,
-          temperatureCelsius: 9,
-          apparentTemperatureCelsius: 7,
-          windSpeed: 5,
-          windDirection: 180,
-          precipitationProbabilityPercent: 40,
-        })),
-      }]]),
+  it('⚠️ a hide\'s hourly comfort rows change nothing the footer says — rendered with and without, compared', async () => {
+    // The comfort forecast now shows on the callout and the sheet, and its HOURLY rows ride the same
+    // per-date entry the sunrise/sunset rows do. Nothing that paints the field, a pin or a chip reads
+    // `hourly`; this pins that by rendering the SAME roster twice — the hide with a full day of
+    // hourly rows (a wind and a rain figure each), then with none — and comparing what the footer
+    // says. (`heatSpots.test` pins that the hide's own scores stay withheld.)
+    const withHourly = (hourly) => {
+      const locations = makeLocations();
+      locations[0] = {
+        ...locations[0],
+        locationType: ['WILDLIFE'],
+        forecastsByDate: new Map([[TODAY, {
+          sunset: { solarEventTime: `${TODAY}T16:12:00` },
+          sunrise: { solarEventTime: `${TODAY}T08:24:00` },
+          hourly,
+        }]]),
+      };
+      return locations;
+    };
+    const hourly = [8, 9, 10, 11, 12].map((hour) => ({
+      solarEventTime: `${TODAY}T${String(hour).padStart(2, '0')}:00:00`,
+      temperatureCelsius: 9,
+      apparentTemperatureCelsius: 7,
+      windSpeed: 5,
+      windDirection: 180,
+      precipitationProbabilityPercent: 40,
+    }));
+    const footerFor = async (locations) => {
+      let view;
+      await act(async () => {
+        view = render(
+          <MapView locations={locations} date={TODAY} autoEventType={null} heat={heatProp()} />,
+        );
+      });
+      const foot = (await screen.findByTestId('wf-map-counts-footer')).textContent;
+      view.unmount();
+      return foot;
     };
 
-    await act(async () => {
-      render(
-        <MapView locations={locations} date={TODAY} autoEventType={null} heat={heatProp()} />,
-      );
-    });
+    const without = await footerFor(withHourly([]));
+    const withRows = await footerFor(withHourly(hourly));
 
-    const foot = await screen.findByTestId('wf-map-counts-footer');
-    expect(foot).toHaveTextContent('5 of 5 shown');
-    expect(screen.getByTestId('wf-map-counts-rated')).toHaveTextContent('4 rated');
+    expect(without).toContain('5 of 5 shown');
+    expect(withRows).toBe(without);
   });
 
   it('withholds the rated count when every drawn location is rated — never `5 of 5 · 5 rated`', async () => {

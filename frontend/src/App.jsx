@@ -31,7 +31,7 @@ import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContex
 // (default-tab-by-device-plan.md — `utils/initialTab.js`), not merely a drill-down, but it stays
 // lazy regardless: a phone (where Plan opens) never needs this chunk at first paint at all, and on
 // tablet/desktop the fallback below covers the fetch — see `WindowFirstShell.jsx`'s own note on the
-// Map pane not existing until `allDates.length > 0` for why that fetch cannot simply be moved
+// Map pane not existing until `hasForecastData` for why that fetch cannot simply be moved
 // earlier.
 const MapView = lazy(() => import('./components/MapView.jsx'));
 const WindowFirstMapPane = lazy(() => import('./components/WindowFirstMapPane.jsx'));
@@ -122,7 +122,7 @@ function AppInner() {
    * needs to know in order to recast the page as a flex column on the Map tab (see the root
    * `<div>` below). Defaults to `'plan'` regardless of `initialTab`: on the very first render the
    * shell itself is ALWAYS on Plan too, because the Map pane does not exist yet at that point
-   * (`allDates.length > 0` below is false before the first forecast fetch resolves) — a device
+   * (`hasForecastData` below is false before the first forecast fetch resolves) — a device
    * whose preference is Map only reaches it once the shell's own mount effect (`onTabChange`, wired
    * below) reports the move, which corrects this state one render later. See
    * `WindowFirstShell.jsx`'s "Tab selection is deliberately not persisted" section for the full
@@ -270,6 +270,15 @@ function AppInner() {
     () => colourForecastDates(visibleLocations),
     [visibleLocations],
   );
+  // ⚠️ Two different questions, kept apart. `allDates` answers "which dates get a window"; this
+  // answers "did `GET /api/forecast` return ANYTHING for a visible location" — what gates the Map
+  // tab and the "open the full map" doors. It must not follow `allDates`: a hides-only forecast (a
+  // fresh deploy, a colour run that failed) has hourly rows and no sunrise or sunset, and the Map
+  // tab would vanish while the data it can draw exists.
+  const hasForecastData = useMemo(
+    () => visibleLocations.some((loc) => loc.forecastsByDate.size > 0),
+    [visibleLocations],
+  );
 
   // Auto-select the next solar event using forecast data + a 30-min afterglow buffer.
   // Returns null when forecast data isn't loaded yet (fallback to default behaviour).
@@ -299,6 +308,9 @@ function AppInner() {
   // rule sat on the LAST branch only, guarded on the other two by a bare `allDates.includes(...)`
   // that a past date passes — and `autoDate` is frozen at mount, so a tab left open across UK
   // midnight took the stale branch every time and never reached the rule.
+  //
+  // `?? todayStr` only where there is forecast data but no date to window it on (hides-only): the
+  // pane still mounts and needs a date, but `allDates` stays empty, so no window row is drawn.
   const effectiveDate = resolveMapDate({
     selectedDate,
     selectedIsNight: selectedDateIsNight,
@@ -308,7 +320,7 @@ function AppInner() {
     // The one "past" date an explicit choice may name — see `handleAuroraViewOnMap` below, which
     // sets it deliberately, and `resolveMapDate`'s own note on the regression this prevents.
     nightDate: auroraNightStr,
-  });
+  }) ?? (hasForecastData ? todayStr : null);
 
   /**
    * Called from any Plan-tab recommendation (Best Bet, Hot Topic, region row, grid cell, strip
@@ -682,7 +694,7 @@ function AppInner() {
               // and `onOpenFullMap` below: a door onto no map is what §6 of the matrix plan bans.
               // No door UI ships in this phase (D3/D4 add the buttons), but the shell's own
               // `openMapTab` reads this prop already, so the wiring is live from here on.
-              onOpenMapTab={allDates.length === 0 ? undefined : openMapTabFromPlan}
+              onOpenMapTab={hasForecastData ? openMapTabFromPlan : undefined}
               // The same admin gate the Operations pane uses, and for the same reason: the role
               // stays here, and the shell renders whatever node it is handed. Withheld for a
               // pilot user, who has no use for a build id or a WorldTides latency. The pill is
@@ -706,10 +718,11 @@ function AppInner() {
               tabRequest={tabRequest}
               locationSheetHandoff={locationSheetHandoff}
               // Withheld when there is nothing to map, which is the same rule the Operations tab
-              // follows and §6's ban on controls that open nothing. `allDates` is empty whenever
-              // `GET /api/forecast` returned no rows, and a Map tab onto no dates would be a tab
-              // onto a blank.
-              mapPane={allDates.length > 0 ? (
+              // follows and §6's ban on controls that open nothing. `hasForecastData` is false
+              // whenever `GET /api/forecast` returned no rows for a visible location, and a Map tab
+              // onto no data would be a tab onto a blank. (`allDates` can be empty while this is
+              // true — a hides-only forecast — and then the pane draws chips and no window.)
+              mapPane={hasForecastData ? (
                 <Suspense fallback={<ViewFallback />}>
                   <WindowFirstMapPane
                     locations={visibleLocations}
@@ -816,9 +829,9 @@ function AppInner() {
             narrativeHead={mapOverlay.narrativeHead}
             narrativeTone={mapOverlay.narrativeTone}
             onClose={() => setMapOverlay(null)}
-            // Withheld when there is no Map tab to reach (no forecast dates), because MapOverlay
+            // Withheld when there is no Map tab to reach (no forecast data), because MapOverlay
             // drops the button when no handler arrives and a button onto nothing is what §6 bans.
-            onOpenFullMap={allDates.length === 0 ? undefined : openFullMapTab}
+            onOpenFullMap={hasForecastData ? openFullMapTab : undefined}
           >
             <MapView
               locations={visibleLocations}

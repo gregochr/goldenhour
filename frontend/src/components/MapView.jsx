@@ -1062,6 +1062,8 @@ function getNextEventType(locations, date) {
   if (date !== todayStr) return 'SUNSET';
 
   for (const loc of locations) {
+    // ⚠️ Not `isWildlifeOnly`: `.every` with no length guard, so an UNTYPED location also skips here.
+    // Left as it was (a known divergent site, named in `isWildlifeOnly`'s JSDoc).
     if ((loc.locationType ?? []).every((t) => t === 'WILDLIFE')) continue;
     const dayData = loc.forecastsByDate.get(date);
     const sunriseTime = dayData?.sunrise?.solarEventTime;
@@ -3838,11 +3840,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const hourlyData = dayData?.hourly ?? [];
     const types = loc.locationType ?? [];
     const isPureWildlife = isWildlifeOnly(types);
-    // A canopy site's rating answers a different question from every other pin's. Excluded from
-    // cluster averages for the same reason WATERFALL is: a wood rated 5 on a flat overcast misty
-    // evening would drag its cluster's grey→gold ramp toward gold on precisely the nights the sky
-    // is at its worst. The two are ORed into one flag because the cluster only asks "does this
-    // score mean sky colour", and for both the answer is no.
+    // `isPureWildlife` selects the popup's hourly-comfort branch (the Plan-tab OVERLAY's
+    // `MarkerPopupContent`) and the pin's wildlife colour. A canopy site is deliberately NOT part of
+    // it: a wood's rating is a real, inverted-polarity sky score, and it keeps its own treatment.
     return { forecast, hourlyData, isPureWildlife };
   }
 
@@ -5689,11 +5689,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               auroraResultsByDate={auroraResultsByDate}
               pendingNightRowIds={pendingNightRowIds}
               tideStripHeight={tideStripHeight}
-              // A wildlife hide's hourly comfort rows for the ACTIVE WINDOW's date — the callout
-              // reads them for a pure-wildlife place only (`isWildlifeOnly`) and ignores them for
-              // every other. Straight off the per-date entry, so the identity is stable between
-              // renders; `null`, not a fresh `[]`, when the date holds none.
-              hourlyRows={selectedLoc.forecastsByDate.get(activeMapEvent.date)?.hourly ?? null}
+              // A wildlife hide's hourly comfort rows for the ACTIVE WINDOW's date — SOLAR windows
+              // only: the rows are a daylight forecast, and on an astro or aurora night (whose
+              // `date` can be a night kept local, or yesterday's until dawn) they would be another
+              // day's, so a night window hands over `null`. The callout reads them for a pure-
+              // wildlife place only (`isWildlifeOnly`). Straight off the per-date entry, so the
+              // array is stable between ordinary renders (a poll rebuilds it); `null`, not a fresh
+              // `[]`, when the date holds none.
+              hourlyRows={activeMapEvent.kind === 'solar'
+                ? (selectedLoc.forecastsByDate.get(activeMapEvent.date)?.hourly ?? null)
+                : null}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}

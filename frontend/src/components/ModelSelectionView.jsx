@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import { RUN_TYPE_RANGES } from '../utils/runTypeRanges.js';
+import { isWildlifeOnly } from '../utils/locationTypes.js';
 
 const CONFIG_TABS = [
   { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)', tip: 'Imminent forecasts — today and tomorrow. Use a high-accuracy model here.' },
@@ -192,7 +193,7 @@ export default function ModelSelectionView() {
         setStrategies(data.optimisationStrategies || {});
         // Count enabled non-wildlife locations (wildlife doesn't use Claude)
         const evalLocations = (locations || []).filter(
-          (l) => l.enabled !== false && !(l.locationType?.length === 1 && l.locationType[0] === 'WILDLIFE')
+          (l) => l.enabled !== false && !isWildlifeOnly(l.locationType)
         );
         setLocationCount(evalLocations.length);
       } catch (err) {

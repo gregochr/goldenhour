@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  comfortLines, comfortSummary, formatWind, hourlyDaysOf,
+  comfortLines, comfortSummary, formatCompass, formatWind, hourlyDaysOf, rowsFromNow,
 } from '../utils/hourlyComfort.js';
 
 /** One served HOURLY row, in the shape `groupForecastsByDate` hands the component. */
@@ -161,6 +161,110 @@ describe('comfortLines', () => {
   });
 });
 
+describe('rowsFromNow — "the rest of today", with an injected clock', () => {
+  // 2026-02-10 is GMT, so UTC and UK hours agree. The clock is handed in; the util reads none.
+  const DAY = [
+    row('07:00', 2, 1, 3, 90, 10),
+    row('12:00', 5, 4, 3, 90, 10),
+    row('16:00', 6, 5, 3, 90, 10),
+    row('17:00', 4, 3, 3, 90, 10),
+  ];
+  const at = (hhmm, ss = '00') => new Date(`2026-02-10T${hhmm}:${ss}Z`);
+
+  it('drops every hour that has already started and keeps the current one', () => {
+    expect(rowsFromNow(DAY, at('16:30')).map((r) => r.solarEventTime))
+      .toEqual(['2026-02-10T16:00:00', '2026-02-10T17:00:00']);
+  });
+
+  it('keeps an hour starting exactly now, and drops the one before it', () => {
+    expect(rowsFromNow(DAY, at('17:00')).map((r) => r.solarEventTime)).toEqual(['2026-02-10T17:00:00']);
+    expect(rowsFromNow(DAY, at('16:59', '59')).map((r) => r.solarEventTime))
+      .toEqual(['2026-02-10T16:00:00', '2026-02-10T17:00:00']);
+  });
+
+  it('returns nothing once the last daylight hour is over', () => {
+    expect(rowsFromNow(DAY, at('18:00'))).toEqual([]);
+  });
+
+  it('drops a row whose time cannot be parsed — it cannot be shown to be in the future', () => {
+    const rows = [{ ...DAY[3], solarEventTime: 'not a time' }, DAY[3]];
+    expect(rowsFromNow(rows, at('08:00'))).toEqual([DAY[3]]);
+  });
+
+  it('is empty for no rows, whatever shape arrives', () => {
+    expect(rowsFromNow(null, at('08:00'))).toEqual([]);
+    expect(rowsFromNow(undefined, at('08:00'))).toEqual([]);
+  });
+
+  it('feeds a summary that names only the hours left, in the "rest of today" wording', () => {
+    const left = comfortSummary(rowsFromNow(DAY, at('16:30')));
+    expect(comfortLines(left, { rest: true })).toEqual([
+      '4 to 6°C, feels like 3 to 5°C.',
+      'Wind up to 6.7 mph E at 16:00.',
+      'Rain chance up to 10% at 16:00.',
+      'Daylight hours left, 16:00 to 17:00.',
+    ]);
+  });
+
+  it('says "the 17:00 hour is left" for a single hour remaining', () => {
+    expect(comfortLines(comfortSummary(rowsFromNow(DAY, at('17:10'))), { rest: true }).at(-1))
+      .toBe('Only the 17:00 hour is left.');
+  });
+});
+
+describe('boundary values — zero, negative, missing and half-way figures', () => {
+  it('keeps the compass word for a wind from 0 degrees (north)', () => {
+    expect(formatWind(5, 0)).toBe('11.2 mph N');
+    expect(formatCompass(0)).toBe('N');
+    expect(formatCompass(null)).toBeNull();
+    expect(formatCompass(undefined)).toBeNull();
+  });
+
+  it('calls an all-zero wind "Calm throughout.", never "up to 0 mph"', () => {
+    const lines = comfortLines(comfortSummary([row('08:00', 5, 3, 0, 90, 10), row('09:00', 5, 3, 0, 90, 10)]));
+    expect(lines[1]).toBe('Calm throughout.');
+  });
+
+  it('calls a single zero-wind reading "Calm at <hour>."', () => {
+    expect(comfortLines(comfortSummary([row('08:00', 5, 3, 0, 90, 10)]))[1]).toBe('Calm at 08:00.');
+  });
+
+  it('prints a 0°C air temperature as a figure, not as an absence', () => {
+    expect(comfortLines(comfortSummary([row('08:00', 0, -3, 2, 90, 10)]))[0]).toBe('0°C, feels like -3°C.');
+  });
+
+  it('prints a negative air-temperature range with "to", so a minus sign cannot read as a dash', () => {
+    const lines = comfortLines(comfortSummary([row('08:00', -10, -14, 2, 90, 10), row('12:00', -2, -6, 2, 90, 10)]));
+    expect(lines[0]).toBe('-10 to -2°C, feels like -14 to -6°C.');
+  });
+
+  it('prints a single-row 0% rain chance with its hour', () => {
+    expect(comfortLines(comfortSummary([row('08:00', 5, 3, 2, 90, 0)]))[2]).toBe('Rain chance 0% at 08:00.');
+  });
+
+  it('says only what was served when no air temperature exists but a feels-like does', () => {
+    const lines = comfortLines(comfortSummary([row('08:00', null, 3, 2, 90, 10), row('09:00', null, 4, 2, 90, 10)]));
+    expect(lines[0]).toBe('Feels like 3 to 4°C.');
+  });
+
+  it('names a wind carried by one row of several without "up to"', () => {
+    const lines = comfortLines(comfortSummary([
+      row('08:00', 5, 3, null, null, 10), row('09:00', 6, 4, 5, 180, 10), row('10:00', 7, 5, null, null, 10),
+    ]));
+    expect(lines[1]).toBe('Wind 11.2 mph S at 09:00.');
+  });
+
+  it('prints a wind with no hour when its time cannot be parsed, rather than a made-up one', () => {
+    const rows = [{ ...row('08:00', 5, 3, 5, 180, 10), solarEventTime: 'not a time' }, row('09:00', 6, 4, 2, 180, 10)];
+    const lines = comfortLines(comfortSummary(rows));
+    expect(lines[1]).toBe('Wind up to 11.2 mph S.');
+  });
+
+  it('rounds a half-degree up, in the summary exactly as the table does (Math.round)', () => {
+    expect(comfortLines(comfortSummary([row('08:00', 2.5, 0.5, 2, 90, 10)]))[0]).toBe('3°C, feels like 1°C.');
+  });
+});
+
 describe('hourlyDaysOf', () => {
   const MAP = new Map([
     ['2026-02-09', { sunrise: null, sunset: null, hourly: [row('08:00', 5, 3, 2, 90, 0, '2026-02-09')] }],
@@ -194,5 +298,14 @@ describe('hourlyDaysOf', () => {
     expect(hourlyDaysOf(null, { fromDate: '2026-02-10', alsoDates: ['2026-02-11'] }))
       .toEqual([{ date: '2026-02-11', label: 'Wed 11 Feb', rows: [] }]);
     expect(hourlyDaysOf(undefined)).toEqual([]);
+  });
+
+  it('drops a window-named day that falls before the first date asked for, as it drops a finished day', () => {
+    const days = hourlyDaysOf(MAP, { fromDate: '2026-02-10', alsoDates: ['2026-02-08', '2026-02-11'] });
+    expect(days.map((d) => d.date)).toEqual(['2026-02-10', '2026-02-11', '2026-02-12']);
+  });
+
+  it('lists every date it holds when no first date is given', () => {
+    expect(hourlyDaysOf(MAP).map((d) => d.date)).toEqual(['2026-02-09', '2026-02-10', '2026-02-12']);
   });
 });

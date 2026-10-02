@@ -83,7 +83,7 @@ function subscribeForeignModalDom(onChange) {
  *
  * <p>Before map-tab-v2-plan.md §3 P6, this pane mounted its own {@code DateStrip} beside
  * {@code MapView} because the two had different domains: the rail's is up to six briefing events,
- * while the map's is every date {@code GET /api/forecast} returned. P6 folded that browsing job
+ * while the map's is every date with a sunrise or sunset row ({@code colourForecastDates}). P6 folded that browsing job
  * into {@code MapView}'s single window control (`utils/mapEvents.js`'s D-13 rows), so this pane's
  * only remaining job on that front is handing down the full domain as {@code forecastDates} — the
  * same list {@code DateStrip} used to receive as {@code dates}.
@@ -132,7 +132,7 @@ function subscribeForeignModalDom(onChange) {
  *
  * @param {object}   props
  * @param {Array}    props.locations       the enabled locations the map draws
- * @param {string[]} props.dates           every date the forecast endpoint returned
+ * @param {string[]} props.dates           every date with a sunrise or sunset forecast (`colourForecastDates` — NOT hourly-only dates)
  * @param {string}   props.selectedDate    the date the map is showing
  * @param {Function} props.onSelectDate    hands a new date back to {@code App}
  * @param {object}   [props.handoff]       a handoff the reader ASKED to land on, from the overlay's

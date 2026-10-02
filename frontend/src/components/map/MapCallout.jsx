@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useLayoutEffect, useRef, useState,
+  Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
@@ -12,7 +12,9 @@ import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
 import { subjectWordsOf, isWildlifeOnly } from '../../utils/locationTypes.js';
-import { comfortLines, comfortSummary } from '../../utils/hourlyComfort.js';
+import { comfortLines, comfortSummary, rowsFromNow } from '../../utils/hourlyComfort.js';
+import { formatDateLabel } from '../../utils/conversions.js';
+import { ukDateStr } from '../../utils/mapDates.js';
 import { nextAlignedRow } from '../../utils/mapTideFit.js';
 import TideFitBlock from './TideFitBlock.jsx';
 import EclipseSpotLine from './EclipseSpotLine.jsx';
@@ -228,11 +230,19 @@ function kindShort(event) {
  *        listeners to notice, so the callout's card kept the stale band until an unrelated pan/zoom)
  * @param {?Array<object>} [props.hourlyRows] the selected location's served HOURLY comfort rows
  *        for the active window's DATE (`forecastsByDate.get(date).hourly` — latest run per hour, in
- *        time order). Read ONLY for a pure wildlife hide (`locationTypes.isWildlifeOnly`), whose
- *        verdict slot says "Comfort only" and whose body is a short comfort summary instead of a
- *        sky verdict — a hide is never scored for sky colour, and "Not scored yet" for a place that
- *        never will be was not true. Ignored for every other location, whose card is untouched.
- *        Null or empty for a hide renders "No hourly forecast for this day yet."
+ *        time order). Read ONLY for a pure wildlife hide (`locationTypes.isWildlifeOnly`) on a
+ *        SOLAR window, whose verdict slot says "Comfort only" (unless a real rating is served —
+ *        a star always wins) and whose body is a short comfort summary of that date's daylight
+ *        hours — a hide is never scored for sky colour, and "Not scored yet" for a place that never
+ *        will be was not true. On TODAY only the hours from the start of the current hour onward
+ *        are summarised ("Comfort for the rest of today"). On an astro or aurora NIGHT window the
+ *        hide renders exactly what it did before this feature (its rating, or the unscored line)
+ *        plus a one-line pointer to the daylight forecast, and these rows are not read. Ignored for
+ *        every other location, whose card is untouched. Null or empty for a hide renders "No
+ *        hourly forecast for this day yet."
+ * @param {?Date} [props.now] the instant "today's remaining hours" is measured from; defaults to the
+ *        wall clock read at render (the same clock `MapView`'s `ukDateStr()` reads). Injected by
+ *        tests; the card re-reads it on any repaint, not on a timer
  * @param {?Function} [props.onSelectEv] `(row) => void` — switches the active window (the P6
  *        selection path, `MapView.jsx`'s `selectEvRow`)
  * @param {?Function} [props.onOpenSheet] `() => void` — the clamped prose's `Four days here ›`
@@ -252,7 +262,7 @@ export default function MapCallout({
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
-  tideStripHeight = null, hourlyRows = null,
+  tideStripHeight = null, hourlyRows = null, now = null,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
   const map = useMap();
@@ -420,9 +430,10 @@ export default function MapCallout({
   //
   // ⚠️ And `hourlyRows` — a wildlife hide's comfort summary is 2–5 lines of text whose number and
   // height depend on which readings are served for the window's date, and the forecast refresh that
-  // lands them can arrive with the card already open. Identity-stable between renders (the caller
+  // lands them can arrive with the card already open. Stable between ordinary renders (the caller
   // reads the per-date array straight off `forecastsByDate`, and passes null rather than a fresh
-  // `[]`), so this fires on a real change, never on every parent render.
+  // `[]`), but NOT across polls: `useForecasts` rebuilds `forecastsByDate` on every refresh, so a
+  // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, evaluationGateIndex,
     tideAlignmentIndex, tideStripHeight, hourlyRows, repaintNow,
@@ -628,8 +639,31 @@ export default function MapCallout({
   // it is never scored for sky colour, and what it carries is an hourly comfort forecast. The
   // summary is filter/min/max over the served rows (`utils/hourlyComfort.js`) — no rule about what
   // counts as comfortable. Every other location leaves this null and renders exactly as before.
+  //
+  // ⚠️ SOLAR windows only. The rows are a daylight forecast: on an astro or aurora night they would
+  // headline daylight figures "for this day" (and, at 02:00 on a night dated yesterday, a finished
+  // day). A hide on a night window renders what it always did — its rating if one is served, the
+  // unscored line otherwise — plus a pointer to the daylight forecast.
   const isHide = isWildlifeOnly(location.locationType);
-  const comfort = isHide ? comfortLines(comfortSummary(hourlyRows)) : [];
+  const comfortDay = isHide && event.kind === 'solar';
+  const comfortNight = isHide && !comfortDay;
+  // A rating that IS served is never covered by "never scored": the star wins the verdict slot (below)
+  // and the note is withheld. A hide with a solar rating should not exist; this keeps the card honest
+  // if one does.
+  const showHideNote = comfortDay && ratingRounded == null;
+  // The one clock read: the caller's `now`, else the wall clock. TODAY is the UK civil date, the
+  // calendar every window date is keyed to; the util it feeds (`rowsFromNow`) reads no clock itself.
+  const nowDate = now ?? new Date();
+  const isToday = comfortDay && event.date === ukDateStr(nowDate);
+  const dayRows = isToday ? rowsFromNow(hourlyRows, nowDate) : hourlyRows;
+  const comfort = comfortDay ? comfortLines(comfortSummary(dayRows), { rest: isToday }) : [];
+  const hadRows = Array.isArray(hourlyRows) && hourlyRows.length > 0;
+  const comfortCaption = isToday
+    ? 'Comfort for the rest of today'
+    : `Comfort forecast · ${formatDateLabel(event.date, nowDate, true)}`;
+  const comfortNone = isToday && hadRows
+    ? 'Today’s daylight hours have passed.'
+    : 'No hourly forecast for this day yet.';
 
   return createPortal(
     <>
@@ -708,10 +742,12 @@ export default function MapCallout({
             >
               {`${ratingRounded}★ ${word}`}
             </span>
-          ) : isHide ? (
+          ) : comfortDay ? (
             // A hide never has a sky rating to wait for, so none of the three lines below is true
-            // of it: it is not "loading" and it is not "not scored yet" — nothing is coming.
-            <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
+            // of it: it is not "loading" and it is not "not scored yet" — nothing is coming. Its own
+            // class, NOT `.unscored`: that one is the muted line sky locations share, and this is a
+            // permanent label that has to clear 4.5:1.
+            <span className="wf-callout-verdict-score wf-callout-verdict-comfort" data-testid="map-callout-score">
               Comfort only
             </span>
           ) : (
@@ -747,16 +783,20 @@ export default function MapCallout({
             {gate}
           </p>
         )}
-        {/* A wildlife hide's body: what it is, then its comfort forecast for this window's day, as
-            the route into the four-day sheet (which holds the full hourly table) — the same
-            press-to-peek shape the reason prose below has, and the same self-focus for the same
-            reason (see the reason button's note). Stands in for the reason: the region's SKY gloss
-            this card would otherwise borrow is a read of colour, which a hide is never scored for. */}
-        {isHide && (
+        {/* A wildlife hide's body on a SOLAR window: what it is, then its comfort forecast for this
+            window's day, as the route into the four-day sheet (which holds the full hourly table) —
+            the same press-to-peek shape the reason prose below has, and the same self-focus for the
+            same reason (see the reason button's note). Stands in for the reason: the region's SKY
+            gloss this card would otherwise borrow is a read of colour, which a hide is never scored
+            for. The route reads "Hour by hour ›", not "Four days here ›": a hide's sheet is a list of
+            hourly tables, up to six days of them, not four windows. */}
+        {comfortDay && (
           <>
-            <p className="wf-callout-hide" data-testid="map-callout-hide-note">
-              Wildlife hide: never scored for sky colour.
-            </p>
+            {showHideNote && (
+              <p className="wf-callout-hide" data-testid="map-callout-hide-note">
+                Wildlife hide: never scored for sky colour.
+              </p>
+            )}
             <button
               type="button"
               className="wf-callout-comfort"
@@ -764,21 +804,43 @@ export default function MapCallout({
               aria-haspopup="dialog"
               onClick={(pressEvent) => { pressEvent.currentTarget.focus(); onOpenSheet?.(); }}
             >
-              <span className="wf-callout-comfort-k">Comfort forecast for this day</span>
+              <span className="wf-callout-comfort-k" data-testid="map-callout-comfort-caption">{comfortCaption}</span>
+              {/* The explicit `{' '}` text nodes keep a space between the blocks in the button's
+                  accessible NAME: the spans are `display: block`, which a browser spaces on its own,
+                  but jsdom's name computation trims a span's own trailing space and glues the lines
+                  ("…15 Jun2 to 7°C"), the quirk the reason button's own note records. */}
+              {' '}
               {comfort.length > 0 ? comfort.map((line) => (
-                <span key={line} className="wf-callout-comfort-line" data-testid="map-callout-comfort-line">
-                  {`${line} `}
-                </span>
+                <Fragment key={line}>
+                  <span className="wf-callout-comfort-line" data-testid="map-callout-comfort-line">{line}</span>
+                  {' '}
+                </Fragment>
               )) : (
                 <span className="wf-callout-comfort-line" data-testid="map-callout-comfort-none">
-                  No hourly forecast for this day yet.
+                  {comfortNone}
                 </span>
               )}
-              <span className="wf-callout-reason-more" aria-hidden="true">Four days here ›</span>
+              <span className="wf-callout-reason-more" aria-hidden="true">Hour by hour ›</span>
               {' '}
-              <span className="sr-only">{`${location.name} — four days here`}</span>
+              <span className="sr-only">{`${location.name} — hourly comfort forecast`}</span>
             </button>
           </>
+        )}
+        {/* The same hide on an astro or aurora NIGHT: the verdict above is what it always was; this
+            one line says where the daylight forecast is, through the same route. */}
+        {comfortNight && (
+          <button
+            type="button"
+            className="wf-callout-comfort"
+            data-testid="map-callout-comfort-night"
+            aria-haspopup="dialog"
+            onClick={(pressEvent) => { pressEvent.currentTarget.focus(); onOpenSheet?.(); }}
+          >
+            <span className="wf-callout-comfort-line">Comfort forecast covers daylight hours.</span>
+            <span className="wf-callout-reason-more" aria-hidden="true">Hour by hour ›</span>
+            {' '}
+            <span className="sr-only">{`${location.name} — hourly comfort forecast`}</span>
+          </button>
         )}
         {!isHide && reason && (
           <button
@@ -1024,6 +1086,8 @@ MapCallout.propTypes = {
   tideStripHeight: PropTypes.number,
   /** A hide's served hourly comfort rows for the active window's date — see the JSDoc above. */
   hourlyRows: PropTypes.arrayOf(PropTypes.object),
+  /** The instant "the rest of today" is measured from — tests inject it; see the JSDoc above. */
+  now: PropTypes.instanceOf(Date),
   onSelectEv: PropTypes.func,
   onOpenSheet: PropTypes.func,
   onOpenInPlan: PropTypes.func,

@@ -264,6 +264,55 @@ describe('MapView — a selected place\'s hourly comfort rows reach the callout 
     expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(TODAY));
   });
 
+  it('follows the window: switching the callout to the next day\'s window hands over THAT day\'s rows', async () => {
+    // The parent owns `date` in the app (`App` takes the forwarded date), so the harness does too.
+    const NEXT = '2026-01-16';
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    const heat = heatProp();
+    heat.windows = [
+      ...heat.windows,
+      { key: `${NEXT}:SUNSET`, date: NEXT, targetType: 'SUNSET', label: 'Tomorrow sunset', time: '16:14', bestRating: 4, conf: 1 },
+    ];
+    heat.pointsByKey.set(`${NEXT}:SUNSET`, [{
+      id: SPOT.id, name: SPOT.name, lat: SPOT.lat, lng: SPOT.lng, rid: SPOT.rid, r: [4],
+    }]);
+    const locations = [withHourly([[TODAY, hourly(TODAY)], [NEXT, hourly(NEXT)]])];
+    function Harness() {
+      const [d, setD] = React.useState(TODAY);
+      return (
+        <MapView
+          locations={locations} date={d} onSelectDate={setD} forecastDates={[TODAY, NEXT]}
+          autoEventType={null} heat={heat}
+        />
+      );
+    }
+    await act(async () => { render(<Harness />); });
+    await selectTheSpot();
+    expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(TODAY));
+
+    const solarButtons = await screen.findAllByTestId('probe-callout-select-ev-solar');
+    await act(async () => { fireEvent.click(solarButtons[solarButtons.length - 1]); });
+
+    expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(NEXT));
+  });
+
+  it('⚠️ hands over null on an astro NIGHT window even though the `date` prop holds daylight rows', async () => {
+    // The night row is kept local, so `date` stays TODAY while the active window is the night. The
+    // rows are a daylight forecast: reading `.get(date)` would hand today's through under a night.
+    astroAvailableDatesResponse = [TODAY];
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    await renderMap({ locations: [withHourly([[TODAY, hourly(TODAY)]])] });
+    await selectTheSpot();
+    expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(TODAY));
+
+    const astroButton = await screenFindProbe('probe-callout-select-ev-astro');
+    await act(async () => { fireEvent.click(astroButton); });
+
+    expect(screen.getByTestId('probe-callout-hourly')).toHaveTextContent('null');
+  });
+
   it('hands over null, not another day\'s rows, when the window\'s date holds none', async () => {
     await renderMap({ locations: [withHourly([['2026-01-16', hourly('2026-01-16')]])] });
     await selectTheSpot();

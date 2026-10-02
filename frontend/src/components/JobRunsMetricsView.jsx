@@ -100,7 +100,15 @@ function hasColourTypes(loc) {
   return isSkyPromptCandidate(loc.locationType);
 }
 
-/** Returns true if the location is pure-wildlife only (WILDLIFE but no colour types). */
+/**
+ * Returns true if the location is pure-wildlife only (WILDLIFE but no colour types).
+ *
+ * <p>⚠️ NOT `locationTypes.isWildlifeOnly`, and the two names mean DIFFERENT sets. This is the
+ * backend `ForecastCommandExecutor.isPureWildlife` rule (a WILDLIFE+WOODLAND or WILDLIFE+BLUEBELL
+ * place counts, because no colour type is present), which decides which places the admin run
+ * screens treat as no-Claude. `isWildlifeOnly` is the narrower `LocationEntity.isWildlifeOnly()`
+ * (WILDLIFE is the ONLY type), which decides who gets a comfort forecast.
+ */
 function isPureWildlife(loc) {
   const types = loc.locationType || [];
   return types.includes('WILDLIFE') && !hasColourTypes(loc);

@@ -10,6 +10,15 @@
  * — that would be a rule about the product, and the product has not made one. That keeps it inside
  * the Backend-heavy bullet's already-licensed filter/map/select class (CLAUDE.md), not a new member
  * of the reach/scope classes.
+ *
+ * <p>⚠️ **The wording assumes SUNRISE-TO-SUNSET rows.** "Daylight hours 07:00 to 17:00" and the
+ * "Daylight hours left" form are true because `WildlifeComfortRefreshJob` writes one row per full UTC
+ * hour from the hour of sunrise to the hour of sunset, and nothing else. Do not point this at any
+ * other set of hourly rows (an overnight series, a 24-hour series) without rewording it.
+ *
+ * <p>The only clock read in this file is the one {@link rowsFromNow}'s caller hands it as `now`:
+ * nothing here calls `Date.now()` or `new Date()` for the current time (`hourlyDaysOf` builds a
+ * display label with a throwaway `new Date()`, never a "what is today" decision).
  */
 import { formatDateLabel, formatEventTimeUk, mpsToMph, degreesToCompass, parseUtcInstant } from './conversions.js';
 
@@ -21,6 +30,28 @@ function instantOf(row) {
 /** Whether a value is a usable finite number (a missing column arrives as null, never NaN). */
 function isNum(value) {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+/**
+ * The rows that have not yet finished: those whose hour starts at or after the START of the current
+ * hour (UTC floor, which is the UK floor too — every UK offset is a whole number of hours).
+ *
+ * <p>Used for TODAY only, so a callout read at 17:00 does not headline a rain chance from 08:00. The
+ * caller owns "is this date today" (the UK civil date it already holds) and hands in `now`; this
+ * function reads no clock. A row whose time cannot be parsed is dropped — it cannot be placed
+ * relative to the present, and a figure that might be in the past is the thing this exists to avoid.
+ *
+ * @param {?Array<object>} rows the day's hourly rows
+ * @param {Date} now the instant to measure from
+ * @returns {Array<object>} the rows at or after the start of the current hour, in input order
+ */
+export function rowsFromNow(rows, now) {
+  if (!Array.isArray(rows)) return [];
+  const hourStart = Math.floor(now.getTime() / 3600000) * 3600000;
+  return rows.filter((row) => {
+    const at = parseUtcInstant(row?.solarEventTime);
+    return at != null && at.getTime() >= hourStart;
+  });
 }
 
 /**
@@ -36,8 +67,19 @@ function isNum(value) {
  */
 export function formatWind(speedMps, directionDeg) {
   if (!isNum(speedMps)) return null;
-  const compass = isNum(directionDeg) ? ` ${degreesToCompass(directionDeg)}` : '';
-  return `${mpsToMph(speedMps)} mph${compass}`;
+  const compass = formatCompass(directionDeg);
+  return `${mpsToMph(speedMps)} mph${compass ? ` ${compass}` : ''}`;
+}
+
+/**
+ * A wind direction as its compass point, null-safe: 0 degrees is north and keeps its word, a missing
+ * direction is null (never the string "undefined" that `degreesToCompass(null)` indexes to).
+ *
+ * @param {?number} directionDeg wind direction in degrees
+ * @returns {?string} the compass point, or null when there is no direction
+ */
+export function formatCompass(directionDeg) {
+  return isNum(directionDeg) ? degreesToCompass(directionDeg) : null;
 }
 
 /**
@@ -123,19 +165,31 @@ function spanText(range) {
  * ceiling over anything.
  *
  * @param {?object} summary {@link comfortSummary}'s result
+ * @param {object} [options]
+ * @param {boolean} [options.rest=false] the summary covers only the hours still to come today, so
+ *        the span line says "left" rather than claiming the whole day's daylight
  * @returns {string[]} the lines, in the order temperature, wind, rain, hours; empty for null
  */
-export function comfortLines(summary) {
+export function comfortLines(summary, { rest = false } = {}) {
   if (!summary) return [];
   const lines = [];
   if (summary.temperature) {
     const feels = summary.feelsLike ? `, feels like ${spanText(summary.feelsLike)}°C` : '';
     lines.push(`${spanText(summary.temperature)}°C${feels}.`);
+  } else if (summary.feelsLike) {
+    // No air temperature served for any hour, but a feels-like was: say only what was served.
+    lines.push(`Feels like ${spanText(summary.feelsLike)}°C.`);
   }
   if (summary.wind) {
-    const reading = formatWind(summary.wind.speedMps, summary.wind.directionDeg);
-    const upTo = summary.wind.readings > 1 ? 'up to ' : '';
-    lines.push(`Wind ${upTo}${reading}${summary.wind.time ? ` at ${summary.wind.time}` : ''}.`);
+    const at = summary.wind.time ? ` at ${summary.wind.time}` : '';
+    if (summary.wind.speedMps === 0) {
+      // A flat zero is a calm, not "up to 0 mph" — the same special case rain has below.
+      lines.push(summary.wind.readings > 1 ? 'Calm throughout.' : `Calm${at}.`);
+    } else {
+      const reading = formatWind(summary.wind.speedMps, summary.wind.directionDeg);
+      const upTo = summary.wind.readings > 1 ? 'up to ' : '';
+      lines.push(`Wind ${upTo}${reading}${at}.`);
+    }
   }
   if (summary.rain) {
     const { percent, time, readings } = summary.rain;
@@ -147,9 +201,13 @@ export function comfortLines(summary) {
     }
   }
   if (summary.from && summary.to) {
-    lines.push(summary.from === summary.to
-      ? `Only the ${summary.from} hour is forecast.`
-      : `Daylight hours ${summary.from} to ${summary.to}.`);
+    if (summary.from === summary.to) {
+      lines.push(rest ? `Only the ${summary.from} hour is left.` : `Only the ${summary.from} hour is forecast.`);
+    } else {
+      lines.push(rest
+        ? `Daylight hours left, ${summary.from} to ${summary.to}.`
+        : `Daylight hours ${summary.from} to ${summary.to}.`);
+    }
   }
   return lines;
 }
