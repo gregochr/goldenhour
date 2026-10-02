@@ -205,7 +205,15 @@ public record BriefingSlot(
      *
      * <p>A wither rather than a constructor argument because the gate is decided AFTER the slot
      * exists: {@code BriefingSlotBuilder} asks {@code BriefingGatingPolicy} about the finished
-     * slot, so the policy stays the one place that knows which reasons gate.
+     * slot, so the policy stays the one place that knows which reasons gate. Its one production
+     * caller is that seam, and it never fires today — the policy's {@code HARD_CONSTRAINT_REASONS}
+     * has been empty since the tide gate lift (2026-09-18), so no slot is withheld and
+     * {@link #evaluationGate} is null on every slot production builds. The method stays for the
+     * next hard physical constraint; tests also use it to fabricate a gated slot, since nothing
+     * can produce one through the policy now.
+     *
+     * <p>Every other component is carried over from {@code this}, {@link #eclipse} included, by
+     * the canonical constructor rather than the legacy 17-argument one.
      *
      * @param gate the plain-English reason, or null to clear it
      * @return a new slot, every other field unchanged
