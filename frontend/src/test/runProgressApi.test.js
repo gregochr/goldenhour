@@ -1,85 +1,62 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { retryFailed } from '../api/runProgressApi.js';
-import { apiErrorMessage } from '../utils/apiError.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// The backend answers a retry it cannot start with 404 and an EMPTY body (ForecastController's
-// retry-failed handler), and other refusals with {"error": "..."}. fetch does not reject on a
-// refusal, so the function itself has to turn it into something the caller can read a status from.
+vi.mock('../api/axiosClient.js', () => ({ default: { post: vi.fn() } }));
+vi.mock('../utils/createEventSource.js', () => ({ default: vi.fn(() => () => {}) }));
 
-const reply = (status, body) => ({
-  ok: status >= 200 && status < 300,
-  status,
-  text: () => Promise.resolve(body === undefined ? '' : body),
-  json: () => Promise.resolve(body === undefined ? null : JSON.parse(body)),
-});
+import apiClient from '../api/axiosClient.js';
+import createEventSource from '../utils/createEventSource.js';
+import { retryFailed, subscribeToRunProgress } from '../api/runProgressApi.js';
 
-const rejection = async (promise) => {
-  try {
-    await promise;
-  } catch (err) {
-    return err;
-  }
-  throw new Error('expected the call to reject');
-};
+// retryFailed goes through the shared axios client, so the 401-refresh interceptor applies and a
+// refusal is natively the shape utils/apiError.js reads. These pin the call and that the rejection
+// is passed through untouched; the panel tests join this to the real panel.
 
 describe('retryFailed', () => {
   beforeEach(() => {
-    localStorage.setItem('goldenhour_token', 'tok');
-    vi.stubGlobal('fetch', vi.fn());
-  });
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    localStorage.clear();
+    apiClient.post.mockReset();
   });
 
-  it('posts to the run\'s retry-failed route with the bearer token and returns the new run', async () => {
-    const body = JSON.stringify({ status: 'Retry run started', runType: 'SHORT_TERM', jobRunId: 8 });
-    fetch.mockResolvedValue(reply(202, body));
+  it('posts to the run\'s retry-failed route and returns the response body', async () => {
+    apiClient.post.mockResolvedValue({
+      data: { status: 'Retry run started', runType: 'SHORT_TERM', jobRunId: 8 },
+    });
 
     await expect(retryFailed(7)).resolves.toEqual({
       status: 'Retry run started', runType: 'SHORT_TERM', jobRunId: 8,
     });
-    expect(fetch).toHaveBeenCalledWith('/api/forecast/run/7/retry-failed', expect.objectContaining({
-      method: 'POST',
-      headers: expect.objectContaining({ Authorization: 'Bearer tok' }),
-    }));
+    expect(apiClient.post).toHaveBeenCalledWith('/api/forecast/run/7/retry-failed');
   });
 
-  it('rejects with status 404 and no server sentence when the 404 has an empty body', async () => {
-    fetch.mockResolvedValue(reply(404));
+  it('rejects with the axios error itself, status and body intact', async () => {
+    const refusal = Object.assign(new Error('Request failed with status code 400'), {
+      response: { status: 400, data: { error: 'Run 7 is still in progress' } },
+    });
+    apiClient.post.mockRejectedValue(refusal);
 
-    const err = await rejection(retryFailed(7));
+    await expect(retryFailed(7)).rejects.toBe(refusal);
+  });
+});
 
-    expect(err.status).toBe(404);
-    expect(err.response).toEqual({ status: 404, data: null });
-    expect(apiErrorMessage(err, 'fallback')).toBe('fallback');
+describe('subscribeToRunProgress', () => {
+  beforeEach(() => {
+    createEventSource.mockClear();
   });
 
-  it('rejects carrying the server\'s sentence when a refusal has a JSON error body', async () => {
-    fetch.mockResolvedValue(reply(400, JSON.stringify({ error: 'Run 7 is still in progress' })));
+  it('listens for run-expired as well as the three progress events, and closes on either end', () => {
+    const [onTask, onSummary, onComplete, onError, onExpired] = [vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn()];
 
-    const err = await rejection(retryFailed(7));
+    subscribeToRunProgress(7, onTask, onSummary, onComplete, onError, onExpired);
 
-    expect(err.status).toBe(400);
-    expect(apiErrorMessage(err, 'fallback')).toBe('Run 7 is still in progress');
-  });
-
-  it('keeps the status and drops the body when a refusal body is not JSON', async () => {
-    fetch.mockResolvedValue(reply(502, '<html>Bad gateway</html>'));
-
-    const err = await rejection(retryFailed(7));
-
-    expect(err.status).toBe(502);
-    expect(err.response.data).toBeNull();
-  });
-
-  it('rejects with a readable message and no status when the request never gets an answer', async () => {
-    fetch.mockRejectedValue(new TypeError('Failed to fetch'));
-
-    const err = await rejection(retryFailed(7));
-
-    expect(err.message).toBe('Could not reach the server.');
-    expect(err.status).toBeUndefined();
-    expect(err.cause).toBeInstanceOf(TypeError);
+    expect(createEventSource).toHaveBeenCalledWith(
+      '/api/forecast/run/7/progress',
+      {},
+      {
+        'task-update': onTask,
+        'run-summary': onSummary,
+        'run-complete': onComplete,
+        'run-expired': onExpired,
+      },
+      { onError, closeOn: ['run-complete', 'run-expired'] },
+    );
   });
 });

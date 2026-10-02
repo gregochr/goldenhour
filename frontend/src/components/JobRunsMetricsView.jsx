@@ -324,6 +324,17 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   // Dismissing a kept panel removes the thing that held focus, so focus goes to the heading of the
   // section that started the run; the run buttons it came from are many, and any one would be a
   // guess. Only a Dismiss moves focus: a clean run clearing itself leaves it where it was.
+  const [promotedRunId, setPromotedRunId] = useState(null);
+  // A retry the server accepted becomes THE active run: the panel for it follows it by id like any
+  // run, survives a tab switch (the id lives in ManageView), and if it ends with failures is kept
+  // with its own Retry and Dismiss. The list reloads so the grid shows the run that just started.
+  const handleRetryStarted = (retryRunId) => {
+    if (retryRunId) {
+      setPromotedRunId(retryRunId);
+      onActiveRunChange(retryRunId);
+    }
+    loadJobRuns(0);
+  };
   const runsHeadingRef = useRef(null);
   const focusRunsHeading = useRef(false);
   const handleDismissRun = () => {
@@ -664,14 +675,14 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       {isAdmin && (
         <div className="card space-y-4">
           <div>
-            <p
+            <h3
               ref={runsHeadingRef}
               tabIndex={-1}
               className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2 focus-visible:outline-2 focus-visible:outline-plex-gold"
               data-testid="forecast-runs-heading"
             >
               Forecast Runs
-            </p>
+            </h3>
             <div className="flex flex-wrap gap-2">
               <button
                 className="btn-primary text-sm"
@@ -794,13 +805,16 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       {/* Live run progress */}
       {activeRunId && (
         <RunProgressPanel
-          // key: starting another run while a finished one is kept must replace the panel, not
-          // hand a new run id to a panel still holding the old run's tasks, summary and retry.
+          // key: starting another run (or promoting a retry) while a finished one is kept must
+          // replace the panel, not hand a new run id to a panel still holding the old run's tasks,
+          // summary and failure line.
           key={activeRunId}
           jobRunId={activeRunId}
           onComplete={() => loadJobRuns(0)}
           onAutoClear={onActiveRunClear}
           onDismiss={handleDismissRun}
+          onRetryStarted={handleRetryStarted}
+          focusOnMount={promotedRunId === activeRunId}
         />
       )}
 

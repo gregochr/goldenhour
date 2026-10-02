@@ -9,6 +9,7 @@ import {
 import { resolveMode } from '../utils/scoreRamp.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { apiErrorMessage } from '../utils/apiError.js';
+import { BUSY_BUTTON } from '../utils/busyButton.js';
 import { colourAfterRead, createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
 const ROLE_LABELS = {
@@ -45,22 +46,6 @@ const DEFAULT_RADIUS_MILES = 22;
  * rules). A fix to that belongs in those classes, not here.
  */
 const LANDING_TARGET = '-mx-1 px-1 rounded-sm focus-visible:outline-2 focus-visible:outline-plex-gold';
-
-/**
- * A button that says it is busy WITHOUT `disabled`. Measured in Chromium, WebKit and Firefox: a
- * focused button that becomes `disabled` loses focus — at once in Chromium, within one to four
- * frames in the other two — so the reader who pressed it is dropped on `<body>`, and a failed
- * request leaves them there. `aria-disabled` keeps it focusable; these copy `.btn-primary`'s own
- * `disabled:` treatment, and the handler refuses a second press.
- *
- * <p>⚠️ So it looks as it did in ordinary rendering, and not in two cases. Forced-colours mode
- * repaints a `disabled` button's text and border in the system's GrayText and leaves an
- * `aria-disabled` one in ButtonText (measured in Chromium), so there the busy state shows only as
- * the dimming. And a reader who pressed it from the keyboard keeps focus on it, so its focus
- * indicator stays drawn through the request where `disabled` used to take the focus, and the
- * indicator, away — dimmed with the button to 40%.
- */
-const BUSY_BUTTON = 'aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-plex-gold';
 
 export default function UserSettingsModal({
   onClose, onDriveTimesRefreshed, startSettingsRead, onHomeSaved, onDriveTimesRecalculated,

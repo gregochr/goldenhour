@@ -1,4 +1,5 @@
 import createEventSource from '../utils/createEventSource.js';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api';
 
@@ -10,9 +11,11 @@ const BASE_URL = '/api';
  * @param {function} onRunSummary - Called with run summary data after each task update.
  * @param {function} onRunComplete - Called with run complete data when the run finishes.
  * @param {function} onError - Called on connection error.
+ * @param {function} [onRunExpired] - Called when the server no longer holds the run (evicted, or
+ *   lost to a restart): the stream ends and nothing more will arrive.
  * @returns {function} Cleanup function to close the EventSource.
  */
-export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunComplete, onError) {
+export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunComplete, onError, onRunExpired) {
   return createEventSource(
     `${BASE_URL}/forecast/run/${runId}/progress`,
     {},
@@ -20,8 +23,9 @@ export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunC
       'task-update': onTaskUpdate,
       'run-summary': onRunSummary,
       'run-complete': onRunComplete,
+      'run-expired': onRunExpired,
     },
-    { onError, closeOn: 'run-complete' },
+    { onError, closeOn: ['run-complete', 'run-expired'] },
   );
 }
 
@@ -43,50 +47,14 @@ export function subscribeToRunNotifications(onRunComplete, onError) {
 }
 
 /**
- * Reads a refused response's JSON body, or null when there is none (the backend answers the
- * "nothing to retry" refusal with a 404 and an empty body, and a proxy may answer with HTML).
- */
-async function readJsonBody(response) {
-  try {
-    const text = await response.text();
-    return text ? JSON.parse(text) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Retries failed tasks from a previous run.
- *
- * A refused request rejects with an {@code Error} shaped like an axios one, so
- * {@code utils/apiError.js}'s {@code apiErrorMessage} reads it: {@code err.status} and
- * {@code err.response = { status, data }}, where {@code data} is the parsed JSON body or null when
- * the body was empty or not JSON. A request that never got an answer rejects with a plain
- * {@code Error} carrying no {@code status}.
+ * Retries failed tasks from a previous run, through the shared axios client so an expired token is
+ * refreshed on the way and a refusal rejects with the shape {@code utils/apiError.js} reads
+ * ({@code err.response.status}, {@code err.response.data}).
  *
  * @param {number} runId - The job run ID whose failed tasks to retry.
  * @returns {Promise<{status: string, runType: string, jobRunId: number}>} New run response.
  */
 export async function retryFailed(runId) {
-  const token = localStorage.getItem('goldenhour_token');
-  let response;
-  try {
-    response = await fetch(`${BASE_URL}/forecast/run/${runId}/retry-failed`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-  } catch (cause) {
-    throw new Error('Could not reach the server.', { cause });
-  }
-  if (!response.ok) {
-    const data = await readJsonBody(response);
-    const err = new Error(`Retry failed (HTTP ${response.status})`);
-    err.status = response.status;
-    err.response = { status: response.status, data };
-    throw err;
-  }
-  return response.json();
+  const { data } = await apiClient.post(`${BASE_URL}/forecast/run/${runId}/retry-failed`);
+  return data;
 }

@@ -136,6 +136,23 @@ describe('createEventSource', () => {
     expect(source._closed).toBe(true);
   });
 
+  it('closes source on any of several closeOn events, and only those', () => {
+    const done = vi.fn();
+    const gone = vi.fn();
+    const other = vi.fn();
+    createEventSource('/api/test', {}, { done, gone, other }, { closeOn: ['done', 'gone'] });
+    const source = MockEventSource.instances[0];
+    source._emit('other', JSON.stringify({}));
+    expect(source._closed).toBeUndefined();
+    source._emit('gone', JSON.stringify({ expired: true }));
+    expect(gone).toHaveBeenCalledWith({ expired: true });
+    expect(source._closed).toBe(true);
+  });
+
+  it('skips a handler that is not a function rather than throwing', () => {
+    expect(() => createEventSource('/api/test', {}, { later: undefined })).not.toThrow();
+  });
+
   it('returns cleanup function that closes source', () => {
     const cleanup = createEventSource('/api/test');
     const source = MockEventSource.instances[0];
