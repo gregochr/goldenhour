@@ -1035,8 +1035,67 @@ class LocationFailureServiceTest {
 
     private static final String OLDER_UNRESOLVED_LOG =
             "Pipeline run 300 (triggered 2026-10-02T01:00:00Z): location failure settle mode "
-                    + "RESETS_ONLY: older cycle 299 still unresolved, and counting this cycle "
+                    + "RESETS_ONLY: older cycle 299 (FAILED) still unresolved, and counting this cycle "
                     + "first could disable a place that cycle's success would have reset";
+
+    private PipelineRunEntity finishedRun(long id, Instant trigger) {
+        PipelineRunEntity finished = run(id, CycleType.NIGHTLY, trigger);
+        finished.setStatus(PipelineRunStatus.FAILED);
+        return finished;
+    }
+
+    private void runningUnsettled(PipelineRunEntity... runs) {
+        org.mockito.Mockito.doReturn(List.of(runs)).when(pipelineRunRepository)
+                .findUnsettledSinceWithStatus(SWEEP_SINCE, PipelineRunStatus.RUNNING);
+    }
+
+    @Test
+    @DisplayName("a tail settle with an older run still RUNNING (the nightly in WAIT while an "
+            + "intraday Run now finishes first) is RESETS_ONLY, naming the run and its status: a "
+            + "place at 2 that failed stays at 2")
+    void tail_olderRunStillRunning_isResetsOnly() {
+        runningUnsettled(run(RUN_ID - 1, CycleType.NIGHTLY, TRIGGER.minusSeconds(3600)));
+
+        settle(failureThatWouldDisable());
+
+        verify(locationRepository, never()).recordFailure(10L, NOW_UTC);
+        assertThat(storedCounts.get(10L)).isEqualTo(2);
+        assertThat(settledRuns).containsKey(RUN_ID);
+        assertThat(messages(Level.INFO)).contains(
+                "Pipeline run 300 (triggered 2026-10-02T01:00:00Z): location failure settle mode "
+                        + "RESETS_ONLY: older cycle 299 (RUNNING) still unresolved, and counting "
+                        + "this cycle first could disable a place that cycle's success would have "
+                        + "reset");
+        verifyNoInteractions(adminAlertService);
+    }
+
+    @Test
+    @DisplayName("a NEWER run still RUNNING does not block a tail: only an older cycle can pre-empt")
+    void tail_newerRunStillRunning_stillFull() {
+        runningUnsettled(run(RUN_ID + 1, CycleType.INTRADAY, TRIGGER.plusSeconds(3600)));
+        Map<Long, CyclePlaceEvidence> evidence = failureThatWouldDisable();
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
+        when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
+
+        settle(evidence);
+
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
+        assertThat(messages(Level.INFO)).contains(FULL_MODE_LOG);
+    }
+
+    @Test
+    @DisplayName("a tail whose RUNNING-run listing fails cannot rule an older cycle out: RESETS_ONLY")
+    void tail_runningListingFails_isResetsOnly() {
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down"))
+                .when(pipelineRunRepository)
+                .findUnsettledSinceWithStatus(SWEEP_SINCE, PipelineRunStatus.RUNNING);
+
+        settle(failureThatWouldDisable());
+
+        verify(locationRepository, never()).recordFailure(10L, NOW_UTC);
+        assertThat(storedCounts.get(10L)).isEqualTo(2);
+    }
 
     /** A tail whose evidence would count place 10 from 2 to 3 (and so disable it) if FULL. */
     private Map<Long, CyclePlaceEvidence> failureThatWouldDisable() {
@@ -1061,7 +1120,7 @@ class LocationFailureServiceTest {
             + "RESETS_ONLY: a place at 2 that failed in the newer cycle stays at 2, enabled, and "
             + "the newer cycle is claimed")
     void tail_olderRunDeferred_isResetsOnly() {
-        unsettled(run(RUN_ID - 1, CycleType.NIGHTLY, TRIGGER.minusSeconds(3600)));
+        unsettled(finishedRun(RUN_ID - 1, TRIGGER.minusSeconds(3600)));
         when(forecastBatchRepository.findByPipelineRunIdAndBatchTypeAndStatusNotIn(RUN_ID - 1,
                 com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType.FORECAST,
                 com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.TERMINAL))
@@ -1082,7 +1141,7 @@ class LocationFailureServiceTest {
     @DisplayName("a tail settle after an older run the sweep FAILED to settle (it threw) is "
             + "RESETS_ONLY too")
     void tail_olderRunFailedToSettle_isResetsOnly() {
-        unsettled(run(RUN_ID - 1, CycleType.NIGHTLY, TRIGGER.minusSeconds(3600)));
+        unsettled(finishedRun(RUN_ID - 1, TRIGGER.minusSeconds(3600)));
         when(resolver.resolve(RUN_ID - 1)).thenThrow(new IllegalStateException("db down"));
 
         settle(failureThatWouldDisable());

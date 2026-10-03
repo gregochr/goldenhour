@@ -610,6 +610,38 @@ class LocationFailureTrackingTest {
     }
 
     @Test
+    @DisplayName("END TO END: an older cycle still RUNNING (nightly in WAIT) makes the newer tail "
+            + "RESETS_ONLY: a place at 2 that failed in the newer cycle stays at 2 and enabled; the "
+            + "RUNNING run is not claimed by the sweep")
+    void newerTailOverOlderRunningRun_isResetsOnly() {
+        setCounter(angel, 2);
+        long olderId = persistedRunId();
+        long newerId = persistedRunId();
+        seedBatch(newerId, false, true);
+
+        locationFailureService.settleCycle(newRun(newerId));
+
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
+        assertThat(reload(angel).isEnabled()).isTrue();
+        assertThat(newRun(newerId).getFailuresSettledAt()).isNotNull();
+        assertThat(newRun(olderId).getFailuresSettledAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("a NEWER run still RUNNING does not block the tail of an older cycle: FULL")
+    void olderTailWithNewerRunningRun_isFull() {
+        setCounter(angel, 2);
+        long olderId = persistedRunId();
+        seedBatch(olderId, false, true);
+        persistedRunId();
+
+        locationFailureService.settleCycle(newRun(olderId));
+
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(3);
+        assertThat(reload(angel).isEnabled()).isFalse();
+    }
+
+    @Test
     @DisplayName("a tail with an older run that is already terminal and settled by the sweep is "
             + "still FULL: the failing place goes from 2 to 3 and is disabled")
     void tailAfterResolvedOlderRun_isFull() {

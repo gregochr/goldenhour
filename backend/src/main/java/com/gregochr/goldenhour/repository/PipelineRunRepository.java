@@ -138,4 +138,19 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
             + "AND p.triggerTime >= :since AND p.status <> :excluded ORDER BY p.triggerTime ASC")
     List<PipelineRunEntity> findUnsettledSince(@Param("since") Instant since,
             @Param("excluded") PipelineRunStatus excluded);
+
+    /**
+     * Returns the pipeline runs in exactly the given status whose location-failure settle has not
+     * been claimed, triggered at or after {@code since}, oldest trigger first. The auto-disable
+     * uses it to see the RUNNING runs the sweep may not settle but that still block a newer
+     * cycle's tail from counting failures.
+     *
+     * @param since  inclusive lower bound on the trigger time
+     * @param status the one status to return
+     * @return the unsettled runs in that status, in trigger order
+     */
+    @Query("SELECT p FROM PipelineRunEntity p WHERE p.failuresSettledAt IS NULL "
+            + "AND p.triggerTime >= :since AND p.status = :status ORDER BY p.triggerTime ASC")
+    List<PipelineRunEntity> findUnsettledSinceWithStatus(@Param("since") Instant since,
+            @Param("status") PipelineRunStatus status);
 }

@@ -55,9 +55,10 @@ roster.
   sweep or by a tail settle, while any of its forecast batches is still being polled (not COMPLETED,
   FAILED, EXPIRED or CANCELLED): a run restarted mid-submission is marked FAILED but its persisted
   batches keep landing results, so it is deferred (logged at INFO, naming the batch) until they are
-  terminal and a later sweep settles it. A tail settle is FULL only when the sweep it has just run
-  left no older cycle unresolved (deferred, failed to settle, or an unlistable run set); otherwise it
-  settles RESETS_ONLY and logs "older cycle N still unresolved", because a newer failure could
+  terminal and a later sweep settles it. A tail settle is FULL only when there is no older
+  unsettled cycle within the sweep window at all, whatever its status (deferred, failed to settle,
+  still RUNNING, or an unlistable run set); otherwise it settles RESETS_ONLY and logs "older cycle N
+  (STATUS) still unresolved", because a newer failure could
   otherwise disable a place before the older cycle's success arrives, and a later reset cannot
   undo a disable. That newer cycle is then never counted, which under-counts, the safe direction.
 - **A cycle that submitted no batch** (everything cached, skipped or triaged away, or every
