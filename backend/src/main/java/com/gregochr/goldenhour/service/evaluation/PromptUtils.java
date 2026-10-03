@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -203,5 +205,37 @@ public final class PromptUtils {
             return 0;
         }
         return sorted[sorted.length / 2];
+    }
+
+    /**
+     * Builds an insertion-ordered map from alternating keys and values. Used for the
+     * structured-output schemas, where the serialised key order is the order Claude writes its
+     * fields in, so it must not vary with the JVM's immutable-map iteration order.
+     *
+     * @param keyValues alternating String keys and their values
+     * @return a {@link LinkedHashMap} preserving the argument order
+     */
+    static Map<String, Object> ordered(Object... keyValues) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (int i = 0; i < keyValues.length; i += 2) {
+            map.put((String) keyValues[i], keyValues[i + 1]);
+        }
+        return map;
+    }
+
+    /**
+     * Builds an insertion-ordered map from entries, preserving their argument order. The
+     * entry-based sibling of {@link #ordered(Object...)}, for a schema's {@code properties}.
+     *
+     * @param entries the entries, in the order they must serialise
+     * @return a {@link LinkedHashMap} preserving the argument order
+     */
+    @SafeVarargs
+    static Map<String, Object> orderedEntries(Map.Entry<String, ?>... entries) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (Map.Entry<String, ?> entry : entries) {
+            map.put(entry.getKey(), entry.getValue());
+        }
+        return map;
     }
 }
