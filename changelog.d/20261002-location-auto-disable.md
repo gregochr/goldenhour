@@ -57,5 +57,8 @@ roster.
   `last_failure_at` and `disabled_reason` are `updatable = false` on `LocationEntity` (as the
   `app_user` settings columns are) and `LocationEntity` is `@DynamicUpdate`, so an admin's
   metadata edit loaded before a settle and saved after it can no longer undo a committed
-  disable or restore a reset counter. The admin enable/disable toggle remains last-writer-wins.
-  No migration.
+  disable or restore a reset counter. `enabled` is `updatable = false` too (the admin toggle writes
+  it through `updateEnabled` and remains last-writer-wins), because `@DynamicUpdate` alone does not
+  stop a detached entity, merged after a settle by a job that loaded it outside a transaction, from
+  writing a stale `enabled` back. Those detached jobs (grid-cell backfill, the briefing's grid-cell
+  capture, Bortle enrichment) now write only their own columns with scoped updates. No migration.

@@ -89,11 +89,10 @@ class LocationFailureTrackingTest {
                         .name(name).lat(lat).lon(lon)
                         .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build()));
-        location.setEnabled(true);
         LocationEntity saved = locationRepository.save(location);
-        // The failure columns are updatable = false on the entity: clear them with SQL.
-        jdbcTemplate.update("UPDATE locations SET consecutive_failures = 0, last_failure_at = NULL, "
-                + "disabled_reason = NULL WHERE id = ?", saved.getId());
+        // enabled and the failure columns are updatable = false on the entity: reset them with SQL.
+        jdbcTemplate.update("UPDATE locations SET enabled = TRUE, consecutive_failures = 0, "
+                + "last_failure_at = NULL, disabled_reason = NULL WHERE id = ?", saved.getId());
         return saved;
     }
 
@@ -182,6 +181,24 @@ class LocationFailureTrackingTest {
         assertThat(reenabled.getLastFailureAt()).isNull();
         assertThat(locationRepository.findAllByEnabledTrueOrderByNameAsc())
                 .extracting(LocationEntity::getName).contains("Angel of the North");
+    }
+
+    @Test
+    @DisplayName("the admin toggle through LocationService still disables and enables, and "
+            + "enabling clears an auto-disable's failure state, all through scoped updates")
+    void adminToggle_disablesAndEnables_clearingFailureState() {
+        jdbcTemplate.update("UPDATE locations SET consecutive_failures = 3, "
+                + "disabled_reason = 'Auto-disabled' WHERE id = ?", angel.getId());
+
+        locationService.setEnabled(angel.getId(), false);
+        assertThat(reload(angel).isEnabled()).isFalse();
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(3);
+
+        locationService.setEnabled(angel.getId(), true);
+        LocationEntity enabled = reload(angel);
+        assertThat(enabled.isEnabled()).isTrue();
+        assertThat(enabled.getConsecutiveFailures()).isZero();
+        assertThat(enabled.getDisabledReason()).isNull();
     }
 
     @Test

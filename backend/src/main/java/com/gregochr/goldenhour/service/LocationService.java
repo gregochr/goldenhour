@@ -346,12 +346,12 @@ public class LocationService {
      */
     @Transactional
     public LocationEntity setEnabled(Long id, boolean enabled) {
-        LocationEntity location = findById(id);
-        location.setEnabled(enabled);
-        LocationEntity saved = locationRepository.save(location);
+        LocationEntity saved = findById(id);
+        // enabled and the failure columns are not updatable through the entity (see LocationEntity):
+        // write them with scoped updates, and mirror that on the in-memory copy that is returned.
+        locationRepository.updateEnabled(saved.getId(), enabled);
+        saved.setEnabled(enabled);
         if (enabled) {
-            // The failure columns are not updatable through the entity (see LocationEntity); clear
-            // them with a scoped update, and mirror that on the in-memory copy that is returned.
             locationRepository.clearFailureState(saved.getId());
             saved.setConsecutiveFailures(0);
             saved.setDisabledReason(null);
@@ -428,13 +428,13 @@ public class LocationService {
      */
     @Transactional
     public LocationEntity resetFailures(String name) {
-        LocationEntity location = findByName(name);
-        if (location.getDisabledReason() != null) {
-            location.setEnabled(true);
+        LocationEntity saved = findByName(name);
+        // enabled and the failure columns are not updatable through the entity (see LocationEntity):
+        // write them with scoped updates, and mirror that on the in-memory copy that is returned.
+        if (saved.getDisabledReason() != null) {
+            locationRepository.updateEnabled(saved.getId(), true);
+            saved.setEnabled(true);
         }
-        LocationEntity saved = locationRepository.save(location);
-        // The failure columns are not updatable through the entity (see LocationEntity); clear
-        // them with a scoped update, and mirror that on the in-memory copy that is returned.
         locationRepository.clearFailureState(saved.getId());
         saved.setConsecutiveFailures(0);
         saved.setDisabledReason(null);

@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -186,6 +187,51 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
             + "WHERE l.id = :id AND l.enabled = true")
     int autoDisable(@Param("id") Long id, @Param("failureCount") int failureCount,
             @Param("lastFailureAt") LocalDateTime lastFailureAt, @Param("reason") String reason);
+
+    /**
+     * Sets {@code enabled} on one location and touches no other column. {@code enabled} is
+     * {@code updatable = false} on the entity, so this (and {@link #autoDisable}) are its only
+     * writers after the insert: no whole-entity save or detached merge can flip it.
+     *
+     * @param id      the location id
+     * @param enabled the new state
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.enabled = :enabled WHERE l.id = :id")
+    int updateEnabled(@Param("id") Long id, @Param("enabled") boolean enabled);
+
+    /**
+     * Sets the Open-Meteo grid cell of one location and touches no other column. For writers that
+     * hold a possibly stale, detached snapshot and must not rewrite what an admin has since edited.
+     *
+     * @param id      the location id
+     * @param gridLat snapped grid latitude
+     * @param gridLng snapped grid longitude
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.gridLat = :gridLat, l.gridLng = :gridLng WHERE l.id = :id")
+    int updateGridCell(@Param("id") Long id, @Param("gridLat") double gridLat,
+            @Param("gridLng") double gridLng);
+
+    /**
+     * Sets the measured sky brightness and Bortle class of one location and touches no other column.
+     *
+     * @param id                the location id
+     * @param skyBrightnessSqm  sky quality reading in magnitudes per square arcsecond
+     * @param bortleClass       Bortle class
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.skyBrightnessSqm = :skyBrightnessSqm, "
+            + "l.bortleClass = :bortleClass WHERE l.id = :id")
+    int updateSkyBrightness(@Param("id") Long id,
+            @Param("skyBrightnessSqm") Double skyBrightnessSqm,
+            @Param("bortleClass") Integer bortleClass);
 
     /**
      * Clears the whole failure state of one location: counter to zero, last-failure time and

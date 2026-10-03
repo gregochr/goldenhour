@@ -128,7 +128,10 @@ public class BortleEnrichmentService {
                         "GET", callUrl, null, callDurationMs, 200, null, true, null);
                 location.setSkyBrightnessSqm(brightness.sqm());
                 location.setBortleClass(brightness.bortle());
-                locationRepository.save(location);
+                // Scoped: this snapshot was loaded before a run of remote calls and may be stale,
+                // so it must not rewrite any other column.
+                locationRepository.updateSkyBrightness(
+                        location.getId(), brightness.sqm(), brightness.bortle());
                 enriched++;
                 publishEvent(jobRun.getId(), location, LocationTaskState.COMPLETE, null);
                 LOG.debug("Enriched '{}': SQM {}, Bortle {}",

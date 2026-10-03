@@ -606,7 +606,6 @@ class LocationServiceTest {
         entity.setDisabledReason("Auto-disabled");
         entity.setLastFailureAt(java.time.LocalDateTime.now());
         when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         LocationEntity result = locationService.setEnabled(1L, true);
 
@@ -614,9 +613,11 @@ class LocationServiceTest {
         assertThat(result.getConsecutiveFailures()).isZero();
         assertThat(result.getDisabledReason()).isNull();
         assertThat(result.getLastFailureAt()).isNull();
-        // The failure columns are updatable = false on the entity: the clearing must be the scoped
-        // update, or it never reaches the database.
+        // enabled and the failure columns are updatable = false on the entity: the writes must be the
+        // scoped updates, or they never reach the database, and nothing is saved whole.
+        verify(locationRepository).updateEnabled(entity.getId(), true);
         verify(locationRepository).clearFailureState(entity.getId());
+        verify(locationRepository, org.mockito.Mockito.never()).save(any());
     }
 
     @Test
@@ -626,13 +627,14 @@ class LocationServiceTest {
         entity.setEnabled(true);
         entity.setConsecutiveFailures(2);
         when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         LocationEntity result = locationService.setEnabled(1L, false);
 
         assertThat(result.isEnabled()).isFalse();
         assertThat(result.getConsecutiveFailures()).isEqualTo(2);
+        verify(locationRepository).updateEnabled(entity.getId(), false);
         verify(locationRepository, org.mockito.Mockito.never()).clearFailureState(entity.getId());
+        verify(locationRepository, org.mockito.Mockito.never()).save(any());
     }
 
     // --- shouldEvaluateSunrise / shouldEvaluateSunset ---
@@ -865,21 +867,16 @@ class LocationServiceTest {
                 java.time.LocalDateTime.of(2026, 4, 1, 10, 0));
         when(locationRepository.findByName("Durham UK"))
                 .thenReturn(Optional.of(entity));
-        when(locationRepository.save(any()))
-                .thenAnswer(inv -> inv.getArgument(0));
 
         LocationEntity result =
                 locationService.resetFailures("Durham UK");
 
-        ArgumentCaptor<LocationEntity> captor =
-                ArgumentCaptor.forClass(LocationEntity.class);
-        verify(locationRepository).save(captor.capture());
-        LocationEntity saved = captor.getValue();
-        assertThat(saved.getConsecutiveFailures()).isZero();
-        assertThat(saved.getDisabledReason()).isNull();
-        assertThat(saved.getLastFailureAt()).isNull();
-        assertThat(result).isSameAs(saved);
+        assertThat(result).isSameAs(entity);
+        assertThat(result.getConsecutiveFailures()).isZero();
+        assertThat(result.getDisabledReason()).isNull();
+        assertThat(result.getLastFailureAt()).isNull();
         verify(locationRepository).clearFailureState(entity.getId());
+        verify(locationRepository, org.mockito.Mockito.never()).save(any());
     }
 
     @Test
@@ -893,7 +890,6 @@ class LocationServiceTest {
                 + "(last 2026-10-02: weather data could not be fetched).");
         entity.setLastFailureAt(java.time.LocalDateTime.of(2026, 10, 2, 3, 0));
         when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
-        when(locationRepository.save(entity)).thenReturn(entity);
 
         LocationEntity result = locationService.resetFailures("Durham UK");
 
@@ -901,6 +897,7 @@ class LocationServiceTest {
         assertThat(result.getConsecutiveFailures()).isZero();
         assertThat(result.getDisabledReason()).isNull();
         assertThat(result.getLastFailureAt()).isNull();
+        verify(locationRepository).updateEnabled(entity.getId(), true);
         verify(locationRepository).clearFailureState(entity.getId());
     }
 
@@ -913,7 +910,6 @@ class LocationServiceTest {
         entity.setConsecutiveFailures(1);
         entity.setLastFailureAt(java.time.LocalDateTime.of(2026, 10, 2, 3, 0));
         when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
-        when(locationRepository.save(entity)).thenReturn(entity);
 
         LocationEntity result = locationService.resetFailures("Durham UK");
 
@@ -921,6 +917,7 @@ class LocationServiceTest {
         assertThat(result.getConsecutiveFailures()).isZero();
         assertThat(result.getLastFailureAt()).isNull();
         verify(locationRepository).clearFailureState(entity.getId());
+        verify(locationRepository, org.mockito.Mockito.never()).updateEnabled(entity.getId(), true);
     }
 
     @Test

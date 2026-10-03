@@ -202,22 +202,94 @@ class LocationRepositoryTest {
     }
 
     @Test
-    @DisplayName("the admin enable/disable toggle still writes enabled through the entity, in "
+    @DisplayName("the admin enable/disable toggle writes enabled through the scoped update, in "
             + "both directions")
-    void adminToggle_stillWritesEnabled() {
+    void adminToggle_writesEnabledThroughScopedUpdate() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+
+        assertThat(repository.updateEnabled(saved.getId(), false)).isEqualTo(1);
+        assertThat(reload(saved.getId()).isEnabled()).isFalse();
+
+        assertThat(repository.updateEnabled(saved.getId(), true)).isEqualTo(1);
+        assertThat(reload(saved.getId()).isEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("an insert still writes the initial enabled value, true by default and false "
+            + "when built disabled")
+    void insert_writesInitialEnabledValue() {
+        LocationEntity defaulted = repository.save(buildLocation("Default", 55.0, -1.0));
+        LocationEntity disabledAtBirth = buildLocation("Born disabled", 55.1, -1.1);
+        disabledAtBirth.setEnabled(false);
+        LocationEntity born = repository.save(disabledAtBirth);
+
+        assertThat(reload(defaulted.getId()).isEnabled()).isTrue();
+        assertThat(reload(born.getId()).isEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a DETACHED entity loaded before an auto-disable and save()d (merged) after it, "
+            + "which is what a job that loads locations outside a transaction does, leaves the "
+            + "row disabled with its reason and count")
+    void detachedEntityMergedAfterAutoDisable_doesNotUndoIt() {
         LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
         entityManager.flush();
         entityManager.clear();
+        LocationEntity detached = repository.findById(saved.getId()).orElseThrow();
+        entityManager.detach(detached);
+        LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
+        String reason = "Auto-disabled after 3 consecutive failed scheduled runs "
+                + "(last 2026-10-02: data could not be collected).";
+        repository.autoDisable(saved.getId(), 3, at, reason);
 
-        LocationEntity loaded = repository.findById(saved.getId()).orElseThrow();
-        loaded.setEnabled(false);
-        repository.saveAndFlush(loaded);
-        assertThat(reload(saved.getId()).isEnabled()).isFalse();
+        detached.setGridLat(55.6);
+        detached.setGridLng(-1.7);
+        repository.saveAndFlush(detached);
 
-        LocationEntity again = repository.findById(saved.getId()).orElseThrow();
-        again.setEnabled(true);
-        repository.saveAndFlush(again);
-        assertThat(reload(saved.getId()).isEnabled()).isTrue();
+        LocationEntity found = reload(saved.getId());
+        assertThat(found.isEnabled()).isFalse();
+        assertThat(found.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(found.getDisabledReason()).isEqualTo(reason);
+        assertThat(found.getLastFailureAt()).isEqualTo(at);
+    }
+
+    @Test
+    @DisplayName("updateGridCell writes only the grid cell: a stale snapshot's other columns "
+            + "(here the name an admin has since edited) are not rewritten")
+    void updateGridCell_doesNotRewriteOtherColumns() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity admin = repository.findById(saved.getId()).orElseThrow();
+        admin.setName("Bamburgh Castle (renamed)");
+        repository.saveAndFlush(admin);
+
+        int rows = repository.updateGridCell(saved.getId(), 55.6, -1.7);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isEqualTo(1);
+        assertThat(found.getGridLat()).isEqualTo(55.6);
+        assertThat(found.getGridLng()).isEqualTo(-1.7);
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle (renamed)");
+    }
+
+    @Test
+    @DisplayName("updateSkyBrightness writes only the SQM and Bortle class")
+    void updateSkyBrightness_doesNotRewriteOtherColumns() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity admin = repository.findById(saved.getId()).orElseThrow();
+        admin.setName("Bamburgh Castle (renamed)");
+        repository.saveAndFlush(admin);
+
+        int rows = repository.updateSkyBrightness(saved.getId(), 21.75, 3);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isEqualTo(1);
+        assertThat(found.getSkyBrightnessSqm()).isEqualTo(21.75);
+        assertThat(found.getBortleClass()).isEqualTo(3);
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle (renamed)");
     }
 
     @Test

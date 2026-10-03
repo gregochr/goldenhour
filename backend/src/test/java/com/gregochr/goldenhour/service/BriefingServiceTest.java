@@ -62,6 +62,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -1127,7 +1128,10 @@ class BriefingServiceTest {
 
             assertThat(loc.getGridLat()).isEqualTo(55.1);
             assertThat(loc.getGridLng()).isEqualTo(-1.5);
-            org.mockito.Mockito.verify(locationRepository).saveAll(any());
+            // Scoped to the grid cell: a detached snapshot must not rewrite any other column.
+            org.mockito.Mockito.verify(locationRepository).updateGridCell(1L, 55.1, -1.5);
+            org.mockito.Mockito.verify(locationRepository, org.mockito.Mockito.never())
+                    .saveAll(any());
         }
 
         @Test
@@ -1277,12 +1281,14 @@ class BriefingServiceTest {
 
             assertThat(loc.getGridLat()).isNull();
             assertThat(loc.getGridLng()).isNull();
-            org.mockito.Mockito.verify(locationRepository, org.mockito.Mockito.never()).saveAll(any());
+            org.mockito.Mockito.verify(locationRepository, org.mockito.Mockito.never())
+                    .updateGridCell(any(), anyDouble(), anyDouble());
         }
 
         @Test
-        @DisplayName("saveAll failure during grid capture is logged but does not break briefing")
-        void fetchWeather_saveAllFailure_briefingStillCompletes() {
+        @DisplayName("a grid-cell write failure during grid capture is logged but does not break "
+                + "briefing")
+        void fetchWeather_gridWriteFailure_briefingStillCompletes() {
             LocationEntity loc = LocationEntity.builder()
                     .id(1L).name("Loc").lat(55.0).lon(-1.5)
                     .locationType(Set.of(LocationType.LANDSCAPE))
@@ -1296,7 +1302,7 @@ class BriefingServiceTest {
 
             when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
                     .thenReturn(List.of(buildForecastResponseWithGrid(55.0, -1.5)));
-            when(locationRepository.saveAll(any()))
+            when(locationRepository.updateGridCell(1L, 55.0, -1.5))
                     .thenThrow(new RuntimeException("DB write failed"));
 
             briefingService.refreshBriefing();

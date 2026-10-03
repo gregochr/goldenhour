@@ -163,7 +163,12 @@ public class BriefingWeatherLoader {
         }
         if (!toSave.isEmpty()) {
             try {
-                locationRepository.saveAll(toSave);
+                // Scoped per location: these entities are detached snapshots from a long-running
+                // briefing build and must not rewrite any column but the grid cell.
+                for (LocationEntity loc : toSave) {
+                    locationRepository.updateGridCell(
+                            loc.getId(), forecast.getLatitude(), forecast.getLongitude());
+                }
                 LOG.debug("Captured grid cell {},{} for {} location(s)",
                         forecast.getLatitude(), forecast.getLongitude(), toSave.size());
             } catch (Exception e) {

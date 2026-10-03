@@ -31,16 +31,20 @@ import java.util.Set;
  * <p>Locations are managed exclusively via the REST API and persist in the database.
  * Disabled locations are excluded from forecast runs and the map view.
  *
- * <p>⚠️ <b>{@code consecutive_failures}, {@code last_failure_at} and {@code disabled_reason} are
- * {@code updatable = false}, and are written only by column-scoped updates on
- * {@code LocationRepository}</b> ({@code recordFailure}, {@code autoDisable},
- * {@code resetFailureCounts}, {@code clearFailureState}), exactly as {@code AppUserEntity}'s
- * settings columns are. A {@code setX()} then {@code save()} on an existing row writes NONE of them
- * (an insert still does). Without this, an admin's metadata edit, loaded before a scheduled cycle's
- * settle and saved after it, rewrote the stale values and silently undid a committed auto-disable or
- * restored a reset counter. The entity is also {@code @DynamicUpdate}, so a save writes only the
- * columns that changed and an unrelated edit no longer rewrites an unchanged {@code enabled}. The
- * admin enable/disable toggle does write {@code enabled} and is deliberately last-writer-wins.
+ * <p>⚠️ <b>{@code enabled}, {@code consecutive_failures}, {@code last_failure_at} and
+ * {@code disabled_reason} are {@code updatable = false}, and are written only by column-scoped
+ * updates on {@code LocationRepository}</b> ({@code updateEnabled}, {@code recordFailure},
+ * {@code autoDisable}, {@code resetFailureCounts}, {@code clearFailureState}), exactly as
+ * {@code AppUserEntity}'s settings columns are. A {@code setX()} then {@code save()} on an existing
+ * row writes NONE of them (an insert still does, so a new location starts with the value it was
+ * built with). Without this, an entity loaded before a scheduled cycle's settle and saved after it
+ * (an admin's metadata edit, or a job that loads locations outside a transaction, waits on a remote
+ * call and merges its detached snapshot back) rewrote the stale values and silently undid a committed
+ * auto-disable or restored a reset counter. Writers of other columns that run detached likewise use
+ * scoped updates ({@code updateGridCell}, {@code updateSkyBrightness}) so a stale snapshot cannot
+ * rewrite what an admin has edited meanwhile. The entity is also {@code @DynamicUpdate}, so a save
+ * writes only the columns that changed. The admin enable/disable toggle is a deliberate
+ * last-writer-wins on {@code enabled}.
  */
 @Entity
 @DynamicUpdate
@@ -118,8 +122,8 @@ public class LocationEntity {
     @JoinColumn(name = "region_id")
     private RegionEntity region;
 
-    /** Whether this location is enabled for forecast runs. */
-    @Column(nullable = false)
+    /** Whether this location is enabled for forecast runs. Not updatable through the entity. */
+    @Column(nullable = false, updatable = false)
     @Builder.Default
     private boolean enabled = true;
 

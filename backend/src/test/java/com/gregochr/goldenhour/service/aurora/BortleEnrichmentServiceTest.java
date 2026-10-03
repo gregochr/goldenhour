@@ -83,7 +83,9 @@ class BortleEnrichmentServiceTest {
         assertThat(result.failed()).isEmpty();
         assertThat(loc.getBortleClass()).isEqualTo(3);
         assertThat(loc.getSkyBrightnessSqm()).isEqualTo(21.75);
-        verify(locationRepository, times(1)).save(loc);
+        // Scoped: only the two measured columns, never the whole (possibly stale) entity.
+        verify(locationRepository, times(1)).updateSkyBrightness(1L, 21.75, 3);
+        verify(locationRepository, never()).save(loc);
     }
 
     @Test
@@ -99,6 +101,7 @@ class BortleEnrichmentServiceTest {
         assertThat(result.enriched()).isZero();
         assertThat(result.failed()).containsExactly("Urban Site");
         verify(locationRepository, never()).save(loc);
+        verify(locationRepository, never()).updateSkyBrightness(eq(1L), anyDouble(), any());
     }
 
     @Test
