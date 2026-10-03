@@ -52,6 +52,10 @@ class LocationFailureTrackingTest {
     private LocationFailureService locationFailureService;
 
     @Autowired
+    private com.gregochr.goldenhour.service.batch.CycleDispositionJobRuns
+            cycleDispositionJobRuns;
+
+    @Autowired
     private LocationRepository locationRepository;
 
     @Autowired
@@ -206,19 +210,12 @@ class LocationFailureTrackingTest {
     }
 
     @Test
-    @DisplayName("the 2026-09-29 shape: dispositions on a job run that has no forecast_batch row "
-            + "(every submission failed) are never found, so nobody is counted")
-    void dispositionsWithoutAForecastBatchRow_countNobody() {
+    @DisplayName("dispositions on a job run with no forecast_batch row and no remembered link "
+            + "(what a restart leaves) are never found, so nobody is counted")
+    void dispositionsWithoutAForecastBatchRowOrLink_countNobody() {
         setCounter(angel, 2);
         long runId = NEXT_RUN_ID.incrementAndGet();
-        for (LocationEntity location : java.util.List.of(angel, keswick)) {
-            jdbcTemplate.update(
-                    "INSERT INTO forecast_run_disposition (job_run_id, location_id, location_name, "
-                            + "evaluation_date, event_type, disposition, created_at) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    runId, location.getId(), location.getName(), Date.valueOf(DATE), "SUNSET",
-                    "SKIPPED_ERROR", Timestamp.from(Instant.parse("2026-10-02T01:00:00Z")));
-        }
+        seedDispositionsOnJobRun(runId, "SKIPPED_ERROR");
         PipelineRunEntity run = new PipelineRunEntity(
                 CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z"));
         run.setId(runId);
@@ -228,5 +225,52 @@ class LocationFailureTrackingTest {
         assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
         assertThat(reload(angel).isEnabled()).isTrue();
         assertThat(reload(keswick).getConsecutiveFailures()).isZero();
+    }
+
+    @Test
+    @DisplayName("a batchless cycle that triaged every candidate away, whose anchor run is "
+            + "remembered against the pipeline run, resets a place at 2 to 0")
+    void batchlessCycleTriagedEverything_resetsCounters() {
+        setCounter(angel, 2);
+        long runId = NEXT_RUN_ID.incrementAndGet();
+        seedDispositionsOnJobRun(runId, "SKIPPED_TRIAGED");
+        cycleDispositionJobRuns.remember(runId, runId);
+
+        locationFailureService.settleCycle(newRun(runId));
+
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
+    }
+
+    @Test
+    @DisplayName("a batchless cycle whose anchor run holds only SUBMISSION_FAILED rows (the "
+            + "2026-09-29 shape) leaves the counter at 2: nobody is counted")
+    void batchlessCycleSubmissionFailed_countsNobody() {
+        setCounter(angel, 2);
+        long runId = NEXT_RUN_ID.incrementAndGet();
+        seedDispositionsOnJobRun(runId, "SUBMISSION_FAILED");
+        cycleDispositionJobRuns.remember(runId, runId);
+
+        locationFailureService.settleCycle(newRun(runId));
+
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
+        assertThat(reload(angel).isEnabled()).isTrue();
+    }
+
+    private void seedDispositionsOnJobRun(long jobRunId, String disposition) {
+        for (LocationEntity location : java.util.List.of(angel, keswick)) {
+            jdbcTemplate.update(
+                    "INSERT INTO forecast_run_disposition (job_run_id, location_id, location_name, "
+                            + "evaluation_date, event_type, disposition, created_at) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    jobRunId, location.getId(), location.getName(), Date.valueOf(DATE), "SUNSET",
+                    disposition, Timestamp.from(Instant.parse("2026-10-02T01:00:00Z")));
+        }
+    }
+
+    private static PipelineRunEntity newRun(long runId) {
+        PipelineRunEntity run = new PipelineRunEntity(
+                CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z"));
+        run.setId(runId);
+        return run;
     }
 }

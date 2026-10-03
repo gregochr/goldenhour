@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.service.batch.CycleDispositionJobRuns;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,9 +51,18 @@ class CycleLocationOutcomeResolverTest {
     @Mock
     private ApiCallLogRepository apiCallLogRepository;
 
+    private static final long ANCHOR_JOB_RUN_ID = 8001L;
+
+    /** The in-memory link from a cycle to the job run holding its dispositions. */
+    private final CycleDispositionJobRuns anchors = new CycleDispositionJobRuns();
+
     private CycleLocationOutcomeResolver resolver() {
+        return resolverWith(anchors);
+    }
+
+    private CycleLocationOutcomeResolver resolverWith(CycleDispositionJobRuns links) {
         return new CycleLocationOutcomeResolver(
-                forecastBatchRepository, dispositionRepository, apiCallLogRepository);
+                forecastBatchRepository, dispositionRepository, apiCallLogRepository, links);
     }
 
     private static ForecastBatchEntity batch(String anthropicId, BatchType type, Long jobRunId) {
@@ -318,11 +328,92 @@ class CycleLocationOutcomeResolverTest {
         assertThat(resolver().resolve(RUN_ID).get(30L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
     }
 
+    // ---- the batchless cycle: dispositions on an anchor job run, no forecast_batch row ----
+
+    private void batchlessCycleWithAnchor(List<CycleDisposition> dispositions) {
+        when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+        anchors.remember(RUN_ID, ANCHOR_JOB_RUN_ID);
+        when(dispositionRepository.findCycleDispositions(List.of(ANCHOR_JOB_RUN_ID)))
+                .thenReturn(dispositions);
+    }
+
     @Test
-    @DisplayName("the 2026-09-29 shape (every submission failed: 589 dispositions sit on a "
-            + "disposition-only anchor job run that has no forecast_batch row) resolves to nothing "
-            + "and counts nobody")
-    void noForecastBatchRow_resolvesToNothing() {
+    @DisplayName("a batchless cycle that triaged every candidate away (nothing to submit) still "
+            + "resolves: its triaged places got through, found through the remembered anchor run")
+    void batchlessCycle_everyCandidateTriaged_gotThrough() {
+        batchlessCycleWithAnchor(List.of(
+                disposition(1L, "SKIPPED_TRIAGED"), disposition(2L, "SKIPPED_TRIAGED"),
+                disposition(3L, "SKIPPED_TRIAGED")));
+
+        Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
+
+        assertThat(evidence).containsOnlyKeys(1L, 2L, 3L);
+        assertThat(evidence.values()).containsOnly(CyclePlaceEvidence.triagedOnly());
+        verifyNoInteractions(apiCallLogRepository);
+    }
+
+    @Test
+    @DisplayName("the 2026-09-29 shape (every submission failed: the anchor run holds only "
+            + "SUBMISSION_FAILED rows) still counts nobody: those places are no evidence either way")
+    void anchorWithOnlySubmissionFailures_countsNobody() {
+        batchlessCycleWithAnchor(List.of(
+                disposition(1L, "SUBMISSION_FAILED"), disposition(2L, "SUBMISSION_FAILED")));
+
+        Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
+
+        assertThat(evidence.values()).containsOnly(CyclePlaceEvidence.nothing());
+        assertThat(evidence.values()).noneMatch(CyclePlaceEvidence::attempted);
+    }
+
+    @Test
+    @DisplayName("a mixed anchor (some triaged, some submission-failed): the triaged places got "
+            + "through, the submission-failed ones are ignored")
+    void mixedAnchor_triagedGotThrough_submissionFailedIgnored() {
+        batchlessCycleWithAnchor(List.of(
+                disposition(1L, "SKIPPED_TRIAGED"), disposition(2L, "SUBMISSION_FAILED")));
+
+        Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
+
+        assertThat(evidence.get(1L)).isEqualTo(CyclePlaceEvidence.triagedOnly());
+        assertThat(evidence.get(2L)).isEqualTo(CyclePlaceEvidence.nothing());
+    }
+
+    @Test
+    @DisplayName("an anchor remembered for a DIFFERENT cycle is never read")
+    void anchorOfAnotherCycle_neverRead() {
+        when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+        anchors.remember(RUN_ID + 1, ANCHOR_JOB_RUN_ID);
+
+        assertThat(resolver().resolve(RUN_ID)).isEmpty();
+        verifyNoInteractions(dispositionRepository);
+        verifyNoInteractions(apiCallLogRepository);
+    }
+
+    @Test
+    @DisplayName("the remembered job run is searched once even when it is also a batch's job run")
+    void anchorEqualToBatchJobRun_notSearchedTwice() {
+        anchors.remember(RUN_ID, JOB_RUN_ID);
+        firstBatchWith(List.of(disposition(1L, "SKIPPED_TRIAGED")), List.of());
+
+        assertThat(resolver().resolve(RUN_ID).get(1L)).isEqualTo(CyclePlaceEvidence.triagedOnly());
+    }
+
+    @Test
+    @DisplayName("a restart loses the link (a new in-memory registry): the batchless cycle then "
+            + "resolves to nothing and counts nobody, the safe direction")
+    void restartLosesTheLink_countsNobody() {
+        when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+        anchors.remember(RUN_ID, ANCHOR_JOB_RUN_ID);
+        CycleDispositionJobRuns afterRestart = new CycleDispositionJobRuns();
+
+        assertThat(resolverWith(afterRestart).resolve(RUN_ID)).isEmpty();
+        verifyNoInteractions(dispositionRepository);
+    }
+
+    @Test
+    @DisplayName("with no batch and no remembered anchor a cycle resolves to nothing and queries "
+            + "neither disposition nor result tables")
+    void noForecastBatchRowAndNoLink_resolvesToNothing() {
         when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
 
         assertThat(resolver().resolve(RUN_ID)).isEmpty();

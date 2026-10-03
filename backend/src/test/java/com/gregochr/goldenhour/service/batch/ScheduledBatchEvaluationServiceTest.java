@@ -118,6 +118,7 @@ class ScheduledBatchEvaluationServiceTest {
     private static final Clock CLOCK = Clock.fixed(
             java.time.Instant.parse("2026-04-14T12:00:00Z"), java.time.ZoneOffset.UTC);
 
+    private final CycleDispositionJobRuns cycleDispositionJobRuns = new CycleDispositionJobRuns();
     private ScheduledBatchEvaluationService service;
     private ListAppender<ILoggingEvent> logAppender;
     private Logger serviceLogger;
@@ -132,7 +133,7 @@ class ScheduledBatchEvaluationServiceTest {
                 weatherTriageService, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
                 evaluationService, forecastTaskCollector, dispositionService,
-                jobRunService, CLOCK);
+                jobRunService, cycleDispositionJobRuns, CLOCK);
 
         serviceLogger = (Logger) LoggerFactory.getLogger(ScheduledBatchEvaluationService.class);
         logAppender = new ListAppender<>();
@@ -330,6 +331,53 @@ class ScheduledBatchEvaluationServiceTest {
         // ...but the anchor run was created and dispositions persisted against it.
         verify(jobRunService).startDispositionAnchorRun(2);
         verify(dispositionService).persist(eq(555L), eq(List.of(cached1, cached2)));
+    }
+
+    @Test
+    @DisplayName("a pipeline cycle that submits no batch records its anchor job run against the "
+            + "pipeline run, so the location auto-disable settle can find its dispositions")
+    void pipelineCycle_noBatch_recordsAnchorRunAgainstPipelineRun() {
+        CandidateDisposition triaged = new CandidateDisposition(
+                7L, "Triaged A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_TRIAGED, "heavy cloud");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
+                        List.of(triaged)));
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(555L);
+
+        service.submitForecastBatchForPipelineRun(
+                99L, NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE,
+                false, summary -> { });
+
+        verify(dispositionService).persist(eq(555L), eq(List.of(triaged)));
+        assertThat(cycleDispositionJobRuns.jobRunFor(99L)).contains(555L);
+    }
+
+    @Test
+    @DisplayName("the legacy cron-direct entry (no pipeline run) records no link: there is no "
+            + "cycle to settle")
+    void legacyEntry_noPipelineRun_recordsNoLink() {
+        CandidateDisposition cached = new CandidateDisposition(
+                null, "Cached A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
+                        List.of(cached)));
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(555L);
+
+        service.submitForecastBatch();
+
+        assertThat(cycleDispositionJobRuns.jobRunFor(99L)).isEmpty();
     }
 
     @Test

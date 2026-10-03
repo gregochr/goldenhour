@@ -40,8 +40,14 @@ roster.
   already settled (an admin's Run now while an older cycle was still waiting) is refused with a
   WARN naming both times, because counting it after the newer cycle's success could restart a streak
   that success had broken; dropping it under-counts, which is the safe direction.
-- **Known gap.** A cycle that submitted no batch at all (its dispositions sit on an anchor job run
-  with no `forecast_batch` row, the 2026-09-29 shape) resolves to nothing and counts nobody. A
-  bluebell or woodland request that failed is never retried, so such a failure stands for the cycle.
+- **A cycle that submitted no batch** (everything cached, skipped or triaged away, or every
+  submission failed) keeps its dispositions on an anchor job run that nothing in the database ties
+  to the pipeline run, so the service remembers that link in memory (`CycleDispositionJobRuns`, the
+  last 200 cycles). A cycle that legitimately triaged candidates away therefore resets those
+  places; a cycle whose submissions all failed (the 2026-09-29 shape) holds only `SUBMISSION_FAILED`
+  rows and still counts nobody. The link is lost on a restart, in which case the cycle counts nobody
+  and resets nobody (it can only under-count).
+- **Known gap.** A bluebell or woodland request that failed is never retried, so such a failure
+  stands for the cycle.
 - The writes are column-scoped updates on `LocationRepository`, so a count cannot overwrite an
   admin's concurrent edit of the same place. No migration.

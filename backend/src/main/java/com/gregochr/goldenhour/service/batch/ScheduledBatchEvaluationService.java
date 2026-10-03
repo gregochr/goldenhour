@@ -68,6 +68,7 @@ public class ScheduledBatchEvaluationService {
     private final ForecastTaskCollector forecastTaskCollector;
     private final ForecastDispositionService dispositionService;
     private final JobRunService jobRunService;
+    private final CycleDispositionJobRuns cycleDispositionJobRuns;
     private final java.time.Clock clock;
 
     /**
@@ -97,6 +98,7 @@ public class ScheduledBatchEvaluationService {
      * @param forecastTaskCollector       Pass 3.2.1 collector — task construction + triage + bucketing
      * @param dispositionService          persists per-candidate disposition rows tied to the cycle's first job_run
      * @param jobRunService               creates the disposition-anchor run for zero-batch cycles
+     * @param cycleDispositionJobRuns     remembers which job run holds each cycle's dispositions
      * @param clock                       supplies "today" for the batch-breakdown log line,
      *                                    resolved in {@code Europe/London} by {@link ForecastHorizon}
      */
@@ -112,6 +114,7 @@ public class ScheduledBatchEvaluationService {
             ForecastTaskCollector forecastTaskCollector,
             ForecastDispositionService dispositionService,
             JobRunService jobRunService,
+            CycleDispositionJobRuns cycleDispositionJobRuns,
             java.time.Clock clock) {
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
@@ -124,6 +127,7 @@ public class ScheduledBatchEvaluationService {
         this.forecastTaskCollector = forecastTaskCollector;
         this.dispositionService = dispositionService;
         this.jobRunService = jobRunService;
+        this.cycleDispositionJobRuns = cycleDispositionJobRuns;
         this.clock = clock;
     }
 
@@ -429,7 +433,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.nearInland(), pipelineRunId, "near-term inland");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "near-term inland", e);
                 throw e;
             }
@@ -445,7 +449,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.nearCoastal(), pipelineRunId, "near-term coastal");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "near-term coastal", e);
                 throw e;
             }
@@ -461,7 +465,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.farInland(), pipelineRunId, "far-term inland");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "far-term inland", e);
                 throw e;
             }
@@ -477,7 +481,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.farCoastal(), pipelineRunId, "far-term coastal");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "far-term coastal", e);
                 throw e;
             }
@@ -495,7 +499,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.bluebell(), pipelineRunId, "bluebell");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "bluebell", e);
                 throw e;
             }
@@ -514,7 +518,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.woodland(), pipelineRunId, "woodland");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "woodland", e);
                 throw e;
             }
@@ -537,7 +541,7 @@ public class ScheduledBatchEvaluationService {
         // (legacy submitForecastBatch + orchestrated submitForecastBatchForPipelineRun
         // + the future intraday cycle, all via this method), so the persist
         // cannot be routed around again.
-        persistCycleDispositions(cycleJobRunId, finalDispositions);
+        persistCycleDispositions(pipelineRunId, cycleJobRunId, finalDispositions);
 
         if (!tasks.isEmpty()) {
             LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
@@ -636,7 +640,8 @@ public class ScheduledBatchEvaluationService {
      *                             allNonEmptyBuckets} marks where "never attempted" begins
      * @param e                    the exception, for its batch id and cause
      */
-    private void persistOnOrphan(Long cycleJobRunId, List<CandidateDisposition> dispositions,
+    private void persistOnOrphan(Long pipelineRunId, Long cycleJobRunId,
+            List<CandidateDisposition> dispositions,
             List<BucketOutcome> bucketOutcomesSoFar, List<LabeledBucket> allNonEmptyBuckets,
             String label, OrphanedBatchException e) {
         int orphanIndex = indexOfLabel(allNonEmptyBuckets, label);
@@ -664,7 +669,7 @@ public class ScheduledBatchEvaluationService {
         }
 
         List<CandidateDisposition> finalDispositions = applySubmissionFailures(dispositions, outcomes);
-        persistCycleDispositions(cycleJobRunId, finalDispositions);
+        persistCycleDispositions(pipelineRunId, cycleJobRunId, finalDispositions);
     }
 
     /**
@@ -897,10 +902,15 @@ public class ScheduledBatchEvaluationService {
      * evaluated?" case an operator needs. The {@code [DISPOSITION] Persisting}
      * log is the operator's per-cycle smoke check that the write happened.
      *
+     * <p>The job run the rows land on is recorded against the pipeline run in
+     * {@link CycleDispositionJobRuns}, so the location auto-disable settle can find a batchless
+     * cycle's anchor run (it has no {@code forecast_batch} row to be found through).
+     *
+     * @param pipelineRunId the orchestrated cycle id, or null for a legacy cron-direct invocation
      * @param cycleJobRunId the first submitted batch's job_run id, or null if none
      * @param dispositions  every candidate's disposition for this cycle
      */
-    private void persistCycleDispositions(Long cycleJobRunId,
+    private void persistCycleDispositions(Long pipelineRunId, Long cycleJobRunId,
             List<CandidateDisposition> dispositions) {
         if (dispositions.isEmpty()) {
             LOG.info("[DISPOSITION] No candidates considered this cycle — nothing to persist");
@@ -915,6 +925,9 @@ public class ScheduledBatchEvaluationService {
         LOG.info("[DISPOSITION] Persisting {} dispositions for cycle jobRunId={} ({})",
                 dispositions.size(), anchorJobRunId, anchorKind);
         dispositionService.persist(anchorJobRunId, dispositions);
+        if (pipelineRunId != null) {
+            cycleDispositionJobRuns.remember(pipelineRunId, anchorJobRunId);
+        }
     }
 
     private static Long firstNonNull(Long current, Long candidate) {

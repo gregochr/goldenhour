@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.service.batch.CycleDispositionJobRuns;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.ParsedCustomId;
 import org.slf4j.Logger;
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -30,14 +32,16 @@ import java.util.Set;
  * {@link CyclePlaceEvidence}: whether it was triaged, whether collection errored for it, and in
  * which result lanes (sky, bluebell, woodland) it got a good or a failed Claude result.
  *
- * <p>Two recorded sources are read, both keyed to the cycle by its {@code forecast_batch} rows
- * (every batch of a pipeline cycle, retry batch included, carries the cycle's
- * {@code pipeline_run_id}):
+ * <p>Two recorded sources are read, both keyed to the cycle. A cycle's batches (retry batch
+ * included) carry its {@code pipeline_run_id} on their {@code forecast_batch} rows; and the job run
+ * its dispositions were persisted on is also remembered by {@link CycleDispositionJobRuns}, which
+ * is what finds a batchless cycle's anchor run (see below):
  *
  * <ul>
  *   <li><b>{@code forecast_run_disposition}</b>, what collection decided per slot, anchored on the
- *       job run of the cycle's first submitted batch, so the job runs of the cycle's batches are
- *       searched. {@code SKIPPED_TRIAGED} means the pipeline judged the weather and answered (the
+ *       job run of the cycle's first submitted batch or, when no batch was submitted, on a
+ *       disposition-only anchor run, so the job runs of the cycle's batches plus the remembered
+ *       anchor are searched. {@code SKIPPED_TRIAGED} means the pipeline judged the weather and answered (the
  *       collector writes it, and so does {@code BatchRetryService} when a retry's fresh weather
  *       stands the slot down); {@code SKIPPED_ERROR} is the collector's catch-all for an exception
  *       in its loop. Every other category is no evidence either way:
@@ -57,14 +61,21 @@ import java.util.Set;
  * scored or were triaged in other lanes. A stability skip is not a success: the weather was
  * fetched, but the place was not judged.
  *
- * <p><b>Known gaps.</b>
- * (1) A cycle that submitted no batch at all (the 2026-09-29 shape: every submission failed, or
- * everything was cached, skipped or triaged) writes its dispositions to a disposition-only anchor job
- * run that has no {@code forecast_batch} row, so it carries no link to the pipeline run and the
- * cycle resolves to nothing and counts nobody. That is the safe direction: nothing was sent to
- * Claude for anyone, so there is no failure to count. (2) A bluebell or woodland request that
- * failed is never retried ({@code BatchRetryService.selectFailures} keeps only sky ids), so such a
- * failure stands for the cycle.
+ * <p><b>The batchless cycle.</b> A cycle that submits no batch (everything cached, skipped or
+ * triaged away, or every submission failed, the 2026-09-29 shape) has no {@code forecast_batch}
+ * row, and its dispositions sit on an anchor job run that nothing in the database links to the
+ * pipeline run (no {@code job_run} column holds a pipeline run id; the link is not parsed out of
+ * the free-text {@code notes}). {@link CycleDispositionJobRuns} holds the link in memory instead,
+ * so such a cycle still resolves: a cycle that legitimately triaged candidates away shows them as
+ * triaged, and its places get through and are reset, while a cycle whose submissions all failed
+ * shows only {@code SUBMISSION_FAILED} rows, which are no evidence either way, so it still counts
+ * nobody. The link is bounded and <b>lost on a restart</b>; a cycle whose link is lost resolves from
+ * its batches alone (nothing, for a batchless cycle), which counts nobody and resets nobody, the
+ * safe direction (it can only under-count a streak).
+ *
+ * <p><b>Known gap.</b> A bluebell or woodland request that failed is never retried
+ * ({@code BatchRetryService.selectFailures} keeps only sky ids), so such a failure stands for the
+ * cycle.
  */
 @Service
 public class CycleLocationOutcomeResolver {
@@ -74,6 +85,7 @@ public class CycleLocationOutcomeResolver {
     private final ForecastBatchRepository forecastBatchRepository;
     private final ForecastRunDispositionRepository dispositionRepository;
     private final ApiCallLogRepository apiCallLogRepository;
+    private final CycleDispositionJobRuns cycleDispositionJobRuns;
 
     /**
      * Constructs the resolver.
@@ -81,13 +93,16 @@ public class CycleLocationOutcomeResolver {
      * @param forecastBatchRepository batches tagged with a pipeline cycle
      * @param dispositionRepository   collection-time per-slot dispositions
      * @param apiCallLogRepository    per-request batch results
+     * @param cycleDispositionJobRuns the job run each cycle's dispositions were persisted on
      */
     public CycleLocationOutcomeResolver(ForecastBatchRepository forecastBatchRepository,
             ForecastRunDispositionRepository dispositionRepository,
-            ApiCallLogRepository apiCallLogRepository) {
+            ApiCallLogRepository apiCallLogRepository,
+            CycleDispositionJobRuns cycleDispositionJobRuns) {
         this.forecastBatchRepository = forecastBatchRepository;
         this.dispositionRepository = dispositionRepository;
         this.apiCallLogRepository = apiCallLogRepository;
+        this.cycleDispositionJobRuns = cycleDispositionJobRuns;
     }
 
     /**
@@ -100,11 +115,14 @@ public class CycleLocationOutcomeResolver {
     @Transactional(readOnly = true)
     public Map<Long, CyclePlaceEvidence> resolve(Long pipelineRunId) {
         List<ForecastBatchEntity> batches = forecastBatchRepository.findByPipelineRunId(pipelineRunId);
-        List<Long> jobRunIds = batches.stream()
+        List<Long> jobRunIds = new ArrayList<>(batches.stream()
                 .map(ForecastBatchEntity::getJobRunId)
                 .filter(Objects::nonNull)
                 .distinct()
-                .toList();
+                .toList());
+        cycleDispositionJobRuns.jobRunFor(pipelineRunId)
+                .filter(anchor -> !jobRunIds.contains(anchor))
+                .ifPresent(jobRunIds::add);
         List<String> batchIds = batches.stream()
                 .filter(b -> b.getBatchType() == BatchType.FORECAST)
                 .map(ForecastBatchEntity::getAnthropicBatchId)
