@@ -185,8 +185,8 @@ public class PipelineOrchestrator {
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED;
      *                                        tests may pass {@code null} to skip alerting
-     * @param locationFailureService          settles each cycle's per-place failure counting;
-     *                                        tests may pass {@code null} to skip it
+     * @param locationFailureService          settles each cycle's per-place failure counting
+     *                                        (required; there is no null guard for it)
      */
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
@@ -557,16 +557,14 @@ public class PipelineOrchestrator {
      * gone from the briefing built next. A result for this cycle arriving after this point cannot
      * count: the settle has run and the service ignores a cycle it has already settled.
      *
-     * <p>Best-effort: counting is housekeeping, never a reason to fail the briefing. A hand-started
-     * run never reaches this method: only {@link #waitAndBriefPhase} calls it, and that runs only
-     * for a pipeline cycle.
+     * <p>Best-effort: counting is housekeeping, never a reason to fail the briefing. The forecast
+     * buttons and map Run Forecast (hand-started runs) never reach this method: only
+     * {@link #waitAndBriefPhase} calls it, and that runs only for a pipeline cycle. The scheduler's
+     * Run now on the nightly or intraday job does run a pipeline cycle, so it settles like any other.
      *
      * @param run the pipeline run whose batches have just completed
      */
     private void settleLocationFailures(PipelineRunEntity run) {
-        if (locationFailureService == null) {
-            return;
-        }
         try {
             locationFailureService.settleCycle(run);
         } catch (RuntimeException e) {

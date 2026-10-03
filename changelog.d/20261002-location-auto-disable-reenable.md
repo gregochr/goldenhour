@@ -6,6 +6,10 @@ auto-disable would have stayed off after the admin pressed it. `LocationService.
 also sets `enabled = true` when the place carries a disabled reason (only the auto-disable writes
 one), and leaves a place an admin disabled by hand (no reason) disabled, clearing only its counters.
 
+A Re-enable that the server refuses used to fail silently (the error went only to the console). The
+row now shows the server's sentence in an alert line, the button is disabled while the request is in
+flight, and it is enabled again after a failure so the admin can retry.
+
 On the Locations screen, the alert list now includes any place with a disabled reason even when its
 counter is 0, printing the reason and the time of the last failure, and an auto-disabled place's row
 carries an "auto-disabled" badge with the reason in its tooltip.

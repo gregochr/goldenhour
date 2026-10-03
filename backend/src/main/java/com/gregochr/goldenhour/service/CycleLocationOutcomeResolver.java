@@ -5,8 +5,8 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.model.BatchCallOutcome;
 import com.gregochr.goldenhour.model.CycleDisposition;
-import com.gregochr.goldenhour.model.CyclePlaceOutcome;
-import com.gregochr.goldenhour.model.CyclePlaceOutcome.FailureKind;
+import com.gregochr.goldenhour.model.CyclePlaceEvidence;
+import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
@@ -17,47 +17,54 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Reduces what one scheduled pipeline cycle recorded about each place to a
- * {@link CyclePlaceOutcome}: got through, failed, or not attempted.
+ * {@link CyclePlaceEvidence}: whether it was triaged, whether collection errored for it, and in
+ * which result lanes (sky, bluebell, woodland) it got a good or a failed Claude result.
  *
  * <p>Two recorded sources are read, both keyed to the cycle by its {@code forecast_batch} rows
  * (every batch of a pipeline cycle, retry batch included, carries the cycle's
  * {@code pipeline_run_id}):
  *
  * <ul>
- *   <li><b>{@code forecast_run_disposition}</b> — what collection decided per slot, anchored on the
+ *   <li><b>{@code forecast_run_disposition}</b>, what collection decided per slot, anchored on the
  *       job run of the cycle's first submitted batch, so the job runs of the cycle's batches are
- *       searched. {@code SKIPPED_TRIAGED} is a success (the pipeline judged the weather and
- *       answered); {@code SKIPPED_ERROR} is a failure (assembly of the place's data threw). Every
- *       other category is no evidence either way: {@code EVALUATED}/{@code FORCE_EVALUATED} only say
- *       a request was queued, and {@code SUBMISSION_FAILED}, {@code SKIPPED_CACHED},
- *       {@code SKIPPED_PAST_DATE}, {@code SKIPPED_TRAVEL_DAY}, {@code SKIPPED_HARD_CONSTRAINT},
- *       {@code SKIPPED_STABILITY}, {@code SKIPPED_NO_PROMPT}, {@code SKIPPED_UNKNOWN_LOCATION} and
+ *       searched. {@code SKIPPED_TRIAGED} means the pipeline judged the weather and answered (the
+ *       collector writes it, and so does {@code BatchRetryService} when a retry's fresh weather
+ *       stands the slot down); {@code SKIPPED_ERROR} is the collector's catch-all for an exception
+ *       in its loop. Every other category is no evidence either way:
+ *       {@code EVALUATED}/{@code FORCE_EVALUATED} only say a request was queued, and
+ *       {@code SUBMISSION_FAILED}, {@code SKIPPED_CACHED}, {@code SKIPPED_PAST_DATE},
+ *       {@code SKIPPED_TRAVEL_DAY}, {@code SKIPPED_HARD_CONSTRAINT}, {@code SKIPPED_STABILITY},
+ *       {@code SKIPPED_NO_PROMPT}, {@code SKIPPED_UNKNOWN_LOCATION} and
  *       {@code SKIPPED_NO_REFRESH_NEEDED} mean nothing was sent for the slot.</li>
- *   <li><b>{@code api_call_log}</b> — one row per individual batch result, with the request's
- *       {@code custom_id} (which names the place) and whether it {@code succeeded}. A success is a
- *       success whichever lane (sky, bluebell, woodland) or batch (first attempt or retry) produced
- *       it; a failed row is a failure.</li>
+ *   <li><b>{@code api_call_log}</b>, one row per individual batch result, with the request's
+ *       {@code custom_id} (which names the place and, by its prefix, the lane) and whether it
+ *       {@code succeeded}.</li>
  * </ul>
  *
- * <p>A place's outcome folds every slot and lane together: <b>any success makes it
- * {@code GOT_THROUGH}</b> (a retry that recovered a request, or a place with one failed slot and one
- * scored slot, did get through), otherwise any failure makes it {@code FAILED}, otherwise it is
- * {@code NOT_ATTEMPTED}. A stability skip is deliberately not a success: the weather was fetched,
- * but the place was not judged, and counting it would let a place whose Claude requests fail every
- * night be reset by its stability-skipped far slots.
+ * <p>The result is deliberately raw, per lane: {@code LocationFailureService} compares a failure
+ * only with like evidence (the same lane for a Claude failure), because a fault confined to one
+ * lane, a woodland parser regression for instance, must not be diluted by the many places that
+ * scored or were triaged in other lanes. A stability skip is not a success: the weather was
+ * fetched, but the place was not judged.
  *
- * <p><b>Known gap.</b> A cycle that submitted no batch at all (everything cached, skipped or
- * triaged) writes its dispositions to a disposition-only anchor job run that carries no link to the
- * pipeline run, so such a cycle resolves to nothing and counts nobody. That is the safe direction:
- * nothing was sent to Claude for anyone, so there is no failure to count.
+ * <p><b>Known gaps.</b>
+ * (1) A cycle that submitted no batch at all (the 2026-09-29 shape: every submission failed, or
+ * everything was cached, skipped or triaged) writes its dispositions to a disposition-only anchor job
+ * run that has no {@code forecast_batch} row, so it carries no link to the pipeline run and the
+ * cycle resolves to nothing and counts nobody. That is the safe direction: nothing was sent to
+ * Claude for anyone, so there is no failure to count. (2) A bluebell or woodland request that
+ * failed is never retried ({@code BatchRetryService.selectFailures} keeps only sky ids), so such a
+ * failure stands for the cycle.
  */
 @Service
 public class CycleLocationOutcomeResolver {
@@ -87,11 +94,11 @@ public class CycleLocationOutcomeResolver {
      * Resolves every place the cycle recorded anything about.
      *
      * @param pipelineRunId the orchestrated cycle id
-     * @return outcome per location id; empty when nothing is tagged with the cycle (which is what a
+     * @return evidence per location id; empty when nothing is tagged with the cycle (which is what a
      *         hand-started run, never tagged with a pipeline run, resolves to)
      */
     @Transactional(readOnly = true)
-    public Map<Long, CyclePlaceOutcome> resolve(Long pipelineRunId) {
+    public Map<Long, CyclePlaceEvidence> resolve(Long pipelineRunId) {
         List<ForecastBatchEntity> batches = forecastBatchRepository.findByPipelineRunId(pipelineRunId);
         List<Long> jobRunIds = batches.stream()
                 .map(ForecastBatchEntity::getJobRunId)
@@ -116,9 +123,9 @@ public class CycleLocationOutcomeResolver {
             }
         }
 
-        Map<Long, CyclePlaceOutcome> outcomes = new HashMap<>();
-        tallies.forEach((locationId, tally) -> outcomes.put(locationId, tally.outcome()));
-        return outcomes;
+        Map<Long, CyclePlaceEvidence> evidence = new HashMap<>();
+        tallies.forEach((locationId, tally) -> evidence.put(locationId, tally.evidence()));
+        return evidence;
     }
 
     private static void foldDisposition(Map<Long, Tally> tallies, CycleDisposition row) {
@@ -126,62 +133,66 @@ public class CycleLocationOutcomeResolver {
         DispositionCategory category = DispositionCategory.fromString(row.disposition())
                 .orElse(null);
         if (category == DispositionCategory.SKIPPED_TRIAGED) {
-            tally.success = true;
+            tally.triaged = true;
         } else if (category == DispositionCategory.SKIPPED_ERROR) {
-            tally.weatherFailure = true;
+            tally.collectionFailed = true;
         }
     }
 
     private static void foldBatchResult(Map<Long, Tally> tallies, BatchCallOutcome row,
             Long pipelineRunId) {
-        Long locationId = locationIdOf(row.customId(), pipelineRunId);
-        if (locationId == null) {
+        ParsedCustomId parsed;
+        try {
+            parsed = CustomIdFactory.parse(row.customId());
+        } catch (IllegalArgumentException e) {
+            LOG.debug("Cycle {}: result with unparseable custom_id '{}' cannot be attributed to a "
+                    + "place, ignored", pipelineRunId, row.customId());
             return;
+        }
+        Long locationId;
+        Lane lane;
+        switch (parsed) {
+            case ParsedCustomId.Forecast f -> {
+                locationId = f.locationId();
+                lane = Lane.SKY;
+            }
+            case ParsedCustomId.Jfdi j -> {
+                locationId = j.locationId();
+                lane = Lane.SKY;
+            }
+            case ParsedCustomId.ForceSubmit fs -> {
+                locationId = fs.locationId();
+                lane = Lane.SKY;
+            }
+            case ParsedCustomId.Bluebell b -> {
+                locationId = b.locationId();
+                lane = Lane.BLUEBELL;
+            }
+            case ParsedCustomId.Woodland w -> {
+                locationId = w.locationId();
+                lane = Lane.WOODLAND;
+            }
+            case ParsedCustomId.Aurora a -> {
+                return;
+            }
         }
         Tally tally = tallies.computeIfAbsent(locationId, id -> new Tally());
         if (Boolean.TRUE.equals(row.succeeded())) {
-            tally.success = true;
+            tally.succeeded.add(lane);
         } else {
-            tally.evaluationFailure = true;
+            tally.failed.add(lane);
         }
     }
 
-    private static Long locationIdOf(String customId, Long pipelineRunId) {
-        ParsedCustomId parsed;
-        try {
-            parsed = CustomIdFactory.parse(customId);
-        } catch (IllegalArgumentException e) {
-            LOG.debug("Cycle {}: result with unparseable custom_id '{}' cannot be attributed to a "
-                    + "place — ignored", pipelineRunId, customId);
-            return null;
-        }
-        return switch (parsed) {
-            case ParsedCustomId.Forecast f -> f.locationId();
-            case ParsedCustomId.Bluebell b -> b.locationId();
-            case ParsedCustomId.Woodland w -> w.locationId();
-            case ParsedCustomId.Jfdi j -> j.locationId();
-            case ParsedCustomId.ForceSubmit fs -> fs.locationId();
-            case ParsedCustomId.Aurora a -> null;
-        };
-    }
-
-    /** Mutable per-place accumulator, folded into a {@link CyclePlaceOutcome} at the end. */
+    /** Mutable per-place accumulator, folded into a {@link CyclePlaceEvidence} at the end. */
     private static final class Tally {
-        private boolean success;
-        private boolean weatherFailure;
-        private boolean evaluationFailure;
+        private boolean triaged;
+        private boolean collectionFailed;
+        private final Set<Lane> succeeded = EnumSet.noneOf(Lane.class);
+        private final Set<Lane> failed = EnumSet.noneOf(Lane.class);
 
-        CyclePlaceOutcome outcome() {
-            if (success) {
-                return CyclePlaceOutcome.gotThrough();
-            }
-            if (weatherFailure) {
-                return CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA);
-            }
-            if (evaluationFailure) {
-                return CyclePlaceOutcome.failed(FailureKind.EVALUATION);
-            }
-            return CyclePlaceOutcome.notAttempted();
+        CyclePlaceEvidence evidence() {
+            return new CyclePlaceEvidence(triaged, collectionFailed, succeeded, failed);
         }
     }
 }

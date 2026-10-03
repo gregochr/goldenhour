@@ -5,7 +5,7 @@ package com.gregochr.goldenhour.model;
  * row that {@code CycleLocationOutcomeResolver} reads, so the row's large text columns are never
  * loaded.
  *
- * @param customId  the request's custom id ({@code fc-{locationId}-…}, {@code bb-…}, {@code wl-…})
+ * @param customId  the request's custom id ({@code fc-{locationId}-…}, {@code bb-…}, {@code wd-…})
  * @param succeeded whether the request produced a usable result
  * @param errorType the failure's short type code, or {@code null} for a success
  */

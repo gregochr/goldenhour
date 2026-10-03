@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import LocationManagementView from '../components/LocationManagementView.jsx';
 
 vi.mock('../api/forecastApi', () => ({
@@ -1084,13 +1084,11 @@ describe('LocationManagementView — a place the pipeline auto-disabled', () => 
     resetLocationFailures.mockResolvedValue(undefined);
     render(<LocationManagementView onLocationsChanged={() => {}} />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('location-alert-Bamburgh Castle')).toHaveTextContent(REASON);
-    });
+    expect(await screen.findByTestId('location-alert-Bamburgh Castle')).toHaveTextContent(REASON);
     expect(screen.getByTestId('toggle-enabled-7')).toHaveTextContent('Disabled');
     expect(screen.getByTestId('auto-disabled-7')).toHaveTextContent('auto');
 
-    fireEvent.click(screen.getByTestId('reenable-Bamburgh Castle'));
+    fireEvent.click(screen.getByRole('button', { name: 'Re-enable Bamburgh Castle' }));
 
     await waitFor(() => {
       expect(screen.queryByTestId('location-alert-Bamburgh Castle')).toBeNull();
@@ -1098,6 +1096,16 @@ describe('LocationManagementView — a place the pipeline auto-disabled', () => 
     expect(resetLocationFailures).toHaveBeenCalledWith('Bamburgh Castle');
     expect(screen.getByTestId('toggle-enabled-7')).toHaveTextContent('Enabled');
     expect(screen.queryByTestId('auto-disabled-7')).toBeNull();
+  });
+
+  it('the auto badge\'s info popover carries the stored reason', async () => {
+    fetchLocations.mockResolvedValue([AUTO_DISABLED_PLACE]);
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    const badge = await screen.findByTestId('auto-disabled-7');
+
+    fireEvent.click(within(badge).getByRole('button', { name: 'More info' }));
+
+    expect(await screen.findByTestId('infotip-popover')).toHaveTextContent(REASON);
   });
 
   it('a place an admin disabled by hand (no reason) is not alerted and carries no auto-disabled badge', async () => {

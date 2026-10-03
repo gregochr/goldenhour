@@ -5,12 +5,14 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -79,10 +81,13 @@ class BatchRetryServiceTest {
     private ModelSelectionService modelSelectionService;
     @Mock
     private EvaluationService evaluationService;
+    @Mock
+    private ForecastDispositionService dispositionService;
 
     private BatchRetryService service() {
         return new BatchRetryService(forecastBatchRepository, apiCallLogRepository,
-                locationRepository, forecastService, modelSelectionService, evaluationService, CAP, CLOCK);
+                locationRepository, forecastService, modelSelectionService, evaluationService,
+                dispositionService, CAP, CLOCK);
     }
 
     private static ForecastBatchEntity precursor(String anthropicBatchId) {
@@ -476,6 +481,52 @@ class BatchRetryServiceTest {
         verify(forecastService, never()).persistPendingEvaluation(any());
         verify(forecastService, never()).markAbandoned(any());
         verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("a retry that triages the slot away writes a SKIPPED_TRIAGED disposition on the "
+            + "cycle's first precursor job run, in the collector's shape, so the location "
+            + "auto-disable rule sees the place was answered rather than still failed")
+    void submitRetry_triagedAway_recordsTriagedDisposition() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                any(), any(), eq(false), isNull()))
+                .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        ForecastBatchEntity first = precursor("msgbatch_first");
+        first.setJobRunId(555L);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
+                .thenReturn(List.of(first));
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 222L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)),
+                CAP);
+
+        service().submitRetry(RUN_ID, selection);
+
+        verify(dispositionService).persist(555L, List.of(new CandidateDisposition(
+                42L, "Bamburgh", DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "triaged")));
+    }
+
+    @Test
+    @DisplayName("a retry that cannot be reconstructed for another reason (location gone) writes "
+            + "no disposition: the place stays failed")
+    void submitRetry_locationGone_recordsNoDisposition() {
+        when(locationRepository.findById(42L)).thenReturn(Optional.empty());
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 222L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)),
+                CAP);
+
+        service().submitRetry(RUN_ID, selection);
+
+        verifyNoInteractions(dispositionService);
     }
 
     @Test

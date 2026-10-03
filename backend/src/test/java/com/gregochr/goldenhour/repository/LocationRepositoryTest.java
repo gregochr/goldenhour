@@ -76,8 +76,8 @@ class LocationRepositoryTest {
     }
 
     @Test
-    @DisplayName("recordFailure writes only the counter and the failure time, and leaves "
-            + "every other column alone, an admin's concurrent edit included")
+    @DisplayName("recordFailure sets the counter and the failure time on an enabled place and "
+            + "leaves its enabled flag, disabled reason and name unchanged")
     void recordFailure_touchesOnlyCounterAndTime() {
         LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
         LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
@@ -123,6 +123,25 @@ class LocationRepositoryTest {
         assertThat(found.getLastFailureAt()).isEqualTo(at);
         assertThat(found.getDisabledReason()).isEqualTo(reason);
         assertThat(repository.findAllByEnabledTrueOrderByNameAsc()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("autoDisable is a no-op on a place that is already disabled: it updates no row "
+            + "and keeps the existing reason (an admin got there first)")
+    void autoDisable_alreadyDisabledPlace_noOp() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setEnabled(false);
+        location.setDisabledReason("Switched off by an admin");
+        LocationEntity saved = repository.save(location);
+
+        int rows = repository.autoDisable(saved.getId(), 3, LocalDateTime.of(2026, 10, 2, 3, 0),
+                "Auto-disabled after 3 consecutive failed scheduled runs "
+                        + "(last 2026-10-02: data could not be collected).");
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isZero();
+        assertThat(found.getDisabledReason()).isEqualTo("Switched off by an admin");
+        assertThat(found.getConsecutiveFailures()).isZero();
     }
 
     @Test

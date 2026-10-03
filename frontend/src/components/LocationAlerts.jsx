@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { resetLocationFailures } from '../api/forecastApi.js';
+import { apiErrorMessage } from '../utils/apiError.js';
 import { formatTimestampUk } from '../utils/conversions';
 
 /**
@@ -21,12 +22,28 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
     [locations],
   );
 
+  // Names with a Re-enable request in flight (their button is disabled), and the server's
+  // sentence for any that failed (shown on the row, cleared by the next attempt).
+  const [pending, setPending] = useState(() => new Set());
+  const [errors, setErrors] = useState({});
+
   async function handleReenableLocation(locationName) {
+    setPending((prev) => new Set(prev).add(locationName));
+    setErrors((prev) => ({ ...prev, [locationName]: null }));
     try {
       await resetLocationFailures(locationName);
       onReenabledLocation(locationName);
     } catch (err) {
-      console.error('Failed to re-enable location:', err);
+      setErrors((prev) => ({
+        ...prev,
+        [locationName]: apiErrorMessage(err, 'Could not re-enable this location.'),
+      }));
+    } finally {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(locationName);
+        return next;
+      });
     }
   }
 
@@ -72,13 +89,19 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
                   </div>
                 )}
               </div>
+              {errors[loc.name] && (
+                <div role="alert" className="mt-1 text-xs text-red-400">
+                  {errors[loc.name]}
+                </div>
+              )}
             </div>
             {loc.disabledReason && (
               <button
                 type="button"
-                data-testid={`reenable-${loc.name}`}
+                aria-label={`Re-enable ${loc.name}`}
+                disabled={pending.has(loc.name)}
                 onClick={() => handleReenableLocation(loc.name)}
-                className="flex-shrink-0 px-3 py-1 text-xs font-medium bg-amber-700 text-amber-100 hover:bg-amber-600 rounded transition-colors"
+                className="flex-shrink-0 px-3 py-1 text-xs font-medium bg-amber-700 text-amber-100 hover:bg-amber-600 rounded transition-colors disabled:opacity-50 disabled:pointer-events-none"
               >
                 Re-enable
               </button>

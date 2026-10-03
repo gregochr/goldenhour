@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -69,6 +70,13 @@ class LocationFailureTrackingTest {
     void setUp() {
         angel = freshLocation("Angel of the North", 54.9141, -1.5895);
         keswick = freshLocation("Keswick", 54.6, -3.13);
+    }
+
+    @AfterEach
+    void forgetSettledCycles() {
+        // The Spring context (and so the service's in-memory settled-cycle set) is cached and
+        // shared with other test classes; leave it clean.
+        locationFailureService.forgetSettledCycles();
     }
 
     private LocationEntity freshLocation(String name, double lat, double lon) {
@@ -195,5 +203,30 @@ class LocationFailureTrackingTest {
         assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
         assertThat(reload(angel).isEnabled()).isTrue();
         assertThat(reload(keswick).getConsecutiveFailures()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("the 2026-09-29 shape: dispositions on a job run that has no forecast_batch row "
+            + "(every submission failed) are never found, so nobody is counted")
+    void dispositionsWithoutAForecastBatchRow_countNobody() {
+        setCounter(angel, 2);
+        long runId = NEXT_RUN_ID.incrementAndGet();
+        for (LocationEntity location : java.util.List.of(angel, keswick)) {
+            jdbcTemplate.update(
+                    "INSERT INTO forecast_run_disposition (job_run_id, location_id, location_name, "
+                            + "evaluation_date, event_type, disposition, created_at) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    runId, location.getId(), location.getName(), Date.valueOf(DATE), "SUNSET",
+                    "SKIPPED_ERROR", Timestamp.from(Instant.parse("2026-10-02T01:00:00Z")));
+        }
+        PipelineRunEntity run = new PipelineRunEntity(
+                CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z"));
+        run.setId(runId);
+
+        locationFailureService.settleCycle(run);
+
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
+        assertThat(reload(angel).isEnabled()).isTrue();
+        assertThat(reload(keswick).getConsecutiveFailures()).isZero();
     }
 }

@@ -7,8 +7,8 @@ import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
-import com.gregochr.goldenhour.model.CyclePlaceOutcome;
-import com.gregochr.goldenhour.model.CyclePlaceOutcome.FailureKind;
+import com.gregochr.goldenhour.model.CyclePlaceEvidence;
+import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import com.gregochr.goldenhour.service.notification.AdminAlertService.DisabledLocation;
@@ -20,6 +20,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -32,7 +34,6 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -40,8 +41,9 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link LocationFailureService}: the counting rule, the threshold, the per-cycle
- * cap, idempotence and the alert, all on literal outcomes and a fixed clock.
+ * Unit tests for {@link LocationFailureService}, all driven through {@code settleCycle} with a
+ * stubbed resolver: the like-evidence counting rule, the threshold, the per-cycle cap, idempotence
+ * and the after-commit alert, on literal evidence and a fixed clock.
  */
 @ExtendWith(MockitoExtension.class)
 class LocationFailureServiceTest {
@@ -50,9 +52,12 @@ class LocationFailureServiceTest {
     private static final LocalDateTime NOW_UTC = LocalDateTime.of(2026, 10, 2, 3, 0);
     private static final Instant TRIGGER = Instant.parse("2026-10-02T01:00:00Z");
     private static final long RUN_ID = 300L;
-    private static final String WEATHER_REASON =
+    private static final String COLLECTION_REASON =
             "Auto-disabled after 3 consecutive failed scheduled runs "
-                    + "(last 2026-10-02: weather data could not be fetched).";
+                    + "(last 2026-10-02: data could not be collected).";
+    private static final String EVALUATION_REASON =
+            "Auto-disabled after 3 consecutive failed scheduled runs "
+                    + "(last 2026-10-02: the Claude evaluation request failed).";
 
     @Mock
     private CycleLocationOutcomeResolver resolver;
@@ -80,6 +85,9 @@ class LocationFailureServiceTest {
     @AfterEach
     void tearDown() {
         serviceLogger.detachAppender(logAppender);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     private static LocationEntity place(long id, String name, Integer failures, boolean enabled) {
@@ -87,17 +95,21 @@ class LocationFailureServiceTest {
                 .enabled(enabled).consecutiveFailures(failures).build();
     }
 
-    private static PipelineRunEntity run(long id) {
-        PipelineRunEntity run = new PipelineRunEntity(CycleType.NIGHTLY, TRIGGER);
+    private static PipelineRunEntity run(long id, CycleType type) {
+        PipelineRunEntity run = new PipelineRunEntity(type, TRIGGER);
         run.setId(id);
         return run;
     }
 
-    /** Ids {@code first..last} inclusive, all with the same outcome, appended in order. */
-    private static void add(Map<Long, CyclePlaceOutcome> outcomes, long first, long last,
-            CyclePlaceOutcome outcome) {
+    private static Map<Long, CyclePlaceEvidence> cycle() {
+        return new LinkedHashMap<>();
+    }
+
+    /** Ids {@code first..last} inclusive, all with the same evidence, appended in order. */
+    private static void put(Map<Long, CyclePlaceEvidence> evidence, long first, long last,
+            CyclePlaceEvidence value) {
         for (long id = first; id <= last; id++) {
-            outcomes.put(id, outcome);
+            evidence.put(id, value);
         }
     }
 
@@ -109,22 +121,33 @@ class LocationFailureServiceTest {
         return ids;
     }
 
+    private void settle(Map<Long, CyclePlaceEvidence> evidence) {
+        settle(evidence, CycleType.NIGHTLY);
+    }
+
+    private void settle(Map<Long, CyclePlaceEvidence> evidence, CycleType type) {
+        when(resolver.resolve(RUN_ID)).thenReturn(evidence);
+        service.settleCycle(run(RUN_ID, type));
+    }
+
     private List<String> messages(Level level) {
         return logAppender.list.stream().filter(e -> e.getLevel() == level)
                 .map(ILoggingEvent::getFormattedMessage).toList();
     }
 
+    // ---- the like-evidence rule, sky lane ----
+
     @Test
-    @DisplayName("1 failed of 10 attempted counts: the failed place goes 0 -> 1 with the clock's "
-            + "time, and the 9 that got through are reset")
-    void oneFailedOfTen_counts() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 9, CyclePlaceOutcome.gotThrough());
-        outcomes.put(10L, CyclePlaceOutcome.failed(FailureKind.EVALUATION));
+    @DisplayName("1 sky failure among 10 sky results counts: the failed place goes 0 -> 1 with the "
+            + "clock's time, and the 9 that scored are reset")
+    void oneSkyFailureOfTen_counts() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verify(locationRepository).resetFailureCounts(ids(1, 9));
         verify(locationRepository).findAllById(List.of(10L));
@@ -132,40 +155,43 @@ class LocationFailureServiceTest {
         verifyNoMoreInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
         assertThat(messages(Level.INFO)).containsExactly(
-                "Pipeline run 300: location 'Bamburgh' failed this cycle (EVALUATION) — "
+                "Pipeline run 300: location 'Bamburgh' failed this cycle (EVALUATION), "
                         + "consecutive failures now 1");
     }
 
     @Test
-    @DisplayName("6 failed of 10 attempted counts for none: for each, only 4 of the other 9 got "
-            + "through, fewer than half. The 4 that got through are still reset")
-    void sixFailedOfTen_countsForNone() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 4, CyclePlaceOutcome.gotThrough());
-        add(outcomes, 5, 10, CyclePlaceOutcome.failed(FailureKind.EVALUATION));
+    @DisplayName("6 sky failures among 10 sky results count for none: for each, only 4 of the 9 "
+            + "other sky results succeeded. The 4 that scored are still reset")
+    void sixSkyFailuresOfTen_countForNone() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 4, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 5, 10, CyclePlaceEvidence.failedIn(Lane.SKY));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verify(locationRepository).resetFailureCounts(ids(1, 4));
         verifyNoMoreInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
         assertThat(messages(Level.WARN)).containsExactly(
-                "Pipeline run 300: 6 place(s) failed but only 4 of the 9 other attempted place(s) "
-                        + "got through — treated as systemic, no failure counted for anyone");
+                "Pipeline run 300: 6 of 6 failed place(s) not counted, too few comparable places "
+                        + "got through (same result lane for a Claude failure, same collection "
+                        + "step for a collection error), treated as systemic");
     }
 
     @Test
-    @DisplayName("exactly half of the others got through counts (the rule is 'at least half'): "
-            + "5 through and 6 failed leaves 5 of the 10 others through for each failed place")
+    @DisplayName("exactly half of the other sky results succeeding counts (the rule is 'at least "
+            + "half'): 5 succeeded and 6 failed leaves 5 of the 10 others for each failed place")
     void exactlyHalfOfTheOthers_counts() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 5, CyclePlaceOutcome.gotThrough());
-        add(outcomes, 6, 11, CyclePlaceOutcome.failed(FailureKind.EVALUATION));
-        when(locationRepository.findAllById(ids(6, 11))).thenReturn(List.of(
-                place(6L, "P6", 0, true), place(7L, "P7", 0, true), place(8L, "P8", 0, true),
-                place(9L, "P9", 0, true), place(10L, "P10", 0, true), place(11L, "P11", 0, true)));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 5, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 6, 11, CyclePlaceEvidence.failedIn(Lane.SKY));
+        List<LocationEntity> failing = new ArrayList<>();
+        for (long id = 6; id <= 11; id++) {
+            failing.add(place(id, "P" + id, 0, true));
+        }
+        when(locationRepository.findAllById(ids(6, 11))).thenReturn(failing);
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         for (long id = 6; id <= 11; id++) {
             verify(locationRepository).recordFailure(id, 1, NOW_UTC);
@@ -173,133 +199,266 @@ class LocationFailureServiceTest {
     }
 
     @Test
-    @DisplayName("one more failure than half counts for none: 4 through and 7 failed leaves 4 of "
-            + "the 10 others through for each failed place")
+    @DisplayName("one more failure than half counts for none: 4 succeeded and 7 failed leaves 4 of "
+            + "the 10 others for each failed place")
     void justUnderHalfOfTheOthers_countsForNone() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 4, CyclePlaceOutcome.gotThrough());
-        add(outcomes, 5, 11, CyclePlaceOutcome.failed(FailureKind.EVALUATION));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 4, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 5, 11, CyclePlaceEvidence.failedIn(Lane.SKY));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verify(locationRepository).resetFailureCounts(ids(1, 4));
         verifyNoMoreInteractions(locationRepository);
     }
 
     @Test
-    @DisplayName("a cycle that fails everything counts for nobody: 510 failed, none through")
+    @DisplayName("a cycle that fails everything counts for nobody: 510 sky failures, none succeeded")
     void everythingFailed_countsForNobody() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 510, CyclePlaceOutcome.failed(FailureKind.EVALUATION));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 510, CyclePlaceEvidence.failedIn(Lane.SKY));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verifyNoInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
     }
 
     @Test
-    @DisplayName("a lone failed place with no other attempted place offers no evidence the "
-            + "pipeline was working, so it is not counted")
+    @DisplayName("a lone failed place with no other like place offers no evidence the pipeline "
+            + "was working, so it is not counted")
     void loneFailedPlace_notCounted() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        outcomes.put(1L, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
-        outcomes.put(2L, CyclePlaceOutcome.notAttempted());
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        evidence.put(1L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        evidence.put(2L, CyclePlaceEvidence.nothing());
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verifyNoInteractions(locationRepository);
     }
 
     @Test
-    @DisplayName("a failed place beside one that got through counts: 1 of the 1 other got through")
-    void failedBesideOneThatGotThrough_counts() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        outcomes.put(1L, CyclePlaceOutcome.gotThrough());
-        outcomes.put(2L, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
-        when(locationRepository.findAllById(List.of(2L)))
-                .thenReturn(List.of(place(2L, "Alnwick", 1, true)));
+    @DisplayName("a sky failure among 10 sky results of which 5 succeeded counts")
+    void skyFailure_fiveOfTenSucceeded_counts() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 5, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 6, 10, CyclePlaceEvidence.failedIn(Lane.SKY));
+        List<LocationEntity> failing = new ArrayList<>();
+        for (long id = 6; id <= 10; id++) {
+            failing.add(place(id, "P" + id, 0, true));
+        }
+        when(locationRepository.findAllById(ids(6, 10))).thenReturn(failing);
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
-        verify(locationRepository).recordFailure(2L, 2, NOW_UTC);
+        verify(locationRepository).recordFailure(6L, 1, NOW_UTC);
     }
 
     @Test
-    @DisplayName("a place that got through is reset through the repository's column-scoped reset")
-    void gotThrough_resetsCounter() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        outcomes.put(7L, CyclePlaceOutcome.gotThrough());
+    @DisplayName("the same sky failures where the 5 'successes' are triage-only places do not "
+            + "count: triaged places never touched Claude, so they are no evidence about Claude")
+    void skyFailure_successesAreTriageOnly_doesNotCount() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 5, CyclePlaceEvidence.triagedOnly());
+        put(evidence, 6, 10, CyclePlaceEvidence.failedIn(Lane.SKY));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
+
+        verify(locationRepository).resetFailureCounts(ids(1, 5));
+        verifyNoMoreInteractions(locationRepository);
+    }
+
+    // ---- a fault confined to one lane is never read as a good night ----
+
+    @Test
+    @DisplayName("a woodland parser regression (every wd- result fails) while 200 sky places "
+            + "score and 50 are triaged counts nobody: woodland places are judged against woodland")
+    void woodlandRegression_countsNobody() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 200, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 201, 250, CyclePlaceEvidence.triagedOnly());
+        put(evidence, 251, 255, CyclePlaceEvidence.failedIn(Lane.WOODLAND));
+
+        settle(evidence);
+
+        verify(locationRepository).resetFailureCounts(ids(1, 250));
+        verifyNoMoreInteractions(locationRepository);
+        verifyNoInteractions(adminAlertService);
+    }
+
+    @Test
+    @DisplayName("one lane's bucket expiring entirely (every bluebell result errored) counts "
+            + "nobody, whatever the sky lane did")
+    void oneLaneExpiresEntirely_countsNobody() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 100, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 101, 108, CyclePlaceEvidence.failedIn(Lane.BLUEBELL));
+
+        settle(evidence);
+
+        verify(locationRepository).resetFailureCounts(ids(1, 100));
+        verifyNoMoreInteractions(locationRepository);
+    }
+
+    @Test
+    @DisplayName("a woodland failure counts when most other woodland results succeeded")
+    void woodlandFailure_mostWoodlandSucceeded_counts() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.WOODLAND));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.WOODLAND));
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Wallington Woods", 0, true)));
+
+        settle(evidence);
+
+        verify(locationRepository).recordFailure(10L, 1, NOW_UTC);
+    }
+
+    @Test
+    @DisplayName("a place failing in two lanes counts once, when either lane qualifies")
+    void failureInTwoLanes_countsOnce() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 10, 14, CyclePlaceEvidence.failedIn(Lane.WOODLAND));
+        evidence.put(15L, CyclePlaceEvidence.failedIn(Lane.SKY, Lane.WOODLAND));
+        when(locationRepository.findAllById(List.of(15L)))
+                .thenReturn(List.of(place(15L, "Alnwick", 1, true)));
+
+        settle(evidence);
+
+        verify(locationRepository, times(1)).recordFailure(15L, 2, NOW_UTC);
+    }
+
+    // ---- collection errors ----
+
+    @Test
+    @DisplayName("a collection error among 10 places whose collection ran counts, and the stored "
+            + "reason says 'data could not be collected', not that weather failed")
+    void collectionError_counts_withNeutralWording() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.triagedOnly());
+        evidence.put(10L, CyclePlaceEvidence.collectionError());
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
+        when(locationRepository.autoDisable(10L, 3, NOW_UTC, COLLECTION_REASON)).thenReturn(1);
+
+        settle(evidence);
+
+        verify(locationRepository).autoDisable(10L, 3, NOW_UTC, COLLECTION_REASON);
+        assertThat(messages(Level.INFO)).containsExactly(
+                "Pipeline run 300: location 'Bamburgh' failed this cycle (COLLECTION), "
+                        + "consecutive failures now 3");
+    }
+
+    @Test
+    @DisplayName("collection errors for most places (6 of 10) count for none: the collection step "
+            + "itself was failing, which is systemic")
+    void mostCollectionsFailed_countsNobody() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 4, CyclePlaceEvidence.triagedOnly());
+        put(evidence, 5, 10, CyclePlaceEvidence.collectionError());
+
+        settle(evidence);
+
+        verify(locationRepository).resetFailureCounts(ids(1, 4));
+        verifyNoMoreInteractions(locationRepository);
+    }
+
+    @Test
+    @DisplayName("a place whose collection errored and whose sky result failed, in a cycle where "
+            + "collection was mostly failing but the sky lane was healthy, counts as an "
+            + "evaluation failure")
+    void collectionPopulationBad_butSkyLaneGood_countsAsEvaluation() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 21, 50, CyclePlaceEvidence.collectionError());
+        evidence.put(51L, new CyclePlaceEvidence(false, true, java.util.Set.of(),
+                java.util.Set.of(Lane.SKY)));
+        when(locationRepository.findAllById(List.of(51L)))
+                .thenReturn(List.of(place(51L, "Alnwick", 2, true)));
+        when(locationRepository.autoDisable(51L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
+
+        settle(evidence);
+
+        verify(locationRepository).autoDisable(51L, 3, NOW_UTC, EVALUATION_REASON);
+    }
+
+    // ---- reset, untouched ----
+
+    @Test
+    @DisplayName("a place that got through (scored or triaged) is reset through the repository's "
+            + "column-scoped reset")
+    void gotThrough_resetsCounter() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        evidence.put(7L, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(8L, CyclePlaceEvidence.triagedOnly());
+
+        settle(evidence);
+
+        verify(locationRepository).resetFailureCounts(List.of(7L, 8L));
+        verifyNoMoreInteractions(locationRepository);
+    }
+
+    @Test
+    @DisplayName("a place with a failure in one lane and a success in another got through, so it "
+            + "is reset, not counted")
+    void failureInOneLaneSuccessInAnother_gotThrough() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        evidence.put(7L, new CyclePlaceEvidence(false, false, java.util.Set.of(Lane.SKY),
+                java.util.Set.of(Lane.BLUEBELL)));
+
+        settle(evidence);
 
         verify(locationRepository).resetFailureCounts(List.of(7L));
         verifyNoMoreInteractions(locationRepository);
     }
 
     @Test
-    @DisplayName("a place not attempted this cycle is neither counted nor reset: the repository "
-            + "is never asked to touch it")
-    void notAttempted_keepsItsCount() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        outcomes.put(1L, CyclePlaceOutcome.notAttempted());
-        outcomes.put(2L, CyclePlaceOutcome.notAttempted());
+    @DisplayName("a place with nothing recorded this cycle is neither counted nor reset")
+    void nothingRecorded_keepsItsCount() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        evidence.put(1L, CyclePlaceEvidence.nothing());
+        evidence.put(2L, CyclePlaceEvidence.nothing());
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verifyNoInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
     }
 
+    // ---- threshold, cap, alert ----
+
     @Test
-    @DisplayName("a place reaching 3 is disabled with the literal reason and the clock's time, "
-            + "and the admin is told once")
-    void reachingThree_disablesWithLiteralReason() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 9, CyclePlaceOutcome.gotThrough());
-        outcomes.put(10L, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
+    @DisplayName("a place reaching 3 in an INTRADAY cycle is disabled with the literal reason and "
+            + "the clock's time, and the alert carries that cycle's own type and trigger time")
+    void reachingThree_disables_alertCarriesCycleTypeAndTriggerTime() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
-        when(locationRepository.autoDisable(10L, 3, NOW_UTC, WEATHER_REASON)).thenReturn(1);
+        when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence, CycleType.INTRADAY);
 
         verify(locationRepository).recordFailure(10L, 3, NOW_UTC);
-        verify(locationRepository).autoDisable(10L, 3, NOW_UTC, WEATHER_REASON);
-        verify(adminAlertService).sendLocationsAutoDisabledAlert(RUN_ID, CycleType.NIGHTLY,
-                TRIGGER, List.of(new DisabledLocation("Bamburgh", WEATHER_REASON)));
+        verify(locationRepository).autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON);
+        verify(adminAlertService).sendLocationsAutoDisabledAlert(RUN_ID, CycleType.INTRADAY,
+                TRIGGER, List.of(new DisabledLocation("Bamburgh", EVALUATION_REASON)));
         assertThat(messages(Level.WARN)).containsExactly(
-                "Pipeline run 300: location 'Bamburgh' AUTO-DISABLED — " + WEATHER_REASON);
-    }
-
-    @Test
-    @DisplayName("an evaluation failure is worded as such in the stored reason, never with a "
-            + "raw exception message")
-    void evaluationFailure_reasonWording() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 9, CyclePlaceOutcome.gotThrough());
-        outcomes.put(10L, CyclePlaceOutcome.failed(FailureKind.EVALUATION));
-        when(locationRepository.findAllById(List.of(10L)))
-                .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
-        String reason = "Auto-disabled after 3 consecutive failed scheduled runs "
-                + "(last 2026-10-02: the Claude evaluation request failed).";
-        when(locationRepository.autoDisable(10L, 3, NOW_UTC, reason)).thenReturn(1);
-
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
-
-        verify(locationRepository).autoDisable(10L, 3, NOW_UTC, reason);
+                "Pipeline run 300: location 'Bamburgh' AUTO-DISABLED: " + EVALUATION_REASON);
     }
 
     @Test
     @DisplayName("a place reaching 2 is counted but not disabled and nobody is told")
     void reachingTwo_notDisabled() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 9, CyclePlaceOutcome.gotThrough());
-        outcomes.put(10L, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 1, true)));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verify(locationRepository).resetFailureCounts(ids(1, 9));
         verify(locationRepository).findAllById(List.of(10L));
@@ -309,41 +468,49 @@ class LocationFailureServiceTest {
     }
 
     @Test
-    @DisplayName("exactly 5 places reaching 3 in one cycle (the cap itself) are all disabled")
-    void fivePlacesReachingThree_allDisabled() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 20, CyclePlaceOutcome.gotThrough());
-        add(outcomes, 21, 25, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
+    @DisplayName("exactly 5 places reaching 3 in one cycle (the cap itself) are all disabled, "
+            + "listed in name order whatever order the evidence arrived in")
+    void fivePlacesReachingThree_allDisabled_alertListSortedByName() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 21, 25, CyclePlaceEvidence.failedIn(Lane.SKY));
+        // Names deliberately out of id order, so only a real sort can produce the expected list.
+        String[] names = {"Zeta", "Alpha", "Mid", "Beta", "Omega"};
         List<LocationEntity> failing = new ArrayList<>();
-        List<DisabledLocation> expected = new ArrayList<>();
-        for (long id = 21; id <= 25; id++) {
-            failing.add(place(id, "P" + id, 2, true));
-            when(locationRepository.autoDisable(id, 3, NOW_UTC, WEATHER_REASON)).thenReturn(1);
-            expected.add(new DisabledLocation("P" + id, WEATHER_REASON));
+        for (int i = 0; i < 5; i++) {
+            long id = 21 + i;
+            failing.add(place(id, names[i], 2, true));
+            when(locationRepository.autoDisable(id, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
         }
         when(locationRepository.findAllById(ids(21, 25))).thenReturn(failing);
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verify(adminAlertService).sendLocationsAutoDisabledAlert(RUN_ID, CycleType.NIGHTLY,
-                TRIGGER, expected);
+                TRIGGER, List.of(
+                        new DisabledLocation("Alpha", EVALUATION_REASON),
+                        new DisabledLocation("Beta", EVALUATION_REASON),
+                        new DisabledLocation("Mid", EVALUATION_REASON),
+                        new DisabledLocation("Omega", EVALUATION_REASON),
+                        new DisabledLocation("Zeta", EVALUATION_REASON)));
         verifyNoMoreInteractions(adminAlertService);
     }
 
     @Test
     @DisplayName("6 places reaching 3 in one cycle exceed the cap: none is disabled, an ERROR is "
-            + "logged and the admin is sent the cap alert, while the counters still advance")
+            + "logged and the admin gets the cap alert with the cycle's type and trigger time, "
+            + "while the counters still advance")
     void sixPlacesReachingThree_noneDisabled_capAlertSent() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 20, CyclePlaceOutcome.gotThrough());
-        add(outcomes, 21, 26, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 21, 26, CyclePlaceEvidence.failedIn(Lane.SKY));
         List<LocationEntity> failing = new ArrayList<>();
         for (long id = 21; id <= 26; id++) {
             failing.add(place(id, "P" + id, 2, true));
         }
         when(locationRepository.findAllById(ids(21, 26))).thenReturn(failing);
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence, CycleType.INTRADAY);
 
         verify(locationRepository).resetFailureCounts(ids(1, 20));
         verify(locationRepository).findAllById(ids(21, 26));
@@ -351,26 +518,59 @@ class LocationFailureServiceTest {
             verify(locationRepository).recordFailure(id, 3, NOW_UTC);
         }
         verifyNoMoreInteractions(locationRepository);
-        verify(adminAlertService).sendLocationDisableCapAlert(RUN_ID, CycleType.NIGHTLY, TRIGGER,
+        verify(adminAlertService).sendLocationDisableCapAlert(RUN_ID, CycleType.INTRADAY, TRIGGER,
                 List.of("P21", "P22", "P23", "P24", "P25", "P26"), 5);
         verifyNoMoreInteractions(adminAlertService);
         assertThat(messages(Level.ERROR)).containsExactly(
                 "Pipeline run 300: 6 places reached 3 consecutive failed cycles in one cycle, more "
-                        + "than the cap of 5 — something systemic is wrong, NO place disabled: "
+                        + "than the cap of 5, something systemic is wrong, NO place disabled: "
                         + "P21, P22, P23, P24, P25, P26");
+        assertThat(messages(Level.WARN)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an autoDisable that updates no row (an admin disabled the place between the "
+            + "read and the update) sends no alert and logs no disable")
+    void autoDisableUpdatesNothing_noAlert() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
+        when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(0);
+
+        settle(evidence);
+
+        verifyNoInteractions(adminAlertService);
         assertThat(messages(Level.WARN)).isEmpty();
     }
 
     @Test
     @DisplayName("a place an admin disabled mid-cycle is skipped, not counted and not disabled")
     void alreadyDisabledPlace_skipped() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 9, CyclePlaceOutcome.gotThrough());
-        outcomes.put(10L, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, false)));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
+
+        verify(locationRepository).resetFailureCounts(ids(1, 9));
+        verify(locationRepository).findAllById(List.of(10L));
+        verifyNoMoreInteractions(locationRepository);
+        verifyNoInteractions(adminAlertService);
+    }
+
+    @Test
+    @DisplayName("a failed place the repository no longer returns (deleted mid-cycle) is skipped")
+    void failedPlaceMissingFromRepository_skipped() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of());
+
+        settle(evidence);
 
         verify(locationRepository).resetFailureCounts(ids(1, 9));
         verify(locationRepository).findAllById(List.of(10L));
@@ -381,13 +581,13 @@ class LocationFailureServiceTest {
     @Test
     @DisplayName("a null stored counter counts as zero")
     void nullCounter_countsFromZero() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 9, CyclePlaceOutcome.gotThrough());
-        outcomes.put(10L, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", null, true)));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
         verify(locationRepository).recordFailure(10L, 1, NOW_UTC);
     }
@@ -395,35 +595,103 @@ class LocationFailureServiceTest {
     @Test
     @DisplayName("an alert dispatch that throws is swallowed: the place stays disabled")
     void alertThrows_placeStaysDisabled() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 9, CyclePlaceOutcome.gotThrough());
-        outcomes.put(10L, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
-        when(locationRepository.autoDisable(10L, 3, NOW_UTC, WEATHER_REASON)).thenReturn(1);
+        when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
         doThrow(new IllegalStateException("mail down")).when(adminAlertService)
                 .sendLocationsAutoDisabledAlert(RUN_ID, CycleType.NIGHTLY, TRIGGER,
-                        List.of(new DisabledLocation("Bamburgh", WEATHER_REASON)));
+                        List.of(new DisabledLocation("Bamburgh", EVALUATION_REASON)));
 
-        service.applyOutcomes(RUN_ID, CycleType.NIGHTLY, TRIGGER, outcomes);
+        settle(evidence);
 
-        verify(locationRepository).autoDisable(10L, 3, NOW_UTC, WEATHER_REASON);
+        verify(locationRepository).autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON);
         assertThat(messages(Level.WARN)).anyMatch(m -> m.contains("mail down"));
     }
+
+    // ---- the alert goes out only after the transaction commits ----
+
+    private TransactionSynchronization onlySynchronization() {
+        List<TransactionSynchronization> registered =
+                TransactionSynchronizationManager.getSynchronizations();
+        assertThat(registered).hasSize(1);
+        return registered.get(0);
+    }
+
+    private Map<Long, CyclePlaceEvidence> oneDisableEvidence() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
+        when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
+        return evidence;
+    }
+
+    @Test
+    @DisplayName("inside a transaction the disable alert is not sent by settleCycle itself, and "
+            + "goes out when the transaction commits")
+    void alertSentOnlyAfterCommit() {
+        TransactionSynchronizationManager.initSynchronization();
+
+        settle(oneDisableEvidence());
+
+        verifyNoInteractions(adminAlertService);
+        onlySynchronization().afterCommit();
+        verify(adminAlertService).sendLocationsAutoDisabledAlert(RUN_ID, CycleType.NIGHTLY,
+                TRIGGER, List.of(new DisabledLocation("Bamburgh", EVALUATION_REASON)));
+    }
+
+    @Test
+    @DisplayName("a transaction that fails to commit (afterCommit never runs, the transaction "
+            + "rolls back) sends no alert")
+    void commitFailure_sendsNoAlert() {
+        TransactionSynchronizationManager.initSynchronization();
+
+        settle(oneDisableEvidence());
+
+        onlySynchronization().afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+        verifyNoInteractions(adminAlertService);
+    }
+
+    @Test
+    @DisplayName("the cap alert is likewise held until the transaction commits")
+    void capAlertSentOnlyAfterCommit() {
+        TransactionSynchronizationManager.initSynchronization();
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 21, 26, CyclePlaceEvidence.failedIn(Lane.SKY));
+        List<LocationEntity> failing = new ArrayList<>();
+        for (long id = 21; id <= 26; id++) {
+            failing.add(place(id, "P" + id, 2, true));
+        }
+        when(locationRepository.findAllById(ids(21, 26))).thenReturn(failing);
+
+        settle(evidence);
+
+        verifyNoInteractions(adminAlertService);
+        onlySynchronization().afterCommit();
+        verify(adminAlertService).sendLocationDisableCapAlert(RUN_ID, CycleType.NIGHTLY, TRIGGER,
+                List.of("P21", "P22", "P23", "P24", "P25", "P26"), 5);
+    }
+
+    // ---- idempotence ----
 
     @Test
     @DisplayName("the same cycle settled twice counts once: the resolver is consulted and the "
             + "counter written exactly once")
     void sameCycleSettledTwice_countedOnce() {
-        Map<Long, CyclePlaceOutcome> outcomes = new LinkedHashMap<>();
-        add(outcomes, 1, 9, CyclePlaceOutcome.gotThrough());
-        outcomes.put(10L, CyclePlaceOutcome.failed(FailureKind.WEATHER_DATA));
-        when(resolver.resolve(RUN_ID)).thenReturn(outcomes);
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(resolver.resolve(RUN_ID)).thenReturn(evidence);
         when(locationRepository.findAllById(List.of(10L)))
                 .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
 
-        service.settleCycle(run(RUN_ID));
-        service.settleCycle(run(RUN_ID));
+        service.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
+        service.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
 
         verify(resolver, times(1)).resolve(RUN_ID);
         verify(locationRepository, times(1)).recordFailure(10L, 1, NOW_UTC);
@@ -431,47 +699,51 @@ class LocationFailureServiceTest {
     }
 
     @Test
-    @DisplayName("a cycle older than one already settled is ignored: a late old cycle cannot "
-            + "count after a newer one")
-    void olderCycleAfterNewer_ignored() {
-        when(resolver.resolve(RUN_ID)).thenReturn(Map.of());
-
-        service.settleCycle(run(RUN_ID));
-        service.settleCycle(run(RUN_ID - 1));
-
-        verify(resolver, times(1)).resolve(RUN_ID);
-        verify(resolver, never()).resolve(RUN_ID - 1);
-    }
-
-    @Test
-    @DisplayName("a newer cycle is settled after an older one")
-    void newerCycle_isSettled() {
-        when(resolver.resolve(RUN_ID)).thenReturn(Map.of());
+    @DisplayName("a newer cycle settling first does not drop an older one that settles later: "
+            + "both are settled")
+    void newerThenOlder_bothSettle() {
         when(resolver.resolve(RUN_ID + 1)).thenReturn(Map.of());
+        when(resolver.resolve(RUN_ID)).thenReturn(Map.of());
 
-        service.settleCycle(run(RUN_ID));
-        service.settleCycle(run(RUN_ID + 1));
+        service.settleCycle(run(RUN_ID + 1, CycleType.NIGHTLY));
+        service.settleCycle(run(RUN_ID, CycleType.INTRADAY));
 
-        verify(resolver).resolve(RUN_ID);
         verify(resolver).resolve(RUN_ID + 1);
+        verify(resolver).resolve(RUN_ID);
     }
 
     @Test
-    @DisplayName("a cycle that recorded nothing (which is what a hand-started run resolves to) "
-            + "never touches a location row or the admin channel")
-    void nothingRecorded_touchesNothing() {
-        when(resolver.resolve(RUN_ID)).thenReturn(Map.of());
+    @DisplayName("the settled set is bounded: after 200 later cycles the oldest is forgotten and "
+            + "could be settled again, while the 200 newest are still refused")
+    void settledSetIsBounded() {
+        for (long id = 1; id <= 201; id++) {
+            when(resolver.resolve(id)).thenReturn(Map.of());
+            service.settleCycle(run(id, CycleType.NIGHTLY));
+        }
 
-        service.settleCycle(run(RUN_ID));
+        service.settleCycle(run(1L, CycleType.NIGHTLY));
+        service.settleCycle(run(201L, CycleType.NIGHTLY));
+
+        verify(resolver, times(2)).resolve(1L);
+        verify(resolver, times(1)).resolve(201L);
+    }
+
+    @Test
+    @DisplayName("a cycle that recorded nothing (what a hand-started run, never tagged with a "
+            + "pipeline run, resolves to) never touches a location row or the admin channel")
+    void nothingRecorded_touchesNothing() {
+        settle(Map.of());
 
         verifyNoInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
     }
 
     @Test
-    @DisplayName("the constants are the owner's decision: disable at 3, at most 5 per cycle")
+    @DisplayName("the constants are the owner's decision: disable at 3, at most 5 per cycle, "
+            + "remember 200 cycles")
     void constants() {
         assertThat(LocationFailureService.AUTO_DISABLE_THRESHOLD).isEqualTo(3);
         assertThat(LocationFailureService.MAX_DISABLED_PER_CYCLE).isEqualTo(5);
+        assertThat(LocationFailureService.REMEMBERED_CYCLES).isEqualTo(200);
     }
 }

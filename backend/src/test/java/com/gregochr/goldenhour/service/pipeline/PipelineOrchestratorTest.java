@@ -563,7 +563,8 @@ class PipelineOrchestratorTest {
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
-                    null, pipelineRunPickService, batchRetryService, null, null);
+                    null, pipelineRunPickService, batchRetryService, null,
+                    locationFailureService);
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
@@ -976,6 +977,33 @@ class PipelineOrchestratorTest {
             verify(scheduler).registerJobTarget(
                     org.mockito.ArgumentMatchers.eq("intraday_forecast_refresh"),
                     org.mockito.ArgumentMatchers.any(Runnable.class));
+        }
+
+        @Test
+        @DisplayName("a pipeline cycle started through the scheduler target (the scheduler's "
+                + "Run now, which fires the same Runnable as the cron) is settled like any other")
+        void schedulerTarget_runsACycleThatSettles() {
+            DynamicSchedulerService scheduler =
+                    org.mockito.Mockito.mock(DynamicSchedulerService.class);
+            PipelineOrchestrator wired = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
+                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
+                    scheduler, pipelineRunPickService, batchRetryService, adminAlertService,
+                    locationFailureService);
+            wired.registerJobTarget();
+            org.mockito.ArgumentCaptor<Runnable> nightlyTarget =
+                    org.mockito.ArgumentCaptor.forClass(Runnable.class);
+            verify(scheduler).registerJobTarget(eq("near_term_batch_evaluation"),
+                    nightlyTarget.capture());
+            PipelineRunEntity run = newRun();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(run);
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(run));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+
+            nightlyTarget.getValue().run();
+
+            verify(locationFailureService, times(1)).settleCycle(run);
         }
 
         @Test
