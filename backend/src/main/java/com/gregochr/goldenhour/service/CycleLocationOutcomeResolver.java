@@ -172,7 +172,7 @@ public class CycleLocationOutcomeResolver {
                 locationId = w.locationId();
                 lane = Lane.WOODLAND;
             }
-            case ParsedCustomId.Aurora a -> {
+            case ParsedCustomId.Aurora ignored -> {
                 return;
             }
         }

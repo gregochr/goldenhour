@@ -13,9 +13,8 @@ import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -28,6 +27,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -78,21 +78,42 @@ import java.util.stream.Collectors;
  * the admin is told. If more than {@link #MAX_DISABLED_PER_CYCLE} places qualify in one cycle, none is
  * disabled, an ERROR is logged and the admin is told that something systemic is wrong; the counters
  * still advance, so the alert repeats each cycle until the cause is fixed. The alert is sent only
- * after the settle transaction has committed, so an admin is never told about a disable that rolled
- * back.
+ * after the settle transaction has committed (and after the settle lock is released), so an admin is
+ * never told about a disable that rolled back.
  *
  * <p><b>Writes are column-scoped</b> ({@code LocationRepository#recordFailure},
  * {@code #autoDisable}, {@code #resetFailureCounts}), never a whole-entity save: a save would write
  * every column, including the tide, type and solar-event sets, from whatever copy this class held and
- * could undo an admin's concurrent edit of the same place.
+ * could undo an admin's concurrent edit of the same place. The failure count is incremented by the
+ * database ({@code SET consecutive_failures = COALESCE(consecutive_failures, 0) + 1}), and the
+ * threshold decision reads back the value that update produced rather than computing it from an
+ * entity snapshot read earlier: the update, not the snapshot, is the authority on the count.
  *
- * <p><b>Idempotence.</b> {@link #settleCycle} remembers, in memory, the last
- * {@value #REMEMBERED_CYCLES} pipeline run ids it has settled and refuses a repeat, whatever order
- * cycles settle in (an admin's Run now while another cycle waits can settle a newer cycle before an
- * older one, and the older must still count). In memory is enough because the orchestrator settles
- * inside the BRIEFING phase, after that phase row has been started: a process restart resumes a run
- * that is already in BRIEFING without re-entering the settle, so a restart can lose a settle (a
- * missed count, the safe direction) but cannot repeat one.
+ * <p><b>Serialised and ordered.</b> An admin can start another cycle (the scheduler's Run now) while
+ * an earlier cycle's batch tail is still waiting, so two settles can be due at once, or arrive out
+ * of trigger order. This is a single-instance application, so an in-JVM rule is enough, and it is
+ * deliberately a {@link ReentrantLock} rather than {@code synchronized}: the settle does blocking
+ * database work and the app runs on virtual threads, where a monitor would pin the carrier thread.
+ * <ul>
+ *   <li><b>Serialised.</b> The whole settle, resolve, apply and the transaction's commit, runs under
+ *       one lock, so two settles never interleave and one can never read a counter the other has
+ *       written but not yet committed. The commit is inside the lock on purpose: a
+ *       {@link TransactionTemplate} wraps the work, rather than {@code @Transactional} on the method,
+ *       which would release the lock before the commit.</li>
+ *   <li><b>Ordered by trigger time.</b> The service remembers the trigger time of the newest cycle
+ *       it has settled, and refuses (WARN, with both times, never silently) a cycle triggered
+ *       <em>earlier</em>. An older cycle is dropped rather than applied because counters are only
+ *       meaningful in trigger order: if a newer cycle in which a place got through had already reset
+ *       its counter, applying the older cycle's failure afterwards would start a new streak that
+ *       the intervening success should have broken, and could later disable a place that has since
+ *       been working. Dropping it under-counts, which is the safe direction.</li>
+ *   <li><b>Exactly once.</b> The last {@value #REMEMBERED_CYCLES} settled pipeline run ids are
+ *       remembered, so the same cycle is never settled twice. In memory is enough because the
+ *       orchestrator settles inside the BRIEFING phase, after that phase row has been started: a
+ *       process restart resumes a run that is already in BRIEFING without re-entering the settle,
+ *       so a restart can lose a settle (a missed count, the safe direction) but cannot repeat
+ *       one.</li>
+ * </ul>
  */
 @Service
 public class LocationFailureService {
@@ -125,8 +146,16 @@ public class LocationFailureService {
     private final AdminAlertService adminAlertService;
     private final Clock clock;
 
-    /** Settled pipeline run ids, oldest first; guarded by {@code this} (see {@link #claim}). */
+    private final TransactionTemplate transactionTemplate;
+
+    /** Held across a whole settle, commit included; also guards the two fields below. */
+    private final ReentrantLock settleLock = new ReentrantLock();
+
+    /** Settled pipeline run ids, oldest first; guarded by {@link #settleLock}. */
     private final Set<Long> settledCycles = new LinkedHashSet<>();
+
+    /** Trigger time of the newest settled cycle, or null; guarded by {@link #settleLock}. */
+    private Instant newestSettledTrigger;
 
     /**
      * Constructs the service.
@@ -135,45 +164,64 @@ public class LocationFailureService {
      * @param locationRepository  column-scoped counter and disable writes
      * @param adminAlertService   the admin email channel
      * @param clock               injected clock for the failure timestamp and the reason's date
+     * @param transactionManager  runs each settle in one transaction held inside the settle lock
      */
     public LocationFailureService(CycleLocationOutcomeResolver outcomeResolver,
             LocationRepository locationRepository, AdminAlertService adminAlertService,
-            Clock clock) {
+            Clock clock, PlatformTransactionManager transactionManager) {
         this.outcomeResolver = outcomeResolver;
         this.locationRepository = locationRepository;
         this.adminAlertService = adminAlertService;
         this.clock = clock;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     /**
      * Settles one pipeline cycle: resolves each place's evidence from the cycle's recorded data and
-     * applies the failure-counting rule. Called once per cycle by {@code PipelineOrchestrator}. Any
-     * admin alert is registered to go out only after this transaction commits.
+     * applies the failure-counting rule, in one transaction, under the settle lock (see the class
+     * javadoc). Called once per cycle by {@code PipelineOrchestrator}. A cycle already settled, or
+     * triggered earlier than the newest settled cycle, is refused and logged. Any admin alert goes
+     * out only after the transaction has committed and the lock has been released.
      *
      * @param run the pipeline run being settled
      */
-    @Transactional
     public void settleCycle(PipelineRunEntity run) {
-        Long runId = run.getId();
-        if (!claim(runId)) {
-            LOG.info("Pipeline run {}: location failures already settled, not counting again",
-                    runId);
-            return;
+        List<Runnable> alerts;
+        settleLock.lock();
+        try {
+            if (!admit(run)) {
+                return;
+            }
+            alerts = transactionTemplate.execute(status -> {
+                List<Runnable> pending = new ArrayList<>();
+                applyEvidence(run.getId(), run.getCycleType(), run.getTriggerTime(),
+                        outcomeResolver.resolve(run.getId()), pending);
+                return pending;
+            });
+        } finally {
+            settleLock.unlock();
         }
-        applyEvidence(runId, run.getCycleType(), run.getTriggerTime(),
-                outcomeResolver.resolve(runId));
+        if (alerts != null) {
+            alerts.forEach(Runnable::run);
+        }
     }
 
     /**
-     * Forgets every settled cycle. Test hook, so a cached Spring context shared between test
-     * classes is left clean.
+     * Forgets every settled cycle and the newest trigger time. Test hook, so a cached Spring context
+     * shared between test classes is left clean.
      */
-    synchronized void forgetSettledCycles() {
-        settledCycles.clear();
+    void forgetSettledCycles() {
+        settleLock.lock();
+        try {
+            settledCycles.clear();
+            newestSettledTrigger = null;
+        } finally {
+            settleLock.unlock();
+        }
     }
 
     private void applyEvidence(Long runId, CycleType cycleType, Instant triggerTime,
-            Map<Long, CyclePlaceEvidence> evidence) {
+            Map<Long, CyclePlaceEvidence> evidence, List<Runnable> alerts) {
         List<Long> gotThrough = evidence.entrySet().stream()
                 .filter(e -> e.getValue().gotThrough()).map(Map.Entry::getKey).toList();
         List<Long> failed = evidence.entrySet().stream()
@@ -218,9 +266,11 @@ public class LocationFailureService {
             if (location == null || !location.isEnabled()) {
                 continue;
             }
-            int count = (location.getConsecutiveFailures() == null
-                    ? 0 : location.getConsecutiveFailures()) + 1;
-            locationRepository.recordFailure(id, count, failedAt);
+            if (locationRepository.recordFailure(id, failedAt) == 0) {
+                continue;
+            }
+            // Read back what the database produced; the snapshot above is for the name only.
+            int count = locationRepository.findConsecutiveFailuresById(id);
             LOG.info("Pipeline run {}: location '{}' failed this cycle ({}), consecutive failures "
                             + "now {}", runId, LogSanitizer.sanitize(location.getName()),
                     counting.get(id), count);
@@ -235,14 +285,14 @@ public class LocationFailureService {
             return;
         }
         if (qualifying.size() > MAX_DISABLED_PER_CYCLE) {
-            reportCapExceeded(runId, cycleType, triggerTime, qualifying);
+            reportCapExceeded(runId, cycleType, triggerTime, qualifying, alerts);
             return;
         }
-        disable(runId, cycleType, triggerTime, qualifying, failedAt);
+        disable(runId, cycleType, triggerTime, qualifying, failedAt, alerts);
     }
 
     private void disable(Long runId, CycleType cycleType, Instant triggerTime,
-            List<Counted> qualifying, LocalDateTime failedAt) {
+            List<Counted> qualifying, LocalDateTime failedAt, List<Runnable> alerts) {
         List<DisabledLocation> disabled = new ArrayList<>();
         for (Counted c : qualifying) {
             String reason = disabledReason(c.count(), failedAt, c.kind());
@@ -256,7 +306,7 @@ public class LocationFailureService {
         if (disabled.isEmpty()) {
             return;
         }
-        afterCommit(() -> {
+        alerts.add(() -> {
             try {
                 adminAlertService.sendLocationsAutoDisabledAlert(
                         runId, cycleType, triggerTime, disabled);
@@ -269,38 +319,19 @@ public class LocationFailureService {
     }
 
     private void reportCapExceeded(Long runId, CycleType cycleType, Instant triggerTime,
-            List<Counted> qualifying) {
+            List<Counted> qualifying, List<Runnable> alerts) {
         List<String> names = qualifying.stream().map(c -> c.location().getName()).toList();
         LOG.error("Pipeline run {}: {} places reached {} consecutive failed cycles in one cycle, "
                 + "more than the cap of {}, something systemic is wrong, NO place disabled: {}",
                 runId, names.size(), AUTO_DISABLE_THRESHOLD, MAX_DISABLED_PER_CYCLE,
                 LogSanitizer.sanitize(String.join(", ", names)));
-        afterCommit(() -> {
+        alerts.add(() -> {
             try {
                 adminAlertService.sendLocationDisableCapAlert(
                         runId, cycleType, triggerTime, names, MAX_DISABLED_PER_CYCLE);
             } catch (RuntimeException e) {
                 LOG.warn("Pipeline run {}: auto-disable cap alert dispatch raised an exception, "
                         + "logged and ignored: {}", runId, LogSanitizer.sanitize(e.getMessage()));
-            }
-        });
-    }
-
-    /**
-     * Runs the action once the surrounding transaction has committed. Under a transaction the action
-     * is registered as an {@code afterCommit} callback, so a rollback or a failed commit sends
-     * nothing; with no transaction active (never in production, where {@link #settleCycle} is
-     * transactional) it runs immediately.
-     */
-    private static void afterCommit(Runnable action) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            action.run();
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                action.run();
             }
         });
     }
@@ -316,18 +347,37 @@ public class LocationFailureService {
     }
 
     /**
-     * Claims a cycle for settling.
+     * Decides whether a cycle may be settled, and if so records it as settled. Called with the
+     * settle lock held.
      *
-     * @return {@code true} if this cycle has not been settled (among the remembered ones)
+     * @return {@code false}, after logging why, for a cycle already settled or triggered earlier
+     *         than the newest settled cycle
      */
-    private synchronized boolean claim(Long pipelineRunId) {
-        if (!settledCycles.add(pipelineRunId)) {
+    private boolean admit(PipelineRunEntity run) {
+        Long runId = run.getId();
+        Instant trigger = run.getTriggerTime();
+        if (settledCycles.contains(runId)) {
+            LOG.info("Pipeline run {}: location failures already settled, not counting again",
+                    runId);
             return false;
         }
+        if (trigger != null && newestSettledTrigger != null
+                && trigger.isBefore(newestSettledTrigger)) {
+            LOG.warn("Pipeline run {} (triggered {}) not settled: a newer cycle (triggered {}) has "
+                    + "already been settled, and counting an older cycle after it could restart a "
+                    + "streak that cycle's success had broken", runId, trigger,
+                    newestSettledTrigger);
+            return false;
+        }
+        settledCycles.add(runId);
         if (settledCycles.size() > REMEMBERED_CYCLES) {
             Iterator<Long> oldest = settledCycles.iterator();
             oldest.next();
             oldest.remove();
+        }
+        if (trigger != null && (newestSettledTrigger == null
+                || trigger.isAfter(newestSettledTrigger))) {
+            newestSettledTrigger = trigger;
         }
         return true;
     }

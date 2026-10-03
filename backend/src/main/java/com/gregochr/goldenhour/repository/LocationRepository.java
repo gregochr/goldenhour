@@ -145,16 +145,30 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      * admin's concurrent edit of the same place. The {@code enabled = true} guard makes the update
      * a no-op for a place an admin disabled mid-cycle.
      *
+     * <p>The increment is done by the database, not computed by the caller from an entity read
+     * earlier, so two writers can never overwrite each other with a stale absolute value. Read the
+     * result back with {@link #findConsecutiveFailuresById}.
+     *
      * @param id            the location id
-     * @param failureCount  the new consecutive failure count
      * @param lastFailureAt UTC time of this failure
      * @return rows updated (0 or 1)
      */
     @Modifying
-    @Query("UPDATE LocationEntity l SET l.consecutiveFailures = :failureCount, "
+    @Query("UPDATE LocationEntity l SET "
+            + "l.consecutiveFailures = COALESCE(l.consecutiveFailures, 0) + 1, "
             + "l.lastFailureAt = :lastFailureAt WHERE l.id = :id AND l.enabled = true")
-    int recordFailure(@Param("id") Long id, @Param("failureCount") int failureCount,
-            @Param("lastFailureAt") LocalDateTime lastFailureAt);
+    int recordFailure(@Param("id") Long id, @Param("lastFailureAt") LocalDateTime lastFailureAt);
+
+    /**
+     * Reads the consecutive failure count straight from the database. A scalar projection, so it
+     * never returns a value cached in the persistence context: after {@link #recordFailure} it is
+     * the number that update produced.
+     *
+     * @param id the location id
+     * @return the stored count, or {@code null} if the column is null
+     */
+    @Query("SELECT l.consecutiveFailures FROM LocationEntity l WHERE l.id = :id")
+    Integer findConsecutiveFailuresById(@Param("id") Long id);
 
     /**
      * Auto-disables an enabled location: sets {@code enabled = false}, the reason, the consecutive

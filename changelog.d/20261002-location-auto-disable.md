@@ -33,8 +33,13 @@ roster.
   per cycle through `AdminAlertService`, sent after the settle transaction commits. If more than 5
   places qualify in a single cycle (`MAX_DISABLED_PER_CYCLE`) none is disabled, an ERROR is logged
   and the admins are told that something systemic is wrong; the counters still advance.
-- **Settled once per cycle** whatever the order cycles settle in (the last 200 settled run ids are
-  remembered in memory; a restart can lose a settle but never repeat one).
+- **Settled once per cycle, one at a time, in trigger order.** Settles run under one in-JVM lock
+  (commit included; this is a single-instance app), the failure count is incremented by the database
+  and read back, and the last 200 settled run ids are remembered so a cycle is never counted twice
+  (a restart can lose a settle but never repeat one). A cycle triggered earlier than the newest one
+  already settled (an admin's Run now while an older cycle was still waiting) is refused with a
+  WARN naming both times, because counting it after the newer cycle's success could restart a streak
+  that success had broken; dropping it under-counts, which is the safe direction.
 - **Known gap.** A cycle that submitted no batch at all (its dispositions sit on an anchor job run
   with no `forecast_batch` row, the 2026-09-29 shape) resolves to nothing and counts nobody. A
   bluebell or woodland request that failed is never retried, so such a failure stands for the cycle.

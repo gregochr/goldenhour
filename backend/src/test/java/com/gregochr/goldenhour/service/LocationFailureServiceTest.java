@@ -20,8 +20,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.mockito.Mockito;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.TransactionSystemException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -33,7 +35,10 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -63,10 +68,47 @@ class LocationFailureServiceTest {
     private CycleLocationOutcomeResolver resolver;
 
     @Mock
+    private AdminAlertService adminAlertService;
+
+    /** Records transaction outcomes and can be told to fail its commit. */
+    private static final class FakeTransactionManager implements PlatformTransactionManager {
+        private final java.util.concurrent.atomic.AtomicInteger commits =
+                new java.util.concurrent.atomic.AtomicInteger();
+        private final java.util.concurrent.atomic.AtomicInteger rollbacks =
+                new java.util.concurrent.atomic.AtomicInteger();
+        private volatile boolean failCommit;
+
+        @Override
+        public TransactionStatus getTransaction(
+                org.springframework.transaction.TransactionDefinition definition) {
+            return new org.springframework.transaction.support.SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) {
+            if (failCommit) {
+                throw new TransactionSystemException("commit failed");
+            }
+            commits.incrementAndGet();
+        }
+
+        @Override
+        public void rollback(TransactionStatus status) {
+            rollbacks.incrementAndGet();
+        }
+    }
+
+    private final FakeTransactionManager transactionManager = new FakeTransactionManager();
+
+    /**
+     * A repository whose counter methods behave like the database (increment, then read back), so
+     * the tests can state the count a place had before the cycle and assert on what is written.
+     * Everything else is an ordinary Mockito mock: stubs and verifications work as usual.
+     */
     private LocationRepository locationRepository;
 
-    @Mock
-    private AdminAlertService adminAlertService;
+    /** Stored consecutive failure counts, by location id; seeded by {@link #place}. */
+    private final Map<Long, Integer> storedCounts = new java.util.concurrent.ConcurrentHashMap<>();
 
     private LocationFailureService service;
     private ListAppender<ILoggingEvent> logAppender;
@@ -74,8 +116,32 @@ class LocationFailureServiceTest {
 
     @BeforeEach
     void setUp() {
+        locationRepository = Mockito.mock(LocationRepository.class, invocation -> {
+            switch (invocation.getMethod().getName()) {
+                case "recordFailure" -> {
+                    storedCounts.merge((Long) invocation.getArgument(0), 1, Integer::sum);
+                    return 1;
+                }
+                case "resetFailureCounts" -> {
+                    int reset = 0;
+                    for (Object id : (java.util.Collection<?>) invocation.getArgument(0)) {
+                        if (storedCounts.getOrDefault((Long) id, 0) > 0) {
+                            storedCounts.put((Long) id, 0);
+                            reset++;
+                        }
+                    }
+                    return reset;
+                }
+                case "findConsecutiveFailuresById" -> {
+                    return storedCounts.get((Long) invocation.getArgument(0));
+                }
+                default -> {
+                    return Mockito.RETURNS_DEFAULTS.answer(invocation);
+                }
+            }
+        });
         service = new LocationFailureService(resolver, locationRepository, adminAlertService,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), transactionManager);
         serviceLogger = (Logger) LoggerFactory.getLogger(LocationFailureService.class);
         logAppender = new ListAppender<>();
         logAppender.start();
@@ -85,18 +151,20 @@ class LocationFailureServiceTest {
     @AfterEach
     void tearDown() {
         serviceLogger.detachAppender(logAppender);
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
     }
 
-    private static LocationEntity place(long id, String name, Integer failures, boolean enabled) {
+    private LocationEntity place(long id, String name, Integer failures, boolean enabled) {
+        storedCounts.put(id, failures == null ? 0 : failures);
         return LocationEntity.builder().id(id).name(name).lat(54.0).lon(-1.0)
                 .enabled(enabled).consecutiveFailures(failures).build();
     }
 
     private static PipelineRunEntity run(long id, CycleType type) {
-        PipelineRunEntity run = new PipelineRunEntity(type, TRIGGER);
+        return run(id, type, TRIGGER);
+    }
+
+    private static PipelineRunEntity run(long id, CycleType type, Instant trigger) {
+        PipelineRunEntity run = new PipelineRunEntity(type, trigger);
         run.setId(id);
         return run;
     }
@@ -151,7 +219,8 @@ class LocationFailureServiceTest {
 
         verify(locationRepository).resetFailureCounts(ids(1, 9));
         verify(locationRepository).findAllById(List.of(10L));
-        verify(locationRepository).recordFailure(10L, 1, NOW_UTC);
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
+        verify(locationRepository).findConsecutiveFailuresById(10L);
         verifyNoMoreInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
         assertThat(messages(Level.INFO)).containsExactly(
@@ -194,7 +263,7 @@ class LocationFailureServiceTest {
         settle(evidence);
 
         for (long id = 6; id <= 11; id++) {
-            verify(locationRepository).recordFailure(id, 1, NOW_UTC);
+            verify(locationRepository).recordFailure(id, NOW_UTC);
         }
     }
 
@@ -251,7 +320,7 @@ class LocationFailureServiceTest {
 
         settle(evidence);
 
-        verify(locationRepository).recordFailure(6L, 1, NOW_UTC);
+        verify(locationRepository).recordFailure(6L, NOW_UTC);
     }
 
     @Test
@@ -311,7 +380,7 @@ class LocationFailureServiceTest {
 
         settle(evidence);
 
-        verify(locationRepository).recordFailure(10L, 1, NOW_UTC);
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
     }
 
     @Test
@@ -326,7 +395,7 @@ class LocationFailureServiceTest {
 
         settle(evidence);
 
-        verify(locationRepository, times(1)).recordFailure(15L, 2, NOW_UTC);
+        verify(locationRepository, times(1)).recordFailure(15L, NOW_UTC);
     }
 
     // ---- collection errors ----
@@ -441,7 +510,7 @@ class LocationFailureServiceTest {
 
         settle(evidence, CycleType.INTRADAY);
 
-        verify(locationRepository).recordFailure(10L, 3, NOW_UTC);
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
         verify(locationRepository).autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON);
         verify(adminAlertService).sendLocationsAutoDisabledAlert(RUN_ID, CycleType.INTRADAY,
                 TRIGGER, List.of(new DisabledLocation("Bamburgh", EVALUATION_REASON)));
@@ -462,7 +531,8 @@ class LocationFailureServiceTest {
 
         verify(locationRepository).resetFailureCounts(ids(1, 9));
         verify(locationRepository).findAllById(List.of(10L));
-        verify(locationRepository).recordFailure(10L, 2, NOW_UTC);
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
+        verify(locationRepository).findConsecutiveFailuresById(10L);
         verifyNoMoreInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
     }
@@ -515,7 +585,8 @@ class LocationFailureServiceTest {
         verify(locationRepository).resetFailureCounts(ids(1, 20));
         verify(locationRepository).findAllById(ids(21, 26));
         for (long id = 21; id <= 26; id++) {
-            verify(locationRepository).recordFailure(id, 3, NOW_UTC);
+            verify(locationRepository).recordFailure(id, NOW_UTC);
+            verify(locationRepository).findConsecutiveFailuresById(id);
         }
         verifyNoMoreInteractions(locationRepository);
         verify(adminAlertService).sendLocationDisableCapAlert(RUN_ID, CycleType.INTRADAY, TRIGGER,
@@ -589,7 +660,7 @@ class LocationFailureServiceTest {
 
         settle(evidence);
 
-        verify(locationRepository).recordFailure(10L, 1, NOW_UTC);
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
     }
 
     @Test
@@ -613,13 +684,6 @@ class LocationFailureServiceTest {
 
     // ---- the alert goes out only after the transaction commits ----
 
-    private TransactionSynchronization onlySynchronization() {
-        List<TransactionSynchronization> registered =
-                TransactionSynchronizationManager.getSynchronizations();
-        assertThat(registered).hasSize(1);
-        return registered.get(0);
-    }
-
     private Map<Long, CyclePlaceEvidence> oneDisableEvidence() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
         put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
@@ -631,35 +695,35 @@ class LocationFailureServiceTest {
     }
 
     @Test
-    @DisplayName("inside a transaction the disable alert is not sent by settleCycle itself, and "
-            + "goes out when the transaction commits")
+    @DisplayName("the disable alert goes out only after the settle transaction has committed")
     void alertSentOnlyAfterCommit() {
-        TransactionSynchronizationManager.initSynchronization();
-
-        settle(oneDisableEvidence());
-
-        verifyNoInteractions(adminAlertService);
-        onlySynchronization().afterCommit();
-        verify(adminAlertService).sendLocationsAutoDisabledAlert(RUN_ID, CycleType.NIGHTLY,
+        java.util.concurrent.atomic.AtomicInteger commitsWhenSent =
+                new java.util.concurrent.atomic.AtomicInteger(-1);
+        doAnswer(invocation -> {
+            commitsWhenSent.set(transactionManager.commits.get());
+            return null;
+        }).when(adminAlertService).sendLocationsAutoDisabledAlert(RUN_ID, CycleType.NIGHTLY,
                 TRIGGER, List.of(new DisabledLocation("Bamburgh", EVALUATION_REASON)));
-    }
-
-    @Test
-    @DisplayName("a transaction that fails to commit (afterCommit never runs, the transaction "
-            + "rolls back) sends no alert")
-    void commitFailure_sendsNoAlert() {
-        TransactionSynchronizationManager.initSynchronization();
 
         settle(oneDisableEvidence());
 
-        onlySynchronization().afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+        assertThat(commitsWhenSent.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a transaction that fails to commit propagates the failure and sends no alert")
+    void commitFailure_sendsNoAlert() {
+        transactionManager.failCommit = true;
+
+        assertThatThrownBy(() -> settle(oneDisableEvidence()))
+                .isInstanceOf(TransactionSystemException.class);
+
         verifyNoInteractions(adminAlertService);
     }
 
     @Test
-    @DisplayName("the cap alert is likewise held until the transaction commits")
-    void capAlertSentOnlyAfterCommit() {
-        TransactionSynchronizationManager.initSynchronization();
+    @DisplayName("the cap alert is likewise sent only after the commit, and not when it fails")
+    void capAlert_afterCommitOnly() {
         Map<Long, CyclePlaceEvidence> evidence = cycle();
         put(evidence, 1, 20, CyclePlaceEvidence.scoredIn(Lane.SKY));
         put(evidence, 21, 26, CyclePlaceEvidence.failedIn(Lane.SKY));
@@ -668,13 +732,112 @@ class LocationFailureServiceTest {
             failing.add(place(id, "P" + id, 2, true));
         }
         when(locationRepository.findAllById(ids(21, 26))).thenReturn(failing);
+        transactionManager.failCommit = true;
 
-        settle(evidence);
+        assertThatThrownBy(() -> settle(evidence)).isInstanceOf(TransactionSystemException.class);
 
         verifyNoInteractions(adminAlertService);
-        onlySynchronization().afterCommit();
-        verify(adminAlertService).sendLocationDisableCapAlert(RUN_ID, CycleType.NIGHTLY, TRIGGER,
-                List.of("P21", "P22", "P23", "P24", "P25", "P26"), 5);
+    }
+
+    // ---- serialised and ordered ----
+
+    @Test
+    @DisplayName("two settles started together from two threads run strictly one after the other: "
+            + "the second does not begin resolving until the first has finished, and a place "
+            + "that failed in both ends on exactly 2")
+    void concurrentSettles_runOneAfterTheOther() throws Exception {
+        List<String> events = java.util.Collections.synchronizedList(new ArrayList<>());
+        java.util.concurrent.CountDownLatch aInside = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseA = new java.util.concurrent.CountDownLatch(1);
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
+        when(resolver.resolve(RUN_ID)).thenAnswer(invocation -> {
+            events.add("A resolve start");
+            aInside.countDown();
+            releaseA.await();
+            events.add("A resolve end");
+            return evidence;
+        });
+        when(resolver.resolve(RUN_ID + 1)).thenAnswer(invocation -> {
+            events.add("B resolve start");
+            return evidence;
+        });
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        Thread first = new Thread(() -> settleRecording(
+                run(RUN_ID, CycleType.NIGHTLY, TRIGGER), failure));
+        Thread second = new Thread(() -> settleRecording(
+                run(RUN_ID + 1, CycleType.NIGHTLY, TRIGGER.plusSeconds(60)), failure));
+
+        first.start();
+        assertThat(aInside.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        second.start();
+        // No sleeping: spin until the second thread is parked on the settle lock (or, if the
+        // service were unlocked, has run straight through), then let the first finish.
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        while (second.getState() != Thread.State.WAITING
+                && second.getState() != Thread.State.TERMINATED
+                && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        releaseA.countDown();
+        first.join(5000);
+        second.join(5000);
+
+        assertThat(failure.get()).isNull();
+        assertThat(events).containsExactly("A resolve start", "A resolve end", "B resolve start");
+        assertThat(storedCounts.get(10L)).isEqualTo(2);
+    }
+
+    private void settleRecording(PipelineRunEntity run,
+            java.util.concurrent.atomic.AtomicReference<Throwable> failure) {
+        try {
+            service.settleCycle(run);
+        } catch (Throwable t) {
+            failure.set(t);
+        }
+    }
+
+    @Test
+    @DisplayName("a newer cycle settled first, then an older one: the older is refused with a WARN "
+            + "naming both trigger times, and the counter keeps the newer cycle's result (0)")
+    void newerThenOlder_olderRefusedAndLogged() {
+        Instant older = TRIGGER;
+        Instant newer = TRIGGER.plusSeconds(3600);
+        storedCounts.put(1L, 2);
+        Map<Long, CyclePlaceEvidence> newerCycle = cycle();
+        newerCycle.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        when(resolver.resolve(RUN_ID + 1)).thenReturn(newerCycle);
+
+        service.settleCycle(run(RUN_ID + 1, CycleType.NIGHTLY, newer));
+        service.settleCycle(run(RUN_ID, CycleType.INTRADAY, older));
+
+        verify(resolver, times(1)).resolve(RUN_ID + 1);
+        verify(resolver, never()).resolve(RUN_ID);
+        verify(locationRepository).resetFailureCounts(List.of(1L));
+        verifyNoMoreInteractions(locationRepository);
+        assertThat(storedCounts.get(1L)).isZero();
+        assertThat(messages(Level.WARN)).containsExactly(
+                "Pipeline run 300 (triggered 2026-10-02T01:00:00Z) not settled: a newer cycle "
+                        + "(triggered 2026-10-02T02:00:00Z) has already been settled, and counting "
+                        + "an older cycle after it could restart a streak that cycle's success "
+                        + "had broken");
+    }
+
+    @Test
+    @DisplayName("a cycle triggered at the same instant as the newest settled one is still settled")
+    void sameTriggerTime_isSettled() {
+        when(resolver.resolve(RUN_ID)).thenReturn(Map.of());
+        when(resolver.resolve(RUN_ID + 1)).thenReturn(Map.of());
+
+        service.settleCycle(run(RUN_ID, CycleType.NIGHTLY, TRIGGER));
+        service.settleCycle(run(RUN_ID + 1, CycleType.INTRADAY, TRIGGER));
+
+        verify(resolver).resolve(RUN_ID);
+        verify(resolver).resolve(RUN_ID + 1);
     }
 
     // ---- idempotence ----
@@ -694,22 +857,9 @@ class LocationFailureServiceTest {
         service.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
 
         verify(resolver, times(1)).resolve(RUN_ID);
-        verify(locationRepository, times(1)).recordFailure(10L, 1, NOW_UTC);
+        verify(locationRepository, times(1)).recordFailure(10L, NOW_UTC);
         verify(locationRepository, times(1)).resetFailureCounts(ids(1, 9));
-    }
-
-    @Test
-    @DisplayName("a newer cycle settling first does not drop an older one that settles later: "
-            + "both are settled")
-    void newerThenOlder_bothSettle() {
-        when(resolver.resolve(RUN_ID + 1)).thenReturn(Map.of());
-        when(resolver.resolve(RUN_ID)).thenReturn(Map.of());
-
-        service.settleCycle(run(RUN_ID + 1, CycleType.NIGHTLY));
-        service.settleCycle(run(RUN_ID, CycleType.INTRADAY));
-
-        verify(resolver).resolve(RUN_ID + 1);
-        verify(resolver).resolve(RUN_ID);
+        assertThat(storedCounts.get(10L)).isEqualTo(1);
     }
 
     @Test

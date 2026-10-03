@@ -76,17 +76,17 @@ class LocationRepositoryTest {
     }
 
     @Test
-    @DisplayName("recordFailure sets the counter and the failure time on an enabled place and "
-            + "leaves its enabled flag, disabled reason and name unchanged")
+    @DisplayName("recordFailure adds one to the counter and sets the failure time on an enabled "
+            + "place, leaving its enabled flag, disabled reason and name unchanged")
     void recordFailure_touchesOnlyCounterAndTime() {
         LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
         LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
 
-        int rows = repository.recordFailure(saved.getId(), 2, at);
+        int rows = repository.recordFailure(saved.getId(), at);
 
         LocationEntity found = reload(saved.getId());
         assertThat(rows).isEqualTo(1);
-        assertThat(found.getConsecutiveFailures()).isEqualTo(2);
+        assertThat(found.getConsecutiveFailures()).isEqualTo(1);
         assertThat(found.getLastFailureAt()).isEqualTo(at);
         assertThat(found.isEnabled()).isTrue();
         assertThat(found.getDisabledReason()).isNull();
@@ -100,10 +100,38 @@ class LocationRepositoryTest {
         location.setEnabled(false);
         LocationEntity saved = repository.save(location);
 
-        int rows = repository.recordFailure(saved.getId(), 2, LocalDateTime.of(2026, 10, 2, 3, 0));
+        int rows = repository.recordFailure(saved.getId(), LocalDateTime.of(2026, 10, 2, 3, 0));
 
         assertThat(rows).isZero();
         assertThat(reload(saved.getId()).getConsecutiveFailures()).isZero();
+    }
+
+    @Test
+    @DisplayName("two increments on one row make 2, each applied to the stored value rather than "
+            + "to a snapshot, and findConsecutiveFailuresById reads the stored value back")
+    void recordFailure_twoIncrementsAreAtomic_readBackFromTheDatabase() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
+
+        repository.recordFailure(saved.getId(), at);
+        repository.recordFailure(saved.getId(), at.plusHours(12));
+
+        // The entity is still in the persistence context with its old snapshot (0): the scalar
+        // read must see the database's 2, not that snapshot.
+        assertThat(repository.findConsecutiveFailuresById(saved.getId())).isEqualTo(2);
+        assertThat(reload(saved.getId()).getLastFailureAt()).isEqualTo(at.plusHours(12));
+    }
+
+    @Test
+    @DisplayName("recordFailure counts a null stored counter as zero")
+    void recordFailure_nullCounter_countsFromZero() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setConsecutiveFailures(null);
+        LocationEntity saved = repository.save(location);
+
+        repository.recordFailure(saved.getId(), LocalDateTime.of(2026, 10, 2, 3, 0));
+
+        assertThat(repository.findConsecutiveFailuresById(saved.getId())).isEqualTo(1);
     }
 
     @Test
