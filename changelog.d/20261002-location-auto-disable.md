@@ -57,6 +57,9 @@ roster.
   well as from `api_call_log`, because the audit rows are best-effort (a batch whose job-run
   bookkeeping failed logs nothing) and a place that really scored must still be reset. A failure
   still needs positive failure evidence, so a gap can only under-count.
+  A cycle whose audit evidence is incomplete (a forecast batch with a null job run, whose results
+  were never logged) counts no failures, since a failed row cannot then be shown to be the place's
+  last word; its successes still reset.
 - **The failure columns are written only by column-scoped updates.** `consecutive_failures`,
   `last_failure_at` and `disabled_reason` are `updatable = false` on `LocationEntity` (as the
   `app_user` settings columns are) and `LocationEntity` is `@DynamicUpdate`, so an admin's

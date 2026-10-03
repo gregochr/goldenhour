@@ -356,6 +356,99 @@ class CycleLocationOutcomeResolverTest {
         assertThat(evidence.gotThrough()).isTrue();
     }
 
+    // ---- incomplete audit evidence: a cycle with an unlogged batch counts no failures ----
+
+    private static final String UNLOGGED_BATCH_ID = "msgbatch_unlogged";
+
+    private void cycleWithOneUnloggedBatch(List<CycleDisposition> dispositions,
+            List<BatchCallOutcome> results) {
+        cycleWithBatches(batch(BATCH_ID, BatchType.FORECAST, JOB_RUN_ID),
+                batch(UNLOGGED_BATCH_ID, BatchType.FORECAST, null));
+        when(dispositionRepository.findCycleDispositions(List.of(JOB_RUN_ID)))
+                .thenReturn(dispositions);
+        when(apiCallLogRepository.findBatchCallOutcomes(List.of(BATCH_ID, UNLOGGED_BATCH_ID)))
+                .thenReturn(results);
+    }
+
+    @Test
+    @DisplayName("a cycle with one null-job-run batch: a place with a failed row in the logged "
+            + "batch and no success row is NOT failed (nothing recorded), because the unlogged "
+            + "batch may hold its success")
+    void incompleteCycle_failedRowIsDowngradedToNothing() {
+        cycleWithOneUnloggedBatch(List.of(disposition(1L, "EVALUATED")), List.of(sky(1L, false)));
+
+        CyclePlaceEvidence evidence = resolver().resolve(RUN_ID).get(1L);
+
+        assertThat(evidence).isEqualTo(CyclePlaceEvidence.nothing());
+        assertThat(evidence.failed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the same cycle: a collection error is likewise downgraded, since the cycle's "
+            + "audit evidence cannot show the place's last word")
+    void incompleteCycle_collectionErrorIsDowngradedToo() {
+        cycleWithOneUnloggedBatch(List.of(disposition(2L, "SKIPPED_ERROR")), List.of());
+
+        assertThat(resolver().resolve(RUN_ID).get(2L)).isEqualTo(CyclePlaceEvidence.nothing());
+    }
+
+    @Test
+    @DisplayName("the same cycle: a place with a success row is still GOT_THROUGH, and a place "
+            + "rescued by a forecast_score row too, so resets still apply")
+    void incompleteCycle_successesStillStand() {
+        cycleWithOneUnloggedBatch(
+                List.of(disposition(3L, "EVALUATED"), disposition(4L, "EVALUATED")),
+                List.of(sky(3L, true)));
+        scoredRows(new CycleScoredComponent(4L, 1L));
+
+        Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
+
+        assertThat(evidence.get(3L).gotThrough()).isTrue();
+        assertThat(evidence.get(4L).gotThrough()).isTrue();
+    }
+
+    @Test
+    @DisplayName("the incomplete cycle logs ONE WARN naming the cycle and the unlogged batch")
+    void incompleteCycle_warnsOnceNamingTheBatch() {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(CycleLocationOutcomeResolver.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            cycleWithOneUnloggedBatch(List.of(disposition(1L, "EVALUATED")), List.of(sky(1L, false)));
+
+            resolver().resolve(RUN_ID);
+
+            List<String> warnings = appender.list.stream()
+                    .filter(e -> e.getLevel() == ch.qos.logback.classic.Level.WARN)
+                    .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+            assertThat(warnings).containsExactly(
+                    "Pipeline run 300: audit evidence is incomplete (forecast batch(es) "
+                            + "[msgbatch_unlogged] have no job run, so their results were never "
+                            + "logged), so no failure is counted for this cycle; successes still "
+                            + "count");
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    @DisplayName("a cycle whose every forecast batch has a job run keeps FAILED as before, and "
+            + "an AURORA batch without one does not make the cycle incomplete")
+    void completeCycle_failedRowStaysFailed() {
+        cycleWithBatches(batch(BATCH_ID, BatchType.FORECAST, JOB_RUN_ID),
+                batch("msgbatch_aurora", BatchType.AURORA, null));
+        when(dispositionRepository.findCycleDispositions(List.of(JOB_RUN_ID)))
+                .thenReturn(List.of(disposition(5L, "EVALUATED")));
+        when(apiCallLogRepository.findBatchCallOutcomes(List.of(BATCH_ID)))
+                .thenReturn(List.of(sky(5L, false)));
+
+        assertThat(resolver().resolve(RUN_ID).get(5L))
+                .isEqualTo(CyclePlaceEvidence.failedIn(Lane.SKY));
+    }
+
     @Test
     @DisplayName("forecast_score products map to lanes: SKY, FIERY_SKY and GOLDEN_HOUR are sky, "
             + "BLUEBELL is bluebell, WOODLAND is woodland; TIDAL and INVERSION name no lane")

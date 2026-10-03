@@ -387,6 +387,29 @@ class LocationFailureTrackingTest {
         assertThat(newRun(older.getId()).getFailuresSettledAt()).isNull();
     }
 
+    @Test
+    @DisplayName("a cycle whose audit evidence is incomplete (one forecast batch has a null job "
+            + "run) counts no failure: a place at 2 with a failed row stays at 2 and is not "
+            + "disabled, while the other place's success still resets it")
+    void incompleteAuditEvidence_countsNoFailure() {
+        setCounter(angel, 2);
+        setCounter(keswick, 1);
+        long runId = persistedRunId();
+        seedBatchWithResults(runId, false);
+        ForecastBatchEntity unlogged = new ForecastBatchEntity(
+                "msgbatch_unlogged_" + runId, BatchType.FORECAST, 1,
+                Instant.parse("2026-10-03T01:00:00Z"));
+        unlogged.setPipelineRunId(runId);
+        forecastBatchRepository.save(unlogged);
+
+        locationFailureService.settleCycle(newRun(runId));
+
+        LocationEntity unchanged = reload(angel);
+        assertThat(unchanged.getConsecutiveFailures()).isEqualTo(2);
+        assertThat(unchanged.isEnabled()).isTrue();
+        assertThat(reload(keswick).getConsecutiveFailures()).isZero();
+    }
+
     private void seedBatchWithResults(long runId, boolean angelSucceeded) {
         String batchId = "msgbatch_order_" + runId;
         ForecastBatchEntity batch = new ForecastBatchEntity(

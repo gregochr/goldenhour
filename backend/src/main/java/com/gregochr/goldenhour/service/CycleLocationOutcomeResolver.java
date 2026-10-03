@@ -80,6 +80,26 @@ import java.util.Set;
  * {@code SKIPPED_ERROR} disposition or a failed result row). Missing success evidence alone never
  * makes a place failed, so a bookkeeping gap can only under-count, never wrongly disable.
  *
+ * <p><b>A cycle whose audit evidence is incomplete counts no failures.</b> If any
+ * {@code FORECAST} batch of the cycle (a retry batch included) has a null {@code jobRunId}, the
+ * result rows of that batch were never logged, so a failed row elsewhere in the cycle cannot be shown
+ * to be its place's LAST word: the place may have succeeded in the unlogged batch, and the
+ * {@code forecast_score} rescue is not a reliable record of that, because its rows are latest-wins
+ * and flag-gated, so a later overlapping cycle or an admin/sync evaluation (which writes a null
+ * {@code pipeline_run_id}) can replace this cycle's row before the settle. Counting that failed row
+ * would risk a false positive, and a false positive disables a place for every user, so every FAILED
+ * outcome in such a cycle is downgraded to "nothing recorded" (WARN naming the cycle and the
+ * batches). Under-counting is the safe direction. Successes still stand, and still reset, because a
+ * success can only help.
+ *
+ * <p><b>Residual, deliberately not closed here.</b> {@code ForecastResultHandler.persistBatchLog}
+ * skips a row for two reasons: no job run (the case above, which the downgrade covers) and an
+ * individual {@code logBatchResult} write that throws, which is caught and logged at WARN. In the
+ * second case the batch's job run exists, so the cycle looks complete although one row is missing:
+ * one lost row is one possibly-missed success for one place in one cycle. It is mitigated by the
+ * {@code forecast_score} union above and by the three-cycle threshold (one missed reset is not a
+ * disable), and is left open.
+ *
  * <p>The result is deliberately raw, per lane: {@code LocationFailureService} compares a failure
  * only with like evidence (the same lane for a Claude failure), because a fault confined to one
  * lane, a woodland parser regression for instance, must not be diluted by the many places that
@@ -192,8 +212,23 @@ public class CycleLocationOutcomeResolver {
             }
         }
 
+        List<String> unloggedBatches = batches.stream()
+                .filter(b -> b.getBatchType() == BatchType.FORECAST && b.getJobRunId() == null)
+                .map(ForecastBatchEntity::getAnthropicBatchId)
+                .toList();
+        boolean incomplete = !unloggedBatches.isEmpty();
+        if (incomplete) {
+            LOG.warn("Pipeline run {}: audit evidence is incomplete (forecast batch(es) {} have no "
+                    + "job run, so their results were never logged), so no failure is counted for "
+                    + "this cycle; successes still count", pipelineRunId, unloggedBatches);
+        }
+
         Map<Long, CyclePlaceEvidence> evidence = new HashMap<>();
-        tallies.forEach((locationId, tally) -> evidence.put(locationId, tally.evidence()));
+        tallies.forEach((locationId, tally) -> {
+            CyclePlaceEvidence placeEvidence = tally.evidence();
+            evidence.put(locationId, incomplete && placeEvidence.failed()
+                    ? CyclePlaceEvidence.nothing() : placeEvidence);
+        });
         return evidence;
     }
 
