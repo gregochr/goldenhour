@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,9 @@ class PipelineRunRepositoryTest {
 
     @Autowired
     private PipelineRunRepository repository;
+
+    @Autowired
+    private org.springframework.boot.jpa.test.autoconfigure.TestEntityManager entityManager;
 
     private static PipelineRunEntity run(CycleType type, Instant triggerTime) {
         return new PipelineRunEntity(type, triggerTime);
@@ -80,5 +84,111 @@ class PipelineRunRepositoryTest {
         List<Instant> result = repository.findTriggerTimesAfter(threshold);
 
         assertThat(result).containsExactly(anchorRunTrigger);
+    }
+
+    @Test
+    @DisplayName("claimFailureSettle is atomic and one-shot: the first claim updates the row, every "
+            + "later claim updates nothing and leaves the first instant in place")
+    void claimFailureSettle_isOneShot() {
+        PipelineRunEntity saved = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z")));
+        Instant first = Instant.parse("2026-10-02T01:30:00Z");
+
+        int firstClaim = repository.claimFailureSettle(saved.getId(), first);
+        int secondClaim = repository.claimFailureSettle(
+                saved.getId(), Instant.parse("2026-10-02T02:00:00Z"));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(firstClaim).isEqualTo(1);
+        assertThat(secondClaim).isZero();
+        assertThat(repository.findById(saved.getId()).orElseThrow().getFailuresSettledAt())
+                .isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("findNewestSettledTriggerTime is the maximum trigger over SETTLED runs only, and "
+            + "null when none is settled")
+    void findNewestSettledTriggerTime_overSettledRunsOnly() {
+        PipelineRunEntity older = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-01T01:00:00Z")));
+        PipelineRunEntity newer = repository.save(
+                run(CycleType.INTRADAY, Instant.parse("2026-10-02T14:00:00Z")));
+        repository.save(run(CycleType.NIGHTLY, Instant.parse("2026-10-03T01:00:00Z")));
+        assertThat(repository.findNewestSettledTriggerTime()).isNull();
+
+        repository.claimFailureSettle(older.getId(), Instant.parse("2026-10-01T02:00:00Z"));
+        assertThat(repository.findNewestSettledTriggerTime())
+                .isEqualTo(Instant.parse("2026-10-01T01:00:00Z"));
+        repository.claimFailureSettle(newer.getId(), Instant.parse("2026-10-02T15:00:00Z"));
+
+        assertThat(repository.findNewestSettledTriggerTime())
+                .isEqualTo(Instant.parse("2026-10-02T14:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("findUnsettledSince returns only runs with no claim, at or after the bound, not in "
+            + "the excluded status, oldest trigger first")
+    void findUnsettledSince_filtersAndOrders() {
+        Instant since = Instant.parse("2026-09-26T00:00:00Z");
+        PipelineRunEntity tooOld = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-09-25T23:59:59Z")));
+        tooOld.setStatus(PipelineRunStatus.COMPLETED);
+        PipelineRunEntity atBound = repository.save(run(CycleType.NIGHTLY, since));
+        atBound.setStatus(PipelineRunStatus.FAILED);
+        PipelineRunEntity later = repository.save(
+                run(CycleType.INTRADAY, Instant.parse("2026-10-02T14:00:00Z")));
+        later.setStatus(PipelineRunStatus.DEGRADED);
+        PipelineRunEntity claimed = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-01T01:00:00Z")));
+        claimed.setStatus(PipelineRunStatus.COMPLETED);
+        PipelineRunEntity stillRunning = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z")));
+        entityManager.flush();
+        repository.claimFailureSettle(claimed.getId(), Instant.parse("2026-10-01T02:00:00Z"));
+        entityManager.clear();
+
+        List<PipelineRunEntity> found = repository.findUnsettledSince(since, PipelineRunStatus.RUNNING);
+
+        assertThat(found).extracting(PipelineRunEntity::getId)
+                .containsExactly(atBound.getId(), later.getId());
+        assertThat(stillRunning.getStatus()).isEqualTo(PipelineRunStatus.RUNNING);
+    }
+
+    @Test
+    @DisplayName("recordDispositionJobRun stores the link and findDispositionJobRunId reads it back "
+            + "from the database, null when none was recorded")
+    void dispositionJobRun_recordedAndReadBack() {
+        PipelineRunEntity saved = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z")));
+        assertThat(repository.findDispositionJobRunId(saved.getId())).isEmpty();
+
+        int rows = repository.recordDispositionJobRun(saved.getId(), 555L);
+
+        assertThat(rows).isEqualTo(1);
+        assertThat(repository.findDispositionJobRunId(saved.getId())).contains(555L);
+    }
+
+    @Test
+    @DisplayName("the two settle columns are updatable = false: saving a stale loaded copy of the "
+            + "run cannot clear a claim or a link written by the scoped updates")
+    void settleColumns_notOverwrittenByAWholeEntitySave() {
+        PipelineRunEntity saved = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z")));
+        entityManager.flush();
+        entityManager.clear();
+        PipelineRunEntity stale = repository.findById(saved.getId()).orElseThrow();
+        Instant claimedAt = Instant.parse("2026-10-02T01:30:00Z");
+        repository.claimFailureSettle(saved.getId(), claimedAt);
+        repository.recordDispositionJobRun(saved.getId(), 555L);
+
+        stale.setWaitingOn("something else");
+        repository.saveAndFlush(stale);
+        entityManager.clear();
+
+        PipelineRunEntity found = repository.findById(saved.getId()).orElseThrow();
+        assertThat(found.getWaitingOn()).isEqualTo("something else");
+        assertThat(found.getFailuresSettledAt()).isEqualTo(claimedAt);
+        assertThat(found.getDispositionJobRunId()).isEqualTo(555L);
     }
 }

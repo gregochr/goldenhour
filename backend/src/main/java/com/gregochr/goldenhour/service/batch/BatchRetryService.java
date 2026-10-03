@@ -1,11 +1,13 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -28,6 +30,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Selects (and, from commit 2, re-submits) a cycle's genuinely-failed forecast
@@ -57,6 +60,13 @@ import java.util.Map;
  * NOT retry. The retry is a single pass: each failed request is retried at most
  * once (no retry loops), bounding the per-cycle cost to
  * {@code <= cap requests x 1 retry}.
+ *
+ * <p><b>The retry-triage disposition write is not best-effort.</b> A retried slot that triages
+ * away records a {@code SKIPPED_TRIAGED} disposition so the location auto-disable sees the place
+ * was answered; if that insert fails it escapes {@link #submitRetry} as a
+ * {@link RetryEvidenceException}, the orchestrator fails the RETRY_FAILED phase and the run before
+ * the tail settle, and the cycle (unclaimed) is settled later by the sweep, RESETS_ONLY, rather
+ * than being counted failed on the precursor's failed row alone.
  */
 @Service
 public class BatchRetryService {
@@ -69,6 +79,7 @@ public class BatchRetryService {
     private final ForecastService forecastService;
     private final ModelSelectionService modelSelectionService;
     private final EvaluationService evaluationService;
+    private final ForecastDispositionService dispositionService;
 
     /**
      * Per-cycle retry cap — both the budget ceiling and the systematic-failure
@@ -87,6 +98,8 @@ public class BatchRetryService {
      * @param forecastService         re-assembles atmospheric data for a single retried request
      * @param modelSelectionService   resolves the model tier (near/far) for a retried request
      * @param evaluationService       submits the reconstructed requests as one retry batch
+     * @param dispositionService      records a {@code SKIPPED_TRIAGED} disposition for a retried
+     *                                slot whose fresh weather stands it down
      * @param failureCap              per-cycle retry cap
      * @param clock                   supplies "today" for the retried request's model-tier
      *                                horizon, resolved in {@code Europe/London} by {@link ForecastHorizon}
@@ -97,6 +110,7 @@ public class BatchRetryService {
             ForecastService forecastService,
             ModelSelectionService modelSelectionService,
             EvaluationService evaluationService,
+            ForecastDispositionService dispositionService,
             @Value("${photocast.batch.retry-failure-cap:5}") int failureCap,
             java.time.Clock clock) {
         this.forecastBatchRepository = forecastBatchRepository;
@@ -105,6 +119,7 @@ public class BatchRetryService {
         this.forecastService = forecastService;
         this.modelSelectionService = modelSelectionService;
         this.evaluationService = evaluationService;
+        this.dispositionService = dispositionService;
         this.failureCap = failureCap;
         this.clock = clock;
     }
@@ -215,9 +230,14 @@ public class BatchRetryService {
             return RetrySubmitResult.none();
         }
 
+        Long dispositionJobRunId = forecastBatchRepository
+                .findByPipelineRunIdAndRetryFalse(pipelineRunId).stream()
+                .map(ForecastBatchEntity::getJobRunId)
+                .filter(Objects::nonNull)
+                .findFirst().orElse(null);
         List<EvaluationTask.Forecast> tasks = new ArrayList<>();
         for (RetrySelection.RetryFailure failure : selection.failures()) {
-            EvaluationTask.Forecast task = reconstruct(failure);
+            EvaluationTask.Forecast task = reconstruct(failure, dispositionJobRunId);
             if (task != null) {
                 tasks.add(task);
             }
@@ -257,7 +277,8 @@ public class BatchRetryService {
      * leaves the precursor for the R7 backstop sweep, exactly as the "cannot be reconstructed"
      * case already did before this change.
      */
-    private EvaluationTask.Forecast reconstruct(RetrySelection.RetryFailure failure) {
+    private EvaluationTask.Forecast reconstruct(RetrySelection.RetryFailure failure,
+            Long dispositionJobRunId) {
         try {
             LocationEntity location = locationRepository.findById(failure.locationId()).orElse(null);
             if (location == null) {
@@ -272,6 +293,9 @@ public class BatchRetryService {
             if (pre.atmosphericData() == null) {
                 LOG.warn("RETRY_FAILED: {} could not be reconstructed (triaged={}) "
                         + "— stays failed", failure.customId(), pre.triaged());
+                if (pre.triaged()) {
+                    recordRetryTriage(location, failure, pre, dispositionJobRunId);
+                }
                 return null;
             }
             Long newRowId = forecastService.persistPendingEvaluation(pre);
@@ -286,10 +310,65 @@ public class BatchRetryService {
                     model, pre.atmosphericData(),
                     EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                     EvaluationTask.Forecast.PromptKind.SKY, newRowId, failure.forced());
+        } catch (RetryEvidenceException e) {
+            throw e;
         } catch (Exception e) {
             LOG.warn("RETRY_FAILED: could not reconstruct request {} — stays failed: {}",
                     failure.customId(), e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Thrown when the retry's evidence for the cycle cannot be recorded (the
+     * {@code SKIPPED_TRIAGED} disposition insert failed). It deliberately escapes
+     * {@link #submitRetry}: the orchestrator fails the RETRY_FAILED phase and the run, so the tail
+     * settle never runs on a cycle whose retry evidence is incomplete, and the sweep settles it
+     * later, RESETS_ONLY.
+     */
+    public static final class RetryEvidenceException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        /**
+         * Creates the exception.
+         *
+         * @param message what could not be recorded
+         * @param cause   the underlying write failure
+         */
+        public RetryEvidenceException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Records a {@code SKIPPED_TRIAGED} disposition for a retried slot whose fresh weather stands
+     * it down, in the same shape the collector writes, on the job run of the cycle's first
+     * precursor batch (where the cycle's other dispositions live).
+     *
+     * <p>Without it the retry's triage leaves no trace in {@code forecast_run_disposition}, so the
+     * precursor's failed {@code api_call_log} row would stand and the location auto-disable rule
+     * would count the place as failed although the pipeline has now looked at it and answered.
+     * <b>Not best-effort:</b> if the disposition cannot be written, the precursor's failed
+     * {@code api_call_log} row would stand as the only evidence and the place would be counted
+     * failed although it was answered on retry, so the failure propagates as a
+     * {@link RetryEvidenceException} (out of {@link #submitRetry}, failing the run before its tail
+     * settle) rather than being swallowed.
+     */
+    private void recordRetryTriage(LocationEntity location, RetrySelection.RetryFailure failure,
+            ForecastPreEvalResult pre, Long jobRunId) {
+        if (jobRunId == null) {
+            LOG.warn("RETRY_FAILED: {} triaged away on retry but the cycle has no precursor job "
+                    + "run to record the disposition on", failure.customId());
+            return;
+        }
+        try {
+            dispositionService.persist(jobRunId, List.of(new CandidateDisposition(
+                    location.getId(), location.getName(), failure.date(), failure.targetType(),
+                    pre.daysAhead(), DispositionCategory.SKIPPED_TRIAGED, pre.triageReason())));
+        } catch (RuntimeException e) {
+            throw new RetryEvidenceException("RETRY_FAILED: could not record the retry triage "
+                    + "disposition for " + failure.customId() + ": " + e.getMessage(), e);
         }
     }
 

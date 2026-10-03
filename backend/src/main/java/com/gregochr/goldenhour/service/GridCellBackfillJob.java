@@ -147,7 +147,9 @@ public class GridCellBackfillJob {
             consecutiveFailures = 0;
             location.setGridLat(cell[0]);
             location.setGridLng(cell[1]);
-            locationRepository.save(location);
+            // Scoped: this snapshot was loaded before a remote call and may be stale, so it must
+            // not rewrite any other column (an admin's edit, or enabled / the failure state).
+            locationRepository.updateGridCell(location.getId(), cell[0], cell[1]);
             filled++;
             LOG.info("Grid cell backfill: '{}' → {},{}", location.getName(), cell[0], cell[1]);
         }

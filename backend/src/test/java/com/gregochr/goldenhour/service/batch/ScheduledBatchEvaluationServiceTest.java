@@ -333,6 +333,81 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("a pipeline cycle that submits no batch persists its dispositions AND the link to "
+            + "its anchor job run in one call (one transaction), so the location auto-disable "
+            + "settle can find them even after a restart")
+    void pipelineCycle_noBatch_recordsAnchorRunAgainstPipelineRun() {
+        CandidateDisposition triaged = new CandidateDisposition(
+                7L, "Triaged A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_TRIAGED, "heavy cloud");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
+                        List.of(triaged)));
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(555L);
+
+        service.submitForecastBatchForPipelineRun(
+                99L, NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE,
+                false, summary -> { });
+
+        verify(dispositionService).persist(eq(99L), eq(555L), eq(List.of(triaged)));
+        verifyNoMoreInteractions(dispositionService);
+    }
+
+    @Test
+    @DisplayName("a failed atomic persist of dispositions and link is NOT swallowed: it propagates "
+            + "so the cycle is not left with dispositions and no link")
+    void pipelineCycle_linkWriteFails_propagates() {
+        CandidateDisposition triaged = new CandidateDisposition(
+                7L, "Triaged A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_TRIAGED, "heavy cloud");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
+                        List.of(triaged)));
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(555L);
+        org.mockito.Mockito.doThrow(new IllegalStateException("link write failed"))
+                .when(dispositionService).persist(99L, 555L, List.of(triaged));
+
+        assertThatThrownBy(() -> service.submitForecastBatchForPipelineRun(
+                99L, NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE,
+                false, summary -> { }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("link write failed");
+    }
+
+    @Test
+    @DisplayName("the legacy cron-direct entry (no pipeline run) records no link: there is no "
+            + "cycle to settle")
+    void legacyEntry_noPipelineRun_recordsNoLink() {
+        CandidateDisposition cached = new CandidateDisposition(
+                null, "Cached A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
+                        List.of(cached)));
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(555L);
+
+        service.submitForecastBatch();
+
+        verify(dispositionService).persist(eq(555L), eq(List.of(cached)));
+        verifyNoMoreInteractions(dispositionService);
+    }
+
+    @Test
     @DisplayName("submitForecastBatch: buckets submitted but all handles return null "
             + "jobRunId → anchor run created so dispositions still land, rewritten "
             + "SUBMISSION_FAILED since the one bucket carrying them failed")

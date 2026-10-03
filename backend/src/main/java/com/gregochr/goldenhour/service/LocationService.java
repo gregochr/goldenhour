@@ -344,15 +344,19 @@ public class LocationService {
      * @return the updated {@link LocationEntity}
      * @throws java.util.NoSuchElementException if no location with that ID exists
      */
+    @Transactional
     public LocationEntity setEnabled(Long id, boolean enabled) {
-        LocationEntity location = findById(id);
-        location.setEnabled(enabled);
+        LocationEntity saved = findById(id);
+        // enabled and the failure columns are not updatable through the entity (see LocationEntity):
+        // write them with scoped updates, and mirror that on the in-memory copy that is returned.
+        locationRepository.updateEnabled(saved.getId(), enabled);
+        saved.setEnabled(enabled);
         if (enabled) {
-            location.setConsecutiveFailures(0);
-            location.setDisabledReason(null);
-            location.setLastFailureAt(null);
+            locationRepository.clearFailureState(saved.getId());
+            saved.setConsecutiveFailures(0);
+            saved.setDisabledReason(null);
+            saved.setLastFailureAt(null);
         }
-        LocationEntity saved = locationRepository.save(location);
         LOG.info("Location '{}' {}", saved.getName(), enabled ? "enabled" : "disabled");
         return saved;
     }
@@ -408,18 +412,34 @@ public class LocationService {
     }
 
     /**
-     * Resets the consecutive failure counter and disabled reason for a location.
+     * Resets the consecutive failure counter, last-failure time and disabled reason for a
+     * location — and re-enables it if it was auto-disabled.
+     *
+     * <p>This is what the admin Locations alert's "Re-enable" button calls. A place is treated as
+     * auto-disabled when it carries a {@code disabledReason}: only the scheduled-cycle auto-disable
+     * (see {@link LocationFailureService}) writes one, whereas an admin's own disable through
+     * {@link #setEnabled} leaves it null. So a reason means "re-enable it" and the place goes back
+     * on the roster ({@code enabled = true}); a place with no reason that is disabled was switched
+     * off by an admin on purpose and stays disabled, with only its counters cleared.
      *
      * @param name the location name to reset
      * @return the updated {@link LocationEntity}
      * @throws java.util.NoSuchElementException if no location with that name exists
      */
+    @Transactional
     public LocationEntity resetFailures(String name) {
-        LocationEntity location = findByName(name);
-        location.setConsecutiveFailures(0);
-        location.setDisabledReason(null);
-        location.setLastFailureAt(null);
-        return locationRepository.save(location);
+        LocationEntity saved = findByName(name);
+        // enabled and the failure columns are not updatable through the entity (see LocationEntity):
+        // write them with scoped updates, and mirror that on the in-memory copy that is returned.
+        if (saved.getDisabledReason() != null) {
+            locationRepository.updateEnabled(saved.getId(), true);
+            saved.setEnabled(true);
+        }
+        locationRepository.clearFailureState(saved.getId());
+        saved.setConsecutiveFailures(0);
+        saved.setDisabledReason(null);
+        saved.setLastFailureAt(null);
+        return saved;
     }
 
     /**

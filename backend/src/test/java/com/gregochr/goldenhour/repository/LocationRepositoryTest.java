@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -20,6 +21,9 @@ class LocationRepositoryTest {
 
     @Autowired
     private LocationRepository repository;
+
+    @Autowired
+    private TestEntityManager entityManager;
 
     @Test
     @DisplayName("existsByName returns true when a location with that name is saved")
@@ -63,6 +67,301 @@ class LocationRepositoryTest {
         assertThat(found.getName()).isEqualTo("Bamburgh Castle");
         assertThat(found.getLat()).isEqualTo(55.6090);
         assertThat(found.getLon()).isEqualTo(-1.7099);
+    }
+
+    private LocationEntity reload(Long id) {
+        entityManager.flush();
+        entityManager.clear();
+        return repository.findById(id).orElseThrow();
+    }
+
+    @Test
+    @DisplayName("recordFailure adds one to the counter and sets the failure time on an enabled "
+            + "place, leaving its enabled flag, disabled reason and name unchanged")
+    void recordFailure_touchesOnlyCounterAndTime() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
+
+        int rows = repository.recordFailure(saved.getId(), at);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isEqualTo(1);
+        assertThat(found.getConsecutiveFailures()).isEqualTo(1);
+        assertThat(found.getLastFailureAt()).isEqualTo(at);
+        assertThat(found.isEnabled()).isTrue();
+        assertThat(found.getDisabledReason()).isNull();
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle");
+    }
+
+    @Test
+    @DisplayName("recordFailure is a no-op for a place that is already disabled")
+    void recordFailure_disabledPlace_noOp() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setEnabled(false);
+        LocationEntity saved = repository.save(location);
+
+        int rows = repository.recordFailure(saved.getId(), LocalDateTime.of(2026, 10, 2, 3, 0));
+
+        assertThat(rows).isZero();
+        assertThat(reload(saved.getId()).getConsecutiveFailures()).isZero();
+    }
+
+    @Test
+    @DisplayName("two increments on one row make 2, each applied to the stored value rather than "
+            + "to a snapshot, and findConsecutiveFailuresById reads the stored value back")
+    void recordFailure_twoIncrementsAreAtomic_readBackFromTheDatabase() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
+
+        repository.recordFailure(saved.getId(), at);
+        repository.recordFailure(saved.getId(), at.plusHours(12));
+
+        // The entity is still in the persistence context with its old snapshot (0): the scalar
+        // read must see the database's 2, not that snapshot.
+        assertThat(repository.findConsecutiveFailuresById(saved.getId())).isEqualTo(2);
+        assertThat(reload(saved.getId()).getLastFailureAt()).isEqualTo(at.plusHours(12));
+    }
+
+    @Test
+    @DisplayName("recordFailure counts a null stored counter as zero")
+    void recordFailure_nullCounter_countsFromZero() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setConsecutiveFailures(null);
+        LocationEntity saved = repository.save(location);
+
+        repository.recordFailure(saved.getId(), LocalDateTime.of(2026, 10, 2, 3, 0));
+
+        assertThat(repository.findConsecutiveFailuresById(saved.getId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("autoDisable switches the place off and stores the count, time and reason")
+    void autoDisable_disablesAndStoresReason() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
+        String reason = "Auto-disabled after 3 consecutive failed scheduled runs "
+                + "(last 2026-10-02: weather data could not be fetched).";
+
+        int rows = repository.autoDisable(saved.getId(), 3, at, reason);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isEqualTo(1);
+        assertThat(found.isEnabled()).isFalse();
+        assertThat(found.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(found.getLastFailureAt()).isEqualTo(at);
+        assertThat(found.getDisabledReason()).isEqualTo(reason);
+        assertThat(repository.findAllByEnabledTrueOrderByNameAsc()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an entity loaded before a settle and saved after it with a changed name cannot "
+            + "undo the committed auto-disable: the row stays disabled with its reason and count")
+    void staleEntitySave_afterAutoDisable_doesNotUndoIt() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity loaded = repository.findById(saved.getId()).orElseThrow();
+        LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
+        String reason = "Auto-disabled after 3 consecutive failed scheduled runs "
+                + "(last 2026-10-02: data could not be collected).";
+        repository.autoDisable(saved.getId(), 3, at, reason);
+
+        loaded.setName("Bamburgh Castle (edited)");
+        repository.saveAndFlush(loaded);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle (edited)");
+        assertThat(found.isEnabled()).isFalse();
+        assertThat(found.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(found.getLastFailureAt()).isEqualTo(at);
+        assertThat(found.getDisabledReason()).isEqualTo(reason);
+    }
+
+    @Test
+    @DisplayName("an entity loaded carrying the old count cannot restore it after a reset, even "
+            + "when the stale copy is itself changed")
+    void staleEntitySave_afterReset_doesNotRestoreTheCount() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setConsecutiveFailures(2);
+        location.setLastFailureAt(LocalDateTime.of(2026, 10, 1, 3, 0));
+        LocationEntity saved = repository.save(location);
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity loaded = repository.findById(saved.getId()).orElseThrow();
+        repository.resetFailureCounts(List.of(saved.getId()));
+
+        loaded.setName("Bamburgh Castle (edited)");
+        loaded.setConsecutiveFailures(5);
+        loaded.setDisabledReason("stale");
+        repository.saveAndFlush(loaded);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle (edited)");
+        assertThat(found.getConsecutiveFailures()).isZero();
+        assertThat(found.getDisabledReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("the admin enable/disable toggle writes enabled through the scoped update, in "
+            + "both directions")
+    void adminToggle_writesEnabledThroughScopedUpdate() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+
+        assertThat(repository.updateEnabled(saved.getId(), false)).isEqualTo(1);
+        assertThat(reload(saved.getId()).isEnabled()).isFalse();
+
+        assertThat(repository.updateEnabled(saved.getId(), true)).isEqualTo(1);
+        assertThat(reload(saved.getId()).isEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("an insert still writes the initial enabled value, true by default and false "
+            + "when built disabled")
+    void insert_writesInitialEnabledValue() {
+        LocationEntity defaulted = repository.save(buildLocation("Default", 55.0, -1.0));
+        LocationEntity disabledAtBirth = buildLocation("Born disabled", 55.1, -1.1);
+        disabledAtBirth.setEnabled(false);
+        LocationEntity born = repository.save(disabledAtBirth);
+
+        assertThat(reload(defaulted.getId()).isEnabled()).isTrue();
+        assertThat(reload(born.getId()).isEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a DETACHED entity loaded before an auto-disable and save()d (merged) after it, "
+            + "which is what a job that loads locations outside a transaction does, leaves the "
+            + "row disabled with its reason and count")
+    void detachedEntityMergedAfterAutoDisable_doesNotUndoIt() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity detached = repository.findById(saved.getId()).orElseThrow();
+        entityManager.detach(detached);
+        LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
+        String reason = "Auto-disabled after 3 consecutive failed scheduled runs "
+                + "(last 2026-10-02: data could not be collected).";
+        repository.autoDisable(saved.getId(), 3, at, reason);
+
+        detached.setGridLat(55.6);
+        detached.setGridLng(-1.7);
+        repository.saveAndFlush(detached);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(found.isEnabled()).isFalse();
+        assertThat(found.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(found.getDisabledReason()).isEqualTo(reason);
+        assertThat(found.getLastFailureAt()).isEqualTo(at);
+    }
+
+    @Test
+    @DisplayName("updateGridCell writes only the grid cell: a stale snapshot's other columns "
+            + "(here the name an admin has since edited) are not rewritten")
+    void updateGridCell_doesNotRewriteOtherColumns() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity admin = repository.findById(saved.getId()).orElseThrow();
+        admin.setName("Bamburgh Castle (renamed)");
+        repository.saveAndFlush(admin);
+
+        int rows = repository.updateGridCell(saved.getId(), 55.6, -1.7);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isEqualTo(1);
+        assertThat(found.getGridLat()).isEqualTo(55.6);
+        assertThat(found.getGridLng()).isEqualTo(-1.7);
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle (renamed)");
+    }
+
+    @Test
+    @DisplayName("updateSkyBrightness writes only the SQM and Bortle class")
+    void updateSkyBrightness_doesNotRewriteOtherColumns() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity admin = repository.findById(saved.getId()).orElseThrow();
+        admin.setName("Bamburgh Castle (renamed)");
+        repository.saveAndFlush(admin);
+
+        int rows = repository.updateSkyBrightness(saved.getId(), 21.75, 3);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isEqualTo(1);
+        assertThat(found.getSkyBrightnessSqm()).isEqualTo(21.75);
+        assertThat(found.getBortleClass()).isEqualTo(3);
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle (renamed)");
+    }
+
+    @Test
+    @DisplayName("clearFailureState zeroes the counter and nulls the time and reason, leaving "
+            + "enabled alone")
+    void clearFailureState_clearsOnlyFailureColumns() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setEnabled(false);
+        location.setConsecutiveFailures(3);
+        location.setLastFailureAt(LocalDateTime.of(2026, 10, 1, 3, 0));
+        location.setDisabledReason("Auto-disabled");
+        LocationEntity saved = repository.save(location);
+
+        int rows = repository.clearFailureState(saved.getId());
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isEqualTo(1);
+        assertThat(found.getConsecutiveFailures()).isZero();
+        assertThat(found.getLastFailureAt()).isNull();
+        assertThat(found.getDisabledReason()).isNull();
+        assertThat(found.isEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("autoDisable is a no-op on a place that is already disabled: it updates no row "
+            + "and keeps the existing reason (an admin got there first)")
+    void autoDisable_alreadyDisabledPlace_noOp() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setEnabled(false);
+        location.setDisabledReason("Switched off by an admin");
+        LocationEntity saved = repository.save(location);
+
+        int rows = repository.autoDisable(saved.getId(), 3, LocalDateTime.of(2026, 10, 2, 3, 0),
+                "Auto-disabled after 3 consecutive failed scheduled runs "
+                        + "(last 2026-10-02: data could not be collected).");
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isZero();
+        assertThat(found.getDisabledReason()).isEqualTo("Switched off by an admin");
+        assertThat(found.getConsecutiveFailures()).isZero();
+    }
+
+    @Test
+    @DisplayName("resetFailureCounts zeroes only enabled places with a positive counter, "
+            + "leaving others, and the historical failure time, untouched")
+    void resetFailureCounts_resetsOnlyEnabledPositiveCounters() {
+        LocationEntity failing = buildLocation("Failing", 55.0, -1.0);
+        failing.setConsecutiveFailures(2);
+        failing.setLastFailureAt(LocalDateTime.of(2026, 10, 1, 3, 0));
+        LocationEntity failingSaved = repository.save(failing);
+        LocationEntity disabled = buildLocation("Disabled", 55.1, -1.1);
+        disabled.setEnabled(false);
+        disabled.setConsecutiveFailures(3);
+        LocationEntity disabledSaved = repository.save(disabled);
+        LocationEntity untouched = buildLocation("Untouched", 55.2, -1.2);
+        untouched.setConsecutiveFailures(2);
+        LocationEntity untouchedSaved = repository.save(untouched);
+
+        int rows = repository.resetFailureCounts(
+                List.of(failingSaved.getId(), disabledSaved.getId()));
+
+        assertThat(rows).isEqualTo(1);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(repository.findById(failingSaved.getId()).orElseThrow().getConsecutiveFailures())
+                .isZero();
+        assertThat(repository.findById(failingSaved.getId()).orElseThrow().getLastFailureAt())
+                .isEqualTo(LocalDateTime.of(2026, 10, 1, 3, 0));
+        assertThat(repository.findById(disabledSaved.getId()).orElseThrow()
+                .getConsecutiveFailures()).isEqualTo(3);
+        assertThat(repository.findById(untouchedSaved.getId()).orElseThrow()
+                .getConsecutiveFailures()).isEqualTo(2);
     }
 
     private LocationEntity buildLocation(String name, double lat, double lon) {

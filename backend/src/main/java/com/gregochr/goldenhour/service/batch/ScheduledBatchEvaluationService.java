@@ -429,7 +429,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.nearInland(), pipelineRunId, "near-term inland");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "near-term inland", e);
                 throw e;
             }
@@ -445,7 +445,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.nearCoastal(), pipelineRunId, "near-term coastal");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "near-term coastal", e);
                 throw e;
             }
@@ -461,7 +461,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.farInland(), pipelineRunId, "far-term inland");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "far-term inland", e);
                 throw e;
             }
@@ -477,7 +477,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.farCoastal(), pipelineRunId, "far-term coastal");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "far-term coastal", e);
                 throw e;
             }
@@ -495,7 +495,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.bluebell(), pipelineRunId, "bluebell");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "bluebell", e);
                 throw e;
             }
@@ -514,7 +514,7 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.woodland(), pipelineRunId, "woodland");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "woodland", e);
                 throw e;
             }
@@ -537,7 +537,7 @@ public class ScheduledBatchEvaluationService {
         // (legacy submitForecastBatch + orchestrated submitForecastBatchForPipelineRun
         // + the future intraday cycle, all via this method), so the persist
         // cannot be routed around again.
-        persistCycleDispositions(cycleJobRunId, finalDispositions);
+        persistCycleDispositions(pipelineRunId, cycleJobRunId, finalDispositions);
 
         if (!tasks.isEmpty()) {
             LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
@@ -636,7 +636,8 @@ public class ScheduledBatchEvaluationService {
      *                             allNonEmptyBuckets} marks where "never attempted" begins
      * @param e                    the exception, for its batch id and cause
      */
-    private void persistOnOrphan(Long cycleJobRunId, List<CandidateDisposition> dispositions,
+    private void persistOnOrphan(Long pipelineRunId, Long cycleJobRunId,
+            List<CandidateDisposition> dispositions,
             List<BucketOutcome> bucketOutcomesSoFar, List<LabeledBucket> allNonEmptyBuckets,
             String label, OrphanedBatchException e) {
         int orphanIndex = indexOfLabel(allNonEmptyBuckets, label);
@@ -664,7 +665,7 @@ public class ScheduledBatchEvaluationService {
         }
 
         List<CandidateDisposition> finalDispositions = applySubmissionFailures(dispositions, outcomes);
-        persistCycleDispositions(cycleJobRunId, finalDispositions);
+        persistCycleDispositions(pipelineRunId, cycleJobRunId, finalDispositions);
     }
 
     /**
@@ -897,10 +898,15 @@ public class ScheduledBatchEvaluationService {
      * evaluated?" case an operator needs. The {@code [DISPOSITION] Persisting}
      * log is the operator's per-cycle smoke check that the write happened.
      *
+     * <p>The job run the rows land on is recorded on the pipeline run's
+     * {@code disposition_job_run_id}, durably, so the location auto-disable settle can find a
+     * batchless cycle's anchor run (it has no {@code forecast_batch} row to be found through).
+     *
+     * @param pipelineRunId the orchestrated cycle id, or null for a legacy cron-direct invocation
      * @param cycleJobRunId the first submitted batch's job_run id, or null if none
      * @param dispositions  every candidate's disposition for this cycle
      */
-    private void persistCycleDispositions(Long cycleJobRunId,
+    private void persistCycleDispositions(Long pipelineRunId, Long cycleJobRunId,
             List<CandidateDisposition> dispositions) {
         if (dispositions.isEmpty()) {
             LOG.info("[DISPOSITION] No candidates considered this cycle — nothing to persist");
@@ -914,7 +920,13 @@ public class ScheduledBatchEvaluationService {
         }
         LOG.info("[DISPOSITION] Persisting {} dispositions for cycle jobRunId={} ({})",
                 dispositions.size(), anchorJobRunId, anchorKind);
-        dispositionService.persist(anchorJobRunId, dispositions);
+        if (pipelineRunId == null) {
+            dispositionService.persist(anchorJobRunId, dispositions);
+        } else {
+            // One transaction for the rows AND the link to the pipeline run (see the service's
+            // javadoc): a link that cannot be written rolls the rows back with it, never swallowed.
+            dispositionService.persist(pipelineRunId, anchorJobRunId, dispositions);
+        }
     }
 
     private static Long firstNonNull(Long current, Long candidate) {

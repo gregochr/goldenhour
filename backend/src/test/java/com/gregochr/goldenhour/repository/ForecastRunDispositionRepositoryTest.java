@@ -304,4 +304,37 @@ class ForecastRunDispositionRepositoryTest {
                             "Y|" + later + "|SUNSET|SKIPPED_TRIAGED");
         }
     }
+
+    @Nested
+    @DisplayName("findCycleDispositions")
+    class FindCycleDispositions {
+
+        private void insertForLocation(long jobRunId, Long locationId, String disposition) {
+            jdbcTemplate.update(
+                    "INSERT INTO forecast_run_disposition "
+                            + "(job_run_id, location_id, location_name, evaluation_date, "
+                            + "event_type, disposition, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    jobRunId, locationId, "Place " + locationId, Date.valueOf(DATE), SUNSET,
+                    disposition, Timestamp.from(Instant.parse("2026-10-02T01:00:00Z")));
+        }
+
+        @Test
+        @DisplayName("returns the (location, disposition) pair of every attributable row on the "
+                + "given job runs, and nothing from another job run or with no location id")
+        void returnsAttributableRowsOfTheGivenJobRuns() {
+            insertForLocation(10L, 1L, "SKIPPED_TRIAGED");
+            insertForLocation(10L, 2L, "SKIPPED_ERROR");
+            insertForLocation(11L, 3L, "EVALUATED");
+            insertForLocation(99L, 4L, "SKIPPED_TRIAGED");
+            insertForLocation(10L, null, "SKIPPED_UNKNOWN_LOCATION");
+
+            List<com.gregochr.goldenhour.model.CycleDisposition> rows =
+                    repository.findCycleDispositions(List.of(10L, 11L));
+
+            assertThat(rows).containsExactlyInAnyOrder(
+                    new com.gregochr.goldenhour.model.CycleDisposition(1L, "SKIPPED_TRIAGED"),
+                    new com.gregochr.goldenhour.model.CycleDisposition(2L, "SKIPPED_ERROR"),
+                    new com.gregochr.goldenhour.model.CycleDisposition(3L, "EVALUATED"));
+        }
+    }
 }

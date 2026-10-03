@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.LocationFailureService;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.ForecastBatchSubmissionOutcome;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
@@ -95,6 +96,9 @@ class PipelineOrchestratorTest {
     @Mock
     private AdminAlertService adminAlertService;
 
+    @Mock
+    private LocationFailureService locationFailureService;
+
     private PipelineOrchestrator orchestrator;
 
     /** Direct executor — runs the wait/brief tail on the calling thread. */
@@ -118,7 +122,8 @@ class PipelineOrchestratorTest {
                 null,
                 pipelineRunPickService,
                 batchRetryService,
-                adminAlertService);
+                adminAlertService,
+                locationFailureService);
         // Default: clean cycle (no transient failures), so RETRY_FAILED is a silent
         // no-op and the existing sequence assertions are unaffected. Lenient because
         // the pre-submission-failure and timeout tests never reach the retry phase.
@@ -326,7 +331,8 @@ class PipelineOrchestratorTest {
                     null,
                     pipelineRunPickService,
                     batchRetryService,
-                    adminAlertService);
+                    adminAlertService,
+                    locationFailureService);
 
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
@@ -557,7 +563,8 @@ class PipelineOrchestratorTest {
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
-                    null, pipelineRunPickService, batchRetryService, null);
+                    null, pipelineRunPickService, batchRetryService, null,
+                    locationFailureService);
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
@@ -614,7 +621,8 @@ class PipelineOrchestratorTest {
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, movingClock,
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
-                    null, pipelineRunPickService, batchRetryService, adminAlertService);
+                    null, pipelineRunPickService, batchRetryService, adminAlertService,
+                    locationFailureService);
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
             // The buckets themselves failed to submit...
@@ -958,7 +966,8 @@ class PipelineOrchestratorTest {
                     scheduler,
                     pipelineRunPickService,
                     batchRetryService,
-                    adminAlertService);
+                    adminAlertService,
+                    locationFailureService);
 
             wired.registerJobTarget();
 
@@ -968,6 +977,33 @@ class PipelineOrchestratorTest {
             verify(scheduler).registerJobTarget(
                     org.mockito.ArgumentMatchers.eq("intraday_forecast_refresh"),
                     org.mockito.ArgumentMatchers.any(Runnable.class));
+        }
+
+        @Test
+        @DisplayName("a pipeline cycle started through the scheduler target (the scheduler's "
+                + "Run now, which fires the same Runnable as the cron) is settled like any other")
+        void schedulerTarget_runsACycleThatSettles() {
+            DynamicSchedulerService scheduler =
+                    org.mockito.Mockito.mock(DynamicSchedulerService.class);
+            PipelineOrchestrator wired = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
+                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
+                    scheduler, pipelineRunPickService, batchRetryService, adminAlertService,
+                    locationFailureService);
+            wired.registerJobTarget();
+            org.mockito.ArgumentCaptor<Runnable> nightlyTarget =
+                    org.mockito.ArgumentCaptor.forClass(Runnable.class);
+            verify(scheduler).registerJobTarget(eq("near_term_batch_evaluation"),
+                    nightlyTarget.capture());
+            PipelineRunEntity run = newRun();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(run);
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(run));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+
+            nightlyTarget.getValue().run();
+
+            verify(locationFailureService, times(1)).settleCycle(run);
         }
 
         @Test
@@ -1167,6 +1203,34 @@ class PipelineOrchestratorTest {
         }
 
         @Test
+        @DisplayName("a retry whose evidence could not be recorded (submitRetry throws) fails the "
+                + "RETRY_FAILED phase and the run BEFORE the tail settle: no settle, no briefing, so "
+                + "the cycle stays unclaimed for the sweep")
+        void retryThrows_failsRunBeforeSettle() {
+            RetrySelection selection = RetrySelection.retry(List.of(
+                    new RetrySelection.RetryFailure("fc-42-2026-05-26-SUNSET", 42L,
+                            java.time.LocalDate.of(2026, 5, 26),
+                            com.gregochr.goldenhour.entity.TargetType.SUNSET, null)), 5);
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.submitRetry(RUN_ID, selection)).thenThrow(
+                    new com.gregochr.goldenhour.service.batch.BatchRetryService
+                            .RetryEvidenceException("insert failed", new IllegalStateException()));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).failPhase(RUN_ID, PipelinePhase.RETRY_FAILED,
+                    "retry could not be completed: insert failed");
+            verify(pipelineRunService).failRun(RUN_ID, "Wait/brief tail failed: insert failed");
+            verifyNoInteractions(locationFailureService);
+            verify(briefingService, never()).refreshBriefing();
+            verify(pipelineRunService, never()).completeRun(RUN_ID);
+        }
+
+        @Test
         @DisplayName("over-cap failures → RETRY_FAILED phase records systematic failure, "
                 + "does NOT submit a retry, still briefs")
         void over_cap_records_systematic_no_retry() {
@@ -1214,6 +1278,221 @@ class PipelineOrchestratorTest {
             verify(batchRetryService).submitRetry(RUN_ID, selection);
             verify(briefingService).refreshBriefing();
             verify(pipelineRunService).completeRun(RUN_ID);
+        }
+    }
+
+    @Nested
+    @DisplayName("Location failure settle — the one seam, scheduled cycles only")
+    class LocationFailureSettle {
+
+        @Test
+        @DisplayName("a nightly cycle settles once, with its own run, after RETRY_FAILED and the "
+                + "BRIEFING phase start but before the briefing is built")
+        void nightly_settlesOnce_beforeBriefing() {
+            PipelineRunEntity run = newRun();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(run);
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(run));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+
+            orchestrator.runNightlyCycle();
+
+            org.mockito.InOrder order = org.mockito.Mockito.inOrder(
+                    batchRetryService, pipelineRunService, locationFailureService, briefingService);
+            order.verify(batchRetryService).selectFailures(RUN_ID);
+            order.verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.BRIEFING);
+            order.verify(locationFailureService).settleCycle(run);
+            order.verify(briefingService).refreshBriefing();
+            verify(locationFailureService, times(1)).settleCycle(run);
+        }
+
+        @Test
+        @DisplayName("an intraday cycle settles through the same tail")
+        void intraday_settlesOnce() {
+            PipelineRunEntity run = new PipelineRunEntity(CycleType.INTRADAY, T0);
+            run.setId(RUN_ID);
+            when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(run);
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(run));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+
+            orchestrator.runIntradayCycle();
+
+            verify(locationFailureService, times(1)).settleCycle(run);
+        }
+
+        @Test
+        @DisplayName("a briefing that then fails has still been settled (the settle cannot be "
+                + "skipped by the early return a briefing failure takes)")
+        void briefingFailure_stillSettled() {
+            PipelineRunEntity run = newRun();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(run);
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(run));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing();
+
+            orchestrator.runNightlyCycle();
+
+            verify(locationFailureService, times(1)).settleCycle(run);
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.contains("Briefing failed"));
+        }
+
+        @Test
+        @DisplayName("a settle that throws is logged and ignored: the briefing still runs and "
+                + "the run still completes")
+        void settleFailure_doesNotFailTheBriefing() {
+            PipelineRunEntity run = newRun();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(run);
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(run));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            doThrow(new IllegalStateException("db down")).when(locationFailureService)
+                    .settleCycle(run);
+
+            orchestrator.runNightlyCycle();
+
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a dropped submission never reaches the settle")
+        void droppedSubmission_neverSettled() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    any()))
+                    .thenReturn(ForecastBatchSubmissionOutcome.dropped());
+
+            orchestrator.runNightlyCycle();
+
+            verifyNoInteractions(locationFailureService);
+        }
+
+        @Test
+        @DisplayName("a submit phase that throws never reaches the settle")
+        void submitFailure_neverSettled() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            doThrow(new RuntimeException("anthropic 5xx"))
+                    .when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                            eq(RUN_ID),
+                            eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                            eq(NightlyEligibilityPolicy.INSTANCE),
+                            eq(false),
+                            any());
+
+            orchestrator.runNightlyCycle();
+
+            verifyNoInteractions(locationFailureService);
+        }
+
+        @Test
+        @DisplayName("a safety timeout, where batch results are unknown, never reaches the settle")
+        void safetyTimeout_neverSettled() {
+            Instant past = T0.minus(Duration.ofHours(2));
+            Clock movingClock = new Clock() {
+                private final Iterator<Instant> instants =
+                        List.of(past, T0.plusSeconds(10_000)).iterator();
+
+                @Override
+                public ZoneOffset getZone() {
+                    return ZoneOffset.UTC;
+                }
+
+                @Override
+                public Clock withZone(java.time.ZoneId zone) {
+                    return this;
+                }
+
+                @Override
+                public Instant instant() {
+                    return instants.hasNext() ? instants.next() : T0.plusSeconds(10_000);
+                }
+            };
+            PipelineOrchestrator timingOut = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, movingClock,
+                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
+                    null, pipelineRunPickService, batchRetryService, adminAlertService,
+                    locationFailureService);
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.SUBMITTED)));
+
+            timingOut.runNightlyCycle();
+
+            verifyNoInteractions(locationFailureService);
+        }
+
+        @Test
+        @DisplayName("a run resumed at BRIEFING, where the process may have stopped after the phase "
+                + "row committed but before the settle finished, is handed to the settle (whose "
+                + "durable claim settles it once if unsettled, and refuses it if settled)")
+        void resumedMidBriefing_isHandedToTheSettle() {
+            PipelineRunEntity midBrief = runInPhase(PipelinePhase.BRIEFING);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midBrief));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midBrief));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(locationFailureService, times(1)).settleCycle(midBrief);
+            verify(pipelineRunService, never()).startPhase(RUN_ID, PipelinePhase.BRIEFING);
+            verify(briefingService).refreshBriefing();
+        }
+
+        @Test
+        @DisplayName("a run resumed mid-WAIT settles once when it reaches the briefing")
+        void resumedMidWait_settlesOnce() {
+            PipelineRunEntity midWait = runInPhase(PipelinePhase.FORECAST_BATCH_WAIT);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midWait));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midWait));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(locationFailureService, times(1)).settleCycle(midWait);
+        }
+
+        @Test
+        @DisplayName("startup sweeps unsettled location failures after resuming running cycles")
+        void startup_sweepsAfterResume() {
+            PipelineRunEntity midWait = runInPhase(PipelinePhase.FORECAST_BATCH_WAIT);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midWait));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midWait));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            org.mockito.InOrder order = org.mockito.Mockito.inOrder(locationFailureService);
+            order.verify(locationFailureService).settleCycle(midWait);
+            order.verify(locationFailureService).sweepUnsettledRuns();
+        }
+
+        @Test
+        @DisplayName("startup sweeps unsettled location failures even when no cycle is running")
+        void startup_sweepsWhenNothingRunning() {
+            when(pipelineRunService.findRunning()).thenReturn(List.of());
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(locationFailureService, times(1)).sweepUnsettledRuns();
+        }
+
+        @Test
+        @DisplayName("a startup sweep that throws is logged at ERROR and never fails startup")
+        void startup_sweepFailure_isContained() {
+            when(pipelineRunService.findRunning()).thenReturn(List.of());
+            when(locationFailureService.sweepUnsettledRuns())
+                    .thenThrow(new IllegalStateException("db down"));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(locationFailureService, times(1)).sweepUnsettledRuns();
         }
     }
 }

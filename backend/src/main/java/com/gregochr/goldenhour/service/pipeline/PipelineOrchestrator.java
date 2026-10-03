@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.LocationFailureService;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
@@ -122,6 +123,7 @@ public class PipelineOrchestrator {
     private final PipelineRunPickService pipelineRunPickService;
     private final BatchRetryService batchRetryService;
     private final AdminAlertService adminAlertService;
+    private final LocationFailureService locationFailureService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -142,6 +144,7 @@ public class PipelineOrchestrator {
      * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
+     * @param locationFailureService          settles each cycle's per-place failure counting
      */
     @Autowired
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -153,13 +156,14 @@ public class PipelineOrchestrator {
             DynamicSchedulerService dynamicSchedulerService,
             PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
-            AdminAlertService adminAlertService) {
+            AdminAlertService adminAlertService,
+            LocationFailureService locationFailureService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService,
-                adminAlertService);
+                adminAlertService, locationFailureService);
     }
 
     /**
@@ -181,6 +185,8 @@ public class PipelineOrchestrator {
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED;
      *                                        tests may pass {@code null} to skip alerting
+     * @param locationFailureService          settles each cycle's per-place failure counting
+     *                                        (required; there is no null guard for it)
      */
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
@@ -193,7 +199,8 @@ public class PipelineOrchestrator {
             DynamicSchedulerService dynamicSchedulerService,
             PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
-            AdminAlertService adminAlertService) {
+            AdminAlertService adminAlertService,
+            LocationFailureService locationFailureService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -206,6 +213,7 @@ public class PipelineOrchestrator {
         this.adminAlertService = adminAlertService;
         this.pipelineRunPickService = pipelineRunPickService;
         this.batchRetryService = batchRetryService;
+        this.locationFailureService = locationFailureService;
     }
 
     /**
@@ -344,10 +352,34 @@ public class PipelineOrchestrator {
      * in a partial state we can't safely resume — and resuming from RECLASSIFY
      * would jump straight to a zero-batch WAIT and brief on stale data; the next
      * scheduled cron creates a fresh cycle.
+     *
+     * <p>After the resume, and whether or not anything was running, sweeps the location-failure
+     * settles that were never claimed ({@link LocationFailureService#sweepUnsettledRuns()}): a cycle
+     * whose settle failed, or that was never settled, is already COMPLETED, FAILED or DEGRADED and so
+     * is never resumed here, and this sweep is what settles it. Runs resumed above are still RUNNING
+     * and are left to their own tail.
      */
     @EventListener(ApplicationReadyEvent.class)
     @Profile("!integration-test")
     public void resumeRunningCyclesOnStartup() {
+        resumeRunning();
+        sweepUnsettledLocationFailures();
+    }
+
+    private void sweepUnsettledLocationFailures() {
+        try {
+            int settled = locationFailureService.sweepUnsettledRuns();
+            if (settled > 0) {
+                LOG.info("Startup sweep settled the location failures of {} earlier pipeline "
+                        + "run(s)", settled);
+            }
+        } catch (RuntimeException e) {
+            LOG.error("Startup sweep of unsettled location failures raised an exception, the "
+                    + "next tail settle or restart retries it: {}", e.getMessage(), e);
+        }
+    }
+
+    private void resumeRunning() {
         List<PipelineRunEntity> running = pipelineRunService.findRunning();
         if (running.isEmpty()) {
             return;
@@ -502,6 +534,11 @@ public class PipelineOrchestrator {
             if (!atOrPastBrief) {
                 pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
             }
+            // Settled on EVERY path to the briefing, a run resumed at BRIEFING included: the claim
+            // is durable (pipeline_run.failures_settled_at), so a run the process stopped after
+            // startPhase(BRIEFING) committed but before the settle completed is settled here on
+            // resume, and a run already settled is refused by the claim.
+            settleLocationFailures(run);
             try {
                 briefingService.refreshBriefing();
                 persistPicksForCycle(runId);
@@ -529,6 +566,43 @@ public class PipelineOrchestrator {
         } catch (RuntimeException e) {
             LOG.error("Pipeline run {}: wait/brief tail failed — {}", runId, e.getMessage(), e);
             pipelineRunService.failRun(runId, "Wait/brief tail failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Settles this cycle's per-place failure counting: the one place a scheduled cycle's outcomes
+     * are turned into consecutive-failure counts and, eventually, auto-disables
+     * ({@link LocationFailureService}).
+     *
+     * <p><b>Why here.</b> After the wait, so every batch result has landed or the safety timeout
+     * has thrown (a timed-out cycle never reaches this line, so nothing is counted for a cycle whose
+     * results are unknown); after RETRY_FAILED, so a request the retry recovered counts as a success;
+     * and before {@code refreshBriefing()}, so a briefing failure, which returns early, cannot skip
+     * it, and a place just disabled is already gone from the briefing built next. It runs on every
+     * path to the briefing, including a run resumed after a restart at any phase, because the
+     * service's claim ({@code pipeline_run.failures_settled_at}) is durable and atomic with the
+     * counter writes: a cycle is settled exactly once, a cycle the process stopped before settling
+     * is settled on resume, and a cycle already settled is refused. A result for this cycle arriving
+     * after this point cannot count.
+     *
+     * <p>Best-effort: counting is housekeeping, never a reason to fail the briefing. A settle that
+     * throws is logged at ERROR and the run carries on to completion; the settle's transaction has
+     * rolled back, so the cycle is left unclaimed and the next sweep
+     * ({@link LocationFailureService#sweepUnsettledRuns()}, run at startup and at the start of every
+     * tail settle) settles it, in RESETS_ONLY mode. The forecast
+     * buttons and map Run Forecast (hand-started runs) never reach this method: only
+     * {@link #waitAndBriefPhase} calls it, and that runs only for a pipeline cycle. The scheduler's
+     * Run now on the nightly or intraday job does run a pipeline cycle, so it settles like any other.
+     *
+     * @param run the pipeline run whose batches have just completed
+     */
+    private void settleLocationFailures(PipelineRunEntity run) {
+        try {
+            locationFailureService.settleCycle(run);
+        } catch (RuntimeException e) {
+            LOG.error("Pipeline run {}: location failure settle raised an exception, the cycle "
+                    + "is left unsettled for the next sweep (the briefing continues): {}",
+                    run.getId(), e.getMessage(), e);
         }
     }
 
@@ -664,7 +738,18 @@ public class PipelineOrchestrator {
                     selection.failureCount() + " failed — exceeds cap " + selection.cap()
                             + ", NOT retried (systematic failure — investigate)");
             case RETRY -> {
-                RetrySubmitResult retryResult = batchRetryService.submitRetry(runId, selection);
+                RetrySubmitResult retryResult;
+                try {
+                    retryResult = batchRetryService.submitRetry(runId, selection);
+                } catch (RuntimeException e) {
+                    // The retry's evidence for this cycle may be incomplete (a retry-triage
+                    // disposition could not be written): fail the phase and rethrow so
+                    // waitAndBriefPhase fails the run BEFORE its tail settle. The cycle stays
+                    // unclaimed and the sweep settles it later, RESETS_ONLY.
+                    pipelineRunService.failPhase(runId, PipelinePhase.RETRY_FAILED,
+                            "retry could not be completed: " + e.getMessage());
+                    throw e;
+                }
                 waitForBatchSetComplete(runId);
                 if (retryResult.submissionFailed()) {
                     // A real, reconstructed retry batch never reached Anthropic — this is not

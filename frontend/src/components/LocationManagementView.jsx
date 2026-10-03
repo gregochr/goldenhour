@@ -895,6 +895,17 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 >
                                   {loc.enabled ? 'Enabled' : 'Disabled'}
                                 </button>
+                                {!loc.enabled && loc.disabledReason && (
+                                  <div
+                                    className="mt-1 flex items-center gap-0.5"
+                                    data-testid={`auto-disabled-${loc.id}`}
+                                  >
+                                    <span className="text-xs px-1.5 py-0.5 rounded bg-red-900/40 text-red-400">
+                                      auto
+                                    </span>
+                                    <InfoTip text={loc.disabledReason} className="text-red-400" />
+                                  </div>
+                                )}
                               </td>
                               <td className="py-2">
                                 <div className="flex gap-1">

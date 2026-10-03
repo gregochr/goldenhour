@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.DispositionBreakdownResponse;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,11 +40,14 @@ class ForecastDispositionServiceTest {
     @Mock
     private ForecastRunDispositionRepository repository;
 
+    @Mock
+    private PipelineRunRepository pipelineRunRepository;
+
     private ForecastDispositionService service;
 
     @BeforeEach
     void setUp() {
-        service = new ForecastDispositionService(repository);
+        service = new ForecastDispositionService(repository, pipelineRunRepository);
     }
 
     @Test
@@ -87,6 +91,60 @@ class ForecastDispositionServiceTest {
                 ArgumentCaptor.forClass(List.class);
         verify(repository).saveAll(captor.capture());
         assertThat(captor.getValue().get(0).getDetail()).hasSize(500);
+    }
+
+    @Test
+    @DisplayName("persist with a pipeline run: saves the rows, then records the job run holding them "
+            + "on the pipeline run, in the same call")
+    void persistWithPipelineRun_savesRowsThenRecordsLink() {
+        CandidateDisposition d = new CandidateDisposition(
+                42L, "Durham UK", TODAY, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "cloud");
+        when(pipelineRunRepository.recordDispositionJobRun(99L, 555L)).thenReturn(1);
+
+        service.persist(99L, 555L, List.of(d));
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(repository, pipelineRunRepository);
+        order.verify(repository).saveAll(anyList());
+        order.verify(pipelineRunRepository).recordDispositionJobRun(99L, 555L);
+    }
+
+    @Test
+    @DisplayName("persist with a pipeline run: a link that updates no row throws, so the "
+            + "transaction rolls the dispositions back (never swallowed)")
+    void persistWithPipelineRun_noRowUpdated_throws() {
+        CandidateDisposition d = new CandidateDisposition(
+                42L, "Durham UK", TODAY, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "cloud");
+        when(pipelineRunRepository.recordDispositionJobRun(99L, 555L)).thenReturn(0);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.persist(99L, 555L, List.of(d)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Pipeline run 99 not found");
+    }
+
+    @Test
+    @DisplayName("persist with a pipeline run: a link write that throws propagates")
+    void persistWithPipelineRun_linkThrows_propagates() {
+        CandidateDisposition d = new CandidateDisposition(
+                42L, "Durham UK", TODAY, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "cloud");
+        when(pipelineRunRepository.recordDispositionJobRun(99L, 555L))
+                .thenThrow(new IllegalStateException("db down"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.persist(99L, 555L, List.of(d)))
+                .hasMessage("db down");
+    }
+
+    @Test
+    @DisplayName("persist with a pipeline run: nothing to persist records no link")
+    void persistWithPipelineRun_emptyList_recordsNoLink() {
+        service.persist(99L, 555L, List.of());
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(pipelineRunRepository);
     }
 
     @Test

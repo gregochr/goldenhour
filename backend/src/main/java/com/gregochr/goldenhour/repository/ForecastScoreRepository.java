@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.repository;
 import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.CycleScoredComponent;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -107,4 +108,24 @@ public interface ForecastScoreRepository extends JpaRepository<ForecastScoreEnti
             @Param("forecastTypeId") Long forecastTypeId,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    /**
+     * Returns the (location, score product) of every component row the given pipeline cycle wrote,
+     * restricted to the given score products. A scalar projection: no entities are loaded.
+     *
+     * <p>Read by {@code CycleLocationOutcomeResolver} as success evidence that does not depend on
+     * the cycle's job-run bookkeeping (see that class). The rows are upserted with latest-wins
+     * semantics, so a row a LATER cycle has since overwritten no longer carries this cycle's id and
+     * is not returned; that only ever loses success evidence, which under-counts.
+     *
+     * @param pipelineRunId the orchestrated cycle id
+     * @param typeIds       the {@code ForecastType} lookup ids that identify a result lane
+     * @return one {@link CycleScoredComponent} per matching row
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.CycleScoredComponent("
+            + "s.location.id, s.forecastTypeId) FROM ForecastScoreEntity s "
+            + "WHERE s.pipelineRunId = :pipelineRunId AND s.forecastTypeId IN :typeIds")
+    List<CycleScoredComponent> findScoredComponentsByPipelineRun(
+            @Param("pipelineRunId") Long pipelineRunId,
+            @Param("typeIds") Collection<Long> typeIds);
 }

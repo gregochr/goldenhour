@@ -2,9 +2,13 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -132,4 +136,126 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      */
     @Query("SELECT MAX(l.createdAt) FROM LocationEntity l")
     LocalDateTime findMaxCreatedAt();
+
+    /**
+     * Records one counted failed scheduled cycle against an enabled location: sets the consecutive
+     * failure count and the time of the failure and touches no other column.
+     *
+     * <p>Column-scoped on purpose. A whole-entity {@code save} would write every column, including
+     * the tide, type and solar-event sets, from whatever copy the caller held, so it could undo an
+     * admin's concurrent edit of the same place. The {@code enabled = true} guard makes the update
+     * a no-op for a place an admin disabled mid-cycle.
+     *
+     * <p>The increment is done by the database, not computed by the caller from an entity read
+     * earlier, so two writers can never overwrite each other with a stale absolute value. Read the
+     * result back with {@link #findConsecutiveFailuresById}.
+     *
+     * @param id            the location id
+     * @param lastFailureAt UTC time of this failure
+     * @return rows updated (0 or 1)
+     */
+    @Modifying
+    @Query("UPDATE LocationEntity l SET "
+            + "l.consecutiveFailures = COALESCE(l.consecutiveFailures, 0) + 1, "
+            + "l.lastFailureAt = :lastFailureAt WHERE l.id = :id AND l.enabled = true")
+    int recordFailure(@Param("id") Long id, @Param("lastFailureAt") LocalDateTime lastFailureAt);
+
+    /**
+     * Reads the consecutive failure count straight from the database. A scalar projection, so it
+     * never returns a value cached in the persistence context: after {@link #recordFailure} it is
+     * the number that update produced.
+     *
+     * @param id the location id
+     * @return the stored count, or {@code null} if the column is null
+     */
+    @Query("SELECT l.consecutiveFailures FROM LocationEntity l WHERE l.id = :id")
+    Integer findConsecutiveFailuresById(@Param("id") Long id);
+
+    /**
+     * Auto-disables an enabled location: sets {@code enabled = false}, the reason, the consecutive
+     * failure count and the time of the last failure, and touches no other column.
+     *
+     * @param id            the location id
+     * @param failureCount  the consecutive failure count that tripped the disable
+     * @param lastFailureAt UTC time of the failure that tripped it
+     * @param reason        the fixed-shape reason shown on the admin Locations alerts
+     * @return rows updated (0 or 1)
+     */
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.enabled = false, l.consecutiveFailures = :failureCount, "
+            + "l.lastFailureAt = :lastFailureAt, l.disabledReason = :reason "
+            + "WHERE l.id = :id AND l.enabled = true")
+    int autoDisable(@Param("id") Long id, @Param("failureCount") int failureCount,
+            @Param("lastFailureAt") LocalDateTime lastFailureAt, @Param("reason") String reason);
+
+    /**
+     * Sets {@code enabled} on one location and touches no other column. {@code enabled} is
+     * {@code updatable = false} on the entity, so this (and {@link #autoDisable}) are its only
+     * writers after the insert: no whole-entity save or detached merge can flip it.
+     *
+     * @param id      the location id
+     * @param enabled the new state
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.enabled = :enabled WHERE l.id = :id")
+    int updateEnabled(@Param("id") Long id, @Param("enabled") boolean enabled);
+
+    /**
+     * Sets the Open-Meteo grid cell of one location and touches no other column. For writers that
+     * hold a possibly stale, detached snapshot and must not rewrite what an admin has since edited.
+     *
+     * @param id      the location id
+     * @param gridLat snapped grid latitude
+     * @param gridLng snapped grid longitude
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.gridLat = :gridLat, l.gridLng = :gridLng WHERE l.id = :id")
+    int updateGridCell(@Param("id") Long id, @Param("gridLat") double gridLat,
+            @Param("gridLng") double gridLng);
+
+    /**
+     * Sets the measured sky brightness and Bortle class of one location and touches no other column.
+     *
+     * @param id                the location id
+     * @param skyBrightnessSqm  sky quality reading in magnitudes per square arcsecond
+     * @param bortleClass       Bortle class
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.skyBrightnessSqm = :skyBrightnessSqm, "
+            + "l.bortleClass = :bortleClass WHERE l.id = :id")
+    int updateSkyBrightness(@Param("id") Long id,
+            @Param("skyBrightnessSqm") Double skyBrightnessSqm,
+            @Param("bortleClass") Integer bortleClass);
+
+    /**
+     * Clears the whole failure state of one location: counter to zero, last-failure time and
+     * disabled reason to null. Used when an admin re-enables a place or resets its failures; those
+     * columns are {@code updatable = false} on the entity, so this is the only way to clear them.
+     * It does not touch {@code enabled}, which the caller sets through the entity.
+     *
+     * @param id the location id
+     * @return rows updated (0 or 1)
+     */
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.consecutiveFailures = 0, l.lastFailureAt = NULL, "
+            + "l.disabledReason = NULL WHERE l.id = :id")
+    int clearFailureState(@Param("id") Long id);
+
+    /**
+     * Resets the consecutive failure count to zero for every enabled location in the given set
+     * whose count is above zero. The time of the last failure is left as the historical fact it is.
+     *
+     * @param ids the location ids that got through a scheduled cycle
+     * @return rows updated
+     */
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.consecutiveFailures = 0 "
+            + "WHERE l.id IN :ids AND l.enabled = true AND l.consecutiveFailures > 0")
+    int resetFailureCounts(@Param("ids") Collection<Long> ids);
 }

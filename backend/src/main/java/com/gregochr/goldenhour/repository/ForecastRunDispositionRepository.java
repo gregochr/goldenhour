@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.ForecastRunDispositionEntity;
+import com.gregochr.goldenhour.model.CycleDisposition;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -269,4 +270,21 @@ public interface ForecastRunDispositionRepository
             @Param("date") LocalDate date,
             @Param("eventType") String eventType,
             @Param("minCreatedAt") Instant minCreatedAt);
+
+    /**
+     * Returns the (location, disposition) pair of every row written against any of the given job
+     * runs that names a location — the collection-time half of a cycle's per-place outcome.
+     *
+     * <p>A cycle's dispositions hang off the job run of its first submitted batch, so the caller
+     * passes the job runs of every batch tagged with the cycle; a job run without dispositions
+     * (the other buckets, a retry batch) simply contributes nothing. A row with no location id (an
+     * unresolved name) cannot be attributed to a place and is excluded.
+     *
+     * @param jobRunIds job run ids of a cycle's batches
+     * @return one {@link CycleDisposition} per attributable row
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.CycleDisposition(d.locationId, d.disposition) "
+            + "FROM ForecastRunDispositionEntity d "
+            + "WHERE d.jobRunId IN :jobRunIds AND d.locationId IS NOT NULL")
+    List<CycleDisposition> findCycleDispositions(@Param("jobRunIds") Collection<Long> jobRunIds);
 }

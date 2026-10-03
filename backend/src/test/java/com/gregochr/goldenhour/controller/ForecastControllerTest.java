@@ -17,9 +17,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -39,6 +39,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -60,8 +61,18 @@ class ForecastControllerTest extends AbstractControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
-    @Qualifier("forecastExecutor")
+    /**
+     * A synchronous stand-in for the application's real, asynchronous {@code forecastExecutor}.
+     *
+     * <p>The controller starts every run with {@code CompletableFuture.runAsync(..., forecastExecutor)}.
+     * With the real virtual-thread executor, a run started by one test could execute inside the
+     * NEXT test (the lambda reaching the mocked {@code ForecastCommandExecutor} after that test's
+     * mocks had been reset), which is how a {@code verify(..., never()).execute(...)} in a later test
+     * once failed in CI. Running every started run inline, on the request thread, makes it finish
+     * within its own test. The bean keeps its name, so the controller and the tide-refresh tests
+     * (which pass this same instance to {@code startTideRefresh}) still see "the forecast executor".
+     */
+    @MockitoBean(name = "forecastExecutor")
     private Executor forecastExecutor;
 
     private static final LocationEntity DURHAM = LocationEntity.builder()
@@ -79,6 +90,10 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .thenReturn(new com.gregochr.goldenhour.service.ForecastCommand(
                         com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
                         List.of(), null, null, true));
+        doAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(0)).run();
+            return null;
+        }).when(forecastExecutor).execute(any(Runnable.class));
         JobRunEntity stubJobRun = new JobRunEntity();
         stubJobRun.setId(1L);
         when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
@@ -493,10 +508,23 @@ class ForecastControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run as ADMIN returns 202 Accepted")
     void runForecast_asAdmin_noBody_returns202() throws Exception {
+        com.gregochr.goldenhour.service.ForecastCommand command =
+                new com.gregochr.goldenhour.service.ForecastCommand(
+                        com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
+                        List.of(), null, null, true);
+        when(commandFactory.create(eq(com.gregochr.goldenhour.entity.RunType.SHORT_TERM),
+                eq(true), eq(List.of(DURHAM)), any(), eq(java.util.Set.of())))
+                .thenReturn(command);
+
         mockMvc.perform(post("/api/forecast/run"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value("Forecast run started"))
                 .andExpect(jsonPath("$.runType").value("SHORT_TERM"));
+
+        // The run executes inline now, so the started run is asserted rather than assumed.
+        ArgumentCaptor<JobRunEntity> jobRun = ArgumentCaptor.forClass(JobRunEntity.class);
+        verify(forecastCommandExecutor).execute(eq(command), jobRun.capture());
+        assertThat(jobRun.getValue().getId()).isEqualTo(1L);
     }
 
     @Test

@@ -20,12 +20,17 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Emails every enabled ADMIN account when the pipeline orchestrator marks a cycle
  * {@code DEGRADED} — the one admin-alert channel this app has, born from the
  * 2026-09-29 incident where a fully-failed forecast batch submission left the
  * cycle {@code COMPLETED}, silently serving ratings a day stale, with nobody told.
+ *
+ * <p>The same channel also carries the two alerts of the location auto-disable rule
+ * ({@code LocationFailureService}): one when a cycle disables places, one when more places qualify
+ * than the per-cycle cap allows and none is disabled.
  *
  * <p><b>Why a new, dedicated service rather than the existing notification
  * machinery.</b> {@code NotificationChannel}/{@code NotificationDispatcher} carry
@@ -113,14 +118,91 @@ public class AdminAlertService {
                     + "admin alert (runId={})", runId);
             return;
         }
-        // The WHOLE body is guarded, not just the per-recipient send loop below: a failure in
-        // the recipient query or in building the subject/body must be exactly as best-effort as a
-        // failure sending to one recipient — this method's own javadoc promises it never throws
-        // into the orchestrator, and until this wrap only the send loop actually kept that promise.
+        Supplier<String> subject = () -> "PhotoCast: pipeline run " + runId + " degraded — "
+                + subjectClause(failureSummary);
+        deliver(subject, () -> buildBody(runId, cycleType, triggerTime, failureSummary),
+                "pipeline-degraded", runId);
+    }
+
+    /**
+     * Sends the "locations auto-disabled" alert: one message per cycle naming every place the
+     * cycle's settle disabled after {@code LocationFailureService#AUTO_DISABLE_THRESHOLD}
+     * consecutive counted failures, with the stored reason for each.
+     *
+     * <p>Same channel, same recipients and same best-effort rules as
+     * {@link #sendPipelineDegradedAlert}: asynchronous, never throws, silent when alerts are
+     * disabled or no mail sender or admin address exists. A place that vanishes from every user's
+     * Plan and map is exactly what an admin must hear about.
+     *
+     * @param runId       the pipeline run whose settle disabled the places
+     * @param cycleType   NIGHTLY or INTRADAY
+     * @param triggerTime when the cycle started (UTC)
+     * @param disabled    the places disabled this cycle, each with its stored reason
+     */
+    @Async
+    public void sendLocationsAutoDisabledAlert(Long runId, CycleType cycleType, Instant triggerTime,
+            List<DisabledLocation> disabled) {
+        if (!enabled) {
+            LOG.debug("notifications.admin-alerts.enabled=false — skipping locations-auto-disabled "
+                    + "admin alert (runId={})", runId);
+            return;
+        }
+        String noun = disabled.size() == 1 ? "location" : "locations";
+        Supplier<String> subject = () -> "PhotoCast: " + disabled.size() + " " + noun
+                + " auto-disabled after pipeline run " + runId;
+        deliver(subject, () -> buildAutoDisabledBody(runId, cycleType, triggerTime, disabled),
+                "locations-auto-disabled", runId);
+    }
+
+    /**
+     * Sends the "auto-disable cap" alert: more places than {@code
+     * LocationFailureService#MAX_DISABLED_PER_CYCLE} reached the failure threshold in one cycle, so
+     * none was disabled. Many places failing at once points at something systemic (an outage, a bad
+     * deploy, a rejected key) rather than many broken places, and an admin must hear about that
+     * instead of finding the roster silently emptied or silently untouched.
+     *
+     * @param runId       the pipeline run whose settle hit the cap
+     * @param cycleType   NIGHTLY or INTRADAY
+     * @param triggerTime when the cycle started (UTC)
+     * @param names       every place that qualified for disabling this cycle
+     * @param cap         the per-cycle disable cap that was exceeded
+     */
+    @Async
+    public void sendLocationDisableCapAlert(Long runId, CycleType cycleType, Instant triggerTime,
+            List<String> names, int cap) {
+        if (!enabled) {
+            LOG.debug("notifications.admin-alerts.enabled=false — skipping location-disable-cap "
+                    + "admin alert (runId={})", runId);
+            return;
+        }
+        Supplier<String> subject = () -> "PhotoCast: " + names.size()
+                + " locations failed repeatedly on pipeline run " + runId + " — none disabled";
+        deliver(subject, () -> buildCapBody(runId, cycleType, triggerTime, names, cap),
+                "location-disable-cap", runId);
+    }
+
+    /**
+     * One place disabled by the auto-disable rule, as named in the alert.
+     *
+     * @param name   the location name
+     * @param reason the stored, fixed-shape disabled reason
+     */
+    public record DisabledLocation(String name, String reason) {
+    }
+
+    /**
+     * Mails {@code subject} and the lazily built body to every enabled ADMIN with an address.
+     *
+     * <p>The WHOLE body is guarded, not just the per-recipient send loop: a failure in the
+     * recipient query or in building the body must be exactly as best-effort as a failure sending
+     * to one recipient — every public method here promises it never throws into the caller.
+     */
+    private void deliver(Supplier<String> subjectSupplier, Supplier<String> bodySupplier,
+            String what, Long runId) {
         try {
             if (mailSender == null) {
-                LOG.debug("Mail sender not configured — skipping pipeline-degraded admin alert "
-                        + "(runId={})", runId);
+                LOG.debug("Mail sender not configured — skipping {} admin alert (runId={})",
+                        what, runId);
                 return;
             }
             List<String> recipients = appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)
@@ -129,32 +211,61 @@ public class AdminAlertService {
                     .filter(email -> email != null && !email.isBlank())
                     .toList();
             if (recipients.isEmpty()) {
-                LOG.warn("Pipeline run {} degraded, but no enabled ADMIN account has an email "
-                        + "address — no alert sent", runId);
+                LOG.warn("Pipeline run {} raised a {} alert, but no enabled ADMIN account has an "
+                        + "email address — no alert sent", runId, what);
                 return;
             }
 
-            String subject = "PhotoCast: pipeline run " + runId + " degraded — "
-                    + subjectClause(failureSummary);
-            String body = buildBody(runId, cycleType, triggerTime, failureSummary);
-
+            String subject = subjectSupplier.get();
+            String body = bodySupplier.get();
             for (String recipient : recipients) {
                 try {
                     sendPlainTextEmail(recipient, subject, body);
-                    LOG.info("Pipeline-degraded alert sent to {} for run {}",
+                    LOG.info("{} alert sent to {} for run {}", what,
                             LogSanitizer.sanitize(recipient), runId);
                 } catch (Exception ex) {
                     // Best-effort: one admin's mailbox rejecting the message must not stop the
-                    // others from being told, and must never propagate into the orchestrator.
-                    LOG.warn("Failed to send pipeline-degraded alert to {} for run {}: {}",
+                    // others from being told, and must never propagate into the caller.
+                    LOG.warn("Failed to send {} alert to {} for run {}: {}", what,
                             LogSanitizer.sanitize(recipient), runId,
                             LogSanitizer.sanitize(ex.getMessage()));
                 }
             }
         } catch (Exception ex) {
-            LOG.warn("Pipeline-degraded admin alert failed for run {}: {}", runId,
+            LOG.warn("{} admin alert failed for run {}: {}", what, runId,
                     LogSanitizer.sanitize(ex.getMessage()), ex);
         }
+    }
+
+    private static String triggerText(Instant triggerTime) {
+        return triggerTime != null ? TRIGGER_TIME_FORMAT.format(triggerTime) : "unknown";
+    }
+
+    private static String buildAutoDisabledBody(Long runId, CycleType cycleType,
+            Instant triggerTime, List<DisabledLocation> disabled) {
+        StringBuilder body = new StringBuilder();
+        body.append("Pipeline run ").append(runId).append(" (").append(cycleType)
+                .append(") auto-disabled ").append(disabled.size())
+                .append(disabled.size() == 1 ? " location" : " locations").append(".\n\n")
+                .append("Trigger time: ").append(triggerText(triggerTime)).append("\n\n");
+        for (DisabledLocation location : disabled) {
+            body.append("- ").append(location.name()).append(": ").append(location.reason())
+                    .append('\n');
+        }
+        body.append("\nThese places no longer appear in any forecast. Re-enable each one from "
+                + "Manage > Locations (Location Issues) once the cause is fixed.\n");
+        return body.toString();
+    }
+
+    private static String buildCapBody(Long runId, CycleType cycleType, Instant triggerTime,
+            List<String> names, int cap) {
+        return "Pipeline run " + runId + " (" + cycleType + "): " + names.size()
+                + " locations reached the consecutive-failure threshold in this one cycle, more "
+                + "than the cap of " + cap + " disabled per cycle.\n\n"
+                + "That points at something systemic rather than that many broken places, so NONE "
+                + "was disabled.\n\n"
+                + "Trigger time: " + triggerText(triggerTime) + "\n\n"
+                + "Locations: " + String.join(", ", names) + "\n";
     }
 
     /**
@@ -174,11 +285,8 @@ public class AdminAlertService {
 
     private static String buildBody(Long runId, CycleType cycleType, Instant triggerTime,
             String failureSummary) {
-        String triggerText = triggerTime != null
-                ? TRIGGER_TIME_FORMAT.format(triggerTime)
-                : "unknown";
         return "Pipeline run " + runId + " (" + cycleType + ") degraded.\n\n"
-                + "Trigger time: " + triggerText + "\n\n"
+                + "Trigger time: " + triggerText(triggerTime) + "\n\n"
                 + failureSummary + "\n\n"
                 + "The app is still serving ratings from the previous successful run.\n";
     }
