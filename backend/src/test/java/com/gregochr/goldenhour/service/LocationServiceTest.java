@@ -614,6 +614,9 @@ class LocationServiceTest {
         assertThat(result.getConsecutiveFailures()).isZero();
         assertThat(result.getDisabledReason()).isNull();
         assertThat(result.getLastFailureAt()).isNull();
+        // The failure columns are updatable = false on the entity: the clearing must be the scoped
+        // update, or it never reaches the database.
+        verify(locationRepository).clearFailureState(entity.getId());
     }
 
     @Test
@@ -629,6 +632,7 @@ class LocationServiceTest {
 
         assertThat(result.isEnabled()).isFalse();
         assertThat(result.getConsecutiveFailures()).isEqualTo(2);
+        verify(locationRepository, org.mockito.Mockito.never()).clearFailureState(entity.getId());
     }
 
     // --- shouldEvaluateSunrise / shouldEvaluateSunset ---
@@ -875,6 +879,7 @@ class LocationServiceTest {
         assertThat(saved.getDisabledReason()).isNull();
         assertThat(saved.getLastFailureAt()).isNull();
         assertThat(result).isSameAs(saved);
+        verify(locationRepository).clearFailureState(entity.getId());
     }
 
     @Test
@@ -896,6 +901,7 @@ class LocationServiceTest {
         assertThat(result.getConsecutiveFailures()).isZero();
         assertThat(result.getDisabledReason()).isNull();
         assertThat(result.getLastFailureAt()).isNull();
+        verify(locationRepository).clearFailureState(entity.getId());
     }
 
     @Test
@@ -914,6 +920,7 @@ class LocationServiceTest {
         assertThat(result.isEnabled()).isFalse();
         assertThat(result.getConsecutiveFailures()).isZero();
         assertThat(result.getLastFailureAt()).isNull();
+        verify(locationRepository).clearFailureState(entity.getId());
     }
 
     @Test

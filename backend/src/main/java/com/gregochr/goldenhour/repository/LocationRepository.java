@@ -188,6 +188,20 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
             @Param("lastFailureAt") LocalDateTime lastFailureAt, @Param("reason") String reason);
 
     /**
+     * Clears the whole failure state of one location: counter to zero, last-failure time and
+     * disabled reason to null. Used when an admin re-enables a place or resets its failures; those
+     * columns are {@code updatable = false} on the entity, so this is the only way to clear them.
+     * It does not touch {@code enabled}, which the caller sets through the entity.
+     *
+     * @param id the location id
+     * @return rows updated (0 or 1)
+     */
+    @Modifying
+    @Query("UPDATE LocationEntity l SET l.consecutiveFailures = 0, l.lastFailureAt = NULL, "
+            + "l.disabledReason = NULL WHERE l.id = :id")
+    int clearFailureState(@Param("id") Long id);
+
+    /**
      * Resets the consecutive failure count to zero for every enabled location in the given set
      * whose count is above zero. The time of the last failure is left as the historical fact it is.
      *

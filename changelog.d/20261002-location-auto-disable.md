@@ -49,5 +49,13 @@ roster.
   and resets nobody (it can only under-count).
 - **Known gap.** A bluebell or woodland request that failed is never retried, so such a failure
   stands for the cycle.
-- The writes are column-scoped updates on `LocationRepository`, so a count cannot overwrite an
-  admin's concurrent edit of the same place. No migration.
+- **Success evidence** is read from `forecast_score` rows stamped with the cycle's pipeline run as
+  well as from `api_call_log`, because the audit rows are best-effort (a batch whose job-run
+  bookkeeping failed logs nothing) and a place that really scored must still be reset. A failure
+  still needs positive failure evidence, so a gap can only under-count.
+- **The failure columns are written only by column-scoped updates.** `consecutive_failures`,
+  `last_failure_at` and `disabled_reason` are `updatable = false` on `LocationEntity` (as the
+  `app_user` settings columns are) and `LocationEntity` is `@DynamicUpdate`, so an admin's
+  metadata edit loaded before a settle and saved after it can no longer undo a committed
+  disable or restore a reset counter. The admin enable/disable toggle remains last-writer-wins.
+  No migration.

@@ -154,6 +154,94 @@ class LocationRepositoryTest {
     }
 
     @Test
+    @DisplayName("an entity loaded before a settle and saved after it with a changed name cannot "
+            + "undo the committed auto-disable: the row stays disabled with its reason and count")
+    void staleEntitySave_afterAutoDisable_doesNotUndoIt() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity loaded = repository.findById(saved.getId()).orElseThrow();
+        LocalDateTime at = LocalDateTime.of(2026, 10, 2, 3, 0);
+        String reason = "Auto-disabled after 3 consecutive failed scheduled runs "
+                + "(last 2026-10-02: data could not be collected).";
+        repository.autoDisable(saved.getId(), 3, at, reason);
+
+        loaded.setName("Bamburgh Castle (edited)");
+        repository.saveAndFlush(loaded);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle (edited)");
+        assertThat(found.isEnabled()).isFalse();
+        assertThat(found.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(found.getLastFailureAt()).isEqualTo(at);
+        assertThat(found.getDisabledReason()).isEqualTo(reason);
+    }
+
+    @Test
+    @DisplayName("an entity loaded carrying the old count cannot restore it after a reset, even "
+            + "when the stale copy is itself changed")
+    void staleEntitySave_afterReset_doesNotRestoreTheCount() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setConsecutiveFailures(2);
+        location.setLastFailureAt(LocalDateTime.of(2026, 10, 1, 3, 0));
+        LocationEntity saved = repository.save(location);
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity loaded = repository.findById(saved.getId()).orElseThrow();
+        repository.resetFailureCounts(List.of(saved.getId()));
+
+        loaded.setName("Bamburgh Castle (edited)");
+        loaded.setConsecutiveFailures(5);
+        loaded.setDisabledReason("stale");
+        repository.saveAndFlush(loaded);
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(found.getName()).isEqualTo("Bamburgh Castle (edited)");
+        assertThat(found.getConsecutiveFailures()).isZero();
+        assertThat(found.getDisabledReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("the admin enable/disable toggle still writes enabled through the entity, in "
+            + "both directions")
+    void adminToggle_stillWritesEnabled() {
+        LocationEntity saved = repository.save(buildLocation("Bamburgh Castle", 55.6090, -1.7099));
+        entityManager.flush();
+        entityManager.clear();
+
+        LocationEntity loaded = repository.findById(saved.getId()).orElseThrow();
+        loaded.setEnabled(false);
+        repository.saveAndFlush(loaded);
+        assertThat(reload(saved.getId()).isEnabled()).isFalse();
+
+        LocationEntity again = repository.findById(saved.getId()).orElseThrow();
+        again.setEnabled(true);
+        repository.saveAndFlush(again);
+        assertThat(reload(saved.getId()).isEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("clearFailureState zeroes the counter and nulls the time and reason, leaving "
+            + "enabled alone")
+    void clearFailureState_clearsOnlyFailureColumns() {
+        LocationEntity location = buildLocation("Bamburgh Castle", 55.6090, -1.7099);
+        location.setEnabled(false);
+        location.setConsecutiveFailures(3);
+        location.setLastFailureAt(LocalDateTime.of(2026, 10, 1, 3, 0));
+        location.setDisabledReason("Auto-disabled");
+        LocationEntity saved = repository.save(location);
+
+        int rows = repository.clearFailureState(saved.getId());
+
+        LocationEntity found = reload(saved.getId());
+        assertThat(rows).isEqualTo(1);
+        assertThat(found.getConsecutiveFailures()).isZero();
+        assertThat(found.getLastFailureAt()).isNull();
+        assertThat(found.getDisabledReason()).isNull();
+        assertThat(found.isEnabled()).isFalse();
+    }
+
+    @Test
     @DisplayName("autoDisable is a no-op on a place that is already disabled: it updates no row "
             + "and keeps the existing reason (an admin got there first)")
     void autoDisable_alreadyDisabledPlace_noOp() {

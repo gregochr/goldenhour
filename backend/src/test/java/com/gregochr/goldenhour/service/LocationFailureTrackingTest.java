@@ -90,10 +90,11 @@ class LocationFailureTrackingTest {
                         .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build()));
         location.setEnabled(true);
-        location.setConsecutiveFailures(0);
-        location.setLastFailureAt(null);
-        location.setDisabledReason(null);
-        return locationRepository.save(location);
+        LocationEntity saved = locationRepository.save(location);
+        // The failure columns are updatable = false on the entity: clear them with SQL.
+        jdbcTemplate.update("UPDATE locations SET consecutive_failures = 0, last_failure_at = NULL, "
+                + "disabled_reason = NULL WHERE id = ?", saved.getId());
+        return saved;
     }
 
     private LocationEntity reload(LocationEntity location) {
@@ -101,9 +102,8 @@ class LocationFailureTrackingTest {
     }
 
     private void setCounter(LocationEntity location, int failures) {
-        LocationEntity current = reload(location);
-        current.setConsecutiveFailures(failures);
-        locationRepository.save(current);
+        jdbcTemplate.update("UPDATE locations SET consecutive_failures = ? WHERE id = ?",
+                failures, location.getId());
     }
 
     /**
@@ -225,6 +225,29 @@ class LocationFailureTrackingTest {
         assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
         assertThat(reload(angel).isEnabled()).isTrue();
         assertThat(reload(keswick).getConsecutiveFailures()).isZero();
+    }
+
+    @Test
+    @DisplayName("a batch whose job-run bookkeeping failed (null job run, so no api_call_log row) "
+            + "whose place SCORED, as its forecast_score row for the cycle shows, resets the place")
+    void nullJobRunBatch_scoredPlace_resetsCounter() {
+        setCounter(angel, 2);
+        long runId = NEXT_RUN_ID.incrementAndGet();
+        ForecastBatchEntity batch = new ForecastBatchEntity(
+                "msgbatch_nulljob_" + runId, BatchType.FORECAST, 1,
+                Instant.parse("2026-10-03T01:00:00Z"));
+        batch.setPipelineRunId(runId);
+        forecastBatchRepository.save(batch);
+        jdbcTemplate.update(
+                "INSERT INTO forecast_score (forecast_type_id, location_id, evaluation_date, "
+                        + "event_type, score, pipeline_run_id, evaluated_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                1L, angel.getId(), Date.valueOf(DATE), "SUNSET", 4, runId,
+                Timestamp.from(Instant.parse("2026-10-02T02:00:00Z")));
+
+        locationFailureService.settleCycle(newRun(runId));
+
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
     }
 
     @Test

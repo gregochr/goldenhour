@@ -4,11 +4,14 @@ import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.model.BatchCallOutcome;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.model.CycleDisposition;
+import com.gregochr.goldenhour.model.CycleScoredComponent;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import com.gregochr.goldenhour.service.batch.CycleDispositionJobRuns;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
@@ -55,6 +58,27 @@ import java.util.Set;
  *       {@code succeeded}.</li>
  * </ul>
  *
+ * <p><b>Success evidence has two independent sources, and failure evidence has one.</b> The
+ * {@code api_call_log} rows are best-effort audit: {@code BatchSubmissionService} deliberately keeps a
+ * submitted batch whose job-run bookkeeping failed (null {@code jobRunId}), {@code
+ * ForecastResultHandler.persistBatchLog} then skips every result log for it, and an individual log
+ * write that fails is swallowed. A place that really was scored would then have no success row. So
+ * successes are also read from {@code forecast_score}, which every scored result writes through
+ * {@code ForecastScoreWriter} stamped with the producing cycle's {@code pipeline_run_id}, whatever
+ * happened to the job run: {@code SKY}, {@code FIERY_SKY} and {@code GOLDEN_HOUR} rows mean a sky
+ * success, {@code BLUEBELL} a bluebell success, {@code WOODLAND} a woodland success. ({@code TIDAL}
+ * and {@code INVERSION} rows are written from more than one lane and name none, so they are ignored.)
+ * The two sources are unioned. {@code forecast_score} is itself a secondary write (flag-gated,
+ * skipped for a superseded result, failure-swallowed), which is why it is a union and not a
+ * replacement. {@code forecast_evaluation} was considered and rejected: its scored {@code PENDING}
+ * row carries no pipeline run or batch to key it to the cycle; {@code cached_evaluation} was rejected
+ * because its per-region JSON is name-keyed and lane-less, and would need the cycle's trigger time
+ * and a deserialise per region.
+ *
+ * <p><b>The asymmetry is deliberate: a place is FAILED only on positive failure evidence</b> (a
+ * {@code SKIPPED_ERROR} disposition or a failed result row). Missing success evidence alone never
+ * makes a place failed, so a bookkeeping gap can only under-count, never wrongly disable.
+ *
  * <p>The result is deliberately raw, per lane: {@code LocationFailureService} compares a failure
  * only with like evidence (the same lane for a Claude failure), because a fault confined to one
  * lane, a woodland parser regression for instance, must not be diluted by the many places that
@@ -82,10 +106,22 @@ public class CycleLocationOutcomeResolver {
 
     private static final Logger LOG = LoggerFactory.getLogger(CycleLocationOutcomeResolver.class);
 
+    /**
+     * The result lane each {@code forecast_score} product identifies. TIDAL and INVERSION are
+     * deliberately absent: they are written from more than one lane.
+     */
+    private static final Map<Long, Lane> SCORED_LANE_BY_TYPE_ID = Map.of(
+            ForecastType.SKY.getId(), Lane.SKY,
+            ForecastType.FIERY_SKY.getId(), Lane.SKY,
+            ForecastType.GOLDEN_HOUR.getId(), Lane.SKY,
+            ForecastType.BLUEBELL.getId(), Lane.BLUEBELL,
+            ForecastType.WOODLAND.getId(), Lane.WOODLAND);
+
     private final ForecastBatchRepository forecastBatchRepository;
     private final ForecastRunDispositionRepository dispositionRepository;
     private final ApiCallLogRepository apiCallLogRepository;
     private final CycleDispositionJobRuns cycleDispositionJobRuns;
+    private final ForecastScoreRepository forecastScoreRepository;
 
     /**
      * Constructs the resolver.
@@ -94,15 +130,18 @@ public class CycleLocationOutcomeResolver {
      * @param dispositionRepository   collection-time per-slot dispositions
      * @param apiCallLogRepository    per-request batch results
      * @param cycleDispositionJobRuns the job run each cycle's dispositions were persisted on
+     * @param forecastScoreRepository the component rows each cycle wrote, as success evidence
      */
     public CycleLocationOutcomeResolver(ForecastBatchRepository forecastBatchRepository,
             ForecastRunDispositionRepository dispositionRepository,
             ApiCallLogRepository apiCallLogRepository,
-            CycleDispositionJobRuns cycleDispositionJobRuns) {
+            CycleDispositionJobRuns cycleDispositionJobRuns,
+            ForecastScoreRepository forecastScoreRepository) {
         this.forecastBatchRepository = forecastBatchRepository;
         this.dispositionRepository = dispositionRepository;
         this.apiCallLogRepository = apiCallLogRepository;
         this.cycleDispositionJobRuns = cycleDispositionJobRuns;
+        this.forecastScoreRepository = forecastScoreRepository;
     }
 
     /**
@@ -138,6 +177,16 @@ public class CycleLocationOutcomeResolver {
         if (!batchIds.isEmpty()) {
             for (BatchCallOutcome row : apiCallLogRepository.findBatchCallOutcomes(batchIds)) {
                 foldBatchResult(tallies, row, pipelineRunId);
+            }
+        }
+
+        if (!batches.isEmpty()) {
+            for (CycleScoredComponent row : forecastScoreRepository.findScoredComponentsByPipelineRun(
+                    pipelineRunId, SCORED_LANE_BY_TYPE_ID.keySet())) {
+                Lane lane = SCORED_LANE_BY_TYPE_ID.get(row.forecastTypeId());
+                if (lane != null) {
+                    tallies.computeIfAbsent(row.locationId(), id -> new Tally()).succeeded.add(lane);
+                }
             }
         }
 

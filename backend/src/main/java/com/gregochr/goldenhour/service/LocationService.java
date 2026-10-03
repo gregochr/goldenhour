@@ -344,15 +344,19 @@ public class LocationService {
      * @return the updated {@link LocationEntity}
      * @throws java.util.NoSuchElementException if no location with that ID exists
      */
+    @Transactional
     public LocationEntity setEnabled(Long id, boolean enabled) {
         LocationEntity location = findById(id);
         location.setEnabled(enabled);
-        if (enabled) {
-            location.setConsecutiveFailures(0);
-            location.setDisabledReason(null);
-            location.setLastFailureAt(null);
-        }
         LocationEntity saved = locationRepository.save(location);
+        if (enabled) {
+            // The failure columns are not updatable through the entity (see LocationEntity); clear
+            // them with a scoped update, and mirror that on the in-memory copy that is returned.
+            locationRepository.clearFailureState(saved.getId());
+            saved.setConsecutiveFailures(0);
+            saved.setDisabledReason(null);
+            saved.setLastFailureAt(null);
+        }
         LOG.info("Location '{}' {}", saved.getName(), enabled ? "enabled" : "disabled");
         return saved;
     }
@@ -422,15 +426,20 @@ public class LocationService {
      * @return the updated {@link LocationEntity}
      * @throws java.util.NoSuchElementException if no location with that name exists
      */
+    @Transactional
     public LocationEntity resetFailures(String name) {
         LocationEntity location = findByName(name);
         if (location.getDisabledReason() != null) {
             location.setEnabled(true);
         }
-        location.setConsecutiveFailures(0);
-        location.setDisabledReason(null);
-        location.setLastFailureAt(null);
-        return locationRepository.save(location);
+        LocationEntity saved = locationRepository.save(location);
+        // The failure columns are not updatable through the entity (see LocationEntity); clear
+        // them with a scoped update, and mirror that on the in-memory copy that is returned.
+        locationRepository.clearFailureState(saved.getId());
+        saved.setConsecutiveFailures(0);
+        saved.setDisabledReason(null);
+        saved.setLastFailureAt(null);
+        return saved;
     }
 
     /**

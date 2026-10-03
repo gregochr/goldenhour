@@ -6,11 +6,13 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BatchCallOutcome;
 import com.gregochr.goldenhour.model.CycleDisposition;
+import com.gregochr.goldenhour.model.CycleScoredComponent;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.service.batch.CycleDispositionJobRuns;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import org.junit.jupiter.api.DisplayName;
@@ -51,6 +53,9 @@ class CycleLocationOutcomeResolverTest {
     @Mock
     private ApiCallLogRepository apiCallLogRepository;
 
+    @Mock
+    private ForecastScoreRepository forecastScoreRepository;
+
     private static final long ANCHOR_JOB_RUN_ID = 8001L;
 
     /** The in-memory link from a cycle to the job run holding its dispositions. */
@@ -62,7 +67,8 @@ class CycleLocationOutcomeResolverTest {
 
     private CycleLocationOutcomeResolver resolverWith(CycleDispositionJobRuns links) {
         return new CycleLocationOutcomeResolver(
-                forecastBatchRepository, dispositionRepository, apiCallLogRepository, links);
+                forecastBatchRepository, dispositionRepository, apiCallLogRepository, links,
+                forecastScoreRepository);
     }
 
     private static ForecastBatchEntity batch(String anthropicId, BatchType type, Long jobRunId) {
@@ -328,6 +334,88 @@ class CycleLocationOutcomeResolverTest {
         assertThat(resolver().resolve(RUN_ID).get(30L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
     }
 
+    // ---- success evidence that does not depend on the audit rows ----
+
+    private static final java.util.Set<Long> LANE_TYPE_IDS = java.util.Set.of(1L, 2L, 3L, 5L, 7L);
+
+    private void scoredRows(CycleScoredComponent... rows) {
+        when(forecastScoreRepository.findScoredComponentsByPipelineRun(RUN_ID, LANE_TYPE_IDS))
+                .thenReturn(List.of(rows));
+    }
+
+    @Test
+    @DisplayName("a batch whose job-run bookkeeping failed (null job run, so no api_call_log row "
+            + "and no disposition lookup) still shows a place that scored, from forecast_score")
+    void nullJobRunBatch_placeScored_succeededFromForecastScore() {
+        cycleWithBatches(batch(BATCH_ID, BatchType.FORECAST, null));
+        when(apiCallLogRepository.findBatchCallOutcomes(List.of(BATCH_ID))).thenReturn(List.of());
+        scoredRows(new CycleScoredComponent(5L, 1L));
+
+        CyclePlaceEvidence evidence = resolver().resolve(RUN_ID).get(5L);
+
+        assertThat(evidence).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
+        assertThat(evidence.gotThrough()).isTrue();
+    }
+
+    @Test
+    @DisplayName("forecast_score products map to lanes: SKY, FIERY_SKY and GOLDEN_HOUR are sky, "
+            + "BLUEBELL is bluebell, WOODLAND is woodland; TIDAL and INVERSION name no lane")
+    void forecastScoreProducts_mapToLanes() {
+        cycleWithBatches(batch(BATCH_ID, BatchType.FORECAST, null));
+        when(apiCallLogRepository.findBatchCallOutcomes(List.of(BATCH_ID))).thenReturn(List.of());
+        scoredRows(new CycleScoredComponent(1L, 1L), new CycleScoredComponent(2L, 2L),
+                new CycleScoredComponent(3L, 3L), new CycleScoredComponent(4L, 5L),
+                new CycleScoredComponent(5L, 7L), new CycleScoredComponent(6L, 4L),
+                new CycleScoredComponent(7L, 6L));
+
+        Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
+
+        assertThat(evidence.get(1L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
+        assertThat(evidence.get(2L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
+        assertThat(evidence.get(3L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.SKY));
+        assertThat(evidence.get(4L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.BLUEBELL));
+        assertThat(evidence.get(5L)).isEqualTo(CyclePlaceEvidence.scoredIn(Lane.WOODLAND));
+        assertThat(evidence).doesNotContainKeys(6L, 7L);
+    }
+
+    @Test
+    @DisplayName("a failed result with no success anywhere is still a failure: missing success "
+            + "evidence alone never makes a place failed, but a failure row still does")
+    void failedResultWithNoScore_unchanged() {
+        firstBatchWith(List.of(disposition(8L, "EVALUATED")), List.of(sky(8L, false)));
+        scoredRows();
+
+        assertThat(resolver().resolve(RUN_ID).get(8L)).isEqualTo(CyclePlaceEvidence.failedIn(Lane.SKY));
+    }
+
+    @Test
+    @DisplayName("a place with no api_call_log row and no forecast_score row is not failed: "
+            + "no evidence at all means nothing")
+    void noEvidenceAtAll_isNotAFailure() {
+        firstBatchWith(List.of(disposition(9L, "EVALUATED")), List.of());
+        scoredRows();
+
+        CyclePlaceEvidence evidence = resolver().resolve(RUN_ID).get(9L);
+
+        assertThat(evidence).isEqualTo(CyclePlaceEvidence.nothing());
+        assertThat(evidence.failed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a success in both sources is one sky success, and a score outweighs a failed "
+            + "audit row for the same place")
+    void scoreAndAuditRowsAreUnioned() {
+        firstBatchWith(List.of(disposition(10L, "EVALUATED"), disposition(11L, "EVALUATED")),
+                List.of(sky(10L, true), sky(11L, false)));
+        scoredRows(new CycleScoredComponent(10L, 1L), new CycleScoredComponent(11L, 1L));
+
+        Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
+
+        assertThat(evidence.get(10L).succeededLanes()).isEqualTo(Set.of(Lane.SKY));
+        assertThat(evidence.get(11L).gotThrough()).isTrue();
+        assertThat(evidence.get(11L).failed()).isFalse();
+    }
+
     // ---- the batchless cycle: dispositions on an anchor job run, no forecast_batch row ----
 
     private void batchlessCycleWithAnchor(List<CycleDisposition> dispositions) {
@@ -419,5 +507,6 @@ class CycleLocationOutcomeResolverTest {
         assertThat(resolver().resolve(RUN_ID)).isEmpty();
         verifyNoInteractions(dispositionRepository);
         verifyNoInteractions(apiCallLogRepository);
+        verifyNoInteractions(forecastScoreRepository);
     }
 }
