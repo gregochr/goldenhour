@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.12] - 2026-10-03
+
+### Added — store the batch forecast prompt and Claude's own sky rating
+
+Haiku sometimes flips a forecast rating by two stars on identical inputs, and production kept neither
+half of what is needed to study it. Every batch sky forecast request now has its exact user message
+stored in a new `forecast_evaluation_prompt` table (keyed by the pending `forecast_evaluation` row, kept
+30 days and pruned nightly by the `forecast_prompt_cleanup` job at 03:50 UTC,
+`photocast.forecast-prompt.retention-days`), and `forecast_evaluation.sky_rating` records Claude's sky
+rating before the tide score is averaged into the combined star. A failure to store a prompt never
+affects the submission. Neither value is exposed on any API response; the synchronous engine, woodland
+and bluebell requests are not covered.
+
+### Docs — plan to stop two-star rating flips on identical inputs
+
+`docs/engineering/rating-band-plan.md` records the 2026-10-03 investigation into forecast ratings
+that flip by two stars between neighbouring locations with identical cloud inputs (Haiku, batch
+pipeline), the adversarial review of the first draft, and the phased plan that came out of it:
+pin the field order of the answer, store the prompt sent and the sky rating before tide, run a
+replay experiment across seven options, and only then decide whether code-computed rating bounds
+are needed. No code changes.
+
+### Fixed — the order of fields in Claude's forecast answers no longer changes with each restart
+
+The structured-output schema sent with every forecast request listed its fields in an order that
+changed each time the backend started, and Claude writes its fields in that order. So on some days
+the model committed to a star rating before explaining it, and on others after. The order is now
+fixed (rating, scores, summary, headline, then the optional fields) for the sky, woodland and
+bluebell evaluations, and a test pins it.
+
 ## [v2.22.11] - 2026-10-03
 
 ### Fixed — tapping a place on the Map tab no longer leaves its tooltip over the card
