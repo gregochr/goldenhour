@@ -55,6 +55,7 @@ public class EvaluationServiceImpl implements EvaluationService {
     private final ClaudeAuroraInterpreter claudeAuroraInterpreter;
     private final JobRunService jobRunService;
     private final Clock clock;
+    private final ForecastPromptStore forecastPromptStore;
     private final Map<Class<? extends EvaluationTask>, ResultHandler<?>> handlersByType;
 
     /**
@@ -70,6 +71,8 @@ public class EvaluationServiceImpl implements EvaluationService {
      * @param clock                      round 12: injectable clock for the submission instant
      *                                   stamped on a synchronous forecast result — see {@link
      *                                   #evaluateNowForecast}
+     * @param forecastPromptStore        records each batch sky request's user message against its
+     *                                   pending {@code forecast_evaluation} row
      */
     public EvaluationServiceImpl(BatchSubmissionService batchSubmissionService,
             BatchRequestFactory batchRequestFactory,
@@ -77,7 +80,9 @@ public class EvaluationServiceImpl implements EvaluationService {
             ClaudeAuroraInterpreter claudeAuroraInterpreter,
             JobRunService jobRunService,
             List<ResultHandler<?>> resultHandlers,
-            Clock clock) {
+            Clock clock,
+            ForecastPromptStore forecastPromptStore) {
+        this.forecastPromptStore = forecastPromptStore;
         this.batchSubmissionService = batchSubmissionService;
         this.batchRequestFactory = batchRequestFactory;
         this.anthropicApiClient = anthropicApiClient;
@@ -147,6 +152,8 @@ public class EvaluationServiceImpl implements EvaluationService {
     private EvaluationHandle submitForecast(List<EvaluationTask.Forecast> tasks,
             BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
+        // evalRowId -> the sky user message that went into that row's request (batch SKY lane only).
+        Map<Long, String> skyPrompts = new java.util.LinkedHashMap<>();
         for (EvaluationTask.Forecast task : tasks) {
             Long locationId = task.location().getId();
             switch (task.promptKind()) {
@@ -158,16 +165,27 @@ public class EvaluationServiceImpl implements EvaluationService {
                         CustomIdFactory.forWoodland(locationId, task.date(), task.targetType(),
                                 task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
-                case SKY -> requests.add(batchRequestFactory.buildForecastRequest(
-                        CustomIdFactory.forForecast(locationId, task.date(), task.targetType(),
-                                task.evalRowId(), task.forced()),
-                        task.model(), task.data(), task.model().getMaxTokens()));
+                case SKY -> {
+                    BatchRequestFactory.ForecastRequest built =
+                            batchRequestFactory.buildForecastRequestAndPrompt(
+                                    CustomIdFactory.forForecast(locationId, task.date(),
+                                            task.targetType(), task.evalRowId(), task.forced()),
+                                    task.model(), task.data(), task.model().getMaxTokens());
+                    requests.add(built.request());
+                    if (task.evalRowId() != null) {
+                        skyPrompts.put(task.evalRowId(), built.userMessage());
+                    }
+                }
             }
         }
         BatchSubmitResult result = batchSubmissionService.submit(
                 requests, BatchType.FORECAST, trigger,
                 "EvaluationService forecast (" + trigger + ")",
                 pipelineRunId, isRetry);
+        if (result != null) {
+            // Best-effort and never fails the submission: the store catches its own failures.
+            forecastPromptStore.store(skyPrompts);
+        }
         return result == null
                 ? EvaluationHandle.empty()
                 : new EvaluationHandle(result.jobRunId(), result.batchId(),
