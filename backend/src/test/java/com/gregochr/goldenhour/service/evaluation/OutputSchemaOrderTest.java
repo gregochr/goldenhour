@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Pins the property order of every forecast-lane structured-output schema, as it is SERIALISED
@@ -71,5 +72,28 @@ class OutputSchemaOrderTest {
 
         assertThat(keys(schema.path("properties")))
                 .containsExactly("rating", "summary", "headline");
+    }
+
+    @Test
+    @DisplayName("ordered() preserves argument order")
+    void ordered_preservesOrder() {
+        assertThat(PromptUtils.ordered("z", 1, "a", 2, "m", 3).keySet())
+                .containsExactly("z", "a", "m");
+    }
+
+    @Test
+    @DisplayName("ordered() rejects an odd argument count")
+    void ordered_oddLength_throws() {
+        assertThatThrownBy(() -> PromptUtils.ordered("a", 1, "b"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("3 arguments");
+    }
+
+    @Test
+    @DisplayName("ordered() rejects a non-String key")
+    void ordered_nonStringKey_throws() {
+        assertThatThrownBy(() -> PromptUtils.ordered(1, "a"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("position 0");
     }
 }

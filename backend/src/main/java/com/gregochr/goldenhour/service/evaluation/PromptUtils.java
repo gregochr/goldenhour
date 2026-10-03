@@ -214,11 +214,19 @@ public final class PromptUtils {
      *
      * @param keyValues alternating String keys and their values
      * @return a {@link LinkedHashMap} preserving the argument order
+     * @throws IllegalArgumentException if the argument count is odd or a key is not a String
      */
     static Map<String, Object> ordered(Object... keyValues) {
+        if (keyValues.length % 2 != 0) {
+            throw new IllegalArgumentException(
+                    "keys and values must alternate, but got " + keyValues.length + " arguments");
+        }
         Map<String, Object> map = new LinkedHashMap<>();
-        for (int i = 0; i < keyValues.length; i += 2) {
-            map.put((String) keyValues[i], keyValues[i + 1]);
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            if (!(keyValues[i] instanceof String key)) {
+                throw new IllegalArgumentException("key at position " + i + " is not a String");
+            }
+            map.put(key, keyValues[i + 1]);
         }
         return map;
     }
