@@ -42,11 +42,20 @@ class LocationFailureTrackingTest {
 
     private static final Instant TRIGGER = Instant.parse("2026-10-02T01:00:00Z");
 
+    /** The clock every service under test uses, so the sweep's seven-day window is fixed. */
+    private static final java.time.Clock CLOCK = java.time.Clock.fixed(
+            Instant.parse("2026-10-03T00:00:00Z"), ZoneOffset.UTC);
+
+    /** Each persisted run triggers one hour after the previous one, so cycles are in order. */
+    private int runsPersisted;
+
+    private LocationFailureService locationFailureService;
+
     @Autowired
     private LocationService locationService;
 
     @Autowired
-    private LocationFailureService locationFailureService;
+    private com.gregochr.goldenhour.service.batch.ForecastDispositionService dispositionService;
 
     @Autowired
     private com.gregochr.goldenhour.repository.PipelineRunRepository pipelineRunRepository;
@@ -81,16 +90,25 @@ class LocationFailureTrackingTest {
 
     @BeforeEach
     void setUp() {
-        // Ordering reads the newest SETTLED trigger from the database: do not let one test's
-        // settled runs make the next test's (earlier-triggered) cycle look old.
-        jdbcTemplate.update("UPDATE pipeline_run SET failures_settled_at = NULL");
+        // Ordering reads the newest SETTLED trigger from the database and the sweep reads every
+        // unsettled run: start each test from an empty pipeline_run table.
+        jdbcTemplate.update("DELETE FROM forecast_score");
+        jdbcTemplate.update("DELETE FROM pipeline_run");
+        runsPersisted = 0;
+        locationFailureService = restartedService();
         angel = freshLocation("Angel of the North", 54.9141, -1.5895);
         keswick = freshLocation("Keswick", 54.6, -3.13);
     }
 
     /** Persists a pipeline run and returns its id; the claim and the link live on this row. */
     private long persistedRunId() {
-        return pipelineRunRepository.save(new PipelineRunEntity(CycleType.NIGHTLY, TRIGGER)).getId();
+        return pipelineRunRepository.save(new PipelineRunEntity(CycleType.NIGHTLY,
+                TRIGGER.plusSeconds(3600L * runsPersisted++))).getId();
+    }
+
+    /** Marks a persisted run as finished, as it is by the time the sweep looks for it. */
+    private void complete(long runId) {
+        jdbcTemplate.update("UPDATE pipeline_run SET status = 'COMPLETED' WHERE id = ?", runId);
     }
 
     private PipelineRunEntity newRun(long runId) {
@@ -106,7 +124,40 @@ class LocationFailureTrackingTest {
                 forecastBatchRepository, dispositionRepository, apiCallLogRepository,
                 pipelineRunRepository, forecastScoreRepository);
         return new LocationFailureService(resolver, locationRepository, adminAlertService,
-                java.time.Clock.systemUTC(), transactionManager, pipelineRunRepository);
+                CLOCK, transactionManager, pipelineRunRepository);
+    }
+
+    /** A transaction manager whose commit can be made to fail after rolling the work back. */
+    private static final class FailingCommitTransactionManager
+            implements org.springframework.transaction.PlatformTransactionManager {
+        private final org.springframework.transaction.PlatformTransactionManager delegate;
+        private volatile boolean failCommit;
+
+        FailingCommitTransactionManager(
+                org.springframework.transaction.PlatformTransactionManager delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public org.springframework.transaction.TransactionStatus getTransaction(
+                org.springframework.transaction.TransactionDefinition definition) {
+            return delegate.getTransaction(definition);
+        }
+
+        @Override
+        public void commit(org.springframework.transaction.TransactionStatus status) {
+            if (failCommit) {
+                delegate.rollback(status);
+                throw new org.springframework.transaction.TransactionSystemException(
+                        "commit failed");
+            }
+            delegate.commit(status);
+        }
+
+        @Override
+        public void rollback(org.springframework.transaction.TransactionStatus status) {
+            delegate.rollback(status);
+        }
     }
 
     private LocationEntity freshLocation(String name, double lat, double lon) {
@@ -368,23 +419,155 @@ class LocationFailureTrackingTest {
     }
 
     @Test
-    @DisplayName("an older cycle that is still unsettled is refused after a newer one has been "
-            + "settled, and its failure is not counted")
-    void olderUnsettledCycle_refusedAfterNewerSettled() {
-        setCounter(angel, 0);
+    @DisplayName("an older cycle settled after a newer one is settled RESETS_ONLY, not refused: "
+            + "its success resets a place at 2, its failure counts nothing, and it is claimed")
+    void olderCycleAfterNewer_settledResetsOnly() {
+        setCounter(angel, 2);
+        setCounter(keswick, 1);
         PipelineRunEntity older = pipelineRunRepository.save(
                 new PipelineRunEntity(CycleType.NIGHTLY, TRIGGER.plusSeconds(86_400)));
         PipelineRunEntity newer = pipelineRunRepository.save(
                 new PipelineRunEntity(CycleType.INTRADAY, TRIGGER.plusSeconds(2 * 86_400)));
-        // Settle the NEWER cycle first (a success for Angel), then the older one (a failure).
-        seedBatchWithResults(newer.getId(), true);
-        seedBatchWithResults(older.getId(), false);
+        // The newer cycle settles first with nothing recorded for either place; the older cycle,
+        // settled afterwards, has Angel succeed and Keswick fail.
+        seedBatch(older.getId(), true, false);
 
         locationFailureService.settleCycle(newRun(newer.getId()));
         locationFailureService.settleCycle(newRun(older.getId()));
 
         assertThat(reload(angel).getConsecutiveFailures()).isZero();
-        assertThat(newRun(older.getId()).getFailuresSettledAt()).isNull();
+        assertThat(reload(keswick).getConsecutiveFailures()).isEqualTo(1);
+        assertThat(newRun(older.getId()).getFailuresSettledAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("the tail settle of the newest cycle is still FULL: three consecutive counted "
+            + "failures disable (see threeConsecutiveFailedCycles_autoDisable_thenReEnable), and "
+            + "the cycle is claimed")
+    void tailSettleOfNewestCycle_isFull() {
+        setCounter(angel, 2);
+        long runId = persistedRunId();
+        seedBatch(runId, false, true);
+
+        locationFailureService.settleCycle(newRun(runId));
+
+        assertThat(reload(angel).isEnabled()).isFalse();
+        assertThat(newRun(runId).getFailuresSettledAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a settle whose commit fails leaves failures_settled_at null and counters "
+            + "untouched, the run having already completed; the next sweep settles it RESETS_ONLY: a "
+            + "place at 2 that succeeded is reset, a place that failed is not counted")
+    void settleCommitFails_runUnclaimed_nextSweepSettlesResetsOnly() {
+        setCounter(angel, 2);
+        setCounter(keswick, 1);
+        long runId = persistedRunId();
+        seedBatch(runId, true, false);
+        complete(runId);
+        FailingCommitTransactionManager failing = new FailingCommitTransactionManager(
+                transactionManager);
+        failing.failCommit = true;
+        CycleLocationOutcomeResolver resolver = new CycleLocationOutcomeResolver(
+                forecastBatchRepository, dispositionRepository, apiCallLogRepository,
+                pipelineRunRepository, forecastScoreRepository);
+        LocationFailureService unlucky = new LocationFailureService(resolver, locationRepository,
+                adminAlertService, CLOCK, failing, pipelineRunRepository);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> unlucky.settleCycle(newRun(runId)))
+                .isInstanceOf(org.springframework.transaction.TransactionSystemException.class);
+
+        assertThat(newRun(runId).getFailuresSettledAt()).isNull();
+        assertThat(newRun(runId).getStatus())
+                .isEqualTo(com.gregochr.goldenhour.entity.PipelineRunStatus.COMPLETED);
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
+        assertThat(reload(keswick).getConsecutiveFailures()).isEqualTo(1);
+
+        int settled = locationFailureService.sweepUnsettledRuns();
+
+        assertThat(settled).isEqualTo(1);
+        assertThat(newRun(runId).getFailuresSettledAt()).isNotNull();
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
+        assertThat(reload(keswick).getConsecutiveFailures()).isEqualTo(1);
+        assertThat(locationFailureService.sweepUnsettledRuns()).isZero();
+    }
+
+    @Test
+    @DisplayName("the startup sweep settles an unclaimed recent run, and ignores one triggered "
+            + "more than seven days before the clock and one still RUNNING")
+    void startupSweep_settlesRecent_ignoresOldAndRunning() {
+        setCounter(angel, 2);
+        setCounter(keswick, 2);
+        long recent = persistedRunId();
+        seedBatch(recent, true, false);
+        complete(recent);
+        PipelineRunEntity old = pipelineRunRepository.save(new PipelineRunEntity(
+                CycleType.NIGHTLY, CLOCK.instant().minus(java.time.Duration.ofDays(7))
+                        .minusSeconds(1)));
+        seedBatch(old.getId(), false, true);
+        complete(old.getId());
+        long running = persistedRunId();
+        seedBatch(running, false, true);
+
+        int settled = locationFailureService.sweepUnsettledRuns();
+
+        assertThat(settled).isEqualTo(1);
+        assertThat(newRun(recent).getFailuresSettledAt()).isNotNull();
+        assertThat(newRun(old.getId()).getFailuresSettledAt()).isNull();
+        assertThat(newRun(running).getFailuresSettledAt()).isNull();
+        // Angel's reset came from the recent run; Keswick's counter is untouched by the other two,
+        // whose evidence (a Keswick success) would have reset it had either been settled.
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
+        assertThat(reload(keswick).getConsecutiveFailures()).isEqualTo(2);
+    }
+
+    /**
+     * Gives {@code created_at} the default Flyway's schema gives it (the entity never inserts it,
+     * and H2's schema-from-entities carries none), so the real service can insert rows here.
+     */
+    private void giveDispositionCreatedAtItsProductionDefault() {
+        jdbcTemplate.update("ALTER TABLE forecast_run_disposition "
+                + "ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP");
+    }
+
+    @Test
+    @DisplayName("ATOMIC LINK: a link that cannot be written (no such pipeline run) rolls the "
+            + "dispositions back with it, so no disposition rows are left without the link")
+    void dispositionsAndLink_failTogether() {
+        giveDispositionCreatedAtItsProductionDefault();
+        long jobRunId = 987_001L;
+        com.gregochr.goldenhour.model.CandidateDisposition disposition =
+                new com.gregochr.goldenhour.model.CandidateDisposition(angel.getId(),
+                        angel.getName(), DATE, TargetType.SUNSET, 0,
+                        com.gregochr.goldenhour.entity.DispositionCategory.SKIPPED_TRIAGED, "cloud");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> dispositionService.persist(
+                        999_999_999L, jobRunId, java.util.List.of(disposition)))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM forecast_run_disposition WHERE job_run_id = ?",
+                Integer.class, jobRunId)).isZero();
+    }
+
+    @Test
+    @DisplayName("ATOMIC LINK: dispositions and the link to their job run are written together")
+    void dispositionsAndLink_writtenTogether() {
+        giveDispositionCreatedAtItsProductionDefault();
+        long runId = persistedRunId();
+        long jobRunId = 987_002L;
+        com.gregochr.goldenhour.model.CandidateDisposition disposition =
+                new com.gregochr.goldenhour.model.CandidateDisposition(angel.getId(),
+                        angel.getName(), DATE, TargetType.SUNSET, 0,
+                        com.gregochr.goldenhour.entity.DispositionCategory.SKIPPED_TRIAGED, "cloud");
+
+        dispositionService.persist(runId, jobRunId, java.util.List.of(disposition));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM forecast_run_disposition WHERE job_run_id = ?",
+                Integer.class, jobRunId)).isEqualTo(1);
+        assertThat(pipelineRunRepository.findDispositionJobRunId(runId)).contains(jobRunId);
     }
 
     @Test
@@ -411,6 +594,10 @@ class LocationFailureTrackingTest {
     }
 
     private void seedBatchWithResults(long runId, boolean angelSucceeded) {
+        seedBatch(runId, angelSucceeded, true);
+    }
+
+    private void seedBatch(long runId, boolean angelSucceeded, boolean keswickSucceeded) {
         String batchId = "msgbatch_order_" + runId;
         ForecastBatchEntity batch = new ForecastBatchEntity(
                 batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
@@ -418,6 +605,6 @@ class LocationFailureTrackingTest {
         batch.setJobRunId(runId);
         forecastBatchRepository.save(batch);
         seedResult(batchId, runId, angel, angelSucceeded);
-        seedResult(batchId, runId, keswick, true);
+        seedResult(batchId, runId, keswick, keswickSucceeded);
     }
 }

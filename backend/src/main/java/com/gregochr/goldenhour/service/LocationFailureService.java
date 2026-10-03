@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.FailureKind;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
@@ -18,6 +19,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -98,14 +100,18 @@ import java.util.stream.Collectors;
  *       written but not yet committed. The commit is inside the lock on purpose: a
  *       {@link TransactionTemplate} wraps the work, rather than {@code @Transactional} on the method,
  *       which would release the lock before the commit.</li>
- *   <li><b>Ordered by trigger time.</b> Before it claims a cycle the settle reads the newest
- *       {@code trigger_time} among the pipeline runs already settled
- *       ({@code PipelineRunRepository#findNewestSettledTriggerTime}), and refuses (WARN, with both
- *       times, never silently) a cycle triggered <em>earlier</em>. An older cycle is dropped rather
- *       than applied because counters are only meaningful in trigger order: if a newer cycle in
- *       which a place got through had already reset its counter, applying the older cycle's failure
- *       afterwards would start a new streak that the intervening success should have broken, and
- *       could later disable a place that has since been working. Dropping it under-counts.</li>
+ *   <li><b>Two modes, chosen by trigger order.</b> {@link SettleMode#FULL} counts failures and
+ *       applies resets; {@link SettleMode#RESETS_ONLY} applies only the resets from successes and
+ *       triage and counts nothing. A cycle is settled FULL only when it is settled at its own tail
+ *       AND its trigger time is newer than the newest trigger time among the cycles already settled
+ *       ({@code PipelineRunRepository#findNewestSettledTriggerTime}). Any cycle settled later than
+ *       that (an older cycle after a newer one, a replay after a failed settle, one recovered at
+ *       startup or by the sweep) is settled RESETS_ONLY and then claimed, the mode and the reason
+ *       logged at INFO. Counters are only meaningful in trigger order: applying an older cycle's
+ *       failure after a newer cycle's success had reset the counter would start a streak that the
+ *       intervening success should have broken, and could later disable a place that has since been
+ *       working; but its successes are still true and still worth applying, since a place that got
+ *       through in a cycle that never reached its own settle must not keep a stale count.</li>
  *   <li><b>Exactly once, and durable.</b> The cycle is claimed by a conditional update
  *       ({@code PipelineRunRepository#claimFailureSettle}: {@code SET failures_settled_at = :now
  *       WHERE id = :id AND failures_settled_at IS NULL}; one row updated means claimed) in the SAME
@@ -115,6 +121,11 @@ import java.util.stream.Collectors;
  *       orchestrator settles every resumed run on its way to the briefing, so that cycle is settled
  *       on resume, and a run already settled is not settled again. Nothing about this is held in
  *       memory, so a restart loses nothing.</li>
+ *   <li><b>Retried, durably.</b> A settle that fails leaves its cycle unclaimed (the claim rolls
+ *       back with the counts), and the orchestrator completes the run regardless. {@link
+ *       #sweepUnsettledRuns()} finds every such run (unclaimed, triggered within
+ *       {@link #SWEEP_WINDOW}, not still RUNNING) at application startup and at the start of every
+ *       tail settle, and settles each in trigger order, RESETS_ONLY.</li>
  * </ul>
  */
 @Service
@@ -136,6 +147,14 @@ public class LocationFailureService {
      * any plausible coincidence of independently broken places, far fewer than a roster of ~250.
      */
     public static final int MAX_DISABLED_PER_CYCLE = 5;
+
+    /**
+     * How far back the sweep looks for pipeline runs whose settle was never claimed. Seven days: far
+     * longer than any outage a retry should cover (a cycle runs twice a day, and the three-failure
+     * threshold means anything older could not change a disable decision that matters), short enough
+     * that the first sweep after the claim column was introduced walks a bounded set of runs.
+     */
+    public static final Duration SWEEP_WINDOW = Duration.ofDays(7);
 
     private final CycleLocationOutcomeResolver outcomeResolver;
     private final LocationRepository locationRepository;
@@ -178,8 +197,11 @@ public class LocationFailureService {
      * Settles one pipeline cycle: claims it, resolves each place's evidence from the cycle's recorded
      * data and applies the failure-counting rule, in one transaction, under the settle lock (see the
      * class javadoc). Called by {@code PipelineOrchestrator} for every run that reaches the briefing,
-     * including a run resumed after a restart. A cycle already settled, or triggered earlier than the
-     * newest settled cycle, is refused and logged. Any admin alert goes out only after the
+     * including a run resumed after a restart. First sweeps earlier unclaimed runs
+     * ({@link #sweepUnsettledRuns()}), then settles this cycle: {@link SettleMode#FULL} when its
+     * trigger time is newer than the newest settled cycle, {@link SettleMode#RESETS_ONLY} otherwise.
+     * A cycle already settled is refused and logged. A failure rolls the claim back (the cycle stays
+     * unclaimed for the next sweep) and propagates. Any admin alert goes out only after the
      * transaction has committed and the lock has been released.
      *
      * @param run the pipeline run being settled
@@ -188,12 +210,10 @@ public class LocationFailureService {
         List<Runnable> alerts;
         settleLock.lock();
         try {
+            sweepLocked(run.getId());
             alerts = transactionTemplate.execute(status -> {
                 List<Runnable> pending = new ArrayList<>();
-                if (admit(run)) {
-                    applyEvidence(run.getId(), run.getCycleType(), run.getTriggerTime(),
-                            outcomeResolver.resolve(run.getId()), pending);
-                }
+                settleClaimed(run, true, pending);
                 return pending;
             });
         } finally {
@@ -204,8 +224,116 @@ public class LocationFailureService {
         }
     }
 
+    /**
+     * The durable retry: settles every pipeline run whose settle was never claimed, in trigger
+     * order, in {@link SettleMode#RESETS_ONLY} mode (see the class javadoc). Run once at application
+     * startup (after the orchestrator has resumed running cycles) and at the start of every tail
+     * settle, under the same lock, so a cycle whose settle failed, or that was never settled
+     * (a process stop, a safety timeout, a failure before the briefing), is picked up by the next
+     * sweep instead of staying unsettled for ever.
+     *
+     * <p>Considers runs triggered within {@link #SWEEP_WINDOW} only and never a run still RUNNING
+     * (its own tail settles it). Each run settles in its own transaction: a run that fails again is
+     * logged at ERROR and left unclaimed for the next sweep, and does not stop the others.
+     *
+     * <p>The first deploy of the migration that added the claim column leaves every recent run
+     * unsettled, so the first sweep walks all of them; that is harmless: RESETS_ONLY only zeroes
+     * the counter of a place that got through in that cycle, and every counter is zero at that point.
+     *
+     * @return how many runs this sweep settled
+     */
+    public int sweepUnsettledRuns() {
+        settleLock.lock();
+        try {
+            return sweepLocked(null);
+        } finally {
+            settleLock.unlock();
+        }
+    }
+
+    /**
+     * Sweeps with the settle lock already held.
+     *
+     * @param exceptRunId a run to leave out (the one being settled at its own tail), or null
+     */
+    private int sweepLocked(Long exceptRunId) {
+        Instant since = clock.instant().minus(SWEEP_WINDOW);
+        List<PipelineRunEntity> unsettled;
+        try {
+            unsettled = pipelineRunRepository.findUnsettledSince(since, PipelineRunStatus.RUNNING);
+        } catch (RuntimeException e) {
+            LOG.error("Location failure sweep: could not list unsettled pipeline runs, will retry "
+                    + "at the next sweep: {}", LogSanitizer.sanitize(e.getMessage()), e);
+            return 0;
+        }
+        int settled = 0;
+        for (PipelineRunEntity unsettledRun : unsettled) {
+            if (exceptRunId != null && exceptRunId.equals(unsettledRun.getId())) {
+                continue;
+            }
+            try {
+                transactionTemplate.executeWithoutResult(
+                        status -> settleClaimed(unsettledRun, false, new ArrayList<>()));
+                settled++;
+            } catch (RuntimeException e) {
+                LOG.error("Location failure sweep: pipeline run {} could not be settled, left "
+                        + "unclaimed for the next sweep: {}", unsettledRun.getId(),
+                        LogSanitizer.sanitize(e.getMessage()), e);
+            }
+        }
+        return settled;
+    }
+
+    /**
+     * Claims a run and applies its evidence in the chosen mode. Runs inside the settle transaction,
+     * with the settle lock held; a throw rolls the claim back with the counts, leaving the run
+     * unclaimed.
+     *
+     * @param tail {@code true} when called from the run's own tail settle (eligible for FULL),
+     *             {@code false} for a sweep (always RESETS_ONLY)
+     */
+    private void settleClaimed(PipelineRunEntity run, boolean tail, List<Runnable> alerts) {
+        Long runId = run.getId();
+        Instant trigger = run.getTriggerTime();
+        Instant newestSettled = pipelineRunRepository.findNewestSettledTriggerTime();
+        if (pipelineRunRepository.claimFailureSettle(runId, clock.instant()) == 0) {
+            LOG.info("Pipeline run {}: location failures already settled, not counting again",
+                    runId);
+            return;
+        }
+        SettleMode mode;
+        String why;
+        if (!tail) {
+            mode = SettleMode.RESETS_ONLY;
+            why = "settled by the sweep, not at its own tail";
+        } else if (trigger != null && newestSettled != null && !trigger.isAfter(newestSettled)) {
+            mode = SettleMode.RESETS_ONLY;
+            why = "a newer cycle (triggered " + newestSettled + ") has already been settled, and "
+                    + "counting an older cycle after it could restart a streak that cycle's "
+                    + "success had broken";
+        } else {
+            mode = SettleMode.FULL;
+            why = "settled at its own tail, newer than every settled cycle";
+        }
+        LOG.info("Pipeline run {} (triggered {}): location failure settle mode {}: {}", runId,
+                trigger, mode, why);
+        applyEvidence(runId, run.getCycleType(), trigger, outcomeResolver.resolve(runId), mode,
+                alerts);
+    }
+
+    /**
+     * How a cycle's evidence is applied. {@link #FULL} counts failures (and applies resets);
+     * {@link #RESETS_ONLY} applies only the resets from successes and triage, never a failure.
+     */
+    enum SettleMode {
+        /** Count failures, disable at the threshold, and reset places that got through. */
+        FULL,
+        /** Reset places that got through; count nothing, disable nothing, alert nobody. */
+        RESETS_ONLY
+    }
+
     private void applyEvidence(Long runId, CycleType cycleType, Instant triggerTime,
-            Map<Long, CyclePlaceEvidence> evidence, List<Runnable> alerts) {
+            Map<Long, CyclePlaceEvidence> evidence, SettleMode mode, List<Runnable> alerts) {
         List<Long> gotThrough = evidence.entrySet().stream()
                 .filter(e -> e.getValue().gotThrough()).map(Map.Entry::getKey).toList();
         List<Long> failed = evidence.entrySet().stream()
@@ -218,7 +346,7 @@ public class LocationFailureService {
                         + "reset to 0", runId, reset);
             }
         }
-        if (failed.isEmpty()) {
+        if (mode == SettleMode.RESETS_ONLY || failed.isEmpty()) {
             return;
         }
 
@@ -328,31 +456,6 @@ public class LocationFailureService {
     private static String disabledReason(int count, LocalDateTime failedAt, FailureKind kind) {
         return "Auto-disabled after " + count + " consecutive failed scheduled runs (last "
                 + failedAt.toLocalDate() + ": " + kind.phrase() + ").";
-    }
-
-    /**
-     * Decides whether a cycle may be settled, and if so claims it durably. Runs inside the settle
-     * transaction, with the settle lock held.
-     *
-     * @return {@code false}, after logging why, for a cycle triggered earlier than the newest settled
-     *         cycle or already claimed; {@code true} when this call claimed it
-     */
-    private boolean admit(PipelineRunEntity run) {
-        Long runId = run.getId();
-        Instant trigger = run.getTriggerTime();
-        Instant newestSettled = pipelineRunRepository.findNewestSettledTriggerTime();
-        if (trigger != null && newestSettled != null && trigger.isBefore(newestSettled)) {
-            LOG.warn("Pipeline run {} (triggered {}) not settled: a newer cycle (triggered {}) has "
-                    + "already been settled, and counting an older cycle after it could restart a "
-                    + "streak that cycle's success had broken", runId, trigger, newestSettled);
-            return false;
-        }
-        if (pipelineRunRepository.claimFailureSettle(runId, clock.instant()) == 0) {
-            LOG.info("Pipeline run {}: location failures already settled, not counting again",
-                    runId);
-            return false;
-        }
-        return true;
     }
 
     private record Counted(LocationEntity location, int count, FailureKind kind) {

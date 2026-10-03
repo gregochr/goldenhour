@@ -123,4 +123,19 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
      */
     @Query("SELECT MAX(p.triggerTime) FROM PipelineRunEntity p WHERE p.failuresSettledAt IS NOT NULL")
     Instant findNewestSettledTriggerTime();
+
+    /**
+     * Returns the pipeline runs whose location-failure settle has not been claimed, triggered at or
+     * after {@code since} and not in the excluded status, oldest trigger first. This is the
+     * location auto-disable's durable retry: a cycle whose settle failed, or that was never settled
+     * (a restart, a timeout, a failure before the briefing), is found here by the next sweep.
+     *
+     * @param since    inclusive lower bound on the trigger time
+     * @param excluded the status to leave out (RUNNING: a run still in flight settles at its tail)
+     * @return the unsettled runs in trigger order
+     */
+    @Query("SELECT p FROM PipelineRunEntity p WHERE p.failuresSettledAt IS NULL "
+            + "AND p.triggerTime >= :since AND p.status <> :excluded ORDER BY p.triggerTime ASC")
+    List<PipelineRunEntity> findUnsettledSince(@Param("since") Instant since,
+            @Param("excluded") PipelineRunStatus excluded);
 }

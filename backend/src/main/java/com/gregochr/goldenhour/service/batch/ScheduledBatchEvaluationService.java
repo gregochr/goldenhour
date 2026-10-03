@@ -11,7 +11,6 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -69,7 +68,6 @@ public class ScheduledBatchEvaluationService {
     private final ForecastTaskCollector forecastTaskCollector;
     private final ForecastDispositionService dispositionService;
     private final JobRunService jobRunService;
-    private final PipelineRunRepository pipelineRunRepository;
     private final java.time.Clock clock;
 
     /**
@@ -99,7 +97,6 @@ public class ScheduledBatchEvaluationService {
      * @param forecastTaskCollector       Pass 3.2.1 collector — task construction + triage + bucketing
      * @param dispositionService          persists per-candidate disposition rows tied to the cycle's first job_run
      * @param jobRunService               creates the disposition-anchor run for zero-batch cycles
-     * @param pipelineRunRepository       records which job run holds each cycle's dispositions
      * @param clock                       supplies "today" for the batch-breakdown log line,
      *                                    resolved in {@code Europe/London} by {@link ForecastHorizon}
      */
@@ -115,7 +112,6 @@ public class ScheduledBatchEvaluationService {
             ForecastTaskCollector forecastTaskCollector,
             ForecastDispositionService dispositionService,
             JobRunService jobRunService,
-            PipelineRunRepository pipelineRunRepository,
             java.time.Clock clock) {
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
@@ -128,7 +124,6 @@ public class ScheduledBatchEvaluationService {
         this.forecastTaskCollector = forecastTaskCollector;
         this.dispositionService = dispositionService;
         this.jobRunService = jobRunService;
-        this.pipelineRunRepository = pipelineRunRepository;
         this.clock = clock;
     }
 
@@ -925,16 +920,12 @@ public class ScheduledBatchEvaluationService {
         }
         LOG.info("[DISPOSITION] Persisting {} dispositions for cycle jobRunId={} ({})",
                 dispositions.size(), anchorJobRunId, anchorKind);
-        dispositionService.persist(anchorJobRunId, dispositions);
-        if (pipelineRunId != null) {
-            try {
-                pipelineRunRepository.recordDispositionJobRun(pipelineRunId, anchorJobRunId);
-            } catch (RuntimeException e) {
-                // Best-effort, like the rest of the cycle's accounting: without the link a
-                // batchless cycle resolves to nothing at settle time, which under-counts.
-                LOG.warn("[DISPOSITION] Could not record job run {} against pipeline run {}: {}",
-                        anchorJobRunId, pipelineRunId, e.getMessage());
-            }
+        if (pipelineRunId == null) {
+            dispositionService.persist(anchorJobRunId, dispositions);
+        } else {
+            // One transaction for the rows AND the link to the pipeline run (see the service's
+            // javadoc): a link that cannot be written rolls the rows back with it, never swallowed.
+            dispositionService.persist(pipelineRunId, anchorJobRunId, dispositions);
         }
     }
 

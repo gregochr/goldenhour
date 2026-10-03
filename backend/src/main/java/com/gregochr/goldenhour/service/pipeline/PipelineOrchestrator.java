@@ -352,10 +352,34 @@ public class PipelineOrchestrator {
      * in a partial state we can't safely resume — and resuming from RECLASSIFY
      * would jump straight to a zero-batch WAIT and brief on stale data; the next
      * scheduled cron creates a fresh cycle.
+     *
+     * <p>After the resume, and whether or not anything was running, sweeps the location-failure
+     * settles that were never claimed ({@link LocationFailureService#sweepUnsettledRuns()}): a cycle
+     * whose settle failed, or that was never settled, is already COMPLETED, FAILED or DEGRADED and so
+     * is never resumed here, and this sweep is what settles it. Runs resumed above are still RUNNING
+     * and are left to their own tail.
      */
     @EventListener(ApplicationReadyEvent.class)
     @Profile("!integration-test")
     public void resumeRunningCyclesOnStartup() {
+        resumeRunning();
+        sweepUnsettledLocationFailures();
+    }
+
+    private void sweepUnsettledLocationFailures() {
+        try {
+            int settled = locationFailureService.sweepUnsettledRuns();
+            if (settled > 0) {
+                LOG.info("Startup sweep settled the location failures of {} earlier pipeline "
+                        + "run(s)", settled);
+            }
+        } catch (RuntimeException e) {
+            LOG.error("Startup sweep of unsettled location failures raised an exception, the "
+                    + "next tail settle or restart retries it: {}", e.getMessage(), e);
+        }
+    }
+
+    private void resumeRunning() {
         List<PipelineRunEntity> running = pipelineRunService.findRunning();
         if (running.isEmpty()) {
             return;
@@ -561,7 +585,11 @@ public class PipelineOrchestrator {
      * is settled on resume, and a cycle already settled is refused. A result for this cycle arriving
      * after this point cannot count.
      *
-     * <p>Best-effort: counting is housekeeping, never a reason to fail the briefing. The forecast
+     * <p>Best-effort: counting is housekeeping, never a reason to fail the briefing. A settle that
+     * throws is logged at ERROR and the run carries on to completion; the settle's transaction has
+     * rolled back, so the cycle is left unclaimed and the next sweep
+     * ({@link LocationFailureService#sweepUnsettledRuns()}, run at startup and at the start of every
+     * tail settle) settles it, in RESETS_ONLY mode. The forecast
      * buttons and map Run Forecast (hand-started runs) never reach this method: only
      * {@link #waitAndBriefPhase} calls it, and that runs only for a pipeline cycle. The scheduler's
      * Run now on the nightly or intraday job does run a pipeline cycle, so it settles like any other.
@@ -572,8 +600,9 @@ public class PipelineOrchestrator {
         try {
             locationFailureService.settleCycle(run);
         } catch (RuntimeException e) {
-            LOG.warn("Pipeline run {}: location failure settle raised an exception, logged and "
-                    + "ignored (the briefing continues): {}", run.getId(), e.getMessage(), e);
+            LOG.error("Pipeline run {}: location failure settle raised an exception, the cycle "
+                    + "is left unsettled for the next sweep (the briefing continues): {}",
+                    run.getId(), e.getMessage(), e);
         }
     }
 

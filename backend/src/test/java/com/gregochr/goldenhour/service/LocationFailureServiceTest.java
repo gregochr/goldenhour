@@ -7,6 +7,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -58,6 +59,9 @@ class LocationFailureServiceTest {
     private static final LocalDateTime NOW_UTC = LocalDateTime.of(2026, 10, 2, 3, 0);
     private static final Instant TRIGGER = Instant.parse("2026-10-02T01:00:00Z");
     private static final long RUN_ID = 300L;
+    private static final String FULL_MODE_LOG =
+            "Pipeline run 300 (triggered 2026-10-02T01:00:00Z): location failure settle mode FULL: "
+                    + "settled at its own tail, newer than every settled cycle";
     private static final String COLLECTION_REASON =
             "Auto-disabled after 3 consecutive failed scheduled runs "
                     + "(last 2026-10-02: data could not be collected).";
@@ -253,6 +257,7 @@ class LocationFailureServiceTest {
         verifyNoMoreInteractions(locationRepository);
         verifyNoInteractions(adminAlertService);
         assertThat(messages(Level.INFO)).containsExactly(
+                FULL_MODE_LOG,
                 "Pipeline run 300: location 'Bamburgh' failed this cycle (EVALUATION), "
                         + "consecutive failures now 1");
     }
@@ -444,6 +449,7 @@ class LocationFailureServiceTest {
 
         verify(locationRepository).autoDisable(10L, 3, NOW_UTC, COLLECTION_REASON);
         assertThat(messages(Level.INFO)).containsExactly(
+                FULL_MODE_LOG,
                 "Pipeline run 300: location 'Bamburgh' failed this cycle (COLLECTION), "
                         + "consecutive failures now 3");
     }
@@ -831,33 +837,181 @@ class LocationFailureServiceTest {
     }
 
     @Test
-    @DisplayName("a newer cycle settled first, then an older one: the older is refused with a WARN "
-            + "naming both trigger times, and the counter keeps the newer cycle's result (0)")
-    void newerThenOlder_olderRefusedAndLogged() {
+    @DisplayName("a newer cycle settled first, then an older one: the older is settled RESETS_ONLY, "
+            + "not refused: its success still resets a counter, its failure counts nothing, and the "
+            + "mode and the reason are logged at INFO")
+    void newerThenOlder_olderSettledResetsOnly() {
         Instant older = TRIGGER;
         Instant newer = TRIGGER.plusSeconds(3600);
         storedCounts.put(1L, 2);
+        storedCounts.put(2L, 2);
         Map<Long, CyclePlaceEvidence> newerCycle = cycle();
         newerCycle.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
         when(resolver.resolve(RUN_ID + 1)).thenReturn(newerCycle);
+        // The older cycle: place 1 and 3..11 scored, place 2 failed. Settled FULL, place 2 would
+        // count (10 of the 10 others got through); RESETS_ONLY must not count it.
+        Map<Long, CyclePlaceEvidence> olderCycle = cycle();
+        put(olderCycle, 3, 11, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        olderCycle.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        olderCycle.put(2L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(resolver.resolve(RUN_ID)).thenReturn(olderCycle);
 
         service.settleCycle(run(RUN_ID + 1, CycleType.NIGHTLY, newer));
+        logAppender.list.clear();
         service.settleCycle(run(RUN_ID, CycleType.INTRADAY, older));
 
-        verify(resolver, times(1)).resolve(RUN_ID + 1);
-        verify(resolver, never()).resolve(RUN_ID);
-        verify(locationRepository).resetFailureCounts(List.of(1L));
-        verifyNoMoreInteractions(locationRepository);
+        verify(resolver, times(1)).resolve(RUN_ID);
+        verify(locationRepository, never()).recordFailure(2L, NOW_UTC);
+        verify(locationRepository, never()).findAllById(List.of(2L));
         assertThat(storedCounts.get(1L)).isZero();
-        assertThat(messages(Level.WARN)).containsExactly(
-                "Pipeline run 300 (triggered 2026-10-02T01:00:00Z) not settled: a newer cycle "
-                        + "(triggered 2026-10-02T02:00:00Z) has already been settled, and counting "
-                        + "an older cycle after it could restart a streak that cycle's success "
-                        + "had broken");
+        assertThat(storedCounts.get(2L)).isEqualTo(2);
+        assertThat(messages(Level.INFO)).containsExactly(
+                "Pipeline run 300 (triggered 2026-10-02T01:00:00Z): location failure settle mode "
+                        + "RESETS_ONLY: a newer cycle (triggered 2026-10-02T02:00:00Z) has already "
+                        + "been settled, and counting an older cycle after it could restart a "
+                        + "streak that cycle's success had broken");
+        assertThat(settledRuns).containsKey(RUN_ID);
+        verifyNoInteractions(adminAlertService);
     }
 
     @Test
-    @DisplayName("a cycle triggered at the same instant as the newest settled one is still settled")
+    @DisplayName("the tail settle of the newest cycle is still FULL: a failure among places that "
+            + "mostly got through counts, even with an older cycle already settled")
+    void tailSettleOfNewestCycle_isFull() {
+        settledRuns.put(RUN_ID - 1, TRIGGER.minusSeconds(3600));
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
+
+        settle(evidence);
+
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
+        assertThat(storedCounts.get(10L)).isEqualTo(1);
+        assertThat(messages(Level.INFO)).first().isEqualTo(FULL_MODE_LOG);
+    }
+
+    // ---- the durable retry sweep ----
+
+    private static final Instant SWEEP_SINCE = NOW.minus(java.time.Duration.ofDays(7));
+
+    private void unsettled(PipelineRunEntity... runs) {
+        org.mockito.Mockito.doReturn(List.of(runs)).when(pipelineRunRepository)
+                .findUnsettledSince(SWEEP_SINCE, PipelineRunStatus.RUNNING);
+    }
+
+    @Test
+    @DisplayName("the sweep window is seven days and the sweep never asks for a RUNNING run")
+    void sweepWindow_isSevenDays() {
+        assertThat(LocationFailureService.SWEEP_WINDOW).isEqualTo(java.time.Duration.ofDays(7));
+    }
+
+    @Test
+    @DisplayName("the sweep settles each unclaimed run in trigger order, RESETS_ONLY: a place at 2 "
+            + "that succeeded is reset, a place that failed is not counted, and it is reported")
+    void sweep_settlesUnclaimedRuns_resetsOnly() {
+        storedCounts.put(1L, 2);
+        storedCounts.put(2L, 1);
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        evidence.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        put(evidence, 3, 11, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(2L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        PipelineRunEntity first = run(RUN_ID, CycleType.NIGHTLY, TRIGGER);
+        PipelineRunEntity second = run(RUN_ID + 1, CycleType.INTRADAY, TRIGGER.plusSeconds(3600));
+        unsettled(first, second);
+        when(resolver.resolve(RUN_ID)).thenReturn(evidence);
+        when(resolver.resolve(RUN_ID + 1)).thenReturn(Map.of());
+
+        int settled = service.sweepUnsettledRuns();
+
+        assertThat(settled).isEqualTo(2);
+        org.mockito.InOrder order = Mockito.inOrder(resolver);
+        order.verify(resolver).resolve(RUN_ID);
+        order.verify(resolver).resolve(RUN_ID + 1);
+        assertThat(storedCounts.get(1L)).isZero();
+        assertThat(storedCounts.get(2L)).isEqualTo(1);
+        verify(locationRepository, never()).recordFailure(2L, NOW_UTC);
+        assertThat(settledRuns).containsKeys(RUN_ID, RUN_ID + 1);
+        assertThat(messages(Level.INFO)).anyMatch(m -> m.contains("settle mode RESETS_ONLY: "
+                + "settled by the sweep, not at its own tail"));
+    }
+
+    @Test
+    @DisplayName("a run the sweep cannot settle is logged at ERROR and left for the next sweep, "
+            + "and the runs after it are still settled")
+    void sweep_oneRunFailsAgain_loggedAtError_othersStillSettled() {
+        PipelineRunEntity bad = run(RUN_ID, CycleType.NIGHTLY, TRIGGER);
+        PipelineRunEntity good = run(RUN_ID + 1, CycleType.INTRADAY, TRIGGER.plusSeconds(3600));
+        unsettled(bad, good);
+        when(resolver.resolve(RUN_ID)).thenThrow(new IllegalStateException("db down"));
+        when(resolver.resolve(RUN_ID + 1)).thenReturn(Map.of());
+
+        int settled = service.sweepUnsettledRuns();
+
+        assertThat(settled).isEqualTo(1);
+        assertThat(transactionManager.rollbacks.get()).isEqualTo(1);
+        assertThat(messages(Level.ERROR)).hasSize(1).first().asString()
+                .contains("pipeline run 300 could not be settled, left unclaimed for the next "
+                        + "sweep: db down");
+        verify(resolver).resolve(RUN_ID + 1);
+    }
+
+    @Test
+    @DisplayName("a sweep whose listing fails is logged at ERROR, settles nothing and does not throw")
+    void sweep_listingFails_loggedAtError() {
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down"))
+                .when(pipelineRunRepository)
+                .findUnsettledSince(SWEEP_SINCE, PipelineRunStatus.RUNNING);
+
+        int settled = service.sweepUnsettledRuns();
+
+        assertThat(settled).isZero();
+        assertThat(messages(Level.ERROR)).hasSize(1);
+        verifyNoInteractions(resolver);
+    }
+
+    @Test
+    @DisplayName("a tail settle sweeps earlier unclaimed runs first (RESETS_ONLY), then settles its "
+            + "own cycle FULL, all under the one lock")
+    void tailSettle_sweepsFirst_thenOwnCycleFull() {
+        storedCounts.put(1L, 2);
+        Map<Long, CyclePlaceEvidence> earlier = cycle();
+        earlier.put(1L, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        PipelineRunEntity earlierRun = run(RUN_ID - 1, CycleType.NIGHTLY, TRIGGER.minusSeconds(3600));
+        unsettled(earlierRun);
+        when(resolver.resolve(RUN_ID - 1)).thenReturn(earlier);
+        Map<Long, CyclePlaceEvidence> own = cycle();
+        put(own, 2, 10, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        own.put(11L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(locationRepository.findAllById(List.of(11L)))
+                .thenReturn(List.of(place(11L, "Bamburgh", 0, true)));
+
+        settle(own);
+
+        org.mockito.InOrder order = Mockito.inOrder(resolver);
+        order.verify(resolver).resolve(RUN_ID - 1);
+        order.verify(resolver).resolve(RUN_ID);
+        assertThat(storedCounts.get(1L)).isZero();
+        assertThat(storedCounts.get(11L)).isEqualTo(1);
+        assertThat(messages(Level.INFO)).contains(FULL_MODE_LOG);
+    }
+
+    @Test
+    @DisplayName("a tail settle never sweeps the run it is itself settling")
+    void tailSettle_doesNotSweepItsOwnRun() {
+        unsettled(run(RUN_ID, CycleType.NIGHTLY, TRIGGER));
+        when(resolver.resolve(RUN_ID)).thenReturn(Map.of());
+
+        service.settleCycle(run(RUN_ID, CycleType.NIGHTLY, TRIGGER));
+
+        verify(resolver, times(1)).resolve(RUN_ID);
+        assertThat(messages(Level.INFO)).contains(FULL_MODE_LOG);
+    }
+
+    @Test
+    @DisplayName("a cycle triggered at the same instant as the newest settled one is still settled "
+            + "(RESETS_ONLY: it is not newer)")
     void sameTriggerTime_isSettled() {
         when(resolver.resolve(RUN_ID)).thenReturn(Map.of());
         when(resolver.resolve(RUN_ID + 1)).thenReturn(Map.of());

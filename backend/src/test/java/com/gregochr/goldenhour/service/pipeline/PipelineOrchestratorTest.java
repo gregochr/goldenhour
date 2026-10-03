@@ -1428,5 +1428,43 @@ class PipelineOrchestratorTest {
 
             verify(locationFailureService, times(1)).settleCycle(midWait);
         }
+
+        @Test
+        @DisplayName("startup sweeps unsettled location failures after resuming running cycles")
+        void startup_sweepsAfterResume() {
+            PipelineRunEntity midWait = runInPhase(PipelinePhase.FORECAST_BATCH_WAIT);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midWait));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midWait));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            org.mockito.InOrder order = org.mockito.Mockito.inOrder(locationFailureService);
+            order.verify(locationFailureService).settleCycle(midWait);
+            order.verify(locationFailureService).sweepUnsettledRuns();
+        }
+
+        @Test
+        @DisplayName("startup sweeps unsettled location failures even when no cycle is running")
+        void startup_sweepsWhenNothingRunning() {
+            when(pipelineRunService.findRunning()).thenReturn(List.of());
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(locationFailureService, times(1)).sweepUnsettledRuns();
+        }
+
+        @Test
+        @DisplayName("a startup sweep that throws is logged at ERROR and never fails startup")
+        void startup_sweepFailure_isContained() {
+            when(pipelineRunService.findRunning()).thenReturn(List.of());
+            when(locationFailureService.sweepUnsettledRuns())
+                    .thenThrow(new IllegalStateException("db down"));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(locationFailureService, times(1)).sweepUnsettledRuns();
+        }
     }
 }

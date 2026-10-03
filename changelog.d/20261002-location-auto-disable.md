@@ -39,13 +39,25 @@ roster.
   `pipeline_run.failures_settled_at` column in the same transaction as its counter writes, so a
   cycle is counted exactly once, a run the process stopped before it settled is settled when it
   resumes (the orchestrator settles every run on its way to the briefing), and a run already
-  settled is refused. A cycle triggered earlier than the newest one already settled (an admin's Run
-  now while an older cycle was still waiting) is refused with a WARN naming both times, because
-  counting it after the newer cycle's success could restart a streak that success had broken;
-  dropping it under-counts, which is the safe direction.
+  settled is refused.
+- **Two settle modes, and a durable retry.** A settle is FULL (counts failures and applies resets)
+  only when it runs at the cycle's own tail and the cycle's trigger time is newer than the newest
+  already-settled cycle. Any cycle settled later than that (an older cycle after a newer one, e.g.
+  an admin's Run now while an older cycle was still waiting; a replay; one recovered at startup)
+  is settled RESETS_ONLY: its successes and triage still reset counters, but nothing is counted and
+  nothing disabled, because counting it after the newer cycle's success could restart a streak
+  that success had broken. A settle that fails (its claim rolls back with it, so the cycle stays
+  unclaimed) is logged at ERROR while the run still completes, and a sweep settles it later: at
+  startup after the running cycles are resumed, and at the start of every tail settle, it finds
+  pipeline runs with no claim triggered in the last 7 days and not still RUNNING, and settles each
+  RESETS_ONLY in trigger order. The first deploy of V163 leaves every recent run unclaimed; the
+  first sweep over them only zeroes counters that are already zero.
 - **A cycle that submitted no batch** (everything cached, skipped or triaged away, or every
   submission failed) keeps its dispositions on an anchor job run that nothing else ties to the
-  pipeline run, so the pipeline run now records it (`pipeline_run.disposition_job_run_id`). A cycle
+  pipeline run, so the pipeline run now records it (`pipeline_run.disposition_job_run_id`), in the
+  same transaction as the disposition rows themselves: a link that cannot be written rolls the rows
+  back with it (and fails the submission step visibly) instead of leaving rows with no link, which
+  would settle with no evidence and be claimed for good. A cycle
   that legitimately triaged candidates away therefore resets those places, even across a restart; a
   cycle whose submissions all failed (the 2026-09-29 shape) holds only `SUBMISSION_FAILED` rows and
   still counts nobody.

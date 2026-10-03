@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -123,6 +124,35 @@ class PipelineRunRepositoryTest {
 
         assertThat(repository.findNewestSettledTriggerTime())
                 .isEqualTo(Instant.parse("2026-10-02T14:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("findUnsettledSince returns only runs with no claim, at or after the bound, not in "
+            + "the excluded status, oldest trigger first")
+    void findUnsettledSince_filtersAndOrders() {
+        Instant since = Instant.parse("2026-09-26T00:00:00Z");
+        PipelineRunEntity tooOld = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-09-25T23:59:59Z")));
+        tooOld.setStatus(PipelineRunStatus.COMPLETED);
+        PipelineRunEntity atBound = repository.save(run(CycleType.NIGHTLY, since));
+        atBound.setStatus(PipelineRunStatus.FAILED);
+        PipelineRunEntity later = repository.save(
+                run(CycleType.INTRADAY, Instant.parse("2026-10-02T14:00:00Z")));
+        later.setStatus(PipelineRunStatus.DEGRADED);
+        PipelineRunEntity claimed = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-01T01:00:00Z")));
+        claimed.setStatus(PipelineRunStatus.COMPLETED);
+        PipelineRunEntity stillRunning = repository.save(
+                run(CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z")));
+        entityManager.flush();
+        repository.claimFailureSettle(claimed.getId(), Instant.parse("2026-10-01T02:00:00Z"));
+        entityManager.clear();
+
+        List<PipelineRunEntity> found = repository.findUnsettledSince(since, PipelineRunStatus.RUNNING);
+
+        assertThat(found).extracting(PipelineRunEntity::getId)
+                .containsExactly(atBound.getId(), later.getId());
+        assertThat(stillRunning.getStatus()).isEqualTo(PipelineRunStatus.RUNNING);
     }
 
     @Test
