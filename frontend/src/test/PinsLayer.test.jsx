@@ -140,6 +140,12 @@ const runFrames = () => {
   for (const cb of due) if (cb) cb();
 };
 
+// jsdom's PointerEvent honours `pointerType`, which is what the tooltip's guard reads. A real touch
+// tap also emits compatibility mouse events (no leave until the next tap), so TOUCH stands for the
+// pointer half of that sequence.
+const MOUSE = { pointerType: 'mouse' };
+const TOUCH = { pointerType: 'touch' };
+
 async function mount(props = {}) {
   let result;
   await act(async () => {
@@ -337,7 +343,7 @@ describe('PinsLayer — hover tooltip parity with the P8 chip', () => {
     await mount({ eventLabel: 'Sunset · Tonight 19:58' });
     const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
       .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip).not.toBeNull();
     expect(tip.className).toBe('wf-maplab-tip');
@@ -347,8 +353,43 @@ describe('PinsLayer — hover tooltip parity with the P8 chip', () => {
     expect(tip).toHaveTextContent('North East');
     expect(tip).toHaveTextContent('1h 30min');
     expect(tip).toHaveTextContent('sky 4');
-    fireEvent.mouseLeave(pin);
+    fireEvent.pointerLeave(pin, MOUSE);
     expect(document.querySelector('[data-testid="map-label-tip"]')).toBeNull();
+  });
+
+  it('a TOUCH pointerenter never shows the tooltip — a tap must not leave one stuck over the callout it opens', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({});
+    const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
+      .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
+    fireEvent.pointerEnter(pin, TOUCH);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    // ...nor does a touch pointermove position-and-reveal one.
+    fireEvent.pointerMove(pin, { ...TOUCH, clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('the compatibility mouseenter a tap emits no longer shows the tooltip on its own', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({});
+    const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
+      .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
+    fireEvent.mouseEnter(pin);
+    fireEvent.mouseMove(pin, { clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('a click hides a tooltip that is already showing, and still selects the location', async () => {
+    const onSelect = vi.fn();
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ onSelect });
+    const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
+      .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
+    fireEvent.pointerEnter(pin, MOUSE);
+    expect(screen.getByTestId('map-label-tip')).toBeInTheDocument();
+    fireEvent.click(pin);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    expect(onSelect).toHaveBeenCalledWith('Bamburgh');
   });
 
   it('portals the tooltip to the chrome wrapper, never inside the pins pane', async () => {
@@ -356,7 +397,7 @@ describe('PinsLayer — hover tooltip parity with the P8 chip', () => {
     await mount();
     const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
       .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip).not.toBeNull();
     const pinsPane = currentMap.panes['wf-pins'];
@@ -439,7 +480,7 @@ describe('PinsLayer — the tide-fit dot (tide-window-plan.md §3 T4 item 5)', (
       }],
     });
     const pin = document.querySelector('[data-testid="map-pin"]');
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     const tideLine = document.querySelector('[data-testid="map-pin-tip-tide"]');
     expect(tideLine).not.toBeNull();
     expect(tideLine).toHaveTextContent(
@@ -462,7 +503,7 @@ describe('PinsLayer — the tide-fit dot (tide-window-plan.md §3 T4 item 5)', (
       }],
     });
     const pin = document.querySelector('[data-testid="map-pin"]');
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     const tideLine = document.querySelector('[data-testid="map-pin-tip-tide"]');
     expect(tideLine).not.toBeNull();
     expect(tideLine).toHaveTextContent(
@@ -479,7 +520,7 @@ describe('PinsLayer — the tide-fit dot (tide-window-plan.md §3 T4 item 5)', (
       }],
     });
     const pin = document.querySelector('[data-testid="map-pin"]');
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     expect(document.querySelector('[data-testid="map-pin-tip-tide"]')).toBeNull();
   });
 });
@@ -502,7 +543,7 @@ describe('PinsLayer — the hover tooltip answers for the window on screen, not 
     currentMap = makeFullMap({ zoom: 9 });
     const result = await mount({ eventLabel: SAT });
     const pin = screen.getByRole('button', { name: 'Bamburgh, 5 star' });
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
     return { result, pin };
   }

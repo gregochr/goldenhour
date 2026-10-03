@@ -158,6 +158,12 @@ function makeFullMap(opts = {}) {
   };
 }
 
+// jsdom's PointerEvent honours `pointerType`, which is what the tooltip's guard reads. A real touch
+// tap also emits compatibility mouse events (no leave until the next tap), so TOUCH stands for the
+// pointer half of that sequence.
+const MOUSE = { pointerType: 'mouse' };
+const TOUCH = { pointerType: 'touch' };
+
 describe('MapLabels — mounting', () => {
   it('renders nothing when the map cannot make a pane', async () => {
     // The base `makeMap()` (unlike `makeFullMap()`) carries no `createPane` at all — the shape a
@@ -639,7 +645,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     await act(async () => { runFrames(); });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
       .find((el) => el.textContent.includes('Bamburgh'));
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip).not.toBeNull();
     expect(tip).toHaveTextContent('Bamburgh');
@@ -648,8 +654,49 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(tip).toHaveTextContent('North East');
     expect(tip).toHaveTextContent('1h 30min');
     expect(tip).toHaveTextContent('sky 4');
-    fireEvent.mouseLeave(chip);
+    fireEvent.pointerLeave(chip, MOUSE);
     expect(document.querySelector('[data-testid="map-label-tip"]')).toBeNull();
+  });
+
+  it('a TOUCH pointerenter never shows the tooltip — a tap must not leave one stuck over the callout it opens', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({});
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    fireEvent.pointerEnter(chip, TOUCH);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    // ...nor does a touch pointermove position-and-reveal one.
+    fireEvent.pointerMove(chip, { ...TOUCH, clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('the compatibility mouseenter a tap emits no longer shows the tooltip on its own', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({});
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    fireEvent.mouseEnter(chip);
+    fireEvent.mouseMove(chip, { clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('a click hides a tooltip that is already showing, and still selects the location', async () => {
+    const onSelect = vi.fn();
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ onSelect });
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    fireEvent.pointerEnter(chip, MOUSE);
+    expect(screen.getByTestId('map-label-tip')).toBeInTheDocument();
+    fireEvent.click(chip);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    expect(onSelect).toHaveBeenCalledWith('Bamburgh');
   });
 
   it('adds a third, teal-inked line — "Tide lands on the light — <phrase>" — for a MATCH', async () => {
@@ -668,7 +715,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     });
     await act(async () => { runFrames(); });
     const chip = document.querySelector('[data-testid="map-label-chip"]');
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tideLine = document.querySelector('[data-testid="map-label-tip-tide"]');
     expect(tideLine).not.toBeNull();
     expect(tideLine).toHaveTextContent(
@@ -696,7 +743,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     });
     await act(async () => { runFrames(); });
     const chip = document.querySelector('[data-testid="map-label-chip"]');
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tideLine = document.querySelector('[data-testid="map-label-tip-tide"]');
     expect(tideLine).not.toBeNull();
     expect(tideLine).toHaveTextContent(
@@ -722,7 +769,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     });
     await act(async () => { runFrames(); });
     const chip = document.querySelector('[data-testid="map-label-chip"]');
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     expect(document.querySelector('[data-testid="map-label-tip-tide"]')).toBeNull();
   });
 
@@ -733,7 +780,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     await act(async () => { runFrames(); });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
       .find((el) => el.textContent.includes('Buttermere'));
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip.textContent).not.toMatch(/\bmin\b/);
     expect(tip).toHaveTextContent('sky 3');
@@ -751,7 +798,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     await act(async () => { runFrames(); });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
       .find((el) => el.textContent.includes('Bamburgh'));
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip).not.toBeNull();
     const labelPane = currentMap.panes['wf-labels'];
@@ -776,7 +823,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
       .find((el) => el.textContent.includes('Bamburgh'));
     // Hover right at the frame's own right edge — with no clamp, `clientX - left + 13` would push
     // the card's left edge past `width - tipWidth - 8`.
-    fireEvent.mouseEnter(chip, { clientX: 795, clientY: 250 });
+    fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 795, clientY: 250 });
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     // The node has not measured a real `offsetWidth` in jsdom (0), so the clamp falls back to
     // `TOOLTIP_WIDTH_FALLBACK` (240, the CSS `max-width`) — the same fallback a browser's very
@@ -784,7 +831,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(parseFloat(tip.style.left)).toBeCloseTo(800 - 240 - 8, 5);
 
     // And the vertical floor: hovering near the very top must never push the card above y=6.
-    fireEvent.mouseEnter(chip, { clientX: 100, clientY: 2 });
+    fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 100, clientY: 2 });
     const tipAgain = document.querySelector('[data-testid="map-label-tip"]');
     expect(parseFloat(tipAgain.style.top)).toBe(6);
   });
@@ -807,7 +854,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     await act(async () => { runFrames(); });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
       .find((el) => el.textContent.includes('Bamburgh'));
-    fireEvent.mouseEnter(chip, { clientX: 400, clientY: 250 });
+    fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 400, clientY: 250 });
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     const left = parseFloat(tip.style.left);
     // A mid-frame hover with a real 800px-wide container: the raw offset (400 - 0 + 13 = 413) sits
@@ -858,7 +905,7 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
     const result = await mount({ spots, eventLabel: SAT });
     await act(async () => { runFrames(); });
     const chip = screen.getByRole('button', { name: /^Bamburgh, 5 star/ });
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
     return { result, chip };
   }
@@ -971,7 +1018,7 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
       const result = await mount({ spots: rateCraster(5), eventLabel: SAT });
       await act(async () => { runFrames(); });
       const chip = screen.getByRole('button', { name: 'Craster, 5 star' });
-      fireEvent.mouseEnter(chip);
+      fireEvent.pointerEnter(chip, MOUSE);
       expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
 
       // Sunday: Craster falls to 1★ below six 3★ neighbours — neither the region's best nor one of
@@ -987,7 +1034,7 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
       currentMap = makeSpreadMap({ zoom: 8.6 });
       const result = await mount({ spots: rateCraster(5), eventLabel: SAT });
       await act(async () => { runFrames(); });
-      fireEvent.mouseEnter(screen.getByRole('button', { name: 'Craster, 5 star' }));
+      fireEvent.pointerEnter(screen.getByRole('button', { name: 'Craster, 5 star' }), MOUSE);
       await showWindow(result, rateCraster(1), SUN);
       expect(screen.queryByTestId('map-label-tip')).toBeNull();
 
@@ -1007,7 +1054,7 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
       await mount({ spots: rateCraster(1), eventLabel: SAT });
       await act(async () => { runFrames(); });
       const chip = screen.getByRole('button', { name: 'Craster, 1 star' });
-      fireEvent.mouseEnter(chip);
+      fireEvent.pointerEnter(chip, MOUSE);
       expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 1★ Poor`);
 
       // A wheel zoom over the chip reaches Leaflet (`disableClickPropagation` stops clicks, not the

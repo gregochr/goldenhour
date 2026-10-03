@@ -496,9 +496,17 @@ export default function MapLabels({
       y: Math.max(6, event.clientY - wrapRect.top - 10),
     });
   }, [map]);
+  // ⚠️ Only a real mouse hovers. A tap on a touch screen makes the browser emit compatibility mouse
+  // events (iOS Safari and Android Chrome alike) with no matching leave until the next tap elsewhere,
+  // so a mouse-event tooltip opened by a tap stuck on top of the callout the same tap opened. Pointer
+  // events say what the pointer is, so touch never reaches the tooltip at all.
   const showTip = useCallback((name, event) => {
+    if (event.pointerType !== 'mouse') return;
     setHoverName(name);
     positionTip(event);
+  }, [positionTip]);
+  const moveTip = useCallback((event) => {
+    if (event.pointerType === 'mouse') positionTip(event);
   }, [positionTip]);
   const hideTip = useCallback(() => setHoverName(null), []);
 
@@ -615,10 +623,14 @@ export default function MapLabels({
             data-tide={tideTier ?? undefined}
             style={styleFor(key)}
             aria-label={ariaLabel}
-            onClick={() => onSelect?.(spot.name)}
-            onMouseEnter={(e) => showTip(spot.name, e)}
-            onMouseMove={positionTip}
-            onMouseLeave={hideTip}
+            onClick={() => {
+              // Belt and braces: a tooltip already showing never sits over the callout this opens.
+              hideTip();
+              onSelect?.(spot.name);
+            }}
+            onPointerEnter={(e) => showTip(spot.name, e)}
+            onPointerMove={moveTip}
+            onPointerLeave={hideTip}
           >
             <i
               className="wf-maplab-chip-m"
