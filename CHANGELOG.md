@@ -5,6 +5,407 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.22.10] - 2026-10-03
+
+### Fixed — a run that finished with failures is not shown as a success
+
+A run that finished with some places updated or triaged and some failed (PARTIAL, no run-level reason)
+showed the green *Forecast run completed* banner, the panel header "(Complete)", and, in the map
+popup's Run Forecast, "Forecast run failed" with no refresh although part of it had been written. They
+now agree, through one rule (`completedWithFailures` in `utils/runOutcome.js`): the banner is amber,
+*Forecast run completed with failures — N locations updated, T triaged, M failed.* with Refresh; the
+panel header reads "(Completed with failures)"; and the popup refreshes once and says "Part of this
+forecast failed." The triaged count is shown (and omitted when zero) in this banner and in the
+stopped-early banner, so a run in which triage stood many places down no longer reads "0 locations
+updated". A clean run stays green; a failed or stopped-early run is unchanged.
+
+### Fixed — a long run no longer loses its progress entry
+
+`RunProgressTracker` evicted every run 30 minutes after it STARTED. A run still going after that lost
+its entry mid-run: later task events were dropped, `completeRun` found nothing and never sent
+`run-complete`, and any panel attached was left waiting. Now only a COMPLETED run is evicted (also one
+failed by `failRun`), 30 minutes after it COMPLETED, so the Retry window runs from when the run
+finished, not from when it started. A run that has not completed is never evicted, however long it has
+been silent: the weather and cloud prefetch records no progress and can wait a minute on each
+rate-limited Open-Meteo chunk, so any idle deadline could discard a live run. There is no leak to
+bound: every hand-started run reaches `completeRun` or `failRun`, and if the JVM dies the in-memory
+tracker dies with it. A subscriber that arrives after an evicted run is told `run-expired` once the
+grace period passes. The tracker takes an injected clock, so none of this is tested with a sleep.
+
+No migration. The `run_progress_cleanup` job's description in `scheduler_job_config` (seed data from
+V68) still says "older than 30 minutes".
+
+### Fixed — "Retry failed" re-runs exactly the slots that failed, under the run's own type
+
+`POST /api/forecast/run/{id}/retry-failed` took the failed *places*, the failed *dates* and ran every
+combination of them, both events, as a Short-Term run. A run in which one place's Saturday sunset and
+another's Sunday sunrise failed re-evaluated eight slots instead of two, re-billing the ones that had
+succeeded, and a Very-Short-Term, Long-Term or single-place run was retried under Short-Term's model
+and strategy settings. A light-pollution run's failed tasks carry the date "–", which the endpoint
+tried to parse as a date and answered 500; and a run stopped on a rejected API key could still be
+retried by calling the endpoint directly.
+
+- **Exact slots.** `ForecastCommand` gains an explicit `slots` set of (location, date, sunrise or
+  sunset) triples. The executor builds a task only for a triple in that set, so the retry run's
+  progress holds exactly the slots that were FAILED in the original run's tracker entry (a slot named
+  twice is run once). A slot whose event has passed since is dropped by the executor's existing
+  already-past gate and shows as *skipped* in the retry's panel; weather triage still applies, so a
+  slot the weather now rules out is *triaged*, not evaluated.
+- **The original run type.** `FailedSlotRetryService` reads the original run's type from its
+  `job_run` row and starts the retry under it, so the model and strategies are Very-Short-Term's,
+  Short-Term's or Long-Term's as the case may be. ⚠️ "Original settings" can only mean the **current**
+  configuration of that run type: a hand-started run stores no `active_strategies` snapshot and a null
+  `evaluation_model`, so what it ran under is not recoverable, and a model or strategy changed on the
+  Run Config screen since the original run is picked up by the retry. Stability filtering stays
+  bypassed (a manual run); there are no exclusions to carry, since an excluded slot was never a task.
+- **Sentinel sampling does not apply to a retry of named slots.** Sentinel sampling evaluates a
+  region's sentinel places and, when they all rate low, writes a canned low result for the region's
+  other slots without calling Claude. Over a handful of named slots that would pick a sentinel from
+  among them and answer for the rest, which is a guess recorded as a result, not a retry. Each named
+  slot is evaluated. The other strategy, tide alignment, is a per-slot check and still applies.
+- **A failed slot that cannot be run again is left out and said so.** If its place has been disabled or
+  deleted, or is no longer a sky location, the 202 lists it under `skipped` with a reason and the new
+  run's panel shows it after "Retrying N slots."; when nothing is left the answer is the existing 404
+  ("Nothing to retry"). The 202 also carries `slots` (how many the new run holds) and the original run
+  type in `runType` (it used to say `SHORT_TERM` always).
+- **Refused, with a plain `{error}` and nothing started (409).** A run stopped on a rejected key:
+  *This run was stopped because Claude rejected the API key. Fix the key, then start the run again.*
+  A light-pollution run: *Light-pollution failures are retried by pressing Refresh Light Pollution
+  again.* (any other run whose failed tasks are not forecast slots gets a generic sentence).
+- **The panel knows why.** The `run-complete` payload gains `retryBlockedReason` (`API_KEY_REJECTED`,
+  `LIGHT_POLLUTION`, `NOT_FORECAST_SLOTS`, null when retryable) beside #985's `retryable`, both read from
+  the one `RunProgress.getRetryBlock()` the endpoint also uses, so the panel never offers a retry the
+  server would refuse. A light-pollution run with failures shows *Retry is not offered: press Refresh
+  Light Pollution again.* in place of the button; the rejected-key line is unchanged.
+
+No migration, and the stop-on-rejected-key logic, failure classification, `job_run` counts, circuit
+breaker, eviction and the batch pipeline are untouched.
+
+### Fixed — a finished run's panel no longer leaves rows on "Pending"; a retry leaves out yesterday's slots
+
+- **Rows left unfinished in a run that had finished.** In a very fast run (every place failing at weather
+  within ~100 ms) a few rows of the progress panel stayed on "Pending" or "Weather" although the summary
+  said all of them had failed. Cause, in `RunProgressTracker.subscribe`: it registered the emitter and
+  then replayed from a copy of the tasks frozen at that moment, while `onTaskEvent` took no lock, so a
+  worker could send a task's live FAILED while the replay still held that task's older copy, which was
+  then sent AFTER it, and the panel keeps the last event it receives. Each run now has one stream lock
+  (`RunProgress.streamLock()`) held by `onTaskEvent` (update and broadcast), `setPhase` (its re-send)
+  and `subscribe` (copy and replay), so a subscriber sees each task's states in order. Lock order: the
+  global `completionLock` first, then the run's stream lock, never the reverse (`subscribe`,
+  `completeRun` and `failRun` take both in that order; `onTaskEvent` and `setPhase` take only the stream
+  lock; the expiry check only the completion lock). The panel also refuses an update that would move a
+  finished row (complete, failed, skipped, triaged) back to an unfinished state.
+- **A retry leaves out slots dated before today.** The executor's already-past gate guards only today, so
+  a retry pressed just after midnight sent yesterday's failed slots to triage and Claude. They are now
+  left out and listed in `skipped` ("The event has already happened."), by the UK civil date; when every
+  failed slot is past the answer is the existing 404. A renamed place is reported as "The place is
+  disabled, renamed or no longer exists."
+- **The note on a retry's panel** ("Retrying N slots. Left out: ...") now survives a switch of Operations
+  tab (it is held beside the active run id), names at most three left-out slots then "and N more", and
+  never prints "null" for a missing date.
+
+### Fixed — "Retry failed" cannot be started twice, or on a run that is still going
+
+Two quick presses, or two admins, each started a retry of the same slots, and Retry could be called
+while the original run was running. `retry-failed` now answers 409 `{error}`: *This run is still going.
+Retry is offered when it has finished.*; and, for a second retry of one run, *This run has already been
+retried as run N. Retry that run's failures instead.* A retry of the retry run still works, so retries
+chain. The check, the start and the record happen under one per-run lock, so concurrent requests start
+exactly one run. The record is held on the tracker's in-memory entry: it does not survive a restart and
+is forgotten when the entry is evicted.
+
+A retry that never ran does not block: if run N completed holding no task at all (it failed before it
+registered its tasks), or its tracker entry has been gone for 5 minutes, the original can be retried
+again; a run N that ran, even with failures of its own, still takes the retry. The panel already shows
+the server's 409 sentence through its existing error line, which a second admin's panel now uses.
+
+### Fixed — a weather prefetch refused by the Open-Meteo circuit breaker says so
+
+A weather prefetch refused by the Open-Meteo circuit breaker used to read "Forecast run failed - The
+run stopped unexpectedly. See the server log.", because the refusal (Resilience4j's
+`CallNotPermittedException`) is not a weather fetch failure as far as `RunCompletion.reasonForForecastRun`
+knew. A refusal is now recognised by the breaker's name (`open-meteo`, or the briefing's
+`open-meteo-briefing`), anywhere in the cause chain, and reads "Weather data (Open-Meteo) calls are
+paused after repeated failures; nothing was updated. Try again in a minute." A refusal by any other
+breaker keeps the generic reason, and each place keeps its own "Weather data could not be fetched."
+line, which does not contradict the run-level one.
+
+### Added — a place that keeps failing its scheduled runs is auto-disabled, and the admin is told
+
+CLAUDE.md has long said "per-location failure tracking, auto-disable after 3 failures", but the
+counting code was never written: `consecutive_failures`, `last_failure_at` and `disabled_reason`
+were only ever reset, never set. `LocationFailureService` now counts, under rules chosen so that one
+bad night, a fault confined to one lane, or a night when everything failed, can never empty the
+roster.
+
+- **Which runs.** Pipeline cycles (nightly and intraday). `PipelineOrchestrator` settles each cycle
+  once, inside its BRIEFING phase, after the batch results and the retry have landed and before the
+  briefing is built. The Operations-tab forecast buttons and the map's Run Forecast never reach the
+  service. The scheduler's "Run now" on the nightly or intraday job runs the identical cycle and
+  nothing records the trigger, so it counts like a scheduled one: three presses in a day could
+  disable a place (an accepted trade-off). A cycle whose safety timeout fired is not settled, since
+  its results are unknown.
+- **What a cycle records about a place**, per lane: a scored result or a triage is "got through"; a
+  collection error (`SKIPPED_ERROR`, the collector's catch-all, so worded "data could not be
+  collected") or an errored result with no success for the place is "failed"; everything else
+  (cached, past date, travel day, hard constraint, stability skip, submission failure, no result
+  recorded) is nothing. Any success in the cycle, in any lane or in the retry batch, makes the place
+  "got through". A retry that finds the slot now triaged records a `SKIPPED_TRIAGED` disposition,
+  so the place counts as answered; that write is not best-effort: if it fails the exception escapes
+  the retry phase, the run is failed before its tail settle, and the sweep settles the cycle later
+  RESETS_ONLY, so the place is not counted failed on its precursor's failed row alone.
+- **When a failure is counted.** Once per place per cycle, and only if at least half of the LIKE
+  places got through. For a failed Claude result that means the other places with a result in the
+  same lane (sky, woodland or bluebell), where triage-only places are not evidence; for a collection
+  error, the other places whose collection ran. So a woodland parser regression that fails every
+  `wd-` result while 200 sky places score counts nobody, and so does a cycle that fails everything
+  (2026-09-29: all 510 candidates failed at once). A place that got through is reset to 0; a place
+  with nothing recorded keeps its count.
+- **At 3 consecutive counted failures** the place is disabled (`enabled = false`, a fixed-shape
+  `disabled_reason` such as "Auto-disabled after 3 consecutive failed scheduled runs (last
+  2026-10-02: data could not be collected)." and `last_failure_at`), and the admins get one email
+  per cycle through `AdminAlertService`, sent after the settle transaction commits. If more than 5
+  places qualify in a single cycle (`MAX_DISABLED_PER_CYCLE`) none is disabled, an ERROR is logged
+  and the admins are told that something systemic is wrong; the counters still advance.
+- **Settled once per cycle, one at a time, in trigger order, durably.** Settles run under one in-JVM
+  lock (commit included; this is a single-instance app) and the failure count is incremented by the
+  database and read back. Each settle claims its cycle with a conditional update of the new
+  `pipeline_run.failures_settled_at` column in the same transaction as its counter writes, so a
+  cycle is counted exactly once, a run the process stopped before it settled is settled when it
+  resumes (the orchestrator settles every run on its way to the briefing), and a run already
+  settled is refused.
+- **Two settle modes, and a durable retry.** A settle is FULL (counts failures and applies resets)
+  only when it runs at the cycle's own tail and the cycle's trigger time is newer than the newest
+  already-settled cycle. Any cycle settled later than that (an older cycle after a newer one, e.g.
+  an admin's Run now while an older cycle was still waiting; a replay; one recovered at startup)
+  is settled RESETS_ONLY: its successes and triage still reset counters, but nothing is counted and
+  nothing disabled, because counting it after the newer cycle's success could restart a streak
+  that success had broken. A settle that fails (its claim rolls back with it, so the cycle stays
+  unclaimed) is logged at ERROR while the run still completes, and a sweep settles it later: at
+  startup after the running cycles are resumed, and at the start of every tail settle, it finds
+  pipeline runs with no claim triggered in the last 7 days and not still RUNNING, and settles each
+  RESETS_ONLY in trigger order. The first deploy of V163 leaves every recent run unclaimed; the
+  first sweep over them only zeroes counters that are already zero. A run is never claimed, by the
+  sweep or by a tail settle, while any of its forecast batches is still being polled (not COMPLETED,
+  FAILED, EXPIRED or CANCELLED): a run restarted mid-submission is marked FAILED but its persisted
+  batches keep landing results, so it is deferred (logged at INFO, naming the batch) until they are
+  terminal and a later sweep settles it. A tail settle is FULL only when there is no older
+  unsettled cycle within the sweep window at all, whatever its status (deferred, failed to settle,
+  still RUNNING, or an unlistable run set); otherwise it settles RESETS_ONLY and logs "older cycle N
+  (STATUS) still unresolved", because a newer failure could
+  otherwise disable a place before the older cycle's success arrives, and a later reset cannot
+  undo a disable. That newer cycle is then never counted, which under-counts, the safe direction.
+- **A cycle that submitted no batch** (everything cached, skipped or triaged away, or every
+  submission failed) keeps its dispositions on an anchor job run that nothing else ties to the
+  pipeline run, so the pipeline run now records it (`pipeline_run.disposition_job_run_id`), in the
+  same transaction as the disposition rows themselves: a link that cannot be written rolls the rows
+  back with it (and fails the submission step visibly) instead of leaving rows with no link, which
+  would settle with no evidence and be claimed for good. A cycle
+  that legitimately triaged candidates away therefore resets those places, even across a restart; a
+  cycle whose submissions all failed (the 2026-09-29 shape) holds only `SUBMISSION_FAILED` rows and
+  still counts nobody.
+- **Migration V163** adds those two nullable columns to `pipeline_run`. It is proven before merge
+  only by CI's Backend job (Testcontainers), since the development machine has no Docker.
+- **Known gap.** A bluebell or woodland request that failed is never retried, so such a failure
+  stands for the cycle.
+- **Success evidence** is read from `forecast_score` rows stamped with the cycle's pipeline run as
+  well as from `api_call_log`, because the audit rows are best-effort (a batch whose job-run
+  bookkeeping failed logs nothing) and a place that really scored must still be reset. A failure
+  still needs positive failure evidence, so a gap can only under-count.
+  A cycle whose audit evidence is incomplete (a forecast batch with a null job run, whose results
+  were never logged) counts no failures, since a failed row cannot then be shown to be the place's
+  last word; its successes still reset.
+- **The failure columns are written only by column-scoped updates.** `consecutive_failures`,
+  `last_failure_at` and `disabled_reason` are `updatable = false` on `LocationEntity` (as the
+  `app_user` settings columns are) and `LocationEntity` is `@DynamicUpdate`, so an admin's
+  metadata edit loaded before a settle and saved after it can no longer undo a committed
+  disable or restore a reset counter. `enabled` is `updatable = false` too (the admin toggle writes
+  it through `updateEnabled` and remains last-writer-wins), because `@DynamicUpdate` alone does not
+  stop a detached entity, merged after a settle by a job that loaded it outside a transaction, from
+  writing a stale `enabled` back. Those detached jobs (grid-cell backfill, the briefing's grid-cell
+  capture, Bortle enrichment) now write only their own columns with scoped updates. No migration.
+
+### Fixed — "Re-enable" on the Location Issues alert now actually re-enables the place
+
+The alert's Re-enable button called `PUT /api/locations/reset-failures`, which cleared the failure
+counter and the disabled reason but never touched `enabled`, so a place switched off by the
+auto-disable would have stayed off after the admin pressed it. `LocationService.resetFailures` now
+also sets `enabled = true` when the place carries a disabled reason (only the auto-disable writes
+one), and leaves a place an admin disabled by hand (no reason) disabled, clearing only its counters.
+
+A Re-enable that the server refuses used to fail silently (the error went only to the console). The
+row now shows the server's sentence in an alert line, the button is disabled while the request is in
+flight, and it is enabled again after a failure so the admin can retry.
+
+On the Locations screen, the alert list now includes any place with a disabled reason even when its
+counter is 0, printing the reason and the time of the last failure, and an auto-disabled place's row
+carries an "auto-disabled" badge with the reason in its tooltip.
+
+### Fixed — a hand-started run always reports that it has finished
+
+A forecast run started from the Operations tab or a map popup ran on a thread whose result nobody
+read, so any exception escaping the run was silent: `job_run.completed_at` stayed null, the progress
+panel sat at "running" and the map popup's spinner never stopped. On 2026-10-02, with Open-Meteo
+unreachable, the log said "Open-Meteo batch prefetch failed" and then nothing. A task whose Claude
+evaluation failed was also left in `EVALUATING` for good, so even a "completed" run reported
+`RUNNING`.
+
+`ForecastCommandExecutor.execute` is now the one guard for all five run endpoints. Whatever
+escapes the pipeline, unfinished tasks are published FAILED (one event each, naming the step they
+were stuck in), the tracker emits `run-complete` exactly once, and the `job_run` is closed, each
+step in its own try; the exception is logged once at ERROR. An `Error` gets the same completion and
+is rethrown. A run that fails before it registered with the tracker is registered and completed as
+FAILED rather than left to the panel's "no longer available" path. A normal completion also fails
+any task still in progress, so a run never completes while a place is still "evaluating". Closing
+the `job_run` is tried twice (the in-memory `completedAt` is set before the save that can fail, so it
+is not taken as proof the row was closed), a second failure is logged at ERROR, and the tracker is
+told the run is over regardless. Bortle enrichment, which shared the same unguarded thread, gets the
+same guard. The legacy wildlife engine now registers its tasks before submitting them and reports each
+one COMPLETE or FAILED, and on a non-manual run the places the stability filter drops are published
+SKIPPED, so neither can be swept to FAILED on a run that went well.
+
+A failed batch weather prefetch no longer aborts the run: every place fails individually with
+"Weather data fetch failed for Aira Force SUNSET: Weather data could not be fetched.", the run
+completes and Retry failed has places to retry. The run-level reason carries the cause (the Open-Meteo
+phrase when the failure is a weather fetch, the generic one otherwise), and the `job_run` is closed
+with the failed-task count instead of 0 succeeded / 0 failed, with the log saying weather could not be
+fetched rather than that every task was triaged. Task error messages published to the panel are capped
+at 200 characters (the full text stays in the server log).
+
+The `run-complete` payload gains a nullable `reason` (a fixed phrase, never an exception message).
+The panel shows it, keeps a run that failed with no tasks at all (with Dismiss) instead of clearing it
+as clean, reads "(Failed)" in its header for a FAILED run and omits the meaningless "0/0" count of a
+zero-task run. The map popup's Run Forecast shows the reason (or a fixed sentence) instead of refreshing
+as if something had updated, and the app-wide banner is a red "Forecast run failed" line rather than
+a green "completed — 0 locations updated". A run in which every non-skipped place failed now reads
+FAILED rather than PARTIAL when other slots were merely skipped. Classifying Claude failures and
+aligning `job_run` counts with the tracker are separate follow-ups.
+
+A run that is cut short after some places had already completed (status PARTIAL with a reason) is
+not treated as an outright failure: the banner reads "Forecast run stopped early — N locations
+updated, M failed." with the reason and keeps Refresh, and the map popup refreshes what did update
+while still showing the reason. A FAILED run with no reason now reads "Forecast run failed." (with the
+failed-place count when there is one) instead of repeating the fixed fallback sentence.
+
+### Fixed — a hand-started run reports Claude failures as they happen, and stops when the API key is rejected
+
+A place whose Claude evaluation failed was only caught by the completion sweep, which gave it the
+placeholder "Evaluation failed (see server log).", so the admin could not tell a rate limit from an
+overload from a bad key. And when the key was rejected the run carried on and called Claude for
+every remaining place, each failing the same way (65 places over 47 seconds against an invalid key
+on 2026-10-02).
+
+`ForecastService.evaluateAndPersist` now publishes FAILED, once, at the moment an evaluation fails,
+on every path: an error answered by Claude, an exception thrown by the evaluation call, and a
+failure persisting the result. The step is `EVALUATING` and the reason is a fixed phrase from one
+mapping, `EvaluationFailure`: *Claude rejected the API key.* (401, 403), *Claude's rate limit was
+reached.* (429), *Claude was overloaded.* (529), *Claude returned a server error.* (other 5xx),
+*Claude could not be reached.* (the SDK's I/O exception, which does not tell a timeout from a dropped
+connection), *Claude's reply could not be read.* (a reply the parser rejected, a truncated reply, a
+reply with no text), *Claude declined to evaluate this place.* (a refusal stop reason, or the
+content-filter 400), and *Evaluation failed (see server log).* for anything else. Never an exception's
+message or class name. The completion sweep stays as the floor. Two refusals where no request was made
+get their own phrases and do not stop the run: *Not attempted: Claude calls are paused after repeated
+failures. Try again in a minute.* when the circuit breaker refuses a call (it opens after the first
+wave of rejected calls and stays open for 60 s, so a rerun inside that minute meets it), and *Not
+attempted: too many Claude calls were already waiting.* when the `claude` bulkhead gives up after its
+wait.
+
+The engine's `errorType` vocabulary changed, and this is stated plainly: a content-filter 400 is now
+`content_filter` (it was `anthropic_400`), a refusal is `refusal` and a truncated, empty or no-text reply
+is `reply_unreadable` (all three were `IllegalStateException`), a call the circuit breaker refuses is
+`circuit_open` (it was `CallNotPermittedException`) and a bulkhead refusal is `bulkhead_full`. Refusal
+and unreadable replies are their own exception types (still `IllegalStateException`s), and the aurora
+and strategy engines' "no text" failures use the same type as the forecast engine's. The string is not
+persisted for a synchronous call (`api_call_log.error_type` is written only by the batch path, from the
+batch outcome) and nothing outside `EvaluationFailure` reads it, so no stored value or reader changes.
+
+A 401 or 403 from Claude stops that run (and only that run): the failure is recorded on the run's
+progress inside the `claude` bulkhead, before the permit is released, so each place that was waiting
+for a permit sees it and is published FAILED as "Not attempted: the run stopped because Claude
+rejected the API key." without calling Claude and without creating a child `job_run`. Calls already in
+flight finish and report the key reason. The `run-complete` payload carries "Claude rejected the API
+key. The run was stopped; no further places were attempted." and a new `retryable: false`; a run that
+had completed places reads as stopped early, one that had not as failed. A rate limit, an overload or a
+server error does not stop the run. A later run is unaffected. (`ClaudeRetryPredicate` already did not
+retry a 401 or 403.)
+
+The `job_run` row now closes with the tracker's completed and failed task counts on every completion
+path, so the Job Runs grid and the progress panel cannot disagree. Before, a place that failed at
+weather was never counted unless the weather prefetch itself failed (an all-triaged-or-failed run
+closed 0/0), and a wildlife run counted rows rather than places. A triaged or skipped place is neither
+succeeded nor failed. The run-level reason is written to the row's existing `notes` column, which the
+Job Runs grid already shows.
+
+`RunProgressTracker` now broadcasts the task an event changed, not "the task with the newest
+timestamp". Events arrive from many threads at once, and two that each stored a task and then looked
+for the newest both found the later one, so the earlier task's update was never sent: a finished run's
+panel could show a place frozen on "Cloud". It showed up the moment the evaluation phase began
+publishing FAILED from parallel threads.
+
+A finished run's panel header reads "(Stopped early)" for a PARTIAL run that carries a reason (a real
+rejected-key run is PARTIAL, because triaged places count as an outcome, and used to read "(Complete)"
+above a red "the run was stopped" line); FAILED still reads "(Failed)". A stopped run ends in phase
+`EARLY_STOP` whichever exit the pipeline took.
+
+The legacy wildlife path (no trigger reaches it) now closes its `job_run` with tasks, not hourly rows,
+as its succeeded count.
+
+The progress panel does not offer Retry when `retryable` is false (re-running the failed places would
+fail them the same way) and says so in one line: "Retry is not offered: fix the API key, then start the
+run again." (only on a run that has failed places; where Retry would have been). A payload without
+the field keeps the button.
+
+### Docs — resilience annotations and the progress tracker's mapper
+
+`CLAUDE.md` described the Claude and Open-Meteo retry as Spring `@Retryable` with `MethodRetryPredicate`
+and `@ConcurrencyLimit(8)`; the code uses Resilience4j `@Retry` and `@CircuitBreaker` (plus
+`@RateLimiter` on Open-Meteo) with plain predicates, and `@Bulkhead`. It now also names the second
+Open-Meteo instance, `open-meteo-briefing`, and points to the profile YAML for figures that differ by
+profile rather than quoting them. It listed `RunProgressTracker` among the services injected with the
+Jackson 2 `ObjectMapper` bean; it, `ModelTestService` and `PromptTestService` build their own.
+
+### Fixed — failed synchronous Claude calls are logged with their real status and an error type
+
+A failed synchronous Claude call (the forecast run, the aurora evaluation, and the legacy evaluation
+decorator) was written to `api_call_log` with a hard-coded status 500 and no `error_type`. It now
+records the HTTP status Anthropic actually answered with (401, 403, 429, 529, 5xx, 400) and the
+`error_type` the run panel already uses (`anthropic_401`, `content_filter`, `refusal`,
+`reply_unreadable`, `circuit_open`, ...). A failure with no HTTP status of its own (a connection
+failure, an unreadable reply, a refusal, an open breaker) records a null status, the same as the batch
+path and the weather clients; every reader decides failure from `succeeded`, never from the status.
+
+Rows written before this change keep their placeholder 500 and no error type; that 500 is not the real
+status. The Job Runs detail therefore shows no status for a Claude row without an error type: its Failed
+Calls heading reads `ANTHROPIC · anthropic_401` for a new row (the type already carries the status),
+`ANTHROPIC` for an old one, and `OPEN_METEO · 503` for a weather row, whose status is always real. The
+metrics endpoint now serves `statusCode`.
+
+### Fixed — a rejected Claude API key no longer opens the circuit breaker
+
+With a rejected key, the first wave of Claude calls answered 401 and the run stopped correctly, but
+those 401s also counted as failures toward the `anthropic` circuit breaker (10-call window, opens at
+50% once 5 calls are in it), which then opened for a minute. A run started inside that minute never
+reached Claude: every place read "Not attempted: Claude calls are paused after repeated failures.",
+the run was not stopped, and Retry was offered although the key was still wrong. A rejected key is
+a configuration fault, not an outage. HTTP 401 and 403 from Anthropic are now ignored by the breaker
+(neither a failure nor a success, and a half-open probe that is rejected returns its permit), through
+`ClaudeBreakerIgnorePredicate` wired by `ResilienceConfig.anthropicCircuitBreakerCustomizer()`, so no
+per-host `application.yml` needs editing. The definition of "rejected key" is shared with the run's
+stop-on-rejected-key rule, so the two cannot drift. Every other failure (400, 404, 429, 5xx, 529,
+connection failures) still counts.
+
+Two consequences. The status page no longer shows a rejected key: its overall DEGRADED/DOWN comes
+from the circuit-breaker health, which stays CLOSED, and its Claude entry is the `claudeApi` probe,
+which counts any HTTP answer (401 and 403 included) as reachable. A rejected key is visible where it
+is reported: the stopped run's reason ("Claude rejected the API key."), the server log, and the failed
+call's row in the Job Runs detail (`ANTHROPIC · anthropic_401`). And the briefing's gloss and best-bet
+calls, which have no stop-on-rejected-key rule, used to be cut off by the open breaker after about ten
+calls: with a rejected key one briefing refresh now attempts every call (up to about 60 gloss calls, five
+days by two events by the regions, plus one best-bet call), on each of the two scheduled pipeline cycles
+a day (nightly and 14:00 UTC intraday, plus any admin briefing run); each is rejected unbilled, and each
+gloss call leaves one `api_call_log` row (a failed best-bet call logs none).
+
 ## [v2.22.9] - 2026-10-02
 
 ### Fixed — wildlife hides have an hourly comfort forecast again
