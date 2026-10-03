@@ -1033,6 +1033,105 @@ class LocationFailureServiceTest {
                         + "left unclaimed for a later sweep");
     }
 
+    private static final String OLDER_UNRESOLVED_LOG =
+            "Pipeline run 300 (triggered 2026-10-02T01:00:00Z): location failure settle mode "
+                    + "RESETS_ONLY: older cycle 299 still unresolved, and counting this cycle "
+                    + "first could disable a place that cycle's success would have reset";
+
+    /** A tail whose evidence would count place 10 from 2 to 3 (and so disable it) if FULL. */
+    private Map<Long, CyclePlaceEvidence> failureThatWouldDisable() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        place(10L, "Bamburgh", 2, true);
+        return evidence;
+    }
+
+    private void assertNothingCountedAndOlderLogged() {
+        verify(locationRepository, never()).recordFailure(10L, NOW_UTC);
+        verify(locationRepository, never()).autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON);
+        assertThat(storedCounts.get(10L)).isEqualTo(2);
+        assertThat(settledRuns).containsKey(RUN_ID);
+        assertThat(messages(Level.INFO)).contains(OLDER_UNRESOLVED_LOG);
+        verifyNoInteractions(adminAlertService);
+    }
+
+    @Test
+    @DisplayName("a tail settle after an older run the sweep DEFERRED (a batch still polling) is "
+            + "RESETS_ONLY: a place at 2 that failed in the newer cycle stays at 2, enabled, and "
+            + "the newer cycle is claimed")
+    void tail_olderRunDeferred_isResetsOnly() {
+        unsettled(run(RUN_ID - 1, CycleType.NIGHTLY, TRIGGER.minusSeconds(3600)));
+        when(forecastBatchRepository.findByPipelineRunIdAndBatchTypeAndStatusNotIn(RUN_ID - 1,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType.FORECAST,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.TERMINAL))
+                .thenReturn(List.of(batchIn(
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.SUBMITTED)));
+        when(forecastBatchRepository.findByPipelineRunIdAndBatchTypeAndStatusNotIn(RUN_ID,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType.FORECAST,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.TERMINAL))
+                .thenReturn(List.of());
+
+        settle(failureThatWouldDisable());
+
+        assertNothingCountedAndOlderLogged();
+        verify(resolver, never()).resolve(RUN_ID - 1);
+    }
+
+    @Test
+    @DisplayName("a tail settle after an older run the sweep FAILED to settle (it threw) is "
+            + "RESETS_ONLY too")
+    void tail_olderRunFailedToSettle_isResetsOnly() {
+        unsettled(run(RUN_ID - 1, CycleType.NIGHTLY, TRIGGER.minusSeconds(3600)));
+        when(resolver.resolve(RUN_ID - 1)).thenThrow(new IllegalStateException("db down"));
+
+        settle(failureThatWouldDisable());
+
+        assertNothingCountedAndOlderLogged();
+    }
+
+    @Test
+    @DisplayName("a tail settle whose sweep could not even list the unsettled runs cannot rule an "
+            + "older cycle out, so it is RESETS_ONLY")
+    void tail_sweepListingFails_isResetsOnly() {
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down"))
+                .when(pipelineRunRepository)
+                .findUnsettledSince(SWEEP_SINCE, PipelineRunStatus.RUNNING);
+
+        settle(failureThatWouldDisable());
+
+        verify(locationRepository, never()).recordFailure(10L, NOW_UTC);
+        assertThat(storedCounts.get(10L)).isEqualTo(2);
+        assertThat(messages(Level.INFO)).anyMatch(m -> m.contains("settle mode RESETS_ONLY: the "
+                + "unsettled runs could not be listed, so no older unresolved cycle can be ruled "
+                + "out"));
+    }
+
+    @Test
+    @DisplayName("an unresolved run triggered AFTER the tail does not stop it counting: only older "
+            + "cycles can have a success the tail's count would pre-empt")
+    void tail_newerRunDeferred_stillFull() {
+        unsettled(run(RUN_ID + 1, CycleType.INTRADAY, TRIGGER.plusSeconds(3600)));
+        when(forecastBatchRepository.findByPipelineRunIdAndBatchTypeAndStatusNotIn(RUN_ID + 1,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType.FORECAST,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.TERMINAL))
+                .thenReturn(List.of(batchIn(
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.SUBMITTED)));
+        when(forecastBatchRepository.findByPipelineRunIdAndBatchTypeAndStatusNotIn(RUN_ID,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType.FORECAST,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.TERMINAL))
+                .thenReturn(List.of());
+        Map<Long, CyclePlaceEvidence> evidence = failureThatWouldDisable();
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 2, true)));
+        when(locationRepository.autoDisable(10L, 3, NOW_UTC, EVALUATION_REASON)).thenReturn(1);
+
+        settle(evidence);
+
+        verify(locationRepository).recordFailure(10L, NOW_UTC);
+        assertThat(messages(Level.INFO)).contains(FULL_MODE_LOG);
+    }
+
     @Test
     @DisplayName("a tail settle is deferred the same way for its own run with a polling batch")
     void tailSettle_runWithPollingBatch_isNotClaimed() {

@@ -573,6 +573,62 @@ class LocationFailureTrackingTest {
     }
 
     @Test
+    @DisplayName("END TO END: an older FAILED run with a SUBMITTED batch is deferred, so the newer "
+            + "tail settle is RESETS_ONLY: a place at 2 that failed in the newer cycle stays at 2 "
+            + "and enabled; when the older batch completes the sweep settles it RESETS_ONLY and the "
+            + "place that succeeded there resets")
+    void newerTailOverDeferredOlderRun_isResetsOnly_thenOlderSweepResets() {
+        setCounter(angel, 2);
+        long olderId = persistedRunId();
+        String olderBatchId = "msgbatch_older_" + olderId;
+        ForecastBatchEntity olderBatch = new ForecastBatchEntity(
+                olderBatchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
+        olderBatch.setPipelineRunId(olderId);
+        olderBatch.setJobRunId(olderId);
+        olderBatch.setStatus(ForecastBatchEntity.BatchStatus.SUBMITTED);
+        forecastBatchRepository.save(olderBatch);
+        jdbcTemplate.update("UPDATE pipeline_run SET status = 'FAILED' WHERE id = ?", olderId);
+        long newerId = persistedRunId();
+        seedBatch(newerId, false, true);
+
+        locationFailureService.settleCycle(newRun(newerId));
+
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
+        assertThat(reload(angel).isEnabled()).isTrue();
+        assertThat(newRun(newerId).getFailuresSettledAt()).isNotNull();
+        assertThat(newRun(olderId).getFailuresSettledAt()).isNull();
+
+        seedResult(olderBatchId, olderId, angel, true);
+        seedResult(olderBatchId, olderId, keswick, true);
+        setBatchStatus(olderId, "COMPLETED");
+
+        assertThat(locationFailureService.sweepUnsettledRuns()).isEqualTo(1);
+
+        assertThat(newRun(olderId).getFailuresSettledAt()).isNotNull();
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
+        assertThat(reload(angel).isEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a tail with an older run that is already terminal and settled by the sweep is "
+            + "still FULL: the failing place goes from 2 to 3 and is disabled")
+    void tailAfterResolvedOlderRun_isFull() {
+        setCounter(angel, 2);
+        long olderId = persistedRunId();
+        // The older cycle is terminal; in it the place failed, which RESETS_ONLY does not count.
+        seedBatch(olderId, false, true);
+        complete(olderId);
+        long newerId = persistedRunId();
+        seedBatch(newerId, false, true);
+
+        locationFailureService.settleCycle(newRun(newerId));
+
+        assertThat(newRun(olderId).getFailuresSettledAt()).isNotNull();
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(3);
+        assertThat(reload(angel).isEnabled()).isFalse();
+    }
+
+    @Test
     @DisplayName("a run whose batches are all terminal is claimed by the sweep as before, and a "
             + "run with an AURORA batch still polling is NOT held up by it: the resolver reads "
             + "only FORECAST batches, so an aurora batch is no evidence for a place")

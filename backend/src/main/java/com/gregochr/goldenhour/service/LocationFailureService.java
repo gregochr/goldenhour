@@ -131,6 +131,15 @@ import java.util.stream.Collectors;
  *       results that land later could never reset a counter. Such a run is deferred (INFO, naming
  *       the batch) and left unclaimed for a later sweep once its batches are terminal. AURORA
  *       batches are ignored: {@code CycleLocationOutcomeResolver} reads only FORECAST batches.</li>
+ *   <li><b>No FULL tail over an unresolved older cycle.</b> A deferred (or failed-to-settle) older
+ *       run is invisible to the newest-settled-trigger test, so a newer tail could count a place
+ *       from 2 to 3 and disable it before the older cycle's success arrives, and a later
+ *       RESETS_ONLY sweep cannot undo a disable ({@code resetFailureCounts} excludes disabled
+ *       places). So the sweep reports the older runs it left unresolved (or that the listing could
+ *       not rule out), and a tail that sees any settles RESETS_ONLY, INFO "older cycle N still
+ *       unresolved". That newer cycle is claimed and never counted later: under-counting is the
+ *       safe direction. The decision is made under the one settle lock, from the sweep that ran
+ *       immediately before.</li>
  *   <li><b>Retried, durably.</b> A settle that fails leaves its cycle unclaimed (the claim rolls
  *       back with the counts), and the orchestrator completes the run regardless. {@link
  *       #sweepUnsettledRuns()} finds every such run (unclaimed, triggered within
@@ -213,8 +222,14 @@ public class LocationFailureService {
      * data and applies the failure-counting rule, in one transaction, under the settle lock (see the
      * class javadoc). Called by {@code PipelineOrchestrator} for every run that reaches the briefing,
      * including a run resumed after a restart. First sweeps earlier unclaimed runs
-     * ({@link #sweepUnsettledRuns()}), then settles this cycle: {@link SettleMode#FULL} when its
-     * trigger time is newer than the newest settled cycle, {@link SettleMode#RESETS_ONLY} otherwise.
+     * ({@link #sweepUnsettledRuns()}), then settles this cycle: {@link SettleMode#FULL} only when
+     * its trigger time is newer than the newest settled cycle AND the sweep left no older cycle
+     * unresolved (one it deferred because a forecast batch is still polling, one it failed to
+     * settle, or a listing that failed); {@link SettleMode#RESETS_ONLY} otherwise, with an INFO
+     * naming the older cycle. That cycle's own success may yet arrive and a count made now could
+     * disable a place it would have reset, which a later RESETS_ONLY settle cannot undo. The
+     * newer cycle is then claimed RESETS_ONLY and never counted later: under-counting is the safe
+     * direction.
      * A cycle with a forecast batch still being polled is never claimed (see the class javadoc).
      * A cycle already settled is refused and logged. A failure rolls the claim back (the cycle stays
      * unclaimed for the next sweep) and propagates. Any admin alert goes out only after the
@@ -226,10 +241,11 @@ public class LocationFailureService {
         List<Runnable> alerts;
         settleLock.lock();
         try {
-            sweepLocked(run.getId());
+            Sweep sweep = sweepLocked(run.getId(), run.getTriggerTime());
+            String blockedBy = sweep.blockedReason();
             alerts = transactionTemplate.execute(status -> {
                 List<Runnable> pending = new ArrayList<>();
-                settleClaimed(run, true, pending);
+                settleClaimed(run, true, blockedBy, pending);
                 return pending;
             });
         } finally {
@@ -261,9 +277,34 @@ public class LocationFailureService {
     public int sweepUnsettledRuns() {
         settleLock.lock();
         try {
-            return sweepLocked(null);
+            return sweepLocked(null, null).settled();
         } finally {
             settleLock.unlock();
+        }
+    }
+
+    /**
+     * What a sweep did: how many runs it settled, and the older-than-the-tail runs it left
+     * unresolved, which stop that tail counting failures.
+     *
+     * @param settled         runs claimed and settled
+     * @param unresolvedOlder ids of runs, triggered before the tail's own, that were deferred or
+     *                        failed to settle
+     * @param listingFailed   whether the unsettled runs could not be listed at all
+     */
+    private record Sweep(int settled, List<Long> unresolvedOlder, boolean listingFailed) {
+        /** The reason the tail may not count failures, or {@code null} when it may. */
+        String blockedReason() {
+            if (listingFailed) {
+                return "the unsettled runs could not be listed, so no older unresolved cycle can "
+                        + "be ruled out";
+            }
+            if (unresolvedOlder.isEmpty()) {
+                return null;
+            }
+            return "older cycle " + unresolvedOlder.stream().map(String::valueOf)
+                    .collect(Collectors.joining(", ")) + " still unresolved, and counting this "
+                    + "cycle first could disable a place that cycle's success would have reset";
         }
     }
 
@@ -271,8 +312,10 @@ public class LocationFailureService {
      * Sweeps with the settle lock already held.
      *
      * @param exceptRunId a run to leave out (the one being settled at its own tail), or null
+     * @param tailTrigger the tail's own trigger time: unresolved runs triggered before it are
+     *                    reported as blocking it (all of them when null)
      */
-    private int sweepLocked(Long exceptRunId) {
+    private Sweep sweepLocked(Long exceptRunId, Instant tailTrigger) {
         Instant since = clock.instant().minus(SWEEP_WINDOW);
         List<PipelineRunEntity> unsettled;
         try {
@@ -280,26 +323,32 @@ public class LocationFailureService {
         } catch (RuntimeException e) {
             LOG.error("Location failure sweep: could not list unsettled pipeline runs, will retry "
                     + "at the next sweep: {}", LogSanitizer.sanitize(e.getMessage()), e);
-            return 0;
+            return new Sweep(0, List.of(), true);
         }
         int settled = 0;
+        List<Long> unresolvedOlder = new ArrayList<>();
         for (PipelineRunEntity unsettledRun : unsettled) {
             if (exceptRunId != null && exceptRunId.equals(unsettledRun.getId())) {
                 continue;
             }
             try {
-                Boolean claimed = transactionTemplate.execute(
-                        status -> settleClaimed(unsettledRun, false, new ArrayList<>()));
-                if (Boolean.TRUE.equals(claimed)) {
+                Claim claim = transactionTemplate.execute(
+                        status -> settleClaimed(unsettledRun, false, null, new ArrayList<>()));
+                if (claim == Claim.SETTLED) {
                     settled++;
+                } else if (claim == Claim.DEFERRED && isOlder(unsettledRun, tailTrigger)) {
+                    unresolvedOlder.add(unsettledRun.getId());
                 }
             } catch (RuntimeException e) {
                 LOG.error("Location failure sweep: pipeline run {} could not be settled, left "
                         + "unclaimed for the next sweep: {}", unsettledRun.getId(),
                         LogSanitizer.sanitize(e.getMessage()), e);
+                if (isOlder(unsettledRun, tailTrigger)) {
+                    unresolvedOlder.add(unsettledRun.getId());
+                }
             }
         }
-        return settled;
+        return new Sweep(settled, unresolvedOlder, false);
     }
 
     /**
@@ -309,10 +358,12 @@ public class LocationFailureService {
      *
      * @param tail {@code true} when called from the run's own tail settle (eligible for FULL),
      *             {@code false} for a sweep (always RESETS_ONLY)
-     * @return {@code true} if this call claimed and settled the run; {@code false} if it was
-     *         deferred (a forecast batch still polling) or already claimed
+     * @param blockedBy for a tail settle, why it may not count failures (an older cycle left
+     *                  unresolved by the sweep), or {@code null}
+     * @return whether this call settled the run, deferred it or found it already claimed
      */
-    private boolean settleClaimed(PipelineRunEntity run, boolean tail, List<Runnable> alerts) {
+    private Claim settleClaimed(PipelineRunEntity run, boolean tail, String blockedBy,
+            List<Runnable> alerts) {
         Long runId = run.getId();
         Instant trigger = run.getTriggerTime();
         List<ForecastBatchEntity> polling = forecastBatchRepository
@@ -324,19 +375,22 @@ public class LocationFailureService {
                     + "still {} and the poller may yet write results; the run is left unclaimed "
                     + "for a later sweep", runId, polling.get(0).getAnthropicBatchId(),
                     polling.get(0).getStatus());
-            return false;
+            return Claim.DEFERRED;
         }
         Instant newestSettled = pipelineRunRepository.findNewestSettledTriggerTime();
         if (pipelineRunRepository.claimFailureSettle(runId, clock.instant()) == 0) {
             LOG.info("Pipeline run {}: location failures already settled, not counting again",
                     runId);
-            return false;
+            return Claim.ALREADY_CLAIMED;
         }
         SettleMode mode;
         String why;
         if (!tail) {
             mode = SettleMode.RESETS_ONLY;
             why = "settled by the sweep, not at its own tail";
+        } else if (blockedBy != null) {
+            mode = SettleMode.RESETS_ONLY;
+            why = blockedBy;
         } else if (trigger != null && newestSettled != null && !trigger.isAfter(newestSettled)) {
             mode = SettleMode.RESETS_ONLY;
             why = "a newer cycle (triggered " + newestSettled + ") has already been settled, and "
@@ -350,7 +404,22 @@ public class LocationFailureService {
                 trigger, mode, why);
         applyEvidence(runId, run.getCycleType(), trigger, outcomeResolver.resolve(runId), mode,
                 alerts);
-        return true;
+        return Claim.SETTLED;
+    }
+
+    /** The outcome of trying to claim and settle one run. */
+    private enum Claim {
+        /** The run was claimed and its evidence applied. */
+        SETTLED,
+        /** Left unclaimed because a forecast batch is still being polled. */
+        DEFERRED,
+        /** Someone had already claimed it. */
+        ALREADY_CLAIMED
+    }
+
+    private static boolean isOlder(PipelineRunEntity candidate, Instant tailTrigger) {
+        return tailTrigger == null || candidate.getTriggerTime() == null
+                || candidate.getTriggerTime().isBefore(tailTrigger);
     }
 
     /**
