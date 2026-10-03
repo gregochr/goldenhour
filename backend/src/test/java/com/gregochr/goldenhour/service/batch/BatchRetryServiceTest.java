@@ -513,6 +513,40 @@ class BatchRetryServiceTest {
     }
 
     @Test
+    @DisplayName("a retry-triage disposition whose insert throws is NOT swallowed: it escapes "
+            + "submitRetry as a RetryEvidenceException, and nothing is submitted")
+    void submitRetry_triageDispositionWriteFails_propagates() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                any(), any(), eq(false), isNull()))
+                .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        ForecastBatchEntity first = precursor("msgbatch_first");
+        first.setJobRunId(555L);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
+                .thenReturn(List.of(first));
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down"))
+                .when(dispositionService).persist(555L, List.of(new CandidateDisposition(
+                        42L, "Bamburgh", DATE, TargetType.SUNRISE, 0,
+                        DispositionCategory.SKIPPED_TRIAGED, "triaged")));
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 222L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)),
+                CAP);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service().submitRetry(RUN_ID, selection))
+                .isInstanceOf(BatchRetryService.RetryEvidenceException.class)
+                .hasMessageContaining("could not record the retry triage disposition for "
+                        + customId)
+                .hasRootCauseMessage("db down");
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
     @DisplayName("a retry that cannot be reconstructed for another reason (location gone) writes "
             + "no disposition: the place stays failed")
     void submitRetry_locationGone_recordsNoDisposition() {

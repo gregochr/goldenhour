@@ -738,7 +738,18 @@ public class PipelineOrchestrator {
                     selection.failureCount() + " failed — exceeds cap " + selection.cap()
                             + ", NOT retried (systematic failure — investigate)");
             case RETRY -> {
-                RetrySubmitResult retryResult = batchRetryService.submitRetry(runId, selection);
+                RetrySubmitResult retryResult;
+                try {
+                    retryResult = batchRetryService.submitRetry(runId, selection);
+                } catch (RuntimeException e) {
+                    // The retry's evidence for this cycle may be incomplete (a retry-triage
+                    // disposition could not be written): fail the phase and rethrow so
+                    // waitAndBriefPhase fails the run BEFORE its tail settle. The cycle stays
+                    // unclaimed and the sweep settles it later, RESETS_ONLY.
+                    pipelineRunService.failPhase(runId, PipelinePhase.RETRY_FAILED,
+                            "retry could not be completed: " + e.getMessage());
+                    throw e;
+                }
                 waitForBatchSetComplete(runId);
                 if (retryResult.submissionFailed()) {
                     // A real, reconstructed retry batch never reached Anthropic — this is not

@@ -642,6 +642,28 @@ class LocationFailureTrackingTest {
     }
 
     @Test
+    @DisplayName("END TO END: a cycle whose retry-triage write failed is failed before its tail "
+            + "settle (never FULL): the place at 2 whose precursor request failed stays at 2 and "
+            + "enabled, and the later sweep settles it RESETS_ONLY without counting it")
+    void retryEvidenceIncomplete_runFailed_sweepNeverCounts() {
+        setCounter(angel, 2);
+        setCounter(keswick, 1);
+        long runId = persistedRunId();
+        // Angel's precursor request failed; the retry (which would have triaged it away and
+        // recorded that) threw before any settle, so the run was failed with no tail settle.
+        seedBatch(runId, false, true);
+        jdbcTemplate.update("UPDATE pipeline_run SET status = 'FAILED' WHERE id = ?", runId);
+        assertThat(newRun(runId).getFailuresSettledAt()).isNull();
+
+        assertThat(locationFailureService.sweepUnsettledRuns()).isEqualTo(1);
+
+        assertThat(newRun(runId).getFailuresSettledAt()).isNotNull();
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
+        assertThat(reload(angel).isEnabled()).isTrue();
+        assertThat(reload(keswick).getConsecutiveFailures()).isZero();
+    }
+
+    @Test
     @DisplayName("a tail with an older run that is already terminal and settled by the sweep is "
             + "still FULL: the failing place goes from 2 to 3 and is disabled")
     void tailAfterResolvedOlderRun_isFull() {

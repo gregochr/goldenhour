@@ -1203,6 +1203,34 @@ class PipelineOrchestratorTest {
         }
 
         @Test
+        @DisplayName("a retry whose evidence could not be recorded (submitRetry throws) fails the "
+                + "RETRY_FAILED phase and the run BEFORE the tail settle: no settle, no briefing, so "
+                + "the cycle stays unclaimed for the sweep")
+        void retryThrows_failsRunBeforeSettle() {
+            RetrySelection selection = RetrySelection.retry(List.of(
+                    new RetrySelection.RetryFailure("fc-42-2026-05-26-SUNSET", 42L,
+                            java.time.LocalDate.of(2026, 5, 26),
+                            com.gregochr.goldenhour.entity.TargetType.SUNSET, null)), 5);
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.submitRetry(RUN_ID, selection)).thenThrow(
+                    new com.gregochr.goldenhour.service.batch.BatchRetryService
+                            .RetryEvidenceException("insert failed", new IllegalStateException()));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).failPhase(RUN_ID, PipelinePhase.RETRY_FAILED,
+                    "retry could not be completed: insert failed");
+            verify(pipelineRunService).failRun(RUN_ID, "Wait/brief tail failed: insert failed");
+            verifyNoInteractions(locationFailureService);
+            verify(briefingService, never()).refreshBriefing();
+            verify(pipelineRunService, never()).completeRun(RUN_ID);
+        }
+
+        @Test
         @DisplayName("over-cap failures → RETRY_FAILED phase records systematic failure, "
                 + "does NOT submit a retry, still briefs")
         void over_cap_records_systematic_no_retry() {

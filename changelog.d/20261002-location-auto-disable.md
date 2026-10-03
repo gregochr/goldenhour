@@ -19,7 +19,9 @@ roster.
   (cached, past date, travel day, hard constraint, stability skip, submission failure, no result
   recorded) is nothing. Any success in the cycle, in any lane or in the retry batch, makes the place
   "got through". A retry that finds the slot now triaged records a `SKIPPED_TRIAGED` disposition,
-  so the place counts as answered.
+  so the place counts as answered; that write is not best-effort: if it fails the exception escapes
+  the retry phase, the run is failed before its tail settle, and the sweep settles the cycle later
+  RESETS_ONLY, so the place is not counted failed on its precursor's failed row alone.
 - **When a failure is counted.** Once per place per cycle, and only if at least half of the LIKE
   places got through. For a failed Claude result that means the other places with a result in the
   same lane (sky, woodland or bluebell), where triage-only places are not evidence; for a collection

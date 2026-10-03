@@ -60,6 +60,13 @@ import java.util.Objects;
  * NOT retry. The retry is a single pass: each failed request is retried at most
  * once (no retry loops), bounding the per-cycle cost to
  * {@code <= cap requests x 1 retry}.
+ *
+ * <p><b>The retry-triage disposition write is not best-effort.</b> A retried slot that triages
+ * away records a {@code SKIPPED_TRIAGED} disposition so the location auto-disable sees the place
+ * was answered; if that insert fails it escapes {@link #submitRetry} as a
+ * {@link RetryEvidenceException}, the orchestrator fails the RETRY_FAILED phase and the run before
+ * the tail settle, and the cycle (unclaimed) is settled later by the sweep, RESETS_ONLY, rather
+ * than being counted failed on the precursor's failed row alone.
  */
 @Service
 public class BatchRetryService {
@@ -303,10 +310,34 @@ public class BatchRetryService {
                     model, pre.atmosphericData(),
                     EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                     EvaluationTask.Forecast.PromptKind.SKY, newRowId, failure.forced());
+        } catch (RetryEvidenceException e) {
+            throw e;
         } catch (Exception e) {
             LOG.warn("RETRY_FAILED: could not reconstruct request {} — stays failed: {}",
                     failure.customId(), e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Thrown when the retry's evidence for the cycle cannot be recorded (the
+     * {@code SKIPPED_TRIAGED} disposition insert failed). It deliberately escapes
+     * {@link #submitRetry}: the orchestrator fails the RETRY_FAILED phase and the run, so the tail
+     * settle never runs on a cycle whose retry evidence is incomplete, and the sweep settles it
+     * later, RESETS_ONLY.
+     */
+    public static final class RetryEvidenceException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        /**
+         * Creates the exception.
+         *
+         * @param message what could not be recorded
+         * @param cause   the underlying write failure
+         */
+        public RetryEvidenceException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
@@ -318,7 +349,11 @@ public class BatchRetryService {
      * <p>Without it the retry's triage leaves no trace in {@code forecast_run_disposition}, so the
      * precursor's failed {@code api_call_log} row would stand and the location auto-disable rule
      * would count the place as failed although the pipeline has now looked at it and answered.
-     * Best-effort: a failure to write is logged and the slot simply stays failed.
+     * <b>Not best-effort:</b> if the disposition cannot be written, the precursor's failed
+     * {@code api_call_log} row would stand as the only evidence and the place would be counted
+     * failed although it was answered on retry, so the failure propagates as a
+     * {@link RetryEvidenceException} (out of {@link #submitRetry}, failing the run before its tail
+     * settle) rather than being swallowed.
      */
     private void recordRetryTriage(LocationEntity location, RetrySelection.RetryFailure failure,
             ForecastPreEvalResult pre, Long jobRunId) {
@@ -332,8 +367,8 @@ public class BatchRetryService {
                     location.getId(), location.getName(), failure.date(), failure.targetType(),
                     pre.daysAhead(), DispositionCategory.SKIPPED_TRIAGED, pre.triageReason())));
         } catch (RuntimeException e) {
-            LOG.warn("RETRY_FAILED: could not record the retry triage disposition for {}: {}",
-                    failure.customId(), e.getMessage());
+            throw new RetryEvidenceException("RETRY_FAILED: could not record the retry triage "
+                    + "disposition for " + failure.customId() + ": " + e.getMessage(), e);
         }
     }
 
