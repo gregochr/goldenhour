@@ -186,7 +186,8 @@ public class BluebellPromptBuilder {
 
     /**
      * Builds the structured-output configuration constraining the response to {@code rating}
-     * (1-5), {@code summary}, and an optional {@code headline}.
+     * (1-5), {@code summary}, and an optional {@code headline}. The property order is fixed (in
+     * that order) because Claude writes its fields in schema order.
      *
      * @return the output configuration
      */
@@ -195,12 +196,13 @@ public class BluebellPromptBuilder {
                 .format(JsonOutputFormat.builder()
                         .schema(JsonOutputFormat.Schema.builder()
                                 .putAdditionalProperty("type", JsonValue.from("object"))
-                                .putAdditionalProperty("properties", JsonValue.from(Map.ofEntries(
-                                        Map.entry("rating", Map.of(
+                                .putAdditionalProperty("properties", JsonValue.from(
+                                        PromptUtils.orderedEntries(
+                                        Map.entry("rating", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "enum", List.of(1, 2, 3, 4, 5))),
-                                        Map.entry("summary", Map.of("type", "string")),
-                                        Map.entry("headline", Map.of(
+                                        Map.entry("summary", PromptUtils.ordered("type", "string")),
+                                        Map.entry("headline", PromptUtils.ordered(
                                                 "type", "string",
                                                 "description",
                                                 "4-9 word card header in Claude's voice.")))))

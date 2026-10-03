@@ -679,6 +679,13 @@ public class PromptBuilder {
      * Builds the structured output configuration constraining Claude's response to the
      * evaluation JSON schema.
      *
+     * <p>The property order is fixed: {@code rating, fiery_sky, golden_hour, summary, headline,
+     * basic_fiery_sky, basic_golden_hour, basic_summary, inversion_score, inversion_potential}.
+     * Structured outputs emit fields in the schema's property order, so the order decides whether
+     * the model commits to a rating before or after writing its explanation. The maps are
+     * insertion-ordered because the JDK's immutable maps iterate in an order that changes per
+     * JVM run, which made that choice vary with every backend restart.
+     *
      * @return the output configuration with JSON schema constraint
      */
     public OutputConfig buildOutputConfig() {
@@ -686,18 +693,19 @@ public class PromptBuilder {
                 .format(JsonOutputFormat.builder()
                         .schema(JsonOutputFormat.Schema.builder()
                                 .putAdditionalProperty("type", JsonValue.from("object"))
-                                .putAdditionalProperty("properties", JsonValue.from(Map.ofEntries(
-                                        Map.entry("rating", Map.of(
+                                .putAdditionalProperty("properties", JsonValue.from(
+                                        PromptUtils.orderedEntries(
+                                        Map.entry("rating", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "enum", List.of(1, 2, 3, 4, 5),
                                                 "description",
                                                 "1-5. MAXIMUM 3 when the CLOUD APPROACH RISK "
                                                         + "block shows BOTH a [BUILDING] trend "
                                                         + "AND upwind current >= 60%.")),
-                                        Map.entry("fiery_sky", Map.of(
+                                        Map.entry("fiery_sky", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
-                                        Map.entry("golden_hour", Map.of(
+                                        Map.entry("golden_hour", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description",
                                                 "0-100 inclusive. 20-30 points LOWER than the "
@@ -705,34 +713,34 @@ public class PromptBuilder {
                                                         + "CLOUD APPROACH RISK block shows BOTH a "
                                                         + "[BUILDING] trend AND upwind current "
                                                         + ">= 60%.")),
-                                        Map.entry("summary", Map.of(
+                                        Map.entry("summary", PromptUtils.ordered(
                                                 "type", "string",
                                                 "description",
                                                 "One sentence in Claude's voice explaining the "
                                                         + "rating from the actual conditions; never "
                                                         + "a placeholder such as 'test', "
                                                         + "'placeholder', or an ellipsis.")),
-                                        Map.entry("basic_fiery_sky", Map.of(
+                                        Map.entry("headline", PromptUtils.ordered(
+                                                "type", "string",
+                                                "description",
+                                                "4-9 word card header in Claude's voice.")),
+                                        Map.entry("basic_fiery_sky", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
-                                        Map.entry("basic_golden_hour", Map.of(
+                                        Map.entry("basic_golden_hour", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
-                                        Map.entry("basic_summary", Map.of(
+                                        Map.entry("basic_summary", PromptUtils.ordered(
                                                 "type", "string",
                                                 "description",
                                                 "One sentence explaining the basic (altitude-only) "
                                                         + "rating; never a placeholder.")),
-                                        Map.entry("inversion_score", Map.of(
+                                        Map.entry("inversion_score", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-10 inclusive.")),
-                                        Map.entry("inversion_potential", Map.of(
+                                        Map.entry("inversion_potential", PromptUtils.ordered(
                                                 "type", "string",
-                                                "enum", List.of("NONE", "MODERATE", "STRONG"))),
-                                        Map.entry("headline", Map.of(
-                                                "type", "string",
-                                                "description",
-                                                "4-9 word card header in Claude's voice.")))))
+                                                "enum", List.of("NONE", "MODERATE", "STRONG"))))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties",
