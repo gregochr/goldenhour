@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.CyclePlaceEvidence;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.FailureKind;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import com.gregochr.goldenhour.service.notification.AdminAlertService.DisabledLocation;
 import com.gregochr.goldenhour.util.LogSanitizer;
@@ -22,11 +23,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Iterator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -100,19 +98,23 @@ import java.util.stream.Collectors;
  *       written but not yet committed. The commit is inside the lock on purpose: a
  *       {@link TransactionTemplate} wraps the work, rather than {@code @Transactional} on the method,
  *       which would release the lock before the commit.</li>
- *   <li><b>Ordered by trigger time.</b> The service remembers the trigger time of the newest cycle
- *       it has settled, and refuses (WARN, with both times, never silently) a cycle triggered
- *       <em>earlier</em>. An older cycle is dropped rather than applied because counters are only
- *       meaningful in trigger order: if a newer cycle in which a place got through had already reset
- *       its counter, applying the older cycle's failure afterwards would start a new streak that
- *       the intervening success should have broken, and could later disable a place that has since
- *       been working. Dropping it under-counts, which is the safe direction.</li>
- *   <li><b>Exactly once.</b> The last {@value #REMEMBERED_CYCLES} settled pipeline run ids are
- *       remembered, so the same cycle is never settled twice. In memory is enough because the
- *       orchestrator settles inside the BRIEFING phase, after that phase row has been started: a
- *       process restart resumes a run that is already in BRIEFING without re-entering the settle,
- *       so a restart can lose a settle (a missed count, the safe direction) but cannot repeat
- *       one.</li>
+ *   <li><b>Ordered by trigger time.</b> Before it claims a cycle the settle reads the newest
+ *       {@code trigger_time} among the pipeline runs already settled
+ *       ({@code PipelineRunRepository#findNewestSettledTriggerTime}), and refuses (WARN, with both
+ *       times, never silently) a cycle triggered <em>earlier</em>. An older cycle is dropped rather
+ *       than applied because counters are only meaningful in trigger order: if a newer cycle in
+ *       which a place got through had already reset its counter, applying the older cycle's failure
+ *       afterwards would start a new streak that the intervening success should have broken, and
+ *       could later disable a place that has since been working. Dropping it under-counts.</li>
+ *   <li><b>Exactly once, and durable.</b> The cycle is claimed by a conditional update
+ *       ({@code PipelineRunRepository#claimFailureSettle}: {@code SET failures_settled_at = :now
+ *       WHERE id = :id AND failures_settled_at IS NULL}; one row updated means claimed) in the SAME
+ *       transaction as the counter writes, before the evidence is resolved. A repeat claim updates
+ *       nothing and is refused, so a cycle is never counted twice; and because the claim commits or
+ *       rolls back with the counts, a process stopped mid-settle leaves the cycle unclaimed. The
+ *       orchestrator settles every resumed run on its way to the briefing, so that cycle is settled
+ *       on resume, and a run already settled is not settled again. Nothing about this is held in
+ *       memory, so a restart loses nothing.</li>
  * </ul>
  */
 @Service
@@ -135,12 +137,6 @@ public class LocationFailureService {
      */
     public static final int MAX_DISABLED_PER_CYCLE = 5;
 
-    /**
-     * How many settled pipeline run ids are remembered. Cycles run twice a day, so 200 is months of
-     * history and a few kilobytes; the point is only to bound the set.
-     */
-    static final int REMEMBERED_CYCLES = 200;
-
     private final CycleLocationOutcomeResolver outcomeResolver;
     private final LocationRepository locationRepository;
     private final AdminAlertService adminAlertService;
@@ -148,14 +144,13 @@ public class LocationFailureService {
 
     private final TransactionTemplate transactionTemplate;
 
-    /** Held across a whole settle, commit included; also guards the two fields below. */
+    private final PipelineRunRepository pipelineRunRepository;
+
+    /**
+     * Held across a whole settle, commit included, so the read-then-write of the counters, the
+     * newest-settled read and the claim never interleave with another settle in this JVM.
+     */
     private final ReentrantLock settleLock = new ReentrantLock();
-
-    /** Settled pipeline run ids, oldest first; guarded by {@link #settleLock}. */
-    private final Set<Long> settledCycles = new LinkedHashSet<>();
-
-    /** Trigger time of the newest settled cycle, or null; guarded by {@link #settleLock}. */
-    private Instant newestSettledTrigger;
 
     /**
      * Constructs the service.
@@ -165,23 +160,27 @@ public class LocationFailureService {
      * @param adminAlertService   the admin email channel
      * @param clock               injected clock for the failure timestamp and the reason's date
      * @param transactionManager  runs each settle in one transaction held inside the settle lock
+     * @param pipelineRunRepository the durable claim and ordering state on {@code pipeline_run}
      */
     public LocationFailureService(CycleLocationOutcomeResolver outcomeResolver,
             LocationRepository locationRepository, AdminAlertService adminAlertService,
-            Clock clock, PlatformTransactionManager transactionManager) {
+            Clock clock, PlatformTransactionManager transactionManager,
+            PipelineRunRepository pipelineRunRepository) {
         this.outcomeResolver = outcomeResolver;
         this.locationRepository = locationRepository;
         this.adminAlertService = adminAlertService;
         this.clock = clock;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.pipelineRunRepository = pipelineRunRepository;
     }
 
     /**
-     * Settles one pipeline cycle: resolves each place's evidence from the cycle's recorded data and
-     * applies the failure-counting rule, in one transaction, under the settle lock (see the class
-     * javadoc). Called once per cycle by {@code PipelineOrchestrator}. A cycle already settled, or
-     * triggered earlier than the newest settled cycle, is refused and logged. Any admin alert goes
-     * out only after the transaction has committed and the lock has been released.
+     * Settles one pipeline cycle: claims it, resolves each place's evidence from the cycle's recorded
+     * data and applies the failure-counting rule, in one transaction, under the settle lock (see the
+     * class javadoc). Called by {@code PipelineOrchestrator} for every run that reaches the briefing,
+     * including a run resumed after a restart. A cycle already settled, or triggered earlier than the
+     * newest settled cycle, is refused and logged. Any admin alert goes out only after the
+     * transaction has committed and the lock has been released.
      *
      * @param run the pipeline run being settled
      */
@@ -189,13 +188,12 @@ public class LocationFailureService {
         List<Runnable> alerts;
         settleLock.lock();
         try {
-            if (!admit(run)) {
-                return;
-            }
             alerts = transactionTemplate.execute(status -> {
                 List<Runnable> pending = new ArrayList<>();
-                applyEvidence(run.getId(), run.getCycleType(), run.getTriggerTime(),
-                        outcomeResolver.resolve(run.getId()), pending);
+                if (admit(run)) {
+                    applyEvidence(run.getId(), run.getCycleType(), run.getTriggerTime(),
+                            outcomeResolver.resolve(run.getId()), pending);
+                }
                 return pending;
             });
         } finally {
@@ -203,20 +201,6 @@ public class LocationFailureService {
         }
         if (alerts != null) {
             alerts.forEach(Runnable::run);
-        }
-    }
-
-    /**
-     * Forgets every settled cycle and the newest trigger time. Test hook, so a cached Spring context
-     * shared between test classes is left clean.
-     */
-    void forgetSettledCycles() {
-        settleLock.lock();
-        try {
-            settledCycles.clear();
-            newestSettledTrigger = null;
-        } finally {
-            settleLock.unlock();
         }
     }
 
@@ -347,37 +331,26 @@ public class LocationFailureService {
     }
 
     /**
-     * Decides whether a cycle may be settled, and if so records it as settled. Called with the
-     * settle lock held.
+     * Decides whether a cycle may be settled, and if so claims it durably. Runs inside the settle
+     * transaction, with the settle lock held.
      *
-     * @return {@code false}, after logging why, for a cycle already settled or triggered earlier
-     *         than the newest settled cycle
+     * @return {@code false}, after logging why, for a cycle triggered earlier than the newest settled
+     *         cycle or already claimed; {@code true} when this call claimed it
      */
     private boolean admit(PipelineRunEntity run) {
         Long runId = run.getId();
         Instant trigger = run.getTriggerTime();
-        if (settledCycles.contains(runId)) {
+        Instant newestSettled = pipelineRunRepository.findNewestSettledTriggerTime();
+        if (trigger != null && newestSettled != null && trigger.isBefore(newestSettled)) {
+            LOG.warn("Pipeline run {} (triggered {}) not settled: a newer cycle (triggered {}) has "
+                    + "already been settled, and counting an older cycle after it could restart a "
+                    + "streak that cycle's success had broken", runId, trigger, newestSettled);
+            return false;
+        }
+        if (pipelineRunRepository.claimFailureSettle(runId, clock.instant()) == 0) {
             LOG.info("Pipeline run {}: location failures already settled, not counting again",
                     runId);
             return false;
-        }
-        if (trigger != null && newestSettledTrigger != null
-                && trigger.isBefore(newestSettledTrigger)) {
-            LOG.warn("Pipeline run {} (triggered {}) not settled: a newer cycle (triggered {}) has "
-                    + "already been settled, and counting an older cycle after it could restart a "
-                    + "streak that cycle's success had broken", runId, trigger,
-                    newestSettledTrigger);
-            return false;
-        }
-        settledCycles.add(runId);
-        if (settledCycles.size() > REMEMBERED_CYCLES) {
-            Iterator<Long> oldest = settledCycles.iterator();
-            oldest.next();
-            oldest.remove();
-        }
-        if (trigger != null && (newestSettledTrigger == null
-                || trigger.isAfter(newestSettledTrigger))) {
-            newestSettledTrigger = trigger;
         }
         return true;
     }

@@ -13,7 +13,7 @@ import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
-import com.gregochr.goldenhour.service.batch.CycleDispositionJobRuns;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,9 +25,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -56,19 +59,15 @@ class CycleLocationOutcomeResolverTest {
     @Mock
     private ForecastScoreRepository forecastScoreRepository;
 
+    @Mock
+    private PipelineRunRepository pipelineRunRepository;
+
     private static final long ANCHOR_JOB_RUN_ID = 8001L;
 
-    /** The in-memory link from a cycle to the job run holding its dispositions. */
-    private final CycleDispositionJobRuns anchors = new CycleDispositionJobRuns();
-
     private CycleLocationOutcomeResolver resolver() {
-        return resolverWith(anchors);
-    }
-
-    private CycleLocationOutcomeResolver resolverWith(CycleDispositionJobRuns links) {
         return new CycleLocationOutcomeResolver(
-                forecastBatchRepository, dispositionRepository, apiCallLogRepository, links,
-                forecastScoreRepository);
+                forecastBatchRepository, dispositionRepository, apiCallLogRepository,
+                pipelineRunRepository, forecastScoreRepository);
     }
 
     private static ForecastBatchEntity batch(String anthropicId, BatchType type, Long jobRunId) {
@@ -420,7 +419,8 @@ class CycleLocationOutcomeResolverTest {
 
     private void batchlessCycleWithAnchor(List<CycleDisposition> dispositions) {
         when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-        anchors.remember(RUN_ID, ANCHOR_JOB_RUN_ID);
+        when(pipelineRunRepository.findDispositionJobRunId(RUN_ID))
+                .thenReturn(Optional.of(ANCHOR_JOB_RUN_ID));
         when(dispositionRepository.findCycleDispositions(List.of(ANCHOR_JOB_RUN_ID)))
                 .thenReturn(dispositions);
     }
@@ -467,40 +467,29 @@ class CycleLocationOutcomeResolverTest {
     }
 
     @Test
-    @DisplayName("an anchor remembered for a DIFFERENT cycle is never read")
+    @DisplayName("the job run recorded for a DIFFERENT cycle is never read: the resolver asks for "
+            + "its own cycle's link only")
     void anchorOfAnotherCycle_neverRead() {
         when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-        anchors.remember(RUN_ID + 1, ANCHOR_JOB_RUN_ID);
-
         assertThat(resolver().resolve(RUN_ID)).isEmpty();
+        verify(pipelineRunRepository).findDispositionJobRunId(RUN_ID);
+        verify(pipelineRunRepository, never()).findDispositionJobRunId(RUN_ID + 1);
         verifyNoInteractions(dispositionRepository);
         verifyNoInteractions(apiCallLogRepository);
     }
 
     @Test
-    @DisplayName("the remembered job run is searched once even when it is also a batch's job run")
+    @DisplayName("the recorded job run is searched once even when it is also a batch's job run")
     void anchorEqualToBatchJobRun_notSearchedTwice() {
-        anchors.remember(RUN_ID, JOB_RUN_ID);
+        when(pipelineRunRepository.findDispositionJobRunId(RUN_ID)).thenReturn(Optional.of(JOB_RUN_ID));
         firstBatchWith(List.of(disposition(1L, "SKIPPED_TRIAGED")), List.of());
 
         assertThat(resolver().resolve(RUN_ID).get(1L)).isEqualTo(CyclePlaceEvidence.triagedOnly());
     }
 
     @Test
-    @DisplayName("a restart loses the link (a new in-memory registry): the batchless cycle then "
-            + "resolves to nothing and counts nobody, the safe direction")
-    void restartLosesTheLink_countsNobody() {
-        when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-        anchors.remember(RUN_ID, ANCHOR_JOB_RUN_ID);
-        CycleDispositionJobRuns afterRestart = new CycleDispositionJobRuns();
-
-        assertThat(resolverWith(afterRestart).resolve(RUN_ID)).isEmpty();
-        verifyNoInteractions(dispositionRepository);
-    }
-
-    @Test
-    @DisplayName("with no batch and no remembered anchor a cycle resolves to nothing and queries "
-            + "neither disposition nor result tables")
+    @DisplayName("with no batch and no recorded job run (the best-effort link write failed) a "
+            + "cycle resolves to nothing and queries neither disposition nor result tables")
     void noForecastBatchRowAndNoLink_resolvesToNothing() {
         when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
 

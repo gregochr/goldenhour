@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import com.gregochr.goldenhour.service.notification.AdminAlertService.DisabledLocation;
 import org.junit.jupiter.api.AfterEach;
@@ -107,6 +108,18 @@ class LocationFailureServiceTest {
      */
     private LocationRepository locationRepository;
 
+    /**
+     * A pipeline-run repository whose claim and newest-settled behave like the database: a claim
+     * succeeds once per run, and the newest settled trigger is the maximum over claimed runs.
+     */
+    private PipelineRunRepository pipelineRunRepository;
+
+    /** Claimed runs and their trigger times; the fake's stand-in for {@code failures_settled_at}. */
+    private final Map<Long, Instant> settledRuns = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Trigger time of every run {@link #run} has built, by id. */
+    private final Map<Long, Instant> knownTriggers = new java.util.concurrent.ConcurrentHashMap<>();
+
     /** Stored consecutive failure counts, by location id; seeded by {@link #place}. */
     private final Map<Long, Integer> storedCounts = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -140,8 +153,23 @@ class LocationFailureServiceTest {
                 }
             }
         });
+        pipelineRunRepository = Mockito.mock(PipelineRunRepository.class, invocation -> {
+            switch (invocation.getMethod().getName()) {
+                case "claimFailureSettle" -> {
+                    Long id = invocation.getArgument(0);
+                    return settledRuns.putIfAbsent(id, knownTriggers.getOrDefault(id, TRIGGER))
+                            == null ? 1 : 0;
+                }
+                case "findNewestSettledTriggerTime" -> {
+                    return settledRuns.values().stream().max(Instant::compareTo).orElse(null);
+                }
+                default -> {
+                    return Mockito.RETURNS_DEFAULTS.answer(invocation);
+                }
+            }
+        });
         service = new LocationFailureService(resolver, locationRepository, adminAlertService,
-                Clock.fixed(NOW, ZoneOffset.UTC), transactionManager);
+                Clock.fixed(NOW, ZoneOffset.UTC), transactionManager, pipelineRunRepository);
         serviceLogger = (Logger) LoggerFactory.getLogger(LocationFailureService.class);
         logAppender = new ListAppender<>();
         logAppender.start();
@@ -159,13 +187,14 @@ class LocationFailureServiceTest {
                 .enabled(enabled).consecutiveFailures(failures).build();
     }
 
-    private static PipelineRunEntity run(long id, CycleType type) {
+    private PipelineRunEntity run(long id, CycleType type) {
         return run(id, type, TRIGGER);
     }
 
-    private static PipelineRunEntity run(long id, CycleType type, Instant trigger) {
+    private PipelineRunEntity run(long id, CycleType type, Instant trigger) {
         PipelineRunEntity run = new PipelineRunEntity(type, trigger);
         run.setId(id);
+        knownTriggers.put(id, trigger);
         return run;
     }
 
@@ -863,19 +892,73 @@ class LocationFailureServiceTest {
     }
 
     @Test
-    @DisplayName("the settled set is bounded: after 200 later cycles the oldest is forgotten and "
-            + "could be settled again, while the 200 newest are still refused")
-    void settledSetIsBounded() {
-        for (long id = 1; id <= 201; id++) {
-            when(resolver.resolve(id)).thenReturn(Map.of());
-            service.settleCycle(run(id, CycleType.NIGHTLY));
-        }
+    @DisplayName("a cycle whose claim is already held in the database (settled before a restart, or "
+            + "by a crashed-and-resumed earlier attempt that committed) is refused without being "
+            + "resolved, and nothing in this JVM's memory is involved")
+    void alreadyClaimedInTheDatabase_isRefused_withoutResolving() {
+        settledRuns.put(RUN_ID, TRIGGER);
 
-        service.settleCycle(run(1L, CycleType.NIGHTLY));
-        service.settleCycle(run(201L, CycleType.NIGHTLY));
+        service.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
 
-        verify(resolver, times(2)).resolve(1L);
-        verify(resolver, times(1)).resolve(201L);
+        verify(resolver, never()).resolve(RUN_ID);
+        verifyNoInteractions(locationRepository);
+    }
+
+    @Test
+    @DisplayName("a service instance built after a 'restart' sees the first instance's claim, because "
+            + "the claim lives in pipeline_run, not in memory")
+    void claimSurvivesANewServiceInstance() {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(resolver.resolve(RUN_ID)).thenReturn(evidence);
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
+        service.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
+        LocationFailureService restarted = new LocationFailureService(resolver, locationRepository,
+                adminAlertService, Clock.fixed(NOW, ZoneOffset.UTC), transactionManager,
+                pipelineRunRepository);
+
+        restarted.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
+
+        verify(resolver, times(1)).resolve(RUN_ID);
+        assertThat(storedCounts.get(10L)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("two settles of ONE cycle started together from two threads: exactly one claims "
+            + "and applies it, the other is refused")
+    void concurrentSettlesOfOneCycle_onlyOneClaims() throws Exception {
+        Map<Long, CyclePlaceEvidence> evidence = cycle();
+        put(evidence, 1, 9, CyclePlaceEvidence.scoredIn(Lane.SKY));
+        evidence.put(10L, CyclePlaceEvidence.failedIn(Lane.SKY));
+        when(resolver.resolve(RUN_ID)).thenReturn(evidence);
+        when(locationRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(place(10L, "Bamburgh", 0, true)));
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        PipelineRunEntity cycleRun = run(RUN_ID, CycleType.NIGHTLY);
+        Runnable settle = () -> {
+            try {
+                go.await();
+                service.settleCycle(cycleRun);
+            } catch (Throwable t) {
+                failure.set(t);
+            }
+        };
+        Thread first = new Thread(settle);
+        Thread second = new Thread(settle);
+        first.start();
+        second.start();
+
+        go.countDown();
+        first.join(5000);
+        second.join(5000);
+
+        assertThat(failure.get()).isNull();
+        verify(resolver, times(1)).resolve(RUN_ID);
+        assertThat(storedCounts.get(10L)).isEqualTo(1);
     }
 
     @Test
@@ -889,11 +972,9 @@ class LocationFailureServiceTest {
     }
 
     @Test
-    @DisplayName("the constants are the owner's decision: disable at 3, at most 5 per cycle, "
-            + "remember 200 cycles")
+    @DisplayName("the constants are the owner's decision: disable at 3, at most 5 per cycle")
     void constants() {
         assertThat(LocationFailureService.AUTO_DISABLE_THRESHOLD).isEqualTo(3);
         assertThat(LocationFailureService.MAX_DISABLED_PER_CYCLE).isEqualTo(5);
-        assertThat(LocationFailureService.REMEMBERED_CYCLES).isEqualTo(200);
     }
 }

@@ -12,8 +12,8 @@ import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
-import com.gregochr.goldenhour.service.batch.CycleDispositionJobRuns;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.ParsedCustomId;
 import org.slf4j.Logger;
@@ -37,8 +37,9 @@ import java.util.Set;
  *
  * <p>Two recorded sources are read, both keyed to the cycle. A cycle's batches (retry batch
  * included) carry its {@code pipeline_run_id} on their {@code forecast_batch} rows; and the job run
- * its dispositions were persisted on is also remembered by {@link CycleDispositionJobRuns}, which
- * is what finds a batchless cycle's anchor run (see below):
+ * its dispositions were persisted on is recorded durably on the pipeline run
+ * ({@code pipeline_run.disposition_job_run_id}), which is what finds a batchless cycle's anchor run
+ * (see below):
  *
  * <ul>
  *   <li><b>{@code forecast_run_disposition}</b>, what collection decided per slot, anchored on the
@@ -87,15 +88,16 @@ import java.util.Set;
  *
  * <p><b>The batchless cycle.</b> A cycle that submits no batch (everything cached, skipped or
  * triaged away, or every submission failed, the 2026-09-29 shape) has no {@code forecast_batch}
- * row, and its dispositions sit on an anchor job run that nothing in the database links to the
- * pipeline run (no {@code job_run} column holds a pipeline run id; the link is not parsed out of
- * the free-text {@code notes}). {@link CycleDispositionJobRuns} holds the link in memory instead,
- * so such a cycle still resolves: a cycle that legitimately triaged candidates away shows them as
- * triaged, and its places get through and are reset, while a cycle whose submissions all failed
- * shows only {@code SUBMISSION_FAILED} rows, which are no evidence either way, so it still counts
- * nobody. The link is bounded and <b>lost on a restart</b>; a cycle whose link is lost resolves from
- * its batches alone (nothing, for a batchless cycle), which counts nobody and resets nobody, the
- * safe direction (it can only under-count a streak).
+ * row, and its dispositions sit on an anchor job run that no {@code job_run} column ties to the
+ * pipeline run (and the link is not parsed out of the free-text {@code notes}). The pipeline run
+ * itself records the job run its dispositions were persisted onto
+ * ({@code pipeline_run.disposition_job_run_id}, written by
+ * {@code ScheduledBatchEvaluationService}), so such a cycle still resolves, <b>including after a
+ * restart</b>: a cycle that legitimately triaged candidates away shows them as triaged, and its
+ * places get through and are reset, while a cycle whose submissions all failed shows only
+ * {@code SUBMISSION_FAILED} rows, which are no evidence either way, so it still counts nobody. The
+ * only way the link is absent is a failed best-effort write of it, which resolves the cycle from
+ * its batches alone and so under-counts.
  *
  * <p><b>Known gap.</b> A bluebell or woodland request that failed is never retried
  * ({@code BatchRetryService.selectFailures} keeps only sky ids), so such a failure stands for the
@@ -120,7 +122,7 @@ public class CycleLocationOutcomeResolver {
     private final ForecastBatchRepository forecastBatchRepository;
     private final ForecastRunDispositionRepository dispositionRepository;
     private final ApiCallLogRepository apiCallLogRepository;
-    private final CycleDispositionJobRuns cycleDispositionJobRuns;
+    private final PipelineRunRepository pipelineRunRepository;
     private final ForecastScoreRepository forecastScoreRepository;
 
     /**
@@ -129,18 +131,18 @@ public class CycleLocationOutcomeResolver {
      * @param forecastBatchRepository batches tagged with a pipeline cycle
      * @param dispositionRepository   collection-time per-slot dispositions
      * @param apiCallLogRepository    per-request batch results
-     * @param cycleDispositionJobRuns the job run each cycle's dispositions were persisted on
+     * @param pipelineRunRepository   the job run each cycle's dispositions were persisted on
      * @param forecastScoreRepository the component rows each cycle wrote, as success evidence
      */
     public CycleLocationOutcomeResolver(ForecastBatchRepository forecastBatchRepository,
             ForecastRunDispositionRepository dispositionRepository,
             ApiCallLogRepository apiCallLogRepository,
-            CycleDispositionJobRuns cycleDispositionJobRuns,
+            PipelineRunRepository pipelineRunRepository,
             ForecastScoreRepository forecastScoreRepository) {
         this.forecastBatchRepository = forecastBatchRepository;
         this.dispositionRepository = dispositionRepository;
         this.apiCallLogRepository = apiCallLogRepository;
-        this.cycleDispositionJobRuns = cycleDispositionJobRuns;
+        this.pipelineRunRepository = pipelineRunRepository;
         this.forecastScoreRepository = forecastScoreRepository;
     }
 
@@ -159,8 +161,8 @@ public class CycleLocationOutcomeResolver {
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList());
-        cycleDispositionJobRuns.jobRunFor(pipelineRunId)
-                .filter(anchor -> !jobRunIds.contains(anchor))
+        pipelineRunRepository.findDispositionJobRunId(pipelineRunId)
+                .filter(recorded -> !jobRunIds.contains(recorded))
                 .ifPresent(jobRunIds::add);
         List<String> batchIds = batches.stream()
                 .filter(b -> b.getBatchType() == BatchType.FORECAST)

@@ -33,20 +33,24 @@ roster.
   per cycle through `AdminAlertService`, sent after the settle transaction commits. If more than 5
   places qualify in a single cycle (`MAX_DISABLED_PER_CYCLE`) none is disabled, an ERROR is logged
   and the admins are told that something systemic is wrong; the counters still advance.
-- **Settled once per cycle, one at a time, in trigger order.** Settles run under one in-JVM lock
-  (commit included; this is a single-instance app), the failure count is incremented by the database
-  and read back, and the last 200 settled run ids are remembered so a cycle is never counted twice
-  (a restart can lose a settle but never repeat one). A cycle triggered earlier than the newest one
-  already settled (an admin's Run now while an older cycle was still waiting) is refused with a
-  WARN naming both times, because counting it after the newer cycle's success could restart a streak
-  that success had broken; dropping it under-counts, which is the safe direction.
+- **Settled once per cycle, one at a time, in trigger order, durably.** Settles run under one in-JVM
+  lock (commit included; this is a single-instance app) and the failure count is incremented by the
+  database and read back. Each settle claims its cycle with a conditional update of the new
+  `pipeline_run.failures_settled_at` column in the same transaction as its counter writes, so a
+  cycle is counted exactly once, a run the process stopped before it settled is settled when it
+  resumes (the orchestrator settles every run on its way to the briefing), and a run already
+  settled is refused. A cycle triggered earlier than the newest one already settled (an admin's Run
+  now while an older cycle was still waiting) is refused with a WARN naming both times, because
+  counting it after the newer cycle's success could restart a streak that success had broken;
+  dropping it under-counts, which is the safe direction.
 - **A cycle that submitted no batch** (everything cached, skipped or triaged away, or every
-  submission failed) keeps its dispositions on an anchor job run that nothing in the database ties
-  to the pipeline run, so the service remembers that link in memory (`CycleDispositionJobRuns`, the
-  last 200 cycles). A cycle that legitimately triaged candidates away therefore resets those
-  places; a cycle whose submissions all failed (the 2026-09-29 shape) holds only `SUBMISSION_FAILED`
-  rows and still counts nobody. The link is lost on a restart, in which case the cycle counts nobody
-  and resets nobody (it can only under-count).
+  submission failed) keeps its dispositions on an anchor job run that nothing else ties to the
+  pipeline run, so the pipeline run now records it (`pipeline_run.disposition_job_run_id`). A cycle
+  that legitimately triaged candidates away therefore resets those places, even across a restart; a
+  cycle whose submissions all failed (the 2026-09-29 shape) holds only `SUBMISSION_FAILED` rows and
+  still counts nobody.
+- **Migration V163** adds those two nullable columns to `pipeline_run`. It is proven before merge
+  only by CI's Backend job (Testcontainers), since the development machine has no Docker.
 - **Known gap.** A bluebell or woodland request that failed is never retried, so such a failure
   stands for the cycle.
 - **Success evidence** is read from `forecast_score` rows stamped with the cycle's pipeline run as

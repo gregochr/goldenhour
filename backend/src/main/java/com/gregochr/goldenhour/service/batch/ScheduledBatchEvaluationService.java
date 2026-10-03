@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -68,7 +69,7 @@ public class ScheduledBatchEvaluationService {
     private final ForecastTaskCollector forecastTaskCollector;
     private final ForecastDispositionService dispositionService;
     private final JobRunService jobRunService;
-    private final CycleDispositionJobRuns cycleDispositionJobRuns;
+    private final PipelineRunRepository pipelineRunRepository;
     private final java.time.Clock clock;
 
     /**
@@ -98,7 +99,7 @@ public class ScheduledBatchEvaluationService {
      * @param forecastTaskCollector       Pass 3.2.1 collector — task construction + triage + bucketing
      * @param dispositionService          persists per-candidate disposition rows tied to the cycle's first job_run
      * @param jobRunService               creates the disposition-anchor run for zero-batch cycles
-     * @param cycleDispositionJobRuns     remembers which job run holds each cycle's dispositions
+     * @param pipelineRunRepository       records which job run holds each cycle's dispositions
      * @param clock                       supplies "today" for the batch-breakdown log line,
      *                                    resolved in {@code Europe/London} by {@link ForecastHorizon}
      */
@@ -114,7 +115,7 @@ public class ScheduledBatchEvaluationService {
             ForecastTaskCollector forecastTaskCollector,
             ForecastDispositionService dispositionService,
             JobRunService jobRunService,
-            CycleDispositionJobRuns cycleDispositionJobRuns,
+            PipelineRunRepository pipelineRunRepository,
             java.time.Clock clock) {
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
@@ -127,7 +128,7 @@ public class ScheduledBatchEvaluationService {
         this.forecastTaskCollector = forecastTaskCollector;
         this.dispositionService = dispositionService;
         this.jobRunService = jobRunService;
-        this.cycleDispositionJobRuns = cycleDispositionJobRuns;
+        this.pipelineRunRepository = pipelineRunRepository;
         this.clock = clock;
     }
 
@@ -902,9 +903,9 @@ public class ScheduledBatchEvaluationService {
      * evaluated?" case an operator needs. The {@code [DISPOSITION] Persisting}
      * log is the operator's per-cycle smoke check that the write happened.
      *
-     * <p>The job run the rows land on is recorded against the pipeline run in
-     * {@link CycleDispositionJobRuns}, so the location auto-disable settle can find a batchless
-     * cycle's anchor run (it has no {@code forecast_batch} row to be found through).
+     * <p>The job run the rows land on is recorded on the pipeline run's
+     * {@code disposition_job_run_id}, durably, so the location auto-disable settle can find a
+     * batchless cycle's anchor run (it has no {@code forecast_batch} row to be found through).
      *
      * @param pipelineRunId the orchestrated cycle id, or null for a legacy cron-direct invocation
      * @param cycleJobRunId the first submitted batch's job_run id, or null if none
@@ -926,7 +927,14 @@ public class ScheduledBatchEvaluationService {
                 dispositions.size(), anchorJobRunId, anchorKind);
         dispositionService.persist(anchorJobRunId, dispositions);
         if (pipelineRunId != null) {
-            cycleDispositionJobRuns.remember(pipelineRunId, anchorJobRunId);
+            try {
+                pipelineRunRepository.recordDispositionJobRun(pipelineRunId, anchorJobRunId);
+            } catch (RuntimeException e) {
+                // Best-effort, like the rest of the cycle's accounting: without the link a
+                // batchless cycle resolves to nothing at settle time, which under-counts.
+                LOG.warn("[DISPOSITION] Could not record job run {} against pipeline run {}: {}",
+                        anchorJobRunId, pipelineRunId, e.getMessage());
+            }
         }
     }
 

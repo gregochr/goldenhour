@@ -1400,16 +1400,18 @@ class PipelineOrchestratorTest {
         }
 
         @Test
-        @DisplayName("a run resumed mid-BRIEFING does not re-enter the settle, so a restart can "
-                + "lose a settle but never repeat one")
-        void resumedMidBriefing_neverSettled() {
+        @DisplayName("a run resumed at BRIEFING, where the process may have stopped after the phase "
+                + "row committed but before the settle finished, is handed to the settle (whose "
+                + "durable claim settles it once if unsettled, and refuses it if settled)")
+        void resumedMidBriefing_isHandedToTheSettle() {
             PipelineRunEntity midBrief = runInPhase(PipelinePhase.BRIEFING);
             when(pipelineRunService.findRunning()).thenReturn(List.of(midBrief));
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midBrief));
 
             orchestrator.resumeRunningCyclesOnStartup();
 
-            verifyNoInteractions(locationFailureService);
+            verify(locationFailureService, times(1)).settleCycle(midBrief);
+            verify(pipelineRunService, never()).startPhase(RUN_ID, PipelinePhase.BRIEFING);
             verify(briefingService).refreshBriefing();
         }
 

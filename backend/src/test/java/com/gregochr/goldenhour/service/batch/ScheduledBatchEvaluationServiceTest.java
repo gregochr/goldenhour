@@ -118,7 +118,8 @@ class ScheduledBatchEvaluationServiceTest {
     private static final Clock CLOCK = Clock.fixed(
             java.time.Instant.parse("2026-04-14T12:00:00Z"), java.time.ZoneOffset.UTC);
 
-    private final CycleDispositionJobRuns cycleDispositionJobRuns = new CycleDispositionJobRuns();
+    @Mock
+    private com.gregochr.goldenhour.repository.PipelineRunRepository pipelineRunRepository;
     private ScheduledBatchEvaluationService service;
     private ListAppender<ILoggingEvent> logAppender;
     private Logger serviceLogger;
@@ -133,7 +134,7 @@ class ScheduledBatchEvaluationServiceTest {
                 weatherTriageService, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
                 evaluationService, forecastTaskCollector, dispositionService,
-                jobRunService, cycleDispositionJobRuns, CLOCK);
+                jobRunService, pipelineRunRepository, CLOCK);
 
         serviceLogger = (Logger) LoggerFactory.getLogger(ScheduledBatchEvaluationService.class);
         logAppender = new ListAppender<>();
@@ -334,8 +335,9 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("a pipeline cycle that submits no batch records its anchor job run against the "
-            + "pipeline run, so the location auto-disable settle can find its dispositions")
+    @DisplayName("a pipeline cycle that submits no batch records its anchor job run on the "
+            + "pipeline run row, durably, so the location auto-disable settle can find its "
+            + "dispositions even after a restart")
     void pipelineCycle_noBatch_recordsAnchorRunAgainstPipelineRun() {
         CandidateDisposition triaged = new CandidateDisposition(
                 7L, "Triaged A", TEST_DATE, TargetType.SUNRISE, 1,
@@ -355,7 +357,34 @@ class ScheduledBatchEvaluationServiceTest {
                 false, summary -> { });
 
         verify(dispositionService).persist(eq(555L), eq(List.of(triaged)));
-        assertThat(cycleDispositionJobRuns.jobRunFor(99L)).contains(555L);
+        verify(pipelineRunRepository).recordDispositionJobRun(99L, 555L);
+    }
+
+    @Test
+    @DisplayName("a failed write of the link is logged and swallowed: the cycle's dispositions were "
+            + "already persisted and the submission is not failed by it")
+    void pipelineCycle_linkWriteFails_isSwallowed() {
+        CandidateDisposition triaged = new CandidateDisposition(
+                7L, "Triaged A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_TRIAGED, "heavy cloud");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
+                        List.of(triaged)));
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(555L);
+        when(pipelineRunRepository.recordDispositionJobRun(99L, 555L))
+                .thenThrow(new RuntimeException("db down"));
+
+        ForecastBatchSubmissionOutcome outcome = service.submitForecastBatchForPipelineRun(
+                99L, NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE,
+                false, summary -> { });
+
+        assertThat(outcome.submitted()).isTrue();
+        verify(dispositionService).persist(eq(555L), eq(List.of(triaged)));
     }
 
     @Test
@@ -377,7 +406,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         service.submitForecastBatch();
 
-        assertThat(cycleDispositionJobRuns.jobRunFor(99L)).isEmpty();
+        verifyNoInteractions(pipelineRunRepository);
     }
 
     @Test

@@ -12,7 +12,6 @@ import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,7 +25,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,8 +40,7 @@ class LocationFailureTrackingTest {
 
     private static final LocalDate DATE = LocalDate.of(2026, 10, 2);
 
-    /** Pipeline run ids must keep increasing: the service ignores a cycle it already settled. */
-    private static final AtomicLong NEXT_RUN_ID = new AtomicLong(700_000L);
+    private static final Instant TRIGGER = Instant.parse("2026-10-02T01:00:00Z");
 
     @Autowired
     private LocationService locationService;
@@ -52,8 +49,20 @@ class LocationFailureTrackingTest {
     private LocationFailureService locationFailureService;
 
     @Autowired
-    private com.gregochr.goldenhour.service.batch.CycleDispositionJobRuns
-            cycleDispositionJobRuns;
+    private com.gregochr.goldenhour.repository.PipelineRunRepository pipelineRunRepository;
+
+    @Autowired
+    private com.gregochr.goldenhour.repository.ForecastRunDispositionRepository
+            dispositionRepository;
+
+    @Autowired
+    private com.gregochr.goldenhour.repository.ForecastScoreRepository forecastScoreRepository;
+
+    @Autowired
+    private com.gregochr.goldenhour.service.notification.AdminAlertService adminAlertService;
+
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @Autowired
     private LocationRepository locationRepository;
@@ -72,15 +81,32 @@ class LocationFailureTrackingTest {
 
     @BeforeEach
     void setUp() {
+        // Ordering reads the newest SETTLED trigger from the database: do not let one test's
+        // settled runs make the next test's (earlier-triggered) cycle look old.
+        jdbcTemplate.update("UPDATE pipeline_run SET failures_settled_at = NULL");
         angel = freshLocation("Angel of the North", 54.9141, -1.5895);
         keswick = freshLocation("Keswick", 54.6, -3.13);
     }
 
-    @AfterEach
-    void forgetSettledCycles() {
-        // The Spring context (and so the service's in-memory settled-cycle set) is cached and
-        // shared with other test classes; leave it clean.
-        locationFailureService.forgetSettledCycles();
+    /** Persists a pipeline run and returns its id; the claim and the link live on this row. */
+    private long persistedRunId() {
+        return pipelineRunRepository.save(new PipelineRunEntity(CycleType.NIGHTLY, TRIGGER)).getId();
+    }
+
+    private PipelineRunEntity newRun(long runId) {
+        return pipelineRunRepository.findById(runId).orElseThrow();
+    }
+
+    /**
+     * Builds a service graph that shares no memory with the Spring-managed one, which is what a
+     * process restart leaves: the state it relies on can only come from the database.
+     */
+    private LocationFailureService restartedService() {
+        CycleLocationOutcomeResolver resolver = new CycleLocationOutcomeResolver(
+                forecastBatchRepository, dispositionRepository, apiCallLogRepository,
+                pipelineRunRepository, forecastScoreRepository);
+        return new LocationFailureService(resolver, locationRepository, adminAlertService,
+                java.time.Clock.systemUTC(), transactionManager, pipelineRunRepository);
     }
 
     private LocationEntity freshLocation(String name, double lat, double lon) {
@@ -112,7 +138,7 @@ class LocationFailureTrackingTest {
      * @param keswickGotThrough whether Keswick's request succeeded (otherwise it errored)
      */
     private void runCycle(boolean angelGotThrough, boolean keswickGotThrough) {
-        long runId = NEXT_RUN_ID.incrementAndGet();
+        long runId = persistedRunId();
         String batchId = "msgbatch_tracking_" + runId;
         ForecastBatchEntity batch = new ForecastBatchEntity(
                 batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
@@ -128,10 +154,7 @@ class LocationFailureTrackingTest {
                 runId, angel.getId(), angel.getName(), Date.valueOf(DATE), "SUNSET", "EVALUATED",
                 Timestamp.from(Instant.parse("2026-10-02T01:00:00Z")));
 
-        PipelineRunEntity run = new PipelineRunEntity(
-                CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z"));
-        run.setId(runId);
-        locationFailureService.settleCycle(run);
+        locationFailureService.settleCycle(newRun(runId));
     }
 
     private void seedResult(String batchId, long runId, LocationEntity location, boolean succeeded) {
@@ -231,13 +254,9 @@ class LocationFailureTrackingTest {
             + "(what a restart leaves) are never found, so nobody is counted")
     void dispositionsWithoutAForecastBatchRowOrLink_countNobody() {
         setCounter(angel, 2);
-        long runId = NEXT_RUN_ID.incrementAndGet();
+        long runId = persistedRunId();
         seedDispositionsOnJobRun(runId, "SKIPPED_ERROR");
-        PipelineRunEntity run = new PipelineRunEntity(
-                CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z"));
-        run.setId(runId);
-
-        locationFailureService.settleCycle(run);
+        locationFailureService.settleCycle(newRun(runId));
 
         assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(2);
         assertThat(reload(angel).isEnabled()).isTrue();
@@ -249,7 +268,7 @@ class LocationFailureTrackingTest {
             + "whose place SCORED, as its forecast_score row for the cycle shows, resets the place")
     void nullJobRunBatch_scoredPlace_resetsCounter() {
         setCounter(angel, 2);
-        long runId = NEXT_RUN_ID.incrementAndGet();
+        long runId = persistedRunId();
         ForecastBatchEntity batch = new ForecastBatchEntity(
                 "msgbatch_nulljob_" + runId, BatchType.FORECAST, 1,
                 Instant.parse("2026-10-03T01:00:00Z"));
@@ -272,9 +291,9 @@ class LocationFailureTrackingTest {
             + "remembered against the pipeline run, resets a place at 2 to 0")
     void batchlessCycleTriagedEverything_resetsCounters() {
         setCounter(angel, 2);
-        long runId = NEXT_RUN_ID.incrementAndGet();
+        long runId = persistedRunId();
         seedDispositionsOnJobRun(runId, "SKIPPED_TRIAGED");
-        cycleDispositionJobRuns.remember(runId, runId);
+        pipelineRunRepository.recordDispositionJobRun(runId, runId);
 
         locationFailureService.settleCycle(newRun(runId));
 
@@ -286,9 +305,9 @@ class LocationFailureTrackingTest {
             + "2026-09-29 shape) leaves the counter at 2: nobody is counted")
     void batchlessCycleSubmissionFailed_countsNobody() {
         setCounter(angel, 2);
-        long runId = NEXT_RUN_ID.incrementAndGet();
+        long runId = persistedRunId();
         seedDispositionsOnJobRun(runId, "SUBMISSION_FAILED");
-        cycleDispositionJobRuns.remember(runId, runId);
+        pipelineRunRepository.recordDispositionJobRun(runId, runId);
 
         locationFailureService.settleCycle(newRun(runId));
 
@@ -307,10 +326,75 @@ class LocationFailureTrackingTest {
         }
     }
 
-    private static PipelineRunEntity newRun(long runId) {
-        PipelineRunEntity run = new PipelineRunEntity(
-                CycleType.NIGHTLY, Instant.parse("2026-10-02T01:00:00Z"));
-        run.setId(runId);
-        return run;
+    @Test
+    @DisplayName("RESTART: a batchless cycle's link was recorded on the pipeline run before the "
+            + "process stopped; a service graph sharing no memory with the first still finds its "
+            + "triaged dispositions and resets a place at 2 to 0")
+    void restart_batchlessCycle_stillResetsCounter() {
+        setCounter(angel, 2);
+        long runId = persistedRunId();
+        seedDispositionsOnJobRun(runId, "SKIPPED_TRIAGED");
+        pipelineRunRepository.recordDispositionJobRun(runId, runId);
+
+        restartedService().settleCycle(newRun(runId));
+
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
+        assertThat(newRun(runId).getFailuresSettledAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a run resumed with failures_settled_at null (stopped before the settle) is settled "
+            + "once; a run resumed with it set is not settled again, even by a fresh service graph")
+    void resumedRun_settledOnce_neverTwice() {
+        setCounter(angel, 0);
+        long runId = persistedRunId();
+        String batchId = "msgbatch_resume_" + runId;
+        ForecastBatchEntity batch = new ForecastBatchEntity(
+                batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
+        batch.setPipelineRunId(runId);
+        batch.setJobRunId(runId);
+        forecastBatchRepository.save(batch);
+        seedResult(batchId, runId, angel, false);
+        seedResult(batchId, runId, keswick, true);
+        assertThat(newRun(runId).getFailuresSettledAt()).isNull();
+
+        restartedService().settleCycle(newRun(runId));
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(1);
+        assertThat(newRun(runId).getFailuresSettledAt()).isNotNull();
+
+        restartedService().settleCycle(newRun(runId));
+        locationFailureService.settleCycle(newRun(runId));
+        assertThat(reload(angel).getConsecutiveFailures()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("an older cycle that is still unsettled is refused after a newer one has been "
+            + "settled, and its failure is not counted")
+    void olderUnsettledCycle_refusedAfterNewerSettled() {
+        setCounter(angel, 0);
+        PipelineRunEntity older = pipelineRunRepository.save(
+                new PipelineRunEntity(CycleType.NIGHTLY, TRIGGER.plusSeconds(86_400)));
+        PipelineRunEntity newer = pipelineRunRepository.save(
+                new PipelineRunEntity(CycleType.INTRADAY, TRIGGER.plusSeconds(2 * 86_400)));
+        // Settle the NEWER cycle first (a success for Angel), then the older one (a failure).
+        seedBatchWithResults(newer.getId(), true);
+        seedBatchWithResults(older.getId(), false);
+
+        locationFailureService.settleCycle(newRun(newer.getId()));
+        locationFailureService.settleCycle(newRun(older.getId()));
+
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
+        assertThat(newRun(older.getId()).getFailuresSettledAt()).isNull();
+    }
+
+    private void seedBatchWithResults(long runId, boolean angelSucceeded) {
+        String batchId = "msgbatch_order_" + runId;
+        ForecastBatchEntity batch = new ForecastBatchEntity(
+                batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
+        batch.setPipelineRunId(runId);
+        batch.setJobRunId(runId);
+        forecastBatchRepository.save(batch);
+        seedResult(batchId, runId, angel, angelSucceeded);
+        seedResult(batchId, runId, keswick, true);
     }
 }

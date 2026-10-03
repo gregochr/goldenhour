@@ -509,8 +509,12 @@ public class PipelineOrchestrator {
             // republished briefing is harmless), and persistPicksForCycle upserts.
             if (!atOrPastBrief) {
                 pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
-                settleLocationFailures(run);
             }
+            // Settled on EVERY path to the briefing, a run resumed at BRIEFING included: the claim
+            // is durable (pipeline_run.failures_settled_at), so a run the process stopped after
+            // startPhase(BRIEFING) committed but before the settle completed is settled here on
+            // resume, and a run already settled is refused by the claim.
+            settleLocationFailures(run);
             try {
                 briefingService.refreshBriefing();
                 persistPicksForCycle(runId);
@@ -549,13 +553,13 @@ public class PipelineOrchestrator {
      * <p><b>Why here.</b> After the wait, so every batch result has landed or the safety timeout
      * has thrown (a timed-out cycle never reaches this line, so nothing is counted for a cycle whose
      * results are unknown); after RETRY_FAILED, so a request the retry recovered counts as a success;
-     * and immediately after the BRIEFING phase row is started, not before it. The phase row is the
-     * durable record a restart resumes from: a run resumed mid-BRIEFING skips this call, so a restart
-     * can lose a settle (a missed count, the safe direction) but can never repeat one, which is what
-     * lets the service's idempotence marker live in memory. It is before {@code refreshBriefing()} so
-     * a briefing failure, which returns early, cannot skip it, and so a place just disabled is already
-     * gone from the briefing built next. A result for this cycle arriving after this point cannot
-     * count: the settle has run and the service ignores a cycle it has already settled.
+     * and before {@code refreshBriefing()}, so a briefing failure, which returns early, cannot skip
+     * it, and a place just disabled is already gone from the briefing built next. It runs on every
+     * path to the briefing, including a run resumed after a restart at any phase, because the
+     * service's claim ({@code pipeline_run.failures_settled_at}) is durable and atomic with the
+     * counter writes: a cycle is settled exactly once, a cycle the process stopped before settling
+     * is settled on resume, and a cycle already settled is refused. A result for this cycle arriving
+     * after this point cannot count.
      *
      * <p>Best-effort: counting is housekeeping, never a reason to fail the briefing. The forecast
      * buttons and map Run Forecast (hand-started runs) never reach this method: only
