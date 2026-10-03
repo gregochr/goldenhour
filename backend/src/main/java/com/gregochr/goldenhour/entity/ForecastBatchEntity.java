@@ -36,7 +36,16 @@ public class ForecastBatchEntity {
         /** Batch expired before completion. */
         EXPIRED,
         /** Batch cancelled — superseded by a real-time SSE evaluation. */
-        CANCELLED
+        CANCELLED;
+
+        /**
+         * The statuses in which a batch is finished with: {@code BatchPollingService} polls only
+         * {@link #SUBMITTED} batches, so every other status is one it has stopped polling and no
+         * further result can arrive for.
+         */
+        public static final java.util.Set<BatchStatus> TERMINAL =
+                java.util.Collections.unmodifiableSet(
+                        java.util.EnumSet.of(COMPLETED, FAILED, EXPIRED, CANCELLED));
     }
 
     /**

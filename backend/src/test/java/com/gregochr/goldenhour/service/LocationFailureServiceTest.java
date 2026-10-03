@@ -75,6 +75,9 @@ class LocationFailureServiceTest {
     @Mock
     private AdminAlertService adminAlertService;
 
+    @Mock
+    private com.gregochr.goldenhour.repository.ForecastBatchRepository forecastBatchRepository;
+
     /** Records transaction outcomes and can be told to fail its commit. */
     private static final class FakeTransactionManager implements PlatformTransactionManager {
         private final java.util.concurrent.atomic.AtomicInteger commits =
@@ -173,7 +176,8 @@ class LocationFailureServiceTest {
             }
         });
         service = new LocationFailureService(resolver, locationRepository, adminAlertService,
-                Clock.fixed(NOW, ZoneOffset.UTC), transactionManager, pipelineRunRepository);
+                Clock.fixed(NOW, ZoneOffset.UTC), transactionManager, pipelineRunRepository,
+                forecastBatchRepository);
         serviceLogger = (Logger) LoggerFactory.getLogger(LocationFailureService.class);
         logAppender = new ListAppender<>();
         logAppender.start();
@@ -997,6 +1001,65 @@ class LocationFailureServiceTest {
         assertThat(messages(Level.INFO)).contains(FULL_MODE_LOG);
     }
 
+    private com.gregochr.goldenhour.entity.ForecastBatchEntity batchIn(
+            com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus status) {
+        com.gregochr.goldenhour.entity.ForecastBatchEntity batch =
+                new com.gregochr.goldenhour.entity.ForecastBatchEntity("msgbatch_poll",
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType.FORECAST, 1,
+                        NOW);
+        batch.setStatus(status);
+        return batch;
+    }
+
+    @Test
+    @DisplayName("a run with a forecast batch still being polled is deferred, never claimed: the "
+            + "sweep logs INFO naming the batch, resolves nothing and leaves it unclaimed")
+    void sweep_runWithPollingBatch_isDeferred() {
+        PipelineRunEntity failed = run(RUN_ID, CycleType.NIGHTLY, TRIGGER);
+        unsettled(failed);
+        when(forecastBatchRepository.findByPipelineRunIdAndBatchTypeAndStatusNotIn(RUN_ID,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType.FORECAST,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.TERMINAL))
+                .thenReturn(List.of(batchIn(
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.SUBMITTED)));
+
+        service.sweepUnsettledRuns();
+
+        verifyNoInteractions(resolver);
+        assertThat(settledRuns).doesNotContainKey(RUN_ID);
+        assertThat(messages(Level.INFO)).containsExactly(
+                "Pipeline run 300: location failure settle deferred, forecast batch msgbatch_poll "
+                        + "is still SUBMITTED and the poller may yet write results; the run is "
+                        + "left unclaimed for a later sweep");
+    }
+
+    @Test
+    @DisplayName("a tail settle is deferred the same way for its own run with a polling batch")
+    void tailSettle_runWithPollingBatch_isNotClaimed() {
+        when(forecastBatchRepository.findByPipelineRunIdAndBatchTypeAndStatusNotIn(RUN_ID,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType.FORECAST,
+                com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.TERMINAL))
+                .thenReturn(List.of(batchIn(
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.SUBMITTED)));
+
+        service.settleCycle(run(RUN_ID, CycleType.NIGHTLY, TRIGGER));
+
+        verifyNoInteractions(resolver);
+        assertThat(settledRuns).doesNotContainKey(RUN_ID);
+    }
+
+    @Test
+    @DisplayName("the terminal batch statuses are exactly those the poller stops polling: every "
+            + "status except SUBMITTED")
+    void terminalStatuses_areEveryStatusButSubmitted() {
+        assertThat(com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.TERMINAL)
+                .containsExactlyInAnyOrder(
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.COMPLETED,
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.FAILED,
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.EXPIRED,
+                        com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus.CANCELLED);
+    }
+
     @Test
     @DisplayName("a tail settle never sweeps the run it is itself settling")
     void tailSettle_doesNotSweepItsOwnRun() {
@@ -1071,7 +1134,7 @@ class LocationFailureServiceTest {
         service.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
         LocationFailureService restarted = new LocationFailureService(resolver, locationRepository,
                 adminAlertService, Clock.fixed(NOW, ZoneOffset.UTC), transactionManager,
-                pipelineRunRepository);
+                pipelineRunRepository, forecastBatchRepository);
 
         restarted.settleCycle(run(RUN_ID, CycleType.NIGHTLY));
 

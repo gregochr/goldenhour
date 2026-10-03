@@ -124,7 +124,8 @@ class LocationFailureTrackingTest {
                 forecastBatchRepository, dispositionRepository, apiCallLogRepository,
                 pipelineRunRepository, forecastScoreRepository);
         return new LocationFailureService(resolver, locationRepository, adminAlertService,
-                CLOCK, transactionManager, pipelineRunRepository);
+                CLOCK, transactionManager, pipelineRunRepository,
+                forecastBatchRepository);
     }
 
     /** A transaction manager whose commit can be made to fail after rolling the work back. */
@@ -195,6 +196,7 @@ class LocationFailureTrackingTest {
                 batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
         batch.setPipelineRunId(runId);
         batch.setJobRunId(runId);
+        batch.setStatus(ForecastBatchEntity.BatchStatus.COMPLETED);
         forecastBatchRepository.save(batch);
         seedResult(batchId, runId, angel, angelGotThrough);
         seedResult(batchId, runId, keswick, keswickGotThrough);
@@ -324,6 +326,7 @@ class LocationFailureTrackingTest {
                 "msgbatch_nulljob_" + runId, BatchType.FORECAST, 1,
                 Instant.parse("2026-10-03T01:00:00Z"));
         batch.setPipelineRunId(runId);
+        batch.setStatus(ForecastBatchEntity.BatchStatus.COMPLETED);
         forecastBatchRepository.save(batch);
         jdbcTemplate.update(
                 "INSERT INTO forecast_score (forecast_type_id, location_id, evaluation_date, "
@@ -404,6 +407,7 @@ class LocationFailureTrackingTest {
                 batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
         batch.setPipelineRunId(runId);
         batch.setJobRunId(runId);
+        batch.setStatus(ForecastBatchEntity.BatchStatus.COMPLETED);
         forecastBatchRepository.save(batch);
         seedResult(batchId, runId, angel, false);
         seedResult(batchId, runId, keswick, true);
@@ -472,7 +476,7 @@ class LocationFailureTrackingTest {
                 forecastBatchRepository, dispositionRepository, apiCallLogRepository,
                 pipelineRunRepository, forecastScoreRepository);
         LocationFailureService unlucky = new LocationFailureService(resolver, locationRepository,
-                adminAlertService, CLOCK, failing, pipelineRunRepository);
+                adminAlertService, CLOCK, failing, pipelineRunRepository, forecastBatchRepository);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> unlucky.settleCycle(newRun(runId)))
@@ -531,6 +535,66 @@ class LocationFailureTrackingTest {
                 + "ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP");
     }
 
+    private void setBatchStatus(long runId, String status) {
+        jdbcTemplate.update("UPDATE forecast_batch SET status = ? WHERE pipeline_run_id = ?",
+                status, runId);
+    }
+
+    @Test
+    @DisplayName("a FAILED run (restarted mid-submit) whose persisted batch is still SUBMITTED is not "
+            + "claimed by the sweep; once the batch is terminal the next sweep claims it "
+            + "RESETS_ONLY, and the success written in between resets the place")
+    void sweep_failedRunWithSubmittedBatch_deferredUntilBatchTerminal() {
+        setCounter(angel, 2);
+        setCounter(keswick, 1);
+        long runId = persistedRunId();
+        String batchId = "msgbatch_polling_" + runId;
+        ForecastBatchEntity batch = new ForecastBatchEntity(
+                batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
+        batch.setPipelineRunId(runId);
+        batch.setJobRunId(runId);
+        batch.setStatus(ForecastBatchEntity.BatchStatus.SUBMITTED);
+        forecastBatchRepository.save(batch);
+        jdbcTemplate.update("UPDATE pipeline_run SET status = 'FAILED' WHERE id = ?", runId);
+
+        assertThat(locationFailureService.sweepUnsettledRuns()).isZero();
+        assertThat(newRun(runId).getFailuresSettledAt()).isNull();
+
+        // The poller lands the batch's results (Angel scored, Keswick errored), then finishes it.
+        seedResult(batchId, runId, angel, true);
+        seedResult(batchId, runId, keswick, false);
+        setBatchStatus(runId, "COMPLETED");
+
+        assertThat(locationFailureService.sweepUnsettledRuns()).isEqualTo(1);
+
+        assertThat(newRun(runId).getFailuresSettledAt()).isNotNull();
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
+        assertThat(reload(keswick).getConsecutiveFailures()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a run whose batches are all terminal is claimed by the sweep as before, and a "
+            + "run with an AURORA batch still polling is NOT held up by it: the resolver reads "
+            + "only FORECAST batches, so an aurora batch is no evidence for a place")
+    void sweep_terminalBatches_claimed_auroraBatchIgnored() {
+        setCounter(angel, 2);
+        long runId = persistedRunId();
+        seedBatch(runId, true, true);
+        setBatchStatus(runId, "FAILED");
+        ForecastBatchEntity aurora = new ForecastBatchEntity(
+                "msgbatch_aurora_" + runId, BatchType.AURORA, 1,
+                Instant.parse("2026-10-03T01:00:00Z"));
+        aurora.setPipelineRunId(runId);
+        aurora.setJobRunId(runId);
+        forecastBatchRepository.save(aurora);
+        complete(runId);
+
+        assertThat(locationFailureService.sweepUnsettledRuns()).isEqualTo(1);
+
+        assertThat(newRun(runId).getFailuresSettledAt()).isNotNull();
+        assertThat(reload(angel).getConsecutiveFailures()).isZero();
+    }
+
     @Test
     @DisplayName("ATOMIC LINK: a link that cannot be written (no such pipeline run) rolls the "
             + "dispositions back with it, so no disposition rows are left without the link")
@@ -583,6 +647,7 @@ class LocationFailureTrackingTest {
                 "msgbatch_unlogged_" + runId, BatchType.FORECAST, 1,
                 Instant.parse("2026-10-03T01:00:00Z"));
         unlogged.setPipelineRunId(runId);
+        unlogged.setStatus(ForecastBatchEntity.BatchStatus.COMPLETED);
         forecastBatchRepository.save(unlogged);
 
         locationFailureService.settleCycle(newRun(runId));
@@ -603,6 +668,7 @@ class LocationFailureTrackingTest {
                 batchId, BatchType.FORECAST, 2, Instant.parse("2026-10-03T01:00:00Z"));
         batch.setPipelineRunId(runId);
         batch.setJobRunId(runId);
+        batch.setStatus(ForecastBatchEntity.BatchStatus.COMPLETED);
         forecastBatchRepository.save(batch);
         seedResult(batchId, runId, angel, angelSucceeded);
         seedResult(batchId, runId, keswick, keswickSucceeded);

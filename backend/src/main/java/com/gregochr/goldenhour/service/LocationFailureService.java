@@ -4,9 +4,11 @@ import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.FailureKind;
 import com.gregochr.goldenhour.model.CyclePlaceEvidence.Lane;
+import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
@@ -121,6 +123,14 @@ import java.util.stream.Collectors;
  *       orchestrator settles every resumed run on its way to the briefing, so that cycle is settled
  *       on resume, and a run already settled is not settled again. Nothing about this is held in
  *       memory, so a restart loses nothing.</li>
+ *   <li><b>Never while a batch is still polling.</b> A run is not claimed, by the sweep or by a
+ *       tail settle, while any of its FORECAST batches is outside
+ *       {@link ForecastBatchEntity.BatchStatus#TERMINAL} (still SUBMITTED, so the poller can yet
+ *       write results). A run restarted during batch submission is marked FAILED yet its persisted
+ *       batches are still polled; claiming it early would settle it with no result evidence and
+ *       results that land later could never reset a counter. Such a run is deferred (INFO, naming
+ *       the batch) and left unclaimed for a later sweep once its batches are terminal. AURORA
+ *       batches are ignored: {@code CycleLocationOutcomeResolver} reads only FORECAST batches.</li>
  *   <li><b>Retried, durably.</b> A settle that fails leaves its cycle unclaimed (the claim rolls
  *       back with the counts), and the orchestrator completes the run regardless. {@link
  *       #sweepUnsettledRuns()} finds every such run (unclaimed, triggered within
@@ -165,6 +175,8 @@ public class LocationFailureService {
 
     private final PipelineRunRepository pipelineRunRepository;
 
+    private final ForecastBatchRepository forecastBatchRepository;
+
     /**
      * Held across a whole settle, commit included, so the read-then-write of the counters, the
      * newest-settled read and the claim never interleave with another settle in this JVM.
@@ -180,17 +192,20 @@ public class LocationFailureService {
      * @param clock               injected clock for the failure timestamp and the reason's date
      * @param transactionManager  runs each settle in one transaction held inside the settle lock
      * @param pipelineRunRepository the durable claim and ordering state on {@code pipeline_run}
+     * @param forecastBatchRepository finds a cycle's forecast batches that are still being polled
      */
     public LocationFailureService(CycleLocationOutcomeResolver outcomeResolver,
             LocationRepository locationRepository, AdminAlertService adminAlertService,
             Clock clock, PlatformTransactionManager transactionManager,
-            PipelineRunRepository pipelineRunRepository) {
+            PipelineRunRepository pipelineRunRepository,
+            ForecastBatchRepository forecastBatchRepository) {
         this.outcomeResolver = outcomeResolver;
         this.locationRepository = locationRepository;
         this.adminAlertService = adminAlertService;
         this.clock = clock;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.pipelineRunRepository = pipelineRunRepository;
+        this.forecastBatchRepository = forecastBatchRepository;
     }
 
     /**
@@ -200,6 +215,7 @@ public class LocationFailureService {
      * including a run resumed after a restart. First sweeps earlier unclaimed runs
      * ({@link #sweepUnsettledRuns()}), then settles this cycle: {@link SettleMode#FULL} when its
      * trigger time is newer than the newest settled cycle, {@link SettleMode#RESETS_ONLY} otherwise.
+     * A cycle with a forecast batch still being polled is never claimed (see the class javadoc).
      * A cycle already settled is refused and logged. A failure rolls the claim back (the cycle stays
      * unclaimed for the next sweep) and propagates. Any admin alert goes out only after the
      * transaction has committed and the lock has been released.
@@ -272,9 +288,11 @@ public class LocationFailureService {
                 continue;
             }
             try {
-                transactionTemplate.executeWithoutResult(
+                Boolean claimed = transactionTemplate.execute(
                         status -> settleClaimed(unsettledRun, false, new ArrayList<>()));
-                settled++;
+                if (Boolean.TRUE.equals(claimed)) {
+                    settled++;
+                }
             } catch (RuntimeException e) {
                 LOG.error("Location failure sweep: pipeline run {} could not be settled, left "
                         + "unclaimed for the next sweep: {}", unsettledRun.getId(),
@@ -291,15 +309,28 @@ public class LocationFailureService {
      *
      * @param tail {@code true} when called from the run's own tail settle (eligible for FULL),
      *             {@code false} for a sweep (always RESETS_ONLY)
+     * @return {@code true} if this call claimed and settled the run; {@code false} if it was
+     *         deferred (a forecast batch still polling) or already claimed
      */
-    private void settleClaimed(PipelineRunEntity run, boolean tail, List<Runnable> alerts) {
+    private boolean settleClaimed(PipelineRunEntity run, boolean tail, List<Runnable> alerts) {
         Long runId = run.getId();
         Instant trigger = run.getTriggerTime();
+        List<ForecastBatchEntity> polling = forecastBatchRepository
+                .findByPipelineRunIdAndBatchTypeAndStatusNotIn(runId,
+                        ForecastBatchEntity.BatchType.FORECAST,
+                        ForecastBatchEntity.BatchStatus.TERMINAL);
+        if (!polling.isEmpty()) {
+            LOG.info("Pipeline run {}: location failure settle deferred, forecast batch {} is "
+                    + "still {} and the poller may yet write results; the run is left unclaimed "
+                    + "for a later sweep", runId, polling.get(0).getAnthropicBatchId(),
+                    polling.get(0).getStatus());
+            return false;
+        }
         Instant newestSettled = pipelineRunRepository.findNewestSettledTriggerTime();
         if (pipelineRunRepository.claimFailureSettle(runId, clock.instant()) == 0) {
             LOG.info("Pipeline run {}: location failures already settled, not counting again",
                     runId);
-            return;
+            return false;
         }
         SettleMode mode;
         String why;
@@ -319,6 +350,7 @@ public class LocationFailureService {
                 trigger, mode, why);
         applyEvidence(runId, run.getCycleType(), trigger, outcomeResolver.resolve(runId), mode,
                 alerts);
+        return true;
     }
 
     /**

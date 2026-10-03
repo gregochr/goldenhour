@@ -77,6 +77,19 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
     List<ForecastBatchEntity> findByPipelineRunId(Long pipelineRunId);
 
     /**
+     * Returns a cycle's batches of one type that are not in any of the given statuses, used by the
+     * location-failure settle to find forecast batches still being polled (status outside
+     * {@link BatchStatus#TERMINAL}).
+     *
+     * @param pipelineRunId the orchestrated cycle id
+     * @param batchType     the batch type to consider
+     * @param statuses      the statuses to exclude
+     * @return the cycle's matching batches, any order
+     */
+    List<ForecastBatchEntity> findByPipelineRunIdAndBatchTypeAndStatusNotIn(Long pipelineRunId,
+            ForecastBatchEntity.BatchType batchType, java.util.Collection<BatchStatus> statuses);
+
+    /**
      * Returns the precursor (non-retry) batches for a cycle.
      *
      * <p>The RETRY_FAILED phase selects its retry set from these batches' failed

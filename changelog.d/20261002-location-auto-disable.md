@@ -51,7 +51,11 @@ roster.
   startup after the running cycles are resumed, and at the start of every tail settle, it finds
   pipeline runs with no claim triggered in the last 7 days and not still RUNNING, and settles each
   RESETS_ONLY in trigger order. The first deploy of V163 leaves every recent run unclaimed; the
-  first sweep over them only zeroes counters that are already zero.
+  first sweep over them only zeroes counters that are already zero. A run is never claimed, by the
+  sweep or by a tail settle, while any of its forecast batches is still being polled (not COMPLETED,
+  FAILED, EXPIRED or CANCELLED): a run restarted mid-submission is marked FAILED but its persisted
+  batches keep landing results, so it is deferred (logged at INFO, naming the batch) until they are
+  terminal and a later sweep settles it.
 - **A cycle that submitted no batch** (everything cached, skipped or triaged away, or every
   submission failed) keeps its dispositions on an anchor job run that nothing else ties to the
   pipeline run, so the pipeline run now records it (`pipeline_run.disposition_job_run_id`), in the
