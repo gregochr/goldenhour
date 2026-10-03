@@ -95,6 +95,35 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens) {
+        return buildForecastRequestAndPrompt(customId, model, data, maxTokens).request();
+    }
+
+    /**
+     * A built sky forecast batch request together with the exact user message that was put into
+     * it, so a caller can record the message without ever building it a second time.
+     *
+     * @param request     the batch request, ready for submission
+     * @param userMessage the very string passed to {@code addUserMessage} for {@code request}
+     */
+    public record ForecastRequest(BatchCreateParams.Request request, String userMessage) {
+    }
+
+    /**
+     * Builds the same request as {@link #buildForecastRequest} and hands back the user message it
+     * carries. One build, one value: the returned {@code userMessage} is the string placed in the
+     * request, not a re-derivation of it.
+     *
+     * @param customId  the Anthropic custom ID (produced via {@link CustomIdFactory})
+     * @param model     the evaluation model to invoke
+     * @param data      the atmospheric data for this evaluation task
+     * @param maxTokens Anthropic {@code maxTokens} for this request
+     * @return the request and its user message
+     */
+    public ForecastRequest buildForecastRequestAndPrompt(
+            String customId,
+            EvaluationModel model,
+            AtmosphericData data,
+            int maxTokens) {
         Objects.requireNonNull(customId, "customId");
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(data, "data");
@@ -102,7 +131,7 @@ public class BatchRequestFactory {
         PromptBuilder builder = selectBuilder(data);
         String userMessage = buildUserMessage(builder, data);
 
-        return BatchCreateParams.Request.builder()
+        BatchCreateParams.Request request = BatchCreateParams.Request.builder()
                 .customId(customId)
                 .params(BatchCreateParams.Request.Params.builder()
                         .model(model.getModelId())
@@ -116,6 +145,7 @@ public class BatchRequestFactory {
                         .addUserMessage(userMessage)
                         .build())
                 .build();
+        return new ForecastRequest(request, userMessage);
     }
 
     /**

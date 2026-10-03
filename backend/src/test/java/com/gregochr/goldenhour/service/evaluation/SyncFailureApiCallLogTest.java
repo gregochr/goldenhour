@@ -121,7 +121,7 @@ class SyncFailureApiCallLogTest {
                 new AuroraProperties(), jobRunService);
         service = new EvaluationServiceImpl(batchSubmissionService, batchRequestFactory,
                 anthropicApiClient, claudeAuroraInterpreter, jobRunService,
-                List.of(forecastHandler, auroraHandler), CLOCK);
+                List.of(forecastHandler, auroraHandler), CLOCK, mock(ForecastPromptStore.class));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

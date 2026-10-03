@@ -303,6 +303,10 @@ photocast:
                                    # the longest reader window (coming-up.scoring.recurrent.
                                    # trailing-window-days, default 60) — pruning must never delete
                                    # history a reader still asks for.
+  forecast-prompt:
+    retention-days: 30             # the nightly forecast_prompt_cleanup job (03:50 UTC) deletes
+                                   # forecast_evaluation_prompt rows (the stored batch sky user
+                                   # message, V164) created more than this many days ago.
   season:
     bluebell:
       start: "04-18"               # bluebell season first active day (MM-dd, inclusive).

@@ -80,6 +80,8 @@ class EvaluationServiceImplTest {
     @Mock
     private ClaudeAuroraInterpreter claudeAuroraInterpreter;
     @Mock
+    private ForecastPromptStore forecastPromptStore;
+    @Mock
     private JobRunService jobRunService;
     @Mock
     private ForecastResultHandler forecastResultHandler;
@@ -97,7 +99,7 @@ class EvaluationServiceImplTest {
         service = new EvaluationServiceImpl(
                 batchSubmissionService, batchRequestFactory, anthropicApiClient,
                 claudeAuroraInterpreter, jobRunService,
-                List.of(forecastResultHandler, auroraResultHandler), FIXED_CLOCK);
+                List.of(forecastResultHandler, auroraResultHandler), FIXED_CLOCK, forecastPromptStore);
     }
 
     // ── submit() ─────────────────────────────────────────────────────────────
@@ -135,14 +137,14 @@ class EvaluationServiceImplTest {
         EvaluationTask.Forecast t2 = forecastTask(43L, "Bamburgh", "North East");
         BatchCreateParams.Request req1 = mock(BatchCreateParams.Request.class);
         BatchCreateParams.Request req2 = mock(BatchCreateParams.Request.class);
-        when(batchRequestFactory.buildForecastRequest(
+        when(batchRequestFactory.buildForecastRequestAndPrompt(
                 eq("fc-42-2026-04-16-SUNRISE"), eq(EvaluationModel.HAIKU),
                 eq(t1.data()), eq(EvaluationModel.HAIKU.getMaxTokens())))
-                .thenReturn(req1);
-        when(batchRequestFactory.buildForecastRequest(
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req1, "msg1"));
+        when(batchRequestFactory.buildForecastRequestAndPrompt(
                 eq("fc-43-2026-04-16-SUNRISE"), eq(EvaluationModel.HAIKU),
                 eq(t2.data()), eq(EvaluationModel.HAIKU.getMaxTokens())))
-                .thenReturn(req2);
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req2, "msg2"));
         when(batchSubmissionService.submit(
                 any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
                 org.mockito.ArgumentMatchers.isNull(), eq(false)))
@@ -234,12 +236,74 @@ class EvaluationServiceImplTest {
     }
 
     @Test
+    @DisplayName("submit: sky tasks store each message against its evalRowId; a task with no "
+            + "evalRowId stores nothing")
+    void submit_skyTasks_storePromptsKeyedByEvalRowId() {
+        EvaluationTask.Forecast withRow = forecastTaskWithRow(42L, "Castlerigg", 901L);
+        EvaluationTask.Forecast noRow = forecastTask(43L, "Bamburgh", "North East");
+        BatchCreateParams.Request req = mock(BatchCreateParams.Request.class);
+        when(batchRequestFactory.buildForecastRequestAndPrompt(
+                eq("fc-42-2026-04-16-SUNRISE-r901"), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "message-for-901"));
+        when(batchRequestFactory.buildForecastRequestAndPrompt(
+                eq("fc-43-2026-04-16-SUNRISE"), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BatchRequestFactory.ForecastRequest(req, "message-no-row"));
+        when(batchSubmissionService.submit(any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
+                .thenReturn(new BatchSubmitResult(1L, "msgbatch_x", 2));
+
+        service.submit(List.of(withRow, noRow), BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<Map<Long, String>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(forecastPromptStore).store(captor.capture());
+        assertThat(captor.getValue()).containsOnly(Map.entry(901L, "message-for-901"));
+    }
+
+    @Test
+    @DisplayName("submit: woodland and bluebell tasks store nothing")
+    void submit_woodlandAndBluebellTasks_storeNothing() {
+        EvaluationTask.Forecast bb = bluebellTask(53L, "Bluebell Wood", "Lake District");
+        when(batchRequestFactory.buildBluebellRequest(any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(mock(BatchCreateParams.Request.class));
+        when(batchSubmissionService.submit(any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
+                .thenReturn(new BatchSubmitResult(1L, "msgbatch_x", 1));
+
+        service.submit(List.of(bb), BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<Map<Long, String>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(forecastPromptStore).store(captor.capture());
+        assertThat(captor.getValue()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("submit: a failed submission (null result) stores nothing")
+    void submit_nullResult_storesNothing() {
+        EvaluationTask.Forecast withRow = forecastTaskWithRow(42L, "Castlerigg", 901L);
+        when(batchRequestFactory.buildForecastRequestAndPrompt(any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BatchRequestFactory.ForecastRequest(
+                        mock(BatchCreateParams.Request.class), "m"));
+        when(batchSubmissionService.submit(any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
+                .thenReturn(null);
+
+        service.submit(List.of(withRow), BatchTriggerSource.SCHEDULED);
+
+        verifyNoInteractions(forecastPromptStore);
+    }
+
+    @Test
     @DisplayName("submit: BatchSubmissionService returns null → returns EvaluationHandle.empty()")
     void submit_submissionFailureReturnsNull_returnsEmptyHandle() {
         EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
-        when(batchRequestFactory.buildForecastRequest(any(), any(), any(),
+        when(batchRequestFactory.buildForecastRequestAndPrompt(any(), any(), any(),
                 org.mockito.ArgumentMatchers.anyInt()))
-                .thenReturn(mock(BatchCreateParams.Request.class));
+                .thenReturn(new BatchRequestFactory.ForecastRequest(
+                        mock(BatchCreateParams.Request.class), "msg"));
         when(batchSubmissionService.submit(
                 any(), any(), any(), anyString(),
                 org.mockito.ArgumentMatchers.isNull(), eq(false)))
@@ -614,7 +678,7 @@ class EvaluationServiceImplTest {
         EvaluationServiceImpl noForecastHandler = new EvaluationServiceImpl(
                 batchSubmissionService, batchRequestFactory, anthropicApiClient,
                 claudeAuroraInterpreter, jobRunService,
-                List.of(auroraResultHandler), FIXED_CLOCK);
+                List.of(auroraResultHandler), FIXED_CLOCK, forecastPromptStore);
         EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
 
         org.assertj.core.api.Assertions.assertThatIllegalStateException()
@@ -628,7 +692,7 @@ class EvaluationServiceImplTest {
         EvaluationServiceImpl noAuroraHandler = new EvaluationServiceImpl(
                 batchSubmissionService, batchRequestFactory, anthropicApiClient,
                 claudeAuroraInterpreter, jobRunService,
-                List.of(forecastResultHandler), FIXED_CLOCK);
+                List.of(forecastResultHandler), FIXED_CLOCK, forecastPromptStore);
         EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
 
         org.assertj.core.api.Assertions.assertThatIllegalStateException()
@@ -703,6 +767,16 @@ class EvaluationServiceImplTest {
         return new EvaluationTask.Forecast(
                 loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+    }
+
+    private EvaluationTask.Forecast forecastTaskWithRow(long id, String name, Long evalRowId) {
+        LocationEntity loc = new LocationEntity();
+        loc.setId(id);
+        loc.setName(name);
+        return new EvaluationTask.Forecast(
+                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.SKY, evalRowId);
     }
 
     private EvaluationTask.Forecast bluebellTask(long id, String name, String regionName) {

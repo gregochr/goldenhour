@@ -171,6 +171,52 @@ class BatchRequestFactoryTest {
     }
 
     @Test
+    void inlandPromptCaptureIsTheMessageInTheRequest() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchRequestFactory.ForecastRequest built = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE-r5", EvaluationModel.HAIKU, data, 512);
+
+        String sent = built.request().params().messages().get(0).content().asString();
+        assertThat(built.userMessage()).isEqualTo(sent);
+        assertThat(built.userMessage()).isEqualTo(inlandBuilder.buildUserMessage(data));
+        assertThat(built.request().customId()).isEqualTo("fc-1-2026-04-16-SUNRISE-r5");
+    }
+
+    @Test
+    void coastalSurgePromptCaptureIsTheMessageInTheRequest() {
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.30, 0.20, 0.50, 985.0, 18.0, 270.0, 0.95,
+                TideRiskLevel.HIGH, "Strong onshore wind plus 985 hPa low");
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(coastalTide())
+                .surge(surge)
+                .adjustedRangeMetres(5.20)
+                .astronomicalRangeMetres(4.70)
+                .build();
+
+        BatchRequestFactory.ForecastRequest built = factory.buildForecastRequestAndPrompt(
+                "fc-2-2026-04-16-SUNRISE-r6", EvaluationModel.HAIKU, data, 512);
+
+        String sent = built.request().params().messages().get(0).content().asString();
+        assertThat(built.userMessage()).isEqualTo(sent);
+        assertThat(built.userMessage()).isEqualTo(
+                coastalBuilder.buildUserMessage(data, surge, 5.20, 4.70));
+        assertThat(built.userMessage()).contains("STORM SURGE FORECAST");
+    }
+
+    @Test
+    void buildForecastRequestDelegatesToTheCapturingBuild() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request plain = factory.buildForecastRequest(
+                "fc-3-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 512);
+
+        assertThat(plain.params().messages().get(0).content().asString())
+                .isEqualTo(inlandBuilder.buildUserMessage(data));
+    }
+
+    @Test
     void surgeAbsentDoesNotInsertSurgeBlock() {
         AtmosphericData data = TestAtmosphericData.builder().tide(coastalTide()).build();
 

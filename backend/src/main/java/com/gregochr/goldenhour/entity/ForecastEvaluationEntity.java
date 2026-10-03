@@ -168,6 +168,15 @@ public class ForecastEvaluationEntity {
     @Column(name = "rating")
     private Integer rating;
 
+    /**
+     * Claude's own sky rating (1-5) before the tide score is averaged in; {@link #rating} is the
+     * combined star. Written by the batch result handler only; null for the sky-not-forecast
+     * substitution, triage rows, rows scored before V164 and the synchronous engine. Never
+     * serialised to any API response.
+     */
+    @Column(name = "sky_rating")
+    private Integer skyRating;
+
     /** Dramatic colour potential score (0–100). Requires clouds to catch and reflect light. */
     @Column(name = "fiery_sky_potential")
     private Integer fierySkyPotential;

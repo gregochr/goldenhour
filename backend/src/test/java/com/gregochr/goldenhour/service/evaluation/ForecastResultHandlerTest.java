@@ -205,6 +205,9 @@ class ForecastResultHandlerTest {
 
         // The row and cached_evaluation must never disagree about one slot.
         assertThat(saved.getRating()).isEqualTo(cacheWrite.rating());
+        // Inland: the sky component is the only component, so sky_rating equals the rating.
+        assertThat(saved.getRating()).isEqualTo(4);
+        assertThat(saved.getSkyRating()).isEqualTo(4);
         assertThat(saved.getFierySkyPotential()).isEqualTo(cacheWrite.fierySkyPotential());
         assertThat(saved.getGoldenHourPotential()).isEqualTo(cacheWrite.goldenHourPotential());
         assertThat(saved.getSummary()).isEqualTo(cacheWrite.summary());
@@ -290,6 +293,8 @@ class ForecastResultHandlerTest {
         ForecastEvaluationEntity saved = savedCaptor.getValue();
 
         assertThat(saved.getRating()).isEqualTo(1);
+        // Sky not forecast: there is no genuine sky component, so sky_rating stays null.
+        assertThat(saved.getSkyRating()).isNull();
         assertThat(saved.getSummary()).isEqualTo(ForecastResultHandler.SKY_NOT_FORECAST_SUMMARY);
         assertThat(saved.getHeadline()).isNull();
         assertThat(saved.getBatchState()).isEqualTo(BatchState.SCORED);
@@ -1176,6 +1181,39 @@ class ForecastResultHandlerTest {
         // avg(sky 4, tide 1) = 2.5 → 3 (half-up) — "wrong water, not wrong light"
         assertThat(result.get().result().rating()).isEqualTo(3);
         assertThat(result.get().result().skyRating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("sky_rating on the row: coastal missed tide — sky 4 + tide 1 → row rating 3, "
+            + "row sky_rating 4")
+    void parseBatchResponse_coastalMisalignedTide_rowCarriesSkyRatingBesideCombinedRating() {
+        LocationEntity location = coastalLocation(56L, "Cresswell", "Northumberland");
+        ForecastIdentity identity = new ForecastIdentity(56L, DATE, SUNRISE, 556L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-56-2026-04-16-SUNRISE-r556",
+                "{\"rating\":4,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"sky\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 80, 75, "sky-only summary"), false));
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
+                .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(556L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0))
+                .batchState(BatchState.PENDING)
+                .build();
+        when(forecastEvaluationRepository.findById(556L)).thenReturn(Optional.of(pendingRow));
+
+        handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        ArgumentCaptor<ForecastEvaluationEntity> savedCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(savedCaptor.capture());
+        // avg(sky 4, tide 1) = 2.5 → 3 (half-up): the combined star, with Claude's own 4 beside it.
+        assertThat(savedCaptor.getValue().getRating()).isEqualTo(3);
+        assertThat(savedCaptor.getValue().getSkyRating()).isEqualTo(4);
     }
 
     @Test

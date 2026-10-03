@@ -707,6 +707,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         }
         ForecastEvaluationEntity entity = row.get();
         entity.setRating(result.rating());
+        entity.setSkyRating(result.skyRating());
         entity.setFierySkyPotential(result.fierySkyPotential());
         entity.setGoldenHourPotential(result.goldenHourPotential());
         entity.setSummary(result.summary());
