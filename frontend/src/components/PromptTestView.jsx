@@ -13,8 +13,11 @@ import { isSkyPromptCandidate, isWildlifeOnly } from '../utils/locationTypes.js'
 import { apiErrorMessage } from '../utils/apiError.js';
 
 const USD_TO_GBP = 0.79;
-const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
-const MODELS = ['HAIKU', 'SONNET', 'OPUS'];
+const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
+const MODELS = ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'];
+
+/** Family name shown for a model; the version rides beside it, so both Sonnets read 'SONNET <version>'. */
+const modelDisplayName = (model) => (model === 'SONNET_55' ? 'SONNET' : model);
 const RUN_TYPES = [
   { value: 'VERY_SHORT_TERM', label: 'Very Short Term' },
   { value: 'SHORT_TERM', label: 'Short Term' },
@@ -328,10 +331,10 @@ const PromptTestView = () => {
 
   const formatModelWithVersion = (modelName) => {
     const version = modelVersions[modelName];
-    if (!version) return modelName;
+    if (!version) return modelDisplayName(modelName);
     return (
       <>
-        {modelName}
+        {modelDisplayName(modelName)}
         <span className="text-plex-text-muted ml-0.5">{version}</span>
       </>
     );
@@ -572,10 +575,10 @@ const PromptTestView = () => {
                 />
                 <span className={`${
                   model === 'HAIKU' ? 'text-blue-300' :
-                  model === 'SONNET' ? 'text-purple-300' :
+                  model === 'SONNET' || model === 'SONNET_55' ? 'text-purple-300' :
                   'text-amber-300'
                 }`}>
-                  {model}
+                  {modelDisplayName(model)}
                   {modelVersions[model] && (
                     <span className="text-plex-text-muted ml-0.5 text-xs">{modelVersions[model]}</span>
                   )}
@@ -697,10 +700,10 @@ const PromptTestView = () => {
                       <td className="py-2 pr-4">
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
                           run.evaluationModel === 'HAIKU' ? 'bg-blue-900/30 text-blue-300' :
-                          run.evaluationModel === 'SONNET' ? 'bg-purple-900/30 text-purple-300' :
+                          ['SONNET', 'SONNET_55'].includes(run.evaluationModel) ? 'bg-purple-900/30 text-purple-300' :
                           'bg-amber-900/30 text-amber-300'
                         }`}>
-                          {run.evaluationModel}
+                          {modelDisplayName(run.evaluationModel)}
                           {modelVersions[run.evaluationModel] && (
                             <span className="opacity-60 ml-0.5">{modelVersions[run.evaluationModel]}</span>
                           )}

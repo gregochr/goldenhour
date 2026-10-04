@@ -214,7 +214,7 @@ public class BriefingBestBetAdvisor {
         try {
             EvaluationModel model = modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET);
             boolean useExtendedThinking = modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)
-                    && model != EvaluationModel.HAIKU;
+                    && model != EvaluationModel.HAIKU && !ModelRequestSupport.usesLowEffort(model);
             LocalDateTime now = LocalDateTime.now(clock);
             RollupResult rollup = rollupBuilder.buildRollupJson(days, now);
             logPickTwoEligibility(rollup.coverageByKey(), jobRunId);
@@ -222,7 +222,8 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(useExtendedThinking ? MAX_TOKENS_THINKING : maxTokens)
+                    .maxTokens(ModelRequestSupport.maxTokens(model,
+                            useExtendedThinking ? MAX_TOKENS_THINKING : maxTokens))
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
@@ -232,7 +233,8 @@ public class BriefingBestBetAdvisor {
                         .build());
             }
 
-            Message response = anthropicApiClient.createMessage(paramsBuilder.build());
+            Message response = anthropicApiClient.createMessage(
+                    ModelRequestSupport.tune(paramsBuilder, model).build());
 
             long durationMs = System.currentTimeMillis() - startMs;
             String raw = extractFirstText(response);
@@ -582,7 +584,8 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder builder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
+                    .maxTokens(ModelRequestSupport.maxTokens(model,
+                        extendedThinking ? MAX_TOKENS_THINKING : maxTokens))
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
@@ -593,7 +596,8 @@ public class BriefingBestBetAdvisor {
                         .build());
             }
 
-            Message response = anthropicApiClient.createMessage(builder.build());
+            Message response = anthropicApiClient.createMessage(
+                    ModelRequestSupport.tune(builder, model).build());
             long durationMs = System.currentTimeMillis() - startMs;
 
             // Text blocks only — thinking blocks are filtered out here
@@ -675,7 +679,8 @@ public class BriefingBestBetAdvisor {
         boolean extendedThinking = model.isExtendedThinking();
         MessageCreateParams.Builder builder = MessageCreateParams.builder()
                 .model(model.getModelId())
-                .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
+                .maxTokens(ModelRequestSupport.maxTokens(model,
+                        extendedThinking ? MAX_TOKENS_THINKING : maxTokens))
                 .systemOfTextBlockParams(List.of(
                         TextBlockParam.builder().text(systemPrompt).build()))
                 .addUserMessage(rollupJson);
@@ -685,7 +690,8 @@ public class BriefingBestBetAdvisor {
                     .build());
         }
 
-        Message response = anthropicApiClient.createMessage(builder.build());
+        Message response = anthropicApiClient.createMessage(
+                    ModelRequestSupport.tune(builder, model).build());
         String raw = extractFirstText(response);
 
         BestBetResult parsed = classifyAndParse(raw);

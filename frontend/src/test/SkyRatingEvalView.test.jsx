@@ -64,6 +64,8 @@ describe('SkyRatingEvalView', () => {
     expect(screen.getByTestId('sky-eval-chart-flat-grey-overcast')).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-run-btn')).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-model-SONNET')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-model-SONNET_55')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-model-SONNET_55').closest('label')).toHaveTextContent('SONNET 5.5');
   });
 
   it('shows the run pass rate and direction-bucketed misses in the runs table', async () => {

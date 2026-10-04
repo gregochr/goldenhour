@@ -41,8 +41,10 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link ClaudeAuroraInterpreter} — prompt building and response parsing.
@@ -156,6 +158,65 @@ class ClaudeAuroraInterpreterTest {
         verify(anthropicApiClient).createMessage(captor.capture());
         assertThat(captor.getValue().model().toString())
                 .isEqualTo(EvaluationModel.SONNET.getModelId());
+    }
+
+    @Test
+    @DisplayName("interpret with Sonnet 5.5 sends effort low, no thinking and a 4096 token ceiling")
+    void interpret_sonnet55_sendsLowEffortAndLargerCeiling() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.SONNET_55);
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        mockClaudeResponse("[{\"name\":\"Galloway\",\"stars\":4,"
+                + "\"summary\":\"Strong aurora\",\"detail\":\"ok\"}]");
+
+        interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                minimalSpaceWeather(6.0), TriggerType.REALTIME, null);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        MessageCreateParams params = captor.getValue();
+        assertThat(params.model().toString()).isEqualTo("claude-sonnet-5-5");
+        assertThat(params.maxTokens()).isEqualTo(4096L);
+        assertThat(params.outputConfig()).isPresent();
+        assertThat(params.outputConfig().get().effort())
+                .contains(com.anthropic.models.messages.OutputConfig.Effort.LOW);
+        assertThat(params.thinking()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("interpret with Haiku sends no output config, effort or thinking (unchanged)")
+    void interpret_haiku_requestUnchanged() {
+        stubModelSelection();
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        mockClaudeResponse("[{\"name\":\"Galloway\",\"stars\":4,"
+                + "\"summary\":\"Strong aurora\",\"detail\":\"ok\"}]");
+
+        interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                minimalSpaceWeather(6.0), TriggerType.REALTIME, null);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        assertThat(captor.getValue().outputConfig()).isEmpty();
+        assertThat(captor.getValue().thinking()).isEmpty();
+        assertThat(captor.getValue().maxTokens())
+                .isEqualTo((long) ClaudeAuroraInterpreter.maxTokensFor(1));
+    }
+
+    @Test
+    @DisplayName("interpret fails with a refusal exception when Claude refuses")
+    void interpret_refusal_throwsClaudeRefusalException() {
+        stubModelSelection();
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        Message mockMessage = mock(Message.class);
+        when(anthropicApiClient.createMessage(any())).thenReturn(mockMessage);
+        when(mockMessage.stopReason()).thenReturn(
+                Optional.of(com.anthropic.models.messages.StopReason.REFUSAL));
+
+        assertThatThrownBy(() -> interpreter.interpret(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 30), minimalSpaceWeather(6.0), TriggerType.REALTIME, null))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeRefusalException.class);
     }
 
     @Test

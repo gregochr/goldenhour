@@ -12,13 +12,15 @@ import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 
-const MODELS = ['HAIKU', 'SONNET', 'OPUS'];
-const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
+const MODELS = ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'];
+const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
+/** Label for a model radio and run badge; Sonnet 5.5 reads 'SONNET 5.5' beside Sonnet 4.6's 'SONNET'. */
+const MODEL_LABELS = { HAIKU: 'HAIKU', SONNET: 'SONNET', SONNET_55: 'SONNET 5.5', OPUS: 'OPUS' };
 const DEFAULT_RUNS_PER_FIXTURE = 8;
 const DEFAULT_FIXTURE_COUNT = 6;
 const POLL_INTERVAL_MS = 4000;
 const FIXTURE_COLOURS = ['#a78bfa', '#f87171', '#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#fb923c', '#22d3ee'];
-const MODEL_COLOURS = { HAIKU: '#60a5fa', SONNET: '#a78bfa', OPUS: '#fbbf24' };
+const MODEL_COLOURS = { HAIKU: '#60a5fa', SONNET: '#a78bfa', SONNET_55: '#c084fc', OPUS: '#fbbf24' };
 
 /**
  * The x-axis tick for a trend point — the run's date on the UK calendar.
@@ -113,7 +115,7 @@ const SkyRatingEvalView = () => {
     const usd = COST_PER_CALL[selectedModel] * calls;
     openDialog({
       title: 'Run Sky-Rating Eval',
-      message: `Scores ${fixtureCount} fixtures × ${runsPerFixture} runs (${calls} calls) with ${selectedModel}.`,
+      message: `Scores ${fixtureCount} fixtures × ${runsPerFixture} runs (${calls} calls) with ${MODEL_LABELS[selectedModel]}.`,
       costLine: `Estimated cost: ~$${usd.toFixed(3)} · ~${Math.ceil(calls * 3 / 60)} min`,
       confirmLabel: 'Run Eval',
       onConfirm: async () => {
@@ -206,8 +208,8 @@ const SkyRatingEvalView = () => {
                 className="accent-plex-gold"
                 data-testid={`sky-eval-model-${m}`}
               />
-              <span className={m === 'HAIKU' ? 'text-blue-300' : m === 'SONNET' ? 'text-purple-300' : 'text-amber-300'}>
-                {m}
+              <span className={m === 'HAIKU' ? 'text-blue-300' : m === 'SONNET' || m === 'SONNET_55' ? 'text-purple-300' : 'text-amber-300'}>
+                {MODEL_LABELS[m]}
               </span>
             </label>
           ))}
@@ -278,14 +280,14 @@ const SkyRatingEvalView = () => {
           {/* Per-fixture drift small-multiples */}
           {fixtureNames.length === 0 ? (
             <p className="text-sm text-plex-text-muted" data-testid="sky-eval-empty">
-              No completed {selectedModel} runs yet — run the eval (or pick another model) to start the trend.
+              No completed {MODEL_LABELS[selectedModel]} runs yet — run the eval (or pick another model) to start the trend.
             </p>
           ) : (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide">
                   Per-fixture drift ·{' '}
-                  <span className="normal-case text-plex-text-secondary">{selectedModel}</span>{' '}
+                  <span className="normal-case text-plex-text-secondary">{MODEL_LABELS[selectedModel]}</span>{' '}
                   <span className="normal-case text-plex-text-muted">(pick model above)</span>
                 </p>
                 <div className="flex items-center gap-2 text-xs">
@@ -373,10 +375,10 @@ const SkyRatingEvalView = () => {
                         <td className="py-2 pr-4">
                           <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
                             run.model === 'HAIKU' ? 'bg-blue-900/30 text-blue-300'
-                              : run.model === 'SONNET' ? 'bg-purple-900/30 text-purple-300'
+                              : run.model === 'SONNET' || run.model === 'SONNET_55' ? 'bg-purple-900/30 text-purple-300'
                                 : 'bg-amber-900/30 text-amber-300'}`}
                           >
-                            {run.model}
+                            {MODEL_LABELS[run.model] || run.model}
                           </span>
                         </td>
                         <td className="py-2 pr-4 text-plex-text-secondary text-xs">{run.triggerSource}</td>

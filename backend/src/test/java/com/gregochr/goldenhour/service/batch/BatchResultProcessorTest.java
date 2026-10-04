@@ -417,6 +417,36 @@ class BatchResultProcessorTest {
     }
 
     @Test
+    @DisplayName("FORECAST: refusal (stop_reason=refusal) → handler not called, REFUSAL logged as errored")
+    void forecast_refusal_logsInlineFailureAndDoesNotPersist() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 56L);
+
+        MessageBatchIndividualResponse response = succeededResponseWithStopReason(
+                "fc-42-2026-04-07-SUNRISE", StopReason.REFUSAL);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verify(forecastResultHandler, never()).parseBatchResponse(any(), any(), any(), any());
+        verify(forecastResultHandler, never()).mergeCacheKey(any(), any());
+        verify(jobRunService).logBatchResult(
+                eq(56L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
+                eq(false), eq("REFUSAL"),
+                eq("refusal_error"), any(),
+                any(), any(), any(), any());
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+        assertThat(captor.getValue().getSucceededCount()).isZero();
+    }
+
+    @Test
     @DisplayName("FORECAST: location not found → handler not called, lookup_error logged")
     void forecast_locationNotFound_logsInlineFailure() {
         stubBatchService();

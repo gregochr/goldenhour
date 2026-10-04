@@ -661,6 +661,38 @@ describe('ModelSelectionView', () => {
     expect(screen.queryByTestId('config-tab-BATCH_NEAR_TERM')).not.toBeInTheDocument();
   });
 
+  it('offers Sonnet 5.5 as a selectable card, ordered after Sonnet 4.6, and switches to it', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      available: [
+        { name: 'HAIKU', version: '4.5' },
+        { name: 'SONNET', version: '4.6' },
+        { name: 'SONNET_55', version: '5.5' },
+        { name: 'OPUS', version: '4.6' },
+      ],
+    });
+    setActiveModel.mockResolvedValue({ runType: 'AURORA_EVALUATION', active: 'SONNET_55' });
+
+    render(<ModelSelectionView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
+
+    const sonnet46 = await screen.findByTestId('switch-AURORA_EVALUATION-SONNET');
+    const sonnet55 = screen.getByTestId('switch-AURORA_EVALUATION-SONNET_55');
+    expect(sonnet46).toHaveTextContent('Switch to Sonnet 4.6');
+    expect(sonnet55).toHaveTextContent('Switch to Sonnet 5.5');
+    expect(
+      sonnet46.compareDocumentPosition(sonnet55) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(sonnet55);
+    await waitFor(() => {
+      expect(setActiveModel).toHaveBeenCalledWith('AURORA_EVALUATION', 'SONNET_55');
+    });
+  });
+
   it('Scheduled Batch tab label shows active model in brackets', async () => {
     render(<ModelSelectionView />);
 
@@ -669,7 +701,7 @@ describe('ModelSelectionView', () => {
     });
 
     // MOCK_DATA.configs.BATCH_NEAR_TERM = 'SONNET'
-    expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet)');
+    expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet 4.6)');
   });
 
   it('Scheduled Batch tab shows three distinct per-model descriptions', async () => {

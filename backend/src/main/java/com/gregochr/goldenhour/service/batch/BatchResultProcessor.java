@@ -229,6 +229,19 @@ public class BatchResultProcessor {
                     continue;
                 }
 
+                // A refusal arrives as a succeeded batch result (stop_reason=refusal), so it
+                // is failed here under its own recognisable error type instead of reaching
+                // the parser as an empty or partial reply.
+                if (StopReason.REFUSAL.equals(message.stopReason().orElse(null))) {
+                    LOG.warn("Forecast batch: Claude refused '{}'", customId);
+                    errored++;
+                    inlineFailureLog(context, customId, "REFUSAL",
+                            "refusal_error",
+                            "Claude refused to evaluate this forecast (stop_reason=refusal)",
+                            null, null);
+                    continue;
+                }
+
                 String text = extractTextFromMessage(message);
                 if (text == null) {
                     LOG.warn("Forecast batch: no text content for '{}'", customId);
@@ -471,6 +484,11 @@ public class BatchResultProcessor {
                 }
 
                 Message message = extractMessage(response);
+                if (message != null && StopReason.REFUSAL.equals(message.stopReason().orElse(null))) {
+                    LOG.warn("Aurora batch: Claude refused '{}'", customId);
+                    markFailed(batch, "Aurora batch request refused: stop_reason=refusal");
+                    return;
+                }
                 if (message != null) {
                     rawResponse = extractTextFromMessage(message);
                     auroraModelId = message.model().asString();

@@ -222,7 +222,8 @@ public class BatchRequestFactory {
                                         .text(builder.getSystemPrompt())
                                         .cacheControl(skyCacheControl(longLivedCache))
                                         .build()))
-                        .outputConfig(builder.buildOutputConfig())
+                        .outputConfig(ModelRequestSupport.withEffort(
+                                builder.buildOutputConfig(), model))
                         .addUserMessage(userMessage)
                         .build())
                 .build();
@@ -262,7 +263,8 @@ public class BatchRequestFactory {
                                         .text(bluebellBuilder.getSystemPrompt())
                                         .cacheControl(CacheControlEphemeral.builder().build())
                                         .build()))
-                        .outputConfig(bluebellBuilder.buildOutputConfig())
+                        .outputConfig(ModelRequestSupport.withEffort(
+                                bluebellBuilder.buildOutputConfig(), model))
                         .addUserMessage(bluebellBuilder.buildUserMessage(data))
                         .build())
                 .build();
@@ -305,7 +307,8 @@ public class BatchRequestFactory {
                                         .text(woodlandBuilder.getSystemPrompt())
                                         .cacheControl(CacheControlEphemeral.builder().build())
                                         .build()))
-                        .outputConfig(woodlandBuilder.buildOutputConfig())
+                        .outputConfig(ModelRequestSupport.withEffort(
+                                woodlandBuilder.buildOutputConfig(), model))
                         .addUserMessage(woodlandBuilder.buildUserMessage(data))
                         .build())
                 .build();

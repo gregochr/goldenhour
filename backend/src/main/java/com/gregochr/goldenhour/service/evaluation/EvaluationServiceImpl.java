@@ -225,11 +225,13 @@ public class EvaluationServiceImpl implements EvaluationService {
                     task.spaceWeather(), task.triggerType(), task.tonightWindow());
             requests.add(BatchCreateParams.Request.builder()
                     .customId(customId)
-                    .params(BatchCreateParams.Request.Params.builder()
+                    .params(ModelRequestSupport.tune(
+                                    BatchCreateParams.Request.Params.builder()
                             .model(task.model().getModelId())
-                            .maxTokens(ClaudeAuroraInterpreter.maxTokensFor(
-                                    task.viableLocations().size()))
-                            .addUserMessage(userMessage)
+                            .maxTokens(ModelRequestSupport.maxTokens(task.model(),
+                                    ClaudeAuroraInterpreter.maxTokensFor(
+                                            task.viableLocations().size())))
+                            .addUserMessage(userMessage), task.model())
                             .build())
                     .build());
         }
@@ -279,7 +281,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                                             .text(builder.getSystemPrompt())
                                             .cacheControl(CacheControlEphemeral.builder().build())
                                             .build()))
-                            .outputConfig(builder.buildOutputConfig())
+                            .outputConfig(ModelRequestSupport.withEffort(
+                                    builder.buildOutputConfig(), task.model()))
                             .addUserMessage(userMessage)
                             .build());
             // Shared with the batch/strategy engine's identical check — a max_tokens
@@ -323,12 +326,14 @@ public class EvaluationServiceImpl implements EvaluationService {
                     task.alertLevel(), task.viableLocations(), task.cloudByLocation(),
                     task.spaceWeather(), task.triggerType(), task.tonightWindow());
             Message response = anthropicApiClient.createMessage(
-                    MessageCreateParams.builder()
+                    ModelRequestSupport.tune(MessageCreateParams.builder()
                             .model(task.model().getModelId())
-                            .maxTokens(ClaudeAuroraInterpreter.maxTokensFor(
-                                    task.viableLocations().size()))
-                            .addUserMessage(userMessage)
+                            .maxTokens(ModelRequestSupport.maxTokens(task.model(),
+                                    ClaudeAuroraInterpreter.maxTokensFor(
+                                            task.viableLocations().size())))
+                            .addUserMessage(userMessage), task.model())
                             .build());
+            ModelRequestSupport.checkRefusal(response);
             String text = response.content().stream()
                     .filter(ContentBlock::isText)
                     .map(ContentBlock::asText)

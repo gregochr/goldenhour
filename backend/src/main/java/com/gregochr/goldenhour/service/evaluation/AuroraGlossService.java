@@ -152,13 +152,14 @@ public class AuroraGlossService {
             String userMessage = buildUserMessage(item.region, moon, alertLevel, kp);
 
             Message response = anthropicApiClient.createMessage(
-                    MessageCreateParams.builder()
+                    ModelRequestSupport.tune(MessageCreateParams.builder()
                             .model(model.getModelId())
-                            .maxTokens(MAX_TOKENS)
+                            .maxTokens(ModelRequestSupport.maxTokens(model, MAX_TOKENS))
                             .systemOfTextBlockParams(List.of(
                                     TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
-                            .addUserMessage(userMessage)
+                            .addUserMessage(userMessage), model)
                             .build());
+            ModelRequestSupport.checkRefusal(response);
 
             String raw = response.content().stream()
                     .filter(ContentBlock::isText)

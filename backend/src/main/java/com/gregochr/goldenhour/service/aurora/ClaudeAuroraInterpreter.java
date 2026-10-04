@@ -9,6 +9,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.service.evaluation.ModelRequestSupport;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
@@ -185,13 +186,15 @@ public class ClaudeAuroraInterpreter {
                 viableLocations.size(), level, triggerType, model);
 
         Message response = anthropicApiClient.createMessage(
-                MessageCreateParams.builder()
+                ModelRequestSupport.tune(MessageCreateParams.builder()
                         .model(model.getModelId())
-                        .maxTokens(maxTokensFor(viableLocations.size()))
+                        .maxTokens(ModelRequestSupport.maxTokens(model,
+                                maxTokensFor(viableLocations.size())))
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
-                        .addUserMessage(userMessage)
+                        .addUserMessage(userMessage), model)
                         .build());
+        ModelRequestSupport.checkRefusal(response);
 
         String raw = response.content().stream()
                 .filter(ContentBlock::isText)

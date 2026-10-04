@@ -40,6 +40,7 @@ describe('PromptTestView', () => {
       available: [
         { name: 'HAIKU', version: '4.5' },
         { name: 'SONNET', version: '4.5' },
+        { name: 'SONNET_55', version: '5.5' },
         { name: 'OPUS', version: '4.6' },
       ],
     });
