@@ -4,7 +4,7 @@ You went out for this morning's sunrise on PhotoCast's say-so, and now you want 
 beside the forecast that sent you there — but by the time you are back the Plan tab says "this
 morning has gone" and the Map tab has moved on to tonight. The new **Rewind** sub-tab under
 Operations lists the last three days' sunrises and sunsets, timed across the whole sky roster, and
-one press rewinds the app to an hour before the roster's earliest event time: the whole app
+one press rewinds the app to an hour before the roster's earliest event time — offered only while the current briefing still holds that day, since the briefing is rebuilt for today onward every cycle and the Plan tab cannot show a day the last build dropped: the whole app
 remounts on that moment, that window is live again on the Plan matrix and the Map tab opens on it,
 with its verdict, stars and best bet in place, for the screenshot. A small pill in the bottom-left
 corner names the moment and is the way back to live; so is a reload or a sign-out.

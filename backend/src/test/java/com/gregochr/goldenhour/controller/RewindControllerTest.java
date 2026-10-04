@@ -2,12 +2,15 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -49,6 +52,9 @@ class RewindControllerTest extends AbstractControllerTest {
                 place("Lizard", 49.96, -5.20, LocationType.SEASCAPE),
                 place("Hide", 55.0, -1.6, LocationType.WILDLIFE)));
         when(briefingService.getCachedGeneratedAt()).thenReturn(LocalDateTime.of(2026, 10, 4, 6, 42, 10));
+        // The briefing holds today onward, so today's two events are in it and the older four are not.
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                new BriefingDay(ForecastHorizon.today(Clock.systemUTC()), List.of(), null)));
 
         mockMvc.perform(get("/api/admin/rewind/events"))
                 .andExpect(status().isOk())
@@ -63,6 +69,9 @@ class RewindControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.events[0].latest").value(endsWith("Z")))
                 // The hide is not a sky location, so two of the three are measured.
                 .andExpect(jsonPath("$.events[0].locationCount").value(2))
+                .andExpect(jsonPath("$.events[0].inBriefing").value(true))
+                .andExpect(jsonPath("$.events[1].inBriefing").value(true))
+                .andExpect(jsonPath("$.events[2].inBriefing").value(false))
                 // Two days ago is over whatever the clock says now.
                 .andExpect(jsonPath("$.events[5].passed").value(true));
     }

@@ -79,6 +79,10 @@ export default function RewindView() {
 
   const builtAfter = (event) => data?.briefingGeneratedAt
     && new Date(data.briefingGeneratedAt).getTime() > new Date(event.rewindTo).getTime();
+  // Passed, and its day is still in the current briefing: the briefing is rebuilt for the real
+  // today onward every cycle, and the Plan tab can only show a day that build kept — a rewind to
+  // a day it dropped would restore the Map tab and leave the Plan tab empty (Codex review, #998).
+  const offerable = (event) => event.passed && event.inBriefing;
 
   return (
     <div className="flex flex-col gap-5" data-testid="rewind-view">
@@ -131,7 +135,14 @@ export default function RewindView() {
                     {formatRewindClock(event.earliest)}–{formatRewindClock(event.latest)} UK across
                     {' '}{event.locationCount} {event.locationCount === 1 ? 'location' : 'locations'}
                     {event.passed ? '' : ' · still ahead'}
+                    {event.passed && !event.inBriefing ? ' · no longer in the forecast' : ''}
                   </span>
+                  {event.passed && !event.inBriefing && (
+                    <span className="text-xs text-plex-text-muted" data-testid={`rewind-not-briefed-${key}`}>
+                      The briefing has been rebuilt since and no longer holds this day, so the Plan tab
+                      cannot show it.
+                    </span>
+                  )}
                   {event.passed && builtAfter(event) && (
                     <span className="text-xs text-plex-text-muted" data-testid={`rewind-built-after-${key}`}>
                       Forecast last built {formatRewindClock(data.briefingGeneratedAt)} UK, after this
@@ -142,7 +153,7 @@ export default function RewindView() {
                 <button
                   type="button"
                   data-testid={`rewind-to-${key}`}
-                  disabled={!event.passed}
+                  disabled={!offerable(event)}
                   aria-label={`Rewind to ${formatRewindClock(event.rewindTo)}, before the ${(EVENT_WORD[event.eventType] ?? event.eventType).toLowerCase()} of ${dayLabel(event.date)}`}
                   onClick={() => rewindToEvent(event)}
                   className="rounded bg-plex-surface border border-plex-border px-3 py-1 text-xs font-semibold text-plex-text hover:border-plex-gold disabled:cursor-not-allowed disabled:opacity-40"
@@ -157,7 +168,8 @@ export default function RewindView() {
 
       <div className="flex flex-col gap-2 border-t border-plex-border pt-3">
         <label className="text-xs text-plex-text-muted" htmlFor="rewind-custom">
-          Or a moment of your own, in your browser’s time zone — within the last {MAX_AGE_DAYS} days
+          Or a moment of your own, in your browser’s time zone — within the last {MAX_AGE_DAYS} days.
+          The Plan tab shows only the days the current briefing holds.
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <input

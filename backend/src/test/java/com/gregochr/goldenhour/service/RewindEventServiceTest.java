@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.DisplayName;
@@ -13,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -104,6 +106,43 @@ class RewindEventServiceTest {
         assertThat(events.get(1).eventType()).isEqualTo(TargetType.SUNRISE);
         assertThat(events.get(1).passed()).isTrue();
         assertThat(events.subList(2, 6)).allMatch(RewindEventService.RewindEvent::passed);
+    }
+
+    @Test
+    @DisplayName("inBriefing follows the cached briefing's days: only a date the last build kept can reach "
+            + "the Plan tab")
+    void inBriefingFollowsCachedDays() {
+        when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(
+                place("Durham", 54.78, -1.58, LocationType.LANDSCAPE)));
+        // The ordinary shape after today's first cycle: today..today+3, yesterday gone.
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                briefingDay(TODAY), briefingDay(TODAY.plusDays(1)), briefingDay(TODAY.plusDays(2)),
+                briefingDay(TODAY.plusDays(3))));
+
+        List<RewindEventService.RewindEvent> events = service.events().events();
+
+        assertThat(events).filteredOn(e -> e.date().equals(TODAY))
+                .hasSize(2).allMatch(RewindEventService.RewindEvent::inBriefing);
+        assertThat(events).filteredOn(e -> e.date().isBefore(TODAY))
+                .hasSize(4).noneMatch(RewindEventService.RewindEvent::inBriefing);
+    }
+
+    @Test
+    @DisplayName("with no briefing at all nothing is in the briefing — and a null-dated day is ignored, not a crash")
+    void inBriefingWithoutABriefing() {
+        when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(
+                place("Durham", 54.78, -1.58, LocationType.LANDSCAPE)));
+
+        when(briefingService.getCachedDays()).thenReturn(null);
+        assertThat(service.events().events()).noneMatch(RewindEventService.RewindEvent::inBriefing);
+
+        when(briefingService.getCachedDays()).thenReturn(Arrays.asList(null, briefingDay(null)));
+        assertThat(service.events().events()).noneMatch(RewindEventService.RewindEvent::inBriefing);
+    }
+
+    /** A real, empty briefing day for {@code date} — a record, so no mock is needed or wanted. */
+    private static BriefingDay briefingDay(LocalDate date) {
+        return new BriefingDay(date, List.of(), null);
     }
 
     @Test

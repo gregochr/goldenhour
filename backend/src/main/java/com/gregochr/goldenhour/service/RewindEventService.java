@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.stereotype.Service;
@@ -12,7 +13,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The recent solar events an admin can rewind the app to, with the instant each one should be
@@ -33,6 +36,17 @@ import java.util.List;
  * is normally what was shown at the time, since the pipeline does not re-score a slot once its event
  * has gone, but {@code briefingGeneratedAt} is served beside the events so the admin can see when
  * the briefing was last built relative to the moment they are rewinding to.
+ *
+ * <p>⚠️ <b>The Plan tab can only show a day the current briefing holds.</b> {@code BriefingService
+ * .doRefreshBriefing()} rebuilds the cached payload for the real {@code today..today+3} every cycle,
+ * and the serve path only projects those cached days — a rewound clock cannot reconstruct a
+ * {@code BriefingDay} the last build dropped. So once today's first cycle has run, yesterday's
+ * sunrise is gone from the Plan tab for good, even though the Map tab (which reads
+ * {@code forecast_evaluation} two days back) would still draw it. Each event therefore carries
+ * {@link RewindEvent#inBriefing()}, read off {@link BriefingService#getCachedDays()}, and the
+ * Operations view offers only the events that are both passed and still in the briefing — a
+ * Codex review of #998 found the first cut offered three days of events the Plan tab could not
+ * honour after the next refresh.
  */
 @Service
 public class RewindEventService {
@@ -80,11 +94,12 @@ public class RewindEventService {
         List<LocationEntity> roster = locationRepository.findAllByEnabledTrueOrderByNameAsc().stream()
                 .filter(LocationEntity::hasColourTypes)
                 .toList();
+        Set<LocalDate> briefed = briefedDates();
         List<RewindEvent> events = new ArrayList<>();
         for (int back = 0; back <= PAST_DAYS; back++) {
             LocalDate date = today.minusDays(back);
             for (TargetType type : List.of(TargetType.SUNSET, TargetType.SUNRISE)) {
-                RewindEvent event = eventFor(roster, date, type, now);
+                RewindEvent event = eventFor(roster, date, type, now, briefed.contains(date));
                 if (event != null) {
                     events.add(event);
                 }
@@ -97,8 +112,23 @@ public class RewindEventService {
                 events);
     }
 
+    /** The dates the cached briefing holds a {@code BriefingDay} for; empty when there is no briefing. */
+    private Set<LocalDate> briefedDates() {
+        List<BriefingDay> days = briefingService.getCachedDays();
+        if (days == null) {
+            return Set.of();
+        }
+        Set<LocalDate> dates = new HashSet<>();
+        for (BriefingDay day : days) {
+            if (day != null && day.date() != null) {
+                dates.add(day.date());
+            }
+        }
+        return dates;
+    }
+
     private RewindEvent eventFor(List<LocationEntity> roster, LocalDate date, TargetType type,
-            LocalDateTime now) {
+            LocalDateTime now, boolean inBriefing) {
         LocalDateTime earliest = null;
         LocalDateTime latest = null;
         int count = 0;
@@ -125,6 +155,7 @@ public class RewindEventService {
                 latest.toInstant(ZoneOffset.UTC),
                 earliest.minusMinutes(LEAD_MINUTES).toInstant(ZoneOffset.UTC),
                 PlanWindowProjector.hasPassed(latest, now),
+                inBriefing,
                 count);
     }
 
@@ -150,8 +181,11 @@ public class RewindEventService {
      * @param passed        whether the window has gone by the Plan tab's own elapsed rule
      *                      ({@link PlanWindowProjector#hasPassed}, afterglow included) at the
      *                      roster's latest event time
+     * @param inBriefing    whether the cached briefing still holds this date — only then can the
+     *                      Plan tab show the window (see the class javadoc); false when there is
+     *                      no briefing at all
      * @param locationCount how many enabled sky locations the times were measured across
      */
     public record RewindEvent(LocalDate date, TargetType eventType, Instant earliest, Instant latest,
-            Instant rewindTo, boolean passed, int locationCount) { }
+            Instant rewindTo, boolean passed, boolean inBriefing, int locationCount) { }
 }

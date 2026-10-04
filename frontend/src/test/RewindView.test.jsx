@@ -19,11 +19,11 @@ const EVENTS = {
   briefingGeneratedAt: '2026-10-04T06:42:00Z',
   events: [
     { date: '2026-10-04', eventType: 'SUNSET', earliest: '2026-10-04T17:35:00Z', latest: '2026-10-04T17:58:00Z',
-      rewindTo: '2026-10-04T16:35:00Z', passed: false, locationCount: 2 },
+      rewindTo: '2026-10-04T16:35:00Z', passed: false, inBriefing: true, locationCount: 2 },
     { date: '2026-10-04', eventType: 'SUNRISE', earliest: '2026-10-04T05:58:00Z', latest: '2026-10-04T06:21:00Z',
-      rewindTo: '2026-10-04T04:58:00Z', passed: true, locationCount: 2 },
+      rewindTo: '2026-10-04T04:58:00Z', passed: true, inBriefing: true, locationCount: 2 },
     { date: '2026-10-03', eventType: 'SUNSET', earliest: '2026-10-03T17:37:00Z', latest: '2026-10-03T18:00:00Z',
-      rewindTo: '2026-10-03T16:37:00Z', passed: true, locationCount: 2 },
+      rewindTo: '2026-10-03T16:37:00Z', passed: true, inBriefing: true, locationCount: 2 },
   ],
 };
 
@@ -59,6 +59,17 @@ describe('RewindView', () => {
     const button = await screen.findByTestId('rewind-to-2026-10-04-SUNSET');
     expect(button).toBeDisabled();
     expect(screen.getByTestId('rewind-event-2026-10-04-SUNSET')).toHaveTextContent('still ahead');
+  });
+
+  it('a passed event whose day the briefing no longer holds cannot be rewound to, and says why', async () => {
+    getRewindEvents.mockResolvedValue({
+      ...EVENTS, events: [{ ...EVENTS.events[2], inBriefing: false }],
+    });
+    render(<RewindView />);
+    const button = await screen.findByTestId('rewind-to-2026-10-03-SUNSET');
+    expect(button).toBeDisabled();
+    expect(screen.getByTestId('rewind-event-2026-10-03-SUNSET')).toHaveTextContent('no longer in the forecast');
+    expect(screen.getByTestId('rewind-not-briefed-2026-10-03-SUNSET')).toHaveTextContent('Plan tab cannot show it');
   });
 
   it('Rewind to … sets the rewind to the served instant with the event as the map focus', async () => {
