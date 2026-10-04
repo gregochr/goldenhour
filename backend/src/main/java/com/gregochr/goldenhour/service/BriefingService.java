@@ -429,6 +429,18 @@ public class BriefingService {
     }
 
     /**
+     * When the cached briefing was built (UTC), read straight off the raw cache with no overlay —
+     * for a caller that wants the build time alone and must not pay for, or be affected by, the
+     * live hot-topic and aurora overlays {@link #getCachedBriefing()} applies.
+     *
+     * @return the cached briefing's {@code generatedAt}, or null if no briefing has been generated
+     */
+    public LocalDateTime getCachedGeneratedAt() {
+        DailyBriefingResponse cached = cache.get();
+        return cached != null ? cached.generatedAt() : null;
+    }
+
+    /**
      * Refreshes the daily briefing, <b>waiting</b> for any refresh already in progress to finish
      * first — so it always runs a build of its own, and never alongside another.
      *

@@ -14,6 +14,7 @@ import TravelDaysView from './TravelDaysView.jsx';
 import SkyRatingEvalView from './SkyRatingEvalView.jsx';
 import PipelineRunsView from './PipelineRunsView.jsx';
 import HotTopicSimulation from './HotTopicSimulation.jsx';
+import RewindView from './RewindView.jsx';
 import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
 
@@ -43,6 +44,7 @@ const GROUPS = [
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
       { value: 'hottopics', label: 'Hot Topics' },
+      { value: 'rewind', label: 'Rewind' },
     ],
   },
 ];
@@ -256,6 +258,13 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Hot topic simulation</p>
             <HotTopicSimulation />
+          </div>
+        )}
+
+        {activeTab === 'rewind' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Rewind</p>
+            <RewindView />
           </div>
         )}
       </div>

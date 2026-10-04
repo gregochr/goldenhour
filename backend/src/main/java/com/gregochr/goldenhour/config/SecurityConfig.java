@@ -41,6 +41,7 @@ public class SecurityConfig {
     private static final Logger LOG = LoggerFactory.getLogger(SecurityConfig.class);
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RewindFilter rewindFilter;
 
     /** Additional allowed CORS origins (e.g. public production frontend URLs). Comma-separated. */
     @Value("${cors.extra-origins:}")
@@ -78,7 +79,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter,
-                        UsernamePasswordAuthenticationFilter.class);
+                        UsernamePasswordAuthenticationFilter.class)
+                // After JWT authentication so it can read the caller's role: the header is
+                // honoured for admins only, and for GET only.
+                .addFilterAfter(rewindFilter, JwtAuthenticationFilter.class);
 
         // Allow H2 console frames in the local profile
         http.headers(headers -> headers.frameOptions(fo -> fo.sameOrigin()));
@@ -109,7 +113,7 @@ public class SecurityConfig {
         }
         config.setAllowedOriginPatterns(patterns);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", RewindFilter.HEADER));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", config);
         source.registerCorsConfiguration("/actuator/health", config);

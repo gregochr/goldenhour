@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useForecasts } from '../hooks/useForecasts.js';
-import { writeSwrCache } from '../utils/swrCache.js';
+import { storageKey, writeSwrCache } from '../utils/swrCache.js';
+import { setRewind } from '../utils/rewind.js';
 
 vi.mock('../api/forecastApi', () => ({
   fetchForecasts: vi.fn(),
@@ -282,6 +283,35 @@ describe('useForecasts', () => {
 
     resolveForecasts([BAMBURGH_FORECAST]);
     await waitFor(() => expect(fetchForecasts).toHaveBeenCalledTimes(1));
+  });
+
+  it('under an admin rewind the cache is neither painted from nor written to, and the live entry survives the round trip', async () => {
+    // A LIVE payload a previous session left behind.
+    writeSwrCache('forecasts:PRO_USER', {
+      forecasts: [BAMBURGH_FORECAST], locationMeta: [LANDSCAPE_LOCATION], outcomes: [],
+    });
+    const liveEntry = localStorage.getItem(storageKey('forecasts:PRO_USER'));
+    expect(liveEntry).not.toBeNull();
+    // The REWOUND fetch answers with a different roster, so a write would be visible.
+    const rewoundLocation = { ...LANDSCAPE_LOCATION, id: 99, name: 'Rewound Crag' };
+    fetchForecasts.mockResolvedValue([{ ...BAMBURGH_FORECAST, locationName: 'Rewound Crag' }]);
+    fetchLocations.mockResolvedValue([rewoundLocation]);
+    try {
+      setRewind('2026-10-04T04:58:00Z');
+      const { result } = renderHook(() => useForecasts());
+
+      // Not hydrated: the live payload must not paint a rewound page.
+      expect(result.current.loading).toBe(true);
+      expect(result.current.locations).toEqual([]);
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.locations.map((l) => l.name)).toEqual(['Rewound Crag']);
+      // Not written: the live entry is untouched, byte for byte.
+      expect(localStorage.getItem(storageKey('forecasts:PRO_USER'))).toBe(liveEntry);
+    } finally {
+      setRewind(null);
+    }
+    expect(localStorage.getItem(storageKey('forecasts:PRO_USER'))).toBe(liveEntry);
   });
 
   it("surfaces the server's error sentence, not axios's generic message, on a refused cold load", async () => {

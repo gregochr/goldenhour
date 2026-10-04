@@ -1,4 +1,5 @@
 import { formatEventTimeUk } from './conversions.js';
+import { appNow } from './rewind.js';
 
 /**
  * Shared briefing display vocabulary — the ordering, classification, and
@@ -164,14 +165,14 @@ const SUNRISE_ELAPSED_BY_HOUR = 12;
 
 /** Today's ISO date in the forecast's own timezone. */
 function londonToday() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(appNow());
 }
 
 /** Current hour (0–23) in the forecast's own timezone. */
 function londonHour() {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/London', hour: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date());
+  }).formatToParts(appNow());
   return Number(parts.find((p) => p.type === 'hour')?.value);
 }
 
@@ -219,5 +220,8 @@ function isUndatedEventPast(dateStr, targetType) {
 export function isEventPast(es, dateStr = null) {
   const t = getEventTime(es);
   if (!t) return isUndatedEventPast(dateStr, es?.targetType);
-  return new Date(t + 'Z').getTime() + AFTERGLOW_MS < Date.now();
+  // The app clock, not `Date.now()`: under an admin's rewind (`utils/rewind.js`) this is the
+  // instant the page is rendering as of, so a sunrise the server kept because it had not yet
+  // happened THEN is not retired here because it has happened NOW.
+  return new Date(t + 'Z').getTime() + AFTERGLOW_MS < appNow().getTime();
 }

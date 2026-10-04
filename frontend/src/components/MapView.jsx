@@ -21,6 +21,7 @@ import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingS
 import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
 import { isNightOver, resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { appNow } from '../utils/rewind.js';
 import {
   LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, isWildlifeOnly,
 } from '../utils/locationTypes.js';
@@ -1055,7 +1056,7 @@ const MAP_FILTER_CHIPS = DISPLAY_TYPES.map((type) => [type, LOCATION_TYPE_META[t
  * @returns {string} 'SUNRISE' or 'SUNSET'.
  */
 function getNextEventType(locations, date) {
-  const now = new Date();
+  const now = appNow();
   // UK calendar — `date` is a backend date keyed to Europe/London, so judging it on the browser's
   // zone made a reader outside the UK take the future-date branch on the actual current day.
   const todayStr = ukDateStr(now);

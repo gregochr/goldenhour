@@ -12,6 +12,7 @@ import {
   isEventPast,
   AFTERGLOW_MS,
 } from '../utils/briefingDisplay.js';
+import { setRewind } from '../utils/rewind.js';
 
 describe('briefingDisplay', () => {
   afterEach(() => {
@@ -135,6 +136,25 @@ describe('briefingDisplay', () => {
       expect(isEventPast(es)).toBe(false);
       vi.setSystemTime(eventMs + AFTERGLOW_MS + 1000);
       expect(isEventPast(es)).toBe(true);
+    });
+
+    it('isEventPast reads the admin rewind, so a sunrise that has gone NOW is still ahead THEN', () => {
+      // 09:30 on the day: the 05:20 sunrise is long gone on the wall clock…
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-16T09:30:00Z'));
+      const sunrise = { targetType: 'SUNRISE', solarEventTime: '2026-07-16T05:20:00', regions: [], unregioned: [] };
+      expect(isEventPast(sunrise, '2026-07-16')).toBe(true);
+      try {
+        // …but rewound to an hour before it, it has not happened yet.
+        setRewind('2026-07-16T04:20:00Z');
+        expect(isEventPast(sunrise, '2026-07-16')).toBe(false);
+        // The dated fallback for a payload with no time reads the same clock: before noon UK, a
+        // same-day sunrise with no time is still current.
+        expect(isEventPast({ targetType: 'SUNRISE', regions: [], unregioned: [] }, '2026-07-16')).toBe(false);
+      } finally {
+        setRewind(null);
+      }
+      expect(isEventPast(sunrise, '2026-07-16')).toBe(true);
     });
 
     it('getEventTime falls back to the summary time when every slot was withdrawn', () => {

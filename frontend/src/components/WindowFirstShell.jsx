@@ -1003,6 +1003,8 @@ export default function WindowFirstShell({
   // left undefended deliberately, because the only way a key leaves `windowCards` is the past-event
   // filter or the travel-day set, and `isEventPast` is monotonic in time: an event that has passed
   // does not come back. Fighting the linter for a state the clock cannot produce is the wrong trade.
+  // (An admin's rewind — `utils/rewind.js` — is the one thing that moves the clock backwards, and
+  // it remounts the whole app rather than relying on this: see `RewindGate` in `App.jsx`.)
   /**
    * Location name → its {@code locationType} array, for the sheet's type control.
    *

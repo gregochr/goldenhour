@@ -157,15 +157,18 @@ public class AppConfig {
     }
 
     /**
-     * Provides a system-UTC {@link Clock} for services that need an injectable clock
-     * (used by the pipeline orchestrator and pipeline run service so tests can run
-     * deterministically against a fixed instant).
+     * Provides the application {@link Clock}: system UTC, wrapped in a {@link RewindAwareClock} so
+     * an admin's {@code X-Rewind-To} request header ({@link RewindFilter}) can turn every
+     * serve-time "now" back to an earlier moment for the span of that one GET. Off a request
+     * thread, and on any request without that header, it is exactly {@code Clock.systemUTC()}.
+     * Injected wherever a service needs a clock (the pipeline orchestrator and pipeline run
+     * service among them) so tests can pin a fixed instant.
      *
-     * @return a system UTC clock
+     * @return a rewind-aware system UTC clock
      */
     @Bean
     public Clock clock() {
-        return Clock.systemUTC();
+        return new RewindAwareClock(Clock.systemUTC());
     }
 
     /**

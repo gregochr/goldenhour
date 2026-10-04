@@ -27,6 +27,8 @@
  * The two modules answer different questions and neither belongs inside the other, but a second
  * spelling of the zone is a second thing to get wrong.
  */
+import { appNow } from './rewind.js';
+
 export const UK_ZONE = 'Europe/London';
 
 /**
@@ -126,7 +128,7 @@ function fromUtcNoon(ms) {
  * @param {Date} [now] - the instant to read; injectable so tests can pin it
  * @returns {string} the UK calendar date as YYYY-MM-DD
  */
-export function ukDateStr(now = new Date()) {
+export function ukDateStr(now = appNow()) {
   return UK_DATE_FORMAT.format(now);
 }
 
@@ -153,7 +155,7 @@ export function ukDateStr(now = new Date()) {
  * @param {Date} [now] - the instant to read; injectable so tests can pin it
  * @returns {number} the hour on the UK clock, 0–23
  */
-export function ukHour(now = new Date()) {
+export function ukHour(now = appNow()) {
   const hour = UK_HOUR_FORMAT.formatToParts(now).find((part) => part.type === 'hour');
   return Number(hour.value);
 }
@@ -170,7 +172,7 @@ export function ukHour(now = new Date()) {
  * @param {Date} [now]  - the instant to read; injectable so tests can pin it
  * @returns {string} the offset UK calendar date as YYYY-MM-DD
  */
-export function ukDateStrOffset(days, now = new Date()) {
+export function ukDateStrOffset(days, now = appNow()) {
   return fromUtcNoon(utcNoon(ukDateStr(now), days));
 }
 
@@ -186,7 +188,7 @@ export function ukDateStrOffset(days, now = new Date()) {
  * @param {Date} [now]     - the instant "today" is read from; injectable for tests
  * @returns {number} whole days ahead (0 = today, 1 = tomorrow, -1 = yesterday)
  */
-export function ukDayOffset(dateStr, now = new Date()) {
+export function ukDayOffset(dateStr, now = appNow()) {
   return Math.round((utcNoon(dateStr) - utcNoon(ukDateStr(now))) / DAY_MS);
 }
 
@@ -232,7 +234,7 @@ export function ukDayOffset(dateStr, now = new Date()) {
  *   for tests
  * @returns {string} the current night's date as YYYY-MM-DD
  */
-export function resolveAuroraNight(auroraStatus, now = new Date()) {
+export function resolveAuroraNight(auroraStatus, now = appNow()) {
   const night = auroraStatus?.currentNightDate;
   return night && isStillCurrent(auroraStatus.currentNightEndsAt, now) ? night : ukDateStr(now);
 }
