@@ -54,6 +54,14 @@ public class PromptBuilder {
      * earlier revision of this javadoc cited "16,318 characters", which matches neither prompt nor
      * either byte length — it is not a measurement anything in this tree reproduces.
      *
+     * <p><b>Measured 2026-10-04</b> ({@code SystemPromptTokenCountTest}, {@code count_tokens} on
+     * {@code claude-haiku-4-5-20251001}): the inland prompt is 17,920 characters and 4,726 tokens
+     * (3.79 chars/token), the coastal 18,179 and 4,779 (3.80). At that ratio 15,500 characters is
+     * about 4,090 tokens, i.e. <em>just under</em> the 4,096 floor, so this constant does not by
+     * itself guarantee cacheability; the live prompts clear it with ~15% to spare because they have
+     * grown well past it, not because the constant is tight. The earlier ~3.75 figure above came
+     * from production usage on a shorter prompt.
+     *
      * <p>The floor here is deliberately the <em>cacheability</em> boundary rather than today's
      * length, so ordinary rewording is free and only a real reduction fails. It is a
      * <b>proxy, not an oracle</b>: characters per token vary with content, so a rewrite that is

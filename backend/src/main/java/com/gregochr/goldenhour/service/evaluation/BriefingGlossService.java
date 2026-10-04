@@ -233,10 +233,7 @@ public class BriefingGlossService {
 
             parseGlossResponse(item, raw.strip());
             var usage = response.usage();
-            TokenUsage tokenUsage = usage == null ? null : new TokenUsage(
-                    usage.inputTokens(), usage.outputTokens(),
-                    usage.cacheCreationInputTokens().orElse(0L),
-                    usage.cacheReadInputTokens().orElse(0L));
+            TokenUsage tokenUsage = usage == null ? null : TokenUsage.from(usage);
             // Pass the token usage so the successful gloss call records its real cost, not £0.
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-gloss", null,

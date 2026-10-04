@@ -40,7 +40,7 @@ public class CostCalculator {
         }
         long cost = microDollarsForTokens(usage.inputTokens(), getInputRate(model))
                 + microDollarsForTokens(usage.outputTokens(), getOutputRate(model))
-                + microDollarsForTokens(usage.cacheCreationInputTokens(), getCacheWriteRate(model))
+                + cacheWriteMicroDollars(model, usage)
                 + microDollarsForTokens(usage.cacheReadInputTokens(), getCacheReadRate(model));
         return isBatch ? cost / 2 : cost;
     }
@@ -91,6 +91,18 @@ public class CostCalculator {
         return credits * costProperties.getWorldTidesMicroDollarsPerCredit();
     }
 
+    /**
+     * Prices cache writes by lifetime: the 1-hour portion at the 1-hour rate (2x input), the
+     * remainder at the 5-minute rate (1.25x input). The 1-hour portion is clamped into the total
+     * so a malformed breakdown can never price more tokens than were written.
+     */
+    private long cacheWriteMicroDollars(EvaluationModel model, TokenUsage usage) {
+        long total = Math.max(0, usage.cacheCreationInputTokens());
+        long oneHour = Math.max(0, Math.min(usage.cacheCreationOneHourTokens(), total));
+        return microDollarsForTokens(oneHour, getCacheWrite1hRate(model))
+                + microDollarsForTokens(total - oneHour, getCacheWriteRate(model));
+    }
+
     private long microDollarsForTokens(long tokens, double usdPerMTok) {
         return Math.round((double) tokens * usdPerMTok);
     }
@@ -118,6 +130,15 @@ public class CostCalculator {
             case HAIKU -> costProperties.getHaikuCacheWriteUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheWriteUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheWriteUsdPerMtok();
+            case FREE -> 0.0;
+        };
+    }
+
+    private double getCacheWrite1hRate(EvaluationModel model) {
+        return switch (model.pricingTier()) {
+            case HAIKU -> costProperties.getHaikuCacheWrite1hUsdPerMtok();
+            case SONNET -> costProperties.getSonnetCacheWrite1hUsdPerMtok();
+            case OPUS -> costProperties.getOpusCacheWrite1hUsdPerMtok();
             case FREE -> 0.0;
         };
     }

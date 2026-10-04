@@ -701,6 +701,7 @@
                         <param>com.gregochr.goldenhour.service.evaluation.BestBetAuroraPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.PromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.eval.SkyRatingEvalTest</param>
+                        <param>com.gregochr.goldenhour.service.evaluation.SystemPromptTokenCountTest</param>
                     </excludedTestClasses>
                     <excludedGroups>
                         <param>prompt-regression</param>

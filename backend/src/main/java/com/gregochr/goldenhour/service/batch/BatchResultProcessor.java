@@ -166,6 +166,7 @@ public class BatchResultProcessor {
         long totalOutput = 0;
         long totalCacheRead = 0;
         long totalCacheCreate = 0;
+        long totalCacheCreate1h = 0;
         String firstModelId = null;
         Map<String, Integer> errorTypeCounts = new HashMap<>();
         boolean firstError = true;
@@ -247,12 +248,14 @@ public class BatchResultProcessor {
                 long output = usage.outputTokens();
                 long cacheRead = usage.cacheReadInputTokens().orElse(0L);
                 long cacheCreate = usage.cacheCreationInputTokens().orElse(0L);
+                long cacheCreate1h = TokenUsage.oneHourCacheWrite(usage);
                 LOG.info("Batch token usage [{}]: input={}, output={}, cacheRead={}, cacheCreate={}",
                         customId, input, output, cacheRead, cacheCreate);
                 totalInput += input;
                 totalOutput += output;
                 totalCacheRead += cacheRead;
                 totalCacheCreate += cacheCreate;
+                totalCacheCreate1h += cacheCreate1h;
 
                 ParsedCustomId parsed;
                 try {
@@ -319,7 +322,7 @@ public class BatchResultProcessor {
                     continue;
                 }
 
-                TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead);
+                TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead, cacheCreate1h);
                 EvaluationModel model = resolveEvaluationModel(message.model().asString());
                 ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                         customId, text, tokens, model);
@@ -425,7 +428,7 @@ public class BatchResultProcessor {
         batch.setStatus(succeeded > 0 ? BatchStatus.COMPLETED : BatchStatus.FAILED);
 
         persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
-                firstModelId);
+                totalCacheCreate1h, firstModelId);
 
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
@@ -452,6 +455,7 @@ public class BatchResultProcessor {
         long totalOutput = 0;
         long totalCacheRead = 0;
         long totalCacheCreate = 0;
+        long totalCacheCreate1h = 0;
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -480,6 +484,7 @@ public class BatchResultProcessor {
                     totalOutput = usage.outputTokens();
                     totalCacheRead = usage.cacheReadInputTokens().orElse(0L);
                     totalCacheCreate = usage.cacheCreationInputTokens().orElse(0L);
+                    totalCacheCreate1h = TokenUsage.oneHourCacheWrite(usage);
                     LOG.info("Batch token usage [{}]: input={}, output={}, cacheRead={}, "
                             + "cacheCreate={}", customId, totalInput, totalOutput,
                             totalCacheRead, totalCacheCreate);
@@ -511,7 +516,8 @@ public class BatchResultProcessor {
         ResultContext context = ResultContext.forBatch(
                 batch.getJobRunId(), batch.getAnthropicBatchId(), null);
         EvaluationModel model = resolveEvaluationModel(auroraModelId);
-        TokenUsage tokens = new TokenUsage(totalInput, totalOutput, totalCacheCreate, totalCacheRead);
+        TokenUsage tokens = new TokenUsage(totalInput, totalOutput, totalCacheCreate, totalCacheRead,
+                totalCacheCreate1h);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 customId, rawResponse, tokens, model);
 
@@ -531,7 +537,7 @@ public class BatchResultProcessor {
         batch.setStatus(BatchStatus.COMPLETED);
 
         persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
-                auroraModelId);
+                totalCacheCreate1h, auroraModelId);
 
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
@@ -625,7 +631,7 @@ public class BatchResultProcessor {
      * Persists token usage totals and estimated cost on the batch entity.
      */
     private void persistTokenUsage(ForecastBatchEntity batch, long totalInput, long totalOutput,
-            long totalCacheRead, long totalCacheCreate, String modelId) {
+            long totalCacheRead, long totalCacheCreate, long totalCacheCreate1h, String modelId) {
         if (totalInput == 0 && totalOutput == 0) {
             return;
         }
@@ -637,7 +643,7 @@ public class BatchResultProcessor {
 
         EvaluationModel evalModel = resolveEvaluationModel(modelId);
         TokenUsage tokenUsage = new TokenUsage(totalInput, totalOutput, totalCacheCreate,
-                totalCacheRead);
+                totalCacheRead, totalCacheCreate1h);
         long costMicroDollars = costCalculator.calculateCostMicroDollars(evalModel, tokenUsage, true);
         BigDecimal costUsd = BigDecimal.valueOf(costMicroDollars)
                 .divide(BigDecimal.valueOf(1_000_000), 6, RoundingMode.HALF_UP);

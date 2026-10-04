@@ -371,11 +371,7 @@ public class EvaluationServiceImpl implements EvaluationService {
 
     private TokenUsage extractTokens(Message response) {
         var u = response.usage();
-        return new TokenUsage(
-                u.inputTokens(),
-                u.outputTokens(),
-                u.cacheCreationInputTokens().orElse(0L),
-                u.cacheReadInputTokens().orElse(0L));
+        return TokenUsage.from(u);
     }
 
     // Narrows a homogeneous task list to its concrete type. submit() has already proven every

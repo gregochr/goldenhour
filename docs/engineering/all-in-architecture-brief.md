@@ -287,9 +287,9 @@ the 2–4 hours until the tail refresh lands, because `daily_briefing_cache` bac
 3. **Copt Hill must stay correct.** Its solar low is **7%**, not 88% — misreading that field inverts
    the whole conclusion. It clears both veto triggers by 10pp (trend rise 30 vs 20; upwind 70 vs 60).
 4. **`SystemPromptCacheabilityTest`** pins the system prompt at ≥ 15,500 chars. Haiku 4.5's minimum
-   cacheable prefix is **4,096 tokens** and the prompt clears it by ~5%. Shortening it silently
-   disables caching on every far-term evaluation. Bluebell (~1,020 tok) and woodland (~1,270 tok) are
-   already below the floor — their `cache_control` is inert, deliberately.
+   cacheable prefix is **4,096 tokens** and the prompt clears it by ~15% (measured 4,726 inland,
+   4,779 coastal, 2026-10-04). Shortening it silently disables caching on every far-term evaluation.
+   Bluebell (968 tok) and woodland (1,190 tok, measured) are already below the floor — their `cache_control` is inert, deliberately.
 5. **Never transform a cloud value at the point of record.** `DirectionalCloudDetails` feeds
    `forecast_evaluation.solar_low_cloud`, which is the verification harness's own input. A transform
    there would make the bias read as zero and destroy the instrument.

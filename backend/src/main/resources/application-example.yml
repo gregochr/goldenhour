@@ -51,14 +51,17 @@ cost:
   haiku-input-usd-per-mtok: 1.00
   haiku-output-usd-per-mtok: 5.00
   haiku-cache-write-usd-per-mtok: 1.25
+  haiku-cache-write-1h-usd-per-mtok: 2.00   # 2x input; the 1-hour cache lifetime
   haiku-cache-read-usd-per-mtok: 0.10
   sonnet-input-usd-per-mtok: 3.00
   sonnet-output-usd-per-mtok: 15.00
   sonnet-cache-write-usd-per-mtok: 3.75
+  sonnet-cache-write-1h-usd-per-mtok: 6.00   # 2x input; the 1-hour cache lifetime
   sonnet-cache-read-usd-per-mtok: 0.30
   opus-input-usd-per-mtok: 5.00
   opus-output-usd-per-mtok: 25.00
   opus-cache-write-usd-per-mtok: 6.25
+  opus-cache-write-1h-usd-per-mtok: 10.00   # 2x input; the 1-hour cache lifetime
   opus-cache-read-usd-per-mtok: 0.50
   # Non-Anthropic flat costs (micro-dollars)
   world-tides-micro-dollars: 3000   # ~$0.003 per call
