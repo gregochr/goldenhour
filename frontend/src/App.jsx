@@ -22,6 +22,11 @@ import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
 import { createColourSaveQueue, keepColourSaveLineOpen } from './utils/colourSaveQueue.js';
 import { resolveInitialTab } from './utils/initialTab.js';
+import { appNow } from './utils/rewind.js';
+import { useRewind } from './hooks/useRewind.js';
+import { setRewind } from './utils/rewind.js';
+import { clearForecastDetailCache } from './api/forecastApi.js';
+import RewindPill from './components/RewindPill.jsx';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
@@ -96,8 +101,30 @@ function AuthGate() {
   if (mustChangePassword) {
     return <ChangePasswordPage />;
   }
+  return <RewindGate />;
+}
+
+/**
+ * Remounts the whole authenticated app whenever an admin sets or clears a rewind
+ * (`utils/rewind.js`), so every clock read that happens once at mount — the Map tab's default
+ * event, the Plan provider's SWR hydrate, the shell's "a passed window never comes back" assumption
+ * — is re-evaluated against the rewound clock rather than patched one site at a time. The cost is a
+ * reload-shaped reset of the UI (tab, selection, open dialogs) at the moment of the rewind, which is
+ * the one moment the admin expects one: they have just asked for a different page.
+ */
+function RewindGate() {
+  const rewind = useRewind();
+  // A rewind is an admin's, for this signed-in page alone: it ends when the authenticated tree does
+  // (sign-out, session expiry). Cleared HERE, on unmount, rather than in `AuthContext`'s own
+  // sign-out path, because a store write there lands before `setToken(null)` and re-keys this gate
+  // while the token is already gone — one remount of the whole app with no Authorization header,
+  // every mount fetch a 401, and a spurious session-expired event out of the refresh interceptor.
+  useEffect(() => () => setRewind(null), []);
+  // The lazily-fetched popup detail is keyed by row id and should be clock-free, but nothing pins
+  // that; dropping it on every change is free and keeps a rewound row from outliving the rewind.
+  useEffect(() => { clearForecastDetailCache(); }, [rewind?.to]);
   return (
-    <AuroraStatusProvider>
+    <AuroraStatusProvider key={rewind?.to ?? 'live'}>
       <AppInner />
     </AuroraStatusProvider>
   );
@@ -108,6 +135,10 @@ function AuthGate() {
  */
 function AppInner() {
   const { isAdmin, logout, token } = useAuth();
+  // The admin's rewind, if any. Read ONCE per mount for the two seeds below (`RewindGate` remounts
+  // this component on every change, so a mount always sees the rewind it was mounted for) and
+  // live for the pill.
+  const rewind = useRewind();
   const [showSettings, setShowSettings] = useState(false);
   /**
    * The device's opening tab (default-tab-by-device-plan.md §4.2) — Plan on a phone, Map on
@@ -157,6 +188,11 @@ function AppInner() {
   /** Map overlay opened over the Plan tab (null = closed). Reuses the same handoff/date as the Map tab. */
   const [mapOverlay, setMapOverlay] = useState(null);
   /** Monotonic counter so repeat taps on the same location re-trigger the handoff. */
+  // Nonce -1 is reserved for the rewind seed `mapTabHandoff` below is initialised with, so the
+  // first live handoff (nonce 0) can never repeat the seed's nonce and be swallowed by the keyed
+  // effect. Not "start at 1": `AppOpenMapTabFromPlan.test.jsx` proves the handoff and tab-request
+  // nonces are separate refs by their inequality on the first door, and starting here at 1 made
+  // them coincide.
   const handoffNonce = useRef(0);
 
   /** Briefing evaluation scores lifted from the Plan shell, passed to MapView. */
@@ -231,7 +267,10 @@ function AppInner() {
    */
   const todaysLight = useTodaysLight(homeSettingsVersion);
 
-  const [selectedDate, setSelectedDate] = useState(null);
+  // Seeded with the rewind's own window when there is one: the admin rewound to a particular
+  // sunrise or sunset, and the map should open on it rather than on the default the clock would
+  // pick (which, pre-dawn, is today's SUNSET — `computeAutoSelection` never chooses a sunrise).
+  const [selectedDate, setSelectedDate] = useState(rewind?.focus?.date ?? null);
   /**
    * Whether {@code selectedDate} NAMES A NIGHT — the aurora banner's route — rather than a calendar
    * day. Carried beside the date because `resolveMapDate`'s never-past exemption keys on the
@@ -284,7 +323,7 @@ function AppInner() {
   // Auto-select the next solar event using forecast data + a 30-min afterglow buffer.
   // Returns null when forecast data isn't loaded yet (fallback to default behaviour).
   const autoSelection = useMemo(
-    () => visibleLocations.length === 0 ? null : computeAutoSelection(visibleLocations, new Date()),
+    () => visibleLocations.length === 0 ? null : computeAutoSelection(visibleLocations, appNow()),
     [visibleLocations],
   );
 
@@ -387,7 +426,17 @@ function AppInner() {
    * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it, which
    * is the hatch below and nothing else. Every other handoff belongs to the overlay.
    */
-  const [mapTabHandoff, setMapTabHandoff] = useState(null);
+  const [mapTabHandoff, setMapTabHandoff] = useState(() => (rewind?.focus ? {
+    // The rewind's window, as a map-sourced handoff: `source: 'map'` is the one shape that selects
+    // a window as an EXPLICIT choice (so the auto-selection effect cannot replace it a tick later)
+    // while carrying no lens — no floor, tier, scope or camera to overwrite, and no `tabRequest`,
+    // since `initialTab` already decides where the page opens.
+    source: 'map',
+    eventType: rewind.focus.eventType,
+    date: rewind.focus.date,
+    locationName: null,
+    nonce: -1, // reserved for this seed — see `handoffNonce` above
+  } : null));
 
   /**
    * Close the overlay and hand off to the full Map tab, landing where the overlay was focused.
@@ -577,6 +626,7 @@ function AppInner() {
           root above is not `display:flex` there, so these flex-only classes do nothing). */}
       <div className={isMapTabActive ? 'flex-shrink-0' : undefined}>
         <SessionExpiryBanner />
+        {isAdmin && rewind && <RewindPill rewind={rewind} />}
         <div className="max-w-4xl mx-auto px-4 mt-4">
           <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
           <div className="mt-2">

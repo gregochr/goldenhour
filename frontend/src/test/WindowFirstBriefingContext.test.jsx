@@ -13,6 +13,7 @@ import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getReach, getSettings } from '../api/settingsApi.js';
 import { fetchRegions, fetchRegionDriveTimes } from '../api/regionApi.js';
 import { storageKey, writeSwrCache } from '../utils/swrCache.js';
+import { setRewind } from '../utils/rewind.js';
 import { PLAN_RATING_KEY } from '../utils/ratingLens.js';
 import { PLAN_REACH_KEY } from '../utils/reachLens.js';
 
@@ -359,6 +360,31 @@ describe('WindowFirstBriefingProvider', () => {
 
     expect(screen.getByTestId('loading')).toHaveTextContent('false');
     expect(screen.getByTestId('strip-days')).toHaveTextContent('1');
+  });
+
+  it('under an admin rewind the cache is neither painted from nor written to, and the live entry survives', async () => {
+    writeSwrCache(CACHE_KEY, payloadFor(TODAY));
+    const liveEntry = localStorage.getItem(storageKey(CACHE_KEY));
+    // The rewound answer differs from the live one (a later build), so a write would show.
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY, { generatedAt: '2026-10-04T04:00:00' }));
+    try {
+      // Rewound to the small hours of the fixture's own day, so its windows are still ahead.
+      setRewind(`${TODAY}T03:00:00Z`);
+      renderProvider();
+
+      // Not hydrated: a cold, loading mount rather than the live briefing's instant paint.
+      expect(screen.getByTestId('loading')).toHaveTextContent('true');
+      expect(screen.getByTestId('strip-days')).toHaveTextContent('0');
+
+      await screen.findByText('Worth it');
+      expect(screen.getByTestId('loading')).toHaveTextContent('false');
+      expect(screen.getByTestId('generated')).toHaveTextContent('2026-10-04T04:00:00'); // the rewound answer landed
+      // Not written: the live entry is untouched.
+      expect(localStorage.getItem(storageKey(CACHE_KEY))).toBe(liveEntry);
+    } finally {
+      await act(async () => setRewind(null));
+    }
+    expect(localStorage.getItem(storageKey(CACHE_KEY))).toBe(liveEntry);
   });
 
   it('keys the cache by role, so one account never paints another\'s briefing', async () => {

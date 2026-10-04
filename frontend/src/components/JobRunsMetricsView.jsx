@@ -394,7 +394,9 @@ const JobRunsMetricsView = ({
         // may have meant either the day or the date, and guessing is how a wrong exclusion goes
         // out. Index 0 is the UK today by construction, so its date IS the staleness test — no
         // second stored field to fall out of step with the slots themselves.
-        if (resolvedSlots?.length && resolvedSlots[0].date !== ukDateStr()) {
+        // `new Date()` explicitly: Operations reads the REAL clock, never an admin's rewind
+        // (`utils/rewind.js`), which `ukDateStr`'s default would otherwise follow.
+        if (resolvedSlots?.length && resolvedSlots[0].date !== ukDateStr(new Date())) {
           setConfirmDialog((prev) => ({
             ...prev,
             slots: computeSlots(runType),
@@ -643,7 +645,8 @@ const JobRunsMetricsView = ({
       filtered = filtered.filter((r) => !batchTypes.has(r.runType));
     }
     if (dateRange === 'today') {
-      const today = ukDateStr();
+      // The real clock, like the 7-day cutoff below — Operations never follows an admin's rewind.
+      const today = ukDateStr(new Date());
       return filtered.filter((r) => {
         const startedAt = parseUtcInstant(r.startedAt);
         return startedAt && ukDateStr(startedAt) === today;

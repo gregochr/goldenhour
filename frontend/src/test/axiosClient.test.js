@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as AuthApi from '../api/authApi.js';
-import apiClient from '../api/axiosClient.js';
+import apiClient, { REWIND_HEADER } from '../api/axiosClient.js';
+import { setRewind } from '../utils/rewind.js';
 
 vi.mock('../api/authApi.js');
 
@@ -39,6 +40,50 @@ describe('axiosClient interceptors', () => {
 
       const config = adapter.mock.calls[0][0];
       expect(config.headers['Authorization']).toBeUndefined();
+    });
+  });
+
+  describe('request interceptor — the admin rewind header', () => {
+    afterEach(() => setRewind(null));
+
+    it('sends no X-Rewind-To while the page is live', async () => {
+      const adapter = vi.fn().mockResolvedValue({ status: 200, data: {} });
+      await apiClient.get('/api/briefing', { adapter });
+      expect(adapter.mock.calls[0][0].headers[REWIND_HEADER]).toBeUndefined();
+    });
+
+    it('sends the rewound instant as X-Rewind-To on a GET while a rewind is set', async () => {
+      setRewind('2026-10-04T05:58:00Z');
+      const adapter = vi.fn().mockResolvedValue({ status: 200, data: {} });
+      await apiClient.get('/api/briefing', { adapter });
+      expect(adapter.mock.calls[0][0].headers[REWIND_HEADER]).toBe('2026-10-04T05:58:00Z');
+    });
+
+    it('reads the rewind per request, so a poll made after it was set carries it and one after it was cleared does not', async () => {
+      const adapter = vi.fn().mockResolvedValue({ status: 200, data: {} });
+      await apiClient.get('/api/briefing', { adapter });
+      setRewind('2026-10-04T05:58:00Z');
+      await apiClient.get('/api/briefing', { adapter });
+      setRewind(null);
+      await apiClient.get('/api/briefing', { adapter });
+      expect(adapter.mock.calls.map((c) => c[0].headers[REWIND_HEADER]))
+        .toEqual([undefined, '2026-10-04T05:58:00Z', undefined]);
+    });
+
+    it('never sends it on a write — a rewind only reads', async () => {
+      setRewind('2026-10-04T05:58:00Z');
+      const adapter = vi.fn().mockResolvedValue({ status: 200, data: {} });
+      await apiClient.post('/api/briefing/run', {}, { adapter });
+      await apiClient.put('/api/user/settings/map-colours', {}, { adapter });
+      expect(adapter.mock.calls.map((c) => c[0].headers[REWIND_HEADER])).toEqual([undefined, undefined]);
+    });
+
+    it('never sends it under /api/admin/ — the admin screens read the real clock', async () => {
+      setRewind('2026-10-04T05:58:00Z');
+      const adapter = vi.fn().mockResolvedValue({ status: 200, data: {} });
+      await apiClient.get('/api/admin/rewind/events', { adapter });
+      await apiClient.get('/api/admin/scheduler/jobs', { adapter });
+      expect(adapter.mock.calls.map((c) => c[0].headers[REWIND_HEADER])).toEqual([undefined, undefined]);
     });
   });
 

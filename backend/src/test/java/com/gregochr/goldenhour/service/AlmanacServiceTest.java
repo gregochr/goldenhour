@@ -165,6 +165,25 @@ class AlmanacServiceTest {
     }
 
     @Test
+    @DisplayName("a rewound request neither reads the day cache nor writes it — the next live request "
+            + "still gets the live feed, and a rewound one never gets the cached live feed")
+    void rewoundRequestsBypassTheCache() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        try {
+            service.getFeed(30);                                        // live: builds and caches (1)
+            com.gregochr.goldenhour.util.Rewind.set(CLOCK.instant().minusSeconds(3600));
+            service.getFeed(30);                                        // rewound: rebuilds (2), caches nothing
+            service.getFeed(30);                                        // rewound again: rebuilds (3)
+        } finally {
+            com.gregochr.goldenhour.util.Rewind.clear();
+        }
+        service.getFeed(30);                                            // live: the cache from (1) still stands
+
+        assertThat(source.calls.get()).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("evict() forces the next request to rebuild")
     void evictForcesARebuild() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));

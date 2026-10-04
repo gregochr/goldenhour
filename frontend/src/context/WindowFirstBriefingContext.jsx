@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
+import { getRewindTo } from '../utils/rewind.js';
 import { isTravelDate } from '../utils/conversions.js';
 import { isEventPast } from '../utils/briefingDisplay.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
@@ -219,8 +220,12 @@ export function WindowFirstBriefingProvider({
   // re-renders often (a health SSE event every 30s, every poll, every focus, every map handoff),
   // so that is tens of milliseconds of main thread, repeatedly, for a value that is discarded.
   // Both other SWR consumers already use the lazy form.
+  //
+  // Under an admin's rewind (`utils/rewind.js`) the cache is neither read nor written: it holds the
+  // LIVE briefing, which a rewound page must not paint first, and a rewound briefing must never be
+  // left in it for the next live page to paint from (or for the next 12 hours of cold starts).
   const [briefing, setBriefing] = useState(
-    () => readSwrCache(briefingCacheKey, BRIEFING_CACHE_MAX_AGE_MS),
+    () => (getRewindTo() ? null : readSwrCache(briefingCacheKey, BRIEFING_CACHE_MAX_AGE_MS)),
   );
   const [loading, setLoading] = useState(briefing === null);
   const [travelRanges, setTravelRanges] = useState([]);
@@ -372,7 +377,7 @@ export function WindowFirstBriefingProvider({
         if (request < briefingAppliedRef.current) return;
         briefingAppliedRef.current = request;
         setBriefing(data);
-        writeSwrCache(briefingCacheKey, data, gen);
+        if (!getRewindTo()) writeSwrCache(briefingCacheKey, data, gen);
       }
     } catch {
       // Transient — keep whatever is already on screen

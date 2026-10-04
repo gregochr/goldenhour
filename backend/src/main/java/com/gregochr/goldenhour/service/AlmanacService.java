@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.comingup.ComingUpAssembler;
 import com.gregochr.goldenhour.service.comingup.ComingUpConditionsBuilder;
 import com.gregochr.goldenhour.util.ForecastHorizon;
+import com.gregochr.goldenhour.util.Rewind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -124,6 +125,13 @@ public class AlmanacService {
         // happened could lead a list headed "Coming up".
         // It also keys the cache, which therefore turned over an hour late for the same reason.
         LocalDate today = ForecastHorizon.today(clock);
+
+        // An admin's rewind (X-Rewind-To) turns the clock bean back for one request. That request
+        // must neither read the day cache — built for the real today — nor write into it, or the
+        // rewound feed would be served to everyone until the next real request happened to miss.
+        if (Rewind.isActive()) {
+            return assemble(today, today.plusDays(clamped - 1L));
+        }
 
         CachedFeed cached = cache.get();
         if (cached != null && cached.builtFor().isEqual(today) && cached.days() == clamped) {

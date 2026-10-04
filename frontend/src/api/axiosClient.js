@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { refreshAccessToken } from './authApi.js';
+import { getRewindTo } from '../utils/rewind.js';
 
 /**
  * Shared axios instance for all authenticated API calls.
@@ -22,13 +23,26 @@ const apiClient = axios.create();
 
 const TOKEN_KEY = 'goldenhour_token';
 const REFRESH_KEY = 'goldenhour_refresh';
+/** The backend's rewind header (`RewindFilter.HEADER`). */
+export const REWIND_HEADER = 'X-Rewind-To';
 
-// Attach the JWT access token to every outgoing request.
+// Attach the JWT access token to every outgoing request — and, while an admin has the app rewound
+// (`utils/rewind.js`), the instant it is rendering as of. On GETs only: the backend honours the
+// header on nothing else, and a rewind is a way of looking, never a way of writing. Never under
+// `/api/admin/`: the admin screens, the rewind menu itself among them, read the real clock. Read
+// per request rather than once, because the briefing provider polls every ten minutes and a rewind
+// has to hold for every poll, not only the first fetch after it was set.
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) {
     config.headers = config.headers ?? {};
     config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  const rewindTo = getRewindTo();
+  if (rewindTo && (config.method ?? 'get').toLowerCase() === 'get'
+      && !String(config.url ?? '').startsWith('/api/admin/')) {
+    config.headers = config.headers ?? {};
+    config.headers[REWIND_HEADER] = rewindTo;
   }
   return config;
 });

@@ -2,6 +2,7 @@
  * Utility functions for unit conversions and date/label formatting.
  */
 import { ukDateStr, ukDateStrOffset, ukDayOffset, UK_ZONE } from './mapDates.js';
+import { appNow } from './rewind.js';
 
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const MS_TO_MPH = 2.23694;
@@ -61,7 +62,7 @@ export function degreesToCompass(degrees) {
  * @param {boolean} [skipRelative=false] - If true, always returns the formatted date (e.g. "Sat 28 Feb").
  * @returns {string} Human-readable label.
  */
-export function formatDateLabel(dateStr, now = new Date(), skipRelative = false) {
+export function formatDateLabel(dateStr, now = appNow(), skipRelative = false) {
   // "Today"/"Tomorrow" on the UK calendar, not the browser's. `DateStrip` decides which chip is
   // today with `ukDateStr` and then calls this for every other chip, so a second basis here could
   // put "Today" on two chips at once for a reader outside the UK.

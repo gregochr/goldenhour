@@ -19,6 +19,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   ukDateStr, ukDateStrOffset, ukDayOffset, ukHour, resolveAuroraNight, resolveMapDate, isNightOver,
 } from '../utils/mapDates.js';
+import { setRewind } from '../utils/rewind.js';
 
 /** The hour after UK midnight in BST — UTC still says the 13th, the UK says the 14th. */
 const BST_SMALL_HOURS = '2026-08-13T23:30:00Z';
@@ -35,6 +36,22 @@ afterEach(() => {
 });
 
 describe('ukDateStr', () => {
+  it('reads the admin rewind instead of the wall clock while one is set — the whole UK calendar moves with it', () => {
+    freeze('2026-10-04T09:30:00Z');
+    try {
+      setRewind('2026-10-03T23:30:00Z'); // 00:30 BST on the 4th; a live read says the 4th too, so…
+      expect(ukDateStr()).toBe('2026-10-04');
+      setRewind('2026-10-02T20:00:00Z'); // …rewind two days, where the two disagree
+      expect(ukDateStr()).toBe('2026-10-02');
+      expect(ukDateStrOffset(1)).toBe('2026-10-03');
+      expect(ukDayOffset('2026-10-04')).toBe(2);
+      expect(ukHour()).toBe(21);
+    } finally {
+      setRewind(null);
+    }
+    expect(ukDateStr()).toBe('2026-10-04');
+  });
+
   it('reads the UK date, not the UTC date, in the hour after UK midnight under BST', () => {
     // The original defect: App.jsx and DateStrip used toISOString().slice(0, 10), which at this
     // instant returns 2026-08-13 — so the strip labelled yesterday's chip "Today".

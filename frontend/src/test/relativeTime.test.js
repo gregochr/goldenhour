@@ -10,6 +10,19 @@ function minutesAgo(mins) {
 }
 
 describe('formatRelativeAge', () => {
+  describe('built after now', () => {
+    const now = Date.parse('2026-10-04T05:00:00Z');
+
+    it('answers null, not "just now", for a build more than a minute ahead of now — the rewound case', () => {
+      expect(formatRelativeAge('2026-10-04T06:42:00Z', { now })).toBeNull();
+      expect(formatRelativeAge('2026-10-04T05:01:31Z', { now })).toBeNull();
+    });
+
+    it('still says "just now" for a build within a minute ahead — ordinary clock skew', () => {
+      expect(formatRelativeAge('2026-10-04T05:00:40Z', { now })).toBe('just now');
+    });
+  });
+
   describe('tiers', () => {
     it('says "just now" under a minute', () => {
       expect(formatRelativeAge(minutesAgo(0), { now: NOW })).toBe('just now');

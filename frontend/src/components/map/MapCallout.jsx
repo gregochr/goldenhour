@@ -17,6 +17,7 @@ import {
 } from '../../utils/hourlyComfort.js';
 import { formatDateLabel } from '../../utils/conversions.js';
 import { ukDateStr } from '../../utils/mapDates.js';
+import { appNow } from '../../utils/rewind.js';
 import { nextAlignedRow } from '../../utils/mapTideFit.js';
 import TideFitBlock from './TideFitBlock.jsx';
 import EclipseSpotLine from './EclipseSpotLine.jsx';
@@ -664,7 +665,7 @@ export default function MapCallout({
   const showHideNote = comfortDay && ratingRounded == null;
   // The one clock read: the caller's `now`, else the wall clock. TODAY is the UK civil date, the
   // calendar every window date is keyed to; the util it feeds (`rowsFromNow`) reads no clock itself.
-  const nowDate = now ?? new Date();
+  const nowDate = now ?? appNow();
   //
   // Day mode has no window to take a date or rows from, so it picks both from the hide's own served
   // rows (`comfortDayOf`); with a window, they are the window's.

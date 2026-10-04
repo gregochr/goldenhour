@@ -14,6 +14,8 @@
  */
 
 /** Minutes below which we say "just now" rather than a count. */
+import { appNow } from './rewind.js';
+
 const JUST_NOW_MINUTES = 1;
 const MINUTES_PER_HOUR = 60;
 const HOURS_PER_DAY = 24;
@@ -44,8 +46,13 @@ export function formatRelativeAge(isoString, { verbose = false, now = null } = {
   const then = new Date(isoString.endsWith('Z') ? isoString : `${isoString}Z`);
   if (Number.isNaN(then.getTime())) return null;
 
-  const nowMs = now ?? Date.now();
+  const nowMs = now ?? appNow().getTime();
   const minutes = Math.round((nowMs - then.getTime()) / 60000);
+
+  // Built AFTER now, by more than clock skew can explain: under an admin's rewind (`utils/rewind.js`)
+  // a briefing rebuilt since the rewound moment is the ordinary case, and "just now" would be a
+  // lie about it. No age is the honest answer; the Operations Rewind view says when it was built.
+  if (minutes < -JUST_NOW_MINUTES) return null;
 
   if (minutes < JUST_NOW_MINUTES) return verbose ? 'Just now' : 'just now';
   if (minutes < MINUTES_PER_HOUR) return verbose ? `${minutes} min ago` : `${minutes}m ago`;
