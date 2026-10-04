@@ -9,6 +9,7 @@ import ErrorBanner from './shared/ErrorBanner.jsx';
 import Modal from './shared/Modal.jsx';
 import { isSkyPromptCandidate } from '../utils/locationTypes.js';
 import { apiErrorMessage } from '../utils/apiError.js';
+import { modelLabel } from '../utils/modelLabels.js';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -542,7 +543,7 @@ const ModelTestView = () => {
                               model === 'SONNET' ? 'bg-purple-900/30 text-purple-300' :
                               'bg-amber-900/30 text-amber-300'
                             }`}>
-                              {model}
+                              {modelLabel(model)}
                             </span>
                           </td>
                           <td className="py-2 pr-4 text-plex-text">
@@ -612,7 +613,7 @@ const ModelTestView = () => {
         <Modal label="Summary" onClose={() => setExpandedSummary(null)} maxWidth="lg" className="gap-3" data-testid="summary-dialog">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-plex-text">
-                {expandedSummary.model} — {expandedSummary.region}
+                {modelLabel(expandedSummary.model)} — {expandedSummary.region}
               </p>
               <button
                 onClick={() => setExpandedSummary(null)}

@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -212,33 +213,9 @@ public class BatchResultProcessor {
                     continue;
                 }
 
-                // Reject a max_tokens truncation as a failure, not a partial success. The
-                // parser's regex-salvage fallback can reconstruct a valid-looking evaluation
-                // from a truncated prefix (rating, potentials, closed summary) when the cut
-                // lands before optional fields — so without this check a truncated response
-                // is persisted as a complete forecast. Checked before text is even extracted:
-                // content is irrelevant once Anthropic itself reports the cut. Counted as
-                // errored so the RETRY_FAILED phase (selecting from failed api_call_log rows)
-                // picks it back up.
-                if (StopReason.MAX_TOKENS.equals(message.stopReason().orElse(null))) {
-                    LOG.warn("Forecast batch: response truncated at max_tokens for '{}'", customId);
-                    errored++;
-                    inlineFailureLog(context, customId, "MAX_TOKENS",
-                            "truncation_error",
-                            "Claude's response was truncated at the max_tokens limit "
-                                    + "(stop_reason=max_tokens)", null, null);
-                    continue;
-                }
-
-                String text = extractTextFromMessage(message);
-                if (text == null) {
-                    LOG.warn("Forecast batch: no text content for '{}'", customId);
-                    errored++;
-                    inlineFailureLog(context, customId, "NO_TEXT",
-                            "extraction_error", "no text content blocks", null, null);
-                    continue;
-                }
-
+                // Usage is accumulated BEFORE any stop-reason rejection below: a refused or
+                // truncated response was still billed, so its tokens belong in the batch totals
+                // and on its api_call_log row.
                 if (firstModelId == null) {
                     firstModelId = message.model().asString();
                 }
@@ -256,6 +233,49 @@ public class BatchResultProcessor {
                 totalCacheRead += cacheRead;
                 totalCacheCreate += cacheCreate;
                 totalCacheCreate1h += cacheCreate1h;
+                EvaluationModel responseModel = resolveEvaluationModel(message.model().asString());
+                TokenUsage responseUsage = TokenUsage.from(usage);
+
+                // Reject a max_tokens truncation as a failure, not a partial success. The
+                // parser's regex-salvage fallback can reconstruct a valid-looking evaluation
+                // from a truncated prefix (rating, potentials, closed summary) when the cut
+                // lands before optional fields — so without this check a truncated response
+                // is persisted as a complete forecast. Checked before text is even extracted:
+                // content is irrelevant once Anthropic itself reports the cut. Counted as
+                // errored so the RETRY_FAILED phase (selecting from failed api_call_log rows)
+                // picks it back up.
+                if (StopReason.MAX_TOKENS.equals(message.stopReason().orElse(null))) {
+                    LOG.warn("Forecast batch: response truncated at max_tokens for '{}'", customId);
+                    errored++;
+                    inlineFailureLog(context, customId, "MAX_TOKENS",
+                            "truncation_error",
+                            "Claude's response was truncated at the max_tokens limit "
+                                    + "(stop_reason=max_tokens)", null, null,
+                            responseModel, responseUsage);
+                    continue;
+                }
+
+                // A refusal arrives as a succeeded batch result (stop_reason=refusal), so it
+                // is failed here under its own recognisable error type instead of reaching
+                // the parser as an empty or partial reply.
+                if (StopReason.REFUSAL.equals(message.stopReason().orElse(null))) {
+                    LOG.warn("Forecast batch: Claude refused '{}'", customId);
+                    errored++;
+                    inlineFailureLog(context, customId, "REFUSAL",
+                            EvaluationFailure.TYPE_REFUSAL,
+                            "Claude refused to evaluate this forecast (stop_reason=refusal)",
+                            null, null, responseModel, responseUsage);
+                    continue;
+                }
+
+                String text = extractTextFromMessage(message);
+                if (text == null) {
+                    LOG.warn("Forecast batch: no text content for '{}'", customId);
+                    errored++;
+                    inlineFailureLog(context, customId, "NO_TEXT",
+                            "extraction_error", "no text content blocks", null, null);
+                    continue;
+                }
 
                 ParsedCustomId parsed;
                 try {
@@ -373,6 +393,10 @@ public class BatchResultProcessor {
                     batch.getAnthropicBatchId(), succeeded, flushed, e.getMessage(), e);
             batch.setSucceededCount(succeeded);
             batch.setErroredCount(errored);
+            // Responses streamed before the failure were billed: cost them on the batch so the
+            // job run is completed with that cost rather than as free.
+            persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                    totalCacheCreate1h, firstModelId);
             markFailed(batch, "Failed to stream results after " + succeeded
                     + " succeeded (" + flushed + " cache keys flushed): " + e.getMessage());
             // R7(a): every response streamed before the failure either scored its row (R5) or is
@@ -488,6 +512,17 @@ public class BatchResultProcessor {
                     LOG.info("Batch token usage [{}]: input={}, output={}, cacheRead={}, "
                             + "cacheCreate={}", customId, totalInput, totalOutput,
                             totalCacheRead, totalCacheCreate);
+
+                    // A refused or truncated aurora answer was still billed, so its usage is
+                    // costed on the batch and logged on a failed row before the batch is
+                    // failed. A truncated array must never reach the parser, for any model.
+                    StopReason stop = message.stopReason().orElse(null);
+                    if (StopReason.REFUSAL.equals(stop) || StopReason.MAX_TOKENS.equals(stop)) {
+                        failAuroraRejectedResponse(batch, customId, message, stop,
+                                totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                                totalCacheCreate1h);
+                        return;
+                    }
                 }
 
                 String[] parts = customId.split("-", 3);
@@ -524,6 +559,9 @@ public class BatchResultProcessor {
         AuroraBatchOutcome handlerResult =
                 auroraResultHandler.processBatchResponse(level, outcome, context);
         if (!handlerResult.success()) {
+            // The response was billed whatever the handler made of it.
+            persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                    totalCacheCreate1h, auroraModelId);
             markFailed(batch, handlerResult.failureReason());
             return;
         }
@@ -592,6 +630,18 @@ public class BatchResultProcessor {
     private void inlineFailureLog(ResultContext context, String customId, String status,
             String errorType, String errorMessage,
             LocalDate targetDate, TargetType targetType) {
+        inlineFailureLog(context, customId, status, errorType, errorMessage,
+                targetDate, targetType, null, null);
+    }
+
+    /**
+     * As above, for a response that was billed but rejected (refusal, truncation): the row
+     * carries the model and the response's real token usage so the failed call is costed.
+     */
+    private void inlineFailureLog(ResultContext context, String customId, String status,
+            String errorType, String errorMessage,
+            LocalDate targetDate, TargetType targetType,
+            EvaluationModel model, TokenUsage tokenUsage) {
         if (context == null || context.jobRunId() == null) {
             return;
         }
@@ -599,7 +649,7 @@ public class BatchResultProcessor {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), customId,
                     false, status, errorType, errorMessage,
-                    null, null, targetDate, targetType);
+                    model, tokenUsage, targetDate, targetType);
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
                     customId, e.getMessage());
@@ -823,6 +873,39 @@ public class BatchResultProcessor {
         return byKey.size() + bluebellByKey.size() + woodlandByKey.size();
     }
 
+    /**
+     * Fails an aurora batch whose single response was refused or cut off at max_tokens: logs a
+     * failed {@code api_call_log} row (error type {@link EvaluationFailure#TYPE_REFUSAL} or
+     * {@code truncation_error}) carrying the response's real usage, costs the batch, and marks
+     * it FAILED.
+     */
+    private void failAuroraRejectedResponse(ForecastBatchEntity batch, String customId,
+            Message message, StopReason stop, long input, long output, long cacheRead,
+            long cacheCreate, long cacheCreate1h) {
+        boolean refusal = StopReason.REFUSAL.equals(stop);
+        String errorType = refusal ? EvaluationFailure.TYPE_REFUSAL : "truncation_error";
+        String reason = refusal
+                ? "Claude refused to interpret the aurora conditions (stop_reason=refusal)"
+                : "Claude's aurora response was truncated at the max_tokens limit "
+                        + "(stop_reason=max_tokens)";
+        LOG.warn("Aurora batch: {} for '{}'", refusal ? "Claude refused" : "response truncated",
+                customId);
+        persistTokenUsage(batch, input, output, cacheRead, cacheCreate, cacheCreate1h,
+                message.model().asString());
+        if (batch.getJobRunId() != null) {
+            try {
+                jobRunService.logBatchResult(batch.getJobRunId(), batch.getAnthropicBatchId(),
+                        customId, false, refusal ? "REFUSAL" : "MAX_TOKENS", errorType, reason,
+                        resolveEvaluationModel(message.model().asString()),
+                        TokenUsage.from(message.usage()), null, null);
+            } catch (Exception e) {
+                LOG.warn("Aurora batch: failed to persist api_call_log for customId={}: {}",
+                        customId, e.getMessage());
+            }
+        }
+        markFailed(batch, "Aurora batch request failed: " + reason);
+    }
+
     private void markFailed(ForecastBatchEntity batch, String reason) {
         batch.setStatus(BatchStatus.FAILED);
         batch.setErrorMessage(reason);
@@ -830,8 +913,11 @@ public class BatchResultProcessor {
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
             int succeeded = batch.getSucceededCount() != null ? batch.getSucceededCount() : 0;
+            // Complete with the cost the batch accrued (set by persistTokenUsage when a billed
+            // response preceded the failure; 0 when nothing was billed).
             jobRunService.completeBatchRun(batch.getJobRunId(), succeeded,
-                    batch.getRequestCount() - succeeded);
+                    batch.getRequestCount() - succeeded,
+                    toMicroDollars(batch.getEstimatedCostUsd()));
         }
     }
 }

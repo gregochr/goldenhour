@@ -99,8 +99,10 @@ class ModelsControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available[0].name").value("HAIKU"))
                 .andExpect(jsonPath("$.available[0].version").value("4.5"))
-                .andExpect(jsonPath("$.available[2].name").value("OPUS"))
-                .andExpect(jsonPath("$.available[2].version").value("4.6"));
+                .andExpect(jsonPath("$.available[2].name").value("SONNET_55"))
+                .andExpect(jsonPath("$.available[2].version").value("5.5"))
+                .andExpect(jsonPath("$.available[3].name").value("OPUS"))
+                .andExpect(jsonPath("$.available[3].version").value("4.6"));
     }
 
     @Test

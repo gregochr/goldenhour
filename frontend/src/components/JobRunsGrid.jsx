@@ -4,6 +4,7 @@ import { formatDuration, formatTimestampUk } from '../utils/conversions';
 import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
 import JobRunDetail from './JobRunDetail';
 import InfoTip from './InfoTip.jsx';
+import { modelLabel } from '../utils/modelLabels.js';
 
 /**
  * Sortable/pageable grid of job runs with expandable detail rows.
@@ -103,7 +104,7 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                   <div className="flex justify-between items-center">
                     <div className="flex-1">
                       <div className="font-medium text-plex-text flex items-center gap-2">
-                        {run.runType}{run.evaluationModel ? ` · ${run.evaluationModel}` : ''}
+                        {run.runType}{run.evaluationModel ? ` · ${modelLabel(run.evaluationModel)}` : ''}
                         {getStatusBadge(run)}
                       </div>
                       <div className="text-xs text-plex-text-muted mt-1">
@@ -118,8 +119,9 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                           {run.batchSummary.eventTypes && run.batchSummary.eventTypes.length > 0
                             && ` · ${run.batchSummary.eventTypes.join(' / ')}`}
                           {` · ${run.batchSummary.locationCount} locations`}
-                          {` · ${run.batchSummary.evaluationModel}`}
-                          {run.batchSummary.extendedThinking && ' (ET)'}
+                          {` · ${modelLabel(run.batchSummary.evaluationModel)}`}
+                          {run.batchSummary.extendedThinking
+                            && !modelLabel(run.batchSummary.evaluationModel).endsWith('(ET)') && ' (ET)'}
                           {` · ${run.batchSummary.regionCount} regions`}
                         </div>
                       )}

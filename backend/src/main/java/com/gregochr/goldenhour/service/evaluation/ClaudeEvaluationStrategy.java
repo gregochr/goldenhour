@@ -179,7 +179,8 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                                         .text(builder.getSystemPrompt())
                                         .cacheControl(CacheControlEphemeral.builder().build())
                                         .build()))
-                        .outputConfig(builder.buildOutputConfig())
+                        .outputConfig(ModelRequestSupport.withEffort(
+                                builder.buildOutputConfig(), evaluationModel))
                         .addUserMessage(userMessage)
                         .build());
     }

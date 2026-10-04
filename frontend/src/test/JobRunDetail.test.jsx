@@ -447,7 +447,7 @@ describe('JobRunDetail — Anthropic evaluation breakdown', () => {
       expect(screen.getByText('2026-03-15')).toBeInTheDocument();
     });
     expect(screen.getByText('SUNRISE')).toBeInTheDocument();
-    expect(screen.getByText('SONNET')).toBeInTheDocument();
+    expect(screen.getByText('Sonnet 4.6')).toBeInTheDocument();
   });
 
   it('sorts breakdown rows by date then event then model', async () => {

@@ -58,6 +58,11 @@ cost:
   sonnet-cache-write-usd-per-mtok: 3.75
   sonnet-cache-write-1h-usd-per-mtok: 6.00   # 2x input; the 1-hour cache lifetime
   sonnet-cache-read-usd-per-mtok: 0.30
+  sonnet55-input-usd-per-mtok: 2.00
+  sonnet55-output-usd-per-mtok: 10.00
+  sonnet55-cache-write-usd-per-mtok: 2.50
+  sonnet55-cache-write-1h-usd-per-mtok: 4.00   # 2x input; the 1-hour cache lifetime
+  sonnet55-cache-read-usd-per-mtok: 0.20
   opus-input-usd-per-mtok: 5.00
   opus-output-usd-per-mtok: 25.00
   opus-cache-write-usd-per-mtok: 6.25

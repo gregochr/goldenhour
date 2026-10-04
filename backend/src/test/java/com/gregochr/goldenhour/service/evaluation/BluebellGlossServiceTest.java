@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import org.mockito.ArgumentCaptor;
+import java.util.Optional;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
@@ -186,5 +189,83 @@ class BluebellGlossServiceTest {
         Message response = mock(Message.class);
         when(response.content()).thenReturn(List.of(block));
         return response;
+    }
+
+    private static final String OK_JSON = "{\"headline\": \"Misty dawn\"}";
+
+    @Test
+    @DisplayName("request shape for HAIKU: literal model id, effort, no thinking, 128 max tokens")
+    void requestShape_haiku() {
+        when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS)).thenReturn(EvaluationModel.HAIKU);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<HotTopic> result = glossService.enrichGlosses(List.of(bluebellTopic("Northumberland")));
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.HAIKU, 128,
+                Optional.empty());
+    }
+
+    @Test
+    @DisplayName("request shape for SONNET: literal model id, effort, no thinking, 128 max tokens")
+    void requestShape_sonnet() {
+        when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS)).thenReturn(EvaluationModel.SONNET);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<HotTopic> result = glossService.enrichGlosses(List.of(bluebellTopic("Northumberland")));
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET, 128,
+                Optional.empty());
+    }
+
+    @Test
+    @DisplayName("request shape for SONNET_55: literal model id, effort, no thinking, 4224 max tokens")
+    void requestShape_sonnet_55() {
+        when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS)).thenReturn(EvaluationModel.SONNET_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<HotTopic> result = glossService.enrichGlosses(List.of(bluebellTopic("Northumberland")));
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET_55, 4224,
+                Optional.empty());
+    }
+
+    @Test
+    @DisplayName("a thinking block ahead of the text block does not break the gloss")
+    void thinkingBlockFirst_glossStillParsed() {
+        when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS)).thenReturn(EvaluationModel.SONNET_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.thinking("weighing it up"),
+                                ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<HotTopic> result = glossService.enrichGlosses(List.of(bluebellTopic("Northumberland")));
+        assertThat(result.get(0).expandedDetail().regionGroups().get(0).glossHeadline())
+                .isEqualTo("Misty dawn");
+    }
+
+    @Test
+    @DisplayName("a refusal fails the gloss cleanly: no gloss text, no exception")
+    void refusal_leavesGlossEmpty() {
+        when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS)).thenReturn(EvaluationModel.SONNET_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(List.of(), StopReason.REFUSAL));
+
+        List<HotTopic> result = glossService.enrichGlosses(List.of(bluebellTopic("Northumberland")));
+        assertThat(result.get(0).expandedDetail().regionGroups().get(0).glossHeadline()).isNull();
     }
 }

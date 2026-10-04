@@ -4,6 +4,7 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.http.StreamResponse;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.BatchCreateParams;
@@ -13,6 +14,7 @@ import com.anthropic.models.messages.batches.MessageBatchResult;
 import com.anthropic.models.messages.batches.MessageBatchSucceededResult;
 import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.batch.AnthropicBatchClient;
 import com.gregochr.goldenhour.service.evaluation.ClaudeBatchOutcome;
 import org.junit.jupiter.api.BeforeEach;
@@ -131,5 +133,97 @@ class SkyRatingEvalBatchClientTest {
         assertThat(first.rawText()).isEqualTo("{\"rating\":4}");
         assertThat(first.tokenUsage().inputTokens()).isEqualTo(3_800L);
         assertThat(outcomes.get(1).succeeded()).isFalse();
+        // an API-level errored result was never billed: no usage
+        assertThat(outcomes.get(1).tokenUsage()).isNull();
+    }
+
+    private List<ClaudeBatchOutcome> collectWithStopReason(StopReason stopReason, String text) {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        when(response.customId()).thenReturn("e_7_0_1");
+        MessageBatchResult result = mock(MessageBatchResult.class);
+        when(result.isSucceeded()).thenReturn(true);
+        MessageBatchSucceededResult succeeded = mock(MessageBatchSucceededResult.class);
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
+        Message message = mock(Message.class);
+        when(succeeded.message()).thenReturn(message);
+        when(message.stopReason()).thenReturn(Optional.of(stopReason));
+        Usage usage = mock(Usage.class);
+        when(usage.inputTokens()).thenReturn(900L);
+        when(usage.outputTokens()).thenReturn(120L);
+        when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(300L));
+        when(usage.cacheReadInputTokens()).thenReturn(Optional.of(40L));
+        when(message.usage()).thenReturn(usage);
+        if (text != null) {
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(text);
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            when(message.content()).thenReturn(List.of(contentBlock));
+        }
+        when(response.result()).thenReturn(result);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> stream = mock(StreamResponse.class);
+        when(stream.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_stop")).thenReturn(stream);
+        return client.collectResults("msgbatch_stop");
+    }
+
+    @Test
+    @DisplayName("a refusal is a failure typed 'refusal', not a NO_TEXT extraction error")
+    void collectResultsRefusalIsFailure() {
+        ClaudeBatchOutcome outcome = collectWithStopReason(StopReason.REFUSAL, null).get(0);
+
+        assertThat(outcome.succeeded()).isFalse();
+        assertThat(outcome.status()).isEqualTo("REFUSAL");
+        assertThat(outcome.errorType()).isEqualTo(EvaluationFailure.TYPE_REFUSAL);
+        assertThat(outcome.errorMessage())
+                .isEqualTo("Claude refused to evaluate this fixture (stop_reason=refusal)");
+        assertThat(outcome.tokenUsage()).isEqualTo(new TokenUsage(900, 120, 300, 40, 0));
+    }
+
+    @Test
+    @DisplayName("a max_tokens truncation with partial text is a failure, never scored as a success")
+    void collectResultsTruncationIsFailure() {
+        ClaudeBatchOutcome outcome =
+                collectWithStopReason(StopReason.MAX_TOKENS, "{\"rating\":4,\"summ").get(0);
+
+        assertThat(outcome.succeeded()).isFalse();
+        assertThat(outcome.status()).isEqualTo("MAX_TOKENS");
+        assertThat(outcome.errorType()).isEqualTo("truncation_error");
+        assertThat(outcome.rawText()).isNull();
+        assertThat(outcome.tokenUsage()).isEqualTo(new TokenUsage(900, 120, 300, 40, 0));
+    }
+
+    @Test
+    @DisplayName("a billed reply with no text block keeps its usage")
+    void collectResultsNoTextKeepsUsage() {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        when(response.customId()).thenReturn("e_7_0_2");
+        MessageBatchResult result = mock(MessageBatchResult.class);
+        when(result.isSucceeded()).thenReturn(true);
+        MessageBatchSucceededResult succeeded = mock(MessageBatchSucceededResult.class);
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
+        Message message = mock(Message.class);
+        when(succeeded.message()).thenReturn(message);
+        when(message.stopReason()).thenReturn(Optional.of(StopReason.END_TURN));
+        when(message.content()).thenReturn(List.of());
+        Usage usage = mock(Usage.class);
+        when(usage.inputTokens()).thenReturn(50L);
+        when(usage.outputTokens()).thenReturn(8L);
+        when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(0L));
+        when(usage.cacheReadInputTokens()).thenReturn(Optional.of(0L));
+        when(message.usage()).thenReturn(usage);
+        when(response.result()).thenReturn(result);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> stream = mock(StreamResponse.class);
+        when(stream.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_nt")).thenReturn(stream);
+
+        ClaudeBatchOutcome outcome = client.collectResults("msgbatch_nt").get(0);
+
+        assertThat(outcome.succeeded()).isFalse();
+        assertThat(outcome.status()).isEqualTo("NO_TEXT");
+        assertThat(outcome.tokenUsage()).isEqualTo(new TokenUsage(50, 8, 0, 0, 0));
     }
 }

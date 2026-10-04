@@ -3,8 +3,8 @@ package com.gregochr.goldenhour.service;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
-import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
@@ -117,6 +117,22 @@ public class SkyRatingEvalBatchClient {
             return ClaudeBatchOutcome.failure(customId, "NO_MESSAGE", "extraction_error",
                     "succeeded but no message");
         }
+        // Same stop-reason rules as BatchResultProcessor: a refusal must not read as NO_TEXT, and
+        // a truncated reply with partial text must not be scored as a success.
+        // Every outcome below this point comes from a response Anthropic billed (a "succeeded"
+        // batch result), so each carries its usage; errored/expired/canceled results above were
+        // never billed and carry none.
+        TokenUsage billed = TokenUsage.from(message.usage());
+        StopReason stopReason = message.stopReason().orElse(null);
+        if (StopReason.REFUSAL.equals(stopReason)) {
+            return ClaudeBatchOutcome.failure(customId, "REFUSAL", EvaluationFailure.TYPE_REFUSAL,
+                    "Claude refused to evaluate this fixture (stop_reason=refusal)", billed);
+        }
+        if (StopReason.MAX_TOKENS.equals(stopReason)) {
+            return ClaudeBatchOutcome.failure(customId, "MAX_TOKENS", "truncation_error",
+                    "Claude's response was truncated at the max_tokens limit "
+                            + "(stop_reason=max_tokens)", billed);
+        }
         String text = message.content().stream()
                 .filter(ContentBlock::isText)
                 .map(ContentBlock::asText)
@@ -125,10 +141,8 @@ public class SkyRatingEvalBatchClient {
                 .orElse(null);
         if (text == null) {
             return ClaudeBatchOutcome.failure(customId, "NO_TEXT", "extraction_error",
-                    "no text content blocks");
+                    "no text content blocks", billed);
         }
-        Usage usage = message.usage();
-        TokenUsage tokens = TokenUsage.from(usage);
-        return ClaudeBatchOutcome.success(customId, text, tokens, null);
+        return ClaudeBatchOutcome.success(customId, text, billed, null);
     }
 }

@@ -4,6 +4,7 @@ import { getApiCalls, getBatchSummary } from '../api/metricsApi';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
 import DispositionBreakdown from './DispositionBreakdown.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
+import { modelLabel } from '../utils/modelLabels.js';
 
 /**
  * Expandable detail view for a job run showing all API calls.
@@ -344,7 +345,7 @@ const JobRunDetail = ({ jobRun }) => {
                         </div>
                         <div>
                           <div className="text-plex-text-muted text-xs">Model</div>
-                          <div className="font-semibold text-plex-text">{model}</div>
+                          <div className="font-semibold text-plex-text">{modelLabel(model)}</div>
                         </div>
                         <div>
                           <div className="text-plex-text-muted text-xs">Count</div>

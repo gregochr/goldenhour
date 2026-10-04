@@ -371,8 +371,8 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("advise(): token-limited response logs a truncation WARN and salvages picks")
-        void adviseTokenLimitedLogsTruncationWarn() {
+        @DisplayName("advise(): token-limited response is a FAILED call, logged as a failure, never salvaged")
+        void adviseTokenLimitedFailsAndLogsFailure() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
@@ -389,16 +389,20 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
 
-            List<BestBet> picks = advisor.advise(days, 99L, Map.of()).picks();
+            BestBetResult result = advisor.advise(days, 99L, Map.of());
 
-            assertThat(picks).hasSize(1);
-            assertThat(picks.get(0).region()).isEqualTo("Northumberland");
-            ILoggingEvent warn = appender.list.stream()
-                    .filter(e -> e.getLevel() == Level.WARN
-                            && e.getFormattedMessage().contains("[BEST-BET TRUNCATION]"))
-                    .findFirst().orElseThrow();
-            assertThat(warn.getFormattedMessage()).contains("jobRunId=99");
-            assertThat(warn.getFormattedMessage()).contains("salvaged");
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+            assertThat(result.picks()).isEmpty();
+            ArgumentCaptor<Boolean> succeeded = ArgumentCaptor.forClass(Boolean.class);
+            ArgumentCaptor<String> errorMessage = ArgumentCaptor.forClass(String.class);
+            verify(jobRunService).logApiCall(eq(99L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.anyLong(), eq(200), eq(truncated),
+                    succeeded.capture(), errorMessage.capture(), eq(EvaluationModel.OPUS),
+                    org.mockito.ArgumentMatchers.isNull());
+            assertThat(succeeded.getValue()).isFalse();
+            assertThat(errorMessage.getValue()).isEqualTo("Claude's best-bet response was truncated "
+                    + "at the max_tokens limit (stop_reason=max_tokens)");
         }
 
         @Test
@@ -438,9 +442,10 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
 
-            List<BestBet> picks = advisor.advise(days, 11L, Map.of()).picks();
+            BestBetResult result = advisor.advise(days, 11L, Map.of());
 
-            assertThat(picks).isEmpty();
+            assertThat(result.picks()).isEmpty();
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
             assertThat(appender.list).noneMatch(e ->
                     e.getFormattedMessage().contains("Advisor returned no picks"));
             ILoggingEvent warn = appender.list.stream()
@@ -448,6 +453,17 @@ class BriefingBestBetAdvisorTest {
                             && e.getFormattedMessage().contains("[BEST-BET REFUSAL]"))
                     .findFirst().orElseThrow();
             assertThat(warn.getFormattedMessage()).contains("jobRunId=11");
+            ArgumentCaptor<Boolean> succeeded = ArgumentCaptor.forClass(Boolean.class);
+            ArgumentCaptor<String> errorMessage = ArgumentCaptor.forClass(String.class);
+            verify(jobRunService).logApiCall(eq(11L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.anyLong(), eq(200),
+                    eq("I can't help with evaluating this request."),
+                    succeeded.capture(), errorMessage.capture(), eq(EvaluationModel.OPUS),
+                    org.mockito.ArgumentMatchers.isNull());
+            assertThat(succeeded.getValue()).isFalse();
+            assertThat(errorMessage.getValue())
+                    .isEqualTo("Claude refused the best-bet request (stop_reason=refusal)");
         }
 
         @Test
@@ -3264,7 +3280,7 @@ class BriefingBestBetAdvisorTest {
     class ReplayHarnessTests {
 
         /** A minimal, faithful stored rollup: one event, one region with Claude coverage. */
-        private static final String FIXTURE_ROLLUP = """
+        static final String FIXTURE_ROLLUP = """
                 {
                   "currentTime": "2026-06-17 06:00",
                   "validEvents": ["2026-06-18_sunset"],
@@ -3767,5 +3783,163 @@ class BriefingBestBetAdvisorTest {
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE, 0, 0),
                 BriefingSlot.TideInfo.NONE, List.of(), null);
+    }
+
+    // ── Sonnet 5.5 across the advisor's three paths ──
+
+    @Nested
+    @DisplayName("Sonnet 5.5 request shape and response handling")
+    class Sonnet55Tests {
+
+        private static final long THINKING_SIZED = 16000L;
+        private static final String NO_PICKS = "{\"picks\":[]}";
+
+        private MessageCreateParams captureLive(EvaluationModel model, boolean thinkingFlag) {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET)).thenReturn(model);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(thinkingFlag);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("stop after capture"));
+            advisor.advise(List.of(), 1L, Map.of());
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            return captor.getValue();
+        }
+
+        @Test
+        @DisplayName("live: Sonnet 5.5 gets effort LOW, no thinking param even with the thinking flag on, "
+                + "and the thinking-sized ceiling")
+        void live_sonnet55() {
+            MessageCreateParams params = captureLive(EvaluationModel.SONNET_55, true);
+
+            ModelRequestAssertions.assertMessage(params, EvaluationModel.SONNET_55, THINKING_SIZED,
+                    java.util.Optional.empty());
+        }
+
+        @Test
+        @DisplayName("live: Haiku and Sonnet 4.6 (flag off) are unchanged: configured ceiling, no effort")
+        void live_otherModelsUnchanged() {
+            ModelRequestAssertions.assertMessage(captureLive(EvaluationModel.HAIKU, false),
+                    EvaluationModel.HAIKU, TEST_MAX_TOKENS, java.util.Optional.empty());
+        }
+
+        @Test
+        @DisplayName("live: Sonnet 4.6 with the thinking flag on still sends its adaptive thinking block")
+        void live_sonnet46WithFlag_sendsThinking() {
+            MessageCreateParams params = captureLive(EvaluationModel.SONNET, true);
+
+            assertThat(params.thinking()).isPresent();
+            assertThat(params.maxTokens()).isEqualTo(THINKING_SIZED);
+            assertThat(params.outputConfig()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("live: a thinking block ahead of the text block is skipped and an empty array is a decline")
+        void live_thinkingFirst() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET_55);
+            when(anthropicApiClient.createMessage(any())).thenReturn(ModelRequestAssertions.message(
+                    List.of(ModelRequestAssertions.thinking("hmm"), ModelRequestAssertions.text(NO_PICKS)),
+                    StopReason.END_TURN));
+
+            BestBetResult result = advisor.advise(List.of(), 5L, Map.of());
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("live: a refusal from Sonnet 5.5 is FAILED and logged as a failure carrying its usage")
+        void live_refusal() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET_55);
+            when(anthropicApiClient.createMessage(any())).thenReturn(
+                    ModelRequestAssertions.message(List.of(), StopReason.REFUSAL));
+
+            BestBetResult result = advisor.advise(List.of(), 6L, Map.of());
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+            verify(jobRunService).logApiCall(eq(6L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.anyLong(), eq(200), eq(""), eq(false),
+                    eq("Claude refused the best-bet request (stop_reason=refusal)"),
+                    eq(EvaluationModel.SONNET_55),
+                    eq(new com.gregochr.goldenhour.model.TokenUsage(10, 20, 0, 0, 0)));
+        }
+
+        @Test
+        @DisplayName("comparison: Sonnet 5.5 request has effort LOW, no thinking and the thinking-sized ceiling")
+        void comparison_sonnet55() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any())).thenReturn(ModelRequestAssertions.message(
+                    List.of(ModelRequestAssertions.thinking("hmm"), ModelRequestAssertions.text(NO_PICKS)),
+                    StopReason.END_TURN));
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun run = advisor.compareModels(
+                    List.of(EvaluationModel.SONNET_55), List.of(day));
+
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET_55,
+                    THINKING_SIZED, java.util.Optional.empty());
+            // thinking-first parsed: the text block was read, and the thinking text captured
+            assertThat(run.results().get(0).rawResponse()).isEqualTo(NO_PICKS);
+            assertThat(run.results().get(0).thinkingText()).isEqualTo("hmm");
+        }
+
+        @Test
+        @DisplayName("comparison: a refusal becomes a failed variant with no response, never parsed picks")
+        void comparison_refusal() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any())).thenReturn(
+                    ModelRequestAssertions.message(List.of(), StopReason.REFUSAL));
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun run = advisor.compareModels(
+                    List.of(EvaluationModel.SONNET_55), List.of(day));
+
+            assertThat(run.results().get(0).rawResponse()).isNull();
+            assertThat(run.results().get(0).validatedPicks()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("replay: Sonnet 5.5 request has effort LOW, no thinking and the thinking-sized ceiling")
+        void replay_sonnet55() throws Exception {
+            when(anthropicApiClient.createMessage(any())).thenReturn(ModelRequestAssertions.message(
+                    List.of(ModelRequestAssertions.thinking("hmm"), ModelRequestAssertions.text(NO_PICKS)),
+                    StopReason.END_TURN));
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    ReplayHarnessTests.FIXTURE_ROLLUP, "PROMPT", EvaluationModel.SONNET_55);
+
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET_55,
+                    THINKING_SIZED, java.util.Optional.empty());
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("replay: refusal and truncation both come back FAILED")
+        void replay_refusalAndTruncation_failed() throws Exception {
+            when(anthropicApiClient.createMessage(any())).thenReturn(
+                    ModelRequestAssertions.message(List.of(), StopReason.REFUSAL),
+                    ModelRequestAssertions.message(
+                            List.of(ModelRequestAssertions.text("{\"picks\":[{\"rank\":1")),
+                            StopReason.MAX_TOKENS));
+
+            assertThat(advisor.replayWithPrompt(
+                    ReplayHarnessTests.FIXTURE_ROLLUP, "P", EvaluationModel.SONNET_55).status())
+                    .isEqualTo(BestBetStatus.FAILED);
+            assertThat(advisor.replayWithPrompt(
+                    ReplayHarnessTests.FIXTURE_ROLLUP, "P", EvaluationModel.SONNET_55).status())
+                    .isEqualTo(BestBetStatus.FAILED);
+        }
     }
 }

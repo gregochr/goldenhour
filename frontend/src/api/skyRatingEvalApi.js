@@ -4,7 +4,7 @@ import apiClient from './axiosClient.js';
  * Triggers a sky-rating eval run. Returns 202 with the in-progress run; the scoring
  * happens in the background — poll {@link getSkyRatingEvalRun} for completion.
  *
- * @param {string} model - HAIKU | SONNET | OPUS
+ * @param {string} model - HAIKU | SONNET | SONNET_55 | OPUS
  * @param {number} [runsPerFixture] - runs per fixture (defaults server-side to 8)
  */
 export const runSkyRatingEval = (model, runsPerFixture) =>

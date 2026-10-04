@@ -18,6 +18,21 @@ public enum EvaluationModel {
     /** Claude Sonnet with extended thinking — same model, thinking enabled. */
     SONNET_ET("4.6", "claude-sonnet-4-6"),
 
+    /**
+     * Claude Sonnet 5.5 — selectable only, never a default. Thinking is left at the model's
+     * adaptive default (it rejects {@code thinking: disabled}) and effort is sent as low. The enum
+     * name is capped at 10 characters because every column storing a model name is VARCHAR(10) in
+     * production (as of 2026-10-04): api_call_log.evaluation_model,
+     * briefing_model_test_result.evaluation_model, forecast_evaluation.evaluation_model,
+     * job_run.evaluation_model, model_selection.active_model, model_test_result.evaluation_model,
+     * prompt_test_result.evaluation_model, prompt_test_run.evaluation_model and
+     * sky_rating_eval_run.model.
+     *
+     * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}
+     * exactly like any other failed result (it can contribute to a place's auto-disable count).
+     */
+    SONNET_55("5.5", "claude-sonnet-5-5"),
+
     /** Claude Opus — highest accuracy, dual 0–100 score output. */
     OPUS("4.6", "claude-opus-4-6"),
 
@@ -26,6 +41,8 @@ public enum EvaluationModel {
 
     /** No Claude call — raw comfort weather data only (temperature, wind, rain). */
     WILDLIFE(null, null);
+
+    private static final int SONNET_55_MAX_TOKENS = 4096;
 
     private final String version;
     private final String modelId;
@@ -53,6 +70,8 @@ public enum EvaluationModel {
         HAIKU,
         /** Sonnet rates — also used by SONNET_ET. */
         SONNET,
+        /** Sonnet 5.5 rates. */
+        SONNET_55,
         /** Opus rates — also used by OPUS_ET. */
         OPUS,
         /** No API call, so no cost. */
@@ -69,6 +88,7 @@ public enum EvaluationModel {
         return switch (this) {
             case HAIKU -> PricingTier.HAIKU;
             case SONNET, SONNET_ET -> PricingTier.SONNET;
+            case SONNET_55 -> PricingTier.SONNET_55;
             case OPUS, OPUS_ET -> PricingTier.OPUS;
             case WILDLIFE -> PricingTier.FREE;
         };
@@ -97,10 +117,14 @@ public enum EvaluationModel {
      *
      * <p>Sonnet tends to produce chain-of-thought reasoning in its output, so it needs
      * a larger token budget to complete the full JSON schema. Haiku and Opus are terser.
+     * Sonnet 5.5 thinks by default and thinking tokens count against the limit, so it gets 4096.
      *
      * @return max output tokens
      */
     public int getMaxTokens() {
+        if (this == SONNET_55) {
+            return SONNET_55_MAX_TOKENS;
+        }
         return (this == SONNET || this == SONNET_ET) ? 1024 : 512;
     }
 }

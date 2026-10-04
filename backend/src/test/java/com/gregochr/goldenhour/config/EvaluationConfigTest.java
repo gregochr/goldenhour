@@ -44,14 +44,14 @@ class EvaluationConfigTest {
     }
 
     @Test
-    @DisplayName("evaluationStrategies() returns map with all four EvaluationModel keys")
-    void evaluationStrategies_containsAllFourKeys() {
+    @DisplayName("evaluationStrategies() returns map with every selectable EvaluationModel key plus WILDLIFE")
+    void evaluationStrategies_containsAllKeys() {
         Map<EvaluationModel, EvaluationStrategy> strategies =
                 config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder,
                         objectMapper, new SunsetEvaluationParser());
 
         assertThat(strategies).containsOnlyKeys(
-                EvaluationModel.HAIKU, EvaluationModel.SONNET,
+                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_55,
                 EvaluationModel.OPUS, EvaluationModel.WILDLIFE);
     }
 

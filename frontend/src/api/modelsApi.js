@@ -20,7 +20,7 @@ export async function getAvailableModels() {
  * Set the active evaluation model for a specific run type (admin only).
  *
  * @param {string} runType - run type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM)
- * @param {string} model - model name (HAIKU, SONNET, or OPUS)
+ * @param {string} model - model name (HAIKU, SONNET, SONNET_55, OPUS)
  * @returns {Promise<{runType: string, active: string}>} the updated config
  */
 export async function setActiveModel(runType, model) {

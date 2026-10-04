@@ -110,6 +110,25 @@ class CostCalculatorOneHourCacheTest {
         assertThat(calculator.calculateCostMicroDollars(EvaluationModel.HAIKU, usage)).isEqualTo(2520);
     }
 
+    // Sonnet 5.5: 5-minute 2.50, 1-hour 4.00
+
+    @Test
+    @DisplayName("Sonnet 5.5: 2500 / 3400 (600*4 + 400*2.5) / 4000, and batch 1250 / 1700 / 2000")
+    void sonnet55_oneHourPricing() {
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.SONNET_55, writes(1000, 0)))
+                .isEqualTo(2500);
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.SONNET_55, writes(1000, 600)))
+                .isEqualTo(3400);
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.SONNET_55, writes(1000, 1000)))
+                .isEqualTo(4000);
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.SONNET_55, writes(1000, 0), true))
+                .isEqualTo(1250);
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.SONNET_55, writes(1000, 600), true))
+                .isEqualTo(1700);
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.SONNET_55, writes(1000, 1000), true))
+                .isEqualTo(2000);
+    }
+
     @Test
     @DisplayName("a 1-hour portion larger than the total is clamped and never prices extra tokens")
     void oneHourPortion_cannotExceedTotal() {

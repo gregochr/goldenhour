@@ -104,6 +104,32 @@ class EvaluationModelTest {
     }
 
     @Test
+    @DisplayName("SONNET_55 gets 4096 max tokens (thinking tokens count against the limit)")
+    void getMaxTokens_sonnet55_returns4096() {
+        assertThat(EvaluationModel.SONNET_55.getMaxTokens()).isEqualTo(4096);
+    }
+
+    @Test
+    @DisplayName("SONNET_55 is claude-sonnet-5-5 v5.5, not extended thinking, own pricing tier")
+    void sonnet55_identity() {
+        assertThat(EvaluationModel.SONNET_55.getModelId()).isEqualTo("claude-sonnet-5-5");
+        assertThat(EvaluationModel.SONNET_55.getVersion()).isEqualTo("5.5");
+        assertThat(EvaluationModel.SONNET_55.isExtendedThinking()).isFalse();
+        assertThat(EvaluationModel.SONNET_55.pricingTier())
+                .isEqualTo(EvaluationModel.PricingTier.SONNET_55);
+    }
+
+    @Test
+    @DisplayName("every enum name fits the VARCHAR(10) model columns and round-trips valueOf")
+    void names_fitVarchar10_andRoundTrip() {
+        for (EvaluationModel model : EvaluationModel.values()) {
+            assertThat(model.name().length()).isLessThanOrEqualTo(10);
+            assertThat(EvaluationModel.valueOf(model.name())).isEqualTo(model);
+        }
+        assertThat(EvaluationModel.valueOf("SONNET_55")).isEqualTo(EvaluationModel.SONNET_55);
+    }
+
+    @Test
     @DisplayName("HAIKU gets 512 max tokens")
     void getMaxTokens_haiku_returns512() {
         assertThat(EvaluationModel.HAIKU.getMaxTokens()).isEqualTo(512);

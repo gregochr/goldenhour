@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { runPromptTest, replayPromptTest, getPromptTestRun, getPromptTestRuns, getPromptTestResults, getGitInfo } from '../api/promptTestApi';
-import { getAvailableModels } from '../api/modelsApi';
+import { modelLabel } from '../utils/modelLabels.js';
 import { fetchLocations } from '../api/forecastApi';
 import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
 import { RUN_TYPE_RANGES } from '../utils/runTypeRanges.js';
@@ -13,8 +13,9 @@ import { isSkyPromptCandidate, isWildlifeOnly } from '../utils/locationTypes.js'
 import { apiErrorMessage } from '../utils/apiError.js';
 
 const USD_TO_GBP = 0.79;
-const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
-const MODELS = ['HAIKU', 'SONNET', 'OPUS'];
+const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
+const MODELS = ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'];
+
 const RUN_TYPES = [
   { value: 'VERY_SHORT_TERM', label: 'Very Short Term' },
   { value: 'SHORT_TERM', label: 'Short Term' },
@@ -48,7 +49,6 @@ const PromptTestView = () => {
   const [checkedRunIds, setCheckedRunIds] = useState([]);
   const [comparisonResults, setComparisonResults] = useState({});
   const [expandedSummary, setExpandedSummary] = useState(null);
-  const [modelVersions, setModelVersions] = useState({});
   const [locations, setLocations] = useState([]);
   const [previewResult, setPreviewResult] = useState(null);
   const pollingRef = useRef(null);
@@ -66,15 +66,6 @@ const PromptTestView = () => {
           return isSkyPromptCandidate(loc.locationType);
         });
         setColourLocationCount(colour.length);
-      })
-      .catch(() => {});
-    getAvailableModels()
-      .then((data) => {
-        const versions = {};
-        (data.available || []).forEach((m) => {
-          if (m.name && m.version) versions[m.name] = m.version;
-        });
-        setModelVersions(versions);
       })
       .catch(() => {});
   }, []);
@@ -210,7 +201,7 @@ const PromptTestView = () => {
     const estimatedCostGbp = estimatedCostUsd * USD_TO_GBP;
     openDialog({
       title: 'Run Prompt Test',
-      message: `This will evaluate ${colourLocationCount} colour location${colourLocationCount !== 1 ? 's' : ''} \u00D7 ${runTypeInfo.days} days (${runTypeInfo.desc}) using ${selectedModel}.`,
+      message: `This will evaluate ${colourLocationCount} colour location${colourLocationCount !== 1 ? 's' : ''} \u00D7 ${runTypeInfo.days} days (${runTypeInfo.desc}) using ${modelLabel(selectedModel)}.`,
       costLine: `Estimated cost: ~\u00A3${estimatedCostGbp.toFixed(3)} (~$${estimatedCostUsd.toFixed(3)}) \u2014 ${totalSlots} evaluations`,
       confirmLabel: 'Run Test',
       onConfirm: async () => {
@@ -247,7 +238,7 @@ const PromptTestView = () => {
 
     openDialog({
       title: 'Replay Prompt Test',
-      message: `Re-evaluates ${run.locationsCount || '?'} location${run.locationsCount !== 1 ? 's' : ''} using stored data from Run #${runId}. Model: ${run.evaluationModel}.`,
+      message: `Re-evaluates ${run.locationsCount || '?'} location${run.locationsCount !== 1 ? 's' : ''} using stored data from Run #${runId}. Model: ${modelLabel(run.evaluationModel)}.`,
       gitComparison: {
         parentLabel: `Run #${runId}`,
         parentGit: parentGit || 'unknown',
@@ -326,16 +317,7 @@ const PromptTestView = () => {
     return usd !== '\u2014' ? `${gbp} (${usd})` : gbp;
   };
 
-  const formatModelWithVersion = (modelName) => {
-    const version = modelVersions[modelName];
-    if (!version) return modelName;
-    return (
-      <>
-        {modelName}
-        <span className="text-plex-text-muted ml-0.5">{version}</span>
-      </>
-    );
-  };
+  const formatModelWithVersion = (modelName) => modelLabel(modelName);
 
   /** Map a prompt test result to the forecast shape that MarkerPopupContent expects. */
   const mapResultToForecast = (result) => {
@@ -445,10 +427,10 @@ const PromptTestView = () => {
       <div className="card flex flex-col gap-3" data-testid="comparison-panel">
         <p className="text-sm font-semibold text-plex-text">
           Run #{idA}
-          <span className="font-mono text-xs text-plex-text-muted ml-1">({formatRunGitBadge(runA)}, {runA?.evaluationModel})</span>
+          <span className="font-mono text-xs text-plex-text-muted ml-1">({formatRunGitBadge(runA)}, {modelLabel(runA?.evaluationModel)})</span>
           {' vs '}
           Run #{idB}
-          <span className="font-mono text-xs text-plex-text-muted ml-1">({formatRunGitBadge(runB)}, {runB?.evaluationModel})</span>
+          <span className="font-mono text-xs text-plex-text-muted ml-1">({formatRunGitBadge(runB)}, {modelLabel(runB?.evaluationModel)})</span>
         </p>
 
         {/* Summary averages */}
@@ -572,13 +554,10 @@ const PromptTestView = () => {
                 />
                 <span className={`${
                   model === 'HAIKU' ? 'text-blue-300' :
-                  model === 'SONNET' ? 'text-purple-300' :
+                  model === 'SONNET' || model === 'SONNET_55' ? 'text-purple-300' :
                   'text-amber-300'
                 }`}>
-                  {model}
-                  {modelVersions[model] && (
-                    <span className="text-plex-text-muted ml-0.5 text-xs">{modelVersions[model]}</span>
-                  )}
+                  {modelLabel(model)}
                 </span>
               </label>
             ))}
@@ -697,13 +676,10 @@ const PromptTestView = () => {
                       <td className="py-2 pr-4">
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
                           run.evaluationModel === 'HAIKU' ? 'bg-blue-900/30 text-blue-300' :
-                          run.evaluationModel === 'SONNET' ? 'bg-purple-900/30 text-purple-300' :
+                          ['SONNET', 'SONNET_55'].includes(run.evaluationModel) ? 'bg-purple-900/30 text-purple-300' :
                           'bg-amber-900/30 text-amber-300'
                         }`}>
-                          {run.evaluationModel}
-                          {modelVersions[run.evaluationModel] && (
-                            <span className="opacity-60 ml-0.5">{modelVersions[run.evaluationModel]}</span>
-                          )}
+                          {modelLabel(run.evaluationModel)}
                         </span>
                       </td>
                       <td className="py-2 pr-4 text-xs text-plex-text-secondary">

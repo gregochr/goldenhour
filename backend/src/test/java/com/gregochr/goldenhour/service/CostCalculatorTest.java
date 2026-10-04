@@ -52,6 +52,36 @@ class CostCalculatorTest {
     }
 
     @Test
+    @DisplayName("calculateCostMicroDollars() for Sonnet 5.5: mixed tokens at its own rates")
+    void calculateCostMicroDollars_sonnet55_mixedTokens() {
+        TokenUsage usage = new TokenUsage(1000, 100, 500, 200);
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET_55, usage);
+        // Input: 1000 * 2.00 = 2000
+        // Output: 100 * 10.00 = 1000
+        // Cache write (5m): 500 * 2.50 = 1250
+        // Cache read: 200 * 0.20 = 40
+        // Total: 4290
+        assertThat(cost).isEqualTo(4290);
+    }
+
+    @Test
+    @DisplayName("calculateCostMicroDollars() for Sonnet 5.5 via batch: half of 4290 = 2145")
+    void calculateCostMicroDollars_sonnet55_batch() {
+        TokenUsage usage = new TokenUsage(1000, 100, 500, 200);
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET_55, usage, true);
+        assertThat(cost).isEqualTo(2145);
+    }
+
+    @Test
+    @DisplayName("calculateCostMicroDollars() for Sonnet 4.6 is unchanged by the 5.5 tier")
+    void calculateCostMicroDollars_sonnet46_unchanged() {
+        TokenUsage usage = new TokenUsage(1000, 100, 500, 200);
+        // 3000 + 1500 + 1875 + 60
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.SONNET, usage))
+                .isEqualTo(6435);
+    }
+
+    @Test
     @DisplayName("calculateCostMicroDollars() for Sonnet: cache write tokens")
     void calculateCostMicroDollars_sonnet_cacheWriteTokens() {
         TokenUsage usage = new TokenUsage(0, 0, 1000, 0);

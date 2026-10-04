@@ -254,6 +254,7 @@ public class SkyRatingEvalBatchService {
 
         int parsedOk = 0;
         int failed = 0;
+        Map<Long, java.util.Set<Integer>> answered = new LinkedHashMap<>();
         for (ClaudeBatchOutcome outcome : batchClient.collectResults(batchId)) {
             ResultRef ref = parseCustomId(outcome.customId());
             if (ref == null) {
@@ -269,23 +270,81 @@ public class SkyRatingEvalBatchService {
                 failed++;
                 continue;
             }
+            answered.computeIfAbsent(ctx.run().getId(), id -> new java.util.HashSet<>())
+                    .add(slot(ref.fixtureIdx(), ref.runIndex()));
             if (!outcome.succeeded()) {
-                LOG.warn("Sky-rating eval batch {}: request '{}' failed ({}), skipping",
+                // A refused, truncated or errored fixture is a failed evaluation of that fixture:
+                // it counts in the run's denominator as a non-pass rather than vanishing from it.
+                LOG.warn("Sky-rating eval batch {}: request '{}' failed ({}), counted as a non-pass",
                         batchId, outcome.customId(), outcome.status());
+                ctx.agg().recordFailure(outcome.status(), outcome.tokenUsage(),
+                        evalService.batchCostMicroDollars(ctx.run(), outcome.tokenUsage()));
+                evalService.persistFailureRow(ctx.run(),
+                        SkyRatingEvalFixtures.ALL.get(ref.fixtureIdx()), ref.runIndex(),
+                        outcome.status(), outcome.tokenUsage());
                 failed++;
                 continue;
             }
             SkyRatingEvalFixture fixture = SkyRatingEvalFixtures.ALL.get(ref.fixtureIdx());
-            SunsetEvaluation eval = parser.parseEvaluation(outcome.rawText(), objectMapper);
+            SunsetEvaluation eval;
+            try {
+                eval = parser.parseEvaluation(outcome.rawText(), objectMapper);
+            } catch (RuntimeException e) {
+                LOG.warn("Sky-rating eval batch {}: request '{}' was unreadable ({}), counted as a "
+                        + "non-pass", batchId, outcome.customId(), e.getMessage());
+                ctx.agg().recordFailure("PARSE_ERROR", outcome.tokenUsage(),
+                        evalService.batchCostMicroDollars(ctx.run(), outcome.tokenUsage()));
+                evalService.persistFailureRow(ctx.run(), fixture, ref.runIndex(), "PARSE_ERROR",
+                        outcome.tokenUsage());
+                failed++;
+                continue;
+            }
             evalService.persistResult(ctx.run(), fixture, ref.runIndex(), eval,
                     outcome.tokenUsage(), null, true, ctx.agg());
             parsedOk++;
         }
 
-        byRunId.values().forEach(ctx -> evalService.finalise(
-                ctx.run(), ctx.agg(), SkyRatingEvalStatus.COMPLETED, null, startMillis(ctx.run())));
-        LOG.info("Sky-rating eval batch {} reconciled: {} scored, {} skipped, {} run(s) finalised",
+        byRunId.values().forEach(ctx -> finaliseRun(batchId, ctx,
+                answered.getOrDefault(ctx.run().getId(), java.util.Set.of())));
+        LOG.info("Sky-rating eval batch {} reconciled: {} scored, {} failed, {} run(s) finalised",
                 batchId, parsedOk, failed, runs.size());
+    }
+
+    /**
+     * Finalises one run so its pass rate means passes / evaluations attempted. Any evaluation the
+     * batch never answered is counted as a failure too. A run in which every evaluation failed is
+     * FAILED; a partial one is COMPLETED with the failed count and its per-type reasons recorded
+     * in the run's error message (no extra column), so the figure is never presented as complete.
+     */
+    private void finaliseRun(String batchId, RunContext ctx, java.util.Set<Integer> answered) {
+        SkyRatingEvalService.Aggregate agg = ctx.agg();
+        int attempted = ctx.run().getRunsPerFixture() * SkyRatingEvalFixtures.ALL.size();
+        // An evaluation the batch never answered still gets its own failure row, attributed to its
+        // fixture and run index, so per-fixture runs/passes reconcile with the run aggregate.
+        for (int f = 0; f < SkyRatingEvalFixtures.ALL.size(); f++) {
+            for (int r = 1; r <= ctx.run().getRunsPerFixture(); r++) {
+                if (!answered.contains(slot(f, r))) {
+                    agg.recordFailure("MISSING");
+                    evalService.persistFailureRow(ctx.run(), SkyRatingEvalFixtures.ALL.get(f), r,
+                            "MISSING", null);
+                }
+            }
+        }
+        if (agg.failedCount() == 0) {
+            evalService.finalise(ctx.run(), agg, SkyRatingEvalStatus.COMPLETED, null,
+                    startMillis(ctx.run()));
+            return;
+        }
+        boolean allFailed = agg.failedCount() >= attempted;
+        String message = (allFailed
+                ? "Every evaluation failed: " + agg.failedCount() + " of " + attempted
+                : agg.failedCount() + " of " + attempted
+                        + " evaluations failed and count as non-passes")
+                + " (" + agg.failureSummary() + ")";
+        LOG.warn("Sky-rating eval run {} (batch {}): {}", ctx.run().getId(), batchId, message);
+        evalService.finalise(ctx.run(), agg,
+                allFailed ? SkyRatingEvalStatus.FAILED : SkyRatingEvalStatus.COMPLETED,
+                message, startMillis(ctx.run()));
     }
 
     /** Fails a RUNNING run that has aged past the timeout without ever recording a batch id. */
@@ -342,6 +401,11 @@ public class SkyRatingEvalBatchService {
             }
         }
         return requests;
+    }
+
+    /** Packs a (fixture, run index) pair into one set key. */
+    private static int slot(int fixtureIdx, int runIndex) {
+        return fixtureIdx * 10_000 + runIndex;
     }
 
     /** Builds the {@code e_<runId>_<fixtureIdx>_<runIndex>} custom id. */

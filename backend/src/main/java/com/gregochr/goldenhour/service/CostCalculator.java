@@ -111,6 +111,7 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuInputUsdPerMtok();
             case SONNET -> costProperties.getSonnetInputUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55InputUsdPerMtok();
             case OPUS -> costProperties.getOpusInputUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -120,6 +121,7 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuOutputUsdPerMtok();
             case SONNET -> costProperties.getSonnetOutputUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55OutputUsdPerMtok();
             case OPUS -> costProperties.getOpusOutputUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -129,6 +131,7 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuCacheWriteUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheWriteUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55CacheWriteUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheWriteUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -138,6 +141,7 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuCacheWrite1hUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheWrite1hUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55CacheWrite1hUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheWrite1hUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -147,6 +151,7 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuCacheReadUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheReadUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55CacheReadUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheReadUsdPerMtok();
             case FREE -> 0.0;
         };
