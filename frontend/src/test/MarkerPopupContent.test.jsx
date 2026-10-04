@@ -207,6 +207,12 @@ describe('MarkerPopupContent', () => {
       expect(screen.getByText(/by Sonnet/)).toBeInTheDocument();
     });
 
+    it('names a Sonnet 5.5 evaluation "Sonnet 5.5", not the title-cased enum', () => {
+      renderPopup({ role: 'ADMIN', forecast: { ...BASE_FORECAST, evaluationModel: 'SONNET_55' } });
+      expect(screen.getByText(/by Sonnet 5\.5$/)).toBeInTheDocument();
+      expect(screen.queryByText(/Sonnet_55/)).not.toBeInTheDocument();
+    });
+
     it('hides the footer when forecastRunAt is null (no fabricated time)', () => {
       renderPopup({ role: 'ADMIN', forecast: { ...BASE_FORECAST, forecastRunAt: null } });
       expect(screen.queryByText(/Forecast generated/)).not.toBeInTheDocument();

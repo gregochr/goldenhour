@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.BatchCreateParams;
@@ -116,6 +117,18 @@ public class SkyRatingEvalBatchClient {
         if (message == null) {
             return ClaudeBatchOutcome.failure(customId, "NO_MESSAGE", "extraction_error",
                     "succeeded but no message");
+        }
+        // Same stop-reason rules as BatchResultProcessor: a refusal must not read as NO_TEXT, and
+        // a truncated reply with partial text must not be scored as a success.
+        StopReason stopReason = message.stopReason().orElse(null);
+        if (StopReason.REFUSAL.equals(stopReason)) {
+            return ClaudeBatchOutcome.failure(customId, "REFUSAL", EvaluationFailure.TYPE_REFUSAL,
+                    "Claude refused to evaluate this fixture (stop_reason=refusal)");
+        }
+        if (StopReason.MAX_TOKENS.equals(stopReason)) {
+            return ClaudeBatchOutcome.failure(customId, "MAX_TOKENS", "truncation_error",
+                    "Claude's response was truncated at the max_tokens limit "
+                            + "(stop_reason=max_tokens)");
         }
         String text = message.content().stream()
                 .filter(ContentBlock::isText)

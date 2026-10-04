@@ -141,6 +141,7 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuCacheWrite1hUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheWrite1hUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55CacheWrite1hUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheWrite1hUsdPerMtok();
             case FREE -> 0.0;
         };

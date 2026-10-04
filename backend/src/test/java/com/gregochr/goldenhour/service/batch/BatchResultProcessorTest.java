@@ -9,6 +9,8 @@ import com.anthropic.services.blocking.messages.BatchService;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
@@ -44,6 +46,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -405,8 +408,11 @@ class BatchResultProcessorTest {
         verify(jobRunService).logBatchResult(
                 eq(55L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
                 eq(false), eq("MAX_TOKENS"),
-                eq("truncation_error"), any(),
-                any(), any(), any(), any());
+                eq("truncation_error"),
+                eq("Claude's response was truncated at the max_tokens limit "
+                        + "(stop_reason=max_tokens)"),
+                eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
+                isNull(), isNull());
 
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
@@ -436,14 +442,21 @@ class BatchResultProcessorTest {
         verify(jobRunService).logBatchResult(
                 eq(56L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
                 eq(false), eq("REFUSAL"),
-                eq("refusal_error"), any(),
-                any(), any(), any(), any());
+                eq(EvaluationFailure.TYPE_REFUSAL),
+                eq("Claude refused to evaluate this forecast (stop_reason=refusal)"),
+                eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
+                isNull(), isNull());
 
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
         assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
         assertThat(captor.getValue().getSucceededCount()).isZero();
+        // The refused response was billed: its tokens reach the batch totals.
+        assertThat(captor.getValue().getTotalInputTokens()).isEqualTo(700L);
+        assertThat(captor.getValue().getTotalOutputTokens()).isEqualTo(123L);
+        assertThat(captor.getValue().getTotalCacheReadTokens()).isEqualTo(40L);
+        assertThat(captor.getValue().getTotalCacheCreationTokens()).isEqualTo(300L);
     }
 
     @Test
@@ -642,6 +655,63 @@ class BatchResultProcessorTest {
         verify(batchRepository).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
         assertThat(captor.getValue().getErrorMessage()).contains("triage failed");
+    }
+
+    @Test
+    @DisplayName("AURORA: refusal → batch FAILED, handler not invoked, failed row typed 'refusal' with usage")
+    void aurora_refusal_failsBatchAndCostsResponse() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 61L);
+        MessageBatchIndividualResponse response = succeededResponseWithStopReason(
+                "au-MODERATE-2026-04-07", StopReason.REFUSAL);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verify(auroraResultHandler, never()).processBatchResponse(any(), any(), any());
+        verify(jobRunService).logBatchResult(
+                eq(61L), eq("msgbatch_fail"), eq("au-MODERATE-2026-04-07"),
+                eq(false), eq("REFUSAL"), eq(EvaluationFailure.TYPE_REFUSAL),
+                eq("Claude refused to interpret the aurora conditions (stop_reason=refusal)"),
+                eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
+                isNull(), isNull());
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(captor.getValue().getTotalInputTokens()).isEqualTo(700L);
+        assertThat(captor.getValue().getTotalOutputTokens()).isEqualTo(123L);
+    }
+
+    @Test
+    @DisplayName("AURORA: max_tokens truncation → batch FAILED with 'truncation_error', never parsed")
+    void aurora_maxTokens_failsBatchWithoutParsing() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 62L);
+        MessageBatchIndividualResponse response = succeededResponseWithStopReason(
+                "au-MODERATE-2026-04-07", StopReason.MAX_TOKENS);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verify(auroraResultHandler, never()).processBatchResponse(any(), any(), any());
+        verify(jobRunService).logBatchResult(
+                eq(62L), eq("msgbatch_fail"), eq("au-MODERATE-2026-04-07"),
+                eq(false), eq("MAX_TOKENS"), eq("truncation_error"),
+                eq("Claude's aurora response was truncated at the max_tokens limit "
+                        + "(stop_reason=max_tokens)"),
+                eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
+                isNull(), isNull());
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
     }
 
     @Test
@@ -973,6 +1043,15 @@ class BatchResultProcessorTest {
         when(result.succeeded()).thenReturn(Optional.of(succeeded));
         when(succeeded.message()).thenReturn(message);
         when(message.stopReason()).thenReturn(Optional.of(stopReason));
+        // A rejected response was still billed: it carries a model and real usage.
+        com.anthropic.models.messages.Usage usage = mock(com.anthropic.models.messages.Usage.class);
+        when(message.usage()).thenReturn(usage);
+        when(message.model())
+                .thenReturn(com.anthropic.models.messages.Model.of("claude-sonnet-5-5"));
+        when(usage.inputTokens()).thenReturn(700L);
+        when(usage.outputTokens()).thenReturn(123L);
+        when(usage.cacheReadInputTokens()).thenReturn(Optional.of(40L));
+        when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(300L));
 
         return response;
     }

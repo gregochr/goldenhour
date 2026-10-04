@@ -20,6 +20,26 @@ function baseRun(overrides = {}) {
 }
 
 describe('JobRunsGrid SCHEDULED_BATCH summary line', () => {
+  it('renders a SONNET_55 run as "Sonnet 5.5" in the header and the batch summary', () => {
+    const run = baseRun({
+      evaluationModel: 'SONNET_55',
+      batchSummary: {
+        horizonRange: 'T+1',
+        eventTypes: ['SUNRISE'],
+        evaluationModel: 'SONNET_55',
+        locationCount: 29,
+        regionCount: 7,
+        extendedThinking: false,
+      },
+    });
+
+    render(<JobRunsGrid runs={[run]} onLoadMore={noop} />);
+
+    expect(screen.getByTestId('batch-summary-42').textContent).toContain('Sonnet 5.5');
+    expect(screen.getByTestId('batch-summary-42').textContent).not.toContain('SONNET_55');
+    expect(screen.getAllByText(/Sonnet 5\.5/).length).toBeGreaterThanOrEqual(2);
+  });
+
   it('renders the batch summary line when batchSummary is present', () => {
     const run = baseRun({
       batchSummary: {
@@ -38,7 +58,7 @@ describe('JobRunsGrid SCHEDULED_BATCH summary line', () => {
     expect(summary.textContent).toContain('T+1');
     expect(summary.textContent).toContain('SUNRISE');
     expect(summary.textContent).toContain('29 locations');
-    expect(summary.textContent).toContain('HAIKU');
+    expect(summary.textContent).toContain('Haiku');
     expect(summary.textContent).toContain('7 regions');
     expect(summary.textContent).not.toContain('(ET)');
   });
@@ -77,7 +97,8 @@ describe('JobRunsGrid SCHEDULED_BATCH summary line', () => {
     render(<JobRunsGrid runs={[run]} onLoadMore={noop} />);
 
     const summary = screen.getByTestId('batch-summary-42');
-    expect(summary.textContent).toContain('SONNET_ET (ET)');
+    expect(summary.textContent).toContain('Sonnet 4.6 (ET)');
+    expect(summary.textContent).not.toContain('(ET) (ET)');
   });
 
   it('shows "No detail available" for a completed batch with no summary', () => {

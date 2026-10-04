@@ -222,8 +222,8 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(ModelRequestSupport.maxTokens(model,
-                            useExtendedThinking ? MAX_TOKENS_THINKING : maxTokens))
+                    .maxTokens(useExtendedThinking || ModelRequestSupport.usesLowEffort(model)
+                            ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
@@ -244,6 +244,18 @@ public class BriefingBestBetAdvisor {
 
             LOG.info("Best-bet advisor completed ({}ms, model={}, stopReason={})",
                     durationMs, model, stopReason.map(Object::toString).orElse("unknown"));
+            // A refusal or a max_tokens truncation is a FAILED call, for every model: it is
+            // logged as a failure (still carrying its real token usage, so it is costed) and
+            // never reaches the parser, whose salvage could dress a cut-off answer as picks.
+            String rejection = rejectionReason(stopReason.orElse(null));
+            if (rejection != null) {
+                jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
+                        "POST", "briefing-best-bet", rollup.json(),
+                        durationMs, 200, raw, false, rejection,
+                        model, tokenUsage);
+                logResponseDisposition(stopReason, 0, raw.length(), jobRunId);
+                return BestBetResult.failed();
+            }
             // Capture the exact rollup input (request body) alongside the response so the
             // advisor replay harness can re-feed any live cycle's input through a swapped
             // prompt for before/after validation — previously this was logged as null. The
@@ -560,11 +572,25 @@ public class BriefingBestBetAdvisor {
      */
     public ComparisonRun compareModels(List<BriefingDay> days,
             Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
+        return compareModels(List.of(
+                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_ET,
+                EvaluationModel.OPUS, EvaluationModel.OPUS_ET), days, driveMap);
+    }
+
+    /**
+     * Runs the comparison over an explicit list of variants (the scheduled comparison keeps its
+     * fixed five; this overload lets a test, or a future harness, name others such as Sonnet 5.5).
+     *
+     * @param models   the variants to call, in order
+     * @param days     the fully assembled briefing days (triage complete)
+     * @param driveMap unused — retained for API compatibility
+     * @return comparison run containing the rollup JSON and one result per variant
+     * @throws com.fasterxml.jackson.core.JsonProcessingException if rollup JSON build fails
+     */
+    ComparisonRun compareModels(List<EvaluationModel> models, List<BriefingDay> days,
+            Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
         LocalDateTime now = LocalDateTime.now(clock);
         RollupResult rollup = rollupBuilder.buildRollupJson(days, now);
-        List<EvaluationModel> models = List.of(
-                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_ET,
-                EvaluationModel.OPUS, EvaluationModel.OPUS_ET);
 
         List<ModelComparisonResult> results = new ArrayList<>();
         for (EvaluationModel model : models) {
@@ -581,8 +607,8 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder builder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(ModelRequestSupport.maxTokens(model,
-                        extendedThinking ? MAX_TOKENS_THINKING : maxTokens))
+                    .maxTokens(extendedThinking || ModelRequestSupport.usesLowEffort(model)
+                        ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
@@ -596,6 +622,8 @@ public class BriefingBestBetAdvisor {
             Message response = anthropicApiClient.createMessage(
                     ModelRequestSupport.tune(builder, model).build());
             long durationMs = System.currentTimeMillis() - startMs;
+            // Refusal or truncation: a failed variant (caught below), never parsed picks.
+            ModelRequestSupport.checkStopReason(response);
 
             // Text blocks only — thinking blocks are filtered out here
             String raw = extractFirstText(response);
@@ -634,6 +662,17 @@ public class BriefingBestBetAdvisor {
      * @param response the Claude message
      * @return the first text block's content, or an empty string
      */
+    private static String rejectionReason(StopReason stopReason) {
+        if (StopReason.REFUSAL.equals(stopReason)) {
+            return "Claude refused the best-bet request (stop_reason=refusal)";
+        }
+        if (StopReason.MAX_TOKENS.equals(stopReason)) {
+            return "Claude's best-bet response was truncated at the max_tokens limit "
+                    + "(stop_reason=max_tokens)";
+        }
+        return null;
+    }
+
     private static String extractFirstText(Message response) {
         return response.content().stream()
                 .filter(ContentBlock::isText)
@@ -672,8 +711,8 @@ public class BriefingBestBetAdvisor {
         boolean extendedThinking = model.isExtendedThinking();
         MessageCreateParams.Builder builder = MessageCreateParams.builder()
                 .model(model.getModelId())
-                .maxTokens(ModelRequestSupport.maxTokens(model,
-                        extendedThinking ? MAX_TOKENS_THINKING : maxTokens))
+                .maxTokens(extendedThinking || ModelRequestSupport.usesLowEffort(model)
+                        ? MAX_TOKENS_THINKING : maxTokens)
                 .systemOfTextBlockParams(List.of(
                         TextBlockParam.builder().text(systemPrompt).build()))
                 .addUserMessage(rollupJson);
@@ -685,6 +724,11 @@ public class BriefingBestBetAdvisor {
 
         Message response = anthropicApiClient.createMessage(
                     ModelRequestSupport.tune(builder, model).build());
+        String rejection = rejectionReason(response.stopReason().orElse(null));
+        if (rejection != null) {
+            LOG.warn("Best-bet replay with {} failed: {}", model, rejection);
+            return BestBetResult.failed();
+        }
         String raw = extractFirstText(response);
 
         BestBetResult parsed = classifyAndParse(raw);

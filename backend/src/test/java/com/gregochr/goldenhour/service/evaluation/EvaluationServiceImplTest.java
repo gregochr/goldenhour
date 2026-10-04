@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
@@ -800,5 +801,158 @@ class EvaluationServiceImplTest {
                 level, DATE, EvaluationModel.HAIKU,
                 List.of(loc), Map.of(loc, 30),
                 SPACE_WEATHER, TriggerType.REALTIME, null);
+    }
+
+    // ── Per-model request shape (literal expectations) and response handling ──
+
+    private static final String AURORA_JSON = "[{\"name\":\"X\",\"stars\":4}]";
+
+    private EvaluationTask.Aurora auroraTaskFor(EvaluationModel model) {
+        LocationEntity loc = new LocationEntity();
+        loc.setId(1L);
+        loc.setName("X");
+        return new EvaluationTask.Aurora(
+                AlertLevel.MODERATE, DATE, model,
+                List.of(loc), Map.of(loc, 30),
+                SPACE_WEATHER, TriggerType.REALTIME, null);
+    }
+
+    private EvaluationTask.Forecast forecastTaskFor(EvaluationModel model) {
+        LocationEntity loc = new LocationEntity();
+        loc.setId(42L);
+        loc.setName("Castlerigg");
+        return new EvaluationTask.Forecast(
+                loc, DATE, TargetType.SUNRISE, model, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+    }
+
+    private static long skyCeiling(EvaluationModel model) {
+        return switch (model) {
+            case HAIKU -> 512;
+            case SONNET -> 1024;
+            default -> 4096;
+        };
+    }
+
+    /** Aurora answer budget for one location (256 + 220), plus the thinking allowance for 5.5. */
+    private static long auroraCeiling(EvaluationModel model) {
+        return model == EvaluationModel.SONNET_55 ? 476 + 4096 : 476;
+    }
+
+    @Test
+    @DisplayName("aurora batch request: literal model id, effort only for Sonnet 5.5, additive ceiling")
+    void submit_auroraRequestShape_perModel() {
+        for (EvaluationModel model : List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET,
+                EvaluationModel.SONNET_55)) {
+            org.mockito.Mockito.clearInvocations(batchSubmissionService);
+            EvaluationTask.Aurora task = auroraTaskFor(model);
+            when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
+                    .thenReturn("user-message");
+            when(batchSubmissionService.submit(
+                    any(), eq(BatchType.AURORA), eq(BatchTriggerSource.SCHEDULED), anyString()))
+                    .thenReturn(new BatchSubmitResult(888L, "msgbatch_aurora", 1));
+
+            service.submit(List.of(task), BatchTriggerSource.SCHEDULED);
+
+            ArgumentCaptor<List<BatchCreateParams.Request>> captor = ArgumentCaptor.forClass(List.class);
+            verify(batchSubmissionService).submit(captor.capture(), eq(BatchType.AURORA),
+                    eq(BatchTriggerSource.SCHEDULED), anyString());
+            ModelRequestAssertions.assertBatch(captor.getValue().get(0).params(), model,
+                    auroraCeiling(model), Optional.empty());
+        }
+    }
+
+    @Test
+    @DisplayName("sync sky request: literal model id, JSON format kept, effort LOW only for Sonnet 5.5")
+    void evaluateNow_skyRequestShape_perModel() {
+        for (EvaluationModel model : List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET,
+                EvaluationModel.SONNET_55)) {
+            org.mockito.Mockito.clearInvocations(anthropicApiClient);
+            EvaluationTask.Forecast task = forecastTaskFor(model);
+            PromptBuilder builder = new PromptBuilder();
+            when(batchRequestFactory.selectBuilder(eq(task.data()))).thenReturn(builder);
+            when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                    .thenReturn(ModelRequestAssertions.message(
+                            List.of(ModelRequestAssertions.text("{}")), StopReason.END_TURN));
+            when(forecastResultHandler.handleSyncResult(eq(task), any(ClaudeSyncOutcome.class),
+                    any(ResultContext.class))).thenReturn(new EvaluationResult.Errored("x", "x"));
+
+            service.evaluateNow(task, BatchTriggerSource.ADMIN);
+
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            ModelRequestAssertions.assertMessage(captor.getValue(), model, skyCeiling(model),
+                    builder.buildOutputConfig().format());
+        }
+    }
+
+    @Test
+    @DisplayName("sync aurora request: literal model id, effort-only config for Sonnet 5.5, additive ceiling")
+    void evaluateNow_auroraRequestShape_perModel() {
+        for (EvaluationModel model : List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET,
+                EvaluationModel.SONNET_55)) {
+            org.mockito.Mockito.clearInvocations(anthropicApiClient);
+            EvaluationTask.Aurora task = auroraTaskFor(model);
+            when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
+                    .thenReturn("user-message");
+            when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                    .thenReturn(ModelRequestAssertions.message(
+                            List.of(ModelRequestAssertions.text(AURORA_JSON)), StopReason.END_TURN));
+            when(auroraResultHandler.handleSyncResult(eq(task), any(ClaudeSyncOutcome.class),
+                    any(ResultContext.class))).thenReturn(new EvaluationResult.Errored("x", "x"));
+
+            service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            ModelRequestAssertions.assertMessage(captor.getValue(), model, auroraCeiling(model),
+                    Optional.empty());
+        }
+    }
+
+    private ClaudeSyncOutcome syncAuroraOutcomeFor(Message reply) {
+        EvaluationTask.Aurora task = auroraTaskFor(EvaluationModel.SONNET_55);
+        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
+                .thenReturn("user-message");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(reply);
+        when(auroraResultHandler.handleSyncResult(eq(task), any(ClaudeSyncOutcome.class),
+                any(ResultContext.class))).thenReturn(new EvaluationResult.Errored("x", "x"));
+
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<ClaudeSyncOutcome> captor = ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        verify(auroraResultHandler).handleSyncResult(eq(task), captor.capture(), any(ResultContext.class));
+        return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("sync aurora: a thinking block ahead of the text block still yields the text")
+    void evaluateNow_auroraThinkingFirst_returnsText() {
+        ClaudeSyncOutcome outcome = syncAuroraOutcomeFor(ModelRequestAssertions.message(
+                List.of(ModelRequestAssertions.thinking("hmm"), ModelRequestAssertions.text(AURORA_JSON)),
+                StopReason.END_TURN));
+
+        assertThat(outcome.succeeded()).isTrue();
+        assertThat(outcome.rawText()).isEqualTo(AURORA_JSON);
+    }
+
+    @Test
+    @DisplayName("sync aurora: a refusal is reported as refusal")
+    void evaluateNow_auroraRefusal_isNamed() {
+        ClaudeSyncOutcome outcome = syncAuroraOutcomeFor(
+                ModelRequestAssertions.message(List.of(), StopReason.REFUSAL));
+
+        assertThat(outcome.succeeded()).isFalse();
+        assertThat(outcome.errorType()).isEqualTo("refusal");
+    }
+
+    @Test
+    @DisplayName("sync aurora: a max_tokens truncation fails as reply_unreadable, never parsed")
+    void evaluateNow_auroraTruncated_isReplyUnreadable() {
+        ClaudeSyncOutcome outcome = syncAuroraOutcomeFor(ModelRequestAssertions.message(
+                List.of(ModelRequestAssertions.text("[{\"name\":\"X\",\"sta")), StopReason.MAX_TOKENS));
+
+        assertThat(outcome.succeeded()).isFalse();
+        assertThat(outcome.errorType()).isEqualTo("reply_unreadable");
     }
 }

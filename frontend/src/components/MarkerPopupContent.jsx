@@ -27,6 +27,7 @@ import {
 import { resolveStandDown } from '../utils/standDown.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../utils/locationTypes.js';
 import { apiErrorMessage } from '../utils/apiError.js';
+import { modelLabel } from '../utils/modelLabels.js';
 
 /**
  * Resolves the full detail object for a (slim) forecast slot with the precedence:
@@ -109,7 +110,7 @@ function buildGeneratedFooter(forecast, detail, triageSuperseded = false) {
   const base = formatGeneratedAtFull(forecast.forecastRunAt);
   const evaluationModel = detail?.evaluationModel;
   const model = evaluationModel && evaluationModel !== 'WILDLIFE'
-    ? evaluationModel.charAt(0) + evaluationModel.slice(1).toLowerCase()
+    ? modelLabel(evaluationModel)
     : null;
 
   if (forecast.triageReason && !triageSuperseded) {

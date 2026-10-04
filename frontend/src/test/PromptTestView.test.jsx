@@ -19,7 +19,7 @@ vi.mock('../api/modelsApi', () => ({
   getAvailableModels: vi.fn(),
 }));
 
-import { getPromptTestRuns, getPromptTestResults, getGitInfo } from '../api/promptTestApi';
+import { getPromptTestRuns, getPromptTestResults, getGitInfo, runPromptTest } from '../api/promptTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { getAvailableModels } from '../api/modelsApi';
 
@@ -160,7 +160,7 @@ describe('PromptTestView', () => {
 
     expect(screen.getByText('SUNSET')).toBeInTheDocument();
     // HAIKU appears in both the radio label and the run row model badge
-    expect(screen.getAllByText(/HAIKU/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/Haiku/).length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows in-progress indicator for run without completedAt', async () => {
@@ -322,16 +322,38 @@ describe('PromptTestView', () => {
     expect(screen.queryByTestId('preview-btn-11')).not.toBeInTheDocument();
   });
 
-  it('shows model versions next to model radio buttons', async () => {
+  it('labels every model radio distinctly, from the static table (no network needed)', async () => {
+    getAvailableModels.mockRejectedValue(new Error('offline'));
     render(<PromptTestView />);
     await waitFor(() => {
       expect(screen.getByTestId('model-radio-HAIKU')).toBeInTheDocument();
     });
 
-    // Model versions should appear as text near the radio buttons
+    const label = (m) => screen.getByTestId(`model-radio-${m}`).closest('label').textContent.trim();
+    expect(label('HAIKU')).toBe('Haiku');
+    expect(label('SONNET')).toBe('Sonnet 4.6');
+    expect(label('SONNET_55')).toBe('Sonnet 5.5');
+    expect(label('OPUS')).toBe('Opus');
+  });
+
+  it('selecting Sonnet 5.5 and confirming runs SONNET_55; the dialog names it "Sonnet 5.5"', async () => {
+    runPromptTest.mockResolvedValue({ data: { id: 9, status: 'RUNNING', evaluationModel: 'SONNET_55' } });
+    getPromptTestResults.mockResolvedValue({ data: [] });
+    render(<PromptTestView />);
     await waitFor(() => {
-      expect(screen.getAllByText('4.5').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('4.6').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByTestId('model-radio-SONNET_55')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('model-radio-SONNET_55'));
+    fireEvent.click(screen.getByTestId('run-prompt-test-btn'));
+
+    const dialog = screen.getByTestId('confirm-dialog');
+    expect(dialog).toHaveTextContent('using Sonnet 5.5.');
+    expect(dialog).not.toHaveTextContent('SONNET_55');
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() => {
+      expect(runPromptTest).toHaveBeenCalledWith('SONNET_55', 'VERY_SHORT_TERM');
     });
   });
 });

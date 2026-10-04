@@ -59,6 +59,9 @@ public class CostProperties {
     /** Sonnet 5.5 cache write rate, 5-minute (USD per million tokens). */
     private double sonnet55CacheWriteUsdPerMtok = 2.50;
 
+    /** Sonnet 5.5 cache write rate, 1-hour (USD per million tokens). */
+    private double sonnet55CacheWrite1hUsdPerMtok = 4.00;
+
     /** Sonnet 5.5 cache read rate (USD per million tokens). */
     private double sonnet55CacheReadUsdPerMtok = 0.20;
 

@@ -704,7 +704,11 @@ describe('ModelSelectionView', () => {
     expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet 4.6)');
   });
 
-  it('Scheduled Batch tab shows three distinct per-model descriptions', async () => {
+  it('Scheduled Batch tab shows a distinct description for each of the four models', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      available: ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'],
+    });
     render(<ModelSelectionView />);
 
     await waitFor(() => {
@@ -723,6 +727,8 @@ describe('ModelSelectionView', () => {
     // Each description appears exactly once — not the same text repeated across all three cards
     expect(screen.getAllByText(/cost-efficient model for overnight batch runs/)).toHaveLength(1);
     expect(screen.getAllByText(/Recommended for scheduled batch runs/)).toHaveLength(1);
+    // The fourth model: Sonnet 5.5 has its own description, shown exactly once
+    expect(screen.getAllByText(/Selectable newer Sonnet for scheduled batch runs/)).toHaveLength(1);
   });
 
   it('Scheduled Batch tab shows informational panel', async () => {
@@ -775,8 +781,54 @@ describe('ModelSelectionView', () => {
 
     expect(screen.queryByTestId('cost-estimate-table')).not.toBeInTheDocument();
     // Spot-check cost ranges are present
-    expect(screen.getByText('~£0.0002')).toBeInTheDocument();
-    expect(screen.getByText('~£0.02 – £0.08')).toBeInTheDocument();
+    expect(screen.getAllByText('~£0.0002').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('~£0.02 – £0.08').length).toBeGreaterThanOrEqual(1);
+    // Sonnet 5.5 has its own row, so it can be marked active when selected
+    expect(within(screen.getByTestId('batch-cost-table')).getByText('Sonnet 5.5')).toBeInTheDocument();
+  });
+
+  it('Scheduled Batch cost table marks the Sonnet 5.5 row "(active)" when it is the active model', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      configs: { ...MOCK_DATA.configs, BATCH_NEAR_TERM: 'SONNET_55' },
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BATCH_NEAR_TERM'));
+
+    const table = await screen.findByTestId('batch-cost-table');
+    const row = within(table).getByText('Sonnet 5.5').closest('tr');
+    expect(row).toHaveTextContent('(active)');
+    expect(within(table).getByText('Sonnet 4.6').closest('tr')).not.toHaveTextContent('(active)');
+    expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet 5.5)');
+  });
+
+  it('Extended Thinking: Sonnet 5.5 shows the no-effect note and suppresses the thinking-cost line', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'SONNET_55' },
+      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    expect(await screen.findByTestId('extended-thinking-sonnet-55-note')).toHaveTextContent(
+      'always thinks adaptively at low effort',
+    );
+    expect(screen.queryByText(/Active — adds ~10 000 thinking tokens/)).not.toBeInTheDocument();
+  });
+
+  it('Extended Thinking: Sonnet 4.6 still shows the thinking-cost line and names which Sonnet', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'SONNET' },
+      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    expect(await screen.findByText(/Active — adds ~10 000 thinking tokens per call \(Sonnet 4\.6:/))
+      .toBeInTheDocument();
+    expect(screen.queryByTestId('extended-thinking-sonnet-55-note')).not.toBeInTheDocument();
   });
 
   it('batch cost table is absent on non-batch tabs', async () => {

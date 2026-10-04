@@ -20,6 +20,9 @@ import com.gregochr.goldenhour.exception.ClaudeRefusalException;
  */
 public final class ModelRequestSupport {
 
+    /** Output tokens reserved for adaptive thinking, on top of the answer's own budget. */
+    static final int THINKING_ALLOWANCE = 4096;
+
     private ModelRequestSupport() {
     }
 
@@ -79,15 +82,28 @@ public final class ModelRequestSupport {
     }
 
     /**
-     * Returns the max-token ceiling to send: the requested figure, raised to the model's own
-     * ceiling for Sonnet 5.5 (whose thinking tokens count against it), unchanged otherwise.
+     * Returns the max-token ceiling to send: the answer's own budget plus, for Sonnet 5.5, a
+     * thinking allowance (its thinking tokens count against the ceiling, so a budget sized for
+     * the answer alone would truncate it). Unchanged for every other model.
      *
      * @param model     the evaluation model
      * @param requested the ceiling the caller would send for any other model
      * @return the ceiling to send
      */
     public static int maxTokens(EvaluationModel model, int requested) {
-        return usesLowEffort(model) ? Math.max(requested, model.getMaxTokens()) : requested;
+        return usesLowEffort(model) ? requested + THINKING_ALLOWANCE : requested;
+    }
+
+    /**
+     * Fails the evaluation when Claude refused or was cut off at {@code max_tokens}: a truncated
+     * answer is wrong for any model, so it must never reach a parser that might salvage it.
+     *
+     * @param response the Claude response
+     * @throws ClaudeRefusalException when the stop reason is a refusal
+     * @throws com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException when truncated
+     */
+    public static void checkStopReason(Message response) {
+        ClaudeEvaluationStrategy.checkStopReason(response);
     }
 
     /**

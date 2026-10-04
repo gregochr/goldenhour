@@ -4,6 +4,7 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.http.StreamResponse;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.BatchCreateParams;
@@ -131,5 +132,55 @@ class SkyRatingEvalBatchClientTest {
         assertThat(first.rawText()).isEqualTo("{\"rating\":4}");
         assertThat(first.tokenUsage().inputTokens()).isEqualTo(3_800L);
         assertThat(outcomes.get(1).succeeded()).isFalse();
+    }
+
+    private List<ClaudeBatchOutcome> collectWithStopReason(StopReason stopReason, String text) {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        when(response.customId()).thenReturn("e_7_0_1");
+        MessageBatchResult result = mock(MessageBatchResult.class);
+        when(result.isSucceeded()).thenReturn(true);
+        MessageBatchSucceededResult succeeded = mock(MessageBatchSucceededResult.class);
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
+        Message message = mock(Message.class);
+        when(succeeded.message()).thenReturn(message);
+        when(message.stopReason()).thenReturn(Optional.of(stopReason));
+        if (text != null) {
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(text);
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            when(message.content()).thenReturn(List.of(contentBlock));
+        }
+        when(response.result()).thenReturn(result);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> stream = mock(StreamResponse.class);
+        when(stream.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_stop")).thenReturn(stream);
+        return client.collectResults("msgbatch_stop");
+    }
+
+    @Test
+    @DisplayName("a refusal is a failure typed 'refusal', not a NO_TEXT extraction error")
+    void collectResultsRefusalIsFailure() {
+        ClaudeBatchOutcome outcome = collectWithStopReason(StopReason.REFUSAL, null).get(0);
+
+        assertThat(outcome.succeeded()).isFalse();
+        assertThat(outcome.status()).isEqualTo("REFUSAL");
+        assertThat(outcome.errorType()).isEqualTo(EvaluationFailure.TYPE_REFUSAL);
+        assertThat(outcome.errorMessage())
+                .isEqualTo("Claude refused to evaluate this fixture (stop_reason=refusal)");
+    }
+
+    @Test
+    @DisplayName("a max_tokens truncation with partial text is a failure, never scored as a success")
+    void collectResultsTruncationIsFailure() {
+        ClaudeBatchOutcome outcome =
+                collectWithStopReason(StopReason.MAX_TOKENS, "{\"rating\":4,\"summ").get(0);
+
+        assertThat(outcome.succeeded()).isFalse();
+        assertThat(outcome.status()).isEqualTo("MAX_TOKENS");
+        assertThat(outcome.errorType()).isEqualTo("truncation_error");
+        assertThat(outcome.rawText()).isNull();
     }
 }

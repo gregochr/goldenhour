@@ -258,10 +258,10 @@ class ModelRequestShapeTest {
     }
 
     @Test
-    @DisplayName("maxTokens raises a small ceiling to 4096 for Sonnet 5.5 and leaves others alone")
+    @DisplayName("maxTokens adds a 4096 thinking allowance to the answer budget for Sonnet 5.5 only")
     void support_maxTokens() {
-        assertThat(ModelRequestSupport.maxTokens(EvaluationModel.SONNET_55, 256)).isEqualTo(4096);
-        assertThat(ModelRequestSupport.maxTokens(EvaluationModel.SONNET_55, 9000)).isEqualTo(9000);
+        assertThat(ModelRequestSupport.maxTokens(EvaluationModel.SONNET_55, 256)).isEqualTo(4352);
+        assertThat(ModelRequestSupport.maxTokens(EvaluationModel.SONNET_55, 9000)).isEqualTo(13096);
         assertThat(ModelRequestSupport.maxTokens(EvaluationModel.HAIKU, 256)).isEqualTo(256);
         assertThat(ModelRequestSupport.maxTokens(EvaluationModel.OPUS_ET, 256)).isEqualTo(256);
     }

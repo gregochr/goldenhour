@@ -333,7 +333,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                                             task.viableLocations().size())))
                             .addUserMessage(userMessage), task.model())
                             .build());
-            ModelRequestSupport.checkRefusal(response);
+            ModelRequestSupport.checkStopReason(response);
             String text = response.content().stream()
                     .filter(ContentBlock::isText)
                     .map(ContentBlock::asText)

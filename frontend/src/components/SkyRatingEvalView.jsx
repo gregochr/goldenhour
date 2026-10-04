@@ -1,3 +1,4 @@
+import { modelLabel } from '../utils/modelLabels.js';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceArea, CartesianGrid, Legend,
@@ -14,8 +15,6 @@ import ErrorBanner from './shared/ErrorBanner.jsx';
 
 const MODELS = ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'];
 const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
-/** Label for a model radio and run badge; Sonnet 5.5 reads 'SONNET 5.5' beside Sonnet 4.6's 'SONNET'. */
-const MODEL_LABELS = { HAIKU: 'HAIKU', SONNET: 'SONNET', SONNET_55: 'SONNET 5.5', OPUS: 'OPUS' };
 const DEFAULT_RUNS_PER_FIXTURE = 8;
 const DEFAULT_FIXTURE_COUNT = 6;
 const POLL_INTERVAL_MS = 4000;
@@ -115,7 +114,7 @@ const SkyRatingEvalView = () => {
     const usd = COST_PER_CALL[selectedModel] * calls;
     openDialog({
       title: 'Run Sky-Rating Eval',
-      message: `Scores ${fixtureCount} fixtures × ${runsPerFixture} runs (${calls} calls) with ${MODEL_LABELS[selectedModel]}.`,
+      message: `Scores ${fixtureCount} fixtures × ${runsPerFixture} runs (${calls} calls) with ${modelLabel(selectedModel)}.`,
       costLine: `Estimated cost: ~$${usd.toFixed(3)} · ~${Math.ceil(calls * 3 / 60)} min`,
       confirmLabel: 'Run Eval',
       onConfirm: async () => {
@@ -209,7 +208,7 @@ const SkyRatingEvalView = () => {
                 data-testid={`sky-eval-model-${m}`}
               />
               <span className={m === 'HAIKU' ? 'text-blue-300' : m === 'SONNET' || m === 'SONNET_55' ? 'text-purple-300' : 'text-amber-300'}>
-                {MODEL_LABELS[m]}
+                {modelLabel(m)}
               </span>
             </label>
           ))}
@@ -280,14 +279,14 @@ const SkyRatingEvalView = () => {
           {/* Per-fixture drift small-multiples */}
           {fixtureNames.length === 0 ? (
             <p className="text-sm text-plex-text-muted" data-testid="sky-eval-empty">
-              No completed {MODEL_LABELS[selectedModel]} runs yet — run the eval (or pick another model) to start the trend.
+              No completed {modelLabel(selectedModel)} runs yet — run the eval (or pick another model) to start the trend.
             </p>
           ) : (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide">
                   Per-fixture drift ·{' '}
-                  <span className="normal-case text-plex-text-secondary">{MODEL_LABELS[selectedModel]}</span>{' '}
+                  <span className="normal-case text-plex-text-secondary">{modelLabel(selectedModel)}</span>{' '}
                   <span className="normal-case text-plex-text-muted">(pick model above)</span>
                 </p>
                 <div className="flex items-center gap-2 text-xs">
@@ -378,7 +377,7 @@ const SkyRatingEvalView = () => {
                               : run.model === 'SONNET' || run.model === 'SONNET_55' ? 'bg-purple-900/30 text-purple-300'
                                 : 'bg-amber-900/30 text-amber-300'}`}
                           >
-                            {MODEL_LABELS[run.model] || run.model}
+                            {modelLabel(run.model)}
                           </span>
                         </td>
                         <td className="py-2 pr-4 text-plex-text-secondary text-xs">{run.triggerSource}</td>

@@ -194,7 +194,7 @@ public class ClaudeAuroraInterpreter {
                                 TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
                         .addUserMessage(userMessage), model)
                         .build());
-        ModelRequestSupport.checkRefusal(response);
+        ModelRequestSupport.checkStopReason(response);
 
         String raw = response.content().stream()
                 .filter(ContentBlock::isText)
