@@ -128,10 +128,7 @@ public class SkyRatingEvalBatchClient {
                     "no text content blocks");
         }
         Usage usage = message.usage();
-        TokenUsage tokens = new TokenUsage(
-                usage.inputTokens(), usage.outputTokens(),
-                usage.cacheCreationInputTokens().orElse(0L),
-                usage.cacheReadInputTokens().orElse(0L));
+        TokenUsage tokens = TokenUsage.from(usage);
         return ClaudeBatchOutcome.success(customId, text, tokens, null);
     }
 }

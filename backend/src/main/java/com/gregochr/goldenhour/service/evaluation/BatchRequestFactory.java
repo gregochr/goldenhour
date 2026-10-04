@@ -59,14 +59,18 @@ public class BatchRequestFactory {
      * <p>Selects between {@link PromptBuilder} and {@link CoastalPromptBuilder} by the
      * presence of tide data, and between the base and surge-aware
      * {@link PromptBuilder#buildUserMessage} overloads by the presence of storm-surge data.
-     * The system block has {@link CacheControlEphemeral} attached so the <b>~4,320-token</b>
+     * The system block has {@link CacheControlEphemeral} attached so the <b>~4,700-token</b>
      * system prompt is shared across all requests in a batch.
      *
      * <p>That number is load-bearing, not decorative. Haiku 4.5 — the {@code BATCH_FAR_TERM} model
      * (V92) — will not cache a prefix below <b>4,096 tokens</b>, and below it fails silently rather
-     * than erroring. The forecast prompt clears that by about 5%, which
-     * {@code SystemPromptCacheabilityTest} pins. (This javadoc previously claimed ~3,600 tokens,
-     * which is <em>under</em> the floor and would have argued the opposite conclusion.)
+     * than erroring. Measured with {@code messages.count_tokens} on
+     * {@code claude-haiku-4-5-20251001} (2026-10-04, {@code SystemPromptTokenCountTest}): the inland
+     * system prompt is <b>4,726 tokens</b> (17,920 characters) and the coastal <b>4,779</b>
+     * (18,179), clearing the floor by 630 and 683 tokens (about 15%). With the structured-output
+     * config attached the count endpoint reports 5,339 and 5,392, so the margin only widens if the
+     * config counts toward the cached prefix. {@code SystemPromptCacheabilityTest} is the offline
+     * character guard for this.
      *
      * <p>The bluebell and woodland variants below carry the same {@code cache_control} block, and
      * whether it does anything <b>depends on the horizon, because it decides the model</b>.
@@ -75,11 +79,13 @@ public class BatchRequestFactory {
      * floor <b>1,024 tokens</b> — and T+2/T+3 on Haiku's 4,096.
      *
      * <p>So: <b>inert on the far-term (Haiku) path</b>, where both prompts sit far below 4,096.
-     * On the near-term path woodland (~4,770 chars, order of 1,270 tokens) clears Sonnet's floor
-     * and <b>does cache</b>; bluebell (~3,847 chars, order of 1,030) sits within measurement error
-     * of it and could fall either side. Neither has been measured with
-     * {@code messages.count_tokens} — those are character-ratio estimates, so do not act on the
-     * bluebell one without measuring.
+     * Both were measured with {@code messages.count_tokens} on 2026-10-04: woodland is
+     * <b>1,190 tokens</b> (4,770 characters; 1,416 with the output config) and bluebell <b>968</b>
+     * (3,847 characters; 1,194 with the output config). Against Sonnet's 1,024 floor woodland
+     * clears it and <b>does cache</b>; bluebell is 56 tokens <em>under</em> it on the system text
+     * alone and over it only if the output config counts toward the cached prefix, which has not
+     * been established — treat bluebell's caching as unproven either way. (Counts are for Haiku's
+     * tokenizer; Sonnet's can differ slightly.)
      *
      * <p>Left as-is deliberately. Padding them past 4,096 tokens to win the far-term path would
      * cost more input than caching could recover, and the blocks are free where they do nothing.
