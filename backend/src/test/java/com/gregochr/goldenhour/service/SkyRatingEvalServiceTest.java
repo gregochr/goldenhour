@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.SkyRatingEvalResultEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
@@ -384,5 +385,92 @@ class SkyRatingEvalServiceTest {
         assertThat(agg.failureSummary()).isEqualTo("MAX_TOKENS=1, REFUSAL=2");
         assertThat(agg.failedCount()).isEqualTo(3);
         assertThat(new SkyRatingEvalService.Aggregate().failureSummary()).isNull();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("persistFailureRow: no rating or band, failure type in summary")
+    void persistFailureRow_savesAnAttemptWithNoRating() {
+        SkyRatingEvalFixture fixture = SkyRatingEvalFixtures.ALL.get(0);
+        ArgumentCaptor<SkyRatingEvalResultEntity> saved =
+                ArgumentCaptor.forClass(SkyRatingEvalResultEntity.class);
+
+        service().persistFailureRow(runningRun(), fixture, 3, "REFUSAL");
+
+        verify(resultRepository).save(saved.capture());
+        SkyRatingEvalResultEntity row = saved.getValue();
+        assertThat(row.getRunId()).isEqualTo(42L);
+        assertThat(row.getFixtureName()).isEqualTo(fixture.name());
+        assertThat(row.getRunIndex()).isEqualTo(3);
+        assertThat(row.getRating()).isNull();
+        assertThat(row.getFierySky()).isNull();
+        assertThat(row.getGoldenHour()).isNull();
+        assertThat(row.getMissDirection()).isNull();
+        assertThat(row.getSummary()).isEqualTo("FAILED: REFUSAL");
+        assertThat(row.getExpectedMin()).isEqualTo(fixture.band().min());
+        assertThat(row.getExpectedMax()).isEqualTo(fixture.band().max());
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("a mixed run reconciles: per-fixture sums equal the run aggregate, "
+            + "and failures never become rating values")
+    void mixedRun_perFixtureTrendReconcilesWithRunAggregate() {
+        List<SkyRatingEvalResultEntity> stored = new java.util.ArrayList<>();
+        when(resultRepository.save(any())).thenAnswer(inv -> {
+            stored.add(inv.getArgument(0));
+            return inv.getArgument(0);
+        });
+        when(costCalculator.calculateCostMicroDollars(any(), any(), anyBoolean())).thenReturn(0L);
+        SkyRatingEvalService svc = service();
+        SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
+                .id(42L).runTimestamp(LocalDateTime.of(2026, 6, 27, 3, 0))
+                .startedAt(LocalDateTime.of(2026, 6, 27, 3, 0)).model(EvaluationModel.SONNET)
+                .runsPerFixture(8).triggerSource(SkyRatingEvalTrigger.SCHEDULED)
+                .status(SkyRatingEvalStatus.RUNNING).build();
+        SkyRatingEvalService.Aggregate agg = new SkyRatingEvalService.Aggregate();
+        TokenUsage usage = new TokenUsage(10, 5, 0, 0);
+        int fixtures = SkyRatingEvalFixtures.ALL.size();
+        for (int f = 0; f < fixtures; f++) {
+            SkyRatingEvalFixture fixture = SkyRatingEvalFixtures.ALL.get(f);
+            int inBand = fixture.band().min();
+            for (int r = 1; r <= 8; r++) {
+                boolean fails = (f == 0 && r == 8) || f == 1;
+                if (fails) {
+                    String type = f == 0 ? "REFUSAL" : "MAX_TOKENS";
+                    agg.recordFailure(type);
+                    svc.persistFailureRow(run, fixture, r, type);
+                } else {
+                    svc.persistResult(run, fixture, r, new SunsetEvaluation(inBand, 50, 50, "s"),
+                            usage, null, true, agg);
+                }
+            }
+        }
+        svc.finalise(run, agg, SkyRatingEvalStatus.COMPLETED, "failures", System.currentTimeMillis());
+        when(runRepository.findByStatusOrderByRunTimestampAsc(SkyRatingEvalStatus.COMPLETED))
+                .thenReturn(List.of(run));
+        when(resultRepository.findByRunIdIn(any())).thenReturn(stored);
+
+        List<SkyRatingEvalTrendPoint> trend = svc.trend();
+
+        assertThat(trend).hasSize(fixtures);
+        SkyRatingEvalTrendPoint f0 = trend.stream()
+                .filter(p -> p.fixtureName().equals(SkyRatingEvalFixtures.ALL.get(0).name())).findFirst().orElseThrow();
+        SkyRatingEvalTrendPoint f1 = trend.stream()
+                .filter(p -> p.fixtureName().equals(SkyRatingEvalFixtures.ALL.get(1).name())).findFirst().orElseThrow();
+        // 7 passes + 1 refusal: 8 runs, 7 passes, the mean over the 7 real ratings only
+        assertThat(f0.runs()).isEqualTo(8);
+        assertThat(f0.passes()).isEqualTo(7);
+        assertThat(f0.avgRating()).isEqualTo((double) SkyRatingEvalFixtures.ALL.get(0).band().min());
+        // an entirely failed fixture still appears: 8 runs, 0 passes, no rating, no sub-scores
+        assertThat(f1.runs()).isEqualTo(8);
+        assertThat(f1.passes()).isZero();
+        assertThat(f1.avgRating()).isNull();
+        assertThat(f1.avgFierySky()).isNull();
+        // reconciliation with the run aggregate
+        assertThat(trend.stream().mapToInt(SkyRatingEvalTrendPoint::runs).sum())
+                .isEqualTo(run.getTotalRuns()).isEqualTo(fixtures * 8);
+        assertThat(trend.stream().mapToInt(SkyRatingEvalTrendPoint::passes).sum())
+                .isEqualTo(run.getTotalPasses()).isEqualTo(7 + (fixtures - 2) * 8);
+        assertThat(run.getPassRate()).isEqualTo((7.0 + (fixtures - 2) * 8) / (fixtures * 8));
+        assertThat(agg.failedCount()).isEqualTo(1 + 8);
     }
 }

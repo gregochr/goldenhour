@@ -36,3 +36,8 @@ refused, truncated, errored, unreadable or never-answered evaluation counts as a
 errored fixtures were silently left out of the denominator). The run's error message carries the failed
 count and per-type reasons (no new column), the Sky Eval table marks such a run with an asterisk, and a
 run in which every evaluation failed is FAILED rather than COMPLETED.
+
+Each failed or unanswered sky-eval attempt is also kept as its own child row (no rating, no band, the
+reason in `summary` as `FAILED: <TYPE>`; no migration), so the per-fixture trend reports runs =
+attempts and passes = passes, an entirely failed fixture still appears with 0 passes, rating and
+sub-score averages ignore the failure rows, and the per-fixture sums equal the run's totals.

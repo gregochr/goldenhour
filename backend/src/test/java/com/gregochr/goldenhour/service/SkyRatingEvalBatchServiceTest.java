@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
+import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -26,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -171,6 +173,10 @@ class SkyRatingEvalBatchServiceTest {
                         + " evaluations failed and count as non-passes (ERRORED=1, MISSING="
                         + (ATTEMPTED - 3) + ")");
         assertThat(agg.failedCount()).isEqualTo(ATTEMPTED - 2);
+        verify(evalService).persistFailureRow(run, SkyRatingEvalFixtures.ALL.get(1), 1, "ERRORED");
+        verify(evalService, times(ATTEMPTED - 3)).persistFailureRow(eq(run), any(), anyInt(), eq("MISSING"));
+        verify(evalService, never()).persistFailureRow(eq(run), eq(SkyRatingEvalFixtures.ALL.get(0)), eq(1),
+                anyString());
     }
 
     @Test
@@ -207,6 +213,12 @@ class SkyRatingEvalBatchServiceTest {
         assertThat(agg.failedCount()).isEqualTo(3);
         verify(evalService, times(ATTEMPTED - 3)).persistResult(any(), any(), anyInt(), any(), any(),
                 isNull(), eq(true), any());
+        // each failed attempt is persisted as a child row at its own fixture and run index
+        SkyRatingEvalFixture first = SkyRatingEvalFixtures.ALL.get(0);
+        verify(evalService).persistFailureRow(run, first, 1, "REFUSAL");
+        verify(evalService).persistFailureRow(run, first, 2, "MAX_TOKENS");
+        verify(evalService).persistFailureRow(run, first, 3, "PARSE_ERROR");
+        verify(evalService, times(3)).persistFailureRow(eq(run), any(), anyInt(), anyString());
     }
 
     @Test
@@ -228,6 +240,36 @@ class SkyRatingEvalBatchServiceTest {
         assertThat(agg.failedCount()).isEqualTo(ATTEMPTED);
         verify(evalService, never()).persistResult(any(), any(), anyInt(), any(), any(), any(),
                 anyBoolean(), any());
+        // an entirely failed fixture still gets all 8 rows, so it appears in the trend with 0 passes
+        for (int r = 1; r <= SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE; r++) {
+            verify(evalService).persistFailureRow(run, SkyRatingEvalFixtures.ALL.get(1), r, "REFUSAL");
+        }
+        verify(evalService, times(ATTEMPTED)).persistFailureRow(eq(run), any(), anyInt(), eq("REFUSAL"));
+    }
+
+    @Test
+    @DisplayName("an evaluation the batch never answered is attributed to its own fixture and run index")
+    void processResultsAttributesUnansweredEvaluationToItsFixture() {
+        SkyRatingEvalRunEntity run = runningRun(13L, EvaluationModel.SONNET_55, "batch4", recentStart());
+        TokenUsage usage = new TokenUsage(3_800, 180, 0, 0);
+        List<ClaudeBatchOutcome> outcomes = new java.util.ArrayList<>();
+        for (int f = 0; f < SkyRatingEvalFixtures.ALL.size(); f++) {
+            for (int r = 1; r <= SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE; r++) {
+                if (f == 2 && r == 5) {
+                    continue; // never answered
+                }
+                outcomes.add(ClaudeBatchOutcome.success("e_13_" + f + "_" + r, "{\"rating\":3}", usage, null));
+            }
+        }
+        when(batchClient.collectResults("batch4")).thenReturn(outcomes);
+        when(parser.parseEvaluation(any(), any())).thenReturn(new SunsetEvaluation(3, 55, 60, "s"));
+
+        service.processResults("batch4", List.of(run));
+
+        verify(evalService).persistFailureRow(run, SkyRatingEvalFixtures.ALL.get(2), 5, "MISSING");
+        verify(evalService, times(1)).persistFailureRow(eq(run), any(), anyInt(), anyString());
+        finalisedAggregate(run, SkyRatingEvalStatus.COMPLETED,
+                "1 of " + ATTEMPTED + " evaluations failed and count as non-passes (MISSING=1)");
     }
 
     private SkyRatingEvalService.Aggregate finalisedAggregate(SkyRatingEvalRunEntity run,

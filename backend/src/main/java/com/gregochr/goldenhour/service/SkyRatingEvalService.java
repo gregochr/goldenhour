@@ -48,6 +48,9 @@ public class SkyRatingEvalService {
 
     private static final Logger LOG = LoggerFactory.getLogger(SkyRatingEvalService.class);
 
+    /** Prefix of the {@code summary} on a failed-attempt child row. */
+    static final String FAILED_SUMMARY_PREFIX = "FAILED: ";
+
     /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
 
@@ -333,6 +336,30 @@ public class SkyRatingEvalService {
                 .build());
 
         agg.record(direction, usage, cost);
+    }
+
+    /**
+     * Persists a failed attempt (refused, truncated, errored, unreadable or never answered) as a
+     * child row, so per-fixture reads count it as an attempt and a non-pass. The row carries no
+     * rating or band direction (so no average or distribution ever sees a value for it) and
+     * records the failure type in {@code summary} as {@code "FAILED: <TYPE>"}. The run aggregate
+     * is updated separately through {@link Aggregate#recordFailure}.
+     *
+     * @param run      the parent run
+     * @param fixture  the fixture the attempt was for (supplies the expected band)
+     * @param runIndex 1-based repeat index within the fixture
+     * @param type     why the attempt failed (e.g. REFUSAL, MAX_TOKENS, MISSING)
+     */
+    void persistFailureRow(SkyRatingEvalRunEntity run, SkyRatingEvalFixture fixture, int runIndex,
+            String type) {
+        resultRepository.save(SkyRatingEvalResultEntity.builder()
+                .runId(run.getId())
+                .fixtureName(fixture.name())
+                .runIndex(runIndex)
+                .expectedMin(fixture.band().min())
+                .expectedMax(fixture.band().max())
+                .summary(FAILED_SUMMARY_PREFIX + (type == null ? "UNKNOWN" : type))
+                .build());
     }
 
     void finalise(SkyRatingEvalRunEntity run, Aggregate agg, SkyRatingEvalStatus status,

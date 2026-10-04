@@ -254,7 +254,7 @@ public class SkyRatingEvalBatchService {
 
         int parsedOk = 0;
         int failed = 0;
-        Map<Long, Integer> answered = new LinkedHashMap<>();
+        Map<Long, java.util.Set<Integer>> answered = new LinkedHashMap<>();
         for (ClaudeBatchOutcome outcome : batchClient.collectResults(batchId)) {
             ResultRef ref = parseCustomId(outcome.customId());
             if (ref == null) {
@@ -270,13 +270,17 @@ public class SkyRatingEvalBatchService {
                 failed++;
                 continue;
             }
-            answered.merge(ctx.run().getId(), 1, Integer::sum);
+            answered.computeIfAbsent(ctx.run().getId(), id -> new java.util.HashSet<>())
+                    .add(slot(ref.fixtureIdx(), ref.runIndex()));
             if (!outcome.succeeded()) {
                 // A refused, truncated or errored fixture is a failed evaluation of that fixture:
                 // it counts in the run's denominator as a non-pass rather than vanishing from it.
                 LOG.warn("Sky-rating eval batch {}: request '{}' failed ({}), counted as a non-pass",
                         batchId, outcome.customId(), outcome.status());
                 ctx.agg().recordFailure(outcome.status());
+                evalService.persistFailureRow(ctx.run(),
+                        SkyRatingEvalFixtures.ALL.get(ref.fixtureIdx()), ref.runIndex(),
+                        outcome.status());
                 failed++;
                 continue;
             }
@@ -288,6 +292,7 @@ public class SkyRatingEvalBatchService {
                 LOG.warn("Sky-rating eval batch {}: request '{}' was unreadable ({}), counted as a "
                         + "non-pass", batchId, outcome.customId(), e.getMessage());
                 ctx.agg().recordFailure("PARSE_ERROR");
+                evalService.persistFailureRow(ctx.run(), fixture, ref.runIndex(), "PARSE_ERROR");
                 failed++;
                 continue;
             }
@@ -297,7 +302,7 @@ public class SkyRatingEvalBatchService {
         }
 
         byRunId.values().forEach(ctx -> finaliseRun(batchId, ctx,
-                answered.getOrDefault(ctx.run().getId(), 0)));
+                answered.getOrDefault(ctx.run().getId(), java.util.Set.of())));
         LOG.info("Sky-rating eval batch {} reconciled: {} scored, {} failed, {} run(s) finalised",
                 batchId, parsedOk, failed, runs.size());
     }
@@ -308,11 +313,19 @@ public class SkyRatingEvalBatchService {
      * FAILED; a partial one is COMPLETED with the failed count and its per-type reasons recorded
      * in the run's error message (no extra column), so the figure is never presented as complete.
      */
-    private void finaliseRun(String batchId, RunContext ctx, int answered) {
+    private void finaliseRun(String batchId, RunContext ctx, java.util.Set<Integer> answered) {
         SkyRatingEvalService.Aggregate agg = ctx.agg();
         int attempted = ctx.run().getRunsPerFixture() * SkyRatingEvalFixtures.ALL.size();
-        for (int missing = attempted - answered; missing > 0; missing--) {
-            agg.recordFailure("MISSING");
+        // An evaluation the batch never answered still gets its own failure row, attributed to its
+        // fixture and run index, so per-fixture runs/passes reconcile with the run aggregate.
+        for (int f = 0; f < SkyRatingEvalFixtures.ALL.size(); f++) {
+            for (int r = 1; r <= ctx.run().getRunsPerFixture(); r++) {
+                if (!answered.contains(slot(f, r))) {
+                    agg.recordFailure("MISSING");
+                    evalService.persistFailureRow(ctx.run(), SkyRatingEvalFixtures.ALL.get(f), r,
+                            "MISSING");
+                }
+            }
         }
         if (agg.failedCount() == 0) {
             evalService.finalise(ctx.run(), agg, SkyRatingEvalStatus.COMPLETED, null,
@@ -385,6 +398,11 @@ public class SkyRatingEvalBatchService {
             }
         }
         return requests;
+    }
+
+    /** Packs a (fixture, run index) pair into one set key. */
+    private static int slot(int fixtureIdx, int runIndex) {
+        return fixtureIdx * 10_000 + runIndex;
     }
 
     /** Builds the {@code e_<runId>_<fixtureIdx>_<runIndex>} custom id. */
