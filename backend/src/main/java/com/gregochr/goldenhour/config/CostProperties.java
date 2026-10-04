@@ -29,6 +29,9 @@ public class CostProperties {
     /** Haiku 4.5 cache write rate (USD per million tokens). */
     private double haikuCacheWriteUsdPerMtok = 1.25;
 
+    /** Haiku 1-hour cache write rate (USD per million tokens); 2x the input rate. */
+    private double haikuCacheWrite1hUsdPerMtok = 2.00;
+
     /** Haiku 4.5 cache read rate (USD per million tokens). */
     private double haikuCacheReadUsdPerMtok = 0.10;
 
@@ -40,6 +43,9 @@ public class CostProperties {
 
     /** Sonnet 4.6 cache write rate (USD per million tokens). */
     private double sonnetCacheWriteUsdPerMtok = 3.75;
+
+    /** Sonnet 1-hour cache write rate (USD per million tokens); 2x the input rate. */
+    private double sonnetCacheWrite1hUsdPerMtok = 6.00;
 
     /** Sonnet 4.6 cache read rate (USD per million tokens). */
     private double sonnetCacheReadUsdPerMtok = 0.30;
@@ -64,6 +70,9 @@ public class CostProperties {
 
     /** Opus 4.6 cache write rate (USD per million tokens). */
     private double opusCacheWriteUsdPerMtok = 6.25;
+
+    /** Opus 1-hour cache write rate (USD per million tokens); 2x the input rate. */
+    private double opusCacheWrite1hUsdPerMtok = 10.00;
 
     /** Opus 4.6 cache read rate (USD per million tokens). */
     private double opusCacheReadUsdPerMtok = 0.50;

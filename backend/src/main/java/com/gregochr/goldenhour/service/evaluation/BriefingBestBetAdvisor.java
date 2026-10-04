@@ -240,10 +240,7 @@ public class BriefingBestBetAdvisor {
             String raw = extractFirstText(response);
             Optional<StopReason> stopReason = response.stopReason();
             var usage = response.usage();
-            TokenUsage tokenUsage = usage == null ? null : new TokenUsage(
-                    usage.inputTokens(), usage.outputTokens(),
-                    usage.cacheCreationInputTokens().orElse(0L),
-                    usage.cacheReadInputTokens().orElse(0L));
+            TokenUsage tokenUsage = usage == null ? null : TokenUsage.from(usage);
 
             LOG.info("Best-bet advisor completed ({}ms, model={}, stopReason={})",
                     durationMs, model, stopReason.map(Object::toString).orElse("unknown"));
@@ -612,11 +609,7 @@ public class BriefingBestBetAdvisor {
                     .findFirst()
                     .orElse(null);
 
-            TokenUsage tokenUsage = new TokenUsage(
-                    response.usage().inputTokens(),
-                    response.usage().outputTokens(),
-                    response.usage().cacheCreationInputTokens().orElse(0L),
-                    response.usage().cacheReadInputTokens().orElse(0L));
+            TokenUsage tokenUsage = TokenUsage.from(response.usage());
 
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(
