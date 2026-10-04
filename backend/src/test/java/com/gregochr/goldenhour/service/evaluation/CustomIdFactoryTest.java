@@ -523,4 +523,13 @@ class CustomIdFactoryTest {
         assertThat(CustomIdFactory.sanitiseRegionName("")).isEmpty();
         assertThat(CustomIdFactory.sanitiseRegionName("!!!")).isEmpty();
     }
+
+    @Test
+    void cachePrimerIdIsAnthropicValidAndNeverParsesAsAnyForecastId() {
+        String id = CustomIdFactory.forCachePrimer(3);
+
+        assertThat(id).isEqualTo("pw-3");
+        assertThatIllegalArgumentException().isThrownBy(() -> CustomIdFactory.parse(id))
+                .withMessageContaining("Unknown custom ID prefix");
+    }
 }

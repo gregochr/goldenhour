@@ -113,6 +113,8 @@ class ScheduledBatchEvaluationServiceTest {
     private ForecastDispositionService dispositionService;
     @Mock
     private com.gregochr.goldenhour.service.JobRunService jobRunService;
+    @Mock
+    private BatchCachePrimer batchCachePrimer;
 
     /** Fixed so the batch-breakdown log line never depends on wall-clock time. */
     private static final Clock CLOCK = Clock.fixed(
@@ -132,7 +134,7 @@ class ScheduledBatchEvaluationServiceTest {
                 weatherTriageService, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
                 evaluationService, forecastTaskCollector, dispositionService,
-                jobRunService, CLOCK);
+                jobRunService, CLOCK, batchCachePrimer);
 
         serviceLogger = (Logger) LoggerFactory.getLogger(ScheduledBatchEvaluationService.class);
         logAppender = new ListAppender<>();
@@ -206,6 +208,73 @@ class ScheduledBatchEvaluationServiceTest {
         verify(evaluationService, org.mockito.Mockito.times(2))
                 .submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                         ArgumentMatchers.isNull());
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: the primer is handed the four SKY buckets, never woodland or "
+            + "bluebell, and runs before the first bucket is submitted")
+    void submitForecastBatch_primerSeesOnlySkyBucketsBeforeSubmission() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(), List.of(), List.of(),
+                        List.of(bluebellTask), List.of(), List.of()));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
+
+        service.submitForecastBatch();
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(batchCachePrimer, evaluationService);
+        order.verify(batchCachePrimer).prime(
+                List.of(List.of(nearInlandTask), List.of(), List.of(), List.of()));
+        order.verify(evaluationService).submit(List.of(nearInlandTask),
+                BatchTriggerSource.SCHEDULED, null);
+        order.verify(evaluationService).submit(List.of(bluebellTask),
+                BatchTriggerSource.SCHEDULED, null);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: a primer that throws does not stop any bucket being submitted")
+    void submitForecastBatch_primerThrows_bucketsStillSubmittedInOrder() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast farInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(), List.of(farInlandTask), List.of(),
+                        List.of(), List.of(), List.of()));
+        org.mockito.Mockito.doThrow(new IllegalStateException("boom"))
+                .when(batchCachePrimer).prime(any());
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
+
+        service.submitForecastBatch();
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(evaluationService);
+        order.verify(evaluationService).submit(List.of(nearInlandTask),
+                BatchTriggerSource.SCHEDULED, null);
+        order.verify(evaluationService).submit(List.of(farInlandTask),
+                BatchTriggerSource.SCHEDULED, null);
     }
 
     @Test

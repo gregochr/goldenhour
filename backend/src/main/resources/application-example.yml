@@ -230,6 +230,14 @@ photocast:
                                 # the honest empty state instead. ~30h ≈ one nightly + intraday.
   batch:
     min-prefetch-success-ratio: 0.5  # abort batch if fewer than 50% of weather fetches succeed
+    cache-primer:
+      enabled: true          # before a scheduled cycle submits its sky buckets, submit a one-request
+                             # primer batch per distinct system-prompt cache prefix and wait for it,
+                             # so the real requests READ the cache instead of each WRITING it (1.25x).
+                             # Also gives batch sky requests a 1-hour cache lifetime. false restores
+                             # exactly the previous requests (5-minute lifetime) and no primer.
+      wait-seconds: 300      # the most the cycle waits for all primers together; fail-open at the cap
+      poll-seconds: 10       # how often the primers are polled while waiting
   briefing:
     min-coverage-ratio: 0.5  # API read-path honesty: a region whose Claude-scored fraction
                              # (scoredLocationCount / roster size) is positive but below this

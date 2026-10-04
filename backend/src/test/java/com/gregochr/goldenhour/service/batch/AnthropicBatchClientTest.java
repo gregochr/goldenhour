@@ -684,6 +684,66 @@ class AnthropicBatchClientTest {
         assertThat(result).isSameAs(firstBatch);
     }
 
+    @Test
+    @DisplayName("createPrimerBatch: one attempt, no retry registry, no tracking lookup")
+    void createPrimerBatch_singleAttemptNoRetry() {
+        BatchCreateParams params = uniqueParams("primer");
+        MessageBatch primer = aBatch("msgbatch_primer", OffsetDateTime.now(), 1);
+        when(batchService.create(params)).thenReturn(primer);
+
+        MessageBatch result = client.createPrimerBatch(params);
+
+        assertThat(result).isSameAs(primer);
+        verify(batchService, times(1)).create(params);
+        verify(retryRegistry, never()).retry(any(String.class));
+        verify(forecastBatchRepository, never()).existsByAnthropicBatchId(any());
+    }
+
+    @Test
+    @DisplayName("createPrimerBatch: a failure propagates at once, unretried")
+    void createPrimerBatch_failurePropagatesUnretried() {
+        BatchCreateParams params = uniqueParams("primer-fail");
+        AnthropicIoException failure = new AnthropicIoException("timeout");
+        when(batchService.create(params)).thenThrow(failure);
+
+        assertThatThrownBy(() -> client.createPrimerBatch(params))
+                .isSameAs(failure);
+
+        verify(batchService, times(1)).create(params);
+    }
+
+    @Test
+    @DisplayName("createPrimerBatch: the primer is recorded as handed out, so a real retry never adopts it")
+    void createPrimerBatch_isNeverAdoptedByARealSubmissionsRetry() {
+        useRetryWithMaxAttempts(2);
+        BatchCreateParams primerParams = uniqueParams("primer-adopt");
+        MessageBatch primer = aBatch("msgbatch_primer_adopt",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plusSeconds(1), ZoneOffset.UTC), 1);
+        when(batchService.create(primerParams)).thenReturn(primer);
+        client.createPrimerBatch(primerParams);
+
+        BatchCreateParams realParams = uniqueParams("real");
+        MessageBatch real = aBatch("msgbatch_real", OffsetDateTime.now(), 1);
+        AnthropicServiceException serverError = serviceException(500);
+        BatchListPage page = mock(BatchListPage.class);
+        when(page.items()).thenReturn(List.of(primer));
+        when(batchService.list(any(BatchListParams.class))).thenReturn(page);
+        when(batchService.create(realParams)).thenThrow(serverError).thenReturn(real);
+
+        MessageBatch result = client.createBatch(realParams);
+
+        assertThat(result).isSameAs(real);
+    }
+
+    @Test
+    @DisplayName("retrieveBatch: reads the batch through the transport-retry-disabled client")
+    void retrieveBatch_delegates() {
+        MessageBatch batch = aBatch("msgbatch_r", OffsetDateTime.now(), 1);
+        when(batchService.retrieve("msgbatch_r")).thenReturn(batch);
+
+        assertThat(client.retrieveBatch("msgbatch_r")).isSameAs(batch);
+    }
+
     /** A {@link BatchCreateParams} with exactly one request, structurally unique per {@code tag}. */
     private static BatchCreateParams uniqueParams(String tag) {
         return BatchCreateParams.builder()

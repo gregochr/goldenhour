@@ -3,8 +3,10 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.batches.BatchCreateParams;
+import com.gregochr.goldenhour.config.BatchCachePrimerProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -33,19 +35,41 @@ public class BatchRequestFactory {
     private final CoastalPromptBuilder coastalBuilder;
     private final BluebellPromptBuilder bluebellBuilder;
     private final WoodlandPromptBuilder woodlandBuilder;
+    private final BatchCachePrimerProperties primerProperties;
 
     /**
-     * Constructs the factory.
+     * Constructs the factory with the batch cache primer switched off: every request keeps the
+     * default five-minute cache lifetime. Used by tests and callers with no primer configuration.
      *
      * @param inlandBuilder   builder for inland (non-tidal) locations
      * @param coastalBuilder  builder for coastal (tidal) locations
      * @param bluebellBuilder builder for the dedicated bluebell-conditions prompt
      * @param woodlandBuilder builder for the year-round woodland-conditions prompt
      */
+    public BatchRequestFactory(PromptBuilder inlandBuilder, CoastalPromptBuilder coastalBuilder,
+            BluebellPromptBuilder bluebellBuilder, WoodlandPromptBuilder woodlandBuilder) {
+        this(inlandBuilder, coastalBuilder, bluebellBuilder, woodlandBuilder,
+                BatchCachePrimerProperties.disabled());
+    }
+
+    /**
+     * Constructs the factory.
+     *
+     * @param inlandBuilder    builder for inland (non-tidal) locations
+     * @param coastalBuilder   builder for coastal (tidal) locations
+     * @param bluebellBuilder  builder for the dedicated bluebell-conditions prompt
+     * @param woodlandBuilder  builder for the year-round woodland-conditions prompt
+     * @param primerProperties when enabled, batch SKY requests ({@link #buildForecastRequestAndPrompt})
+     *                         carry a one-hour cache lifetime on the system block so a primed cache
+     *                         outlives the cycle's bucket submissions
+     */
+    @Autowired
     public BatchRequestFactory(@Qualifier("promptBuilder") PromptBuilder inlandBuilder,
             CoastalPromptBuilder coastalBuilder,
             BluebellPromptBuilder bluebellBuilder,
-            WoodlandPromptBuilder woodlandBuilder) {
+            WoodlandPromptBuilder woodlandBuilder,
+            BatchCachePrimerProperties primerProperties) {
+        this.primerProperties = primerProperties;
         this.inlandBuilder = inlandBuilder;
         this.coastalBuilder = coastalBuilder;
         this.bluebellBuilder = bluebellBuilder;
@@ -95,7 +119,7 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens) {
-        return buildForecastRequestAndPrompt(customId, model, data, maxTokens).request();
+        return buildSkyRequest(customId, model, data, maxTokens, false).request();
     }
 
     /**
@@ -113,6 +137,10 @@ public class BatchRequestFactory {
      * carries. One build, one value: the returned {@code userMessage} is the string placed in the
      * request, not a re-derivation of it.
      *
+     * <p>This is the production batch path (scheduled, force-submit, retry): when the batch cache
+     * primer is enabled its system block carries a one-hour cache lifetime. {@link
+     * #buildForecastRequest} (the eval harness) never does.
+     *
      * @param customId  the Anthropic custom ID (produced via {@link CustomIdFactory})
      * @param model     the evaluation model to invoke
      * @param data      the atmospheric data for this evaluation task
@@ -124,6 +152,57 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens) {
+        return buildSkyRequest(customId, model, data, maxTokens, primerProperties.isEnabled());
+    }
+
+    /**
+     * Builds the cache-primer request: identical to the request {@link
+     * #buildForecastRequestAndPrompt} builds for the same model and data (same builder, system
+     * block, one-hour lifetime and output config), under a distinct custom id.
+     *
+     * @param customId  the primer custom id (see {@link CustomIdFactory#forCachePrimer})
+     * @param model     the evaluation model to invoke
+     * @param data      the atmospheric data of a real task sharing the prefix being primed
+     * @param maxTokens Anthropic {@code maxTokens} for this request
+     * @return the primer request
+     */
+    public BatchCreateParams.Request buildCachePrimerRequest(
+            String customId,
+            EvaluationModel model,
+            AtmosphericData data,
+            int maxTokens) {
+        return buildSkyRequest(customId, model, data, maxTokens, true).request();
+    }
+
+    /**
+     * Names the cache prefix a SKY request for this model and data carries: the model id and which
+     * prompt builder (coastal or inland) supplies the system block.
+     *
+     * @param model the evaluation model
+     * @param data  the atmospheric data of the task
+     * @return a stable key, equal for two tasks exactly when they share a cache prefix
+     */
+    public String cachePrefixKey(EvaluationModel model, AtmosphericData data) {
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(data, "data");
+        String builderName = selectBuilder(data) == coastalBuilder ? "coastal" : "inland";
+        return model.getModelId() + "|" + builderName;
+    }
+
+    private static CacheControlEphemeral skyCacheControl(boolean longLived) {
+        CacheControlEphemeral.Builder control = CacheControlEphemeral.builder();
+        if (longLived) {
+            control.ttl(CacheControlEphemeral.Ttl.TTL_1H);
+        }
+        return control.build();
+    }
+
+    private ForecastRequest buildSkyRequest(
+            String customId,
+            EvaluationModel model,
+            AtmosphericData data,
+            int maxTokens,
+            boolean longLivedCache) {
         Objects.requireNonNull(customId, "customId");
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(data, "data");
@@ -139,7 +218,7 @@ public class BatchRequestFactory {
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder()
                                         .text(builder.getSystemPrompt())
-                                        .cacheControl(CacheControlEphemeral.builder().build())
+                                        .cacheControl(skyCacheControl(longLivedCache))
                                         .build()))
                         .outputConfig(builder.buildOutputConfig())
                         .addUserMessage(userMessage)

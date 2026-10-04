@@ -284,6 +284,31 @@ public class AnthropicBatchClient {
         }
     }
 
+    /**
+     * Creates a cache-primer batch: one attempt, no retry, no duplicate-batch adoption and no
+     * {@link #creationLock} (a primer must never wait behind, or delay, a real submission). The
+     * returned id is still recorded as handed out, so a concurrent real submission's retry can
+     * never adopt a primer as its own batch.
+     *
+     * @param params the one-request primer batch
+     * @return the created batch
+     */
+    public MessageBatch createPrimerBatch(BatchCreateParams params) {
+        MessageBatch batch = batchClient.messages().batches().create(params);
+        recordHandedOut(batch.id());
+        return batch;
+    }
+
+    /**
+     * Retrieves a batch's current state, on the transport-retry-disabled client.
+     *
+     * @param batchId Anthropic batch id
+     * @return the batch as Anthropic reports it
+     */
+    public MessageBatch retrieveBatch(String batchId) {
+        return batchClient.messages().batches().retrieve(batchId);
+    }
+
     private void recordHandedOut(String batchId) {
         synchronized (handedOutBatchIds) {
             handedOutBatchIds.put(batchId, Boolean.TRUE);
