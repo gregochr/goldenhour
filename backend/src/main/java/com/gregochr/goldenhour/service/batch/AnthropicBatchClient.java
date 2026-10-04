@@ -16,11 +16,13 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -211,6 +213,18 @@ public class AnthropicBatchClient {
      */
     private final ReentrantLock creationLock = new ReentrantLock();
 
+    /** How long after an ambiguous primer failure a one-request batch is still taken for the primer. */
+    static final Duration PRIMER_WINDOW_GRACE = Duration.ofSeconds(60);
+
+    /** Bound on {@link #primerWindows}. */
+    static final int PRIMER_WINDOW_CAP = 50;
+
+    /**
+     * {start, end} windows of ambiguous primer creates (see {@link #createPrimerBatch}); guarded by
+     * {@code synchronized (primerWindows)}.
+     */
+    private final List<Instant[]> primerWindows = new ArrayList<>();
+
     /**
      * Every batch id this instance's {@link #createBatch} has returned — created or adopted —
      * recorded before {@link #creationLock} is released. See the class javadoc's round-3 section
@@ -287,20 +301,85 @@ public class AnthropicBatchClient {
     }
 
     /**
-     * Creates a cache-primer batch: one attempt, no retry, no duplicate-batch adoption and no
-     * {@link #creationLock} (a primer must never wait behind, or delay, a real submission), under a
-     * short per-call timeout. A create that succeeds is recorded as handed out, so a concurrent real
-     * submission's retry will not adopt it; a create that times out locally but succeeded at
-     * Anthropic is NOT recorded (its id is unknown), which is the accepted residual.
+     * Creates a cache-primer batch under the SAME guard as {@link #createBatch}: one attempt, no
+     * retry, within a total {@code budget} that covers both waiting for {@link #creationLock} and
+     * the create call itself (so a primer never overruns the caller's deadline; if the guard stays
+     * held by a long real submission the primer gives up with an {@link IllegalStateException} and
+     * nothing is created).
      *
-     * @param params  the one-request primer batch
-     * @param timeout per-call timeout
+     * <p>Holding the guard is what keeps a primer out of every real submission's adoption check:
+     * adoption only ever runs inside {@link #createBatch} under this lock, so (a) no real retry can
+     * look for candidates while the primer's create is in flight, and (b) a successful primer's id
+     * is recorded as handed out before the lock is released. For an AMBIGUOUS create (the call
+     * threw, yet Anthropic may have created the batch, whose id is then unknown) the attempt's
+     * window - from its start to a short grace after the failure - is recorded, and {@link
+     * #findAdoptableBatch} ignores any one-request batch created inside it; a real create from this
+     * process cannot have happened in that window because the primer held the guard.
+     *
+     * <p><b>Residual.</b> The window is judged on Anthropic's {@code createdAt} against this clock
+     * with no skew tolerance, and a primer batch Anthropic created later than the grace after the
+     * client gave up would fall outside it. Conversely, a real one-request batch genuinely
+     * orphaned inside the window after an ambiguous primer failure is not adopted either, so its
+     * retry creates a duplicate (a paid, untracked batch: the same silent-cost direction the class
+     * javadoc already prefers over adopting the wrong batch). Another JVM sharing the API key shares
+     * none of this.
+     *
+     * @param params the one-request primer batch
+     * @param budget total time allowed for acquiring the guard and creating the batch
      * @return the created batch
+     * @throws IllegalStateException if the guard could not be acquired within the budget
      */
-    public MessageBatch createPrimerBatch(BatchCreateParams params, Duration timeout) {
-        MessageBatch batch = batchClient.messages().batches().create(params, callOptions(timeout));
-        recordHandedOut(batch.id());
-        return batch;
+    public MessageBatch createPrimerBatch(BatchCreateParams params, Duration budget) {
+        long startNanos = System.nanoTime();
+        boolean acquired;
+        try {
+            acquired = creationLock.tryLock(budget.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted waiting for the batch creation guard", e);
+        }
+        if (!acquired) {
+            throw new IllegalStateException(
+                    "Batch creation guard busy for " + budget.toMillis() + " ms - primer skipped");
+        }
+        try {
+            Duration remaining = budget.minusNanos(System.nanoTime() - startNanos);
+            if (remaining.isNegative() || remaining.isZero()) {
+                throw new IllegalStateException("No time left to create the primer after the guard wait");
+            }
+            Instant attemptStart = Instant.now(clock);
+            try {
+                MessageBatch batch = batchClient.messages().batches().create(params, callOptions(remaining));
+                recordHandedOut(batch.id());
+                return batch;
+            } catch (RuntimeException e) {
+                recordPrimerWindow(attemptStart);
+                throw e;
+            }
+        } finally {
+            creationLock.unlock();
+        }
+    }
+
+    private void recordPrimerWindow(Instant attemptStart) {
+        Instant end = Instant.now(clock).plus(PRIMER_WINDOW_GRACE);
+        synchronized (primerWindows) {
+            primerWindows.add(new Instant[] {attemptStart, end});
+            if (primerWindows.size() > PRIMER_WINDOW_CAP) {
+                primerWindows.remove(0);
+            }
+        }
+    }
+
+    private boolean isInsidePrimerWindow(MessageBatch batch) {
+        if (totalRequestCount(batch) != 1) {
+            return false;
+        }
+        Instant created = batch.createdAt().toInstant();
+        synchronized (primerWindows) {
+            return primerWindows.stream()
+                    .anyMatch(w -> !created.isBefore(w[0]) && !created.isAfter(w[1]));
+        }
     }
 
     /**
@@ -387,6 +466,7 @@ public class AnthropicBatchClient {
                 .filter(b -> totalRequestCount(b) == expectedRequestCount)
                 .filter(b -> !forecastBatchRepository.existsByAnthropicBatchId(b.id()))
                 .filter(b -> !wasHandedOutByThisProcess(b.id()))
+                .filter(b -> !isInsidePrimerWindow(b))
                 .sorted(Comparator.comparing((MessageBatch b) -> b.createdAt().toInstant()).reversed())
                 .toList();
 

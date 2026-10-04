@@ -699,7 +699,8 @@ class AnthropicBatchClientTest {
         assertThat(result).isSameAs(primer);
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
         verify(batchService, times(1)).create(eq(params), options.capture());
-        assertThat(options.getValue().getTimeout().request()).isEqualTo(Duration.ofSeconds(15));
+        assertThat(options.getValue().getTimeout().request())
+                .isLessThanOrEqualTo(Duration.ofSeconds(15)).isGreaterThan(Duration.ofSeconds(10));
         verifyNoInteractions(retryRegistry);
         verifyNoInteractions(forecastBatchRepository);
     }
@@ -714,7 +715,10 @@ class AnthropicBatchClientTest {
         assertThatThrownBy(() -> client.createPrimerBatch(params, Duration.ofSeconds(15)))
                 .isSameAs(failure);
 
-        verify(batchService, times(1)).create(eq(params), any(RequestOptions.class));
+        ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
+        verify(batchService, times(1)).create(eq(params), options.capture());
+        assertThat(options.getValue().getTimeout().request())
+                .isLessThanOrEqualTo(Duration.ofSeconds(15)).isGreaterThan(Duration.ofSeconds(10));
     }
 
     @Test
@@ -752,6 +756,157 @@ class AnthropicBatchClientTest {
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
         verify(batchService).retrieve(eq("msgbatch_r"), options.capture());
         assertThat(options.getValue().getTimeout().request()).isEqualTo(Duration.ofSeconds(7));
+    }
+
+    @Test
+    @DisplayName("primer vs adoption: a real retry running while a primer create is in flight never adopts it")
+    void inFlightPrimer_isNotAdoptedByAConcurrentRealRetry() throws Exception {
+        useRetryWithMaxAttempts(2);
+        BatchCreateParams primerParams = uniqueParams("primer-inflight");
+        MessageBatch primer = aBatch("msgbatch_inflight",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plusSeconds(1), ZoneOffset.UTC), 1);
+        CountDownLatch primerInCreate = new CountDownLatch(1);
+        CountDownLatch releasePrimer = new CountDownLatch(1);
+        when(batchService.create(eq(primerParams), any(RequestOptions.class))).thenAnswer(inv -> {
+            primerInCreate.countDown();
+            assertThat(releasePrimer.await(10, TimeUnit.SECONDS)).isTrue();
+            return primer;
+        });
+        BatchCreateParams realParams = uniqueParams("real-concurrent");
+        MessageBatch real = aBatch("msgbatch_real_concurrent", OffsetDateTime.now(), 1);
+        AnthropicServiceException serverError = serviceException(500);
+        BatchListPage page = mock(BatchListPage.class);
+        when(page.items()).thenReturn(List.of(primer));
+        when(batchService.list(any(BatchListParams.class))).thenReturn(page);
+        when(batchService.create(realParams)).thenThrow(serverError).thenReturn(real);
+
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var primerFuture = pool.submit(() -> client.createPrimerBatch(primerParams, Duration.ofSeconds(15)));
+            assertThat(primerInCreate.await(10, TimeUnit.SECONDS)).isTrue();
+            var realFuture = pool.submit(() -> client.createBatch(realParams));
+            // the real submission is queued behind the guard: it has not even tried yet
+            Thread.sleep(200);
+            verify(batchService, never()).create(realParams);
+            releasePrimer.countDown();
+
+            assertThat(primerFuture.get(10, TimeUnit.SECONDS)).isSameAs(primer);
+            assertThat(realFuture.get(10, TimeUnit.SECONDS)).isSameAs(real);
+        } finally {
+            pool.shutdownNow();
+        }
+        verify(batchService, times(2)).create(realParams);
+    }
+
+    @Test
+    @DisplayName("primer vs adoption: an ambiguous primer create leaves any batch it made un-adoptable")
+    void ambiguousPrimerCreate_isNotAdoptedByASubsequentRealRetry() {
+        useRetryWithMaxAttempts(2);
+        BatchCreateParams primerParams = uniqueParams("primer-ambiguous");
+        AnthropicIoException timeout = new AnthropicIoException("read timeout");
+        when(batchService.create(eq(primerParams), any(RequestOptions.class))).thenThrow(timeout);
+        assertThatThrownBy(() -> client.createPrimerBatch(primerParams, Duration.ofSeconds(15)))
+                .isSameAs(timeout);
+        // Anthropic did create it, unbeknownst to us
+        MessageBatch phantomPrimer = aBatch("msgbatch_phantom_primer",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plusSeconds(2), ZoneOffset.UTC), 1);
+
+        BatchCreateParams realParams = uniqueParams("real-after-ambiguous");
+        MessageBatch real = aBatch("msgbatch_real_after", OffsetDateTime.now(), 1);
+        AnthropicServiceException serverError = serviceException(500);
+        BatchListPage page = mock(BatchListPage.class);
+        when(page.items()).thenReturn(List.of(phantomPrimer));
+        when(batchService.list(any(BatchListParams.class))).thenReturn(page);
+        when(batchService.create(realParams)).thenThrow(serverError).thenReturn(real);
+
+        MessageBatch result = client.createBatch(realParams);
+
+        assertThat(result).isSameAs(real);
+        verify(batchService, times(2)).create(realParams);
+    }
+
+    @Test
+    @DisplayName("primer vs adoption: a failed primer does not stop a real submission adopting a batch "
+            + "created outside the primer window")
+    void ambiguousPrimerWindow_doesNotHideABatchCreatedAfterIt() {
+        useRetryWithMaxAttempts(2);
+        BatchCreateParams primerParams = uniqueParams("primer-window");
+        when(batchService.create(eq(primerParams), any(RequestOptions.class)))
+                .thenThrow(new AnthropicIoException("read timeout"));
+        assertThatThrownBy(() -> client.createPrimerBatch(primerParams, Duration.ofSeconds(15)))
+                .isInstanceOf(AnthropicIoException.class);
+        MessageBatch orphan = aBatch("msgbatch_orphan_later",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plus(AnthropicBatchClient.PRIMER_WINDOW_GRACE)
+                        .plusSeconds(1), ZoneOffset.UTC), 1);
+        BatchCreateParams realParams = uniqueParams("real-later");
+        AnthropicServiceException serverError = serviceException(500);
+        BatchListPage page = mock(BatchListPage.class);
+        when(page.items()).thenReturn(List.of(orphan));
+        when(batchService.list(any(BatchListParams.class))).thenReturn(page);
+        when(batchService.create(realParams)).thenThrow(serverError);
+
+        MessageBatch result = client.createBatch(realParams);
+
+        assertThat(result).isSameAs(orphan);
+    }
+
+    @Test
+    @DisplayName("primer vs adoption: a real submission still adopts its own ambiguous create after a primer ran")
+    void realOwnAmbiguousCreate_stillAdopted_afterASuccessfulPrimer() {
+        useRetryWithMaxAttempts(2);
+        BatchCreateParams primerParams = uniqueParams("primer-before");
+        MessageBatch primer = aBatch("msgbatch_primer_before",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plusSeconds(1), ZoneOffset.UTC), 1);
+        when(batchService.create(eq(primerParams), any(RequestOptions.class))).thenReturn(primer);
+        client.createPrimerBatch(primerParams, Duration.ofSeconds(15));
+
+        BatchCreateParams realParams = uniqueParams("real-own");
+        MessageBatch ownOrphan = aBatch("msgbatch_own_orphan",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plusSeconds(3), ZoneOffset.UTC), 1);
+        AnthropicIoException timeout = new AnthropicIoException("read timeout");
+        BatchListPage page = mock(BatchListPage.class);
+        when(page.items()).thenReturn(List.of(ownOrphan, primer));
+        when(batchService.list(any(BatchListParams.class))).thenReturn(page);
+        when(batchService.create(realParams)).thenThrow(timeout);
+
+        MessageBatch result = client.createBatch(realParams);
+
+        assertThat(result).isSameAs(ownOrphan);
+        verify(batchService, times(1)).create(realParams);
+    }
+
+    @Test
+    @DisplayName("createPrimerBatch: gives up within its budget when a long real submission holds the guard")
+    void createPrimerBatch_guardHeld_givesUpWithinBudget() throws Exception {
+        BatchCreateParams realParams = uniqueParams("real-long");
+        BatchCreateParams primerParams = uniqueParams("primer-blocked");
+        CountDownLatch realInCreate = new CountDownLatch(1);
+        CountDownLatch releaseReal = new CountDownLatch(1);
+        MessageBatch real = aBatch("msgbatch_real_long", OffsetDateTime.now(), 1);
+        useRetryWithMaxAttempts(1);
+        when(batchService.create(realParams)).thenAnswer(inv -> {
+            realInCreate.countDown();
+            assertThat(releaseReal.await(10, TimeUnit.SECONDS)).isTrue();
+            return real;
+        });
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var realFuture = pool.submit(() -> client.createBatch(realParams));
+            assertThat(realInCreate.await(10, TimeUnit.SECONDS)).isTrue();
+
+            long start = System.nanoTime();
+            assertThatThrownBy(() -> client.createPrimerBatch(primerParams, Duration.ofMillis(200)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("guard busy");
+            long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
+
+            assertThat(elapsedMs).isLessThan(2000);
+            verify(batchService, never()).create(eq(primerParams), any(RequestOptions.class));
+            releaseReal.countDown();
+            assertThat(realFuture.get(10, TimeUnit.SECONDS)).isSameAs(real);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     /** A {@link BatchCreateParams} with exactly one request, structurally unique per {@code tag}. */
