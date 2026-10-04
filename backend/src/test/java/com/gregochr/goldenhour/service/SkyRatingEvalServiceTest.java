@@ -364,4 +364,25 @@ class SkyRatingEvalServiceTest {
                 .missDirection(direction)
                 .build();
     }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("finalise: pass rate is passes / attempted; failures count as non-passes")
+    void finalise_failedEvaluationsCountInTheDenominator() {
+        SkyRatingEvalService.Aggregate agg = new SkyRatingEvalService.Aggregate();
+        agg.recordFailure("REFUSAL");
+        agg.recordFailure("REFUSAL");
+        agg.recordFailure("MAX_TOKENS");
+        SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
+                .id(5L).model(EvaluationModel.SONNET_55).runsPerFixture(1)
+                .status(SkyRatingEvalStatus.RUNNING).build();
+
+        service().finalise(run, agg, SkyRatingEvalStatus.COMPLETED, "3 failed", System.currentTimeMillis());
+
+        assertThat(run.getTotalRuns()).isEqualTo(3);
+        assertThat(run.getTotalPasses()).isZero();
+        assertThat(run.getPassRate()).isZero();
+        assertThat(agg.failureSummary()).isEqualTo("MAX_TOKENS=1, REFUSAL=2");
+        assertThat(agg.failedCount()).isEqualTo(3);
+        assertThat(new SkyRatingEvalService.Aggregate().failureSummary()).isNull();
+    }
 }

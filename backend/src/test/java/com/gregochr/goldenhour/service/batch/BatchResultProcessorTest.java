@@ -427,6 +427,9 @@ class BatchResultProcessorTest {
     void forecast_refusal_logsInlineFailureAndDoesNotPersist() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 56L);
+        when(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET_55, new TokenUsage(700, 123, 300, 40, 0), true))
+                .thenReturn(1_234_567L);
 
         MessageBatchIndividualResponse response = succeededResponseWithStopReason(
                 "fc-42-2026-04-07-SUNRISE", StopReason.REFUSAL);
@@ -457,6 +460,33 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getTotalOutputTokens()).isEqualTo(123L);
         assertThat(captor.getValue().getTotalCacheReadTokens()).isEqualTo(40L);
         assertThat(captor.getValue().getTotalCacheCreationTokens()).isEqualTo(300L);
+        // ...and the job run is completed with their cost, not as free.
+        verify(jobRunService).completeBatchRun(56L, 0, 1, 1_234_567L);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a stream failure after a billed response completes the failed job run with that cost")
+    void forecast_streamFailureAfterBilledResponse_completesJobRunWithCost() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 2, 57L);
+        when(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET_55, new TokenUsage(700, 123, 300, 40, 0), true))
+                .thenReturn(1_234_567L);
+        MessageBatchIndividualResponse refused = succeededResponseWithStopReason(
+                "fc-42-2026-04-07-SUNRISE", StopReason.REFUSAL);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(refused, refused).map(r -> {
+            if (r == refused && refusedOnce[0]++ > 0) {
+                throw new IllegalStateException("stream died");
+            }
+            return r;
+        }));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).completeBatchRun(57L, 0, 2, 1_234_567L);
     }
 
     @Test
@@ -662,6 +692,9 @@ class BatchResultProcessorTest {
     void aurora_refusal_failsBatchAndCostsResponse() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 61L);
+        when(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET_55, new TokenUsage(700, 123, 300, 40, 0), true))
+                .thenReturn(1_234_567L);
         MessageBatchIndividualResponse response = succeededResponseWithStopReason(
                 "au-MODERATE-2026-04-07", StopReason.REFUSAL);
         @SuppressWarnings("unchecked")
@@ -684,6 +717,9 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
         assertThat(captor.getValue().getTotalInputTokens()).isEqualTo(700L);
         assertThat(captor.getValue().getTotalOutputTokens()).isEqualTo(123L);
+        // The billed refused call is not free on the job run: it completes with the batch cost.
+        assertThat(captor.getValue().getEstimatedCostUsd()).isEqualByComparingTo("1.234567");
+        verify(jobRunService).completeBatchRun(61L, 0, 1, 1_234_567L);
     }
 
     @Test
@@ -691,6 +727,9 @@ class BatchResultProcessorTest {
     void aurora_maxTokens_failsBatchWithoutParsing() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 62L);
+        when(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET_55, new TokenUsage(700, 123, 300, 40, 0), true))
+                .thenReturn(1_234_567L);
         MessageBatchIndividualResponse response = succeededResponseWithStopReason(
                 "au-MODERATE-2026-04-07", StopReason.MAX_TOKENS);
         @SuppressWarnings("unchecked")
@@ -712,6 +751,31 @@ class BatchResultProcessorTest {
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+        verify(jobRunService).completeBatchRun(62L, 0, 1, 1_234_567L);
+    }
+
+    @Test
+    @DisplayName("AURORA: handler failure after a billed response completes the job run with its cost")
+    void aurora_handlerFailure_completesJobRunWithCost() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 63L);
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-STRONG-2026-04-07", "[{\"name\":\"X\",\"stars\":4}]");
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+        when(auroraResultHandler.processBatchResponse(eq(AlertLevel.STRONG),
+                any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(AuroraBatchOutcome.failure("triage failed"));
+        // succeededResponse bills 500 in / 200 out / 1000 cache read, as Sonnet 4.6
+        when(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET, new TokenUsage(500, 200, 0, 1000, 0), true))
+                .thenReturn(2_500L);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).completeBatchRun(63L, 0, 1, 2_500L);
     }
 
     @Test
@@ -1027,6 +1091,8 @@ class BatchResultProcessorTest {
      * response before ever calling {@code content()}/{@code usage()}/{@code model()}, so
      * stubbing those here would trip Mockito's unnecessary-stubbing check.
      */
+    private final int[] refusedOnce = new int[1];
+
     private MessageBatchIndividualResponse succeededResponseWithStopReason(String customId,
             StopReason stopReason) {
         MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);

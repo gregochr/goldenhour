@@ -574,7 +574,7 @@ public class BriefingBestBetAdvisor {
             Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
         return compareModels(List.of(
                 EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_ET,
-                EvaluationModel.OPUS, EvaluationModel.OPUS_ET), days, driveMap);
+                EvaluationModel.OPUS, EvaluationModel.OPUS_ET), days);
     }
 
     /**
@@ -583,12 +583,11 @@ public class BriefingBestBetAdvisor {
      *
      * @param models   the variants to call, in order
      * @param days     the fully assembled briefing days (triage complete)
-     * @param driveMap unused — retained for API compatibility
      * @return comparison run containing the rollup JSON and one result per variant
      * @throws com.fasterxml.jackson.core.JsonProcessingException if rollup JSON build fails
      */
-    ComparisonRun compareModels(List<EvaluationModel> models, List<BriefingDay> days,
-            Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
+    ComparisonRun compareModels(List<EvaluationModel> models, List<BriefingDay> days)
+            throws com.fasterxml.jackson.core.JsonProcessingException {
         LocalDateTime now = LocalDateTime.now(clock);
         RollupResult rollup = rollupBuilder.buildRollupJson(days, now);
 

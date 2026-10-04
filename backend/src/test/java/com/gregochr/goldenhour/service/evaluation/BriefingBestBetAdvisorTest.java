@@ -3879,7 +3879,7 @@ class BriefingBestBetAdvisorTest {
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
 
             BriefingBestBetAdvisor.ComparisonRun run = advisor.compareModels(
-                    List.of(EvaluationModel.SONNET_55), List.of(day), Map.of());
+                    List.of(EvaluationModel.SONNET_55), List.of(day));
 
             ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
             verify(anthropicApiClient).createMessage(captor.capture());
@@ -3902,7 +3902,7 @@ class BriefingBestBetAdvisorTest {
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
 
             BriefingBestBetAdvisor.ComparisonRun run = advisor.compareModels(
-                    List.of(EvaluationModel.SONNET_55), List.of(day), Map.of());
+                    List.of(EvaluationModel.SONNET_55), List.of(day));
 
             assertThat(run.results().get(0).rawResponse()).isNull();
             assertThat(run.results().get(0).validatedPicks()).isEmpty();

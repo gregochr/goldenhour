@@ -28,3 +28,11 @@ On 2026-10-04 measurements (10 runs, 3 prompts) it cost about the same as Sonnet
 tokeniser counts roughly 45% more input, and it failed one regression case that Sonnet 4.6 passes.
 Model names now come from one front-end table (`utils/modelLabels.js`), so the Models screen labels the
 existing Sonnet "Sonnet 4.6" and the Plan popup footer no longer prints "Sonnet_55".
+
+A failed batch now completes its job run with the cost it accrued (a refused or truncated aurora
+response, an aurora handler failure and a forecast stream that died after billed responses were all
+recorded as free before). The sky-rating eval's pass rate now means passes / evaluations attempted: a
+refused, truncated, errored, unreadable or never-answered evaluation counts as a non-pass (before this,
+errored fixtures were silently left out of the denominator). The run's error message carries the failed
+count and per-type reasons (no new column), the Sky Eval table marks such a run with an asterisk, and a
+run in which every evaluation failed is FAILED rather than COMPLETED.

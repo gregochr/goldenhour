@@ -393,6 +393,10 @@ public class BatchResultProcessor {
                     batch.getAnthropicBatchId(), succeeded, flushed, e.getMessage(), e);
             batch.setSucceededCount(succeeded);
             batch.setErroredCount(errored);
+            // Responses streamed before the failure were billed: cost them on the batch so the
+            // job run is completed with that cost rather than as free.
+            persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                    totalCacheCreate1h, firstModelId);
             markFailed(batch, "Failed to stream results after " + succeeded
                     + " succeeded (" + flushed + " cache keys flushed): " + e.getMessage());
             // R7(a): every response streamed before the failure either scored its row (R5) or is
@@ -555,6 +559,9 @@ public class BatchResultProcessor {
         AuroraBatchOutcome handlerResult =
                 auroraResultHandler.processBatchResponse(level, outcome, context);
         if (!handlerResult.success()) {
+            // The response was billed whatever the handler made of it.
+            persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                    totalCacheCreate1h, auroraModelId);
             markFailed(batch, handlerResult.failureReason());
             return;
         }
@@ -906,8 +913,11 @@ public class BatchResultProcessor {
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
             int succeeded = batch.getSucceededCount() != null ? batch.getSucceededCount() : 0;
+            // Complete with the cost the batch accrued (set by persistTokenUsage when a billed
+            // response preceded the failure; 0 when nothing was billed).
             jobRunService.completeBatchRun(batch.getJobRunId(), succeeded,
-                    batch.getRequestCount() - succeeded);
+                    batch.getRequestCount() - succeeded,
+                    toMicroDollars(batch.getEstimatedCostUsd()));
         }
     }
 }

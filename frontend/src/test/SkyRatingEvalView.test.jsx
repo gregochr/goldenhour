@@ -84,6 +84,18 @@ describe('SkyRatingEvalView', () => {
     expect(screen.getAllByText(/fiery \(orange\) \/ golden \(amber\)/).length).toBeGreaterThan(0);
   });
 
+  it('flags a completed run that had failed evaluations, with the reason on hover', async () => {
+    const partialMessage = '3 of 48 evaluations failed and count as non-passes (MAX_TOKENS=1, REFUSAL=2)';
+    getSkyRatingEvalRuns.mockResolvedValue({
+      data: [{ ...RUNS[0], id: 7, errorMessage: partialMessage }, { ...RUNS[0], id: 8 }],
+    });
+    render(<SkyRatingEvalView />);
+
+    const flag = await screen.findByTestId('sky-eval-partial-7');
+    expect(flag).toHaveAttribute('title', partialMessage);
+    expect(screen.queryByTestId('sky-eval-partial-8')).not.toBeInTheDocument();
+  });
+
   it('selecting Sonnet 5.5 sends SONNET_55 and the dialog names it', async () => {
     runSkyRatingEval.mockResolvedValue({
       data: { ...RUNS[0], id: 3, model: 'SONNET_55', status: 'RUNNING' },

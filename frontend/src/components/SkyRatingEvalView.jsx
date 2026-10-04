@@ -383,6 +383,15 @@ const SkyRatingEvalView = () => {
                         <td className="py-2 pr-4 text-plex-text-secondary text-xs">{run.triggerSource}</td>
                         <td className="py-2 pr-4 text-plex-text">
                           {run.status === 'COMPLETED' ? `${Math.round(run.passRate * 100)}%` : '—'}
+                          {run.status === 'COMPLETED' && run.errorMessage && (
+                            <span
+                              className="text-amber-400 ml-1 cursor-help"
+                              title={run.errorMessage}
+                              data-testid={`sky-eval-partial-${run.id}`}
+                            >
+                              *
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 pr-4 text-xs">
                           {run.status === 'COMPLETED' ? (

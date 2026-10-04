@@ -353,8 +353,16 @@ public class SkyRatingEvalService {
         runRepository.save(run);
     }
 
-    /** Mutable per-run accumulator. Package-private so the batched path can drive finalisation. */
+    /**
+     * Mutable per-run accumulator. Package-private so the batched path can drive finalisation.
+     *
+     * <p>{@code totalRuns} is the number of evaluations attempted, so the pass rate means
+     * passes / attempted: an evaluation that was refused, truncated, errored, unreadable or never
+     * answered is recorded through {@link #recordFailure} and counts as a non-pass.
+     */
     static final class Aggregate {
+        private int failed;
+        private final java.util.Map<String, Integer> failuresByType = new java.util.TreeMap<>();
         private int totalRuns;
         private int passes;
         private int below;
@@ -375,6 +383,35 @@ public class SkyRatingEvalService {
             inputTokens += usage.inputTokens();
             outputTokens += usage.outputTokens();
             costMicroDollars += cost;
+        }
+
+        /**
+         * Records an evaluation that produced no usable result as an attempted non-pass.
+         *
+         * @param type why it failed (e.g. REFUSAL, MAX_TOKENS, ERRORED, PARSE_ERROR, MISSING)
+         */
+        void recordFailure(String type) {
+            totalRuns++;
+            failed++;
+            failuresByType.merge(type == null ? "UNKNOWN" : type, 1, Integer::sum);
+        }
+
+        int totalRuns() {
+            return totalRuns;
+        }
+
+        int failedCount() {
+            return failed;
+        }
+
+        /** Per-type failure counts as {@code "MAX_TOKENS=1, REFUSAL=2"}, or null when none failed. */
+        String failureSummary() {
+            if (failed == 0) {
+                return null;
+            }
+            return failuresByType.entrySet().stream()
+                    .map(e -> e.getKey() + "=" + e.getValue())
+                    .collect(java.util.stream.Collectors.joining(", "));
         }
 
         private double passRate() {
