@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.models.messages.batches.BatchCreateParams;
+import com.anthropic.models.messages.CacheControlEphemeral;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
@@ -341,5 +343,96 @@ class BatchRequestFactoryTest {
                 "First Quarter",
                 false,
                 TideStatisticalSize.EXTRA_HIGH);
+    }
+
+    // ── batch cache primer: one-hour lifetime only for a warmed prefix ───────
+
+    private static CacheControlEphemeral cacheControlOf(BatchCreateParams.Request request) {
+        return request.params().system().get().asTextBlockParams().get(0).cacheControl().get();
+    }
+
+    private static final String HAIKU_INLAND = EvaluationModel.HAIKU.getModelId() + "|inland";
+
+    @Test
+    void plainBatchSkyRequestNeverCarriesTheOneHourLifetime() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request request = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024).request();
+
+        assertThat(cacheControlOf(request)).isEqualTo(CacheControlEphemeral.builder().build());
+        assertThat(cacheControlOf(request).ttl()).isEmpty();
+    }
+
+    @Test
+    void warmedPrefix_requestCarriesOneHourLifetime() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request request = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024,
+                Set.of(HAIKU_INLAND)).request();
+
+        assertThat(cacheControlOf(request).ttl()).contains(CacheControlEphemeral.Ttl.TTL_1H);
+    }
+
+    @Test
+    void unwarmedPrefix_requestEqualsThePlainRequest() {
+        AtmosphericData inland = TestAtmosphericData.builder().build();
+        Set<String> otherPrefixesWarmed = Set.of(
+                EvaluationModel.HAIKU.getModelId() + "|coastal", EvaluationModel.SONNET.getModelId() + "|inland");
+
+        BatchCreateParams.Request warmedElsewhere = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, inland, 1024,
+                otherPrefixesWarmed).request();
+        BatchCreateParams.Request emptySet = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, inland, 1024, Set.of()).request();
+
+        BatchCreateParams.Request plain = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, inland, 1024).request();
+        assertThat(warmedElsewhere).isEqualTo(plain);
+        assertThat(emptySet).isEqualTo(plain);
+        assertThat(cacheControlOf(plain).ttl()).isEmpty();
+    }
+
+    @Test
+    void evalHarnessAndNonSkyRequestsKeepTheDefaultLifetime() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .bluebellConditionScore(woodlandConditions()).build();
+
+        assertThat(cacheControlOf(factory.buildForecastRequest(
+                "e_1_0_1", EvaluationModel.HAIKU, data, 1024)).ttl()).isEmpty();
+        assertThat(cacheControlOf(factory.buildWoodlandRequest(
+                "wd-1-2026-11-16-SUNRISE", EvaluationModel.HAIKU, data, 1024)).ttl()).isEmpty();
+        assertThat(cacheControlOf(factory.buildBluebellRequest(
+                "bb-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024)).ttl()).isEmpty();
+    }
+
+    @Test
+    void primerRequest_carriesOneHourLifetime_andMatchesAWarmedRealRequest() {
+        AtmosphericData data = TestAtmosphericData.builder().tide(coastalTide()).build();
+        String key = EvaluationModel.HAIKU.getModelId() + "|coastal";
+
+        BatchCreateParams.Request real = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024, Set.of(key)).request();
+        BatchCreateParams.Request primer = factory.buildCachePrimerRequest(
+                CustomIdFactory.forCachePrimer(0), EvaluationModel.HAIKU, data, 1024);
+
+        assertThat(cacheControlOf(primer).ttl()).contains(CacheControlEphemeral.Ttl.TTL_1H);
+        assertThat(primer.params().system()).isEqualTo(real.params().system());
+        assertThat(primer.params().outputConfig()).isEqualTo(real.params().outputConfig());
+        assertThat(primer.params().model()).isEqualTo(real.params().model());
+        assertThat(primer.customId()).isEqualTo("pw-0");
+    }
+
+    @Test
+    void cachePrefixKey_separatesModelAndBuilder() {
+        AtmosphericData inland = TestAtmosphericData.builder().build();
+        AtmosphericData coastal = TestAtmosphericData.builder().tide(coastalTide()).build();
+
+        assertThat(factory.cachePrefixKey(EvaluationModel.HAIKU, inland)).isEqualTo(HAIKU_INLAND);
+        assertThat(factory.cachePrefixKey(EvaluationModel.HAIKU, coastal))
+                .isEqualTo(EvaluationModel.HAIKU.getModelId() + "|coastal");
+        assertThat(factory.cachePrefixKey(EvaluationModel.SONNET, inland))
+                .isEqualTo(EvaluationModel.SONNET.getModelId() + "|inland");
     }
 }

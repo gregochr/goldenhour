@@ -91,6 +91,7 @@ public final class CustomIdFactory {
     private static final String PREFIX_JFDI = "jfdi-";
     private static final String PREFIX_FORCE = "force-";
     private static final String PREFIX_AURORA = "au-";
+    private static final String PREFIX_CACHE_PRIMER = "pw-";
 
     /** Fixed length of the ISO date segment (YYYY-MM-DD). */
     private static final int DATE_LEN = 10;
@@ -308,6 +309,18 @@ public final class CustomIdFactory {
         Objects.requireNonNull(alertLevel, "alertLevel");
         Objects.requireNonNull(date, "date");
         return validate(PREFIX_AURORA + alertLevel.name() + "-" + date);
+    }
+
+    /**
+     * Builds the custom id of a batch cache-primer request. {@link #parse} rejects it by design:
+     * a primer is never a forecast, and the parse failure is what guarantees nothing downstream can
+     * mistake one for a result.
+     *
+     * @param ordinal the primer's position among this cycle's primers
+     * @return an Anthropic-valid id of the form {@code "pw-{ordinal}"}
+     */
+    public static String forCachePrimer(int ordinal) {
+        return validate(PREFIX_CACHE_PRIMER + ordinal);
     }
 
     /**

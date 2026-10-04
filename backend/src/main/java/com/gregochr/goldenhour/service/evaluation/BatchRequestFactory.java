@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Builds Anthropic Batch API request objects for forecast evaluations.
@@ -37,10 +38,10 @@ public class BatchRequestFactory {
     /**
      * Constructs the factory.
      *
-     * @param inlandBuilder   builder for inland (non-tidal) locations
-     * @param coastalBuilder  builder for coastal (tidal) locations
-     * @param bluebellBuilder builder for the dedicated bluebell-conditions prompt
-     * @param woodlandBuilder builder for the year-round woodland-conditions prompt
+     * @param inlandBuilder    builder for inland (non-tidal) locations
+     * @param coastalBuilder   builder for coastal (tidal) locations
+     * @param bluebellBuilder  builder for the dedicated bluebell-conditions prompt
+     * @param woodlandBuilder  builder for the year-round woodland-conditions prompt
      */
     public BatchRequestFactory(@Qualifier("promptBuilder") PromptBuilder inlandBuilder,
             CoastalPromptBuilder coastalBuilder,
@@ -95,7 +96,7 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens) {
-        return buildForecastRequestAndPrompt(customId, model, data, maxTokens).request();
+        return buildSkyRequest(customId, model, data, maxTokens, false).request();
     }
 
     /**
@@ -113,6 +114,9 @@ public class BatchRequestFactory {
      * carries. One build, one value: the returned {@code userMessage} is the string placed in the
      * request, not a re-derivation of it.
      *
+     * <p>The system block carries the default (five-minute) cache lifetime. Only the overload taking
+     * warmed prefixes can produce the one-hour lifetime.
+     *
      * @param customId  the Anthropic custom ID (produced via {@link CustomIdFactory})
      * @param model     the evaluation model to invoke
      * @param data      the atmospheric data for this evaluation task
@@ -124,6 +128,83 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens) {
+        return buildSkyRequest(customId, model, data, maxTokens, false);
+    }
+
+    /**
+     * As {@link #buildForecastRequestAndPrompt(String, EvaluationModel, AtmosphericData, int)}, but
+     * the system block carries the one-hour cache lifetime exactly when this request's cache prefix
+     * ({@link #cachePrefixKey}) is in {@code warmedPrefixes} - that is, the scheduled cycle's primer
+     * for that prefix ended with a succeeded request. For any other request the result is identical
+     * to the four-argument overload.
+     *
+     * @param customId        the Anthropic custom ID
+     * @param model           the evaluation model to invoke
+     * @param data            the atmospheric data for this evaluation task
+     * @param maxTokens       Anthropic {@code maxTokens} for this request
+     * @param warmedPrefixes  prefix keys a primer has warmed this cycle (may be empty)
+     * @return the request and its user message
+     */
+    public ForecastRequest buildForecastRequestAndPrompt(
+            String customId,
+            EvaluationModel model,
+            AtmosphericData data,
+            int maxTokens,
+            Set<String> warmedPrefixes) {
+        Objects.requireNonNull(warmedPrefixes, "warmedPrefixes");
+        boolean warmed = warmedPrefixes.contains(cachePrefixKey(model, data));
+        return buildSkyRequest(customId, model, data, maxTokens, warmed);
+    }
+
+    /**
+     * Builds the cache-primer request: identical to the request the five-argument {@link
+     * #buildForecastRequestAndPrompt} builds for a warmed prefix (same builder, system block,
+     * one-hour lifetime and output config), under a distinct custom id.
+     *
+     * @param customId  the primer custom id (see {@link CustomIdFactory#forCachePrimer})
+     * @param model     the evaluation model to invoke
+     * @param data      the atmospheric data of a real task sharing the prefix being primed
+     * @param maxTokens Anthropic {@code maxTokens} for this request
+     * @return the primer request
+     */
+    public BatchCreateParams.Request buildCachePrimerRequest(
+            String customId,
+            EvaluationModel model,
+            AtmosphericData data,
+            int maxTokens) {
+        return buildSkyRequest(customId, model, data, maxTokens, true).request();
+    }
+
+    /**
+     * Names the cache prefix a SKY request for this model and data carries: the model id and which
+     * prompt builder (coastal or inland) supplies the system block. Computed per task, so a bucket
+     * holding several models or builders yields several keys.
+     *
+     * @param model the evaluation model
+     * @param data  the atmospheric data of the task
+     * @return a stable key, equal for two tasks exactly when they share a cache prefix
+     */
+    public String cachePrefixKey(EvaluationModel model, AtmosphericData data) {
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(data, "data");
+        String builderName = selectBuilder(data) == coastalBuilder ? "coastal" : "inland";
+        return model.getModelId() + "|" + builderName;
+    }
+
+    private static CacheControlEphemeral skyCacheControl(boolean longLived) {
+        CacheControlEphemeral.Builder control = CacheControlEphemeral.builder();
+        if (longLived) {
+            control.ttl(CacheControlEphemeral.Ttl.TTL_1H);
+        }
+        return control.build();
+    }
+
+    private ForecastRequest buildSkyRequest(
+            String customId,
+            EvaluationModel model,
+            AtmosphericData data,
+            int maxTokens,
+            boolean longLivedCache) {
         Objects.requireNonNull(customId, "customId");
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(data, "data");
@@ -139,7 +220,7 @@ public class BatchRequestFactory {
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder()
                                         .text(builder.getSystemPrompt())
-                                        .cacheControl(CacheControlEphemeral.builder().build())
+                                        .cacheControl(skyCacheControl(longLivedCache))
                                         .build()))
                         .outputConfig(builder.buildOutputConfig())
                         .addUserMessage(userMessage)

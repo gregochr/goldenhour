@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Production {@link EvaluationService}.
@@ -110,6 +111,18 @@ public class EvaluationServiceImpl implements EvaluationService {
     @Override
     public EvaluationHandle submit(List<? extends EvaluationTask> tasks,
             BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
+        return submitInternal(tasks, trigger, pipelineRunId, isRetry, Set.of());
+    }
+
+    @Override
+    public EvaluationHandle submitWarmed(List<? extends EvaluationTask> tasks,
+            BatchTriggerSource trigger, Long pipelineRunId, Set<String> warmedPrefixes) {
+        return submitInternal(tasks, trigger, pipelineRunId, false, warmedPrefixes);
+    }
+
+    private EvaluationHandle submitInternal(List<? extends EvaluationTask> tasks,
+            BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry,
+            Set<String> warmedPrefixes) {
         if (tasks == null || tasks.isEmpty()) {
             return EvaluationHandle.empty();
         }
@@ -126,7 +139,7 @@ public class EvaluationServiceImpl implements EvaluationService {
 
         if (firstType == EvaluationTask.Forecast.class) {
             return submitForecast(castList(tasks, EvaluationTask.Forecast.class), trigger,
-                    pipelineRunId, isRetry);
+                    pipelineRunId, isRetry, warmedPrefixes);
         }
         if (firstType == EvaluationTask.Aurora.class) {
             if (isRetry) {
@@ -150,7 +163,8 @@ public class EvaluationServiceImpl implements EvaluationService {
     }
 
     private EvaluationHandle submitForecast(List<EvaluationTask.Forecast> tasks,
-            BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
+            BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry,
+            Set<String> warmedPrefixes) {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
         // evalRowId -> the sky user message that went into that row's request (batch SKY lane only).
         Map<Long, String> skyPrompts = new java.util.LinkedHashMap<>();
@@ -166,11 +180,16 @@ public class EvaluationServiceImpl implements EvaluationService {
                                 task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
                 case SKY -> {
-                    BatchRequestFactory.ForecastRequest built =
-                            batchRequestFactory.buildForecastRequestAndPrompt(
-                                    CustomIdFactory.forForecast(locationId, task.date(),
-                                            task.targetType(), task.evalRowId(), task.forced()),
-                                    task.model(), task.data(), task.model().getMaxTokens());
+                    String customId = CustomIdFactory.forForecast(locationId, task.date(),
+                            task.targetType(), task.evalRowId(), task.forced());
+                    // No warmed prefix (every path but a scheduled cycle whose primer succeeded)
+                    // takes the plain overload, so those requests are untouched by the primer.
+                    BatchRequestFactory.ForecastRequest built = warmedPrefixes.isEmpty()
+                            ? batchRequestFactory.buildForecastRequestAndPrompt(customId,
+                                    task.model(), task.data(), task.model().getMaxTokens())
+                            : batchRequestFactory.buildForecastRequestAndPrompt(customId,
+                                    task.model(), task.data(), task.model().getMaxTokens(),
+                                    warmedPrefixes);
                     requests.add(built.request());
                     if (task.evalRowId() != null) {
                         skyPrompts.put(task.evalRowId(), built.userMessage());

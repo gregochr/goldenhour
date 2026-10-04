@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -69,6 +70,7 @@ public class ScheduledBatchEvaluationService {
     private final ForecastDispositionService dispositionService;
     private final JobRunService jobRunService;
     private final java.time.Clock clock;
+    private final BatchCachePrimer batchCachePrimer;
 
     /**
      * No-op between-steps hook for paths that do not split the submit into
@@ -99,6 +101,8 @@ public class ScheduledBatchEvaluationService {
      * @param jobRunService               creates the disposition-anchor run for zero-batch cycles
      * @param clock                       supplies "today" for the batch-breakdown log line,
      *                                    resolved in {@code Europe/London} by {@link ForecastHorizon}
+     * @param batchCachePrimer            warms the sky prompt cache before the buckets submit;
+     *                                    fail-open, never throws
      */
     public ScheduledBatchEvaluationService(
             ModelSelectionService modelSelectionService,
@@ -112,7 +116,9 @@ public class ScheduledBatchEvaluationService {
             ForecastTaskCollector forecastTaskCollector,
             ForecastDispositionService dispositionService,
             JobRunService jobRunService,
-            java.time.Clock clock) {
+            java.time.Clock clock,
+            BatchCachePrimer batchCachePrimer) {
+        this.batchCachePrimer = batchCachePrimer;
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
         this.weatherTriageService = weatherTriageService;
@@ -380,6 +386,23 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
+     * Runs the cache primer for the cycle's four SKY buckets and returns the prefixes it warmed
+     * (empty on any failure, so every request is then built exactly as before the primer existed).
+     * The primer never throws; the catch is a second line of defence.
+     */
+    private Set<String> primeCacheSafely(ScheduledBatchTasks tasks) {
+        try {
+            BatchCachePrimer.PrimeResult result = batchCachePrimer.prime(List.of(tasks.nearInland(),
+                    tasks.nearCoastal(), tasks.farInland(), tasks.farCoastal()));
+            return result == null ? Set.of() : result.warmedPrefixes();
+        } catch (RuntimeException e) {
+            LOG.warn("[BATCH PRIMER] Primer threw despite its fail-open contract - submitting the "
+                    + "buckets regardless: {}", e.toString());
+            return Set.of();
+        }
+    }
+
+    /**
      * Submission step: sends each non-empty bucket to the Batch API and persists
      * the cycle's dispositions. Shared by every cycle type.
      *
@@ -423,11 +446,17 @@ public class ScheduledBatchEvaluationService {
         // through all six submission sites below.
         List<LabeledBucket> allNonEmptyBuckets = buildNonEmptyBuckets(tasks);
 
+        // Warm the sky system-prompt cache first (one one-request primer batch per distinct
+        // prefix) so the buckets below read it instead of each writing it. Fail-open: the primer
+        // catches everything itself and waits at most its own cap, so nothing it does can change
+        // which buckets are submitted below, or their arguments.
+        Set<String> warmedPrefixes = primeCacheSafely(tasks);
+
         if (!tasks.nearInland().isEmpty()) {
             bucketsAttempted++;
             EvaluationHandle h;
             try {
-                h = submitBucketSafely(tasks.nearInland(), pipelineRunId, "near-term inland");
+                h = submitBucketSafely(tasks.nearInland(), pipelineRunId, "near-term inland", warmedPrefixes);
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "near-term inland", e);
@@ -443,7 +472,7 @@ public class ScheduledBatchEvaluationService {
             bucketsAttempted++;
             EvaluationHandle h;
             try {
-                h = submitBucketSafely(tasks.nearCoastal(), pipelineRunId, "near-term coastal");
+                h = submitBucketSafely(tasks.nearCoastal(), pipelineRunId, "near-term coastal", warmedPrefixes);
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "near-term coastal", e);
@@ -459,7 +488,7 @@ public class ScheduledBatchEvaluationService {
             bucketsAttempted++;
             EvaluationHandle h;
             try {
-                h = submitBucketSafely(tasks.farInland(), pipelineRunId, "far-term inland");
+                h = submitBucketSafely(tasks.farInland(), pipelineRunId, "far-term inland", warmedPrefixes);
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "far-term inland", e);
@@ -475,7 +504,7 @@ public class ScheduledBatchEvaluationService {
             bucketsAttempted++;
             EvaluationHandle h;
             try {
-                h = submitBucketSafely(tasks.farCoastal(), pipelineRunId, "far-term coastal");
+                h = submitBucketSafely(tasks.farCoastal(), pipelineRunId, "far-term coastal", warmedPrefixes);
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "far-term coastal", e);
@@ -588,8 +617,17 @@ public class ScheduledBatchEvaluationService {
      */
     private EvaluationHandle submitBucketSafely(List<EvaluationTask.Forecast> tasks,
             Long pipelineRunId, String label) {
+        return submitBucketSafely(tasks, pipelineRunId, label, Set.of());
+    }
+
+    private EvaluationHandle submitBucketSafely(List<EvaluationTask.Forecast> tasks,
+            Long pipelineRunId, String label, Set<String> warmedPrefixes) {
         try {
-            return evaluationService.submit(tasks, BatchTriggerSource.SCHEDULED, pipelineRunId);
+            if (warmedPrefixes.isEmpty()) {
+                return evaluationService.submit(tasks, BatchTriggerSource.SCHEDULED, pipelineRunId);
+            }
+            return evaluationService.submitWarmed(tasks, BatchTriggerSource.SCHEDULED, pipelineRunId,
+                    warmedPrefixes);
         } catch (OrphanedBatchException e) {
             throw e;
         } catch (RuntimeException e) {
