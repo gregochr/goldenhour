@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.ClientOptions;
+import com.anthropic.core.RequestOptions;
 import com.anthropic.errors.AnthropicIoException;
 import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.batches.BatchCreateParams;
@@ -47,11 +48,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -685,18 +688,20 @@ class AnthropicBatchClientTest {
     }
 
     @Test
-    @DisplayName("createPrimerBatch: one attempt, no retry registry, no tracking lookup")
+    @DisplayName("createPrimerBatch: one attempt under the given timeout, no retry registry, no tracking lookup")
     void createPrimerBatch_singleAttemptNoRetry() {
         BatchCreateParams params = uniqueParams("primer");
         MessageBatch primer = aBatch("msgbatch_primer", OffsetDateTime.now(), 1);
-        when(batchService.create(params)).thenReturn(primer);
+        when(batchService.create(eq(params), any(RequestOptions.class))).thenReturn(primer);
 
-        MessageBatch result = client.createPrimerBatch(params);
+        MessageBatch result = client.createPrimerBatch(params, Duration.ofSeconds(15));
 
         assertThat(result).isSameAs(primer);
-        verify(batchService, times(1)).create(params);
-        verify(retryRegistry, never()).retry(any(String.class));
-        verify(forecastBatchRepository, never()).existsByAnthropicBatchId(any());
+        ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
+        verify(batchService, times(1)).create(eq(params), options.capture());
+        assertThat(options.getValue().getTimeout().request()).isEqualTo(Duration.ofSeconds(15));
+        verifyNoInteractions(retryRegistry);
+        verifyNoInteractions(forecastBatchRepository);
     }
 
     @Test
@@ -704,12 +709,12 @@ class AnthropicBatchClientTest {
     void createPrimerBatch_failurePropagatesUnretried() {
         BatchCreateParams params = uniqueParams("primer-fail");
         AnthropicIoException failure = new AnthropicIoException("timeout");
-        when(batchService.create(params)).thenThrow(failure);
+        when(batchService.create(eq(params), any(RequestOptions.class))).thenThrow(failure);
 
-        assertThatThrownBy(() -> client.createPrimerBatch(params))
+        assertThatThrownBy(() -> client.createPrimerBatch(params, Duration.ofSeconds(15)))
                 .isSameAs(failure);
 
-        verify(batchService, times(1)).create(params);
+        verify(batchService, times(1)).create(eq(params), any(RequestOptions.class));
     }
 
     @Test
@@ -719,8 +724,8 @@ class AnthropicBatchClientTest {
         BatchCreateParams primerParams = uniqueParams("primer-adopt");
         MessageBatch primer = aBatch("msgbatch_primer_adopt",
                 OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plusSeconds(1), ZoneOffset.UTC), 1);
-        when(batchService.create(primerParams)).thenReturn(primer);
-        client.createPrimerBatch(primerParams);
+        when(batchService.create(eq(primerParams), any(RequestOptions.class))).thenReturn(primer);
+        client.createPrimerBatch(primerParams, Duration.ofSeconds(15));
 
         BatchCreateParams realParams = uniqueParams("real");
         MessageBatch real = aBatch("msgbatch_real", OffsetDateTime.now(), 1);
@@ -733,15 +738,20 @@ class AnthropicBatchClientTest {
         MessageBatch result = client.createBatch(realParams);
 
         assertThat(result).isSameAs(real);
+        verify(batchService, times(2)).create(realParams);
     }
 
     @Test
-    @DisplayName("retrieveBatch: reads the batch through the transport-retry-disabled client")
+    @DisplayName("retrieveBatch: reads the batch under the given timeout")
     void retrieveBatch_delegates() {
         MessageBatch batch = aBatch("msgbatch_r", OffsetDateTime.now(), 1);
-        when(batchService.retrieve("msgbatch_r")).thenReturn(batch);
+        when(batchService.retrieve(eq("msgbatch_r"), any(RequestOptions.class))).thenReturn(batch);
 
-        assertThat(client.retrieveBatch("msgbatch_r")).isSameAs(batch);
+        assertThat(client.retrieveBatch("msgbatch_r", Duration.ofSeconds(7))).isSameAs(batch);
+
+        ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
+        verify(batchService).retrieve(eq("msgbatch_r"), options.capture());
+        assertThat(options.getValue().getTimeout().request()).isEqualTo(Duration.ofSeconds(7));
     }
 
     /** A {@link BatchCreateParams} with exactly one request, structurally unique per {@code tag}. */

@@ -234,10 +234,11 @@ photocast:
       enabled: true          # before a scheduled cycle submits its sky buckets, submit a one-request
                              # primer batch per distinct system-prompt cache prefix and wait for it,
                              # so the real requests READ the cache instead of each WRITING it (1.25x).
-                             # Also gives batch sky requests a 1-hour cache lifetime. false restores
-                             # exactly the previous requests (5-minute lifetime) and no primer.
-      wait-seconds: 300      # the most the cycle waits for all primers together; fail-open at the cap
-      poll-seconds: 10       # how often the primers are polled while waiting
+                             # A prefix whose primer succeeded gets a 1-hour cache lifetime on its real
+                             # requests (2x write); nothing else does. false = exactly as before.
+      wait-seconds: 180      # the most the cycle waits for all primers together (0..600); 0 = do not
+                             # prime. Adds up to this long to the submit phase.
+      poll-seconds: 10       # how often the primers are polled while waiting (1..60)
   briefing:
     min-coverage-ratio: 0.5  # API read-path honesty: a region whose Claude-scored fraction
                              # (scoredLocationCount / roster size) is positive but below this

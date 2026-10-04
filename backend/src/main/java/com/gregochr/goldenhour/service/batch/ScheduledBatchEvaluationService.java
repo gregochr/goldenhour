@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -385,16 +386,19 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
-     * Runs the cache primer for the cycle's four SKY buckets. The primer never throws; the catch is
-     * a second line of defence so that nothing about warming a cache can ever fail a cycle.
+     * Runs the cache primer for the cycle's four SKY buckets and returns the prefixes it warmed
+     * (empty on any failure, so every request is then built exactly as before the primer existed).
+     * The primer never throws; the catch is a second line of defence.
      */
-    private void primeCacheSafely(ScheduledBatchTasks tasks) {
+    private Set<String> primeCacheSafely(ScheduledBatchTasks tasks) {
         try {
-            batchCachePrimer.prime(List.of(tasks.nearInland(), tasks.nearCoastal(),
-                    tasks.farInland(), tasks.farCoastal()));
+            BatchCachePrimer.PrimeResult result = batchCachePrimer.prime(List.of(tasks.nearInland(),
+                    tasks.nearCoastal(), tasks.farInland(), tasks.farCoastal()));
+            return result == null ? Set.of() : result.warmedPrefixes();
         } catch (RuntimeException e) {
             LOG.warn("[BATCH PRIMER] Primer threw despite its fail-open contract - submitting the "
                     + "buckets regardless: {}", e.toString());
+            return Set.of();
         }
     }
 
@@ -446,13 +450,13 @@ public class ScheduledBatchEvaluationService {
         // prefix) so the buckets below read it instead of each writing it. Fail-open: the primer
         // catches everything itself and waits at most its own cap, so nothing it does can change
         // which buckets are submitted below, or their arguments.
-        primeCacheSafely(tasks);
+        Set<String> warmedPrefixes = primeCacheSafely(tasks);
 
         if (!tasks.nearInland().isEmpty()) {
             bucketsAttempted++;
             EvaluationHandle h;
             try {
-                h = submitBucketSafely(tasks.nearInland(), pipelineRunId, "near-term inland");
+                h = submitBucketSafely(tasks.nearInland(), pipelineRunId, "near-term inland", warmedPrefixes);
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "near-term inland", e);
@@ -468,7 +472,7 @@ public class ScheduledBatchEvaluationService {
             bucketsAttempted++;
             EvaluationHandle h;
             try {
-                h = submitBucketSafely(tasks.nearCoastal(), pipelineRunId, "near-term coastal");
+                h = submitBucketSafely(tasks.nearCoastal(), pipelineRunId, "near-term coastal", warmedPrefixes);
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "near-term coastal", e);
@@ -484,7 +488,7 @@ public class ScheduledBatchEvaluationService {
             bucketsAttempted++;
             EvaluationHandle h;
             try {
-                h = submitBucketSafely(tasks.farInland(), pipelineRunId, "far-term inland");
+                h = submitBucketSafely(tasks.farInland(), pipelineRunId, "far-term inland", warmedPrefixes);
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "far-term inland", e);
@@ -500,7 +504,7 @@ public class ScheduledBatchEvaluationService {
             bucketsAttempted++;
             EvaluationHandle h;
             try {
-                h = submitBucketSafely(tasks.farCoastal(), pipelineRunId, "far-term coastal");
+                h = submitBucketSafely(tasks.farCoastal(), pipelineRunId, "far-term coastal", warmedPrefixes);
             } catch (OrphanedBatchException e) {
                 persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
                         allNonEmptyBuckets, "far-term coastal", e);
@@ -613,8 +617,17 @@ public class ScheduledBatchEvaluationService {
      */
     private EvaluationHandle submitBucketSafely(List<EvaluationTask.Forecast> tasks,
             Long pipelineRunId, String label) {
+        return submitBucketSafely(tasks, pipelineRunId, label, Set.of());
+    }
+
+    private EvaluationHandle submitBucketSafely(List<EvaluationTask.Forecast> tasks,
+            Long pipelineRunId, String label, Set<String> warmedPrefixes) {
         try {
-            return evaluationService.submit(tasks, BatchTriggerSource.SCHEDULED, pipelineRunId);
+            if (warmedPrefixes.isEmpty()) {
+                return evaluationService.submit(tasks, BatchTriggerSource.SCHEDULED, pipelineRunId);
+            }
+            return evaluationService.submitWarmed(tasks, BatchTriggerSource.SCHEDULED, pipelineRunId,
+                    warmedPrefixes);
         } catch (OrphanedBatchException e) {
             throw e;
         } catch (RuntimeException e) {

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
+import com.anthropic.core.RequestOptions;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.BatchListParams;
 import com.anthropic.models.messages.batches.MessageBatch;
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -286,27 +288,35 @@ public class AnthropicBatchClient {
 
     /**
      * Creates a cache-primer batch: one attempt, no retry, no duplicate-batch adoption and no
-     * {@link #creationLock} (a primer must never wait behind, or delay, a real submission). The
-     * returned id is still recorded as handed out, so a concurrent real submission's retry can
-     * never adopt a primer as its own batch.
+     * {@link #creationLock} (a primer must never wait behind, or delay, a real submission), under a
+     * short per-call timeout. A create that succeeds is recorded as handed out, so a concurrent real
+     * submission's retry will not adopt it; a create that times out locally but succeeded at
+     * Anthropic is NOT recorded (its id is unknown), which is the accepted residual.
      *
-     * @param params the one-request primer batch
+     * @param params  the one-request primer batch
+     * @param timeout per-call timeout
      * @return the created batch
      */
-    public MessageBatch createPrimerBatch(BatchCreateParams params) {
-        MessageBatch batch = batchClient.messages().batches().create(params);
+    public MessageBatch createPrimerBatch(BatchCreateParams params, Duration timeout) {
+        MessageBatch batch = batchClient.messages().batches().create(params, callOptions(timeout));
         recordHandedOut(batch.id());
         return batch;
     }
 
     /**
-     * Retrieves a batch's current state, on the transport-retry-disabled client.
+     * Retrieves a batch's current state on the transport-retry-disabled client, under a short
+     * per-call timeout.
      *
      * @param batchId Anthropic batch id
+     * @param timeout per-call timeout
      * @return the batch as Anthropic reports it
      */
-    public MessageBatch retrieveBatch(String batchId) {
-        return batchClient.messages().batches().retrieve(batchId);
+    public MessageBatch retrieveBatch(String batchId, Duration timeout) {
+        return batchClient.messages().batches().retrieve(batchId, callOptions(timeout));
+    }
+
+    private static RequestOptions callOptions(Duration timeout) {
+        return RequestOptions.builder().timeout(timeout).build();
     }
 
     private void recordHandedOut(String batchId) {

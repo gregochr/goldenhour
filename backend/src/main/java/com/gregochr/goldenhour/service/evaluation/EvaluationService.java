@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Single orchestration layer for Anthropic-backed evaluations.
@@ -81,6 +82,20 @@ public interface EvaluationService {
      */
     EvaluationHandle submit(List<? extends EvaluationTask> tasks, BatchTriggerSource trigger,
             Long pipelineRunId, boolean isRetry);
+
+    /**
+     * Cycle-aware submit for the scheduled path after a cache primer ran: SKY requests whose cache
+     * prefix is in {@code warmedPrefixes} carry the one-hour cache lifetime, every other request is
+     * identical to what {@link #submit(List, BatchTriggerSource, Long)} sends.
+     *
+     * @param tasks          one or more tasks, all the same concrete type
+     * @param trigger        what initiated this submission
+     * @param pipelineRunId  orchestrated cycle id, or {@code null}
+     * @param warmedPrefixes cache prefix keys the primer warmed this cycle
+     * @return a handle with the submitted batch id, or {@link EvaluationHandle#empty}
+     */
+    EvaluationHandle submitWarmed(List<? extends EvaluationTask> tasks, BatchTriggerSource trigger,
+            Long pipelineRunId, Set<String> warmedPrefixes);
 
     /**
      * Synchronously evaluates a single task via the Anthropic Messages API and dispatches
