@@ -49,6 +49,16 @@ public record ClaudeBatchOutcome(
     }
 
     /**
+     * Builds a failure outcome for a response Anthropic did bill (refusal, truncation, no text),
+     * carrying that response's usage so the failed attempt can still be costed.
+     */
+    public static ClaudeBatchOutcome failure(String customId, String status,
+            String errorType, String errorMessage, TokenUsage billedUsage) {
+        return new ClaudeBatchOutcome(customId, false, status,
+                errorType, errorMessage, null, billedUsage, null);
+    }
+
+    /**
      * Builds a failure outcome (errored / expired / canceled / parse failure).
      */
     public static ClaudeBatchOutcome failure(String customId, String status,

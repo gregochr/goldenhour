@@ -394,7 +394,7 @@ class SkyRatingEvalServiceTest {
         ArgumentCaptor<SkyRatingEvalResultEntity> saved =
                 ArgumentCaptor.forClass(SkyRatingEvalResultEntity.class);
 
-        service().persistFailureRow(runningRun(), fixture, 3, "REFUSAL");
+        service().persistFailureRow(runningRun(), fixture, 3, "REFUSAL", new TokenUsage(700, 70, 0, 0));
 
         verify(resultRepository).save(saved.capture());
         SkyRatingEvalResultEntity row = saved.getValue();
@@ -406,6 +406,9 @@ class SkyRatingEvalServiceTest {
         assertThat(row.getGoldenHour()).isNull();
         assertThat(row.getMissDirection()).isNull();
         assertThat(row.getSummary()).isEqualTo("FAILED: REFUSAL");
+        // the billed response's tokens are kept, like a success row's
+        assertThat(row.getInputTokens()).isEqualTo(700L);
+        assertThat(row.getOutputTokens()).isEqualTo(70L);
         assertThat(row.getExpectedMin()).isEqualTo(fixture.band().min());
         assertThat(row.getExpectedMax()).isEqualTo(fixture.band().max());
     }
@@ -419,7 +422,11 @@ class SkyRatingEvalServiceTest {
             stored.add(inv.getArgument(0));
             return inv.getArgument(0);
         });
-        when(costCalculator.calculateCostMicroDollars(any(), any(), anyBoolean())).thenReturn(0L);
+        // hand-computable batch price: 3 micro-dollars per input token, 7 per output token
+        when(costCalculator.calculateCostMicroDollars(any(), any(), anyBoolean())).thenAnswer(inv -> {
+            TokenUsage u = inv.getArgument(1);
+            return u.inputTokens() * 3 + u.outputTokens() * 7;
+        });
         SkyRatingEvalService svc = service();
         SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
                 .id(42L).runTimestamp(LocalDateTime.of(2026, 6, 27, 3, 0))
@@ -434,10 +441,15 @@ class SkyRatingEvalServiceTest {
             int inBand = fixture.band().min();
             for (int r = 1; r <= 8; r++) {
                 boolean fails = (f == 0 && r == 8) || f == 1;
-                if (fails) {
+                if (fails && f == 1 && r == 8) {
+                    // never answered: nothing billed
+                    agg.recordFailure("MISSING");
+                    svc.persistFailureRow(run, fixture, r, "MISSING", null);
+                } else if (fails) {
                     String type = f == 0 ? "REFUSAL" : "MAX_TOKENS";
-                    agg.recordFailure(type);
-                    svc.persistFailureRow(run, fixture, r, type);
+                    TokenUsage billed = new TokenUsage(100, 10, 0, 0);
+                    agg.recordFailure(type, billed, svc.batchCostMicroDollars(run, billed));
+                    svc.persistFailureRow(run, fixture, r, type, billed);
                 } else {
                     svc.persistResult(run, fixture, r, new SunsetEvaluation(inBand, 50, 50, "s"),
                             usage, null, true, agg);
@@ -472,5 +484,14 @@ class SkyRatingEvalServiceTest {
                 .isEqualTo(run.getTotalPasses()).isEqualTo(7 + (fixtures - 2) * 8);
         assertThat(run.getPassRate()).isEqualTo((7.0 + (fixtures - 2) * 8) / (fixtures * 8));
         assertThat(agg.failedCount()).isEqualTo(1 + 8);
+        // tokens and cost reconcile across success AND failure rows: the run totals equal the sums
+        long rowInput = stored.stream().mapToLong(r -> r.getInputTokens() == null ? 0 : r.getInputTokens()).sum();
+        long rowOutput = stored.stream().mapToLong(r -> r.getOutputTokens() == null ? 0 : r.getOutputTokens()).sum();
+        long successes = 7L + (fixtures - 2) * 8L;
+        long billedFailures = 1 + 7; // 1 refusal + 7 truncations; the 8th truncation was unanswered
+        assertThat(run.getInputTokens()).isEqualTo(rowInput).isEqualTo(successes * 10 + billedFailures * 100);
+        assertThat(run.getOutputTokens()).isEqualTo(rowOutput).isEqualTo(successes * 5 + billedFailures * 10);
+        // success: 10*3 + 5*7 = 65 each; failure: 100*3 + 10*7 = 370 each
+        assertThat(run.getCostMicroDollars()).isEqualTo(successes * 65 + billedFailures * 370);
     }
 }

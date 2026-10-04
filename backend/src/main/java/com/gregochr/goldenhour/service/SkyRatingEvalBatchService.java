@@ -277,10 +277,11 @@ public class SkyRatingEvalBatchService {
                 // it counts in the run's denominator as a non-pass rather than vanishing from it.
                 LOG.warn("Sky-rating eval batch {}: request '{}' failed ({}), counted as a non-pass",
                         batchId, outcome.customId(), outcome.status());
-                ctx.agg().recordFailure(outcome.status());
+                ctx.agg().recordFailure(outcome.status(), outcome.tokenUsage(),
+                        evalService.batchCostMicroDollars(ctx.run(), outcome.tokenUsage()));
                 evalService.persistFailureRow(ctx.run(),
                         SkyRatingEvalFixtures.ALL.get(ref.fixtureIdx()), ref.runIndex(),
-                        outcome.status());
+                        outcome.status(), outcome.tokenUsage());
                 failed++;
                 continue;
             }
@@ -291,8 +292,10 @@ public class SkyRatingEvalBatchService {
             } catch (RuntimeException e) {
                 LOG.warn("Sky-rating eval batch {}: request '{}' was unreadable ({}), counted as a "
                         + "non-pass", batchId, outcome.customId(), e.getMessage());
-                ctx.agg().recordFailure("PARSE_ERROR");
-                evalService.persistFailureRow(ctx.run(), fixture, ref.runIndex(), "PARSE_ERROR");
+                ctx.agg().recordFailure("PARSE_ERROR", outcome.tokenUsage(),
+                        evalService.batchCostMicroDollars(ctx.run(), outcome.tokenUsage()));
+                evalService.persistFailureRow(ctx.run(), fixture, ref.runIndex(), "PARSE_ERROR",
+                        outcome.tokenUsage());
                 failed++;
                 continue;
             }
@@ -323,7 +326,7 @@ public class SkyRatingEvalBatchService {
                 if (!answered.contains(slot(f, r))) {
                     agg.recordFailure("MISSING");
                     evalService.persistFailureRow(ctx.run(), SkyRatingEvalFixtures.ALL.get(f), r,
-                            "MISSING");
+                            "MISSING", null);
                 }
             }
         }

@@ -41,3 +41,8 @@ Each failed or unanswered sky-eval attempt is also kept as its own child row (no
 reason in `summary` as `FAILED: <TYPE>`; no migration), so the per-fixture trend reports runs =
 attempts and passes = passes, an entirely failed fixture still appears with 0 passes, rating and
 sub-score averages ignore the failure rows, and the per-fixture sums equal the run's totals.
+
+Failed sky-eval attempts that Anthropic billed (a refusal, a truncation, a reply with no text, an
+unreadable reply) now keep their usage: the batch-priced cost and tokens are added to the run's totals
+and stored on the failure row, so mixed and all-failed runs report their real spend. Results that were
+never billed (errored, expired, cancelled) and evaluations the batch never answered add nothing.

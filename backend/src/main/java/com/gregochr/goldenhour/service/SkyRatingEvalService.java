@@ -48,6 +48,17 @@ public class SkyRatingEvalService {
 
     private static final Logger LOG = LoggerFactory.getLogger(SkyRatingEvalService.class);
 
+    /**
+     * Batch-priced cost of one response for this run's model, as the success path prices it.
+     *
+     * @param run   the run (supplies the model)
+     * @param usage the response's usage, or null when nothing was billed
+     * @return cost in micro-dollars (0 when there is no usage)
+     */
+    long batchCostMicroDollars(SkyRatingEvalRunEntity run, TokenUsage usage) {
+        return usage == null ? 0L : costCalculator.calculateCostMicroDollars(run.getModel(), usage, true);
+    }
+
     /** Prefix of the {@code summary} on a failed-attempt child row. */
     static final String FAILED_SUMMARY_PREFIX = "FAILED: ";
 
@@ -349,10 +360,13 @@ public class SkyRatingEvalService {
      * @param fixture  the fixture the attempt was for (supplies the expected band)
      * @param runIndex 1-based repeat index within the fixture
      * @param type     why the attempt failed (e.g. REFUSAL, MAX_TOKENS, MISSING)
+     * @param billedUsage usage of the billed response, or null when none was billed
      */
     void persistFailureRow(SkyRatingEvalRunEntity run, SkyRatingEvalFixture fixture, int runIndex,
-            String type) {
+            String type, TokenUsage billedUsage) {
         resultRepository.save(SkyRatingEvalResultEntity.builder()
+                .inputTokens(billedUsage == null ? null : billedUsage.inputTokens())
+                .outputTokens(billedUsage == null ? null : billedUsage.outputTokens())
                 .runId(run.getId())
                 .fixtureName(fixture.name())
                 .runIndex(runIndex)
@@ -418,13 +432,41 @@ public class SkyRatingEvalService {
          * @param type why it failed (e.g. REFUSAL, MAX_TOKENS, ERRORED, PARSE_ERROR, MISSING)
          */
         void recordFailure(String type) {
+            recordFailure(type, null, 0L);
+        }
+
+        /**
+         * Records a failed attempt and folds in whatever Anthropic billed for it.
+         *
+         * @param type  why it failed
+         * @param usage usage of the billed response, or null when none was billed
+         * @param cost  batch-priced cost of that usage in micro-dollars
+         */
+        void recordFailure(String type, TokenUsage usage, long cost) {
             totalRuns++;
             failed++;
             failuresByType.merge(type == null ? "UNKNOWN" : type, 1, Integer::sum);
+            if (usage != null) {
+                inputTokens += usage.inputTokens();
+                outputTokens += usage.outputTokens();
+                costMicroDollars += cost;
+            }
         }
 
         int totalRuns() {
             return totalRuns;
+        }
+
+        long inputTokens() {
+            return inputTokens;
+        }
+
+        long outputTokens() {
+            return outputTokens;
+        }
+
+        long costMicroDollars() {
+            return costMicroDollars;
         }
 
         int failedCount() {
