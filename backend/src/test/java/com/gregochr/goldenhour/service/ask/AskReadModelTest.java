@@ -41,6 +41,52 @@ class AskReadModelTest {
     }
 
     @Test
+    @DisplayName("pick eligibility is bounded above: 5 is in; 6, 491, 0 and negatives are not")
+    void isPickEligible_ratingIsOnTheOneToFiveScale() {
+        assertThat(AskSnapshot.isPickEligible(region(true), slot(1L, 5, false))).isTrue();
+        assertThat(AskSnapshot.isPickEligible(region(true), slot(1L, 4, false))).isTrue();
+        assertThat(AskSnapshot.isPickEligible(region(true), slot(1L, 6, false))).isFalse();
+        assertThat(AskSnapshot.isPickEligible(region(true), slot(1L, 491, false))).isFalse();
+        assertThat(AskSnapshot.isPickEligible(region(true), slot(1L, 0, false))).isFalse();
+        assertThat(AskSnapshot.isPickEligible(region(true), slot(1L, -3, false))).isFalse();
+    }
+
+    @Test
+    @DisplayName("a slot with no name to put on a card is not pick-eligible")
+    void isPickEligible_needsAName() {
+        AskSnapshot.Slot unnamed = new AskSnapshot.Slot(1L, null, 4, null, null, false, null, false, null);
+        AskSnapshot.Slot blank = new AskSnapshot.Slot(1L, "  ", 4, null, null, false, null, false, null);
+
+        assertThat(AskSnapshot.isPickEligible(region(true), unnamed)).isFalse();
+        assertThat(AskSnapshot.isPickEligible(region(true), blank)).isFalse();
+    }
+
+    @Test
+    @DisplayName("a malformed rating never reaches rank_spots and cannot be validated as a pick")
+    void malformedRating_isNeverOfferedOrValidated() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Bad", 491),
+                AskFixtures.slot(2L, "Six", 6), AskFixtures.slot(3L, "Good", 5));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(TODAY, null, region)), List.of()));
+        AskTools tools = new AskTools(snapshot, AskUserContext.userLess(), Set.of(), null,
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        List<AskTools.SpotInfo> found = ((AskTools.RankSpotsResult) tools.rankSpots(null).payload())
+                .spots();
+        AskAnswerValidator.Result result = new AskAnswerValidator().validate(
+                new AskAnswerValidator.Raw(true, "Bad.", List.of(
+                        new AskAnswerValidator.RawPick(1L, "2026-10-05_sunset", "x"),
+                        new AskAnswerValidator.RawPick(2L, "2026-10-05_sunset", "y")), null, null),
+                snapshot, new AskEvidence(Set.of(new AskEvidence.Pair(1L, "2026-10-05_sunset"),
+                        new AskEvidence.Pair(2L, "2026-10-05_sunset")), Set.of(), 1), null, null);
+
+        assertThat(found).extracting(AskTools.SpotInfo::name).containsExactly("Good");
+        assertThat(snapshot.candidate("2026-10-05_sunset", 1L)).isEmpty();
+        assertThat(snapshot.candidate("2026-10-05_sunset", 2L)).isEmpty();
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
     @DisplayName("candidate() finds a location's eligible slot at a window and nothing else")
     void candidate_lookup() {
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4),

@@ -211,7 +211,9 @@ window: id, date, target type, event time, served verdict, best rating, and the 
 
 The snapshot is memoised for 30 seconds (the assembly is not cheap; CLAUDE.md's digest note).
 
-**Pick-eligible slot:** non-null `locationId`; not `canopy`; non-null `claudeRating` ≥ 3; its
+**Pick-eligible slot:** non-null `locationId` and a non-blank name (a card needs one); not
+`canopy`; a `claudeRating` on Claude's 1–5 scale (`RatingValidator.isInRange`, the bound
+`PlanWindowProjector.usableRating` applies — a malformed 491 is refused by both) and ≥ 3; its
 region `verdictEligible()`; its window in the window set.
 
 | Tool | Arguments | Returns |

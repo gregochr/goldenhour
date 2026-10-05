@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.ask;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -173,11 +174,12 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
     }
 
     /**
-     * The one pick-eligibility rule (plan §2.2, D-3): a non-null location id, not a wood, a served
-     * rating of at least {@value #MIN_PICK_RATING}, and a region the Plan tab would let carry a
-     * verdict. There is no rating that exempts an ineligible region and no fallback that admits a
-     * canopy slot — a handful of hand-run 4★ ratings must never crown a region the Plan tab
-     * refuses to crown.
+     * The one pick-eligibility rule (plan §2.2, D-3): a non-null location id and a name to put on
+     * the card, not a wood, a served rating on Claude's 1-5 scale
+     * ({@link RatingValidator#isInRange}, the bound the Plan projector uses) and at least
+     * {@value #MIN_PICK_RATING}, and a region the Plan tab would let carry a verdict. There is no
+     * rating that exempts an ineligible region and no fallback that admits a canopy slot — a
+     * handful of hand-run 4★ ratings must never crown a region the Plan tab refuses to crown.
      *
      * @param region the slot's region
      * @param slot   the slot
@@ -185,8 +187,11 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      */
     public static boolean isPickEligible(Region region, Slot slot) {
         return slot.locationId() != null
+                && slot.name() != null && !slot.name().isBlank()
                 && !slot.canopy()
-                && slot.rating() != null
+                // On Claude's 1-5 scale (the Plan path's own bound), then at the floor: a malformed
+                // 491 is refused by the Plan ranking and must not sort to the top here.
+                && RatingValidator.isInRange(slot.rating())
                 && slot.rating() >= MIN_PICK_RATING
                 && region.verdictEligible();
     }

@@ -720,6 +720,37 @@ class AskToolsTest {
         assertThat(tools.evidence().toolCalls()).isEqualTo(3);
     }
 
+    // -- agreement with the Plan path's guards ----------------------------------------------
+
+    @Test
+    @DisplayName("a rated slot that also carries a stand-down reason is offered: the rating wins, as on the Plan path")
+    void rankSpots_ratingWinsOverAStandDownReason() {
+        BriefingSlot base = AskFixtures.slot(1L, "Rated", 4);
+        BriefingSlot withReason = new BriefingSlot(1L, "Rated", base.solarEventTime(), base.verdict(),
+                null, base.tide(), List.of(), "Heavy low cloud", 4, 4, null, null, null,
+                base.displayVerdict(), null, false, "gate");
+        BriefingRegion region = AskFixtures.region("Coast", true, withReason);
+
+        List<SpotInfo> found = spots(tools(snapshotOfRegions(region)).rankSpots(rank(5)));
+
+        assertThat(found).extracting(SpotInfo::name).containsExactly("Rated");
+    }
+
+    @Test
+    @DisplayName("slots with no region are never offered, as the Plan path excludes them from its best rating")
+    void rankSpots_neverOffersUnregionedSlots() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Regioned", 3));
+        com.gregochr.goldenhour.model.BriefingEventSummary summary =
+                new com.gregochr.goldenhour.model.BriefingEventSummary(TargetType.SUNSET,
+                        List.of(region), List.of(AskFixtures.slot(2L, "Orphan", 5)), null,
+                        AskFixtures.window(TODAY.atTime(18, 0), DisplayVerdict.WORTH_IT, 3, null));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.day(TODAY, summary)), List.of()));
+
+        assertThat(spots(tools(snapshot).rankSpots(rank(5)))).extracting(SpotInfo::name)
+                .containsExactly("Regioned");
+    }
+
     // -- boundary sweep ---------------------------------------------------------------------
 
     private AskSnapshot almanacSnapshot(int... dayOffsets) {
