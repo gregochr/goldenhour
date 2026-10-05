@@ -169,7 +169,7 @@ happen only on the owner's explicit instruction (plan §8).
 > (`--color-plex-*`, `--color-verdict-*`, `--color-badge-*`; there is no bare `--bg`). Drive on a
 > card is the **home** reach map even when the provider's origin is away — find the home map the
 > provider keeps and report if it does not keep one. Do not render "Plan this ›" (F5) or "Add to
-> Coming up" (S1). Tailwind and `index.css` only, PropTypes on every component, `data-testid` on
+> Coming up" (removed by owner decision; never built). Tailwind and `index.css` only, PropTypes on every component, `data-testid` on
 > key elements.
 >
 > Tests per §3 F1a. Gate: `cd frontend && npm run lint && npm test && npm audit --audit-level=high
