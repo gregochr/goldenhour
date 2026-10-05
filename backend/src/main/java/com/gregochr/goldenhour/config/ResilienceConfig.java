@@ -71,4 +71,31 @@ public class ResilienceConfig {
         return RetryConfigCustomizer.of("open-meteo", builder ->
                 builder.retryOnException(new TransientHttpErrorPredicate()));
     }
+
+    /**
+     * Customises the "ask" retry instance with {@link AskRetryPredicate}.
+     *
+     * <p>Ask PhotoCast's model turns have their own retry, circuit breaker and bulkhead
+     * ({@code AnthropicApiClient.createAskMessage}) so a reader's questions can never open the
+     * "anthropic" breaker the forecast pipeline shares.
+     *
+     * @return a customizer that retries server errors only, never a content-filter 400
+     */
+    @Bean
+    public RetryConfigCustomizer askRetryCustomizer() {
+        return RetryConfigCustomizer.of("ask", builder ->
+                builder.retryOnException(new AskRetryPredicate()));
+    }
+
+    /**
+     * Customises the "ask" circuit breaker with {@link AskBreakerIgnorePredicate}: a rejected key and
+     * a full bulkhead are neither failures nor successes.
+     *
+     * @return a customizer that makes the breaker ignore both
+     */
+    @Bean
+    public CircuitBreakerConfigCustomizer askCircuitBreakerCustomizer() {
+        return CircuitBreakerConfigCustomizer.of("ask", builder ->
+                builder.ignoreException(new AskBreakerIgnorePredicate()));
+    }
 }

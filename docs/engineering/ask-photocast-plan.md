@@ -23,7 +23,7 @@ it (adjacent rows conflict between open PRs).
 | Phase | What | Size | State |
 |---|---|---|---|
 | P0 | Commit this plan, the prompts file and `docs/design/ask-photocast/` to `main` | XS | not started |
-| B1 | Read model, tool functions, answer contract, validator (no Claude, no endpoint) | M/L | not started |
+| B1 | Read model, tool functions, answer contract, validator (no Claude, no endpoint) | M/L | merged (#1008) |
 | B2a | The engine: Claude tool loop, properties, run types, cost logging | L | not started |
 | B2b | Stub engine, local fixture seeder, admin dry-run | M | not started |
 | B3 | Ready answers: catalogue, precompute after the pipeline, `GET /api/ask/ready` | L | not started |
@@ -237,20 +237,52 @@ Rules:
 
 ### 2.3 The engine (B2a)
 `AskEngine.answer(AskQuestion, AskSnapshot, AskUserContext) → AskOutcome` (records in §2.9).
+*As built (B2a):* `answer` is the default method of an interface whose real entry is
+`AskEngine.run(question, snapshot, user, AskRunOptions) → AskRun(outcome, trace, reason)`.
+`AskRunOptions(anchor, readyJobRunId)` carries what a caller adds: the Ready `BEST_*` anchor (supplied
+by B3, never invented by the engine) and the `ASK_READY` job run to bill. A typed conversation has a
+user and no run id (it bills the daily `ASK` run); a Ready conversation has no user and **must** carry
+its run id; a mismatch is an `IllegalArgumentException` (a caller bug, not a model failure). `AskRun`
+adds the tool trace (B2b's dry-run) and a `reason` for a FAILED outcome, for the log only. The question's
+region ids are resolved to names by the engine (an id that does not resolve fails the run before any
+spend: an empty scope would widen it to every region), and that one name set is given to `AskTools`
+and to `AskAnswerValidator.validate`.
 
 - **Model:** `photocast.ask.model`, default `HAIKU`, validated to `HAIKU | SONNET` at startup. No
   `model_selection` row and no entry in `ModelSelectionService.CONFIGURABLE_RUN_TYPES` — Sonnet 5.5
   must not be selectable (it cannot disable thinking, which breaks the token and time budgets).
 - **Loop:** at most 4 model turns, `tool_choice` auto, `max_tokens` 600. The reply is
   `submit_answer`'s input. A turn that ends without a tool call, a refusal, `max_tokens`, or turn 4
-  without `submit_answer` is a **failure**.
+  without `submit_answer` is a **failure**. *As built:* refusal, `max_tokens` and the context-window
+  stop are `ModelRequestSupport.checkStopReason` (the one test every Claude path shares); any other
+  stop that is not `tool_use` is a failure too. Parallel tool use stays on (a turn may carry several
+  calls, each answered in order in the next request); a `submit_answer` ends the loop at its place in
+  the block order. A `submit_answer` that is not an object, lacks `answerable` or `summary`, or has a
+  wrongly typed field or a non-integer `locationId` is a FAILED outcome (`AskAnswerParser`); extra
+  fields are ignored, since nothing reads them. A tool call with an unknown name or unreadable
+  arguments is an error `tool_result` (`isError`) fed back, never an exception.
 - **Time:** `AnthropicApiClient` gains `createAskMessage(params, RequestOptions)` on its own
-  Resilience4j instances — retry `ask` (2 attempts, 5xx/529 only, **no** content-filter retry) and
+  Resilience4j instances — retry `ask` (2 attempts, 5xx only, **no** content-filter retry) and
   circuit breaker `ask` — so a user cannot open the shared `anthropic` breaker against the forecast
   pipeline. Per-call timeout 20s; a 30s deadline is checked before each turn and the remaining time
   is that call's timeout. Bulkhead `ask`: 4 concurrent, 2s wait. The instances are declared in
   `application-local.yml`, `application-example.yml`, `application-prod.yml` and
   `src/test/resources/application.yml`; a test reads the limits back from the registries.
+  *As built, because the plan was silent on how these interact:* (1) **the SDK's own retries are off
+  for this door** (`client.withOptions(o -> o.maxRetries(0))`, as `AnthropicBatchClient` does): the
+  shared client retries 408/409/429/5xx/I-O up to twice, each retry with the request's full timeout,
+  so left on it would multiply under the `ask` retry; measured, the shared door makes 3 HTTP attempts
+  for a persistent 500 and the Ask door makes 1. (2) **The retry predicate is `AskRetryPredicate`**,
+  any 500–599 (529 included) on an `AnthropicServiceException`: `TransientHttpErrorPredicate` is
+  written for Spring's `RestClientResponseException` and never matches an SDK error; I/O failures and
+  429 are not retried. (3) **The deadline is enforced by the engine, not only by the per-call
+  timeout**: the second retry attempt would otherwise get a fresh timeout of the same size and the
+  bulkhead can wait 2s before a call starts, so the engine stops waiting at the deadline whatever the
+  call is doing and abandons (interrupts) the call. (4) The `ask` breaker ignores a rejected key
+  (401/403, the shared `ClaudeBreakerIgnorePredicate.isKeyRejection`) and a full bulkhead (load, not
+  an outage), and has `registerHealthIndicator: false` so questions cannot flip the application's
+  health. (5) An SDK per-call timeout also counts the first request's class loading: measured 2.1s for
+  a 400ms timeout on a cold JVM, 403ms thereafter.
 - **System prompt:** adapted from the mock's `sys=` — plain British English, no hype, answer only
   from tool results, `why` under 22 words, 2–3 picks at different spots for where/when questions,
   `answerable:false` + `missing` when the tools can't answer. Added:
@@ -292,7 +324,35 @@ Rules:
     `UPDATE job_run SET total_cost_micro_dollars = total_cost_micro_dollars + :c WHERE id = :id`,
     so Operations shows the day's Ask spend.
   - Every model turn is logged through `jobRunService.logApiCall` with its `TokenUsage` (the `url`
-    argument carries `ask` / `ask-ready` for the reader of the log; nothing queries it).
+    argument carries `ask` / `ask-ready` for the reader of the log; nothing queries it). *As built:*
+    a failed turn (an exception, a refusal, `max_tokens`) is logged too, with its status and, when the
+    API returned one, its usage; the request and response bodies are **not** stored (the request is
+    the reader's question). The daily run also counts questions (`locations_processed`, `succeeded`,
+    `failed`, by a column-scoped `UPDATE`) so Operations shows more than cost. **Fail closed:** the
+    daily run is found or created before the first model turn, so a database that cannot record the
+    money stops the call that would have spent it. A
+    `ASK_READY` conversation is billed to the run its caller (B3) started and passed in
+    `AskRunOptions`; the engine never touches the daily run or its increments for it.
+  - **A paid call's cost is never lost (fail closed).** If a turn's `api_call_log` insert fails after
+    Anthropic has answered, `AskJobRunService.recordTurn` keeps the turn and its priced cost in a
+    bounded in-memory holder (100 turns in detail; further cost is folded into a per-run total, never
+    dropped) and latches. The typed-spend figure adds the unrecorded typed cost on every read,
+    bypassing the 30s memo. `accountingAvailable()` is asked by every conversation, typed or Ready:
+    early (in `run()` and before each turn, cheap refusals) and, binding, by a `CallGate` **inside
+    `AnthropicApiClient.createAskMessage`** — after the bulkhead permit is taken, before every
+    attempt (a retry's second attempt is another paid call), as the last step before the HTTP
+    request. While anything is unrecorded it first tries to write the held turns; if it cannot, the
+    attempt is refused and the run returns FAILED with `AskRun.ACCOUNTING_UNAVAILABLE` — including
+    the next turn of the conversation whose write failed (the turn that carried `submit_answer` is
+    already paid for and is still returned). **The window that cannot be closed:** a request already
+    issued when another conversation latches cannot be recalled, so at most the calls in flight at
+    that moment (the bulkhead's four) can still be paid for unrecorded; a call the engine abandons at
+    its deadline may also be billed with no usage to log. Each typed turn is booked to the daily run
+    as of that turn (a conversation crossing UK midnight books its later turns to the new day); the
+    question is counted on the day it started. The cap reads `api_call_log`, so the two `job_run`
+    increments are display-only and stay best effort. **A process restart loses the holder**: that is
+    the one way spend goes unrecorded, bounded by the latch to the turns of conversations already in
+    flight when the first write failed.
   - **Today's typed spend** = `SUM(cost_micro_dollars)` over `api_call_log` rows whose
     `job_run_id` is an `ASK` run started since UK midnight (uses `idx_api_call_log_job_run`),
     memoised 30s. Precompute spend does **not** count toward the typed cap.
@@ -547,6 +607,10 @@ set, `try` = up to two `{id,text}` Ready questions, `charged:false`. Errors are
 | 502 | `ENGINE_FAILED` | the error state. "No question used" |
 | 503 | `TYPED_UNAVAILABLE` | state 7 |
 
+**Instruction for B4:** an engine run with `AskRun.accountingUnavailable()` true is **503
+`TYPED_UNAVAILABLE`**, not 502 `ENGINE_FAILED` (the question is refused, not broken, so the client
+shows "Ready questions only today"); it is refunded like any failure, and `typedAvailable` on
+`GET /api/user/settings/ask` should read false while `AskJobRunService.accountingAvailable()` is false.
 **`GET /api/user/settings/ask`** → always 200:
 `{"enabled":true,"used":1,"limit":3,"left":2,"typedAvailable":true}` (flag off: `enabled:false`,
 zeros).
@@ -860,6 +924,14 @@ Four read-only reviewers, 52 findings; none refuted outright. The substantive ch
 - **Delegability:** literal wire contracts (§2.9); B2 and F1 split; a local fixture seeder and an
   admin precompute endpoint so the browser can show a rich state; binding defaults for every owner
   question; P0; the prompt-regression class moved to Z with owner approval.
+
+*Examined later, B2a:* production's `job_run.run_type` is a plain `VARCHAR(20)` with no check
+constraint (V29; no later migration touches it), so `ASK` and `ASK_READY` need **no migration**. The
+local H2 schema is different: the test run's DDL shows Hibernate mapping every `@Enumerated(STRING)`
+column to a native H2 `enum (...)` type fixed when the table is created, and `ddl-auto: update` does
+not alter it — so a developer's **existing** `backend/data/goldenhour.mv.db` will refuse an `ASK` row
+until it is deleted and recreated (a fresh file, and every test, is fine). This was read from the DDL,
+not reproduced against an old file.
 
 **Not examined by any reviewer:** `PinsLayer` and `MapLegendPanel` internals; the tests that pin
 74px beyond two files; `o20-shell-inert-plan.md`; the real token size of production briefing and
