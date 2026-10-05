@@ -15,16 +15,13 @@ import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUseBlock;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RegionEntity;
-import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ask.AskAnswerParser.Parsed;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Result;
 import com.gregochr.goldenhour.service.ask.AskToolArguments.BadArguments;
@@ -89,18 +86,11 @@ public class ClaudeAskEngine implements AskEngine {
 
     private static final Logger LOG = LoggerFactory.getLogger(ClaudeAskEngine.class);
 
-    /** The {@code api_call_log.request_url} tag of a typed question's calls. */
-    static final String URL_TYPED = "ask";
-
-    /** The {@code api_call_log.request_url} tag of a Ready precompute conversation's calls. */
-    static final String URL_READY = "ask-ready";
-
     private static final int HTTP_OK = 200;
 
     private final AnthropicApiClient client;
     private final AskProperties properties;
     private final AskJobRunService jobRuns;
-    private final JobRunService jobRunService;
     private final DriveTimeResolver driveTimes;
     private final RegionRepository regionRepository;
     private final AskAnswerValidator validator;
@@ -116,8 +106,7 @@ public class ClaudeAskEngine implements AskEngine {
      *
      * @param client           the resilient Anthropic client ({@code createAskMessage})
      * @param properties       the Ask settings
-     * @param jobRuns          the per-day run and the cost increments
-     * @param jobRunService    writes {@code api_call_log} rows
+     * @param jobRuns          the per-day run, the turn log and the unrecorded-cost latch
      * @param driveTimes       the asker's own drive times, for {@code maxDriveMinutes}
      * @param regionRepository resolves the question's region ids to names
      * @param validator        holds an answer to what the tools returned
@@ -126,13 +115,12 @@ public class ClaudeAskEngine implements AskEngine {
      * @param clock            the application clock: the deadline and the durations
      */
     public ClaudeAskEngine(AnthropicApiClient client, AskProperties properties,
-            AskJobRunService jobRuns, JobRunService jobRunService, DriveTimeResolver driveTimes,
+            AskJobRunService jobRuns, DriveTimeResolver driveTimes,
             RegionRepository regionRepository, AskAnswerValidator validator,
             AskPromptBuilder promptBuilder, ObjectMapper mapper, Clock clock) {
         this.client = client;
         this.properties = properties;
         this.jobRuns = jobRuns;
-        this.jobRunService = jobRunService;
         this.driveTimes = driveTimes;
         this.regionRepository = regionRepository;
         this.validator = validator;
@@ -174,6 +162,9 @@ public class ClaudeAskEngine implements AskEngine {
         if (scope.isEmpty()) {
             return failed("a region id in the question's scope does not exist", 0, false, List.of());
         }
+        if (!accountingOpen()) {
+            return failed(AskRun.ACCOUNTING_UNAVAILABLE, 0, false, List.of());
+        }
         long runId;
         try {
             runId = ready ? opts.readyJobRunId() : jobRuns.dailyRunId();
@@ -214,6 +205,12 @@ public class ClaudeAskEngine implements AskEngine {
         int turns = 0;
 
         for (int turn = 1; turn <= properties.getMaxTurns(); turn++) {
+            // A turn paid for earlier in this very conversation may not have reached the database. Each
+            // further turn would be more spend that cannot be recorded, so stop here (the answer a
+            // previous turn carried, if any, has already been returned).
+            if (turn > 1 && !accountingOpen()) {
+                return failed(AskRun.ACCOUNTING_UNAVAILABLE, turns, tools.personal(), trace);
+            }
             Duration remaining = Duration.between(clock.instant(), deadline);
             if (remaining.isZero() || remaining.isNegative()) {
                 return failed("the deadline passed before turn " + turn, turns, tools.personal(), trace);
@@ -437,24 +434,24 @@ public class ClaudeAskEngine implements AskEngine {
     }
 
     /**
-     * Writes one {@code api_call_log} row for a model turn, failed or not, and adds its cost to the
-     * day's run. Logging is best effort once the call has been made: a database failure here is
-     * logged at ERROR and the answer is not thrown away over it. The request and response bodies are
-     * not stored: the request is the reader's question.
+     * Hands one model turn, failed or not, to {@link AskJobRunService#recordTurn}, which never throws:
+     * if the row cannot be written it holds the turn and latches the whole Ask feature closed (see
+     * {@link #accountingOpen}). The request and response bodies are not stored: the request is the
+     * reader's question.
      */
     private void logTurn(long runId, boolean ready, EvaluationModel model, Instant started,
             Integer status, boolean succeeded, String error, TokenUsage usage) {
-        try {
-            long durationMs = Math.max(0L, Duration.between(started, clock.instant()).toMillis());
-            ApiCallLogEntity row = jobRunService.logApiCall(runId, ServiceName.ANTHROPIC, "POST",
-                    ready ? URL_READY : URL_TYPED, null, durationMs, status, null, succeeded, error,
-                    model, usage);
-            if (!ready && row != null && row.getCostMicroDollars() != null && row.getCostMicroDollars() > 0) {
-                jobRuns.recordCost(runId, row.getCostMicroDollars());
-            }
-        } catch (RuntimeException e) {
-            LOG.error("[ASK] Could not log a model turn on job run {}: {}", runId, e.getMessage());
-        }
+        long durationMs = Math.max(0L, Duration.between(started, clock.instant()).toMillis());
+        jobRuns.recordTurn(new AskJobRunService.Turn(runId, ready, model, durationMs, status, succeeded, error,
+                usage));
+    }
+
+    /**
+     * Whether every paid model call is on record. Asked before each model turn: while one is not, the
+     * engine makes no call at all, for any conversation (see {@link AskJobRunService}).
+     */
+    private boolean accountingOpen() {
+        return jobRuns.accountingAvailable();
     }
 
     private static AskRun failed(String reason, int turns, boolean personal,

@@ -5,14 +5,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
-import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.integration.WireMockAnthropicClientTestConfiguration;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,9 +32,6 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -61,7 +56,6 @@ class ClaudeAskEngineWireTest {
 
     private final ObjectMapper json = new ObjectMapper();
     private final AskJobRunService jobRuns = mock(AskJobRunService.class);
-    private final JobRunService jobRunService = mock(JobRunService.class);
     private final AskProperties properties = new AskProperties();
     private ClaudeAskEngine engine;
 
@@ -70,12 +64,11 @@ class ClaudeAskEngineWireTest {
         WIRE_MOCK.resetAll();
         AnthropicClient client = new WireMockAnthropicClientTestConfiguration()
                 .wireMockAnthropicClient("http://localhost:" + WIRE_MOCK.getPort());
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), properties, jobRuns, jobRunService,
+        engine = new ClaudeAskEngine(new AnthropicApiClient(client), properties, jobRuns,
                 mock(DriveTimeResolver.class), mock(RegionRepository.class), new AskAnswerValidator(),
                 new AskPromptBuilder(), new ObjectMapper(), Clock.systemUTC());
         when(jobRuns.dailyRunId()).thenReturn(5L);
-        when(jobRunService.logApiCall(anyLong(), any(), any(), any(), any(), anyLong(), any(), any(),
-                anyBoolean(), any(), any(), any())).thenReturn(ApiCallLogEntity.builder().build());
+        when(jobRuns.accountingAvailable()).thenReturn(true);
     }
 
     @AfterEach
@@ -159,10 +152,10 @@ class ClaudeAskEngineWireTest {
         assertThat(toolResult.get("tool_use_id").asText()).isEqualTo("toolu_1");
         assertThat(toolResult.get("content").asText()).contains("Bamburgh").contains(WINDOW);
 
-        ArgumentCaptor<TokenUsage> usage = ArgumentCaptor.forClass(TokenUsage.class);
-        verify(jobRunService, times(2)).logApiCall(anyLong(), any(), any(), any(), any(),
-                anyLong(), any(), any(), anyBoolean(), any(), any(), usage.capture());
-        assertThat(usage.getAllValues()).containsOnly(new TokenUsage(1200, 60, 0, 0));
+        ArgumentCaptor<AskJobRunService.Turn> turns = ArgumentCaptor.forClass(AskJobRunService.Turn.class);
+        verify(jobRuns, times(2)).recordTurn(turns.capture());
+        assertThat(turns.getAllValues()).extracting(AskJobRunService.Turn::usage)
+                .containsOnly(new TokenUsage(1200, 60, 0, 0));
         WIRE_MOCK.verify(2, postRequestedFor(urlPathEqualTo(PATH))
                 .withHeader("x-api-key", equalTo("test-key-wiremock")));
     }

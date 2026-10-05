@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
+import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -56,7 +57,7 @@ class AskJobRunServiceTest {
     @BeforeEach
     void setUp() {
         clock = new MutableClock(BST_NOON);
-        service = new AskJobRunService(jobRunService, jobRuns, apiCalls, properties, clock);
+        service = new AskJobRunService(jobRunService, jobRuns, apiCalls, mock(CostCalculator.class), properties, clock);
     }
 
     private static JobRunEntity run(long id) {

@@ -9,7 +9,6 @@ import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserRole;
@@ -19,7 +18,6 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +49,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -69,14 +67,12 @@ class ClaudeAskEngineTest {
     private static final String WINDOW = "2026-10-05_sunset";
     private static final long RUN_ID = 77L;
     private static final long READY_RUN_ID = 900L;
-    private static final long TURN_COST = 2_500L;
 
     private static final AskUserContext USER = new AskUserContext(7L, UserRole.PRO_USER, true);
     private static final AskUserContext USER_NO_DRIVE = new AskUserContext(8L, UserRole.LITE_USER, false);
 
     private final AnthropicApiClient client = mock(AnthropicApiClient.class);
     private final AskJobRunService jobRuns = mock(AskJobRunService.class);
-    private final JobRunService jobRunService = mock(JobRunService.class);
     private final DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
     private final RegionRepository regions = mock(RegionRepository.class);
     private final AskProperties properties = new AskProperties();
@@ -84,9 +80,9 @@ class ClaudeAskEngineTest {
     private MutableClock clock;
     private ClaudeAskEngine engine;
 
-    /** One {@code api_call_log} write the engine made. */
-    private record Logged(long runId, String url, String requestBody, Integer status, String responseBody,
-            boolean succeeded, String error, EvaluationModel model, TokenUsage usage) {
+    /** One turn the engine handed to {@link AskJobRunService#recordTurn}. */
+    private record Logged(long runId, boolean ready, Integer status, boolean succeeded, String error,
+            EvaluationModel model, TokenUsage usage) {
     }
 
     @BeforeEach
@@ -94,15 +90,13 @@ class ClaudeAskEngineTest {
         clock = new MutableClock(Instant.parse("2026-10-05T12:00:00Z"));
         engineWith(clock);
         when(jobRuns.dailyRunId()).thenReturn(RUN_ID);
-        when(jobRunService.logApiCall(anyLong(), any(), any(), any(), any(), anyLong(), any(), any(),
-                anyBoolean(), any(), any(), any())).thenAnswer(inv -> {
-                    logged.add(new Logged(inv.getArgument(0), inv.getArgument(3), inv.getArgument(4),
-                            inv.getArgument(6), inv.getArgument(7), inv.getArgument(8), inv.getArgument(9),
-                            inv.getArgument(10), inv.getArgument(11)));
-                    // As the real service prices it: a call that returned no usage cost nothing.
-                    return ApiCallLogEntity.builder()
-                            .costMicroDollars(inv.getArgument(11) == null ? 0L : TURN_COST).build();
-                });
+        when(jobRuns.accountingAvailable()).thenReturn(true);
+        doAnswer(inv -> {
+            AskJobRunService.Turn t = inv.getArgument(0);
+            logged.add(new Logged(t.runId(), t.ready(), t.status(), t.succeeded(), t.error(), t.model(),
+                    t.usage()));
+            return null;
+        }).when(jobRuns).recordTurn(any());
     }
 
     @AfterEach
@@ -111,7 +105,7 @@ class ClaudeAskEngineTest {
     }
 
     private void engineWith(Clock useClock) {
-        engine = new ClaudeAskEngine(client, properties, jobRuns, jobRunService, driveTimes, regions,
+        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, regions,
                 new AskAnswerValidator(), new AskPromptBuilder(), new ObjectMapper(), useClock);
     }
 
@@ -413,7 +407,6 @@ class ClaudeAskEngineTest {
             assertThat(l.succeeded()).isFalse();
             assertThat(l.usage()).isNull();
         });
-        verify(jobRuns, never()).recordCost(anyLong(), anyLong());
         verify(jobRuns).recordQuestion(RUN_ID, false);
     }
 
@@ -423,7 +416,7 @@ class ClaudeAskEngineTest {
     void unexpectedErrorIsFailed() {
         AskAnswerValidator broken = mock(AskAnswerValidator.class);
         when(broken.validate(any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
-        engine = new ClaudeAskEngine(client, properties, jobRuns, jobRunService, driveTimes, regions, broken,
+        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, regions, broken,
                 new AskPromptBuilder(), new ObjectMapper(), clock);
         when(client.createAskMessage(any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
@@ -436,14 +429,75 @@ class ClaudeAskEngineTest {
     }
 
     @Test
-    @DisplayName("a database that cannot log a turn does not throw the answer away")
-    void loggingFailureDoesNotLoseTheAnswer() {
-        doThrow(new IllegalStateException("db down")).when(jobRunService).logApiCall(anyLong(), any(), any(),
-                any(), any(), anyLong(), any(), any(), anyBoolean(), any(), any(), any());
+    @DisplayName("fail closed on accounting: while a paid call's cost is unrecorded, a new conversation makes no "
+            + "model call, opens no job run and fails with the distinct accounting reason")
+    void unrecordedCostStopsANewConversation() {
+        when(jobRuns.accountingAvailable()).thenReturn(false);
+
+        AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.outcome().turns()).isZero();
+        assertThat(run.accountingUnavailable()).isTrue();
+        assertThat(run.reason()).isEqualTo(AskRun.ACCOUNTING_UNAVAILABLE);
+        verifyNoInteractions(client);
+        verify(jobRuns, never()).dailyRunId();
+    }
+
+    @Test
+    @DisplayName("the same latch stops a Ready conversation")
+    void unrecordedCostStopsAReadyConversation() {
+        when(jobRuns.accountingAvailable()).thenReturn(false);
+
+        AskRun run = engine.run(question(), snapshot(null), AskUserContext.userLess(),
+                AskRunOptions.ready(READY_RUN_ID, null));
+
+        assertThat(run.accountingUnavailable()).isTrue();
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    @DisplayName("the conversation in which a write failed stops before its next turn: turn 1 is paid for, "
+            + "turn 2 is never started, and the question is counted failed")
+    void aFailureMidConversationStopsTheConversation() {
+        // Open for the pre-check and turn 1; latched by the time turn 2 would start.
+        when(jobRuns.accountingAvailable()).thenReturn(true, false);
+        when(client.createAskMessage(any(), any())).thenReturn(
+                toolTurn(tool("t", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
+
+        AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+
+        assertThat(run.accountingUnavailable()).isTrue();
+        assertThat(run.outcome().turns()).isEqualTo(1);
+        verify(client, times(1)).createAskMessage(any(), any());
+        verify(jobRuns).recordQuestion(RUN_ID, false);
+    }
+
+    @Test
+    @DisplayName("a turn that carried submit_answer is still returned even though its own write was the one "
+            + "that failed: it is paid for, and nothing further is started")
+    void theAnswerTurnIsStillReturned() {
+        // Open for the pre-check; the write of the only turn fails (so the latch is set afterwards), but
+        // the loop never asks again because the answer ends it.
+        when(jobRuns.accountingAvailable()).thenReturn(true, false);
 
         AskRun run = run(USER, submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        verify(jobRuns, times(1)).accountingAvailable();
+    }
+
+    @Test
+    @DisplayName("a flush that succeeds mid-conversation lets it carry on")
+    void aSuccessfulFlushLetsTheConversationContinue() {
+        when(jobRuns.accountingAvailable()).thenReturn(true, true);
+        when(client.createAskMessage(any(), any())).thenReturn(
+                toolTurn(tool("t", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
+
+        AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().turns()).isEqualTo(2);
     }
 
     @Test
@@ -467,7 +521,8 @@ class ClaudeAskEngineTest {
                 AskRunOptions.none());
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
-        verifyNoInteractions(client, jobRuns, jobRunService);
+        verifyNoInteractions(client);
+        verify(jobRuns, never()).dailyRunId();
     }
 
     // -- the model's output is untrusted ----------------------------------------------------
@@ -592,10 +647,6 @@ class ClaudeAskEngineTest {
             assertThat(params.system().orElseThrow().asTextBlockParams().getFirst().text()).doesNotContain(secret);
             assertThat(countOccurrences(params.toString(), secret)).as("occurrences in the request").isEqualTo(1);
         }
-        assertThat(logged).allSatisfy(l -> {
-            assertThat(l.requestBody()).isNull();
-            assertThat(l.responseBody()).isNull();
-        });
     }
 
     @Test
@@ -698,13 +749,13 @@ class ClaudeAskEngineTest {
 
         assertThat(logged).hasSize(3).allSatisfy(l -> {
             assertThat(l.runId()).isEqualTo(RUN_ID);
-            assertThat(l.url()).isEqualTo("ask");
+            assertThat(l.ready()).isFalse();
             assertThat(l.status()).isEqualTo(200);
             assertThat(l.succeeded()).isTrue();
             assertThat(l.model()).isEqualTo(EvaluationModel.HAIKU);
             assertThat(l.usage()).isEqualTo(new TokenUsage(1_000, 100, 0, 0));
         });
-        verify(jobRuns, times(3)).recordCost(RUN_ID, TURN_COST);
+        verify(jobRuns, times(3)).recordTurn(any());
         verify(jobRuns, times(1)).recordQuestion(anyLong(), anyBoolean());
         verify(jobRuns, times(1)).dailyRunId();
     }
@@ -722,10 +773,9 @@ class ClaudeAskEngineTest {
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
         assertThat(logged).hasSize(2).allSatisfy(l -> {
             assertThat(l.runId()).isEqualTo(READY_RUN_ID);
-            assertThat(l.url()).isEqualTo("ask-ready");
+            assertThat(l.ready()).isTrue();
         });
         verify(jobRuns, never()).dailyRunId();
-        verify(jobRuns, never()).recordCost(anyLong(), anyLong());
         verify(jobRuns, never()).recordQuestion(anyLong(), anyBoolean());
     }
 

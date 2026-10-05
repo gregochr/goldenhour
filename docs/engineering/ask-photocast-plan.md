@@ -330,9 +330,21 @@ and to `AskAnswerValidator.validate`.
     the reader's question). The daily run also counts questions (`locations_processed`, `succeeded`,
     `failed`, by a column-scoped `UPDATE`) so Operations shows more than cost. **Fail closed:** the
     daily run is found or created before the first model turn, so a database that cannot record the
-    money stops the call that would have spent it; logging after the call is best effort. A
+    money stops the call that would have spent it. A
     `ASK_READY` conversation is billed to the run its caller (B3) started and passed in
     `AskRunOptions`; the engine never touches the daily run or its increments for it.
+  - **A paid call's cost is never lost (fail closed).** If a turn's `api_call_log` insert fails after
+    Anthropic has answered, `AskJobRunService.recordTurn` keeps the turn and its priced cost in a
+    bounded in-memory holder (100 turns in detail; further cost is folded into a per-run total, never
+    dropped) and latches. The typed-spend figure adds the unrecorded typed cost on every read,
+    bypassing the 30s memo. `accountingAvailable()` is asked before every model turn of every
+    conversation, typed or Ready: while anything is unrecorded it first tries to write the held turns,
+    and if it cannot the engine makes no call and returns FAILED with `AskRun.ACCOUNTING_UNAVAILABLE`
+    — including the next turn of the conversation whose write failed (the turn that carried
+    `submit_answer` is already paid for and is still returned). The cap reads `api_call_log`, so the
+    two `job_run` increments are display-only and stay best effort. **A process restart loses the
+    holder**: that is the one way spend goes unrecorded, bounded by the latch to the turns of
+    conversations already in flight when the first write failed.
   - **Today's typed spend** = `SUM(cost_micro_dollars)` over `api_call_log` rows whose
     `job_run_id` is an `ASK` run started since UK midnight (uses `idx_api_call_log_job_run`),
     memoised 30s. Precompute spend does **not** count toward the typed cap.
@@ -587,6 +599,10 @@ set, `try` = up to two `{id,text}` Ready questions, `charged:false`. Errors are
 | 502 | `ENGINE_FAILED` | the error state. "No question used" |
 | 503 | `TYPED_UNAVAILABLE` | state 7 |
 
+**Instruction for B4:** an engine run with `AskRun.accountingUnavailable()` true is **503
+`TYPED_UNAVAILABLE`**, not 502 `ENGINE_FAILED` (the question is refused, not broken, so the client
+shows "Ready questions only today"); it is refunded like any failure, and `typedAvailable` on
+`GET /api/user/settings/ask` should read false while `AskJobRunService.accountingAvailable()` is false.
 **`GET /api/user/settings/ask`** → always 200:
 `{"enabled":true,"used":1,"limit":3,"left":2,"typedAvailable":true}` (flag off: `enabled:false`,
 zeros).
