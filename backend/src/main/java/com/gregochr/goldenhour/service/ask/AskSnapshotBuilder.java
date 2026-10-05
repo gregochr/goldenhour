@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -40,8 +41,9 @@ import java.util.Set;
  * Builds the {@link AskSnapshot} (plan §2.2) from {@link BriefingService#getCachedBriefingForApi()}
  * and nothing else about ratings.
  *
- * <p><b>The window set</b> is the briefing's event summaries whose {@code window()} is non-null (the
- * Plan tab's six rendered events — later ones carry no window), that
+ * <p><b>The window set</b> is the events listed in the served briefing's {@code renderedEvents} (the
+ * Plan tab's six; every summary carries a {@code window()}, so the cap is {@code renderedEvents}
+ * and not window presence) whose {@code window()} is non-null, that
  * {@link PlanWindowProjector#hasPassed} has not retired, that are solar, and that are not travel
  * days. The elapsed test is the shared projector method, so Ask and the Plan tab retire a window
  * at the same minute.
@@ -126,6 +128,7 @@ public class AskSnapshotBuilder {
             return Optional.empty();
         }
         LocalDateTime now = freshness.now();
+        Set<AskWindowKey> rendered = renderedKeys(briefing);
         Map<LocalDate, Boolean> travel = new HashMap<>();
         List<AskSnapshot.Window> windows = new ArrayList<>();
         Set<String> seen = new HashSet<>();
@@ -134,7 +137,7 @@ public class AskSnapshotBuilder {
                 continue;
             }
             for (BriefingEventSummary summary : day.eventSummaries()) {
-                AskSnapshot.Window window = toWindow(day.date(), summary, now, travel);
+                AskSnapshot.Window window = toWindow(day.date(), summary, now, travel, rendered);
                 if (window != null && seen.add(window.id())) {
                     windows.add(window);
                 }
@@ -160,8 +163,9 @@ public class AskSnapshotBuilder {
     }
 
     private AskSnapshot.Window toWindow(LocalDate date, BriefingEventSummary summary,
-            LocalDateTime now, Map<LocalDate, Boolean> travel) {
-        if (summary == null || summary.window() == null || !isSolar(summary.targetType())) {
+            LocalDateTime now, Map<LocalDate, Boolean> travel, Set<AskWindowKey> rendered) {
+        if (summary == null || summary.window() == null || !isSolar(summary.targetType())
+                || !rendered.contains(new AskWindowKey(date, summary.targetType()))) {
             return null;
         }
         BriefingWindow window = summary.window();
@@ -190,6 +194,25 @@ public class AskSnapshotBuilder {
                 tide == null ? null : tide.tideState(),
                 tide != null && tide.tideAligned(),
                 tide == null ? null : tide.tideFitPhrase());
+    }
+
+    /** A rendered event's identity: its date and target type. */
+    private record AskWindowKey(LocalDate date, TargetType targetType) {
+    }
+
+    /**
+     * The events the Plan tab draws: {@code DailyBriefingResponse.renderedEvents}, which
+     * {@code PlanWindowProjector} publishes on every served briefing (the leading six non-past
+     * events). A null or empty list yields no keys, so a payload that was never projected offers
+     * no windows rather than every window.
+     */
+    private static Set<AskWindowKey> renderedKeys(DailyBriefingResponse briefing) {
+        List<PlanRenderedEvent> events = briefing.renderedEvents();
+        if (events == null) {
+            return Set.of();
+        }
+        return events.stream().map(e -> new AskWindowKey(e.date(), e.targetType()))
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     private static boolean isSolar(TargetType type) {

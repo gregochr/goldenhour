@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
@@ -77,21 +78,69 @@ class AskSnapshotBuilderTest {
     }
 
     @Test
-    @DisplayName("events with no window (the Plan tab renders six) are not in the window set")
-    void build_eventsWithoutWindow_areExcluded() {
-        // Seven events across four days: only the first six carry a window, the rest do not.
+    @DisplayName("events 7-8 carry a window but are not in renderedEvents: they are not in the window set")
+    void build_eventsBeyondTheRenderedSix_areExcluded() {
+        // PlanWindowProjector attaches a window to EVERY summary; the six-event cap is
+        // renderedEvents. Eight sunsets over eight days, the last two outside renderedEvents.
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
-        BriefingWindow w = AskFixtures.window(NOW.plusHours(6), DisplayVerdict.WORTH_IT, 4, null);
-        stub(AskFixtures.briefing(List.of(
-                AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET, w, region)),
-                AskFixtures.day(TOMORROW,
-                        AskFixtures.summaryWithoutWindow(TargetType.SUNRISE, region),
-                        AskFixtures.summaryWithoutWindow(TargetType.SUNSET, region))), List.of()));
+        List<com.gregochr.goldenhour.model.BriefingDay> days = new java.util.ArrayList<>();
+        List<PlanRenderedEvent> rendered = new java.util.ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            LocalDate date = TODAY.plusDays(i);
+            BriefingWindow w = AskFixtures.window(date.atTime(18, 0), DisplayVerdict.WORTH_IT, 4, null);
+            days.add(AskFixtures.day(date, AskFixtures.summary(TargetType.SUNSET, w, region)));
+            assertThat(days.getLast().eventSummaries().getFirst().window()).isNotNull();
+            if (i < 6) {
+                rendered.add(new PlanRenderedEvent(date, TargetType.SUNSET));
+            }
+        }
+        stub(AskFixtures.briefing(days, List.of(), rendered));
 
         AskSnapshot snapshot = builder.build().orElseThrow();
 
+        assertThat(snapshot.windows()).hasSize(6);
         assertThat(snapshot.windows()).extracting(AskSnapshot.Window::id)
-                .containsExactly("2026-10-05_sunset");
+                .doesNotContain("2026-10-11_sunset", "2026-10-12_sunset")
+                .contains("2026-10-10_sunset");
+    }
+
+    @Test
+    @DisplayName("a rendered event matches on date and target type: the other event of that day is not admitted")
+    void build_renderedKeyIncludesTheTargetType() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
+        BriefingWindow sunrise = AskFixtures.window(TOMORROW.atTime(5, 40), DisplayVerdict.MAYBE, 3, null);
+        BriefingWindow sunset = AskFixtures.window(TOMORROW.atTime(18, 0), DisplayVerdict.MAYBE, 3, null);
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TOMORROW,
+                AskFixtures.summary(TargetType.SUNRISE, sunrise, region),
+                AskFixtures.summary(TargetType.SUNSET, sunset, region))), List.of(),
+                List.of(new PlanRenderedEvent(TOMORROW, TargetType.SUNSET))));
+
+        assertThat(builder.build().orElseThrow().windows()).extracting(AskSnapshot.Window::id)
+                .containsExactly("2026-10-06_sunset");
+    }
+
+    @Test
+    @DisplayName("null or empty renderedEvents (an unprojected payload) offers no windows, never all of them")
+    void build_noRenderedEvents_offersNoWindows() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
+        List<com.gregochr.goldenhour.model.BriefingDay> days =
+                List.of(AskFixtures.sunsetDay(TODAY, null, region));
+        stub(AskFixtures.briefing(days, List.of(), null));
+        assertThat(builder.build().orElseThrow().windows()).as("null").isEmpty();
+
+        stub(AskFixtures.briefing(days, List.of(), List.of()));
+        assertThat(builder.build().orElseThrow().windows()).as("empty").isEmpty();
+    }
+
+    @Test
+    @DisplayName("a summary with no window is not a window even when renderedEvents lists it")
+    void build_summaryWithoutWindow_isExcluded() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY,
+                AskFixtures.summaryWithoutWindow(TargetType.SUNSET, region))), List.of(),
+                List.of(new PlanRenderedEvent(TODAY, TargetType.SUNSET))));
+
+        assertThat(builder.build().orElseThrow().windows()).isEmpty();
     }
 
     @Test

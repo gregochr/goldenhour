@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
@@ -115,9 +116,24 @@ final class AskFixtures {
         return new BriefingDay(date, List.of(summaries));
     }
 
+    /**
+     * A served briefing whose {@code renderedEvents} lists every summary that carries a window, as
+     * the projector would for a forecast of six events or fewer.
+     */
     static DailyBriefingResponse briefing(List<BriefingDay> days, List<HotTopic> topics) {
+        List<PlanRenderedEvent> rendered = days.stream()
+                .flatMap(d -> d.eventSummaries().stream()
+                        .filter(s -> s.window() != null)
+                        .map(s -> new PlanRenderedEvent(d.date(), s.targetType())))
+                .toList();
+        return briefing(days, topics, rendered);
+    }
+
+    /** A served briefing with an explicit {@code renderedEvents}, which may be null or empty. */
+    static DailyBriefingResponse briefing(List<BriefingDay> days, List<HotTopic> topics,
+            List<PlanRenderedEvent> rendered) {
         return new DailyBriefingResponse(GENERATED_AT, "headline", days, List.of(), null, null,
-                false, false, 0, "Haiku", topics, List.of());
+                false, false, 0, "Haiku", topics, List.of(), null, null, rendered);
     }
 
     static HotTopic topic(String type, String label, String detail, LocalDate date,

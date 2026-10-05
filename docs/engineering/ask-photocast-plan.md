@@ -52,8 +52,10 @@ conflict with a recorded project rule.
 
 ### 1. "Best spot this weekend?" is unanswerable for most of the week
 The mock's own scenario (*today is Monday 5 Oct; the weekend is Sat 10 and Sun 11*) is beyond the
-scored horizon: Gate 4 never scores T+4+, and only the first six upcoming events carry a served
-`BriefingWindow` (`PlanWindowProjector`, `PlanRenderLimits.MAX_VISIBLE_EVENTS`). **Ready questions
+scored horizon: Gate 4 never scores T+4+, and only the first six upcoming events are rendered
+(`PlanWindowProjector` publishes them as `DailyBriefingResponse.renderedEvents`, capped by
+`PlanRenderLimits.MAX_VISIBLE_EVENTS`; every summary carries a `BriefingWindow`, so the cap is
+`renderedEvents`, not window presence). **Ready questions
 are a horizon-aware catalogue** (§2.4), not a fixed six.
 
 ### 2. A Ready answer is shared, so it cannot mention home
@@ -185,9 +187,11 @@ one card.
 ### 2.1 Identity
 - **Window id:** `yyyy-MM-dd_sunrise|sunset` — the encoding `BriefingRollupBuilder.java:149-150`
   already uses. A pick also carries `date` and `targetType` separately.
-- **The window set** is the event summaries of the served briefing whose `window()` is non-null,
-  that `PlanWindowProjector.hasPassed` has not retired, and that are not travel days (B1 verifies
-  how a travel day is marked and excludes it). Solar only. Every tool and every Ready predicate
+- **The window set** is the events listed in the served briefing's `renderedEvents` (every event
+  summary carries a `window()`; the six-event cap is `renderedEvents`), with a non-null `window()`,
+  that `PlanWindowProjector.hasPassed` has not retired, and that are not travel days (the served
+  briefing does not mark a travel day; B1 uses `TravelDayService.isTravelDay`). A null or empty
+  `renderedEvents` yields no windows. Solar only. Every tool and every Ready predicate
   uses this set and nothing wider.
 - **`generatedAt` is a label and an invalidation hint, not the identity of the ratings.** Ratings
   are re-enriched on every serve and hot topics recomputed live. Freshness is therefore checked
@@ -564,7 +568,7 @@ No Claude, no controller, no migration.
 - the 2026-09-29 shape: three hand-run 4★ slots in an ineligible region of 40 are never returned
 - a 5★ wood beside a 3★ headland: the wood is never returned
 - a HIGH-state, LOW-wanting coastal slot: `tideState` HIGH, `tideAligned` false, both present
-- events 7–8 (no `window()`), passed windows at the minute boundary, travel days: excluded
+- events 7–8 (they carry a `window()` but are not in `renderedEvents`), passed windows at the minute boundary, travel days: excluded
 - `bestBet` location sorts first among equal ratings; `list_windows` exposes the pick
 - nothing eligible → empty list with the note
 - a null `locationId` slot is skipped; unknown ids are error results; the 6,000-character cap
