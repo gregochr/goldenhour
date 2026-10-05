@@ -356,10 +356,10 @@ public class AskTools {
 
         List<AskSnapshot.Candidate> pool = new ArrayList<>();
         for (AskSnapshot.Window w : windows) {
-            for (AskSnapshot.Candidate c : snapshot.candidates(w)) {
-                boolean regionOk = regionFilter.isEmpty()
-                        || regionFilter.contains(c.region().name().toLowerCase(Locale.ROOT));
-                if (regionOk && inScope(c.region().name())) {
+            // The same in-scope set the BEST anchor consults (AskSnapshot#candidates with a scope).
+            for (AskSnapshot.Candidate c : snapshot.candidates(w, scope)) {
+                if (regionFilter.isEmpty()
+                        || regionFilter.contains(c.region().name().toLowerCase(Locale.ROOT))) {
                     pool.add(c);
                 }
             }

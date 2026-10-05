@@ -536,6 +536,70 @@ class AskAnswerValidatorTest {
         assertThat(result.accepted()).isTrue();
     }
 
+    /** The BEST BET names Coast, whose only slot is 2 stars; Hills, outside a Coast scope, has a 4-star slot. */
+    private static AskSnapshot bestRegionHasNothingEligibleSnapshot() {
+        BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Coast", "Whitby", 1L);
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, best,
+                AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 2)),
+                AskFixtures.region("Hills", true, AskFixtures.slot(5L, "Cat Bells", 4)))), List.of()));
+    }
+
+    @Test
+    @DisplayName("BEST_*: scoped to a region with nothing eligible, an eligible slot elsewhere does not anchor it")
+    void bestAnchor_scopedToARegionWithNothingEligible_doesNotApply() {
+        AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
+        BestAnchor coastOnly = new BestAnchor(Set.of(SUNSET_TODAY), Set.of("coast"));
+        AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
+
+        Result noPicks = validator.validate(answer("Nothing is worth it in Coast tonight."),
+                snapshot, toolsCalled, coastOnly);
+        Result unanswerable = validator.validate(new Raw(false, "No.", null, null, "data"),
+                snapshot, toolsCalled, coastOnly);
+
+        assertThat(noPicks.accepted()).isTrue();
+        assertThat(unanswerable.accepted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("BEST_*: the same snapshot with the whole country in scope still anchors on the eligible slot")
+    void bestAnchor_emptyScopeStillAnchors() {
+        AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
+        BestAnchor everywhere = new BestAnchor(Set.of(SUNSET_TODAY), Set.of());
+        AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
+
+        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled, everywhere);
+
+        assertThat(noPicks.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("BEST_*: a scope that includes an eligible slot, in any letter case, still enforces the anchor")
+    void bestAnchor_scopeWithAnEligibleSlotStillAnchors() {
+        AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
+        BestAnchor hillsOnly = new BestAnchor(Set.of(SUNSET_TODAY), Set.of("Coast", "HILLS"));
+        AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
+
+        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled, hillsOnly);
+
+        assertThat(noPicks.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the anchor and rank_spots agree: where the anchor does not apply, the scoped tool offers nothing")
+    void bestAnchor_agreesWithRankSpotsUnderTheSameScope() {
+        AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
+        AskTools scoped = new AskTools(snapshot, AskUserContext.userLess(), Set.of("Coast"), null,
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        AskTools.RankSpotsResult result = (AskTools.RankSpotsResult) scoped.rankSpots(null).payload();
+
+        assertThat(result.spots()).isEmpty();
+        assertThat(snapshot.candidates(snapshot.windows().getFirst(), Set.of("coast"))).isEmpty();
+        assertThat(snapshot.candidates(snapshot.windows().getFirst(), Set.of("HILLS"))).hasSize(1);
+        assertThat(snapshot.candidates(snapshot.windows().getFirst(), Set.of())).hasSize(1);
+        assertThat(snapshot.candidates(snapshot.windows().getFirst(), null)).hasSize(1);
+    }
+
     @Test
     @DisplayName("BEST_*: an anchor with null sets reads as empty")
     void bestAnchor_nullSets() {

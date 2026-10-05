@@ -168,8 +168,11 @@ public class AskAnswerValidator {
 
     /**
      * The window a BEST question's pick 1 must be on: a covered window carrying the forecast's BEST
-     * pick, in scope, that has at least one pick-eligible slot to lead with. Without that last
-     * clause a BEST BET whose own location is under 3★ would make every answer unsatisfiable.
+     * pick, in scope, that has at least one pick-eligible slot to lead with <em>within the
+     * question's scope</em> ({@link AskSnapshot#candidates(AskSnapshot.Window, java.util.Collection)},
+     * the same set {@code rank_spots} draws from). Without that last clause a BEST BET whose own
+     * location is under 3★, or whose only eligible neighbours sit in a region the question did not
+     * ask about, would make every answer unsatisfiable.
      */
     private static Optional<AskSnapshot.Window> anchoredWindow(AskSnapshot snapshot,
             BestAnchor anchor) {
@@ -178,7 +181,7 @@ public class AskAnswerValidator {
                 .filter(w -> w.pick() != null && w.pick().kind() == BriefingWindow.PickKind.BEST)
                 .filter(w -> anchor.scope().isEmpty() || anchor.scope().stream()
                         .anyMatch(s -> s.equalsIgnoreCase(w.pick().regionName())))
-                .filter(w -> !snapshot.candidates(w).isEmpty())
+                .filter(w -> !snapshot.candidates(w, anchor.scope()).isEmpty())
                 .findFirst();
     }
 

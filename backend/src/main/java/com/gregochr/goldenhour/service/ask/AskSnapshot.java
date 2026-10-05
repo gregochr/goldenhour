@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.DisplayVerdict;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -211,6 +212,27 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
                 .flatMap(r -> r.slots().stream()
                         .filter(s -> isPickEligible(r, s))
                         .map(s -> new Candidate(window, r, s)))
+                .toList();
+    }
+
+    /**
+     * The pick-eligible slots of one window within a question's scope. The one definition of what
+     * is reachable under a scope: {@code rank_spots} draws its pool from it and the Ready
+     * {@code BEST_*} anchor asks it whether there is anything to lead with, so the two cannot
+     * disagree.
+     *
+     * @param window a window of this snapshot
+     * @param scope  the region names the question is about, matched case-insensitively; null or
+     *               empty means every region
+     * @return its in-scope candidates; never null
+     */
+    public List<Candidate> candidates(Window window, Collection<String> scope) {
+        List<Candidate> all = candidates(window);
+        if (scope == null || scope.isEmpty()) {
+            return all;
+        }
+        return all.stream()
+                .filter(c -> scope.stream().anyMatch(s -> s.equalsIgnoreCase(c.region().name())))
                 .toList();
     }
 
