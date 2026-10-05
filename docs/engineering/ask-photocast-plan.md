@@ -270,6 +270,11 @@ Rules:
   - `answerable:true` with no surviving pick or event is allowed only if a tool was called
   - **Ready `BEST_*` questions only:** if a BEST pick exists on a window the question covers, pick
     1 must be on that window; otherwise the answer is discarded (logged at WARN, not stored)
+  - **Event safety notes are mandatory and never the model's:** an event's `safetyNote` (the solar
+    eclipse's lens-filter warning, `HotTopic.safetyNote`) is re-joined from the served topic a tool
+    returned, exactly as its label and date are. The model has no field to write one, and an event
+    whose served topic has one always carries it. (The Coming up feed's `ComingUpEntry` carries no
+    safety note today, so an almanac-sourced event has none to join.)
   - Residual, stated: the summary's prose is not fact-checked. The cards beside it carry served
     facts.
 - **Cost.** Two run types, `RunType.ASK` (typed and dry-run) and `RunType.ASK_READY` (precompute);
@@ -499,7 +504,7 @@ record AskQuestion(String sanitised, String normalised, String windowId, List<Lo
 record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes) {}   // null userId = user-less
 record AskPick(int rank, long locationId, String locationName, String regionName, LocalDate date,
                TargetType targetType, String windowId, String why, Integer ratingAtAnswer, String verdictAtAnswer) {}
-record AskEvent(String type, String label, LocalDate date, String why) {}
+record AskEvent(String type, String label, LocalDate date, String why, String safetyNote) {}  // safetyNote nullable, omitted on the wire when null
 record AskAnswer(boolean answerable, String summary, List<AskPick> picks, List<AskEvent> events, String missing) {}
 record AskOutcome(Status status, AskAnswer answer, boolean personal, int turns) { enum Status { OK, CANT, FAILED } }
 ```
@@ -511,7 +516,8 @@ record AskOutcome(Status status, AskAnswer answer, boolean personal, int turns) 
   "answer":{"answerable":true,"kind":"ready","summary":"…",
     "picks":[{"rank":1,"locationId":123,"locationName":"Whitby","regionName":"North York Moors & Coast",
               "date":"2026-10-05","targetType":"SUNSET","windowId":"2026-10-05_sunset","why":"…"}],
-    "events":[{"type":"AURORA","label":"Aurora","date":"2026-10-10","why":"…"}],
+    "events":[{"type":"ECLIPSE","label":"Partial solar eclipse","date":"2026-10-10","why":"…",
+               "safetyNote":"Certified solar filter on the lens — not only over your eye"}],
     "missing":null,"try":[]}}]}
 ```
 
@@ -643,8 +649,10 @@ never return a raw question.
 **Files:** `api/askApi.js`, `hooks/useAskReady.js`, `hooks/useAskAllowance.js`,
 `context/AskContext.jsx`, `utils/askModel.js`, `components/ask/AskConversation.jsx`,
 `AskPickCard.jsx`, `AskEventCard.jsx`, `AskContextChips.jsx`, their CSS. Nothing is mounted in the
-app. Fixtures are the literal JSON of §2.9.
-**Tests:** every state — empty, busy (both lines), answer, can't answer (from the pre-filter shape
+app. Fixtures are the literal JSON of §2.9. `AskEventCard` renders an event's `safetyNote`
+visibly whenever it is present, outside every role gate and every narrow-viewport drop.
+**Tests:** an event with a `safetyNote` renders it visibly for LITE, PRO and ADMIN and at a narrow
+width, and an event without one renders none; every state — empty, busy (both lines), answer, can't answer (from the pre-filter shape
 and from `kind: cant`), allowance used up, each error code; a Ready tap makes no POST; a typed
 `kind: ready` reply is rendered as Ready with "no question used"; the count comes from the
 response, never decremented locally; a pick with no slot is dropped; drive is the **home** map even

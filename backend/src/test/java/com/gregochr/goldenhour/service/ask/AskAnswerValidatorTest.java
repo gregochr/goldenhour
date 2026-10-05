@@ -311,6 +311,58 @@ class AskAnswerValidatorTest {
         });
     }
 
+    private static final String WARNING = "Certified solar filter on the lens — not only over your eye";
+
+    @Test
+    @DisplayName("a served safety note is always on the validated event, whatever the model wrote in its reason")
+    void event_safetyNoteIsRejoinedFromServedData() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("ECLIPSE", "Partial solar eclipse", TOMORROW, WARNING)), 1);
+
+        Result silent = validate(new Raw(true, "An eclipse.", null,
+                List.of(new RawEvent("ECLIPSE", null, "Great shots")), null), snapshot, evidence);
+        Result contradicting = validate(new Raw(true, "An eclipse.", null,
+                List.of(new RawEvent("eclipse", TOMORROW, "No filter needed, just look")), null),
+                snapshot, evidence);
+
+        assertThat(silent.answer().events().getFirst().safetyNote()).isEqualTo(WARNING);
+        assertThat(contradicting.answer().events().getFirst().safetyNote()).isEqualTo(WARNING);
+    }
+
+    @Test
+    @DisplayName("of two served facts for one type and date, the one carrying a warning is used")
+    void event_aWarningIsNeverLostToAnEqualFact() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("ECLIPSE", "Eclipse", TOMORROW, null),
+                        new AskEvidence.EventFact("ECLIPSE", "Eclipse", TOMORROW, WARNING)), 2);
+
+        Result result = validate(new Raw(true, "An eclipse.", null,
+                List.of(new RawEvent("ECLIPSE", null, "x")), null), snapshot, evidence);
+
+        assertThat(result.answer().events().getFirst().safetyNote()).isEqualTo(WARNING);
+    }
+
+    @Test
+    @DisplayName("an event whose served topic has no safety note carries none, and none is written on the wire")
+    void event_noServedNote_isNullAndOmitted() throws Exception {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("AURORA", "Aurora", null)), 1);
+
+        Result result = validate(new Raw(true, "Aurora.", null,
+                List.of(new RawEvent("AURORA", null, "Kp 6")), null), snapshot, evidence);
+
+        AskEvent event = result.answer().events().getFirst();
+        assertThat(event.safetyNote()).isNull();
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertThat(mapper.readTree(mapper.writeValueAsString(event)).has("safetyNote")).isFalse();
+        AskEvent withNote = new AskEvent("ECLIPSE", "Eclipse", null, "why", WARNING);
+        assertThat(mapper.readTree(mapper.writeValueAsString(withNote)).path("safetyNote").asText())
+                .isEqualTo(WARNING);
+    }
+
     @Test
     @DisplayName("the model's date selects among served dates and a date no tool returned drops the event")
     void event_dateMustMatchAServedDate() {

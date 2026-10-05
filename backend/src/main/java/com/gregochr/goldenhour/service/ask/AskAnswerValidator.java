@@ -210,9 +210,11 @@ public class AskAnswerValidator {
     }
 
     /**
-     * An event survives only if its type was returned by an events tool. The label and date shown
-     * are the served ones: the model's date picks between served dates of that type and is never
-     * trusted on its own.
+     * An event survives only if its type was returned by an events tool. The label, date and safety
+     * note shown are the served ones: the model's date picks between served dates of that type and
+     * is never trusted on its own, and {@link RawEvent} has no field through which the model could
+     * write a safety note. A served warning (the solar eclipse's lens-filter note) therefore always
+     * reaches the validated event; no path drops it.
      */
     private List<AskEvent> validEvents(List<RawEvent> raw, AskEvidence evidence) {
         List<AskEvent> out = new ArrayList<>();
@@ -223,13 +225,15 @@ public class AskAnswerValidator {
                     .filter(f -> f.type().equals(type))
                     .filter(f -> event.date() == null || event.date().equals(f.date()))
                     .min(Comparator.comparing(AskEvidence.EventFact::date,
-                            Comparator.nullsLast(Comparator.naturalOrder())));
+                            Comparator.nullsLast(Comparator.naturalOrder()))
+                            // Of otherwise equal facts the one carrying a warning wins: never lose it.
+                            .thenComparing(f -> f.safetyNote() == null));
             if (fact.isEmpty() || !seen.add(fact.get().type() + "|" + fact.get().date())) {
                 continue;
             }
             String why = clean(event.why(), WHY_WORDS);
             out.add(new AskEvent(fact.get().type(), fact.get().label(), fact.get().date(),
-                    why == null ? "" : why));
+                    why == null ? "" : why, fact.get().safetyNote()));
         }
         return out;
     }

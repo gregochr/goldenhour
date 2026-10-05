@@ -33,8 +33,20 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls)
      * @param type  the served type, upper-cased
      * @param label the served label or title
      * @param date  the served date
+     * @param safetyNote the served warning that must accompany this event, or null
      */
-    public record EventFact(String type, String label, LocalDate date) {
+    public record EventFact(String type, String label, LocalDate date, String safetyNote) {
+
+        /**
+         * An event with no served safety note.
+         *
+         * @param type  the served type, upper-cased
+         * @param label the served label or title
+         * @param date  the served date
+         */
+        public EventFact(String type, String label, LocalDate date) {
+            this(type, label, date, null);
+        }
     }
 
     /**

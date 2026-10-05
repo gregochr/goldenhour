@@ -336,6 +336,20 @@ class AskSnapshotBuilderTest {
     }
 
     @Test
+    @DisplayName("a hot topic's safety note is carried into the snapshot; a topic without one carries none")
+    void build_carriesTheSafetyNote() {
+        stub(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "62%", TOMORROW, List.of())
+                        .withSafety("Certified solar filter on the lens"),
+                AskFixtures.topic("AURORA", "Aurora", "Kp 6", TODAY, List.of()))));
+
+        AskSnapshot snapshot = builder.build().orElseThrow();
+
+        assertThat(snapshot.hotTopics()).extracting(AskSnapshot.Topic::safetyNote)
+                .containsExactly("Certified solar filter on the lens", null);
+    }
+
+    @Test
     @DisplayName("a failing almanac degrades to no entries; windows still answer")
     void build_almanacFailure_degrades() {
         when(briefingService.getCachedBriefingForApi()).thenReturn(

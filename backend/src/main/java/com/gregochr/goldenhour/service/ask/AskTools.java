@@ -225,10 +225,12 @@ public class AskTools {
      * @param detail  the detail, at most {@value AskTools#DETAIL_CAP} characters, or null
      * @param date    the topic's date (ISO)
      * @param regions the regions it names
+     * @param safetyNote the topic's served warning, returned whole (never cut), or null; the
+     *                   model may mention it
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record TopicInfo(String type, String label, String detail, String date,
-            List<String> regions) {
+            List<String> regions, String safetyNote) {
     }
 
     /**
@@ -404,11 +406,12 @@ public class AskTools {
                 .toList();
         List<TopicInfo> infos = kept.stream()
                 .map(t -> new TopicInfo(t.type(), t.label(), cap(t.detail(), DETAIL_CAP),
-                        iso(t.date()), t.regions()))
+                        iso(t.date()), t.regions(), t.safetyNote()))
                 .toList();
         return finish("get_hot_topics", new HotTopicsResult(infos), () -> {
             for (AskSnapshot.Topic t : kept) {
-                events.add(new AskEvidence.EventFact(upper(t.type()), t.label(), t.date()));
+                events.add(new AskEvidence.EventFact(upper(t.type()), t.label(), t.date(),
+                        t.safetyNote()));
             }
         });
     }

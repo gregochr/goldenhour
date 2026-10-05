@@ -226,7 +226,7 @@ public class AskSnapshotBuilder {
         }
         return served.stream()
                 .map(t -> new AskSnapshot.Topic(t.type(), t.label(), t.detail(), t.date(),
-                        t.regions()))
+                        t.regions(), t.safetyNote()))
                 .toList();
     }
 

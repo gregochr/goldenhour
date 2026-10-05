@@ -571,6 +571,43 @@ class AskToolsTest {
     }
 
     @Test
+    @DisplayName("a solar eclipse topic's safety note is on the tool row, whole, and in the evidence")
+    void getHotTopics_carriesTheSafetyNote() {
+        String warning = "Certified solar filter on the lens — not only over your eye. " + "x".repeat(250);
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "62% covered", TOMORROW,
+                        List.of()).withSafety(warning),
+                AskFixtures.topic("AURORA", "Aurora", "Kp 6", TODAY, List.of()))));
+        AskTools tools = tools(snapshot);
+
+        AskToolResult result = tools.getHotTopics(null);
+
+        List<AskTools.TopicInfo> topics = ((HotTopicsResult) result.payload()).topics();
+        assertThat(topics.getFirst().safetyNote()).as("served whole, never cut to 200").isEqualTo(warning);
+        assertThat(topics.get(1).safetyNote()).isNull();
+        JsonNode json = parse(result.content()).path("topics");
+        assertThat(json.get(0).path("safetyNote").asText()).isEqualTo(warning);
+        assertThat(json.get(1).has("safetyNote")).isFalse();
+        assertThat(tools.evidence().events()).contains(
+                new AskEvidence.EventFact("ECLIPSE", "Partial solar eclipse", TOMORROW, warning),
+                new AskEvidence.EventFact("AURORA", "Aurora", TODAY, null));
+    }
+
+    @Test
+    @DisplayName("the Coming up feed carries no safety note: its rows have none and offer none")
+    void getComingUp_rowsCarryNoSafetyNote() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()),
+                List.of(AskSnapshotBuilderTest.almanacEntry("eclipse", "Partial solar eclipse",
+                        TODAY.plusDays(40), TODAY.plusDays(40), "A partial eclipse")));
+        AskTools tools = tools(snapshot);
+
+        AskToolResult result = tools.getComingUp(null);
+
+        assertThat(parse(result.content()).path("entries").get(0).has("safetyNote")).isFalse();
+        assertThat(tools.evidence().events()).allSatisfy(e -> assertThat(e.safetyNote()).isNull());
+    }
+
+    @Test
     @DisplayName("get_hot_topics: a topic naming regions outside the scope is left out, a region-less one stays")
     void getHotTopics_scope() {
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(

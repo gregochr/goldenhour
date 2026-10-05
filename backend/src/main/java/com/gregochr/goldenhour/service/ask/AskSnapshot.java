@@ -120,9 +120,25 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param detail  the topic detail, or null
      * @param date    the topic's date
      * @param regions the regions the topic names; empty when it is not region-specific
+     * @param safetyNote the served warning every surface raising this topic must show (the solar
+     *                   eclipse's lens-filter warning), or null
      */
     public record Topic(String type, String label, String detail, LocalDate date,
-            List<String> regions) {
+            List<String> regions, String safetyNote) {
+
+        /**
+         * A topic with no safety note.
+         *
+         * @param type    the topic type
+         * @param label   the topic label
+         * @param detail  the topic detail, or null
+         * @param date    the topic's date
+         * @param regions the regions the topic names
+         */
+        public Topic(String type, String label, String detail, LocalDate date,
+                List<String> regions) {
+            this(type, label, detail, date, regions, null);
+        }
 
         /** Canonical constructor: takes an immutable copy of {@code regions}. */
         public Topic {
