@@ -24,7 +24,7 @@ it (adjacent rows conflict between open PRs).
 |---|---|---|---|
 | P0 | Commit this plan, the prompts file and `docs/design/ask-photocast/` to `main` | XS | not started |
 | B1 | Read model, tool functions, answer contract, validator (no Claude, no endpoint) | M/L | merged (#1008) |
-| B2a | The engine: Claude tool loop, properties, run types, cost logging | L | not started |
+| B2a | The engine: Claude tool loop, properties, run types, cost logging | L | merged (#1015) |
 | B2b | Stub engine, local fixture seeder, admin dry-run | M | not started |
 | B3 | Ready answers: catalogue, precompute after the pipeline, `GET /api/ask/ready` | L | not started |
 | B4 | `POST /api/ask`: allowance, limits, spend cap, `GET /api/user/settings/ask` | L | not started |
@@ -357,6 +357,8 @@ and to `AskAnswerValidator.validate`.
     `job_run_id` is an `ASK` run started since UK midnight (uses `idx_api_call_log_job_run`),
     memoised 30s. Precompute spend does **not** count toward the typed cap.
 - **Flag:** `photocast.ask.enabled`, default false (§2.9 says what each endpoint does when off).
+  `photocast.ask.stub` (default false) swaps the engine for `StubAskEngine`; how exactly one engine is
+  chosen, and why `stub=true` fails startup under `prod`, is in §3 B2b's *As built*.
 
 ### 2.4 Ready answers (B3)
 
@@ -615,8 +617,12 @@ shows "Ready questions only today"); it is refunded like any failure, and `typed
 `{"enabled":true,"used":1,"limit":3,"left":2,"typedAvailable":true}` (flag off: `enabled:false`,
 zeros).
 
-**Admin:** `POST /api/admin/ask/dry-run` `{question, regionIds, windowId?}` → the outcome plus the
-tool trace (counts toward the typed spend). `POST /api/admin/ask/ready/precompute` → `{written,
+**Admin:** `POST /api/admin/ask/dry-run` `{question, regionIds, windowId?}` → `{engine: stub|claude,
+status, answer, personal, turns, reason, trace}` (the outcome plus the tool trace; with the Claude engine it
+counts toward the typed spend, with the stub it costs nothing). ADMIN only; 404 while the flag is off (after
+the role check); 400 for a blank or over-200-character question or an unknown, disabled or more than 20
+region ids; 409 when no briefing has been built. A FAILED run is a 200 carrying `status: FAILED` and the
+`reason`, since the admin is there to see why. `POST /api/admin/ask/ready/precompute` → `{written,
 skipped, failed}`. `GET /api/admin/ask/metrics?days=`.
 
 ---
@@ -676,6 +682,43 @@ left ineligible — then triggers a briefing build; idempotent), `AskAdminContro
 run outside `local`; dry-run is ADMIN-only and returns the tool trace.
 **Seen, not just tested:** start the local backend with the fixture and confirm `GET /api/briefing`
 carries the seeded ratings.
+
+*As built (B2b), where the plan was wrong or silent:*
+- **Engine wiring.** `AskEngineSelection` holds two `@Conditional` classes that read `photocast.ask.stub`
+  through one conversion and are each other's negation, so exactly one `AskEngine` bean exists for any
+  value (two `@ConditionalOnProperty` annotations would leave none for `stub=yes`, which the binder reads
+  as true). B2a's `@ConditionalOnProperty` on `ClaudeAskEngine` was replaced. A non-boolean value fails
+  startup. **`stub=true` under the `prod` profile also fails startup** (neither templates for readers nor
+  a silent fall-back to the engine that bills the key). `StubAskEngine` has no Anthropic client and no job-run
+  dependency at all; it enforces the same `AskRunOptions` contract (`requireConsistentWith`, extracted) and
+  resolves scope through the shared `AskScopes`; the BEST anchor's lead window is the validator's own
+  (`anchoredWindow`, made package-visible), not a second definition.
+- **Nothing seeds a local database with regions or locations.** `forecast.locations` in
+  `application-local.yml` is bound by `ForecastProperties` and read by nothing, so the "named local
+  locations" the plan assumed do not exist. The fixture brings its own: three regions named `Fixture …`
+  and 22 locations named `… (fixture)` (the names are how it recognises its own rows), written through the
+  repositories.
+- **Ratings go in through `BriefingEvaluationService.mergeFromBatch` / `mergeWoodlandFromBatch`**, the
+  pipeline's own write path, never `writeFromBatch` (which would replace a region's whole entry) and never the
+  table. They survive `enrichSlot` with no `forecast_evaluation` row: the serve-time re-enrichment reads
+  `cached_evaluation` alone where no forecast row exists.
+- **No BEST BET / ALSO GOOD locally.** A window's `pick` needs the region's Claude gloss headline
+  (`PlanWindowProjector#candidate`), and the fixture makes no Claude call, so `BriefingWindow.pick` is null
+  on every local window and `list_windows` carries no `bestBet`. The Ready `BEST_*` anchor therefore cannot
+  be rehearsed in the browser: B3 tests it with a unit fixture, and §7's "pick 1's card wears BEST BET" check
+  needs a real gloss.
+- **The briefing build is not free of Claude calls**: it makes the gloss and best-bet calls with whatever
+  `ANTHROPIC_API_KEY` is set. That is why `seed-local-fixture` is **off** by default (§9).
+- **Tide:** nothing local holds tide data (the WorldTides key is empty), so the fixture writes synthetic
+  semi-diurnal extremes for its three coastal locations through `TideExtremeRepository`, continuing an
+  existing series' phase and never overwriting, and a coastal fixture slot then carries a real served
+  `tideState`/`tideAligned` (one match, one HIGH-water miss, one LOW-water match at the first light).
+- **The sample gate** is met by rating every sky location of the two eligible regions (7 of 7, 6 of 6) and
+  one of eight in the third, which is refused with its 4★ slot held back. The wood is 5★ and canopy.
+- **The H2 enum claim B2a reported was true and is fixed** (§10): `LocalH2EnumWidener`, local profile only.
+- `AskQuestionSanitiser` is the one place a question is cleaned (strip control and format characters,
+  collapse whitespace, trim, refuse blank or over 200 characters). **B4 must extend it, not clean a second
+  way.** The dry-run's `normalised` form is a plain lower-case; B5 owns the real one.
 
 ### B3 — Ready answers — L
 **Files:** `ReadyQuestion`, `AskReadyService`, `AskReadyAnswerEntity` + repository, migration
@@ -891,10 +934,19 @@ migration — and the Codex review, and updates §0 at merge.
 
 ## §9 Local verification recipe
 
-1. `application-local.yml`: `photocast.ask.enabled: true`, `stub: true`,
-   `seed-local-fixture: true`.
-2. Backend: `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local` (port 8083; use
-   8093 if a parallel session holds it). The seeder writes the rated fixture and builds a briefing.
+1. `application-local.yml` carries `photocast.ask.enabled: true` and `stub: true` (spend-free, safe as
+   committed defaults). `seed-local-fixture` is **false** there and is turned on for one run on the command
+   line (step 2): the seeder writes into the developer's own H2 file and triggers a briefing build, which
+   makes the gloss and best-bet Claude calls with whatever `ANTHROPIC_API_KEY` is set.
+2. Backend, against a fresh H2 file so a real `backend/data` is never touched:
+   `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local
+   -Dspring-boot.run.arguments="--photocast.ask.seed-local-fixture=true
+   --spring.datasource.url=jdbc:h2:file:./data/ask-fixture;AUTO_SERVER=TRUE"` (port 8083; add
+   `--server.port=8093` if a parallel session holds it). A session that must be certain no Claude call
+   leaves the machine also sets a dummy `ANTHROPIC_API_KEY` and
+   `-Dspring-boot.run.jvmArguments="-Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=9
+   -Dhttp.nonProxyHosts=*.open-meteo.com|localhost|127.0.0.1"` (everything but Open-Meteo then goes to a
+   dead proxy). The seeder writes the rated fixture and builds a briefing.
 3. Ready answers: `POST /api/admin/ask/ready/precompute` (works on the stub, costs nothing).
 4. Frontend: `npm run dev`. **The owner signs in** — the session cannot; without that, report
    "tested, not seen".
@@ -925,17 +977,23 @@ Four read-only reviewers, 52 findings; none refuted outright. The substantive ch
   admin precompute endpoint so the browser can show a rich state; binding defaults for every owner
   question; P0; the prompt-regression class moved to Z with owner approval.
 
-*Examined later, B2a:* production's `job_run.run_type` is a plain `VARCHAR(20)` with no check
-constraint (V29; no later migration touches it), so `ASK` and `ASK_READY` need **no migration**. The
-local H2 schema is different: the test run's DDL shows Hibernate mapping every `@Enumerated(STRING)`
-column to a native H2 `enum (...)` type fixed when the table is created, and `ddl-auto: update` does
-not alter it — so a developer's **existing** `backend/data/goldenhour.mv.db` will refuse an `ASK` row
-until it is deleted and recreated (a fresh file, and every test, is fine). This was read from the DDL,
-not reproduced against an old file.
+*Examined later, B2a, and settled in B2b:* production's `job_run.run_type` is a plain `VARCHAR(20)` with
+no check constraint (V29; no later migration touches it), so `ASK` and `ASK_READY` need **no migration**. The
+local H2 schema is different: Hibernate maps every `@Enumerated(STRING)` column to a native H2 `enum (...)`
+type fixed when the table is created, and `ddl-auto: update` does not alter it — so a developer's **existing**
+`backend/data/goldenhour.mv.db` refuses an `ASK` row. B2a read this from the DDL; **B2b reproduced it**
+(`LocalH2EnumOldSchemaReproductionTest`: a file database with the fifteen pre-Ask `RunType` values, the real
+Hibernate with `update`, and `saveAndFlush(ASK)` fails with *Value not permitted for column … "ASK"*) **and
+fixed it**: `LocalH2EnumWidener` (local profile, H2 only, a `SmartInitializingSingleton`) widens each
+registered column to its current values plus the Java enum's with one `ALTER TABLE … SET DATA TYPE ENUM(…)`
+(H2 keeps stored values and `NOT NULL`; checked), idempotent and never failing startup. Its registry
+(`TARGETS`) has one line, `job_run.run_type`; **add a line when a change adds a value to an enum whose column
+an existing local database must accept.** A fresh file and every test were never affected.
 
 **Not examined by any reviewer:** `PinsLayer` and `MapLegendPanel` internals; the tests that pin
 74px beyond two files; `o20-shell-inert-plan.md`; the real token size of production briefing and
 almanac payloads (the 1p figure is an estimate until §7 measures it); whether Anthropic bills a
-generation abandoned at the client timeout; whether `RunType.ASK` trips an H2 enum constraint under
-local `ddl-auto: update`; how a travel day is marked on the served briefing. Nothing was built or
+generation abandoned at the client timeout; how a travel day is marked on the served briefing (B1 found
+it is not, and uses `TravelDayService`); whether `RunType.ASK` trips an H2 enum constraint under local
+`ddl-auto: update` (it does, and B2b fixed it, above). When the plan was written nothing had been built or
 run.

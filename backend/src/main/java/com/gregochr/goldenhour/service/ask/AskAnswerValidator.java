@@ -180,7 +180,7 @@ public class AskAnswerValidator {
      * location is under 3★, or whose only eligible neighbours sit in a region the question did not
      * ask about, would make every answer unsatisfiable.
      */
-    private static Optional<AskSnapshot.Window> anchoredWindow(AskSnapshot snapshot,
+    static Optional<AskSnapshot.Window> anchoredWindow(AskSnapshot snapshot,
             BestAnchor anchor, Collection<String> scope) {
         return snapshot.windows().stream()
                 .filter(w -> anchor.windowIds().contains(w.id()))
