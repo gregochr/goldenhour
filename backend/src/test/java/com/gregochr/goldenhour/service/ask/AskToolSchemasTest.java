@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link AskToolSchemas}: the schemas Claude sees match the argument records of
@@ -107,6 +108,50 @@ class AskToolSchemasTest {
     @DisplayName("the schemas are byte-stable between builds (insertion-ordered)")
     void schemasAreStable() {
         assertThat(AskToolSchemas.tools(true).toString()).isEqualTo(AskToolSchemas.tools(true).toString());
+    }
+
+    @Test
+    @DisplayName("golden: the schemas are byte-for-byte what they were before the map helper was made "
+            + "bounds-safe (captured from the previous structure), with and without a drive limit")
+    void schemasAreUnchangedFromTheGolden() throws Exception {
+        assertThat(AskToolSchemas.tools(true).toString()).isEqualTo(golden("tool-schemas-with-user.txt"));
+        assertThat(AskToolSchemas.tools(false).toString()).isEqualTo(golden("tool-schemas-user-less.txt"));
+    }
+
+    private static String golden(String name) throws Exception {
+        try (var in = AskToolSchemasTest.class.getResourceAsStream("/ask/" + name)) {
+            return new String(java.util.Objects.requireNonNull(in, name).readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    @Test
+    @DisplayName("the map helper keeps insertion order and takes an empty list")
+    void mapHelperKeepsOrder() {
+        assertThat(AskToolSchemas.m()).isEmpty();
+        assertThat(AskToolSchemas.m("z", 1, "a", 2, "m", null).keySet()).containsExactly("z", "a", "m");
+        assertThat(AskToolSchemas.m("z", 1, "a", 2, "m", null)).containsEntry("a", 2).containsEntry("m", null);
+    }
+
+    @Test
+    @DisplayName("an odd-length argument list is refused up front, whatever its length")
+    void mapHelperRefusesOddLengths() {
+        for (Object[] odd : new Object[][] {{"k"}, {"k", 1, "j"}, {"a", 1, "b", 2, "c"}}) {
+            assertThatThrownBy(() -> AskToolSchemas.m(odd)).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("key/value pairs").hasMessageContaining(String.valueOf(odd.length));
+        }
+    }
+
+    @Test
+    @DisplayName("a key that is not a String is an IllegalArgumentException naming its place, never a "
+            + "ClassCastException; the null key too")
+    void mapHelperRefusesNonStringKeys() {
+        assertThatThrownBy(() -> AskToolSchemas.m(5, "v"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("argument 0")
+                .hasMessageContaining("java.lang.Integer");
+        assertThatThrownBy(() -> AskToolSchemas.m("ok", 1, null, 2))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("argument 2")
+                .hasMessageContaining("null");
     }
 
     private static List<String> iterate(JsonNode object) {

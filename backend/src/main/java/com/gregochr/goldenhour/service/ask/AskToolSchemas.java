@@ -133,11 +133,28 @@ public final class AskToolSchemas {
 
     // -- helpers ----------------------------------------------------------------------------
 
-    /** An insertion-ordered map, so the schemas Claude sees are byte-stable from run to run. */
-    private static Map<String, Object> m(Object... keysAndValues) {
+    /**
+     * An insertion-ordered map built from alternating keys and values, so the schemas Claude sees are
+     * byte-stable from run to run.
+     *
+     * @param keysAndValues {@code key, value, key, value, ...}; every key a {@link String}
+     * @return the map
+     * @throws IllegalArgumentException when the list is odd in length or a key is not a String: a
+     *         schema definition that is wrong is a programming error, caught the first time the
+     *         schemas are built
+     */
+    static Map<String, Object> m(Object... keysAndValues) {
+        if (keysAndValues.length % 2 != 0) {
+            throw new IllegalArgumentException("a schema map needs key/value pairs but got "
+                    + keysAndValues.length + " arguments");
+        }
         Map<String, Object> out = new LinkedHashMap<>();
-        for (int i = 0; i < keysAndValues.length; i += 2) {
-            out.put((String) keysAndValues[i], keysAndValues[i + 1]);
+        for (int i = 0; i + 1 < keysAndValues.length; i += 2) {
+            if (!(keysAndValues[i] instanceof String key)) {
+                throw new IllegalArgumentException("a schema map key must be a String but argument " + i
+                        + " is " + (keysAndValues[i] == null ? "null" : keysAndValues[i].getClass().getName()));
+            }
+            out.put(key, keysAndValues[i + 1]);
         }
         return out;
     }

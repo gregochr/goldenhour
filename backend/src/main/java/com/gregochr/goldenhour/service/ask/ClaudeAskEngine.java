@@ -280,7 +280,10 @@ public class ClaudeAskEngine implements AskEngine {
                 .addUserMessage(question.sanitised());
         tools.forEach(builder::addTool);
         ModelRequestSupport.tune(builder, model);
-        for (int i = 0; i < assistantTurns.size(); i++) {
+        // The two lists are appended together, one entry per completed turn; the bound is the shorter
+        // of them so a mismatch could never read past either.
+        int completedTurns = Math.min(assistantTurns.size(), results.size());
+        for (int i = 0; i < completedTurns; i++) {
             builder.addMessage(assistantTurns.get(i));
             builder.addUserMessageOfBlockParams(results.get(i));
         }
@@ -473,6 +476,11 @@ public class ClaudeAskEngine implements AskEngine {
         if (text == null) {
             return "";
         }
-        return text.length() <= 40 ? text : text.substring(0, 40) + "…";
+        if (text.length() <= 40) {
+            return text;
+        }
+        // Never end on half of a surrogate pair.
+        int end = Character.isHighSurrogate(text.charAt(39)) ? 39 : 40;
+        return text.substring(0, end) + "…";
     }
 }
