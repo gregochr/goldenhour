@@ -209,6 +209,15 @@ coming-up:
                             # through config rather than hardcoded, ready for P7
 
 photocast:
+  # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; the defaults
+  # are all "off". Uncomment to change one.
+  #   ask:
+  #     enabled: false              # the whole feature; false answers 404 on every Ask endpoint
+  #     stub: false                 # true = StubAskEngine: no Anthropic call, no cost row. NEVER
+  #                                 # true in production (it would answer every question from a
+  #                                 # template); false (the default) bills the real key
+  #     seed-local-fixture: false   # local profile only, H2 only: writes "Fixture ..." regions,
+  #                                 # rated entries and a briefing build into the local database
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.

@@ -16,7 +16,6 @@ import com.anthropic.models.messages.ToolUseBlock;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -30,18 +29,16 @@ import com.gregochr.goldenhour.service.evaluation.ModelRequestSupport;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -91,7 +88,7 @@ import java.util.concurrent.TimeoutException;
  * tool result, or in {@code api_call_log} (the request body is not stored).
  */
 @Service
-@ConditionalOnProperty(name = "photocast.ask.stub", havingValue = "false", matchIfMissing = true)
+@Conditional(AskEngineSelection.ClaudeSelected.class)
 public class ClaudeAskEngine implements AskEngine {
 
     private static final Logger LOG = LoggerFactory.getLogger(ClaudeAskEngine.class);
@@ -157,14 +154,7 @@ public class ClaudeAskEngine implements AskEngine {
             AskRunOptions options) {
         AskRunOptions opts = options == null ? AskRunOptions.none() : options;
         boolean ready = !user.hasUser();
-        if (ready && opts.readyJobRunId() == null) {
-            throw new IllegalArgumentException(
-                    "a user-less (Ready) conversation needs the ASK_READY job run to bill");
-        }
-        if (!ready && opts.readyJobRunId() != null) {
-            throw new IllegalArgumentException("a typed conversation is billed to the daily ASK run, "
-                    + "not to a Ready run");
-        }
+        opts.requireConsistentWith(user);
         if (question.sanitised() == null || question.sanitised().isBlank()) {
             return failed("the question is empty", 0, false, List.of());
         }
@@ -448,18 +438,7 @@ public class ClaudeAskEngine implements AskEngine {
 
     /** The question's region names, or empty when an id does not resolve. */
     private Optional<Set<String>> resolveScope(AskQuestion question) {
-        Set<Long> ids = new LinkedHashSet<>(question.regionIds());
-        if (ids.isEmpty()) {
-            return Optional.of(Set.of());
-        }
-        List<RegionEntity> found = regionRepository.findAllById(ids);
-        Set<String> names = new TreeSet<>();
-        Set<Long> foundIds = new LinkedHashSet<>();
-        for (RegionEntity region : found) {
-            foundIds.add(region.getId());
-            names.add(region.getName());
-        }
-        return foundIds.containsAll(ids) ? Optional.of(names) : Optional.empty();
+        return AskScopes.resolve(regionRepository, question);
     }
 
     /**

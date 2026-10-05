@@ -231,6 +231,21 @@ management:
       enabled: false
 
 photocast:
+  # Ask PhotoCast, local development. Both settings below are safe as committed defaults: the stub
+  # engine makes no Anthropic call and writes no cost row, so a local run spends nothing.
+  # NEVER set `stub: false` here to "try the real thing": it bills the real Anthropic key (about 1p a
+  # question). To rehearse the real engine, override on the command line for that one run.
+  ask:
+    enabled: true
+    stub: true
+    # Off by default, and an override rather than a default: the fixture seeder writes three
+    # "Fixture ..." regions, their locations, rated cache entries and synthetic tide extremes into
+    # YOUR local H2 file, then triggers a briefing build. That build makes the same Claude calls a
+    # normal build does (gloss, best bet) with whatever ANTHROPIC_API_KEY is set, so with a real key
+    # it spends a few cents on every start that needs a rebuild. Turn it on for one run with
+    #   -Dspring-boot.run.arguments=--photocast.ask.seed-local-fixture=true
+    # (best against a fresh database: -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:h2:file:./data/ask-fixture;AUTO_SERVER=TRUE").
+    seed-local-fixture: false
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.

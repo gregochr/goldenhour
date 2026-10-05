@@ -28,6 +28,28 @@ public record AskRunOptions(BestAnchor anchor, Long readyJobRunId) {
     }
 
     /**
+     * Checks that these options belong to this kind of conversation: a user-less (Ready)
+     * conversation needs the Ready job run to bill and a typed one must not carry one. Shared by
+     * every engine, so the stub refuses exactly what the Claude engine refuses and a caller bug
+     * shows up locally rather than in production.
+     *
+     * @param user who is asking
+     * @throws IllegalArgumentException on a mismatch: a caller bug, so loud rather than a quiet
+     *         FAILED
+     */
+    public void requireConsistentWith(AskUserContext user) {
+        boolean ready = !user.hasUser();
+        if (ready && readyJobRunId == null) {
+            throw new IllegalArgumentException(
+                    "a user-less (Ready) conversation needs the ASK_READY job run to bill");
+        }
+        if (!ready && readyJobRunId != null) {
+            throw new IllegalArgumentException("a typed conversation is billed to the daily ASK run, "
+                    + "not to a Ready run");
+        }
+    }
+
+    /**
      * A Ready precompute conversation.
      *
      * @param readyJobRunId the {@code ASK_READY} run to bill
