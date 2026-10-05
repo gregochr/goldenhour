@@ -52,8 +52,10 @@ conflict with a recorded project rule.
 
 ### 1. "Best spot this weekend?" is unanswerable for most of the week
 The mock's own scenario (*today is Monday 5 Oct; the weekend is Sat 10 and Sun 11*) is beyond the
-scored horizon: Gate 4 never scores T+4+, and only the first six upcoming events carry a served
-`BriefingWindow` (`PlanWindowProjector`, `PlanRenderLimits.MAX_VISIBLE_EVENTS`). **Ready questions
+scored horizon: Gate 4 never scores T+4+, and only the first six upcoming events are rendered
+(`PlanWindowProjector` publishes them as `DailyBriefingResponse.renderedEvents`, capped by
+`PlanRenderLimits.MAX_VISIBLE_EVENTS`; every summary carries a `BriefingWindow`, so the cap is
+`renderedEvents`, not window presence). **Ready questions
 are a horizon-aware catalogue** (§2.4), not a fixed six.
 
 ### 2. A Ready answer is shared, so it cannot mention home
@@ -185,9 +187,11 @@ one card.
 ### 2.1 Identity
 - **Window id:** `yyyy-MM-dd_sunrise|sunset` — the encoding `BriefingRollupBuilder.java:149-150`
   already uses. A pick also carries `date` and `targetType` separately.
-- **The window set** is the event summaries of the served briefing whose `window()` is non-null,
-  that `PlanWindowProjector.hasPassed` has not retired, and that are not travel days (B1 verifies
-  how a travel day is marked and excludes it). Solar only. Every tool and every Ready predicate
+- **The window set** is the events listed in the served briefing's `renderedEvents` (every event
+  summary carries a `window()`; the six-event cap is `renderedEvents`), with a non-null `window()`,
+  that `PlanWindowProjector.hasPassed` has not retired, and that are not travel days (the served
+  briefing does not mark a travel day; B1 uses `TravelDayService.isTravelDay`). A null or empty
+  `renderedEvents` yields no windows. Solar only. Every tool and every Ready predicate
   uses this set and nothing wider.
 - **`generatedAt` is a label and an invalidation hint, not the identity of the ratings.** Ratings
   are re-enriched on every serve and hot topics recomputed live. Freshness is therefore checked
@@ -207,7 +211,9 @@ window: id, date, target type, event time, served verdict, best rating, and the 
 
 The snapshot is memoised for 30 seconds (the assembly is not cheap; CLAUDE.md's digest note).
 
-**Pick-eligible slot:** non-null `locationId`; not `canopy`; non-null `claudeRating` ≥ 3; its
+**Pick-eligible slot:** non-null `locationId` and a non-blank name (a card needs one); not
+`canopy`; a `claudeRating` on Claude's 1–5 scale (`RatingValidator.isInRange`, the bound
+`PlanWindowProjector.usableRating` applies — a malformed 491 is refused by both) and ≥ 3; its
 region `verdictEligible()`; its window in the window set.
 
 | Tool | Arguments | Returns |
@@ -266,6 +272,15 @@ Rules:
   - `answerable:true` with no surviving pick or event is allowed only if a tool was called
   - **Ready `BEST_*` questions only:** if a BEST pick exists on a window the question covers, pick
     1 must be on that window; otherwise the answer is discarded (logged at WARN, not stored)
+  - **Event safety notes are mandatory and never the model's:** an event's `safetyNote` (the solar
+    eclipse's lens-filter warning, `HotTopic.safetyNote`) is re-joined from the served topic a tool
+    returned, exactly as its label and date are. The model has no field to write one, and an event
+    whose served topic has one always carries it. The Coming up feed's `ComingUpEntry` carries no
+    safety note, so for an almanac entry of type `eclipse` (the SOLAR eclipse, never
+    `lunar-eclipse`, whose note is not a safety warning) the Ask snapshot attaches the same
+    `EclipseHotTopicStrategy.SAFETY_NOTE` constant the hot topic uses — one string, one home — and
+    `get_coming_up` rows and the evidence carry it, so a solar eclipse never reaches an answer
+    without the warning, whichever tool returned it.
   - Residual, stated: the summary's prose is not fact-checked. The cards beside it carry served
     facts.
 - **Cost.** Two run types, `RunType.ASK` (typed and dry-run) and `RunType.ASK_READY` (precompute);
@@ -495,7 +510,7 @@ record AskQuestion(String sanitised, String normalised, String windowId, List<Lo
 record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes) {}   // null userId = user-less
 record AskPick(int rank, long locationId, String locationName, String regionName, LocalDate date,
                TargetType targetType, String windowId, String why, Integer ratingAtAnswer, String verdictAtAnswer) {}
-record AskEvent(String type, String label, LocalDate date, String why) {}
+record AskEvent(String type, String label, LocalDate date, String why, String safetyNote) {}  // safetyNote nullable, omitted on the wire when null
 record AskAnswer(boolean answerable, String summary, List<AskPick> picks, List<AskEvent> events, String missing) {}
 record AskOutcome(Status status, AskAnswer answer, boolean personal, int turns) { enum Status { OK, CANT, FAILED } }
 ```
@@ -507,7 +522,8 @@ record AskOutcome(Status status, AskAnswer answer, boolean personal, int turns) 
   "answer":{"answerable":true,"kind":"ready","summary":"…",
     "picks":[{"rank":1,"locationId":123,"locationName":"Whitby","regionName":"North York Moors & Coast",
               "date":"2026-10-05","targetType":"SUNSET","windowId":"2026-10-05_sunset","why":"…"}],
-    "events":[{"type":"AURORA","label":"Aurora","date":"2026-10-10","why":"…"}],
+    "events":[{"type":"ECLIPSE","label":"Partial solar eclipse","date":"2026-10-10","why":"…",
+               "safetyNote":"Certified solar filter on the lens — not only over your eye"}],
     "missing":null,"try":[]}}]}
 ```
 
@@ -564,7 +580,7 @@ No Claude, no controller, no migration.
 - the 2026-09-29 shape: three hand-run 4★ slots in an ineligible region of 40 are never returned
 - a 5★ wood beside a 3★ headland: the wood is never returned
 - a HIGH-state, LOW-wanting coastal slot: `tideState` HIGH, `tideAligned` false, both present
-- events 7–8 (no `window()`), passed windows at the minute boundary, travel days: excluded
+- events 7–8 (they carry a `window()` but are not in `renderedEvents`), passed windows at the minute boundary, travel days: excluded
 - `bestBet` location sorts first among equal ratings; `list_windows` exposes the pick
 - nothing eligible → empty list with the note
 - a null `locationId` slot is skipped; unknown ids are error results; the 6,000-character cap
@@ -639,8 +655,10 @@ never return a raw question.
 **Files:** `api/askApi.js`, `hooks/useAskReady.js`, `hooks/useAskAllowance.js`,
 `context/AskContext.jsx`, `utils/askModel.js`, `components/ask/AskConversation.jsx`,
 `AskPickCard.jsx`, `AskEventCard.jsx`, `AskContextChips.jsx`, their CSS. Nothing is mounted in the
-app. Fixtures are the literal JSON of §2.9.
-**Tests:** every state — empty, busy (both lines), answer, can't answer (from the pre-filter shape
+app. Fixtures are the literal JSON of §2.9. `AskEventCard` renders an event's `safetyNote`
+visibly whenever it is present, outside every role gate and every narrow-viewport drop.
+**Tests:** an event with a `safetyNote` renders it visibly for LITE, PRO and ADMIN and at a narrow
+width, and an event without one renders none; every state — empty, busy (both lines), answer, can't answer (from the pre-filter shape
 and from `kind: cant`), allowance used up, each error code; a Ready tap makes no POST; a typed
 `kind: ready` reply is rendered as Ready with "no question used"; the count comes from the
 response, never decremented locally; a pick with no slot is dropped; drive is the **home** map even
@@ -744,6 +762,11 @@ later session may change them; §7 measured; the production enable checklist (fl
 23. Scope follows the Map's scope segment, not the viewport; Plan sends no window chip (§2.6).
 24. Drive on a card is always from home (§1 #24).
 25. No Ask on the Operations tab.
+26. Ask attaches the solar-eclipse lens-filter warning to almanac entries itself (§2.3). An
+    observation for the owner, not something this series changes: the Coming up tab itself carries
+    no solar-eclipse safety warning today (`ComingUpEntry` has no such field and
+    `ComingUpAssembler.enrichEclipse` sets none), so the warning exists on the Plan card's hot topic
+    and, through Ask, nowhere on the feed.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

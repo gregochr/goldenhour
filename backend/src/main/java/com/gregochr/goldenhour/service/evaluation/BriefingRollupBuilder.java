@@ -22,6 +22,7 @@ import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.PlanRenderLimits;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
+import com.gregochr.goldenhour.service.ask.AskWindowId;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
@@ -142,12 +143,12 @@ public final class BriefingRollupBuilder {
                     break;
                 }
                 eventCount++;
-                // Locale.ROOT, not the default locale: this id is matched key-for-key by
-                // BriefingHonestyFilter's Best Bet withdrawal. Under a Turkish default locale
-                // SUNRISE lowercases with a dotless i, the keys stop matching, and the
-                // withdrawal silently no-ops for sunrise picks while still working for sunset.
-                String eventId = day.date() + "_"
-                        + es.targetType().name().toLowerCase(java.util.Locale.ROOT);
+                // The id is built by AskWindowId, the one codec, with Locale.ROOT, not the default
+                // locale: it is matched key-for-key by BriefingHonestyFilter's Best Bet withdrawal.
+                // Under a Turkish default locale SUNRISE lowercases with a dotless i, the keys stop
+                // matching, and the withdrawal silently no-ops for sunrise picks while still
+                // working for sunset.
+                String eventId = AskWindowId.format(day.date(), es.targetType());
                 String dayName = day.date().getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
                 validEvents.add(eventId);
                 validDayNames.add(dayName);
@@ -428,8 +429,7 @@ public final class BriefingRollupBuilder {
         int slotsWithScores = 0;
         for (BriefingDay day : days) {
             for (BriefingEventSummary es : day.eventSummaries()) {
-                String eventId = day.date().toString() + "_"
-                        + es.targetType().name().toLowerCase(java.util.Locale.ROOT);
+                String eventId = AskWindowId.format(day.date(), es.targetType());
                 if (!validEvents.contains(eventId)) {
                     continue;
                 }

@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -127,10 +128,6 @@ public final class PlanWindowProjector {
                             Comparator.nullsLast(Comparator.naturalOrder()))
                     .thenComparing(d -> d.key().date())
                     .thenComparing(d -> d.key().targetType());
-
-    /** Claude's rating scale, inclusive — anything outside it is a bad row, not a score. */
-    private static final int MIN_RATING = 1;
-    private static final int MAX_RATING = 5;
 
     private static final String EVENT_SUNRISE = "SUNRISE";
     private static final String EVENT_SUNSET = "SUNSET";
@@ -430,8 +427,9 @@ public final class PlanWindowProjector {
      * by the region average and by the ranking could still become the Best Bet's destination.
      */
     private static boolean usableRating(BriefingSlot slot) {
-        Integer rating = slot.claudeRating();
-        return rating != null && rating >= MIN_RATING && rating <= MAX_RATING;
+        // Claude's 1-5 scale, inclusive: anything outside it is a bad row, not a score. The range
+        // test lives in RatingValidator so Ask's pick eligibility applies the identical bound.
+        return RatingValidator.isInRange(slot.claudeRating());
     }
 
     /**
