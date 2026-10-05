@@ -262,7 +262,9 @@ class EclipseHotTopicStrategyTest {
             HotTopic topic = detectOne();
 
             assertThat(topic.safetyNote())
-                    .isEqualTo("Certified solar filter on the lens — not only over your eye");
+                    .isEqualTo("Certified solar filter on the lens — not only over your eye")
+                    .as("one string, one home: Ask attaches this same constant")
+                    .isEqualTo(EclipseHotTopicStrategy.SAFETY_NOTE);
 
             // The whole reason for the separate field: `facts` and `note` render only inside the
             // pill's fact row, which is blurred and dimmed for LITE users. A blurred eye-safety

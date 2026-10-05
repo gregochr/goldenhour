@@ -249,10 +249,12 @@ public class AskTools {
      * @param start  the first date (ISO)
      * @param end    the last date (ISO)
      * @param detail the detail, at most {@value AskTools#DETAIL_CAP} characters, or null
+     * @param safetyNote the warning that goes with this entry (a solar eclipse's lens-filter note),
+     *                   returned whole, or null; the model may mention it
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ComingUpInfo(String type, String title, String start, String end,
-            String detail) {
+            String detail, String safetyNote) {
     }
 
     /**
@@ -436,11 +438,12 @@ public class AskTools {
                 .toList();
         List<ComingUpInfo> infos = kept.stream()
                 .map(e -> new ComingUpInfo(e.type(), e.title(), iso(e.startDate()),
-                        iso(e.endDate()), cap(e.detail(), DETAIL_CAP)))
+                        iso(e.endDate()), cap(e.detail(), DETAIL_CAP), e.safetyNote()))
                 .toList();
         return finish("get_coming_up", new ComingUpResult(infos), () -> {
             for (AskSnapshot.ComingUp e : kept) {
-                events.add(new AskEvidence.EventFact(upper(e.type()), e.title(), e.startDate()));
+                events.add(new AskEvidence.EventFact(upper(e.type()), e.title(), e.startDate(),
+                        e.safetyNote()));
             }
         });
     }

@@ -12,6 +12,8 @@ import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.EclipseAlmanacSource;
+import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
 import com.gregochr.goldenhour.service.PlanWindowProjector;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.TravelDayService;
@@ -230,13 +232,26 @@ public class AskSnapshotBuilder {
                 .toList();
     }
 
+    /**
+     * The warning Ask attaches to an almanac entry of this type: the solar eclipse's lens-filter
+     * note, from the same constant the hot topic uses, and nothing for any other type. The lunar
+     * eclipse (type {@code lunar-eclipse}) carries no safety warning, so it gets none.
+     *
+     * @param almanacType the entry's almanac type
+     * @return the safety note, or null
+     */
+    static String safetyNoteFor(String almanacType) {
+        return EclipseAlmanacSource.TYPE.equalsIgnoreCase(almanacType)
+                ? EclipseHotTopicStrategy.SAFETY_NOTE : null;
+    }
+
     private List<AskSnapshot.ComingUp> comingUp() {
         try {
             List<ComingUpEntry> entries = almanacService.getFeed(AlmanacService.DEFAULT_DAYS)
                     .entries();
             return entries.stream()
                     .map(e -> new AskSnapshot.ComingUp(e.type(), e.title(), e.startDate(),
-                            e.endDate(), e.detail()))
+                            e.endDate(), e.detail(), safetyNoteFor(e.type())))
                     .toList();
         } catch (RuntimeException e) {
             // The almanac is an extra surface; Ask still answers about windows without it.

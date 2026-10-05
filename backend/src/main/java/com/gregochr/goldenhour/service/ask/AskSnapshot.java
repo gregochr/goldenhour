@@ -154,9 +154,11 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param startDate the first date
      * @param endDate   the last date
      * @param detail    the entry detail, or null
+     * @param safetyNote the warning Ask attaches to this entry (the solar eclipse's lens-filter
+     *                   note), or null; the feed's own entries carry none
      */
     public record ComingUp(String type, String title, LocalDate startDate, LocalDate endDate,
-            String detail) {
+            String detail, String safetyNote) {
     }
 
     /**

@@ -38,8 +38,8 @@ import java.util.Optional;
 @Component
 public class EclipseAlmanacSource implements AlmanacSource {
 
-    /** Machine-readable discriminator. */
-    static final String TYPE = "eclipse";
+    /** Machine-readable discriminator of the solar eclipse entry (not {@code lunar-eclipse}). */
+    public static final String TYPE = "eclipse";
 
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");

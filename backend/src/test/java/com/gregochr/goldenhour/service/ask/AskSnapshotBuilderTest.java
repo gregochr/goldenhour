@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.TravelDayService;
 import org.junit.jupiter.api.BeforeEach;
@@ -347,6 +348,18 @@ class AskSnapshotBuilderTest {
 
         assertThat(snapshot.hotTopics()).extracting(AskSnapshot.Topic::safetyNote)
                 .containsExactly("Certified solar filter on the lens", null);
+    }
+
+    @Test
+    @DisplayName("only the solar eclipse almanac entry gets the safety note; the lunar eclipse and others do not")
+    void safetyNoteFor_isTheSolarEclipseOnly() {
+        assertThat(AskSnapshotBuilder.safetyNoteFor("eclipse"))
+                .isEqualTo(EclipseHotTopicStrategy.SAFETY_NOTE);
+        assertThat(AskSnapshotBuilder.safetyNoteFor("ECLIPSE"))
+                .isEqualTo(EclipseHotTopicStrategy.SAFETY_NOTE);
+        assertThat(AskSnapshotBuilder.safetyNoteFor("lunar-eclipse")).isNull();
+        assertThat(AskSnapshotBuilder.safetyNoteFor("supermoon")).isNull();
+        assertThat(AskSnapshotBuilder.safetyNoteFor(null)).isNull();
     }
 
     @Test

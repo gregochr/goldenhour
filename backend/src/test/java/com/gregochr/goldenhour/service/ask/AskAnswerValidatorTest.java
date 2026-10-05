@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Raw;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawEvent;
@@ -328,6 +329,31 @@ class AskAnswerValidatorTest {
 
         assertThat(silent.answer().events().getFirst().safetyNote()).isEqualTo(WARNING);
         assertThat(contradicting.answer().events().getFirst().safetyNote()).isEqualTo(WARNING);
+    }
+
+    @Test
+    @DisplayName("a solar eclipse validated from get_coming_up evidence alone carries the note; a lunar one none")
+    void event_fromTheAlmanacAlone_solarCarriesTheNoteLunarNone() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskSnapshot withAlmanac = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()), List.of(
+                AskSnapshotBuilderTest.almanacEntry("eclipse", "Partial solar eclipse",
+                        TODAY.plusDays(40), TODAY.plusDays(40), "A partial eclipse"),
+                AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse",
+                        TODAY.plusDays(50), TODAY.plusDays(50), "Moon in shadow")));
+        AskTools tools = new AskTools(withAlmanac, AskUserContext.userLess(), Set.of(), null,
+                new com.fasterxml.jackson.databind.ObjectMapper());
+        tools.getComingUp(null);
+
+        Result result = validate(new Raw(true, "Two eclipses.", null, List.of(
+                new RawEvent("eclipse", null, "Worth planning"),
+                new RawEvent("LUNAR-ECLIPSE", null, "Easy to watch")), null),
+                snapshot, tools.evidence());
+
+        assertThat(result.answer().events()).extracting(AskEvent::type)
+                .containsExactly("ECLIPSE", "LUNAR-ECLIPSE");
+        assertThat(result.answer().events().get(0).safetyNote())
+                .isEqualTo(EclipseHotTopicStrategy.SAFETY_NOTE);
+        assertThat(result.answer().events().get(1).safetyNote()).isNull();
     }
 
     @Test

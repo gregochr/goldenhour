@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
 import com.gregochr.goldenhour.service.ask.AskTools.ComingUpArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.ComingUpResult;
 import com.gregochr.goldenhour.service.ask.AskTools.HotTopicsArgs;
@@ -594,17 +595,29 @@ class AskToolsTest {
     }
 
     @Test
-    @DisplayName("the Coming up feed carries no safety note: its rows have none and offer none")
-    void getComingUp_rowsCarryNoSafetyNote() {
+    @DisplayName("a solar eclipse from get_coming_up carries the shared lens-filter note, a lunar one none")
+    void getComingUp_solarEclipseCarriesTheNote() {
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()),
                 List.of(AskSnapshotBuilderTest.almanacEntry("eclipse", "Partial solar eclipse",
-                        TODAY.plusDays(40), TODAY.plusDays(40), "A partial eclipse")));
+                                TODAY.plusDays(40), TODAY.plusDays(40), "A partial eclipse"),
+                        AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse",
+                                TODAY.plusDays(50), TODAY.plusDays(50), "Moon in shadow"),
+                        AskSnapshotBuilderTest.almanacEntry("SUPERMOON", "Supermoon",
+                                TODAY.plusDays(60), TODAY.plusDays(60), "Big moon")));
         AskTools tools = tools(snapshot);
 
         AskToolResult result = tools.getComingUp(null);
 
-        assertThat(parse(result.content()).path("entries").get(0).has("safetyNote")).isFalse();
-        assertThat(tools.evidence().events()).allSatisfy(e -> assertThat(e.safetyNote()).isNull());
+        JsonNode entries = parse(result.content()).path("entries");
+        assertThat(entries.get(0).path("safetyNote").asText())
+                .isEqualTo(EclipseHotTopicStrategy.SAFETY_NOTE);
+        assertThat(entries.get(1).has("safetyNote")).as("lunar eclipse").isFalse();
+        assertThat(entries.get(2).has("safetyNote")).as("supermoon").isFalse();
+        assertThat(tools.evidence().events()).containsExactlyInAnyOrder(
+                new AskEvidence.EventFact("ECLIPSE", "Partial solar eclipse", TODAY.plusDays(40),
+                        EclipseHotTopicStrategy.SAFETY_NOTE),
+                new AskEvidence.EventFact("LUNAR-ECLIPSE", "Total lunar eclipse", TODAY.plusDays(50), null),
+                new AskEvidence.EventFact("SUPERMOON", "Supermoon", TODAY.plusDays(60), null));
     }
 
     @Test

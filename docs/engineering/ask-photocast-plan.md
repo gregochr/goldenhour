@@ -273,8 +273,12 @@ Rules:
   - **Event safety notes are mandatory and never the model's:** an event's `safetyNote` (the solar
     eclipse's lens-filter warning, `HotTopic.safetyNote`) is re-joined from the served topic a tool
     returned, exactly as its label and date are. The model has no field to write one, and an event
-    whose served topic has one always carries it. (The Coming up feed's `ComingUpEntry` carries no
-    safety note today, so an almanac-sourced event has none to join.)
+    whose served topic has one always carries it. The Coming up feed's `ComingUpEntry` carries no
+    safety note, so for an almanac entry of type `eclipse` (the SOLAR eclipse, never
+    `lunar-eclipse`, whose note is not a safety warning) the Ask snapshot attaches the same
+    `EclipseHotTopicStrategy.SAFETY_NOTE` constant the hot topic uses — one string, one home — and
+    `get_coming_up` rows and the evidence carry it, so a solar eclipse never reaches an answer
+    without the warning, whichever tool returned it.
   - Residual, stated: the summary's prose is not fact-checked. The cards beside it carry served
     facts.
 - **Cost.** Two run types, `RunType.ASK` (typed and dry-run) and `RunType.ASK_READY` (precompute);
@@ -756,6 +760,11 @@ later session may change them; §7 measured; the production enable checklist (fl
 23. Scope follows the Map's scope segment, not the viewport; Plan sends no window chip (§2.6).
 24. Drive on a card is always from home (§1 #24).
 25. No Ask on the Operations tab.
+26. Ask attaches the solar-eclipse lens-filter warning to almanac entries itself (§2.3). An
+    observation for the owner, not something this series changes: the Coming up tab itself carries
+    no solar-eclipse safety warning today (`ComingUpEntry` has no such field and
+    `ComingUpAssembler.enrichEclipse` sets none), so the warning exists on the Plan card's hot topic
+    and, through Ask, nowhere on the feed.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
