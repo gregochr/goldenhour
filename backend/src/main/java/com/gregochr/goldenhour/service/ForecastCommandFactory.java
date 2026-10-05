@@ -159,7 +159,7 @@ public class ForecastCommandFactory {
             case WEATHER -> strategies.get(EvaluationModel.WILDLIFE);
             case TIDE, LIGHT_POLLUTION, BRIEFING, BRIEFING_BEST_BET, BRIEFING_GLOSS,
                     AURORA_EVALUATION, AURORA_GLOSS, BLUEBELL_GLOSS,
-                    SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM -> null;
+                    SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM, ASK, ASK_READY -> null;
         };
     }
 

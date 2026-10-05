@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BatchCallOutcome;
 import org.springframework.data.domain.Pageable;
@@ -8,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -89,4 +91,19 @@ public interface ApiCallLogRepository extends JpaRepository<ApiCallLogEntity, Lo
             + "FROM ApiCallLogEntity a "
             + "WHERE a.isBatch = true AND a.batchId IN :batchIds AND a.customId IS NOT NULL")
     List<BatchCallOutcome> findBatchCallOutcomes(@Param("batchIds") Collection<String> batchIds);
+
+    /**
+     * Sums the recorded cost of every call logged against runs of one type that started at or after
+     * a moment. Ask's typed spend is this over its {@code ASK} runs since UK midnight; the
+     * {@code ASK_READY} precompute runs are a different type and never counted. Served by
+     * {@code idx_api_call_log_job_run}.
+     *
+     * @param runType the run type
+     * @param since   the earliest run start, inclusive (UTC)
+     * @return the total in micro-dollars; zero when nothing was logged
+     */
+    @Query("SELECT COALESCE(SUM(a.costMicroDollars), 0) FROM ApiCallLogEntity a WHERE a.jobRunId IN "
+            + "(SELECT j.id FROM JobRunEntity j WHERE j.runType = :runType AND j.startedAt >= :since)")
+    long sumCostMicroDollarsByRunTypeStartedSince(@Param("runType") RunType runType,
+            @Param("since") LocalDateTime since);
 }

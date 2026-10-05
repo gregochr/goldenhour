@@ -42,6 +42,18 @@ resilience4j:
   circuitbreaker:
     circuitBreakerAspectOrder: 1
     instances:
+      # Ask PhotoCast's own breaker (AnthropicApiClient.createAskMessage): a reader's questions must
+      # never be able to open the "anthropic" breaker the forecast pipeline shares. No health
+      # indicator, so a breaker that opens on questions cannot flip the application's health.
+      ask:
+        registerHealthIndicator: false
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
       anthropic:
         registerHealthIndicator: true
         slidingWindowType: COUNT_BASED
@@ -73,6 +85,10 @@ resilience4j:
   retry:
     retryAspectOrder: 2
     instances:
+      # Ask PhotoCast model turns: two attempts, server errors only (AskRetryPredicate).
+      ask:
+        maxAttempts: 2
+        waitDuration: 500ms
       anthropic:
         maxAttempts: 4
         waitDuration: 1s
@@ -107,6 +123,11 @@ resilience4j:
   bulkhead:
     bulkheadAspectOrder: 4
     instances:
+      # Ask PhotoCast: at most four conversations talk to Claude at once; a fifth waits two seconds
+      # and is then turned away (counted as load, not as a Claude fault, by the ask breaker).
+      ask:
+        maxConcurrentCalls: 4
+        maxWaitDuration: 2s
       forecast:
         maxConcurrentCalls: 8
         maxWaitDuration: 120s
