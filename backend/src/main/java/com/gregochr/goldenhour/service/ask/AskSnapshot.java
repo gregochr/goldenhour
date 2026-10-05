@@ -227,13 +227,22 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @return its in-scope candidates; never null
      */
     public List<Candidate> candidates(Window window, Collection<String> scope) {
-        List<Candidate> all = candidates(window);
-        if (scope == null || scope.isEmpty()) {
-            return all;
-        }
-        return all.stream()
-                .filter(c -> scope.stream().anyMatch(s -> s.equalsIgnoreCase(c.region().name())))
+        return candidates(window).stream()
+                .filter(c -> regionInScope(scope, c.region().name()))
                 .toList();
+    }
+
+    /**
+     * Whether a region is within a question's scope: the one comparison every scope check uses.
+     *
+     * @param scope      the region names, matched case-insensitively; null or empty means every
+     *                   region
+     * @param regionName the region to test
+     * @return true when the scope is open or names the region
+     */
+    public static boolean regionInScope(Collection<String> scope, String regionName) {
+        return scope == null || scope.isEmpty()
+                || scope.stream().anyMatch(s -> s != null && s.equalsIgnoreCase(regionName));
     }
 
     /**

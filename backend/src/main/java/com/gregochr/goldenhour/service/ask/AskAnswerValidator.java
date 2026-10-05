@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -94,15 +95,16 @@ public class AskAnswerValidator {
      * BET (plan §1 #6) — two different "bests" on one screen is the aggregator divergence the
      * project has already paid for.
      *
+     * <p>It has no scope of its own: the question's one scope is the {@code scope} argument of
+     * {@link #validate}, so the anchor and the pick filter cannot be given two that differ.
+     *
      * @param windowIds the windows the question covers
-     * @param scope     the region names the question is about; empty means every region
      */
-    public record BestAnchor(Set<String> windowIds, Set<String> scope) {
+    public record BestAnchor(Set<String> windowIds) {
 
-        /** Canonical constructor: takes immutable copies; null reads as empty. */
+        /** Canonical constructor: takes an immutable copy; null reads as empty. */
         public BestAnchor {
             windowIds = windowIds == null ? Set.of() : Set.copyOf(windowIds);
-            scope = scope == null ? Set.of() : Set.copyOf(scope);
         }
     }
 
@@ -130,10 +132,14 @@ public class AskAnswerValidator {
      * @param raw      the model's submitted answer
      * @param snapshot the snapshot the conversation ran against
      * @param evidence what the conversation's tools returned
+     * @param scope    the region names the question is about, matched case-insensitively; null or
+     *                 empty means every region. Enforced here, not left to the evidence being
+     *                 scoped: a pick whose region is outside it is dropped
      * @param anchor   the Ready {@code BEST_*} rule, or null for every other question
      * @return the validated answer, or the reason it was discarded
      */
-    public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence, BestAnchor anchor) {
+    public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
+            Collection<String> scope, BestAnchor anchor) {
         String summary = clean(raw.summary(), SUMMARY_WORDS);
         if (summary == null || summary.isBlank()) {
             return discard("no summary");
@@ -143,19 +149,19 @@ public class AskAnswerValidator {
             missing = null;
         }
         if (!raw.answerable()) {
-            if (anchor != null && anchoredWindow(snapshot, anchor).isPresent()) {
+            if (anchor != null && anchoredWindow(snapshot, anchor, scope).isPresent()) {
                 return discard("a BEST question cannot be unanswerable while the forecast has a BEST BET");
             }
             return new Result(new AskAnswer(false, summary, List.of(), List.of(), missing), null);
         }
 
-        List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence);
+        List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope);
         List<AskEvent> events = validEvents(raw.events(), evidence);
         if (picks.isEmpty() && events.isEmpty() && !evidence.anyToolCalled()) {
             return discard("answerable with no pick, no event and no tool call");
         }
         if (anchor != null) {
-            Optional<AskSnapshot.Window> lead = anchoredWindow(snapshot, anchor);
+            Optional<AskSnapshot.Window> lead = anchoredWindow(snapshot, anchor, scope);
             if (lead.isPresent()
                     && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
                 LOG.warn("[ASK] Discarded a BEST answer that does not lead with the BEST BET window {}",
@@ -175,17 +181,17 @@ public class AskAnswerValidator {
      * ask about, would make every answer unsatisfiable.
      */
     private static Optional<AskSnapshot.Window> anchoredWindow(AskSnapshot snapshot,
-            BestAnchor anchor) {
+            BestAnchor anchor, Collection<String> scope) {
         return snapshot.windows().stream()
                 .filter(w -> anchor.windowIds().contains(w.id()))
                 .filter(w -> w.pick() != null && w.pick().kind() == BriefingWindow.PickKind.BEST)
-                .filter(w -> anchor.scope().isEmpty() || anchor.scope().stream()
-                        .anyMatch(s -> s.equalsIgnoreCase(w.pick().regionName())))
-                .filter(w -> !snapshot.candidates(w, anchor.scope()).isEmpty())
+                .filter(w -> AskSnapshot.regionInScope(scope, w.pick().regionName()))
+                .filter(w -> !snapshot.candidates(w, scope).isEmpty())
                 .findFirst();
     }
 
-    private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence) {
+    private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence,
+            Collection<String> scope) {
         List<AskPick> out = new ArrayList<>();
         Set<Long> seen = new HashSet<>();
         for (RawPick pick : raw) {
@@ -198,7 +204,8 @@ public class AskAnswerValidator {
             }
             Optional<AskSnapshot.Candidate> candidate =
                     snapshot.candidate(pick.windowId(), pick.locationId());
-            if (candidate.isEmpty()) {
+            if (candidate.isEmpty()
+                    || !AskSnapshot.regionInScope(scope, candidate.get().region().name())) {
                 continue;
             }
             seen.add(pick.locationId());

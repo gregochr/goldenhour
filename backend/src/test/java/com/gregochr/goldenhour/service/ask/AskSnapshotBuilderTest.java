@@ -157,9 +157,9 @@ class AskSnapshotBuilderTest {
         assertThat(builder.build().orElseThrow().windows())
                 .as("exactly at the afterglow limit it is still current").hasSize(1);
 
-        when(freshness.now()).thenReturn(NOW.plusMinutes(1));
+        when(freshness.now()).thenReturn(NOW.plusSeconds(1));
         assertThat(builder.build().orElseThrow().windows())
-                .as("one minute past it, it has passed").isEmpty();
+                .as("one second past it, it has passed").isEmpty();
     }
 
     @Test
@@ -383,7 +383,7 @@ class AskSnapshotBuilderTest {
         stub(AskFixtures.briefing(List.of(), List.of()));
 
         Optional<AskSnapshot> first = builder.current();
-        clock.set(NOW.toInstant(ZoneOffset.UTC).plusSeconds(29));
+        clock.set(NOW.toInstant(ZoneOffset.UTC).plusMillis(29_999));
         Optional<AskSnapshot> second = builder.current();
 
         assertThat(second.orElseThrow()).isSameAs(first.orElseThrow());

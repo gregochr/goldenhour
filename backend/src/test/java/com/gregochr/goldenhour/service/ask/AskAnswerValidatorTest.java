@@ -56,7 +56,7 @@ class AskAnswerValidatorTest {
     }
 
     private Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence) {
-        return validator.validate(raw, snapshot, evidence, null);
+        return validator.validate(raw, snapshot, evidence, null, null);
     }
 
     // -- picks ------------------------------------------------------------------------------
@@ -454,7 +454,7 @@ class AskAnswerValidatorTest {
     }
 
     private static final BestAnchor ANCHOR =
-            new BestAnchor(Set.of(SUNSET_TODAY, SUNRISE_TOMORROW), Set.of());
+            new BestAnchor(Set.of(SUNSET_TODAY, SUNRISE_TOMORROW));
 
     private static final AskEvidence BOTH_WINDOWS = new AskEvidence(Set.of(
             new AskEvidence.Pair(1L, SUNSET_TODAY), new AskEvidence.Pair(2L, SUNSET_TODAY),
@@ -464,7 +464,7 @@ class AskAnswerValidatorTest {
     @DisplayName("BEST_*: pick 1 on the BEST BET window is accepted, whichever location leads there")
     void bestAnchor_leadingWithTheBestWindowIsAccepted() {
         Result result = validator.validate(answer("Tonight.", rawPick(2L, "Brightest")),
-                twoWindowSnapshot(), BOTH_WINDOWS, ANCHOR);
+                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR);
 
         assertThat(result.accepted()).isTrue();
     }
@@ -474,7 +474,7 @@ class AskAnswerValidatorTest {
     void bestAnchor_leadingElsewhereIsDiscarded() {
         Result result = validator.validate(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x"), rawPick(1L, "y")),
-                twoWindowSnapshot(), BOTH_WINDOWS, ANCHOR);
+                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR);
 
         assertThat(result.accepted()).isFalse();
         assertThat(result.reason()).contains(SUNSET_TODAY);
@@ -483,7 +483,7 @@ class AskAnswerValidatorTest {
     @Test
     @DisplayName("BEST_*: an answer with no surviving pick at all is discarded when a BEST BET exists")
     void bestAnchor_noPickIsDiscarded() {
-        Result result = validator.validate(answer("Nothing."), twoWindowSnapshot(), BOTH_WINDOWS, ANCHOR);
+        Result result = validator.validate(answer("Nothing."), twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR);
 
         assertThat(result.accepted()).isFalse();
     }
@@ -492,7 +492,7 @@ class AskAnswerValidatorTest {
     @DisplayName("BEST_*: unanswerable is not an escape from the anchor")
     void bestAnchor_unanswerableIsDiscarded() {
         Result result = validator.validate(new Raw(false, "No.", null, null, "data"),
-                twoWindowSnapshot(), BOTH_WINDOWS, ANCHOR);
+                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR);
 
         assertThat(result.accepted()).isFalse();
     }
@@ -500,11 +500,11 @@ class AskAnswerValidatorTest {
     @Test
     @DisplayName("BEST_*: a question whose windows carry no BEST BET is not anchored")
     void bestAnchor_notAnchoredWithoutABestWindowCovered() {
-        BestAnchor tomorrowOnly = new BestAnchor(Set.of(SUNRISE_TOMORROW), Set.of());
+        BestAnchor tomorrowOnly = new BestAnchor(Set.of(SUNRISE_TOMORROW));
 
         Result result = validator.validate(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x")),
-                twoWindowSnapshot(), BOTH_WINDOWS, tomorrowOnly);
+                twoWindowSnapshot(), BOTH_WINDOWS, null, tomorrowOnly);
 
         assertThat(result.accepted()).isTrue();
     }
@@ -512,11 +512,11 @@ class AskAnswerValidatorTest {
     @Test
     @DisplayName("BEST_*: a BEST BET outside the question's scope does not anchor it")
     void bestAnchor_bestBetOutOfScope() {
-        BestAnchor otherScope = new BestAnchor(Set.of(SUNSET_TODAY), Set.of("Hills"));
+        BestAnchor otherScope = new BestAnchor(Set.of(SUNSET_TODAY));
 
         Result result = validator.validate(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x")),
-                twoWindowSnapshot(), BOTH_WINDOWS, otherScope);
+                twoWindowSnapshot(), BOTH_WINDOWS, Set.of("Hills"), otherScope);
 
         assertThat(result.accepted()).isTrue();
     }
@@ -531,7 +531,7 @@ class AskAnswerValidatorTest {
                 List.of()));
 
         Result result = validator.validate(answer("Nothing is worth it tonight."), snapshot,
-                new AskEvidence(Set.of(), Set.of(), 1), new BestAnchor(Set.of(SUNSET_TODAY), Set.of()));
+                new AskEvidence(Set.of(), Set.of(), 1), null, new BestAnchor(Set.of(SUNSET_TODAY)));
 
         assertThat(result.accepted()).isTrue();
     }
@@ -548,13 +548,13 @@ class AskAnswerValidatorTest {
     @DisplayName("BEST_*: scoped to a region with nothing eligible, an eligible slot elsewhere does not anchor it")
     void bestAnchor_scopedToARegionWithNothingEligible_doesNotApply() {
         AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
-        BestAnchor coastOnly = new BestAnchor(Set.of(SUNSET_TODAY), Set.of("coast"));
+        BestAnchor coastOnly = new BestAnchor(Set.of(SUNSET_TODAY));
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
         Result noPicks = validator.validate(answer("Nothing is worth it in Coast tonight."),
-                snapshot, toolsCalled, coastOnly);
+                snapshot, toolsCalled, Set.of("coast"), coastOnly);
         Result unanswerable = validator.validate(new Raw(false, "No.", null, null, "data"),
-                snapshot, toolsCalled, coastOnly);
+                snapshot, toolsCalled, Set.of("coast"), coastOnly);
 
         assertThat(noPicks.accepted()).isTrue();
         assertThat(unanswerable.accepted()).isTrue();
@@ -564,10 +564,10 @@ class AskAnswerValidatorTest {
     @DisplayName("BEST_*: the same snapshot with the whole country in scope still anchors on the eligible slot")
     void bestAnchor_emptyScopeStillAnchors() {
         AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
-        BestAnchor everywhere = new BestAnchor(Set.of(SUNSET_TODAY), Set.of());
+        BestAnchor everywhere = new BestAnchor(Set.of(SUNSET_TODAY));
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
-        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled, everywhere);
+        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled, Set.of(), everywhere);
 
         assertThat(noPicks.accepted()).isFalse();
     }
@@ -576,10 +576,11 @@ class AskAnswerValidatorTest {
     @DisplayName("BEST_*: a scope that includes an eligible slot, in any letter case, still enforces the anchor")
     void bestAnchor_scopeWithAnEligibleSlotStillAnchors() {
         AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
-        BestAnchor hillsOnly = new BestAnchor(Set.of(SUNSET_TODAY), Set.of("Coast", "HILLS"));
+        BestAnchor hillsOnly = new BestAnchor(Set.of(SUNSET_TODAY));
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
-        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled, hillsOnly);
+        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled,
+                Set.of("Coast", "HILLS"), hillsOnly);
 
         assertThat(noPicks.accepted()).isFalse();
     }
@@ -600,13 +601,100 @@ class AskAnswerValidatorTest {
         assertThat(snapshot.candidates(snapshot.windows().getFirst(), null)).hasSize(1);
     }
 
+    // -- scope and boundaries ---------------------------------------------------------------
+
+    private static AskSnapshot twoRegionSnapshot() {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
+                AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 4)),
+                AskFixtures.region("Hills", true, AskFixtures.slot(5L, "Cat Bells", 5)))), List.of()));
+    }
+
+    @Test
+    @DisplayName("scope: a pair for an out-of-scope region in the evidence is dropped, an in-scope one survives")
+    void scope_dropsAnOutOfScopePick() {
+        AskSnapshot snapshot = twoRegionSnapshot();
+        AskEvidence evidence = evidenceOf(pair(1L), pair(5L));
+        Raw raw = answer("Two.", rawPick(5L, "Hills"), rawPick(1L, "Coast"));
+
+        Result result = validator.validate(raw, snapshot, evidence, Set.of("coast"), null);
+
+        assertThat(result.answer().picks()).singleElement().satisfies(p -> {
+            assertThat(p.locationId()).isEqualTo(1L);
+            assertThat(p.rank()).as("ranks are renumbered after the drop").isEqualTo(1);
+        });
+    }
+
+    @Test
+    @DisplayName("scope: an empty or null scope leaves every pick; a scope naming both keeps both")
+    void scope_openScopeChangesNothing() {
+        AskSnapshot snapshot = twoRegionSnapshot();
+        AskEvidence evidence = evidenceOf(pair(1L), pair(5L));
+        Raw raw = answer("Two.", rawPick(5L, "Hills"), rawPick(1L, "Coast"));
+
+        assertThat(validator.validate(raw, snapshot, evidence, Set.of(), null).answer().picks())
+                .hasSize(2);
+        assertThat(validator.validate(raw, snapshot, evidence, null, null).answer().picks())
+                .hasSize(2);
+        assertThat(validator.validate(raw, snapshot, evidence, Set.of("COAST", "hills"), null)
+                .answer().picks()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("scope: when every pick is out of scope the answer is a no-pick answer, still accepted")
+    void scope_allPicksOutOfScope() {
+        AskSnapshot snapshot = twoRegionSnapshot();
+
+        Result result = validator.validate(answer("Hills.", rawPick(5L, "Hills")), snapshot,
+                evidenceOf(pair(5L)), Set.of("Coast"), null);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("word caps: 60, 24 and 8 words are kept whole; 61, 25 and 9 are cut to the cap")
+    void wordCaps_exactBoundaries() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = evidenceOf(pair(1L));
+        for (int extra = 0; extra <= 1; extra++) {
+            String summary = "s ".repeat(AskAnswerValidator.SUMMARY_WORDS + extra).strip();
+            String why = "w ".repeat(AskAnswerValidator.WHY_WORDS + extra).strip();
+            String missing = "m ".repeat(AskAnswerValidator.MISSING_WORDS + extra).strip();
+
+            Result answered = validate(answer(summary, rawPick(1L, why)), snapshot, evidence);
+            Result unanswerable = validate(new Raw(false, summary, null, null, missing), snapshot,
+                    evidence);
+
+            assertThat(answered.answer().summary().split(" "))
+                    .hasSize(AskAnswerValidator.SUMMARY_WORDS);
+            assertThat(answered.answer().picks().getFirst().why().split(" "))
+                    .hasSize(AskAnswerValidator.WHY_WORDS);
+            assertThat(unanswerable.answer().missing().split(" "))
+                    .hasSize(AskAnswerValidator.MISSING_WORDS);
+        }
+    }
+
+    @Test
+    @DisplayName("distinct locations: the same location at a second window is dropped, not counted toward three")
+    void picks_sameLocationAtAnotherWindowIsDropped() {
+        AskEvidence evidence = new AskEvidence(Set.of(new AskEvidence.Pair(2L, SUNSET_TODAY),
+                new AskEvidence.Pair(2L, SUNRISE_TOMORROW), new AskEvidence.Pair(1L, SUNSET_TODAY)),
+                Set.of(), 1);
+
+        Result result = validator.validate(answer("Two.", rawPick(2L, "a"),
+                new RawPick(2L, SUNRISE_TOMORROW, "b"), rawPick(1L, "c")),
+                twoWindowSnapshot(), evidence, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L, 1L);
+        assertThat(result.answer().picks().getFirst().windowId()).isEqualTo(SUNSET_TODAY);
+    }
+
     @Test
     @DisplayName("BEST_*: an anchor with null sets reads as empty")
     void bestAnchor_nullSets() {
-        BestAnchor anchor = new BestAnchor(null, null);
+        BestAnchor anchor = new BestAnchor(null);
 
         assertThat(anchor.windowIds()).isEmpty();
-        assertThat(anchor.scope()).isEmpty();
     }
 
     @Test
@@ -633,7 +721,7 @@ class AskAnswerValidatorTest {
 
         Result result = validator.validate(
                 answer("Top.", new RawPick(top.locationId(), top.windowId(), "Best")),
-                snapshot, tools.evidence(), null);
+                snapshot, tools.evidence(), null, null);
 
         assertThat(result.answer().picks()).singleElement()
                 .satisfies(p -> assertThat(p.locationId()).isEqualTo(top.locationId()));

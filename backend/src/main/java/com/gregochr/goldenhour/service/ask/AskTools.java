@@ -429,11 +429,14 @@ public class AskTools {
         int days = clamp(a.days(), MAX_COMING_UP_DAYS, MAX_COMING_UP_DAYS);
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_EVENTS);
         LocalDate from = snapshot.today();
-        LocalDate to = from.plusDays(days);
+        // N days is N civil dates from today: AlmanacService.getFeed ends at today + N - 1.
+        LocalDate to = from.plusDays(days - 1L);
         List<AskSnapshot.ComingUp> kept = snapshot.comingUp().stream()
                 .filter(e -> !e.endDate().isBefore(from) && !e.startDate().isAfter(to))
                 .sorted(Comparator.comparing(AskSnapshot.ComingUp::startDate)
-                        .thenComparing(AskSnapshot.ComingUp::title))
+                        .thenComparing(AskSnapshot.ComingUp::title)
+                        .thenComparing(AskSnapshot.ComingUp::type)
+                        .thenComparing(AskSnapshot.ComingUp::endDate))
                 .limit(limit)
                 .toList();
         List<ComingUpInfo> infos = kept.stream()
@@ -495,7 +498,8 @@ public class AskTools {
                     .thenComparing(c -> c.slot().name(),
                             Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
                     .thenComparing(c -> c.window().date())
-                    .thenComparing(c -> c.window().targetType());
+                    .thenComparing(c -> c.window().targetType())
+                    .thenComparingLong(c -> c.slot().locationId());
 
     private static int pickOrder(AskSnapshot.Candidate c) {
         BriefingWindow.PickKind kind = pickKind(c);
@@ -654,6 +658,11 @@ public class AskTools {
         if (text == null || text.length() <= max) {
             return text;
         }
-        return text.substring(0, max - 1).stripTrailing() + "…";
+        int end = max - 1;
+        // Never split a surrogate pair: a lone half is invalid text.
+        if (Character.isHighSurrogate(text.charAt(end - 1))) {
+            end--;
+        }
+        return text.substring(0, end).stripTrailing() + "…";
     }
 }

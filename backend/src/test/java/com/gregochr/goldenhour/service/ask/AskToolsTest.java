@@ -720,6 +720,213 @@ class AskToolsTest {
         assertThat(tools.evidence().toolCalls()).isEqualTo(3);
     }
 
+    // -- boundary sweep ---------------------------------------------------------------------
+
+    private AskSnapshot almanacSnapshot(int... dayOffsets) {
+        List<ComingUpEntry> entries = new ArrayList<>();
+        for (int offset : dayOffsets) {
+            entries.add(AskSnapshotBuilderTest.almanacEntry("E" + offset, "Entry " + offset,
+                    TODAY.plusDays(offset), TODAY.plusDays(offset), "d"));
+        }
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()), entries);
+    }
+
+    private List<String> comingUpTypes(AskSnapshot snapshot, Integer days) {
+        return ((ComingUpResult) tools(snapshot).getComingUp(new ComingUpArgs(days, 10)).payload())
+                .entries().stream().map(AskTools.ComingUpInfo::type).toList();
+    }
+
+    @Test
+    @DisplayName("get_coming_up: N days is N civil dates from today; day N-1 is in, day N is out")
+    void getComingUp_rangeIsNCivilDates() {
+        AskSnapshot snapshot = almanacSnapshot(0, 6, 7, 8);
+
+        // Seven days: today and the six after it. Offset 6 is the seventh date.
+        assertThat(comingUpTypes(snapshot, 7)).containsExactly("E0", "E6");
+        assertThat(comingUpTypes(snapshot, 8)).containsExactly("E0", "E6", "E7");
+        assertThat(comingUpTypes(snapshot, 1)).as("one day is today only").containsExactly("E0");
+    }
+
+    @Test
+    @DisplayName("get_coming_up: at the 90-day cap day 89 is in and day 90 is out, whatever days is asked")
+    void getComingUp_ninetyDayCap() {
+        AskSnapshot snapshot = almanacSnapshot(89, 90);
+
+        assertThat(comingUpTypes(snapshot, 90)).containsExactly("E89");
+        assertThat(comingUpTypes(snapshot, 91)).containsExactly("E89");
+        assertThat(comingUpTypes(snapshot, 500)).containsExactly("E89");
+        assertThat(comingUpTypes(snapshot, null)).as("default is the cap").containsExactly("E89");
+    }
+
+    @Test
+    @DisplayName("get_coming_up: zero and negative days read as one day; an entry ending today is in, yesterday out")
+    void getComingUp_floorAndSpanEdges() {
+        List<ComingUpEntry> entries = List.of(
+                AskSnapshotBuilderTest.almanacEntry("ENDS_TODAY", "Ends today", TODAY.minusDays(3),
+                        TODAY, "d"),
+                AskSnapshotBuilderTest.almanacEntry("ENDED", "Ended yesterday", TODAY.minusDays(3),
+                        TODAY.minusDays(1), "d"),
+                AskSnapshotBuilderTest.almanacEntry("LATER", "Later", TODAY.plusDays(1),
+                        TODAY.plusDays(1), "d"));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(
+                AskFixtures.briefing(List.of(), List.of()), entries);
+
+        assertThat(comingUpTypes(snapshot, 0)).containsExactly("ENDS_TODAY");
+        assertThat(comingUpTypes(snapshot, -5)).containsExactly("ENDS_TODAY");
+        assertThat(comingUpTypes(snapshot, 2)).containsExactly("ENDS_TODAY", "LATER");
+    }
+
+    @Test
+    @DisplayName("get_coming_up: limit is null -> 5, 0 or negative -> 1, over 10 -> 10")
+    void getComingUp_limitEdges() {
+        List<ComingUpEntry> entries = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            entries.add(AskSnapshotBuilderTest.almanacEntry("E" + i, "Entry " + i,
+                    TODAY.plusDays(i), TODAY.plusDays(i), "d"));
+        }
+        AskSnapshot snapshot = AskFixtures.snapshotOf(
+                AskFixtures.briefing(List.of(), List.of()), entries);
+
+        assertThat(((ComingUpResult) tools(snapshot).getComingUp(null).payload()).entries()).hasSize(5);
+        assertThat(((ComingUpResult) tools(snapshot).getComingUp(new ComingUpArgs(30, 0)).payload())
+                .entries()).hasSize(1);
+        assertThat(((ComingUpResult) tools(snapshot).getComingUp(new ComingUpArgs(30, -4)).payload())
+                .entries()).hasSize(1);
+        assertThat(((ComingUpResult) tools(snapshot).getComingUp(new ComingUpArgs(30, 11)).payload())
+                .entries()).hasSize(10);
+    }
+
+    @Test
+    @DisplayName("get_coming_up: entries equal on date and title still sort the same way every time")
+    void getComingUp_sortIsTotal() {
+        ComingUpEntry b = AskSnapshotBuilderTest.almanacEntry("B", "Same", TODAY.plusDays(2),
+                TODAY.plusDays(2), "d");
+        ComingUpEntry a = AskSnapshotBuilderTest.almanacEntry("A", "Same", TODAY.plusDays(2),
+                TODAY.plusDays(2), "d");
+
+        List<String> forward = comingUpTypes(AskFixtures.snapshotOf(
+                AskFixtures.briefing(List.of(), List.of()), List.of(b, a)), 30);
+        List<String> reverse = comingUpTypes(AskFixtures.snapshotOf(
+                AskFixtures.briefing(List.of(), List.of()), List.of(a, b)), 30);
+
+        assertThat(forward).containsExactly("A", "B");
+        assertThat(reverse).isEqualTo(forward);
+    }
+
+    @Test
+    @DisplayName("get_hot_topics: limit is null -> 5, 0 or negative -> 1; the limit applies after the scope filter")
+    void getHotTopics_limitEdgesAndOrderOfFilters() {
+        List<com.gregochr.goldenhour.model.HotTopic> topics = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            topics.add(AskFixtures.topic("OUT" + i, "Out " + i, "d", TODAY, List.of("Cornwall")));
+        }
+        for (int i = 0; i < 6; i++) {
+            topics.add(AskFixtures.topic("IN" + i, "In " + i, "d", TODAY, List.of("Coast")));
+        }
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), topics));
+
+        List<AskTools.TopicInfo> scoped = ((HotTopicsResult) tools(snapshot, USER, Set.of("Coast"))
+                .getHotTopics(new HotTopicsArgs(null, 3)).payload()).topics();
+
+        assertThat(scoped).extracting(AskTools.TopicInfo::type).containsExactly("IN0", "IN1", "IN2");
+        assertThat(((HotTopicsResult) tools(snapshot).getHotTopics(new HotTopicsArgs(null, 0))
+                .payload()).topics()).hasSize(1);
+        assertThat(((HotTopicsResult) tools(snapshot).getHotTopics(new HotTopicsArgs(null, -2))
+                .payload()).topics()).hasSize(1);
+        assertThat(((HotTopicsResult) tools(snapshot).getHotTopics(null).payload()).topics())
+                .hasSize(5);
+    }
+
+    @Test
+    @DisplayName("rank_spots: equal rating, name and window order by location id, whatever order they arrive in")
+    void rankSpots_sortIsTotal() {
+        BriefingRegion forward = AskFixtures.region("Coast", true,
+                AskFixtures.slot(9L, "Twin", 4), AskFixtures.slot(3L, "TWIN", 4));
+        BriefingRegion reverse = AskFixtures.region("Coast", true,
+                AskFixtures.slot(3L, "TWIN", 4), AskFixtures.slot(9L, "Twin", 4));
+
+        List<SpotInfo> a = spots(tools(snapshotOfRegions(forward)).rankSpots(rank(8)));
+        List<SpotInfo> b = spots(tools(snapshotOfRegions(reverse)).rankSpots(rank(8)));
+
+        assertThat(a).extracting(SpotInfo::locationId).containsExactly(3L, 9L);
+        assertThat(b).extracting(SpotInfo::locationId).isEqualTo(
+                a.stream().map(SpotInfo::locationId).toList());
+    }
+
+    @Test
+    @DisplayName("rank_spots: a drive limit is inclusive: 60 minutes is within 60, 61 is not")
+    void rankSpots_driveLimitIsInclusive() {
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Sixty", 4), AskFixtures.slot(2L, "SixtyOne", 4));
+        when(driveTimes.getAllMinutes(7L)).thenReturn(Map.of(1L, 60, 2L, 61));
+
+        List<SpotInfo> found = spots(tools(snapshotOfRegions(region), USER, Set.of()).rankSpots(
+                new RankSpotsArgs(null, null, null, null, 60, 5)));
+
+        assertThat(found).extracting(SpotInfo::name).containsExactly("Sixty");
+    }
+
+    private AskTools topicToolWithNoteOfLength(int noteLength) {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("ECLIPSE", "Eclipse", "d", TODAY, List.of())
+                        .withSafety("n".repeat(noteLength)))));
+        return tools(snapshot);
+    }
+
+    @Test
+    @DisplayName("the 6,000-character cap: exactly 6,000 is allowed, 5,999 is allowed, 6,001 is refused")
+    void resultCap_boundary() {
+        int base = topicToolWithNoteOfLength(1).getHotTopics(null).content().length() - 1;
+        int exact = AskTools.RESULT_CHAR_CAP - base;
+
+        AskTools atCap = topicToolWithNoteOfLength(exact);
+        AskToolResult ok = atCap.getHotTopics(null);
+        AskTools oneUnder = topicToolWithNoteOfLength(exact - 1);
+        AskToolResult underOk = oneUnder.getHotTopics(null);
+        AskTools oneOver = topicToolWithNoteOfLength(exact + 1);
+        AskToolResult refused = oneOver.getHotTopics(null);
+
+        assertThat(ok.error()).isFalse();
+        assertThat(atCap.charsUsed()).isEqualTo(6_000);
+        assertThat(underOk.error()).isFalse();
+        assertThat(oneUnder.charsUsed()).isEqualTo(5_999);
+        assertThat(refused.error()).isTrue();
+        assertThat(oneOver.charsUsed()).isZero();
+        assertThat(oneOver.evidence().events()).as("a refused result is not evidence").isEmpty();
+        assertThat(refused.content()).contains("Tool output limit reached").contains("Answer now");
+        assertThat(atCap.getHotTopics(null).error()).as("nothing more fits once full").isTrue();
+    }
+
+    @Test
+    @DisplayName("cap(): exactly 120 characters is left alone, 121 is cut to 120 ending in an ellipsis")
+    void cap_lengthBoundary() {
+        assertThat(AskTools.cap("a".repeat(120), AskTools.HEADLINE_CAP)).isEqualTo("a".repeat(120));
+        String cut = AskTools.cap("a".repeat(121), AskTools.HEADLINE_CAP);
+        assertThat(cut).hasSize(120).endsWith("…");
+        assertThat(AskTools.cap("a".repeat(200), AskTools.DETAIL_CAP)).hasSize(200);
+        assertThat(AskTools.cap("a".repeat(201), AskTools.DETAIL_CAP)).hasSize(200).endsWith("…");
+    }
+
+    @Test
+    @DisplayName("cap(): a cut never splits a surrogate pair, and multi-byte text under the limit is untouched")
+    void cap_multiByteText() {
+        String emoji = "🌅";
+        String atBoundary = "a".repeat(118) + emoji + "b";
+        String cut = AskTools.cap(atBoundary, AskTools.HEADLINE_CAP);
+
+        assertThat(atBoundary).hasSize(121);
+        assertThat(cut).isEqualTo("a".repeat(118) + "…");
+        for (int i = 0; i < cut.length(); i++) {
+            if (Character.isHighSurrogate(cut.charAt(i))) {
+                assertThat(Character.isLowSurrogate(cut.charAt(i + 1))).isTrue();
+            }
+        }
+        String accented = "é".repeat(120);
+        assertThat(AskTools.cap(accented, AskTools.HEADLINE_CAP)).isEqualTo(accented);
+        String keptPair = "a".repeat(116) + emoji + "bb";
+        assertThat(AskTools.cap(keptPair, AskTools.HEADLINE_CAP)).isEqualTo(keptPair);
+    }
+
     @Test
     @DisplayName("cap() leaves short text alone and marks a cut")
     void cap_behaviour() {
