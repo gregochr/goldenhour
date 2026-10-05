@@ -94,7 +94,14 @@ public class HttpCachingConfig {
             // reader's own house and stays on the never-revalidated `/api/user/settings/reach` for
             // the reason this list's own comment gives. The exact-match rule is what keeps those
             // two apart: no wildcard here could ever reach a `/api/user/settings*` path.
-            "/api/regions/drive-times");
+            "/api/regions/drive-times",
+            // Ask PhotoCast's Ready answers (docs/engineering/ask-photocast-plan.md §2.4): the same
+            // user-less answer for every reader of a scope, built from the shared briefing and
+            // re-checked against live data on every serve. The scope rides in the query string,
+            // which the filter ignores (it matches getRequestURI()), so the BODY's hash is what keeps
+            // two scopes apart. Emphatically not the typed POST /api/ask, which is a write and
+            // personal; the exact-match rule keeps the two apart.
+            "/api/ask/ready");
 
     /**
      * The lazy popup-detail endpoint, {@code GET /api/forecast/{id}}. Matched by a strict

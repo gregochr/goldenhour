@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.LocationFailureService;
+import com.gregochr.goldenhour.service.ask.AskReadyService;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
@@ -124,6 +125,7 @@ public class PipelineOrchestrator {
     private final BatchRetryService batchRetryService;
     private final AdminAlertService adminAlertService;
     private final LocationFailureService locationFailureService;
+    private final AskReadyService askReadyService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -145,6 +147,8 @@ public class PipelineOrchestrator {
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      * @param locationFailureService          settles each cycle's per-place failure counting
+     * @param askReadyService                 precomputes Ask PhotoCast's Ready answers once the
+     *                                        cycle's run is finished
      */
     @Autowired
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -157,13 +161,14 @@ public class PipelineOrchestrator {
             PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
-            LocationFailureService locationFailureService) {
+            LocationFailureService locationFailureService,
+            AskReadyService askReadyService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService,
-                adminAlertService, locationFailureService);
+                adminAlertService, locationFailureService, askReadyService);
     }
 
     /**
@@ -201,6 +206,46 @@ public class PipelineOrchestrator {
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService) {
+        this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                forecastBatchRepository, clock, backgroundExecutor, pollInterval, safetyTimeout,
+                dynamicSchedulerService, pipelineRunPickService, batchRetryService,
+                adminAlertService, locationFailureService, null);
+    }
+
+    /**
+     * Full constructor with Ask PhotoCast's Ready precompute, for tests that exercise the dispatch
+     * after the run is finished. The constructor above is this one with no precompute.
+     *
+     * @param pipelineRunService              pipeline run / phase persistence
+     * @param scheduledBatchEvaluationService forecast batch submitter (cycle-aware variant)
+     * @param briefingService                 briefing refresh entry point
+     * @param forecastBatchRepository         queried for cycle completion
+     * @param clock                           injectable clock
+     * @param backgroundExecutor              where to run the wait+briefing tail and the precompute
+     * @param pollInterval                    DB poll interval during FORECAST_BATCH_WAIT
+     * @param safetyTimeout                   safety backstop for the wait phase
+     * @param dynamicSchedulerService         scheduler the orchestrator registers itself with
+     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
+     * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
+     * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
+     * @param locationFailureService          settles each cycle's per-place failure counting
+     * @param askReadyService                 precomputes the Ready answers after the run is
+     *                                        finished; {@code null} skips it
+     */
+    public PipelineOrchestrator(PipelineRunService pipelineRunService,
+            ScheduledBatchEvaluationService scheduledBatchEvaluationService,
+            BriefingService briefingService,
+            ForecastBatchRepository forecastBatchRepository,
+            Clock clock,
+            Executor backgroundExecutor,
+            Duration pollInterval,
+            Duration safetyTimeout,
+            DynamicSchedulerService dynamicSchedulerService,
+            PipelineRunPickService pipelineRunPickService,
+            BatchRetryService batchRetryService,
+            AdminAlertService adminAlertService,
+            LocationFailureService locationFailureService,
+            AskReadyService askReadyService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -214,6 +259,7 @@ public class PipelineOrchestrator {
         this.pipelineRunPickService = pipelineRunPickService;
         this.batchRetryService = batchRetryService;
         this.locationFailureService = locationFailureService;
+        this.askReadyService = askReadyService;
     }
 
     /**
@@ -550,6 +596,7 @@ public class PipelineOrchestrator {
             }
 
             finishRun(runId);
+            dispatchAskReady(runId);
         } catch (BatchSafetyTimeoutException e) {
             // Safety backstop fired — log loudly and mark the run failed so the
             // next cron schedules a fresh cycle. The user-visible failureReason
@@ -566,6 +613,40 @@ public class PipelineOrchestrator {
         } catch (RuntimeException e) {
             LOG.error("Pipeline run {}: wait/brief tail failed — {}", runId, e.getMessage(), e);
             pipelineRunService.failRun(runId, "Wait/brief tail failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Hands Ask PhotoCast's Ready precompute to the background executor, <b>after</b>
+     * {@link #finishRun} has marked the run terminal and never before.
+     *
+     * <p>Why after: a run held RUNNING makes every later tail settle {@code RESETS_ONLY} (see
+     * {@link #settleLocationFailures}), and a precompute makes up to ~35 model calls under a
+     * 5-minute deadline. So the run is COMPLETED (or DEGRADED) first, and nothing the precompute does
+     * is on the run's thread, in its phases or in its status: the work is queued on the executor, and
+     * a failure to queue it, an exception inside it or an overrun of its deadline is logged and
+     * stops there. This method must never throw: it runs inside {@link #waitAndBriefPhase}'s try,
+     * whose catch would otherwise mark an already-finished run FAILED.
+     *
+     * @param runId the pipeline run that has just finished
+     */
+    private void dispatchAskReady(Long runId) {
+        if (askReadyService == null) {
+            return;
+        }
+        try {
+            backgroundExecutor.execute(() -> {
+                try {
+                    askReadyService.precompute(runId);
+                } catch (RuntimeException e) {
+                    LOG.warn("Pipeline run {}: the Ask Ready precompute raised an exception — "
+                            + "logged and ignored (the run is already finished): {}", runId,
+                            e.toString());
+                }
+            });
+        } catch (RuntimeException e) {
+            LOG.warn("Pipeline run {}: the Ask Ready precompute could not be dispatched — logged and "
+                    + "ignored (the run is already finished): {}", runId, e.toString());
         }
     }
 

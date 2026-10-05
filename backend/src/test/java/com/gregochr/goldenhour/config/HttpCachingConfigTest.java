@@ -71,6 +71,8 @@ class HttpCachingConfigTest {
         // reason it may be here at all — its per-user twin, /api/user/settings/reach, is pinned to
         // the exclusion list below.
         "/api/regions/drive-times",
+        // Ask PhotoCast's Ready answers: user-less, identical for every reader of a scope.
+        "/api/ask/ready",
     })
     @DisplayName("Whitelisted read paths are ETag-filtered")
     void whitelistedReadPathsAreFiltered(String path) {
@@ -132,6 +134,19 @@ class HttpCachingConfigTest {
         assertThat(filter.shouldNotFilter(get("/api/regions/7"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/regions/7/base"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/regions/drive-times/7"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("Only the Ready read is revalidatable under /api/ask, and its scope query is ignored")
+    void askWhitelistIsTheReadyReadAlone() {
+        MockHttpServletRequest scoped = get("/api/ask/ready");
+        scoped.setQueryString("scope=3");
+        assertThat(filter.shouldNotFilter(scoped)).isFalse();
+        // The typed endpoint is a write and personal; the admin lever is a write too.
+        assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/api/ask"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/ask"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/ask/ready/precompute"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/admin/ask/ready/precompute"))).isTrue();
     }
 
     @Test

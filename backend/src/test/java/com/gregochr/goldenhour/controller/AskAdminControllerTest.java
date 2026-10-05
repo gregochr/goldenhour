@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.service.ask.AskOutcome;
 import com.gregochr.goldenhour.service.ask.AskPick;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskQuestion;
+import com.gregochr.goldenhour.service.ask.AskReadyService;
 import com.gregochr.goldenhour.service.ask.AskRun;
 import com.gregochr.goldenhour.service.ask.AskRunOptions;
 import com.gregochr.goldenhour.service.ask.AskSnapshot;
@@ -66,6 +67,8 @@ class AskAdminControllerTest extends AbstractControllerTest {
     private AskSnapshotBuilder snapshotBuilder;
     @MockitoBean
     private RegionRepository regionRepository;
+    @MockitoBean
+    private AskReadyService readyService;
 
     private final AskSnapshot snapshot = new AskSnapshot(null, null, LocalDate.of(2026, 10, 5), List.of(),
             List.of(), List.of());
@@ -333,5 +336,68 @@ class AskAdminControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.answer").doesNotExist())
                 .andExpect(jsonPath("$.reason").value("no submit_answer within 4 turns"))
                 .andExpect(jsonPath("$.trace[0].error").value(true));
+    }
+
+    // -- the Ready precompute ---------------------------------------------------------------
+
+    private static final String PRECOMPUTE_URL = "/api/admin/ask/ready/precompute";
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/admin/ask/ready/precompute: ADMIN runs it on demand and gets {written, skipped, failed}")
+    void precompute_admin_ok() throws Exception {
+        when(readyService.precomputeOnDemand()).thenReturn(new AskReadyService.Result(17, 4, 1, null));
+
+        mockMvc.perform(post(PRECOMPUTE_URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.written").value(17))
+                .andExpect(jsonPath("$.skipped").value(4))
+                .andExpect(jsonPath("$.failed").value(1));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("the precompute is 403 for PRO_USER and never runs")
+    void precompute_pro_forbidden() throws Exception {
+        mockMvc.perform(post(PRECOMPUTE_URL)).andExpect(status().isForbidden());
+        verifyNoInteractions(readyService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("the precompute is 403 for LITE_USER and never runs")
+    void precompute_lite_forbidden() throws Exception {
+        mockMvc.perform(post(PRECOMPUTE_URL)).andExpect(status().isForbidden());
+        verifyNoInteractions(readyService);
+    }
+
+    @Test
+    @DisplayName("the precompute is 401 without authentication")
+    void precompute_anonymous_unauthorised() throws Exception {
+        mockMvc.perform(post(PRECOMPUTE_URL)).andExpect(status().isUnauthorized());
+        verifyNoInteractions(readyService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("with Ask off the precompute is 404 and nothing runs")
+    void precompute_flagOff_404() throws Exception {
+        properties.setEnabled(false);
+
+        mockMvc.perform(post(PRECOMPUTE_URL)).andExpect(status().isNotFound());
+        verifyNoInteractions(readyService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("a precompute refused as a whole (no fresh briefing, a simulation, one already running) is "
+            + "409 with the reason")
+    void precompute_refused_409() throws Exception {
+        when(readyService.precomputeOnDemand()).thenReturn(
+                new AskReadyService.Result(0, 0, 0, "a precompute is already running"));
+
+        mockMvc.perform(post(PRECOMPUTE_URL))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("a precompute is already running"));
     }
 }

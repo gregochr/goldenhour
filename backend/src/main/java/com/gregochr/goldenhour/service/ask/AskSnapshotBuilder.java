@@ -148,7 +148,7 @@ public class AskSnapshotBuilder {
         windows.sort(CHRONOLOGICAL);
         LocalDateTime generatedAt = briefing.generatedAt();
         return Optional.of(new AskSnapshot(generatedAt, runLabel(generatedAt),
-                ForecastHorizon.today(clock), windows, topics(briefing), comingUp()));
+                ForecastHorizon.today(clock), windows, topics(briefing), comingUp(), briefing.stale()));
     }
 
     /**

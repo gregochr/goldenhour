@@ -25,7 +25,7 @@ it (adjacent rows conflict between open PRs).
 | P0 | Commit this plan, the prompts file and `docs/design/ask-photocast/` to `main` | XS | not started |
 | B1 | Read model, tool functions, answer contract, validator (no Claude, no endpoint) | M/L | merged (#1008) |
 | B2a | The engine: Claude tool loop, properties, run types, cost logging | L | merged (#1015) |
-| B2b | Stub engine, local fixture seeder, admin dry-run | M | not started |
+| B2b | Stub engine, local fixture seeder, admin dry-run | M | merged (#1017) |
 | B3 | Ready answers: catalogue, precompute after the pipeline, `GET /api/ask/ready` | L | not started |
 | B4 | `POST /api/ask`: allowance, limits, spend cap, `GET /api/user/settings/ask` | L | not started |
 | B5 | Pre-filter, Ready intent match, typed cache, `ask_log`, metrics endpoint | M/L | not started |
@@ -731,6 +731,48 @@ starts and stays so when precompute throws or overruns its deadline; `maxDriveMi
 a `BEST_*` answer that does not lead with the BEST pick's window is not stored; freshness: a passed
 window, a changed rating, a changed verdict, a vanished topic each withhold the **whole** question;
 each question's own `runLabel`; role matrix (LITE/PRO/ADMIN + anonymous); flag off → 404.
+
+*As built (B3), where the plan was wrong or silent:*
+- **Files:** `ReadyQuestion` (the catalogue, an enum whose constants decide their own availability, text and
+  windows), `AskReadyService` (precompute and serve), `AskReadyFreshness` (the serve-time check, pure),
+  `AskReadyStore` (upsert and the JSON codec), `AskReadyResponse` (the wire records), `AskReadyAnswerEntity` +
+  repository, `V165__ask_ready_answer.sql`, `AskController` (new; B4 adds `POST /api/ask` to it), the dispatch in
+  `PipelineOrchestrator`, `POST /api/admin/ask/ready/precompute`, and `/api/ask/ready` in `HttpCachingConfig`
+  (which matches `getRequestURI()`, so `?scope=` does not affect it; the body's hash keeps scopes apart).
+  `AskSnapshot` gained `briefingStale` (the plan's "skipped when the briefing is `stale()`" had nothing to read:
+  the snapshot carried no stale flag; a six-argument constructor keeps every existing caller), and
+  `AskSnapshot.Topic.inScope` is now the one topic-in-scope test (`get_hot_topics` and the freshness check).
+- **The per-day ceiling is a count of `job_run` rows, not a new table:** scheduled (`triggered_manually = false`)
+  `ASK_READY` runs started since UK midnight, against `photocast.ask.ready.max-cycles-per-day`. It is durable
+  across a restart and a refused cycle starts no run, so a refusal does not use one up. **An admin's on-demand
+  precompute is exempt** (it is a person's decision, as the dry-run is, and counting it would let a local press lock
+  the nightly out): it is neither counted nor stopped, though every other refusal still applies to it.
+- **One precompute at a time** (`AtomicBoolean`): a second, scheduled or on demand, is refused ("already running"),
+  not queued. A whole-precompute refusal is `Result.refusal`; the admin endpoint answers it 409 `{error}` and a run
+  that ran 200 `{written, skipped, failed}`. `skipped` counts questions not run: unavailable for the scope, an
+  events question that found nothing, or left behind by the deadline or a stop.
+- **Last-moment re-checks:** the flag, both simulations and the 5-minute deadline are asked again before every
+  question (an overrun stops between questions; the one in flight can finish, up to the engine's own 30 s), and the
+  simulation once more after the engine returns, before the write, so an answer built while one switched on is
+  dropped. The accounting latch (`AskRun.accountingUnavailable`) stops the whole run: every later call would be
+  refused too.
+- **What is stored.** Only an `OK` answer the question itself accepts (`ReadyQuestion.violation`): a pick question
+  needs a pick (an empty one is a failure: the offer said a candidate existed), an events question needs an event
+  (an empty one is `skipped`: "no rare events" is not a card), no pick may sit outside the question's own windows
+  (a "this weekend" card on a Friday is a model error the server decides, not the validator, which only anchors
+  pick 1), and a coastal-high question's picks must be at high water. `answerable:false` is never stored.
+- **Serve-time freshness is the plan's four rules plus three** (`AskReadyFreshness`): a question is also withheld
+  when it would no longer be offered **under the same text** (a "tomorrow morning" stored on Sunday is not served
+  on Monday although its window is still ahead; BEST_SOON once the weekend question has taken over), when the live
+  BEST BET window is not the one pick 1 is on (the Plan tab and Ask must not name two bests), and when the
+  re-decorated answer would no longer pass `violation`. Names, dates, event labels and safety notes are re-joined
+  from the live snapshot; only the stored `why` prose survives from the model.
+- **`AM_OR_PM`** is the next date on which both windows are in the window set **and each has a pick-eligible slot in
+  scope** (a comparison needs both sides), not merely the next date with both windows.
+- **The stub honours the Ready windows**: a `BestAnchor` narrows the whole ranking to its windows, and a day word
+  in the question (`today`, `tonight`, `tomorrow`, a weekday, `weekend`) narrows it to that day's windows, so the
+  catalogue's day-worded questions answer about the right day locally. Nothing changed for a question without
+  either.
 
 ### B4 — The typed endpoint and its guards — L
 **Files:** `AskController.ask`, `AskService` (steps 1, 2, 4, 7, 8, 9 and the response of step 10;

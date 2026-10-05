@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.service.ask.AskTools.TopicInfo;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.time.format.TextStyle;
@@ -27,6 +28,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -71,6 +74,11 @@ public class StubAskEngine implements AskEngine {
 
     private static final Pattern EVENT_WORDS = Pattern.compile(
             "\\b(?:rare|events?|aurora|snow|eclipses?|meteors?)\\b");
+    private static final Pattern TODAY_WORDS = Pattern.compile("\\b(?:today|tonight|this morning)\\b");
+    private static final Pattern TOMORROW_WORD = Pattern.compile("\\btomorrow\\b");
+    private static final Pattern WEEKEND_WORD = Pattern.compile("\\bweekend\\b");
+    private static final Pattern WEEKDAY_WORDS = Pattern.compile(
+            "\\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b");
     private static final Pattern COASTAL_WORDS = Pattern.compile(
             "\\b(?:coast|coastal|tide|tides|tidal|beach|beaches|sea)\\b");
     private static final Pattern HIGH_TIDE = Pattern.compile("\\bhigh (?:tide|water)\\b");
@@ -145,10 +153,16 @@ public class StubAskEngine implements AskEngine {
     private AskAnswerValidator.Raw spotsAnswer(String text, AskQuestion question,
             AskSnapshot snapshot, AskTools tools, Set<String> scope, AskRunOptions opts)
             throws StubFailure {
-        // A context window not in the window set is ignored, as it is everywhere else.
+        // A context window not in the window set is ignored, as it is everywhere else. With none, a
+        // Ready anchor names the windows the question is about, and failing that a day word in the
+        // question ("tonight", "tomorrow", "on Saturday", "this weekend") narrows them, so the
+        // catalogue's day-worded Ready questions answer about the right day locally.
         List<String> windowIds = question.windowId() != null
                 && snapshot.window(question.windowId()).isPresent()
-                ? List.of(question.windowId()) : null;
+                ? List.of(question.windowId())
+                : opts.anchor() != null && !opts.anchor().windowIds().isEmpty()
+                ? opts.anchor().windowIds().stream().sorted().toList()
+                : dayWindows(text, snapshot);
         Boolean coastal = COASTAL_WORDS.matcher(text).find() ? Boolean.TRUE : null;
         String tide = HIGH_TIDE.matcher(text).find() ? "HIGH"
                 : LOW_TIDE.matcher(text).find() ? "LOW" : null;
@@ -180,6 +194,32 @@ public class StubAskEngine implements AskEngine {
                 .toList();
         return new AskAnswerValidator.Raw(true, spotsSummary(chosen, snapshot.today()), picks,
                 List.of(), null);
+    }
+
+    /** The windows a day word in the question names, or null when it names none that exist. */
+    private static List<String> dayWindows(String text, AskSnapshot snapshot) {
+        Predicate<LocalDate> wanted = null;
+        LocalDate today = snapshot.today();
+        if (TODAY_WORDS.matcher(text).find()) {
+            wanted = today::equals;
+        } else if (TOMORROW_WORD.matcher(text).find()) {
+            wanted = today.plusDays(1)::equals;
+        } else if (WEEKEND_WORD.matcher(text).find()) {
+            wanted = d -> d.getDayOfWeek() == DayOfWeek.SATURDAY || d.getDayOfWeek() == DayOfWeek.SUNDAY;
+        } else {
+            Matcher day = WEEKDAY_WORDS.matcher(text);
+            if (day.find()) {
+                DayOfWeek weekday = DayOfWeek.valueOf(day.group(1).toUpperCase(Locale.ROOT));
+                wanted = d -> d.getDayOfWeek() == weekday;
+            }
+        }
+        if (wanted == null) {
+            return null;
+        }
+        Predicate<LocalDate> onDay = wanted;
+        List<String> ids = snapshot.windows().stream().filter(w -> onDay.test(w.date()))
+                .map(AskSnapshot.Window::id).toList();
+        return ids.isEmpty() ? null : ids;
     }
 
     private static String spotsSummary(List<SpotInfo> chosen, LocalDate today) {

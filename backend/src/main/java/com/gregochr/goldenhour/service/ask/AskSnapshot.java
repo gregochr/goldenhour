@@ -31,9 +31,13 @@ import java.util.Optional;
  *                    not passed and are not travel days
  * @param hotTopics   the served hot topics
  * @param comingUp    the almanac entries
+ * @param briefingStale true when the served briefing is the last-known-good one rather than a fresh
+ *                    build ({@code DailyBriefingResponse.stale()}); Ready precompute does not
+ *                    answer from one
  */
 public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
-        List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp) {
+        List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
+        boolean briefingStale) {
 
     /** The least served rating a slot may carry and still be offered as a pick. */
     public static final int MIN_PICK_RATING = 3;
@@ -43,6 +47,21 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         windows = windows == null ? List.of() : List.copyOf(windows);
         hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
         comingUp = comingUp == null ? List.of() : List.copyOf(comingUp);
+    }
+
+    /**
+     * A snapshot of a fresh (not last-known-good) briefing.
+     *
+     * @param generatedAt when the briefing was built (UTC), or null
+     * @param runLabel    {@code HH:mm} Europe/London of {@code generatedAt}, or null
+     * @param today       today on the UK civil calendar
+     * @param windows     the window set
+     * @param hotTopics   the served hot topics
+     * @param comingUp    the almanac entries
+     */
+    public AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
+            List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp) {
+        this(generatedAt, runLabel, today, windows, hotTopics, comingUp, false);
     }
 
     /**
@@ -145,6 +164,20 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         /** Canonical constructor: takes an immutable copy of {@code regions}. */
         public Topic {
             regions = regions == null ? List.of() : List.copyOf(regions);
+        }
+
+        /**
+         * Whether this topic is within a question's scope: a topic naming regions is in scope when
+         * one of them is, and a topic naming none always is. The one definition: {@code
+         * get_hot_topics} filters with it and the Ready serve-time freshness check asks it.
+         *
+         * @param scope the region names, matched case-insensitively; null or empty means every
+         *              region
+         * @return true when the topic is in scope
+         */
+        public boolean inScope(Collection<String> scope) {
+            return scope == null || scope.isEmpty() || regions.isEmpty()
+                    || regions.stream().anyMatch(r -> regionInScope(scope, r));
         }
     }
 

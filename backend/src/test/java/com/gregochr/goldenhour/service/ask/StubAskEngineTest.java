@@ -259,6 +259,39 @@ class StubAskEngineTest {
         assertThat(run.outcome().answer().picks().getFirst().why()).contains("Wednesday sunset");
     }
 
+    // -- day words and Ready windows ---------------------------------------------------------
+
+    @Test
+    @DisplayName("a day word in the question narrows the ranking to that day's windows, so the Ready "
+            + "questions answer about the right day locally; a word naming no window narrows nothing")
+    void dayWordsNarrowTheWindows() {
+        assertThat(run("Best spot tonight?").outcome().answer().picks()).extracting(AskPick::windowId)
+                .containsOnly(TODAY_SUNSET);
+        assertThat(run("Best spot today?").outcome().answer().picks()).extracting(AskPick::windowId)
+                .containsOnly(TODAY_SUNSET);
+        assertThat(run("Best spot tomorrow morning?").outcome().answer().picks()).extracting(AskPick::windowId)
+                .containsOnly(TOMORROW_SUNRISE);
+        // 2026-10-06 is a Tuesday; no window is on a Saturday, so nothing is narrowed.
+        assertThat(run("Best spot on Tuesday?").outcome().answer().picks()).extracting(AskPick::windowId)
+                .containsOnly(TOMORROW_SUNRISE);
+        assertThat(run("Best spot on Saturday?").outcome().answer().picks()).extracting(AskPick::windowId)
+                .contains(TODAY_SUNSET, TOMORROW_SUNRISE);
+        assertThat(run("Best spot this weekend?").outcome().answer().picks()).extracting(AskPick::windowId)
+                .contains(TODAY_SUNSET, TOMORROW_SUNRISE);
+    }
+
+    @Test
+    @DisplayName("a Ready anchor names the windows the question is about: every pick is on one of them, "
+            + "not only the first")
+    void anchorNarrowsTheWholeRanking() {
+        AskRunOptions anchored = AskRunOptions.ready(900L, new BestAnchor(Set.of(TOMORROW_SUNRISE)));
+
+        AskRun run = engine.run(question("Best spot in the next few days?"), snapshot(null),
+                AskUserContext.userLess(), anchored);
+
+        assertThat(run.outcome().answer().picks()).extracting(AskPick::windowId).containsOnly(TOMORROW_SUNRISE);
+    }
+
     // -- the BEST anchor ---------------------------------------------------------------------
 
     @Test

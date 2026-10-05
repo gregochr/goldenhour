@@ -403,7 +403,7 @@ public class AskTools {
         Set<String> types = upperCased(a.types());
         List<AskSnapshot.Topic> kept = snapshot.hotTopics().stream()
                 .filter(t -> types.isEmpty() || types.contains(upper(t.type())))
-                .filter(this::topicInScope)
+                .filter(t -> t.inScope(scope))
                 .limit(limit)
                 .toList();
         List<TopicInfo> infos = kept.stream()
@@ -589,12 +589,6 @@ public class AskTools {
     private boolean inScope(String regionName) {
         return scope.isEmpty() || (regionName != null
                 && scope.contains(regionName.toLowerCase(Locale.ROOT)));
-    }
-
-    /** A topic naming regions is kept only when one is in scope; a topic naming none always is. */
-    private boolean topicInScope(AskSnapshot.Topic t) {
-        return scope.isEmpty() || t.regions().isEmpty()
-                || t.regions().stream().anyMatch(this::inScope);
     }
 
     private AskToolResult fail(String tool, String message) {
