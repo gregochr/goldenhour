@@ -35,7 +35,6 @@ it (adjacent rows conflict between open PRs).
 | F3 | Map linkage: numbered picks, dimming, camera, window follow | L | not started |
 | F4 | Phone Map: the ask row in the peek sheet | L | not started |
 | F5 | "Plan this", "Open in Plan", the Plan-card highlight | M | not started |
-| S1 | "Add to Coming up" (**owner-gated, §6 Q2**) | L | not started |
 | Z | Sweep: CLAUDE.md, prompt-regression class, measured Verify list, production enable | S/M | not started |
 
 Strictly sequential, top to bottom. A phase does not start until its predecessor is merged to
@@ -99,9 +98,11 @@ and is pinned by `planOriginShell.test.jsx`, `WindowFirstShell.test.jsx` and
 `locationSheetShell.test.jsx`. **§6 Q1.** Default: `/` moves to Ask at ≥1024px on Plan, Coming up
 and Map; search keeps its ⌕ and origin buttons.
 
-### 9. "Add to Coming up" has nothing to add to
-Coming up is the ETag-shared almanac. There is no per-user saved item anywhere. Phase S1, gated on
-§6 Q2. **Until S1 ships the button is not rendered.**
+### 9. "Add to Coming up" is not built
+Coming up is the ETag-shared almanac of weather and sky events, not a personal schedule, and there
+is no per-user saved item anywhere. **Owner decision, 2026-10-05: the feature is removed.** The
+button is never rendered and no session builds storage for it. "Plan this" ends with "Open in
+Plan ›" alone.
 
 ### 10. `HotTopicStrip` no longer exists
 Event cards are a new component, coloured through `badgeChannel(type)` → `--color-badge-*`
@@ -338,7 +339,7 @@ Rules:
    unless the conversation was `personal`. A hit passes the same all-or-nothing freshness check as
    a Ready answer; failing it is a miss. A hit → `kind: own`, no charge (D-6). Nothing is cached
    during a simulation.
-7. **Spend cap** — today's typed spend ≥ `photocast.ask.daily-spend-cap-usd` (default 2.00) →
+7. **Spend cap** — today's typed spend ≥ `photocast.ask.daily-spend-cap-usd` (default 0.50) →
    503 `TYPED_UNAVAILABLE`; admins emailed once per UK day
    (`AdminAlertService.sendAskSpendCapAlert`, new).
 8. **Daily ceilings** — `ask_usage(user_id, usage_date, used, engine_calls)`; find-or-insert with a
@@ -484,7 +485,7 @@ becomes 126; `MapCallout` gains a `bandKey` prop so it repaints when the sheet's
 **Config** (`photocast.ask.*`, `AskProperties`, bounds fail startup): `enabled` (false), `stub`
 (false), `model` (HAIKU), `max-turns` (4, 1–6), `max-tokens` (600), `call-timeout-seconds` (20),
 `deadline-seconds` (30), `rate-per-minute` (5), `limit-lite` (3), `limit-pro` (30),
-`engine-ceiling-multiplier` (3), `daily-spend-cap-usd` (2.00), `ready.max-cycles-per-day` (6),
+`engine-ceiling-multiplier` (3), `daily-spend-cap-usd` (0.50), `ready.max-cycles-per-day` (6),
 `cache.max-entries` (2000), `cache.ttl-minutes` (30), `log.retention-days` (90),
 `seed-local-fixture` (false).
 
@@ -706,13 +707,6 @@ the no-postcode state; "‹ Back to the answer" restores the selected pick and f
 closes the sheet first and opens the location sheet at the pick's window; the highlight is distinct
 from `data-open`, does not open the popup, and a pick with no card highlights nothing.
 
-### S1 — Add to Coming up — L — owner-gated (§6 Q2)
-`saved_pick(user_id CASCADE, location_id, target_date, target_type, created_at)`, unique per user
-and slot; `GET|POST|DELETE /api/user/settings/saved-picks` (pinned in the caching test); a "Your
-plans" block at the top of Coming up, each row joined to the **current** briefing rating and gone
-once its window has passed; the button in Plan this. A prompt for this phase is written only after
-Q2 is answered.
-
 ### Z — Sweep — S/M
 CLAUDE.md (What's Built, API Endpoints, the migrations table, the Backend-heavy bullet's note on
 `askModel.js`, the `/` key); `application-example.yml`; `AskPromptRegressionTest`
@@ -745,7 +739,7 @@ later session may change them; §7 measured; the production enable checklist (fl
 18. A never-refunded daily ceiling on engine calls (§1 #20).
 19. `max_tokens` is 600, not 400 (a 400 ceiling truncates the reply into a paid failure).
 20. "Pro: 30 a day" is text, not a link.
-21. "Add to Coming up" is withheld until S1 (§1 #9).
+21. "Add to Coming up" is removed outright (§1 #9, owner decision).
 22. Selecting a pick clears the map selection rather than selecting the location (§2.7).
 23. Scope follows the Map's scope segment, not the viewport; Plan sends no window chip (§2.6).
 24. Drive on a card is always from home (§1 #24).
@@ -767,20 +761,20 @@ later session may change them; §7 measured; the production enable checklist (fl
 - **D-12** Precompute runs after the pipeline run is finished, never inside it.
 - **D-13** `ask_log` stores a question only for answered-by-Claude outcomes, for 90 days.
 
-## §6 Owner decisions (the default is binding until changed)
+## §6 Owner decisions (binding; Q1–Q4 and Q7 decided by the owner on 2026-10-05)
 
-- **Q1 — the `/` key.** *Default:* `/` focuses Ask at ≥1024px on Plan, Coming up and Map; Plan
-  search keeps ⌕ only. Alternatives: `/` stays search on Plan; or Ask gets no key in v1.
-- **Q2 — "Add to Coming up".** *Default:* S1 as written, last; no button before it. Alternatives:
-  drop it; or a different meaning (calendar export, a notification).
-- **Q3 — the floating card.** *Default:* deferred; sheet below 1024px. Building it needs the
+- **Q1 — the `/` key. DECIDED:** `/` focuses Ask at ≥1024px on Plan, Coming up and Map; Plan
+  search keeps ⌕ only.
+- **Q2 — "Add to Coming up". DECIDED: removed.** Coming up is for weather-type events, not a
+  schedule. No button, no table, no phase.
+- **Q3 — the floating card. DECIDED:** deferred; sheet below 1024px. Building it later needs the
   top-right map controls to move and `MapCallout` to learn a right-hand obstacle.
-- **Q4 — the spend cap.** *Default:* $2.00 a day, typed questions only; precompute capped
-  separately at 6 cycles a day.
+- **Q4 — the spend cap. DECIDED:** $0.50 a day, typed questions only (roughly 40–50 questions at
+  the estimated cost); precompute capped separately at 6 cycles a day.
 - **Q5 — Ready hit rate.** *Default:* measured for typed questions only (a tap makes no request).
 - **Q6 — charging.** *Default:* cache hits free; `answerable:false` always refunded; the engine
   ceiling is 3 × the allowance.
-- **Q7 — LITE and drive questions.** *Default:* `maxDriveMinutes` works for anyone with stored
+- **Q7 — LITE and drive questions. DECIDED:** `maxDriveMinutes` works for anyone with stored
   drive times; nothing is added to give LITE drive times.
 - **Q8 — "My area" across several regions.** *Default:* the Ready set shown is the whole
   catalogue's, and the chip says so; typed questions send the area's regions.
