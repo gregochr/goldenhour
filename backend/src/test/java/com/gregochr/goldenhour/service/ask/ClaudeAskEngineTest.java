@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
@@ -140,7 +141,7 @@ class ClaudeAskEngineTest {
     }
 
     private AskRun run(AskUserContext user, Message... replies) {
-        when(client.createAskMessage(any(), any())).thenReturn(replies[0],
+        when(client.createAskMessage(any(), any(), any())).thenReturn(replies[0],
                 Arrays.copyOfRange(replies, 1, replies.length));
         return engine.run(question(), snapshot(null), user, AskRunOptions.none());
     }
@@ -155,7 +156,7 @@ class ClaudeAskEngineTest {
 
     private List<MessageCreateParams> sentParams() {
         ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
-        verify(client, atLeastOnce()).createAskMessage(captor.capture(), any());
+        verify(client, atLeastOnce()).createAskMessage(captor.capture(), any(), any());
         return captor.getAllValues();
     }
 
@@ -185,7 +186,7 @@ class ClaudeAskEngineTest {
         assertThat(run.outcome().answer().missing()).isEqualTo("parking information");
         assertThat(run.outcome().personal()).isFalse();
         assertThat(run.reason()).isNull();
-        verify(client, times(1)).createAskMessage(any(), any());
+        verify(client, times(1)).createAskMessage(any(), any(), any());
         verify(jobRuns).recordQuestion(RUN_ID, true);
     }
 
@@ -284,7 +285,7 @@ class ClaudeAskEngineTest {
         assertThat(over.outcome().turns()).isEqualTo(4);
         assertThat(over.outcome().answer()).isNull();
         assertThat(over.reason()).contains("no submit_answer within 4 turns");
-        verify(client, times(4)).createAskMessage(any(), any());
+        verify(client, times(4)).createAskMessage(any(), any(), any());
     }
 
     @Test
@@ -295,7 +296,7 @@ class ClaudeAskEngineTest {
         AskRun run = run(USER, toolTurn(tool("1", "list_windows", Map.of())));
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
-        verify(client, times(1)).createAskMessage(any(), any());
+        verify(client, times(1)).createAskMessage(any(), any(), any());
     }
 
     @Test
@@ -316,7 +317,7 @@ class ClaudeAskEngineTest {
     @Test
     @DisplayName("answer() is run() with no options, reduced to the outcome")
     void answerIsRunWithNoOptions() {
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         AskOutcome outcome = engine.answer(question(), snapshot(null), USER);
@@ -328,7 +329,7 @@ class ClaudeAskEngineTest {
     @Test
     @DisplayName("null options read as none: a typed question with no anchor")
     void nullOptionsAreNone() {
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         AskRun run = engine.run(question(), snapshot(null), USER, null);
@@ -396,7 +397,7 @@ class ClaudeAskEngineTest {
         AnthropicServiceException serverError = mock(AnthropicServiceException.class);
         when(serverError.statusCode()).thenReturn(529);
         when(serverError.getMessage()).thenReturn("overloaded");
-        when(client.createAskMessage(any(), any())).thenThrow(serverError);
+        when(client.createAskMessage(any(), any(), any())).thenThrow(serverError);
 
         AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
 
@@ -418,7 +419,7 @@ class ClaudeAskEngineTest {
         when(broken.validate(any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
         engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, regions, broken,
                 new AskPromptBuilder(), new ObjectMapper(), clock);
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
@@ -462,14 +463,14 @@ class ClaudeAskEngineTest {
     void aFailureMidConversationStopsTheConversation() {
         // Open for the pre-check and turn 1; latched by the time turn 2 would start.
         when(jobRuns.accountingAvailable()).thenReturn(true, false);
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
 
         AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
 
         assertThat(run.accountingUnavailable()).isTrue();
         assertThat(run.outcome().turns()).isEqualTo(1);
-        verify(client, times(1)).createAskMessage(any(), any());
+        verify(client, times(1)).createAskMessage(any(), any(), any());
         verify(jobRuns).recordQuestion(RUN_ID, false);
     }
 
@@ -491,7 +492,7 @@ class ClaudeAskEngineTest {
     @DisplayName("a flush that succeeds mid-conversation lets it carry on")
     void aSuccessfulFlushLetsTheConversationContinue() {
         when(jobRuns.accountingAvailable()).thenReturn(true, true);
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
 
         AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
@@ -591,7 +592,7 @@ class ClaudeAskEngineTest {
     @DisplayName("a malformed submit_answer is FAILED with its reason, never an exception")
     void malformedSubmitIsFailed(String json) throws Exception {
         JsonValue input = JsonValue.fromJsonNode(new ObjectMapper().readTree(json));
-        when(client.createAskMessage(any(), any())).thenReturn(toolTurn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(toolTurn(
                 AskMessages.toolWithRawInput("s", "submit_answer", input)));
 
         AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
@@ -619,7 +620,7 @@ class ClaudeAskEngineTest {
             + "(the anchor is the caller's, passed straight to the validator)")
     void bestAnchorIsEnforced() {
         BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "Bamburgh", 1L);
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Nothing is worth it.")));
 
         AskRun run = engine.run(question(), snapshot(best), AskUserContext.userLess(),
@@ -636,7 +637,7 @@ class ClaudeAskEngineTest {
             + "prompt, a tool result or the logged request body")
     void questionOnlyInTheUserMessage() {
         String secret = "zebra-crossing-9921 where do i stand";
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t1", "rank_spots", Map.of()), tool("t2", "list_windows", Map.of())),
                 submit(answer(pick(1, WINDOW))));
 
@@ -719,7 +720,7 @@ class ClaudeAskEngineTest {
     @DisplayName("a typed conversation is told about maxDriveMinutes; a Ready one is not, and is refused it "
             + "if the model tries anyway")
     void readyConversationHasNoHome() {
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t", "rank_spots", Map.of("maxDriveMinutes", 30))),
                 submit(Map.of("answerable", false, "summary", "Can't say.")));
 
@@ -757,14 +758,15 @@ class ClaudeAskEngineTest {
         });
         verify(jobRuns, times(3)).recordTurn(any());
         verify(jobRuns, times(1)).recordQuestion(anyLong(), anyBoolean());
-        verify(jobRuns, times(1)).dailyRunId();
+        // Once to open the conversation, then once per turn: the run is resolved for each turn.
+        verify(jobRuns, times(4)).dailyRunId();
     }
 
     @Test
     @DisplayName("a Ready conversation is billed to the ASK_READY run it was given, tagged ask-ready, and never "
             + "touches the daily ASK run, its cost increments or its question count")
     void readyIsBilledToItsOwnRun() {
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
 
         AskRun run = engine.run(question(), snapshot(null), AskUserContext.userLess(),
@@ -800,7 +802,7 @@ class ClaudeAskEngineTest {
     void scopeIsResolvedAndApplied() {
         when(regions.findAllById(Set.of(5L))).thenReturn(List.of(RegionEntity.builder().id(5L)
                 .name("Teesdale").build()));
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t", "rank_spots", Map.of())),
                 submit(answer(pick(10, WINDOW), pick(1, WINDOW))));
 
@@ -819,7 +821,7 @@ class ClaudeAskEngineTest {
     void outOfScopeRegionIsAToolError() {
         when(regions.findAllById(Set.of(5L))).thenReturn(List.of(RegionEntity.builder().id(5L)
                 .name("Teesdale").build()));
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t", "rank_spots", Map.of("regionNames", List.of("Northumberland")))),
                 submit(Map.of("answerable", false, "summary", "Can't say.")));
 
@@ -860,7 +862,7 @@ class ClaudeAskEngineTest {
     @Test
     @DisplayName("the context window is stated to the model only when it is in the snapshot")
     void contextWindowOnlyWhenKnown() {
-        when(client.createAskMessage(any(), any())).thenReturn(
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't say.")));
 
         engine.run(new AskQuestion("And then?", "and then", WINDOW, List.of(), "map"), snapshot(null), USER,
@@ -883,7 +885,7 @@ class ClaudeAskEngineTest {
     void callTimeoutIsClampedToTheTimeLeft() {
         AtomicInteger calls = new AtomicInteger();
         List<Duration> timeouts = new CopyOnWriteArrayList<>();
-        when(client.createAskMessage(any(), any())).thenAnswer(inv -> {
+        when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {
             RequestOptions options = inv.getArgument(1);
             timeouts.add(options.getTimeout().request());
             clock.advance(Duration.ofSeconds(15));
@@ -896,13 +898,13 @@ class ClaudeAskEngineTest {
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
         assertThat(run.outcome().turns()).isEqualTo(2);
         assertThat(run.reason()).contains("deadline passed before turn 3");
-        verify(client, times(2)).createAskMessage(any(), any());
+        verify(client, times(2)).createAskMessage(any(), any(), any());
     }
 
     @Test
     @DisplayName("deadline boundary: half a second left still makes a call (with a 500ms timeout); none left does not")
     void deadlineBoundary() {
-        when(client.createAskMessage(any(), any())).thenAnswer(inv -> {
+        when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {
             clock.advance(Duration.ofMillis(29_500));
             return toolTurn(tool("t", "list_windows", Map.of()));
         }).thenReturn(submit(Map.of("answerable", false, "summary", "Can't say.")));
@@ -911,11 +913,11 @@ class ClaudeAskEngineTest {
         assertThat(oneLeft.outcome().turns()).isEqualTo(2);
 
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
-        verify(client, times(2)).createAskMessage(any(), options.capture());
+        verify(client, times(2)).createAskMessage(any(), options.capture(), any());
         assertThat(options.getAllValues().get(1).getTimeout().request()).isEqualTo(Duration.ofMillis(500));
 
         reset(client);
-        when(client.createAskMessage(any(), any())).thenAnswer(inv -> {
+        when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {
             clock.advance(Duration.ofSeconds(30));
             return toolTurn(tool("t", "list_windows", Map.of()));
         });
@@ -931,7 +933,7 @@ class ClaudeAskEngineTest {
         properties.setCallTimeoutSeconds(1);
         properties.setDeadlineSeconds(1);
         engineWith(Clock.systemUTC());
-        when(client.createAskMessage(any(), any())).thenAnswer(inv -> {
+        when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {
             Thread.sleep(5_000);
             return submit(Map.of("answerable", false, "summary", "Too late."));
         });
@@ -944,6 +946,60 @@ class ClaudeAskEngineTest {
         assertThat(run.reason()).contains("deadline");
         assertThat(elapsedMs).as("elapsed").isLessThan(3_000);
         assertThat(logged).singleElement().satisfies(l -> assertThat(l.succeeded()).isFalse());
+        verify(jobRuns).recordQuestion(RUN_ID, false);
+    }
+
+    @Test
+    @DisplayName("UK midnight mid-conversation: each typed turn is booked to the daily run as of that turn, so "
+            + "turn 2 goes to the new day's run (the day the spend figure counts it in), while the question "
+            + "is counted on the day it started")
+    void eachTurnIsBookedToTheDailyRunAsOfThatTurn() {
+        // 1st call opens the conversation, 2nd is turn 1, 3rd is turn 2 (after midnight).
+        when(jobRuns.dailyRunId()).thenReturn(77L, 77L, 78L);
+
+        AskRun run = run(USER, toolTurn(tool("t", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(logged).extracting(Logged::runId).containsExactly(77L, 78L);
+        verify(jobRuns).recordQuestion(77L, true);
+    }
+
+    @Test
+    @DisplayName("if the daily run cannot be resolved for a later turn, that turn is not made: nothing is spent "
+            + "that cannot be booked")
+    void aRunLookupFailureMidConversationStopsTheConversation() {
+        when(jobRuns.dailyRunId()).thenReturn(RUN_ID, RUN_ID).thenThrow(new IllegalStateException("db down"));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
+
+        AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.reason()).contains("job run could not be opened");
+        assertThat(run.outcome().turns()).isEqualTo(1);
+        verify(client, times(1)).createAskMessage(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("the gate the engine hands the client is the accounting latch, asked per attempt: a refusal "
+            + "from it ends the run with the accounting reason and no turn is logged for the refused call")
+    void aGateRefusalEndsTheRunWithoutLoggingATurn() {
+        AtomicBoolean open = new AtomicBoolean(true);
+        when(jobRuns.accountingAvailable()).thenAnswer(inv -> open.get());
+        when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {
+            AnthropicApiClient.CallGate gate = inv.getArgument(2);
+            open.set(false);
+            if (!gate.mayCall()) {
+                throw new AnthropicApiClient.CallRefusedException();
+            }
+            return submit(Map.of("answerable", false, "summary", "Can't tell."));
+        });
+
+        AskRun run = engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+
+        assertThat(run.accountingUnavailable()).isTrue();
+        assertThat(run.outcome().turns()).isZero();
+        assertThat(logged).isEmpty();
         verify(jobRuns).recordQuestion(RUN_ID, false);
     }
 

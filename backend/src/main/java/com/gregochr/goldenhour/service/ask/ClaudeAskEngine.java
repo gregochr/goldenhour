@@ -69,7 +69,17 @@ import java.util.concurrent.TimeoutException;
  *       starts. The SDK's own retries are off for this door (see {@code AnthropicApiClient}).</li>
  *   <li>Cost fails closed: the job run the spend is booked to is found or created <em>before</em> the
  *       first model turn, so a database that cannot record the money stops the call that would have
- *       spent it. Every turn is logged afterwards, including failed ones.</li>
+ *       spent it. Every turn is logged afterwards, including failed ones. If a write fails the whole
+ *       feature latches closed (see {@link AskJobRunService}); the latch is checked in
+ *       {@code run()} and before each turn (cheap early refusals) and, binding, by the
+ *       {@code CallGate} inside {@code AnthropicApiClient.createAskMessage}: after the bulkhead
+ *       permit, before every attempt (a retry's second attempt included), as the last step before the
+ *       HTTP request. <b>The window that cannot be closed:</b> a request already issued when another
+ *       conversation latches cannot be recalled, so at most the calls in flight at that moment (the
+ *       bulkhead's four) can still be paid for unrecorded.</li>
+ *   <li>Each typed turn is logged against the daily run resolved <em>for that turn</em>, so a
+ *       conversation that crosses UK midnight books its later turns to the new day, which is the day
+ *       the spend figure counts them in. The question itself is counted on the day it started.</li>
  * </ul>
  *
  * <p><b>Scope.</b> The question's region ids are resolved to names once; that one set is given to
@@ -190,7 +200,7 @@ public class ClaudeAskEngine implements AskEngine {
     // -- the loop ---------------------------------------------------------------------------
 
     private AskRun converse(AskQuestion question, AskSnapshot snapshot, AskUserContext user,
-            AskRunOptions opts, Set<String> scope, long runId, boolean ready) {
+            AskRunOptions opts, Set<String> scope, long startRunId, boolean ready) {
         EvaluationModel model = properties.getModel();
         AskTools tools = new AskTools(snapshot, user, scope, driveTimes, mapper);
         Optional<AskSnapshot.Window> contextWindow = question.windowId() == null
@@ -211,6 +221,17 @@ public class ClaudeAskEngine implements AskEngine {
             if (turn > 1 && !accountingOpen()) {
                 return failed(AskRun.ACCOUNTING_UNAVAILABLE, turns, tools.personal(), trace);
             }
+            // The run this turn is billed to: for a typed turn, the daily run as of NOW, so a
+            // conversation that crosses UK midnight books its later turns to the new day (the day the
+            // spend figure counts them in). Cached, so cheap; if it cannot be resolved nothing is spent.
+            long runId;
+            try {
+                runId = ready ? startRunId : jobRuns.dailyRunId();
+            } catch (RuntimeException e) {
+                LOG.error("[ASK] Could not resolve the job run before turn {}: {}", turn, e.getMessage());
+                return failed("the job run could not be opened: " + describe(e), turns, tools.personal(),
+                        trace);
+            }
             Duration remaining = Duration.between(clock.instant(), deadline);
             if (remaining.isZero() || remaining.isNegative()) {
                 return failed("the deadline passed before turn " + turn, turns, tools.personal(), trace);
@@ -228,6 +249,11 @@ public class ClaudeAskEngine implements AskEngine {
                 Thread.currentThread().interrupt();
                 logTurn(runId, ready, model, started, null, false, "interrupted", null);
                 return failed("interrupted", turns, tools.personal(), trace);
+            } catch (AnthropicApiClient.CallRefusedException e) {
+                // The gate refused the attempt, so no request was made for this turn (a retry's
+                // refused second attempt follows a first that returned no usage): nothing to log,
+                // and this turn did not happen.
+                return failed(AskRun.ACCOUNTING_UNAVAILABLE, turn - 1, tools.personal(), trace);
             } catch (Exception e) {
                 Integer status = e instanceof AnthropicServiceException s ? s.statusCode() : null;
                 logTurn(runId, ready, model, started, status, false, describe(e), null);
@@ -298,7 +324,10 @@ public class ClaudeAskEngine implements AskEngine {
     private Message callModel(MessageCreateParams params, Duration callTimeout, Duration remaining)
             throws Exception {
         RequestOptions requestOptions = RequestOptions.builder().timeout(callTimeout).build();
-        Future<Message> call = callExecutor.submit(() -> client.createAskMessage(params, requestOptions));
+        // The gate is the binding accounting check: made inside the call, after the bulkhead permit and
+        // before each attempt (see AnthropicApiClient#createAskMessage).
+        Future<Message> call = callExecutor.submit(
+                () -> client.createAskMessage(params, requestOptions, jobRuns::accountingAvailable));
         try {
             return call.get(Math.max(1L, remaining.toMillis()), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {

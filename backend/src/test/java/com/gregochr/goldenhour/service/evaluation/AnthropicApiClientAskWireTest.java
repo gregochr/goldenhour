@@ -52,7 +52,7 @@ class AnthropicApiClientAskWireTest {
                 .withBody("{}")));
         AnthropicClient client = new WireMockAnthropicClientTestConfiguration()
                 .wireMockAnthropicClient("http://localhost:" + WIRE_MOCK.getPort());
-        new AnthropicApiClient(client).createAskMessage(params(), RequestOptions.none());
+        new AnthropicApiClient(client).createAskMessage(params(), RequestOptions.none(), () -> true);
     }
 
     @BeforeEach
@@ -75,7 +75,7 @@ class AnthropicApiClientAskWireTest {
         WIRE_MOCK.stubFor(post(urlPathEqualTo("/v1/messages"))
                 .willReturn(aResponse().withStatus(HTTP_SERVER_ERROR).withBody("{\"type\":\"error\"}")));
 
-        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none()))
+        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), () -> true))
                 .isInstanceOf(AnthropicServiceException.class);
 
         WIRE_MOCK.verify(1, postRequestedFor(urlPathEqualTo("/v1/messages")));
@@ -102,7 +102,7 @@ class AnthropicApiClientAskWireTest {
         RequestOptions options = RequestOptions.builder().timeout(Duration.ofMillis(400)).build();
 
         long started = System.nanoTime();
-        assertThatThrownBy(() -> api.createAskMessage(params(), options))
+        assertThatThrownBy(() -> api.createAskMessage(params(), options, () -> true))
                 .isInstanceOf(AnthropicIoException.class);
         long elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
 
@@ -120,7 +120,8 @@ class AnthropicApiClientAskWireTest {
         RequestOptions options = RequestOptions.builder().timeout(Duration.ofMillis(500)).build();
 
         long started = System.nanoTime();
-        assertThatThrownBy(() -> api.createAskMessage(params(), options)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> api.createAskMessage(params(), options, () -> true))
+                .isInstanceOf(RuntimeException.class);
 
         assertThat(Duration.ofNanos(System.nanoTime() - started).toMillis()).isLessThan(2_500);
     }

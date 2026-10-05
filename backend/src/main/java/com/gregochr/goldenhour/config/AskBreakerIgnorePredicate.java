@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.config;
 
 import com.anthropic.errors.AnthropicServiceException;
+import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 
 import java.util.function.Predicate;
@@ -16,13 +17,16 @@ import java.util.function.Predicate;
  *   <li>A full bulkhead. Four conversations already in flight is load on this application, not a
  *       fault at Anthropic, and counting it would let a burst of readers open the breaker and turn
  *       every question away for the whole open interval.</li>
+ *   <li>An attempt the accounting gate refused: no request was made, so it says nothing about
+ *       Anthropic.</li>
  * </ul>
  */
 public class AskBreakerIgnorePredicate implements Predicate<Throwable> {
 
     @Override
     public boolean test(Throwable throwable) {
-        if (throwable instanceof BulkheadFullException) {
+        if (throwable instanceof BulkheadFullException
+                || throwable instanceof AnthropicApiClient.CallRefusedException) {
             return true;
         }
         return throwable instanceof AnthropicServiceException ex

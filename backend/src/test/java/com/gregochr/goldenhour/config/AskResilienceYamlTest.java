@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.config;
 
 import com.anthropic.errors.AnthropicIoException;
 import com.anthropic.errors.AnthropicServiceException;
+import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import io.github.resilience4j.bulkhead.BulkheadConfig;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.bulkhead.Bulkhead;
@@ -96,6 +97,8 @@ class AskResilienceYamlTest {
         assertThat(config.getExceptionPredicate().test(new AnthropicIoException("io", new IOException("x"))))
                 .isFalse();
         assertThat(config.getExceptionPredicate().test(new IllegalStateException("bug"))).isFalse();
+        assertThat(config.getExceptionPredicate().test(new AnthropicApiClient.CallRefusedException()))
+                .as("a gate refusal is never retried").isFalse();
     }
 
     @ParameterizedTest(name = "{0}")
@@ -120,6 +123,8 @@ class AskResilienceYamlTest {
         assertThat(config.getIgnoreExceptionPredicate().test(status(403, "x"))).isTrue();
         assertThat(config.getIgnoreExceptionPredicate().test(
                 BulkheadFullException.createBulkheadFullException(Bulkhead.ofDefaults("probe")))).isTrue();
+        assertThat(config.getIgnoreExceptionPredicate().test(new AnthropicApiClient.CallRefusedException()))
+                .as("a refused attempt made no request").isTrue();
         for (int counted : new int[] {400, 404, 429, 500, 529}) {
             assertThat(config.getIgnoreExceptionPredicate().test(status(counted, "x"))).as("HTTP %d", counted)
                     .isFalse();

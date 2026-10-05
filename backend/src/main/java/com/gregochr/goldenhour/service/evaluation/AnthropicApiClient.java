@@ -72,14 +72,49 @@ public class AnthropicApiClient {
      * {@code ClaudeAskEngine} also stops waiting at its own deadline, because a retry would
      * otherwise give the second attempt a fresh timeout of the same size.
      *
+     * <p><b>The gate runs in the method body</b>, which Resilience4j enters once per ATTEMPT and only
+     * after the bulkhead permit has been taken (the bulkhead is the innermost aspect; the breaker and
+     * the retry sit outside it). So the check is made after any bulkhead wait and again before a
+     * retry's second attempt, which is another paid call, and it is the last thing done before the HTTP
+     * request is issued. A refusal is a {@link CallRefusedException}: not retried, and neither a
+     * success nor a failure to the breaker. A call already issued cannot be recalled.
+     *
      * @param params  the message parameters (model, tools, conversation so far)
      * @param options per-request options; the timeout for this call
+     * @param gate    asked before every attempt; false refuses the attempt
      * @return Claude's response message
+     * @throws CallRefusedException when the gate refused this attempt (no request was made)
      */
     @Retry(name = "ask")
     @CircuitBreaker(name = "ask")
     @Bulkhead(name = "ask")
-    public Message createAskMessage(MessageCreateParams params, RequestOptions options) {
+    public Message createAskMessage(MessageCreateParams params, RequestOptions options, CallGate gate) {
+        if (!gate.mayCall()) {
+            throw new CallRefusedException();
+        }
         return askClient.messages().create(params, options);
+    }
+
+    /** Decides, immediately before each attempt, whether a paid call may be made. */
+    @FunctionalInterface
+    public interface CallGate {
+
+        /**
+         * Whether the attempt about to be made may proceed.
+         *
+         * @return false to refuse it
+         */
+        boolean mayCall();
+    }
+
+    /** A {@link CallGate} refused an attempt: no request was made. */
+    public static final class CallRefusedException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        /** Creates the exception; it carries no stack trace, it is control flow. */
+        public CallRefusedException() {
+            super("the call gate refused this attempt", null, false, false);
+        }
     }
 }

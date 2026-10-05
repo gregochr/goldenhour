@@ -35,6 +35,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -87,6 +89,7 @@ class AskCreateMessageResilienceTest {
     private BulkheadRegistry bulkheads;
 
     private static final Message REPLY = AskMessages.text("ok");
+    private static final AnthropicApiClient.CallGate OPEN = () -> true;
 
     private static MessageCreateParams params() {
         return MessageCreateParams.builder().model("claude-haiku-4-5-20251001").maxTokens(50)
@@ -138,7 +141,7 @@ class AskCreateMessageResilienceTest {
     void serverErrorIsAttemptedTwice() {
         stubAsk(status(500, "boom"));
 
-        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none()))
+        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN))
                 .isInstanceOf(AnthropicServiceException.class);
 
         verifyAskCalls(2);
@@ -151,9 +154,80 @@ class AskCreateMessageResilienceTest {
         when(Config.ASK_MESSAGES.create(any(MessageCreateParams.class), any(RequestOptions.class)))
                 .thenThrow(overloaded).thenReturn(REPLY);
 
-        assertThat(api.createAskMessage(params(), RequestOptions.none())).isSameAs(REPLY);
+        assertThat(api.createAskMessage(params(), RequestOptions.none(), OPEN)).isSameAs(REPLY);
 
         verifyAskCalls(2);
+    }
+
+    @Test
+    @DisplayName("the gate is asked UNDER the bulkhead permit, once per call: with one call in flight exactly "
+            + "one of the four permits is taken when it runs")
+    void gateRunsAfterTheBulkheadPermit() {
+        List<Integer> available = new ArrayList<>();
+        AnthropicApiClient.CallGate gate = () -> {
+            available.add(bulkheads.bulkhead("ask").getMetrics().getAvailableConcurrentCalls());
+            return true;
+        };
+        when(Config.ASK_MESSAGES.create(any(MessageCreateParams.class), any(RequestOptions.class)))
+                .thenReturn(REPLY);
+
+        api.createAskMessage(params(), RequestOptions.none(), gate);
+
+        assertThat(available).containsExactly(3);
+    }
+
+    @Test
+    @DisplayName("a refused first attempt makes no request at all, is not retried, and is neither a success nor "
+            + "a failure to the breaker")
+    void refusedBeforeTheFirstAttempt() {
+        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), () -> false))
+                .isInstanceOf(AnthropicApiClient.CallRefusedException.class);
+
+        verifyNoInteractions(Config.ASK_MESSAGES);
+        assertThat(breakers.circuitBreaker("ask").getMetrics().getNumberOfBufferedCalls()).isZero();
+    }
+
+    @Test
+    @DisplayName("a retry's second attempt is another paid call and is gated too: the first attempt fails with "
+            + "a 500, another thread latches before the second, and the second is never made")
+    void secondAttemptIsGated() throws Exception {
+        AtomicBoolean open = new AtomicBoolean(true);
+        AnthropicServiceException serverError = status(500, "boom");
+        ExecutorService other = Executors.newSingleThreadExecutor();
+        try {
+            when(Config.ASK_MESSAGES.create(any(MessageCreateParams.class), any(RequestOptions.class)))
+                    .thenAnswer(inv -> {
+                        // Another conversation's write fails while this attempt is failing.
+                        other.submit(() -> open.set(false)).get(10, TimeUnit.SECONDS);
+                        throw serverError;
+                    });
+
+            assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), open::get))
+                    .isInstanceOf(AnthropicApiClient.CallRefusedException.class);
+        } finally {
+            other.shutdownNow();
+        }
+
+        verifyAskCalls(1);
+        assertThat(breakers.circuitBreaker("ask").getMetrics().getNumberOfFailedCalls())
+                .as("the refusal is ignored; the 500 was absorbed by the retry's own attempt")
+                .isLessThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("an open gate changes nothing: a 500 is still attempted exactly twice, and the gate is asked "
+            + "once per attempt")
+    void openGateIsAskedPerAttempt() {
+        AtomicInteger asked = new AtomicInteger();
+        stubAsk(status(500, "boom"));
+
+        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), () -> {
+            asked.incrementAndGet();
+            return true;
+        })).isInstanceOf(AnthropicServiceException.class);
+
+        verifyAskCalls(2);
+        assertThat(asked.get()).isEqualTo(2);
     }
 
     @Test
@@ -162,7 +236,7 @@ class AskCreateMessageResilienceTest {
         when(Config.ASK_MESSAGES.create(any(MessageCreateParams.class), any(RequestOptions.class)))
                 .thenReturn(REPLY);
 
-        assertThat(api.createAskMessage(params(), RequestOptions.none())).isSameAs(REPLY);
+        assertThat(api.createAskMessage(params(), RequestOptions.none(), OPEN)).isSameAs(REPLY);
 
         verifyAskCalls(1);
     }
@@ -173,7 +247,7 @@ class AskCreateMessageResilienceTest {
     void clientErrorsAreNotRetried(int code) {
         stubAsk(status(code, "no"));
 
-        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none()))
+        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN))
                 .isInstanceOf(AnthropicServiceException.class);
 
         verifyAskCalls(1);
@@ -184,7 +258,7 @@ class AskCreateMessageResilienceTest {
     void contentFilterIsNotRetried() {
         stubAsk(status(400, "Output blocked by content filtering policy"));
 
-        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none()))
+        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN))
                 .isInstanceOf(AnthropicServiceException.class);
 
         verifyAskCalls(1);
@@ -195,7 +269,7 @@ class AskCreateMessageResilienceTest {
     void ioFailureIsNotRetried() {
         stubAsk(new AnthropicIoException("timed out"));
 
-        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none()))
+        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN))
                 .isInstanceOf(AnthropicIoException.class);
 
         verifyAskCalls(1);
@@ -209,7 +283,7 @@ class AskCreateMessageResilienceTest {
         when(Config.SHARED_MESSAGES.create(any(MessageCreateParams.class))).thenReturn(REPLY);
 
         for (int i = 0; i < 5; i++) {
-            assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none()))
+            assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN))
                     .isInstanceOf(AnthropicServiceException.class);
         }
 
@@ -218,7 +292,7 @@ class AskCreateMessageResilienceTest {
         assertThat(breakers.circuitBreaker("anthropic").getMetrics().getNumberOfBufferedCalls()).isZero();
         verifyAskCalls(10);
 
-        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none()))
+        assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN))
                 .isInstanceOf(CallNotPermittedException.class);
         verifyAskCalls(10);
         assertThat(api.createMessage(params())).isSameAs(REPLY);
@@ -230,7 +304,7 @@ class AskCreateMessageResilienceTest {
         stubAsk(status(401, "bad key"));
 
         for (int i = 0; i < 30; i++) {
-            assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none()))
+            assertThatThrownBy(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN))
                     .isInstanceOf(AnthropicServiceException.class);
         }
 
@@ -254,12 +328,12 @@ class AskCreateMessageResilienceTest {
         try {
             List<Future<Message>> admitted = new ArrayList<>();
             for (int i = 0; i < 4; i++) {
-                admitted.add(pool.submit(() -> api.createAskMessage(params(), RequestOptions.none())));
+                admitted.add(pool.submit(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN)));
             }
             assertThat(fourInside.await(10, TimeUnit.SECONDS)).as("four conversations inside").isTrue();
 
             long started = System.nanoTime();
-            Future<Message> fifth = pool.submit(() -> api.createAskMessage(params(), RequestOptions.none()));
+            Future<Message> fifth = pool.submit(() -> api.createAskMessage(params(), RequestOptions.none(), OPEN));
             Throwable shed = catchCause(fifth);
             long waitedMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
 

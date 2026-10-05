@@ -337,14 +337,22 @@ and to `AskAnswerValidator.validate`.
     Anthropic has answered, `AskJobRunService.recordTurn` keeps the turn and its priced cost in a
     bounded in-memory holder (100 turns in detail; further cost is folded into a per-run total, never
     dropped) and latches. The typed-spend figure adds the unrecorded typed cost on every read,
-    bypassing the 30s memo. `accountingAvailable()` is asked before every model turn of every
-    conversation, typed or Ready: while anything is unrecorded it first tries to write the held turns,
-    and if it cannot the engine makes no call and returns FAILED with `AskRun.ACCOUNTING_UNAVAILABLE`
-    — including the next turn of the conversation whose write failed (the turn that carried
-    `submit_answer` is already paid for and is still returned). The cap reads `api_call_log`, so the
-    two `job_run` increments are display-only and stay best effort. **A process restart loses the
-    holder**: that is the one way spend goes unrecorded, bounded by the latch to the turns of
-    conversations already in flight when the first write failed.
+    bypassing the 30s memo. `accountingAvailable()` is asked by every conversation, typed or Ready:
+    early (in `run()` and before each turn, cheap refusals) and, binding, by a `CallGate` **inside
+    `AnthropicApiClient.createAskMessage`** — after the bulkhead permit is taken, before every
+    attempt (a retry's second attempt is another paid call), as the last step before the HTTP
+    request. While anything is unrecorded it first tries to write the held turns; if it cannot, the
+    attempt is refused and the run returns FAILED with `AskRun.ACCOUNTING_UNAVAILABLE` — including
+    the next turn of the conversation whose write failed (the turn that carried `submit_answer` is
+    already paid for and is still returned). **The window that cannot be closed:** a request already
+    issued when another conversation latches cannot be recalled, so at most the calls in flight at
+    that moment (the bulkhead's four) can still be paid for unrecorded; a call the engine abandons at
+    its deadline may also be billed with no usage to log. Each typed turn is booked to the daily run
+    as of that turn (a conversation crossing UK midnight books its later turns to the new day); the
+    question is counted on the day it started. The cap reads `api_call_log`, so the two `job_run`
+    increments are display-only and stay best effort. **A process restart loses the holder**: that is
+    the one way spend goes unrecorded, bounded by the latch to the turns of conversations already in
+    flight when the first write failed.
   - **Today's typed spend** = `SUM(cost_micro_dollars)` over `api_call_log` rows whose
     `job_run_id` is an `ASK` run started since UK midnight (uses `idx_api_call_log_job_run`),
     memoised 30s. Precompute spend does **not** count toward the typed cap.
