@@ -249,6 +249,33 @@ class AskAdminControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("over HTTP a JSON null body and no body at all are both Spring's own 400, before the controller")
+    void nullOrAbsentBody_400() throws Exception {
+        mockMvc.perform(post(URL).contentType(APPLICATION_JSON).content("null"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Request body could not be read"));
+        mockMvc.perform(post(URL).contentType(APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Request body could not be read"));
+        verifyNoInteractions(engine);
+    }
+
+    @Autowired
+    private AskAdminController controller;
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("called with a null request, the controller itself answers 400 and never reaches the engine")
+    void nullRequest_guardedInTheController() {
+        var response = controller.dryRun(null, null);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody()).isEqualTo(java.util.Map.of("error", "A request body is required."));
+        verifyNoInteractions(engine, snapshotBuilder);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("a missing question is 400")
     void missingQuestion_400() throws Exception {
         mockMvc.perform(post(URL).contentType(APPLICATION_JSON).content("{}"))

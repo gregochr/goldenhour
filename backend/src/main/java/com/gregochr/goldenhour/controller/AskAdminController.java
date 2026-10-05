@@ -126,8 +126,10 @@ public class AskAdminController {
         if (!properties.isEnabled()) {
             return ResponseEntity.notFound().build();
         }
-        AskQuestionSanitiser.Result cleaned = AskQuestionSanitiser.sanitise(
-                request == null ? null : request.question());
+        if (request == null) {
+            return badRequest("A request body is required.");
+        }
+        AskQuestionSanitiser.Result cleaned = AskQuestionSanitiser.sanitise(request.question());
         if (!cleaned.ok()) {
             return badRequest(cleaned.error());
         }
