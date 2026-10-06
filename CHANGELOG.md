@@ -5,6 +5,388 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.23.0] - 2026-10-06
+
+### Fixed — the backend CI job no longer spends three minutes waiting for a cache primer that can never finish
+
+`OrchestratedDispositionWriteIntegrationTest` took 197 s per CI run since #999 landed on 4 Oct (18–30 s
+before), and as the last class to finish it put every one of those seconds on the job's critical path.
+The batch cache primer is on by default with a 180 s wait, and that class's WireMock batch-status stub
+answers `in_progress` to every poll, so the primer waited the full three minutes before the submission
+under test ran at all. The shared test configuration now sets `photocast.batch.cache-primer.wait-seconds`
+to 0 ("do not prime"), which is the pre-#999 request shape every integration test asserts on. The primer's
+own tests (`BatchCachePrimerTest`, `ScheduledBatchEvaluationServiceTest`) run against a fake clock and do
+not read the property, so nothing they cover changes.
+
+### Fixed — shutdown no longer waits 30 s for cron jobs that are hours away
+
+The dynamic scheduler's pool waits up to 30 s on shutdown so a job that is running can finish. It
+also, until now, waited for every cron job merely pending: Spring keeps the JDK default of executing
+already-scheduled delayed tasks after `shutdown()`, and a cron trigger is a delayed task (its next
+firing), so the await had nothing to do but run out in full. Every production restart paid that wait
+(Docker's 10 s stop budget killed the JVM first, mid-shutdown), and every CI fork whose test context
+had scheduled a cron hung 30 s at exit until Surefire killed it — the 30 Sep run's whole test phase
+ended on that hang. The pool now drops pending delayed tasks at shutdown; a running job still gets
+its 30 s. `DynamicSchedulerServiceIntegrationTest`'s lifecycle test also cancels the cron it resumes.
+
+### Fixed — frontend `npm audit`: source-map-js 1.2.1 → 1.2.2
+
+A new high-severity advisory (GHSA-68fv-2mgg-jv7q, event-loop denial of service through indexed
+source-map section offsets) against the transitive dev dependency `source-map-js` was failing the
+Frontend CI job's audit step on every pull request. The lockfile's three lines (version, resolved,
+integrity) are edited by hand, never `npm audit fix`; `rm -rf node_modules && npm ci` leaves the
+lockfile unchanged and the audit reports 0 vulnerabilities.
+
+### Changed — the backend container gets 40 s to stop instead of Docker's default 10 s
+
+The dynamic scheduler waits up to 30 s on shutdown for a job that is running to finish, so a deploy
+that landed mid-job had the JVM killed at 10 s, before that wait, Hikari or the entity manager
+finished. `stop_grace_period: 40s` on `goldenhour-backend` covers the scheduler's full budget with a
+margin. A restart with nothing running still stops in a second or two, since pending cron firings no
+longer hold the await (#1026). Boot's graceful HTTP drain (up to 30 s, run first) is not
+covered on top of that; a slow request still in flight and a running job together could need 60 s,
+a coincidence this was deliberately not sized for.
+
+### Docs — Ask PhotoCast sweep: CLAUDE.md, the prompt-regression class, measured checks and the production enable checklist
+
+Phase Z of the Ask PhotoCast series. CLAUDE.md now records the feature (the two doors, the horizon-aware Ready catalogue, the
+validator-decides engine and its accounting latch, the guards in order, the client's four surfaces and where open/closed state
+lives), the three reader endpoints and three admin endpoints with the error table, migrations V165–V167, the `photocast.ask.*`
+keys, the local recipe and the suite sizes, and corrects every sentence the series made false: `/` is Ask's from 1024px (search
+keeps its buttons), the dialog-stack and settings-route counts, the peek sheet's 74px height and the "a callout never stands over
+it" rule (now `--psh` 74 / 126 / 112, with one deliberate exception), and the integration-class count. `backend/AGENTS.md` lists
+the Ask guards that look like gaps and are not. `application-example.yml` lists every `photocast.ask.*` key with its range.
+
+`AskPromptRegressionTest` (tagged `prompt-regression`, excluded from the default run and from PIT, skipped without an API key)
+puts three questions through the real engine against a fixed forecast and asserts structure only: a where question leads with
+the BEST BET and offers only eligible spots, a rare-events question carries the eclipse's lens-filter warning, and a question the
+forecast cannot answer is "not in the forecast" with nothing offered. The plan's §7 gained the figures that could be measured
+without a real Claude call (the rest are marked as the owner's run), and §11 and §12 are the owner's browser checklist and the
+production enable checklist.
+
+### Fixed — Ask PhotoCast's snapshot memo is bypassed while a rewind is active
+
+The 30-second memo of the Ask read model treated a negative age (a memo built at a later real instant than the
+rewound "now") as younger than 30 seconds, so an admin's rewound `GET /api/ask/ready` was freshness-checked against
+the live snapshot and its cards could contradict the rewound Plan view, and kept reusing it. A request under a
+rewind now builds a snapshot for the rewound clock and neither reads nor writes the memo, the same rule
+`AlmanacService` follows for its day cache, and a memo whose age is negative is rebuilt rather than reused.
+
+### Added — Ask PhotoCast: "Plan this", "Open in Plan ›" and the Plan-card highlight
+
+Every pick card in an Ask answer now has a **Plan this ›** button, on the docked column, the tablet and phone sheets and the
+phone Map's Ask section. It swaps the answer for that pick's own view: **Leave home** (when to set off, with the day if the
+drive crosses midnight), **Drive** (from home), **Best light** (golden and blue hour, in the order they happen) and **Tide**
+(the water at the light, with the wave glyph that says whether it is the water the spot wants), then the spot's own one-line
+reading as a note — only when the forecast has one, never an invented tip about parking or access. These are the four-day
+location sheet's own functions over the same forecast, so the two never disagree; the drive is always from home, whatever
+the Plan origin is. With no drive time the two cells read a dash, and a reader who has no postcode saved is offered the
+masthead's "Set a postcode" button. "‹ Back to the answer" returns to the answer with the pick still chosen and focus back
+on the button that opened the plan.
+
+**Open in Plan ›** is the only action there ("Add to Coming up" was removed). It moves to the Plan tab and opens the pick's
+four-day sheet at the pick's own window. On the tablet and phone sheets Ask closes first, so the location sheet is the only
+dialog; on the docked column Ask stays open beside it (and is inactive while the sheet is up). Closing the sheet puts focus
+back where you were: the dock's button, or the Ask bar or field you opened the sheet from — never the top of the page.
+
+On the Plan tab the selected pick's window card is now highlighted: a gold edge with a second inset pixel and the pick's
+number on the card's corner, scrolled into view, and "Ask pick N" in its accessible name. It is a different mark from the
+open card and the two can sit on one card; it does not open the popup. It is live while the dock is open, and applied when a
+sheet closes. A pick whose window has no card highlights nothing.
+
+"Clear answer" now works from the plan view too, and choosing another pick (a chip on the map, say) leaves the plan for the
+answer. `lightWindows` and a new `departureWithDay` are exported from `utils/locationSheet.js` for the plan view; the sheet's
+own rows read the same functions.
+
+### Added — Ask PhotoCast on the phone Map: the Ask row in the peek sheet
+
+On a phone the Map's bottom sheet now has an Ask row above its three buttons — "ASK · Ask about what's on the map… ↑" —
+which takes the sheet from 74px to 126px (with Ask off, or unreachable, the sheet is exactly what it was). Pressing it opens
+the Ask section at 470px: the question field and a ✕ in the row, the Ready suggestions, and the answer with its pick cards
+beneath, which replace the three buttons while they are open. Another section opened from the pill (Windows, Tide, Layers)
+now stands at 408px under the Ask row.
+
+Touching, dragging or zooming the map closes the suggestions, and minimises an answer to one 112px line — rank, spot, time,
+"3 picks ▴" — which stays on screen while you look at the map, across a switch to another tab and back, and is opened again
+by pressing it or by pressing one of the numbered picks on the map. The ✕ in the open row clears the answer and brings the
+three buttons back. A question still being fetched is left open by a map touch. Escape, the window pill and a pressed chip
+each do what the plan's table says for the state the sheet is in, and a spot's callout may now stand over the 112px line.
+The camera fits the picks into what the sheet leaves uncovered and fits again when the answer is minimised; the label
+placer treats the sheet as an obstacle while picks are numbered. A refusal ("Slow down a moment.") that arrives while the
+row is closed is shown in the row until it has been read.
+
+Under the hood the sheet's resting height is now state-driven: `--psh` is written on the Map pane (74 with no Ask row, 126
+with one, 112 under a minimised answer) and the Leaflet corner, the bottom-left chrome and the callout's placement band all
+follow it, the callout repainting when it changes. Focus is parked and handed on whenever a control that held it is replaced
+by the answer, so Escape keeps working. Desktop and tablet are unchanged.
+
+### Added — Ask PhotoCast on the Map: numbered picks, the field dimmed, the camera and the window follow the answer
+
+An answer's picks are now on the Map tab (from 640px; the phone Map is the next phase). Each pick is a numbered chip — or a
+numbered dot in Pins view — drawn from the pick's OWN window (its short window, "Sat AM", and that window's rating in its
+verdict colour, with no tide cue and no tooltip borrowed from the window on screen), placed before every other label; one
+the label placer cannot fit becomes a bare rank circle, so no pick is ever unmarked, and one the reader's rating floor or scope
+would have hidden is still drawn. Every other chip and pin steps back to a quarter strength (over the tide-miss dimming), and
+the heat field's fill steps back behind them — a factor inside the draw, so the coastline and the reach rings keep their own
+strength. The camera fits the picks once per answer (no closer than zoom 10), flies to a chosen pick at 10.5, holds while the
+tablet's Ask sheet stands over the map and fits when it closes, fits again once a docked column has finished opening or
+closing, and jumps instead of flying under reduced motion. Its padding is clamped to 60% of the frame on each axis: an
+over-large pad on a short window does not raise an error, it quietly puts the picks outside the frame.
+
+Choosing a pick — its card, or its chip on the map — selects the card, clears the map's selected location (no callout for
+another window) and moves the map's window to the pick's, on a channel of its own that touches no filter, scope or
+breadcrumb. "Show on map ›" now also appears on the tablet's Ask sheet over the Map, where it closes the sheet.
+
+The Map now tells Ask what a question asked from it carries: the region you jumped to, or "My area" (the regions in your
+planning area), or "Everywhere" — never the viewport — and the solar window on the pill, as the removable chip. A question
+typed in the dock or the sheet on the Map is sent with them; Plan and Coming up still send every region, and the Ready
+suggestions on the Map are fetched for the one region in scope. An answer now remembers the context it was asked in: its chips
+keep saying what was sent after a tab switch (the window chip is a plain label once answered), and "Try again" sends the
+original question with its original region and window. Because the next question is sent with what the Map shows at that
+moment — and choosing a pick moves the Map's window — a "Next question" row above the field says what it will carry and
+lets you take the window out. A pick on the map is first in the keyboard order, in rank order, and keeps a visible focus ring.
+
+### Added — Ask PhotoCast on a desktop: the field in the tab row, the `/` key and the docked column
+
+From 1024px the Ask field sits beside the tab row on Plan, Coming up and Map (not Operations) — 340px with a `/` key cap
+from 1180px, 260px from 1024 to 1179px — and opens a docked column on the right instead of a sheet: 380px from 1180px,
+360px below it. The dock is a sibling of the whole shell column (masthead, tab row and panel), so the three narrow
+together and keep one width; on Plan and Coming up it sticks to the viewport with the question field at its foot, and on
+the Map it is the frame's own height while the map pane reports its new width to Leaflet. It is a landmark, not a dialog:
+the page beside it stays live, it survives a switch between Plan, Coming up and Map with the conversation in it, and it
+closes with Operations. While a window popup, the drill-down, the four-day sheet, search or settings is open — or the
+backend is down — the dock is `inert`, the field is disabled, and nothing else is. Escape closes it only while focus is inside it
+(and returns focus to the field), and a press in it dismisses no map panel, so choosing a pick card does not close the
+drilldown beside it. "Show on map ›" moves to the Map with the dock still open. Closing keeps the answer; "Clear answer"
+ends it.
+
+`/` now opens that dock and focuses its question field, at 1024px and up, on Plan, Coming up and Map; it keeps every
+refusal the search shortcut had (a field, a modifier, any dialog including the window popup, a dead backend) and acts only
+while Ask is live. It no longer opens Plan search, which is reached by the ⌕ and the origin button alone, and below 1024px
+it does nothing. The ⌕ lost its `/` key cap with the key. The four-tab "Ask" button collapse is now a container query on
+the tab row, since the dock narrows the column and not the window.
+
+### Added — Ask PhotoCast on a phone and a tablet: the ask bar, the field and the tall sheet
+
+Ask is now mounted. Below 640px a 48px bar sits above the bottom of Plan and Coming up ("Ask about this weekend…" /
+"Ask about rare events…"); from 640 to 1023px a 260px field sits beside the tab row on Plan, Coming up and Map. Both open
+one tall bottom sheet (the visual viewport minus 24px, over the app's dialog scrim) holding the conversation and, at its
+foot, the question field — 16px so iOS does not zoom, and kept above the on-screen keyboard by following
+`window.visualViewport`. Closing the sheet (the ✕, the scrim or Escape) keeps the answer; a "Clear answer" button ends it
+and brings the Ready suggestions back. The sheet is the one modal while it is up: the whole app container (banners and
+footer included) is `inert`, a tab change closes it from any route, and opening it is refused — the bar is disabled and
+nothing is closed — while a window popup, the drill-down, the four-day sheet, search or settings is open. "Show on map ›"
+on a pick selects it, closes the sheet, moves to the Map tab and keeps the answer; the numbered markers arrive with the
+Map linkage. Nothing appears while the server has Ask off or has not yet said, the bar is drawn disabled when the first
+settings read failed, and under an admin's rewind the provider is not mounted at all, so no settings request is made.
+On a phone the page reserves the bar's 58px at its end and keeps the viewport 58px clear of it for keyboard focus.
+`BottomSheet` gains `size="tall"`, `closeOnEscape` and a `footer` slot; its defaults — heights, scroller budget, class
+strings, keys — are pinned by value, and the only additions to the default markup are two test-id attributes.
+
+### Added — Ask PhotoCast's client core (nothing mounted yet)
+
+The frontend half of Ask PhotoCast's conversation, built and tested but not yet wired into any tab: `api/askApi.js`
+(the three endpoints, every refusal surfaced as `{status, code, error}`), `useAskAllowance` and `useAskReady`, an
+`AskProvider` holding the conversation (empty, busy, answer, not-in-the-forecast, error; a Ready tap makes no request,
+a late response is dropped when it lands, a refused question puts the conversation back), `utils/askModel.js` (a served
+pick joined to the briefing for its name, star, verdict, UK event time and tide, and to the reader's HOME drive time — a
+pick with no slot in the client's briefing is dropped), and the conversation with its pick, event and "Asking about"
+cards. An event's safety note (the solar eclipse's lens-filter warning) is always rendered, outside every role gate and
+every width. Nothing is stored in the browser: no `swrCache`, no `localStorage`, no module state. `locationSheet.js`
+now exports `slotsOf`, which every index in that file already used. The Ready busy line says "this evening's" over an
+evening run, where the design's copy would have said "this morning's" over every run.
+
+### Added — Ask PhotoCast's free answers: the can't-answer pre-filter, the Ready match, the typed cache, the question log and the metrics
+
+A typed question now costs nothing in four more cases, and the owner can see how the box is used. A question about
+car parks, crowds, opening times, toilets, cafés, shops, pubs or restaurants is turned away free as a whole-word
+phrase (so "open horizon", "national park" and "busy skies" are still answered), before the Ready match, so "is the car
+park busy this weekend" is a can't-answer and never the weekend answer. A question that is exactly a Ready question
+("where's good this weekend?", "sunrise or sunset tomorrow?", "any rare events coming up?") is served that Ready answer
+as `kind: ready`, uncharged, only while the answer is available and fresh against live data and the question carries
+nothing the answer ignores (a named place, a drive or distance, another day or time of day). An answer already paid
+for is served again to the next reader who asks the same question (a Caffeine cache of 2,000 entries for 30 minutes,
+keyed on scope, UK date, briefing build, normalised question, window and, for an answer that used the asker's own drive
+times, the user), re-checked against the live forecast on every hit with the same all-or-nothing test a Ready answer
+passes, and never stored while a simulation is active. `ask_log` (V167, user `ON DELETE SET NULL`) records one row per
+answered request, keeping the normalised question only when the engine answered it, capped at 200 characters; denied
+requests write no row and are counted in memory and logged once per user per hour. A nightly job (`ask_log_cleanup`,
+03:55 UTC) prunes the log at `photocast.ask.log.retention-days` (90). `GET /api/admin/ask/metrics?days=` (admin) reports
+the outcome counts, the cache-hit, Ready-match and can't-answer rates, the most common things readers asked for that
+PhotoCast does not hold, and typed and Ready spend, and never returns a question.
+
+### Added — Ask PhotoCast B4: the typed endpoint and its guards
+
+`POST /api/ask` (every role, 404 while `photocast.ask.enabled` is false) answers a typed question, and `GET /api/user/settings/ask`
+(always 200; `enabled:false` and zeros while Ask is off) reports the caller's allowance and whether typed questions are available.
+The guards run cheapest first: a 5-a-minute sliding-window rate limit applied by an interceptor before the request body is even converted (so a malformed or oversized body counts too; the body is capped at 8 KiB); a strict
+sanitiser that refuses (never strips) invisible, control, emoji and symbol characters and anything outside letters, digits, spaces and
+`? ! ' ’ , . - : / & ( )`, caps at 200 characters and derives the normalised cache key; the daily spend cap ($0.50 by default, one admin
+email per UK day) and the accounting latch, both 503 `TYPED_UNAVAILABLE`; then one atomic reservation of the allowance (LITE 3, PRO and
+ADMIN 30 a UK day) and of a never-refunded engine-call ceiling (3 times the allowance), so "refund an unanswerable question" cannot
+become free Claude calls. An answer is charged; an honest "not in the forecast" and a failure are refunded on the date they were
+reserved, never below zero. Every error is `{"error","code"}` with the codes of the plan's table (`INVALID`, `RATE_LIMITED`,
+`ALLOWANCE_EXHAUSTED`, `DAILY_LIMIT`, `ENGINE_FAILED`, `TYPED_UNAVAILABLE`). Migration V166 adds `ask_usage` with `ON DELETE CASCADE`.
+The pre-filter, Ready intent match, typed cache and question log are wired as no-op `@Fallback` seams for B5.
+
+### Fixed — Ask PhotoCast Ready answers carry only what their question is about
+
+A Ready answer is the model's, held to what the tools returned, but nothing checked that an event or a pick was
+relevant to the question asked: a "snow on the tops" answer could carry an aurora, because the validator only proves
+an event came from a tool. Each `ReadyQuestion` now says which event types it keeps (`RARE_EVENTS` any; `SNOW_TOPS`
+only `SNOW_TOPS`, `SNOW_FRESH` and `SNOW_MIST`; every pick question none) and which picks (the question's own
+windows, in scope, and for `COASTAL_HIGH` a coastal slot at high water; an events question none), from one predicate
+used both when an answer is stored and when it is served. At store time irrelevant events are removed, an answer
+with nothing relevant left, or one that would lose an event carrying a safety warning, is not stored; at serve time a
+row written under an older rule is withheld rather than served. Nothing reads these answers yet.
+
+### Changed — Anthropic Java SDK 2.60.0 → 2.62.0, and why not 2.68.0
+
+Dependabot's bump to 2.68.0 (#1012) does not compile: 2.63.0 removed the
+`OkHttpClient(okhttp3.OkHttpClient, Backend)` constructor `AppConfig.anthropicClient` uses to
+force HTTP/1.1, which exists because OkHttp's HTTP/2 frame writer pins virtual threads under
+`synchronized` on Java 21 and deadlocked batches of 200+. The SDK's own builder offers no protocol
+control, so taking the bump would silently reintroduce HTTP/2. The version moves to 2.62.0, the
+last release with the constructor; the pin and its two exits (JDK 24+ via JEP 491, or an in-house
+`com.anthropic.core.http.HttpClient`) are recorded in the pom, the AppConfig javadoc and
+CLAUDE.md, and Dependabot now ignores `>= 2.63.0` for this artifact.
+
+### Docs — Ask PhotoCast: the design bundle, the implementation plan and the per-phase prompts
+
+Vendors the Claude Design bundle for Ask PhotoCast (`docs/design/ask-photocast/`) and adds
+`docs/engineering/ask-photocast-plan.md` and `ask-photocast-prompts.md`. The plan records 24 places
+where the bundle and the codebase disagree, the design that resolves them, literal wire contracts,
+fourteen sequential phases and the owner decisions with their binding defaults. It was revised
+after a four-lens adversarial review; §10 lists what changed. No code.
+
+### Docs — Ask PhotoCast plan: the owner's decisions recorded
+
+"Add to Coming up" is removed from the Ask PhotoCast plan outright (Coming up is for weather-type
+events, not a schedule), so phase S1 and its storage are gone; the typed-question spend cap is
+$0.50 a day; the `/` key, the deferred floating card and the drive-question rule are confirmed as
+planned.
+
+### Added — Ask PhotoCast: Ready answers, precomputed after each pipeline cycle
+
+Phase B3 of the Ask PhotoCast plan (`docs/engineering/ask-photocast-plan.md` §2.4). A seven-question catalogue
+(`ReadyQuestion`: best spot this weekend, in the next few days, tonight or tomorrow morning, best coastal spot at
+high tide, sunrise or sunset on a day, rare events, snow on the tops) is answered once per scope (every enabled
+region, and all of them) for every reader, with no user, no home and no drive time in the conversation, and stored
+in `ask_ready_answer` (V165, unique on scope and question, so a precompute replaces the row). Which questions exist
+depends on the forecast: a Monday offers no weekend question, and the text a question is asked under ("tonight",
+"on Saturday") is fixed from the UK civil date when it is written.
+
+`PipelineOrchestrator` hands the precompute to its background executor only after `finishRun` has marked the cycle's
+run COMPLETED or DEGRADED, so a precompute never holds a run open and nothing it throws or takes too long over can
+reach the run. It stops between questions after five minutes, refuses to run when Ask is off, a simulation is
+active, the briefing is missing or last-known-good, another precompute is running, or
+`photocast.ask.ready.max-cycles-per-day` scheduled precomputes have already started today (a count of `job_run`
+rows since UK midnight). One question failing does not stop the rest. A `BEST_*` answer that does not lead with the
+Plan tab's own BEST BET window is not stored, and neither is one that names a window outside what the question was
+asked about. `POST /api/admin/ask/ready/precompute` (ADMIN) runs it on demand, which is how to get Ready answers
+locally on the stub.
+
+`GET /api/ask/ready?scope=all|<regionId>` (Bearer, every role, ETag-revalidated) serves them. Freshness is checked
+against live data on every read and is all or nothing: a question is withheld whole when any pick's window has
+passed, any pick's rating, verdict or eligibility has changed, any event's topic is no longer live, the BEST BET has
+moved, or the question would now be asked differently. What is served has its names, dates, event labels and safety
+notes re-joined from the live forecast, never from the model's text, and each question carries its own `generatedAt`
+and `runLabel`. Nothing reads it yet: the endpoint is off until `photocast.ask.enabled` is turned on.
+
+### Added — Ask PhotoCast B2b: the stub engine, a local fixture, the admin dry-run and a fix for old local databases
+
+Third backend phase of Ask PhotoCast (`docs/engineering/ask-photocast-plan.md`). No migration, and
+nothing a reader can reach: the one new endpoint is admin-only and answers 404 while
+`photocast.ask.enabled` is false.
+
+`StubAskEngine` answers from the same B1 tools with templated text and makes no Anthropic call and no
+cost row (it has no client and no job-run service to make one with). A where-or-when question gets the
+top three spots at different locations (narrowed to the coast or a tide state when the question says so,
+to the context window when there is one, and to the question's scope); an events question is answered
+from the hot topics and the Coming up feed; nothing eligible is an honest answer with no picks. Its
+answer goes through `AskAnswerValidator` exactly as a real one does, and it leads a Ready `BEST_*`
+question with the forecast's BEST BET window. Exactly one `AskEngine` bean exists for any value of
+`photocast.ask.stub` (`AskEngineSelection`: one conversion, each condition the other's negation; a
+non-boolean value fails startup), and `stub=true` under the `prod` profile fails startup rather than
+serving templates to readers or silently billing the key.
+
+`POST /api/admin/ask/dry-run` (ADMIN) runs a question through whichever engine is active as the calling
+admin and returns the outcome, the validated answer and the tool trace. With the Claude engine it spends
+real money and counts toward typed spend. The question is cleaned by the new `AskQuestionSanitiser`
+(strip control and format characters, collapse whitespace, 200 characters), which the typed endpoint will
+extend rather than replace.
+
+`AskLocalFixtureSeeder` gives a local app a rich, rated Ask state with no Claude call and no forecast
+run: three `Fixture …` regions and 22 `… (fixture)` locations, rated entries for the next four solar
+windows written through `BriefingEvaluationService` (the pipeline's own path), synthetic tide extremes
+for three coastal spots, then a briefing build. Two regions meet the verdict sample gate; the third has a
+4★ slot the gate refuses; the wood is canopy. It is idempotent, deletes nothing, recognises its own rows
+by name, and cannot run in production: the bean needs the `local` profile (never with `prod`) and
+`photocast.ask.seed-local-fixture=true`, and at run time it refuses unless that profile is active and the
+database really is H2. It is off by default in `application-local.yml` (which now enables Ask with the
+stub): the briefing build it triggers makes the usual gloss and best-bet Claude calls with whatever
+`ANTHROPIC_API_KEY` is set. Locally no window carries a BEST BET, because that needs a Claude-written
+gloss.
+
+Fixed: a developer's **existing** local H2 file refused `ASK` and `ASK_READY` job runs (Hibernate maps an
+enum column to a native H2 `ENUM` fixed at table creation and `ddl-auto: update` never alters it), until
+the file was deleted. The claim B2a reported is reproduced by a test; `LocalH2EnumWidener` (local profile,
+H2 only) now widens `job_run.run_type` at startup, keeping every value and the `NOT NULL`. Production
+(`VARCHAR`) was never affected.
+
+### Added — Ask PhotoCast B2a: the Claude tool loop, its own resilience, and cost recording
+
+Second backend phase of Ask PhotoCast (`docs/engineering/ask-photocast-plan.md`). Nothing here is
+reachable from an HTTP endpoint and there is no migration. `ClaudeAskEngine` runs at most
+`photocast.ask.max-turns` model turns with `tool_choice` auto over the B1 tools; the reply is the
+input of the model's `submit_answer` call, read defensively by `AskAnswerParser` and then held to what
+the tools returned by `AskAnswerValidator`. A refusal, `max_tokens`, a turn with no tool call, a
+malformed or discarded answer, or a last turn without `submit_answer` is a FAILED outcome, never an
+exception; a bad tool call is fed back as an error `tool_result`. The question reaches Claude only as
+the user message. `AskProperties` (`photocast.ask.*`) declares every setting with bounds that fail
+startup, and the model is limited to Haiku or Sonnet 4.6 (never Sonnet 5.5, and never a
+`model_selection` row).
+
+`AnthropicApiClient.createAskMessage` has its own Resilience4j `ask` retry (two attempts, server
+errors only, no content-filter retry), circuit breaker (blind to a rejected key and to a full
+bulkhead, no health indicator) and bulkhead (four concurrent, two seconds' wait), declared in the
+local, example, prod and test YAML, so a reader's questions cannot open the breaker the forecast
+pipeline shares. The SDK's own retries are switched off for this door: left on they gave three HTTP
+attempts per call, each with the full timeout. The per-call timeout is the shorter of 20 seconds and
+the time left to a 30-second deadline, and the engine stops waiting at the deadline itself, because a
+retry would otherwise start its second attempt with a fresh timeout.
+
+Spend is recorded as the plan describes: new run types `ASK` and `ASK_READY`, one `ASK` job run per
+UK civil day found or created under a lock before the first model turn (so a database that cannot
+record the money stops the call), a column-scoped cost and question-count increment after each
+logged call so Operations shows the day's Ask spend, every model turn (failed ones too) logged with
+its tokens, and a typed-spend sum over `ASK` runs since UK midnight, memoised for 30 seconds, that
+ignores `ASK_READY`.
+
+### Added — Ask PhotoCast B1: the read model, the tools, the answer contract and the validator
+
+First backend phase of Ask PhotoCast (`docs/engineering/ask-photocast-plan.md`), with no Claude call,
+no endpoint and no migration. `AskSnapshotBuilder` reads the Plan tab's own assembly
+(`BriefingService.getCachedBriefingForApi()`) into an `AskSnapshot`, memoised for 30 seconds. Its
+window set is the solar events that carry a served `window()`, have not passed by the shared
+`PlanWindowProjector.hasPassed`, and are not travel days; the served briefing does not mark a travel
+day, so the builder asks `TravelDayService.isTravelDay`, the same test the best-bet advisor applies.
+
+A slot is pick-eligible only when it has a location id, is not a wood, is rated 3★ or better and
+sits in a region `BriefingRegion.verdictEligible()` would let carry a verdict — no rating exempts an
+ineligible region, so a handful of hand-run 4★ ratings can never crown one. `AskTools` implements
+`list_windows`, `rank_spots`, `get_hot_topics` and `get_coming_up` over it (BEST BET first among equal
+ratings, the served tide state and the location's own tide preference as two separate fields, a
+6,000-character cap per conversation, errors as results rather than exceptions), and
+`AskAnswerValidator` holds a submitted answer to the pairs and events the tools actually returned,
+joining every card fact from served data and requiring a Ready `BEST_*` answer to lead with the
+forecast's BEST BET window. The window-id format `yyyy-MM-dd_sunrise|sunset` now has one codec,
+`AskWindowId`, which `BriefingRollupBuilder` uses in place of its two inline copies.
+
+### Added — Low Hauxley sunrise (4 Oct 2026) as a prompt regression case
+
+A new prompt regression case from an observed sunrise: a clean sea horizon with streaked high cloud lit orange and salmon, which the owner rated a 4 ("worth going"). It is the first case built from a stored production prompt — the exact user message production sent for record 86677 lives in a test resource, and an untagged unit test (`LowHauxleyPromptFidelityTest`) pins the fixture's output to that text in the normal build, so the regression case provably sends what production sent.
+
 ## [v2.22.15] - 2026-10-04
 
 ### Docs — the batch system prompts measured against the Haiku caching floor
