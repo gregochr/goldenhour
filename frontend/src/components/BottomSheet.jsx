@@ -2,6 +2,10 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import useDialogFocus from '../hooks/useDialogFocus.js';
+import useVisualViewportHeight from '../hooks/useVisualViewportHeight.js';
+
+/** What a tall sheet leaves above itself, so the page behind it still reads as a page (design: 24px). */
+const TALL_TOP_MARGIN = 24;
 
 /**
  * Mobile bottom sheet overlay. Slides up from the bottom of the viewport
@@ -42,6 +46,22 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  *        sheets overlap the button horizontally by 16px, yet only the Regions list collides, because
  *        its rows are a grid with a flush-right last track while the Filters rows are columns led by
  *        a left-aligned label. See `index.css`'s `.wf-jump-sheet` note for the figures.
+ * @param {'default'|'tall'} [props.size] - `'default'` is the 60vh sheet every existing caller has,
+ *        untouched. `'tall'` is Ask PhotoCast's (plan §1 #13): the sheet is the visual viewport's height
+ *        minus 24px, always (not a maximum — an input at its foot has to BE at the foot), and follows
+ *        {@link useVisualViewportHeight} so an on-screen keyboard shortens it and lifts it clear.
+ *        ⚠️ Both 60vh sites change together: the sheet's own `maxHeight` AND the budget the scroller
+ *        subtracts its chrome from — changing only the first leaves a 60vh scroller inside a tall
+ *        sheet. (That budget is also what `safeAreas.test.jsx` scans for a missing safe-area term,
+ *        and why this note does not spell it as a literal.)
+ * @param {boolean} [props.closeOnEscape] - Close on Escape, only while this is the TOPMOST dialog in
+ *        the document (the last `role="dialog"` in DOM order — sheets portal to the end of `<body>`
+ *        and every one paints at the same z-index, so DOM order is paint order). Off by default: no
+ *        existing caller has ever closed on Escape, and the Map's phone sheets stand in for popovers
+ *        whose own Escape rules would then answer a press twice.
+ * @param {React.ReactNode} [props.footer] - A node held BELOW the scroller and outside it, for a
+ *        control that must stay put while the content scrolls (Ask's input row). Rendered only when
+ *        given: without it nothing is added to the sheet.
  * @param {React.ReactNode} props.children - Content rendered inside the sheet.
  * @param {?Function} [props.restoreFallback] - forwarded to `useDialogFocus`'s own option of the
  *        same name (map-mobile-sheet-plan.md §3 M2 task 6): where to send focus on close when the
@@ -52,8 +72,9 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  */
 export default function BottomSheet({
   open, onClose, label = 'Details', modal = true, reserveCloseStrip = false, restoreFallback = null,
-  children,
+  size = 'default', closeOnEscape = false, footer = null, children,
 }) {
+  const tall = size === 'tall';
   // Prevent body scroll while open
   useEffect(() => {
     if (!open) return;
@@ -66,7 +87,42 @@ export default function BottomSheet({
   // hook has to be told when the sheet is actually on screen.
   const dialogRef = useDialogFocus(open, { restoreFallback });
 
+  // Followed only by a tall sheet that is on screen: every other sheet subscribes to nothing.
+  const viewport = useVisualViewportHeight(tall && open);
+
+  // Escape, only as the topmost dialog. DOM order is paint order here (see `closeOnEscape`), so a
+  // sheet that is not last in the document is under another one and must not answer the press.
+  useEffect(() => {
+    if (!open || !closeOnEscape) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key !== 'Escape' || event.isComposing) return;
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (dialogs[dialogs.length - 1] !== dialogRef.current) return;
+      onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, closeOnEscape, onClose, dialogRef]);
+
   if (!open) return null;
+
+  const tallHeight = Math.max(0, viewport.height - TALL_TOP_MARGIN);
+  // The tall sheet lifts by `bottomInset` and gives that much of its own home-indicator padding back:
+  // the keyboard covers the indicator zone once the lift reaches `--safe-b`, and padding kept on top
+  // of a lifted sheet would float the input row that far above the keyboard. Continuous (a clamp, not
+  // a switch at 0), because iOS's toolbar animation can report an inset of a pixel or two with no
+  // keyboard up, and a switch would strip the whole padding then.
+  const sheetStyle = tall
+    ? {
+      zIndex: 10000,
+      height: tallHeight,
+      maxHeight: tallHeight,
+      bottom: viewport.bottomInset,
+      paddingBottom: `max(0px, calc(var(--safe-b) - ${viewport.bottomInset}px))`,
+    }
+    : { zIndex: 10000, maxHeight: '60vh' };
+  const chrome = reserveCloseStrip ? 64 : 40;
+  const scrollerMax = tall ? `${tallHeight}px` : '60vh';
 
   return createPortal(
     <div data-testid="bottom-sheet-root">
@@ -104,7 +160,11 @@ export default function BottomSheet({
         // would be is a declaration that never applies — markup telling a reader the sheet is
         // pinned to the viewport edges when it is not.
         className="app-safe-sheet fixed bottom-0 rounded-t-2xl bg-plex-surface border-t border-plex-border animate-slide-up focus:outline-none"
-        style={{ zIndex: 10000, maxHeight: '60vh' }}
+        // The tall sheet's flex column is index.css's, off this attribute: the class string above is
+        // the one `formFieldFocusRules.test.js` reads for this exempt dialog root, and a template
+        // literal here would stop it being a plain literal.
+        data-size={tall ? 'tall' : undefined}
+        style={sheetStyle}
       >
         {/* Drag handle */}
         <div className="flex justify-center pt-2 pb-1">
@@ -123,7 +183,9 @@ export default function BottomSheet({
 
         {/* The close button's own band, held OUTSIDE the scroll container — see `reserveCloseStrip`.
             `aria-hidden` because it is geometry: the button it clears is a real sibling above. */}
-        {reserveCloseStrip && <div aria-hidden="true" className="h-6" />}
+        {/* `shrink-0`: in the tall sheet (a flex column) an empty item has no minimum size, and a long
+            answer would squeeze this strip and slide the scroller up under the button. */}
+        {reserveCloseStrip && <div aria-hidden="true" data-testid="bottom-sheet-strip" className="h-6 shrink-0" />}
 
         {/* Scrollable content */}
         {/* `- var(--safe-b)`: the outer sheet is `60vh` INCLUDING its new safe padding, so this
@@ -131,10 +193,12 @@ export default function BottomSheet({
             and ends inside the home-indicator zone. Resting text cleared it either way via `pb-6`,
             which is luck rather than design — this makes it the padding's job. The strip above is
             subtracted for the same reason — it is 24px the scroller no longer has. */}
-        <div className="overflow-y-auto px-4 pb-6"
-             style={{ maxHeight: `calc(60vh - ${reserveCloseStrip ? 64 : 40}px - var(--safe-b))` }}>
+        <div data-testid="bottom-sheet-scroller"
+             className="overflow-y-auto px-4 pb-6"
+             style={{ maxHeight: `calc(${scrollerMax} - ${chrome}px - var(--safe-b))` }}>
           {children}
         </div>
+        {footer}
       </div>
     </div>,
     document.body,
@@ -148,5 +212,8 @@ BottomSheet.propTypes = {
   modal: PropTypes.bool,
   reserveCloseStrip: PropTypes.bool,
   restoreFallback: PropTypes.func,
+  size: PropTypes.oneOf(['default', 'tall']),
+  closeOnEscape: PropTypes.bool,
+  footer: PropTypes.node,
   children: PropTypes.node,
 };

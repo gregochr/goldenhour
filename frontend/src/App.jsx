@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
 import { buildMapOverlay, normalizeMapTrigger } from './utils/mapOverlay.js';
 import LoginPage from './components/LoginPage.jsx';
@@ -30,6 +31,7 @@ import RewindPill from './components/RewindPill.jsx';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
+import { AskProvider } from './context/AskContext.jsx';
 
 // Code-split the heavy subtrees so they stay out of the initial bundle: the Leaflet map stack and
 // the admin-only Manage view (which also pulls in recharts). They load on demand behind the
@@ -129,6 +131,25 @@ function RewindGate() {
     </AuroraStatusProvider>
   );
 }
+
+/**
+ * Ask PhotoCast's provider, except while an admin's rewind is active.
+ *
+ * <p>No provider means {@code useAsk()} answers its default — Ask is off — so no entry, sheet or
+ * request exists for the whole rewound page; see the call site for why that is the rule.
+ *
+ * @param {object} props
+ * @param {boolean} props.rewound whether a rewind is active
+ * @param {React.ReactNode} props.children
+ */
+function AskWhenLive({ rewound, children }) {
+  return rewound ? children : <AskProvider>{children}</AskProvider>;
+}
+
+AskWhenLive.propTypes = {
+  rewound: PropTypes.bool.isRequired,
+  children: PropTypes.node,
+};
 
 /**
  * Inner app component — only rendered when the user is authenticated.
@@ -708,6 +729,16 @@ function AppInner() {
             setComingUpLastSeenAt={setComingUpLastSeenDate}
             locations={visibleLocations}
           >
+            {/* Ask PhotoCast's conversation (plan §2.6). Inside the briefing provider (it reads the
+                briefing and the HOME reach map from it) and around the shell, so every Ask surface
+                the shell draws — and, from F3, the map pane it hands over — sees one conversation.
+                ⚠️ NOT MOUNTED UNDER A REWIND: the provider's first act is `GET /api/user/settings/ask`,
+                and the axios interceptor stamps the rewound clock on every GET outside `/api/admin/`,
+                while a POST sees the real clock (plan §1 #21). Without a provider `useAsk()` is Ask
+                "off" and no Ask surface exists. `RewindGate` remounts this whole tree on every change,
+                so the choice never has to flip in place. (The shell below is deliberately NOT
+                re-indented one level, for the reason the tab row's wrapper in the shell gives.) */}
+            <AskWhenLive rewound={Boolean(rewind)}>
             <WindowFirstShell
               mapColourScale={mapColourScale}
               initialTab={initialTab}
@@ -798,6 +829,7 @@ function AppInner() {
                 </Suspense>
               ) : null}
             />
+            </AskWhenLive>
           </WindowFirstBriefingProvider>
         </PlanErrorBoundary>
       </main>
