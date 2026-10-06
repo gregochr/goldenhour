@@ -22,8 +22,9 @@ import java.util.Set;
  * plan's order, cheapest first</b>, so nothing expensive happens before a cheaper guard has had its
  * say:
  * <ol>
- *   <li><b>Rate limit</b> ({@link AskRateLimiter}, 5 a minute per user): before the question is read
- *       and before the snapshot is built. 429 {@code RATE_LIMITED}.</li>
+ *   <li><b>Rate limit</b> ({@link AskRateLimiter}, 5 a minute per user, applied by {@link #admit}):
+ *       before the request body is converted, so a body that cannot be read is counted too, and
+ *       before the snapshot is built. 429 {@code RATE_LIMITED}.</li>
  *   <li><b>Sanitise and validate</b> ({@link AskQuestionSanitiser#sanitiseTyped}, the view, the
  *       regions). 400 {@code INVALID}.</li>
  *   <li>Pre-filter ({@link AskPreFilter}; B5, no-op here): a can't-answer phrase. Free.</li>
@@ -130,25 +131,45 @@ public class AskService {
     }
 
     /**
-     * Answers a typed question.
+     * Step 1, the rate limit, and the only place a request is counted against it: resolves the asker
+     * (one indexed read) and takes one slot of their sliding window.
      *
-     * @param auth    the asker
+     * <p>Called by {@code AskAdmissionInterceptor} <b>before the request body is converted</b>, so a
+     * body that cannot be read, is mistyped or is oversized is counted too and cannot be used to get
+     * past the limit. The interceptor hands the admitted user to the controller on a request
+     * attribute, and the controller calls this itself only when that attribute is absent (the
+     * interceptor did not run), so a request is counted exactly once either way.
+     * {@link #ask(AppUserEntity, AskRequest)} deliberately does <em>not</em> count: it takes the
+     * admitted user, so there is no way to count twice.
+     *
+     * @param auth the asker
+     * @return the asker, now counted against the limit
+     * @throws AskRefusal {@code UNAUTHENTICATED} when the token names a user that no longer exists
+     *                    (nothing is counted); {@code RATE_LIMITED} when the window is full
+     */
+    public AppUserEntity admit(Authentication auth) {
+        AppUserEntity user = resolveUser(auth);
+        if (!rateLimiter.tryAcquire(user.getId())) {
+            LOG.debug("[ASK] User {} is over the rate limit", user.getId());
+            throw new AskRefusal(AskErrorCode.RATE_LIMITED);
+        }
+        return user;
+    }
+
+    /**
+     * Answers a typed question for an asker already admitted by {@link #admit}.
+     *
+     * @param user    the admitted asker
      * @param request the request body
      * @return the answer
      * @throws AskRefusal for every way a question is turned away or fails (see the class
      *                    documentation); never for a missing flag, which the controller answers first
      */
-    public AskResponse ask(Authentication auth, AskRequest request) {
+    public AskResponse ask(AppUserEntity user, AskRequest request) {
         long startedAt = System.nanoTime();
-        AppUserEntity user = resolveUser(auth);
         long userId = user.getId();
 
-        // 1. Rate limit — before the question is read and before the snapshot is built.
-        if (!rateLimiter.tryAcquire(userId)) {
-            LOG.debug("[ASK] User {} is over the rate limit", userId);
-            throw new AskRefusal(AskErrorCode.RATE_LIMITED);
-        }
-
+        // 1. The rate limit was applied by admit(), before the body was converted.
         // 2. Sanitise and validate.
         Asked asked = validate(request);
         AskQuestion question = asked.question();

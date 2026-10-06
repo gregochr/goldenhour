@@ -2,12 +2,10 @@ package com.gregochr.goldenhour.service.ask;
 
 /**
  * The question log (plan §2.5, {@code ask_log}): one row per request that was <em>answered</em>.
- * Denied requests write nothing. <b>B5 implements it</b>; until then {@link #DISCARD} is wired.
+ * Denied requests write nothing. <b>B5 implements it</b>; until then {@link NoOpAskLog} (a
+ * {@code @Fallback} bean) is wired, which records nothing. A real {@code @Component} wins over it.
  */
 public interface AskLog {
-
-    /** The B4 default: records nothing. */
-    AskLog DISCARD = entry -> { };
 
     /** How a request was answered. */
     enum Outcome {

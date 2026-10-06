@@ -126,8 +126,13 @@ class AskServiceTest {
         return new AskRequest(question, null, List.of(), "plan");
     }
 
+    /** One request as the web layer makes it: admitted (counted once) and then answered. */
+    private AskResponse submit(AskRequest request) {
+        return service.ask(service.admit(reader()), request);
+    }
+
     private AskResponse ask(String question) {
-        return service.ask(reader(), request(question));
+        return submit(request(question));
     }
 
     private static AskRun ok() {
@@ -153,7 +158,7 @@ class AskServiceTest {
 
     private AskErrorCode codeOf(AskRequest request) {
         try {
-            service.ask(reader(), request);
+            submit(request);
         } catch (AskRefusal e) {
             return e.code();
         }
@@ -248,13 +253,31 @@ class AskServiceTest {
     }
 
     @Test
+    @DisplayName("admit counts exactly one slot, and answering an admitted user counts none: a request is "
+            + "counted once")
+    void admitCountsOnceAndAskCountsNone() {
+        properties.setRatePerMinute(2);
+        properties.setLimitLite(100);
+        rebuild();
+
+        AppUserEntity first = service.admit(reader());
+        service.ask(first, request("Best spot tonight?"));
+        service.ask(first, request("Best spot tonight?"));
+        service.ask(first, request("Best spot tonight?"));
+
+        assertThat(service.admit(reader())).as("only one slot was taken so far").isNotNull();
+        assertThatThrownBy(() -> service.admit(reader())).isInstanceOfSatisfying(AskRefusal.class,
+                e -> assertThat(e.code()).isEqualTo(AskErrorCode.RATE_LIMITED));
+    }
+
+    @Test
     @DisplayName("an unknown user is UNAUTHENTICATED and nothing else is touched")
     void unknownUser() {
         AskRequest valid = request("Best spot tonight?");
         Authentication ghost = new TestingAuthenticationToken("ghost", "n/a");
         when(users.findByUsername("ghost")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.ask(ghost, valid)).isInstanceOfSatisfying(AskRefusal.class,
+        assertThatThrownBy(() -> service.admit(ghost)).isInstanceOfSatisfying(AskRefusal.class,
                 e -> assertThat(e.code()).isEqualTo(AskErrorCode.UNAUTHENTICATED));
         verifyNoInteractions(snapshotBuilder, engine);
     }
@@ -275,7 +298,7 @@ class AskServiceTest {
         bad.add(new AskRequest("Best​spot", null, null, "plan"));
         bad.add(new AskRequest("a".repeat(201), null, null, "map"));
         for (AskRequest request : bad) {
-            assertThatThrownBy(() -> service.ask(reader(), request)).isInstanceOfSatisfying(AskRefusal.class, e -> {
+            assertThatThrownBy(() -> submit(request)).isInstanceOfSatisfying(AskRefusal.class, e -> {
                 assertThat(e.code()).isEqualTo(AskErrorCode.INVALID);
                 assertThat(e.body()).containsEntry("code", "INVALID");
                 assertThat(e.getMessage()).isNotBlank();
@@ -289,14 +312,14 @@ class AskServiceTest {
     @CsvSource({"map", "plan", "coming-up"})
     @DisplayName("the three views are accepted")
     void viewsAccepted(String view) {
-        assertThat(service.ask(reader(), new AskRequest("Best spot tonight?", null, null, view)).kind())
+        assertThat(submit(new AskRequest("Best spot tonight?", null, null, view)).kind())
                 .isEqualTo("own");
     }
 
     @Test
     @DisplayName("200 code points are accepted and 201 are INVALID")
     void lengthBoundary() {
-        assertThat(service.ask(reader(), new AskRequest("a".repeat(200), null, null, "plan")).kind())
+        assertThat(submit(new AskRequest("a".repeat(200), null, null, "plan")).kind())
                 .isEqualTo("own");
         assertThat(codeOf(new AskRequest("a".repeat(201), null, null, "plan"))).isEqualTo(AskErrorCode.INVALID);
     }
@@ -331,8 +354,8 @@ class AskServiceTest {
                 RegionEntity.builder().id(4L).name("Teesdale").enabled(true).build()));
         when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
 
-        service.ask(reader(), new AskRequest("Parking?", null, List.of(3L), "map"));
-        service.ask(reader(), new AskRequest("Parking?", null, List.of(3L, 4L), "map"));
+        submit(new AskRequest("Parking?", null, List.of(3L), "map"));
+        submit(new AskRequest("Parking?", null, List.of(3L, 4L), "map"));
 
         verify(readyService).suggestions(eq("3"), eq(Set.of("Northumberland")), eq(snapshot), eq(2));
         verify(readyService).suggestions(eq("ALL"), eq(Set.of()), eq(snapshot), eq(2));
@@ -358,10 +381,10 @@ class AskServiceTest {
         properties.setLimitLite(100);
         rebuild();
         for (String id : new String[] {"2026-10-05_sunset", "2026-10-06_sunrise"}) {
-            service.ask(reader(), new AskRequest("Best?", id, null, "map"));
+            submit(new AskRequest("Best?", id, null, "map"));
         }
         for (String id : new String[] {"2026-10-05_sunrise", "2026-10-30_sunset", "nonsense", "  ", ""}) {
-            service.ask(reader(), new AskRequest("Best?", id, null, "map"));
+            submit(new AskRequest("Best?", id, null, "map"));
         }
 
         ArgumentCaptor<AskQuestion> captured = ArgumentCaptor.forClass(AskQuestion.class);
@@ -472,17 +495,17 @@ class AskServiceTest {
     }
 
     @Test
-    @DisplayName("the wired defaults are the no-ops: nothing refuses, matches, caches or logs")
+    @DisplayName("the B5 stand-ins are real overriding classes that do nothing: nothing refuses, matches, "
+            + "caches or logs")
     void defaultsAreNoOps() {
-        AskPhaseB5Defaults defaults = new AskPhaseB5Defaults();
         AskQuestion question = new AskQuestion("q", "q", null, List.of(), "plan");
+        AskAnswerCache noOpCache = new NoOpAskAnswerCache();
 
-        assertThat(defaults.askPreFilter().refuse(question)).isEmpty();
-        assertThat(defaults.askIntentMatcher().match(question, snapshot, "ALL", Set.of())).isEmpty();
-        assertThat(defaults.askAnswerCache().lookup(question, snapshot, AskUserContext.userLess())).isEmpty();
-        defaults.askAnswerCache().store(question, snapshot, AskUserContext.userLess(), ok().outcome());
-        assertThat(defaults.askAnswerCache().lookup(question, snapshot, AskUserContext.userLess())).isEmpty();
-        defaults.askLog().record(new AskLog.Entry(1L, "ALL", "plan", AskLog.Outcome.CLAUDE_OK, "q", null, 1L));
+        assertThat(new NoOpAskPreFilter().refuse(question)).isEmpty();
+        assertThat(new NoOpAskIntentMatcher().match(question, snapshot, "ALL", Set.of())).isEmpty();
+        noOpCache.store(question, snapshot, AskUserContext.userLess(), ok().outcome());
+        assertThat(noOpCache.lookup(question, snapshot, AskUserContext.userLess())).isEmpty();
+        new NoOpAskLog().record(new AskLog.Entry(1L, "ALL", "plan", AskLog.Outcome.CLAUDE_OK, "q", null, 1L));
     }
 
     // -- 7. spend cap and latch -----------------------------------------------------------------

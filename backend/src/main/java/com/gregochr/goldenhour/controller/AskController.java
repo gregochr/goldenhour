@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.config.AskAdmissionInterceptor;
+import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ask.AskErrorCode;
@@ -8,6 +10,9 @@ import com.gregochr.goldenhour.service.ask.AskReadyService;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import com.gregochr.goldenhour.service.ask.AskRequest;
 import com.gregochr.goldenhour.service.ask.AskService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.core.Authentication;
@@ -39,6 +44,8 @@ import java.util.Set;
 @RequestMapping("/api/ask")
 public class AskController {
 
+    private static final Logger LOG = LoggerFactory.getLogger(AskController.class);
+
     private final AskProperties properties;
     private final AskReadyService readyService;
     private final RegionRepository regionRepository;
@@ -65,18 +72,26 @@ public class AskController {
      * {@code {"error","code"}} (plan §2.9's table), rendered by the shared {@code AskRefusal} handler.
      * Never ETag-filtered: a POST is not a revalidatable read, and the answer is personal.
      *
+     * <p>The per-user rate limit has already been applied by {@code AskAdmissionInterceptor}, before
+     * the body was converted, and left the admitted user on a request attribute. Only if that attribute
+     * is absent (the interceptor did not run) does this call {@code admit} itself, so a request is
+     * counted exactly once either way.
+     *
      * @param request the question, optional window, regions and view
      * @param auth    the asker
+     * @param http    the request, carrying the user the interceptor admitted
      * @return 200 with the answer; 404 while Ask is switched off; the error table's 400, 429, 502 or
      *         503 otherwise
      */
     @PostMapping
     public ResponseEntity<?> ask(@RequestBody(required = false) AskRequest request,
-            Authentication auth) {
+            Authentication auth, HttpServletRequest http) {
         if (!properties.isEnabled()) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(askService.ask(auth, request));
+        AppUserEntity user = http.getAttribute(AskAdmissionInterceptor.ADMITTED_USER_ATTRIBUTE)
+                instanceof AppUserEntity admitted ? admitted : askService.admit(auth);
+        return ResponseEntity.ok(askService.ask(user, request));
     }
 
     /**
@@ -90,6 +105,8 @@ public class AskController {
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<?> unreadableBody(HttpMessageNotReadableException ex) {
+        // The type only: Jackson's message names internal types and echoes caller-supplied values.
+        LOG.debug("[ASK] Unreadable request body: {}", ex.getClass().getSimpleName());
         if (!properties.isEnabled()) {
             // The body is read before the method runs, so the flag-off 404 is answered here too.
             return ResponseEntity.notFound().build();

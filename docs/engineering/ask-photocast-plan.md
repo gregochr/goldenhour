@@ -821,8 +821,20 @@ off.
   `UserSettingsController` `GET /ask`, `AdminAlertService.sendAskSpendCapAlert`, and `AskReadyService.suggestions`
   (the `try` choice reuses `serve`'s freshness test through one extracted `freshQuestions`). `AskProperties` already
   held every §2.9 key; B4 added only `limitFor(role)` and `engineCeilingFor(role)`.
+- **The rate limit sits in front of the body (Codex round 1, P1).** A limiter inside `AskService.ask` never saw a body
+  that failed conversion (the exception handler answered 400 first), so malformed, mistyped or oversized bodies could
+  be sent without limit. Step 1 is now `AskService.admit(auth)` (resolve the user, take one slot), called by
+  `AskAdmissionInterceptor`, a `HandlerInterceptor` on `POST /api/ask` only (its `preHandle` runs before `@RequestBody`
+  conversion). It leaves the admitted user on a request attribute; the controller calls `admit` itself only when that
+  attribute is absent, and `AskService.ask(user, request)` counts nothing, so a request is counted exactly once and the
+  user is looked up once. Anonymous requests are 401 from Spring Security before any interceptor and are never counted;
+  with Ask off nothing is counted (the controller answers 404). **Body size:** nothing bounded it (Tomcat's
+  `max-http-form-post-size` and `maxSwallowSize` are 2 MB and cover only form bodies and swallowed bytes; the application
+  sets no request-size property; Jackson's string limit is 20 million characters), so `AskBodyLimitFilter` caps a
+  `POST /api/ask` body at 8 KiB (a valid body is under 2 KiB), per-endpoint so no other endpoint moves; over it is an
+  unreadable body, 400 `INVALID`.
 - **Order as built, and where the snapshot is first built:** user lookup (one indexed read; the token carries only
-  a username) → 1 rate limit → 2 sanitise/validate → 3 pre-filter → **4 snapshot (first built here)** → 5 Ready
+  a username) → 1 rate limit (before the body is converted, above) → 2 sanitise/validate → 3 pre-filter → **4 snapshot (first built here)** → 5 Ready
   match → 6 cache → 7 spend cap + accounting latch → 8 reservation → cap asked again → 9 engine → 10 respond,
   cache, log. Steps 5 and 6 are *before* the cap on purpose: a match or hit costs nothing, so it is served even
   when typed questions are off for the day.
@@ -859,9 +871,10 @@ off.
   entity (open-session-in-view is on). No pruning yet: at most one row per asking user per day. The usage-row
   cascade is proved on Postgres only by `AskUsageMigrationTest` (pending CI).
 - **B5 seams** are `AskPreFilter`, `AskIntentMatcher`, `AskAnswerCache` and `AskLog` (with its `Entry` and
-  `Outcome`), each with a no-op constant wired by `AskPhaseB5Defaults` as a `@Fallback` bean (not
-  `@ConditionalOnMissingBean`, which depends on scan order outside auto-configuration), so B5 adds a `@Component`
-  and deletes nothing. **Not built:** the in-memory per-user-per-hour count of denied requests (§2.5's INFO line);
+  `Outcome`), each with a no-op class (`NoOpAskPreFilter`, `NoOpAskIntentMatcher`, `NoOpAskAnswerCache`,
+  `NoOpAskLog`: `@Component @Fallback`, overriding methods, the interfaces stay abstract) rather than
+  `@ConditionalOnMissingBean`, which depends on scan order outside auto-configuration, so B5 adds a plain `@Component`
+  and deletes nothing (`AskPhaseB5FallbackTest` proves a user-supplied bean wins). **Not built:** the in-memory per-user-per-hour count of denied requests (§2.5's INFO line);
   denials log at DEBUG (rate limit) or WARN (cap) for now — left with the log in B5.
 - **Shared and fixed on the way:** `AskScopes.validRegionIds` (the admin dry-run now uses it too; it used
   `List.contains(null)`, which throws on an immutable list), and `AdminAlertService.deliver` takes any reference, not

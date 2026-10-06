@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.config.AskBodyLimitFilter;
+import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.ask.AskErrorCode;
 import com.gregochr.goldenhour.service.ask.AskEvent;
 import com.gregochr.goldenhour.service.ask.AskProperties;
@@ -31,7 +34,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -54,6 +59,9 @@ class AskTypedControllerTest extends AbstractControllerTest {
             "{\"question\":\"Best spot tonight?\",\"windowId\":\"2026-10-05_sunset\",\"regionIds\":[3],"
                     + "\"view\":\"map\"}";
 
+    private static final AppUserEntity ADMITTED =
+            AppUserEntity.builder().id(41L).username("someone").role(UserRole.PRO_USER).build();
+
     @Autowired
     private MockMvc mockMvc;
     @Autowired
@@ -62,6 +70,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
+        when(askService.admit(any())).thenReturn(ADMITTED);
         when(askService.ask(any(), any())).thenReturn(answer());
         when(askService.settings(any())).thenReturn(
                 new com.gregochr.goldenhour.service.ask.AskSettingsResponse(true, 1, 3, 2, true));
@@ -108,6 +117,82 @@ class AskTypedControllerTest extends AbstractControllerTest {
         mockMvc.perform(get(SETTINGS_URL)).andExpect(status().isUnauthorized());
 
         verifyNoInteractions(askService);
+    }
+
+    // -- the rate limit sits in front of the body ------------------------------------------------
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("a request is admitted exactly once, before the body is read, and the same admitted user is "
+            + "the one that is answered: the controller does not count it a second time")
+    void admittedOnceAndHandedOn() throws Exception {
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isOk());
+
+        verify(askService, times(1)).admit(any());
+        verify(askService).ask(same(ADMITTED), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("a refusal at admission is 429 RATE_LIMITED before the body is converted: a body that cannot "
+            + "be read is 429, not 400, and nothing is answered")
+    void rateLimitedBeforeParsing() throws Exception {
+        when(askService.admit(any())).thenThrow(new AskRefusal(AskErrorCode.RATE_LIMITED));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content("{not json"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"));
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isTooManyRequests());
+
+        verify(askService, never()).ask(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("an unreadable body is still counted: admission ran for it")
+    void unreadableBodyIsCounted() throws Exception {
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content("{not json"))
+                .andExpect(status().isBadRequest());
+
+        verify(askService, times(1)).admit(any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("with Ask off a POST is not counted at all")
+    void flagOffIsNotCounted() throws Exception {
+        properties.setEnabled(false);
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isNotFound());
+
+        verify(askService, never()).admit(any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("a GET of the allowance never reaches the limiter")
+    void readsAreNotCounted() throws Exception {
+        mockMvc.perform(get(SETTINGS_URL)).andExpect(status().isOk());
+
+        verify(askService, never()).admit(any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("a body over 8 KiB is 400 INVALID without being read to the end, and is still counted")
+    void oversizedBody() throws Exception {
+        String padding = " ".repeat(AskBodyLimitFilter.MAX_BODY_BYTES + 1);
+        String body = "{\"question\":\"Best?\",\"view\":\"plan\"," + padding + "\"x\":1}";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID"));
+
+        verify(askService, times(1)).admit(any());
+        verify(askService, never()).ask(any(), any());
     }
 
     // -- the flag ------------------------------------------------------------------------------
