@@ -31,6 +31,21 @@ notifications:
   admin-alerts:
     enabled: false
 
+photocast:
+  batch:
+    # Do not prime the prompt cache in tests. The primer is on by default with a 180s wait, and an
+    # integration test whose WireMock batch-status stub answers in_progress forever made it poll for
+    # the full three minutes before the submission under test ran at all —
+    # OrchestratedDispositionWriteIntegrationTest went from 18s to 197s the day #999 landed, and
+    # because it was the last class to finish it put every one of those seconds on the CI job's
+    # critical path. Zero means "do not prime": the submission is byte-identical to the pre-primer
+    # request, which is exactly what the integration tests assert on. The primer's own behaviour
+    # (timeout, cap, failed submits, warmed prefixes) is covered by BatchCachePrimerTest against a
+    # fake clock and sleeper, and the warmed-prefix handoff by ScheduledBatchEvaluationServiceTest —
+    # neither reads this property. A test that wants the primer live sets this itself.
+    cache-primer:
+      wait-seconds: 0
+
 forecast:
   locations:
     - name: Durham UK
