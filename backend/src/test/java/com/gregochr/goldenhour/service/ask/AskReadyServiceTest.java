@@ -117,7 +117,7 @@ class AskReadyServiceTest {
         BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "Bamburgh", 1L);
         List<HotTopic> topics = List.of(
                 AskFixtures.topic("AURORA", "Aurora tonight", "Kp 6", oct(12), List.of()),
-                AskFixtures.topic("SNOW", "Snow on the Cheviot", "Fresh snow", oct(12), List.of()));
+                AskFixtures.topic("SNOW_TOPS", "Snow on the Cheviot", "Fresh snow", oct(12), List.of()));
         return ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
                 List.of(day(oct(9), false, true, null, northumberland(), teesdale()),
                         day(oct(10), true, true, best, northumberland(), teesdale()),
@@ -151,7 +151,7 @@ class AskReadyServiceTest {
             throw new AssertionError("not a question of the catalogue: " + q.sanitised());
         }
         if (!asked.picks()) {
-            String type = asked == ReadyQuestion.SNOW_TOPS ? "SNOW" : "AURORA";
+            String type = asked == ReadyQuestion.SNOW_TOPS ? "SNOW_TOPS" : "AURORA";
             AskSnapshot.Topic topic = snap.hotTopics().stream().filter(t -> t.type().equals(type)).findFirst()
                     .orElseThrow();
             AskEvent event = new AskEvent(type, topic.label(), topic.date(), "It is coming.", null);
@@ -474,6 +474,85 @@ class AskReadyServiceTest {
         assertThat(result.skipped()).isEqualTo(4 + 1);
         assertThat(storedKeys()).doesNotContain("ALL/BEST_WEEKEND", "ALL/BEST_NEXT", "ALL/COASTAL_HIGH",
                 "ALL/RARE_EVENTS");
+    }
+
+    /** The answer stored for a scope and question, from the captured upserts. */
+    private AskAnswer storedAnswer(String scope, ReadyQuestion question) {
+        ArgumentCaptor<String> scopes = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<ReadyQuestion> questions = ArgumentCaptor.forClass(ReadyQuestion.class);
+        ArgumentCaptor<AskAnswer> answers = ArgumentCaptor.forClass(AskAnswer.class);
+        verify(store, org.mockito.Mockito.atLeast(0)).upsert(scopes.capture(), questions.capture(), any(),
+                answers.capture(), any(), any());
+        for (int i = 0; i < scopes.getAllValues().size(); i++) {
+            if (scopes.getAllValues().get(i).equals(scope) && questions.getAllValues().get(i) == question) {
+                return answers.getAllValues().get(i);
+            }
+        }
+        return null;
+    }
+
+    @Test
+    @DisplayName("at store time a SNOW_TOPS answer loses an aurora beside its snow event and keeps the snow; "
+            + "a pick question loses an event it should not carry; RARE_EVENTS keeps an aurora")
+    void irrelevantEventsAreStrippedAtStoreTime() {
+        AskEvent aurora = new AskEvent("AURORA", "Aurora tonight", oct(12), "Kp 6.", null);
+        AskEvent snow = new AskEvent("SNOW_TOPS", "Snow on the Cheviot", oct(12), "Fresh snow.", null);
+        model = call -> {
+            AskRun good = goodModel(call, snapshot);
+            AskAnswer answer = good.outcome().answer();
+            String text = call.question().sanitised();
+            if (text.equals("Is there snow on the tops?")) {
+                return ok(new AskAnswer(true, "Snow and an aurora.", List.of(), List.of(aurora, snow), null));
+            }
+            if (text.equals("Best spot tonight?")) {
+                return ok(new AskAnswer(true, answer.summary(), answer.picks(), List.of(aurora), null));
+            }
+            return good;
+        };
+
+        AskReadyService.Result result = service.precompute(1L);
+
+        assertThat(result.failed()).isZero();
+        assertThat(storedAnswer("ALL", ReadyQuestion.SNOW_TOPS).events()).extracting(AskEvent::type)
+                .containsExactly("SNOW_TOPS");
+        assertThat(storedAnswer("ALL", ReadyQuestion.BEST_NEXT).events()).isEmpty();
+        assertThat(storedAnswer("ALL", ReadyQuestion.BEST_NEXT).picks()).hasSize(1);
+        assertThat(storedAnswer("ALL", ReadyQuestion.RARE_EVENTS).events()).extracting(AskEvent::type)
+                .containsExactly("AURORA");
+    }
+
+    @Test
+    @DisplayName("a SNOW_TOPS answer left with no snow event once the irrelevant ones are removed is not "
+            + "stored: a 'no snow' summary cannot be verified; it counts as skipped, not failed")
+    void nothingRelevantLeftIsNotStored() {
+        AskEvent aurora = new AskEvent("AURORA", "Aurora tonight", oct(12), "Kp 6.", null);
+        AskRun onlyAnAurora = ok(new AskAnswer(true, "No snow, but an aurora.", List.of(), List.of(aurora),
+                null));
+        model = call -> call.question().sanitised().equals("Is there snow on the tops?")
+                ? onlyAnAurora : goodModel(call, snapshot);
+
+        AskReadyService.Result result = service.precompute(1L);
+
+        // The three SNOW_TOPS questions (ALL and both regions) are skipped; nothing failed.
+        assertThat(result).isEqualTo(new AskReadyService.Result(14, 4 + 3, 0, null));
+        assertThat(storedKeys()).doesNotContain("ALL/SNOW_TOPS", "1/SNOW_TOPS", "2/SNOW_TOPS");
+    }
+
+    @Test
+    @DisplayName("an answer that would lose an event carrying a safety warning is not stored at all")
+    void droppedWarningIsNotStored() {
+        AskEvent eclipse = new AskEvent("ECLIPSE", "Partial solar eclipse", oct(12), "Visible.",
+                "Solar filter");
+        AskEvent snow = new AskEvent("SNOW_TOPS", "Snow", oct(12), "Snow.", null);
+        AskRun eclipseAndSnow = ok(new AskAnswer(true, "An eclipse and snow.", List.of(),
+                List.of(eclipse, snow), null));
+        model = call -> call.question().sanitised().equals("Is there snow on the tops?")
+                ? eclipseAndSnow : goodModel(call, snapshot);
+
+        AskReadyService.Result result = service.precompute(1L);
+
+        assertThat(result.failed()).isEqualTo(3);
+        assertThat(storedKeys()).doesNotContain("ALL/SNOW_TOPS");
     }
 
     private static AskPick onWindow(AskPick pick, String windowId) {

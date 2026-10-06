@@ -219,14 +219,31 @@ class AskReadyFreshnessTest {
     }
 
     @Test
-    @DisplayName("a vanished topic withholds the whole question, including the picks that are still true")
-    void vanishedTopicWithholdsThePicksToo() {
-        AskReadyStore.Stored stored = new AskReadyStore.Stored("ALL", "BEST_WEEKEND", "Best spot this weekend?",
-                WEEKEND, BUILT, new AskAnswer(true, "Go.", List.of(bamburghSaturday()), List.of(aurora()), null));
+    @DisplayName("a legacy SNOW_TOPS row that carries an aurora is withheld at serve time though the aurora "
+            + "is live; a row of only snow types is served; a pick row carrying an event is withheld too")
+    void legacyRowsWithIrrelevantContentAreWithheld() {
+        AskSnapshot live = withEvents(at(ReadyFixtures.FRIDAY_NOON, both(oct(10), northumberland())),
+                List.of(auroraTopic("Aurora tonight", oct(12), List.of(), null),
+                        new AskSnapshot.Topic("SNOW_TOPS", "Snow on the fells", "d", oct(12), List.of(), null)),
+                List.of());
+        AskEvent snow = new AskEvent("SNOW_TOPS", "old", oct(12), "Snow.", null);
 
-        assertThat(check(stored, friday()).fresh()).isFalse();
-        assertThat(check(stored, withEvents(friday(), List.of(auroraTopic("Aurora", oct(12), List.of(), null)),
-                List.of())).fresh()).isTrue();
+        AskReadyFreshness.Verdict withAurora = check(
+                events("SNOW_TOPS", "Is there snow on the tops?", snow, aurora()), live);
+        AskReadyFreshness.Verdict snowOnly = check(events("SNOW_TOPS", "Is there snow on the tops?", snow), live);
+
+        assertThat(withAurora.fresh()).isFalse();
+        assertThat(withAurora.reason()).contains("AURORA").contains("not relevant to SNOW_TOPS");
+        assertThat(snowOnly.fresh()).isTrue();
+        assertThat(snowOnly.answer().events().getFirst().label()).isEqualTo("Snow on the fells");
+        assertThat(check(events("RARE_EVENTS", "Any rare events coming up?", snow, aurora()), live).fresh())
+                .isTrue();
+
+        AskReadyStore.Stored pickWithEvent = new AskReadyStore.Stored("ALL", "BEST_WEEKEND",
+                "Best spot this weekend?", WEEKEND, BUILT, new AskAnswer(true, "Go.",
+                List.of(bamburghSaturday()), List.of(aurora()), null));
+        assertThat(check(pickWithEvent, withEvents(friday(), List.of(auroraTopic("Aurora", oct(12), List.of(),
+                null)), List.of())).reason()).contains("not relevant to BEST_WEEKEND");
     }
 
     @Test

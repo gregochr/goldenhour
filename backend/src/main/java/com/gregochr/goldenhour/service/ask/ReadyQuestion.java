@@ -31,7 +31,7 @@ import java.util.Set;
 public enum ReadyQuestion {
 
     /** Best spot this weekend: a Saturday or Sunday window in the window set has a pick. */
-    BEST_WEEKEND(true, true, "plan", "map") {
+    BEST_WEEKEND(true, true, Events.NONE, "plan", "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
             List<String> ids = windowsWithCandidates(snapshot, scope, w ->
@@ -43,7 +43,7 @@ public enum ReadyQuestion {
     },
 
     /** Best spot in the next few days: no weekend to ask about, and at least two windows to compare. */
-    BEST_SOON(true, true, "plan", "map") {
+    BEST_SOON(true, true, Events.NONE, "plan", "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
             if (BEST_WEEKEND.offer(snapshot, scope).isPresent()) {
@@ -56,7 +56,7 @@ public enum ReadyQuestion {
     },
 
     /** Best spot at the next window: tonight, this morning, tomorrow morning and so on. */
-    BEST_NEXT(true, true, "plan", "map") {
+    BEST_NEXT(true, true, Events.NONE, "plan", "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
             if (snapshot.windows().isEmpty()) {
@@ -72,7 +72,7 @@ public enum ReadyQuestion {
     },
 
     /** Best coastal spot at high tide: some pick-eligible coastal slot has high water at its event. */
-    COASTAL_HIGH(true, false, "map") {
+    COASTAL_HIGH(true, false, Events.NONE, "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
             List<String> ids = new ArrayList<>();
@@ -86,16 +86,8 @@ public enum ReadyQuestion {
         }
 
         @Override
-        Optional<String> violation(AskAnswer answer, Offer offer, AskSnapshot snapshot,
-                Collection<String> scope) {
-            for (AskPick pick : answer.picks()) {
-                Optional<AskSnapshot.Candidate> c = snapshot.candidate(pick.windowId(),
-                        pick.locationId());
-                if (c.isEmpty() || !isHighWater(c.get().slot())) {
-                    return Optional.of("pick " + pick.rank() + " is not a coastal spot at high water");
-                }
-            }
-            return super.violation(answer, offer, snapshot, scope);
+        boolean admitsSlot(AskSnapshot.Slot slot) {
+            return isHighWater(slot);
         }
     },
 
@@ -103,7 +95,7 @@ public enum ReadyQuestion {
      * Sunrise or sunset on one day: the next date on which both are in the window set, and each has
      * a pick-eligible slot in scope (a comparison needs both sides).
      */
-    AM_OR_PM(true, false, "plan") {
+    AM_OR_PM(true, false, Events.NONE, "plan") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
             List<AskSnapshot.Window> withCandidates = snapshot.windows().stream()
@@ -125,7 +117,7 @@ public enum ReadyQuestion {
     },
 
     /** Rare events coming up. Always asked; the answer is stored only when it finds something. */
-    RARE_EVENTS(false, false, "coming-up", "map") {
+    RARE_EVENTS(false, false, Events.ANY, "coming-up", "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
             return Optional.of(new Offer("Any rare events coming up?", List.of(), null));
@@ -133,7 +125,7 @@ public enum ReadyQuestion {
     },
 
     /** Snow on the tops. Always asked; the answer is stored only when it finds something. */
-    SNOW_TOPS(false, false, "coming-up") {
+    SNOW_TOPS(false, false, Events.SNOW, "coming-up") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
             return Optional.of(new Offer("Is there snow on the tops?", List.of(), null));
@@ -142,13 +134,36 @@ public enum ReadyQuestion {
 
     private static final String HIGH = "HIGH";
 
+    /**
+     * The event types a question keeps. A holder class because an enum constant's arguments cannot
+     * name a static field of the enum itself.
+     */
+    private static final class Events {
+
+        /** A pick question keeps no event card: its cards are picks. */
+        static final Set<String> NONE = Set.of();
+
+        /** Every event a tool returned (null reads as "any"). */
+        static final Set<String> ANY = null;
+
+        /**
+         * The snow hot-topic types: {@code SnowTopsHotTopicStrategy}'s {@code SNOW_TOPS} and the two
+         * {@code SnowFreshHotTopicStrategy} raises, {@code SNOW_FRESH} and {@code SNOW_MIST}. No
+         * almanac (Coming up) entry type is about snow (its snow readings are conditions, not
+         * entries), so none is listed: a snow almanac type would have to be added here on purpose.
+         */
+        static final Set<String> SNOW = Set.of("SNOW_TOPS", "SNOW_FRESH", "SNOW_MIST");
+    }
+
     private final boolean picks;
     private final boolean anchored;
+    private final Set<String> eventTypes;
     private final List<String> tabs;
 
-    ReadyQuestion(boolean picks, boolean anchored, String... tabs) {
+    ReadyQuestion(boolean picks, boolean anchored, Set<String> eventTypes, String... tabs) {
         this.picks = picks;
         this.anchored = anchored;
+        this.eventTypes = eventTypes;
         this.tabs = List.of(tabs);
     }
 
@@ -217,16 +232,96 @@ public enum ReadyQuestion {
     }
 
     /**
-     * Whether a validated answer is the kind of answer this question wants, and stays within what it
-     * was asked about: a pick question needs a pick, an events question needs an event, and no pick
-     * may sit on a window the question was not about. The model is not trusted to stay on its
-     * question ("this weekend" must not show a Friday card), so the server decides.
+     * Whether an event of this type is relevant to this question: the one event predicate, applied
+     * when an answer is stored and again when it is served. A pick question keeps no event card (its
+     * cards are picks); {@code RARE_EVENTS} keeps any; {@code SNOW_TOPS} keeps only the snow topic
+     * types ({@code SNOW_TOPS}, {@code SNOW_FRESH}, {@code SNOW_MIST}).
      *
-     * @param answer   the validated answer
-     * @param offer    what the question was asked under
-     * @param snapshot the snapshot the answer was built from
+     * @param type the event's served type, any case
+     * @return true when the question may carry an event of this type
+     */
+    public boolean admitsEvent(String type) {
+        if (eventTypes == null) {
+            return true;
+        }
+        return type != null && eventTypes.contains(type.strip().toUpperCase(Locale.ROOT));
+    }
+
+    /**
+     * Whether a pick's live slot is of the kind this question asks for, beyond being pick-eligible in
+     * scope: {@code COASTAL_HIGH} wants a coastal slot at high water, every other question any slot.
+     *
+     * @param slot the pick's live slot
+     * @return true when the slot suits the question
+     */
+    boolean admitsSlot(AskSnapshot.Slot slot) {
+        return true;
+    }
+
+    /**
+     * Whether a pick is relevant to this question: the one pick predicate, applied when an answer is
+     * stored and again when it is served. An events question admits no pick. A pick question admits
+     * one only if it is on one of the question's own windows ({@code BEST_WEEKEND}: the Saturday and
+     * Sunday windows; {@code BEST_SOON}: the windows with a pick; {@code BEST_NEXT}: the next window
+     * alone; {@code COASTAL_HIGH}: the windows with a coastal slot at high water; {@code AM_OR_PM}:
+     * that date's two windows), its live slot is pick-eligible within the question's scope, and the
+     * slot suits the question ({@link #admitsSlot}).
+     *
+     * @param pick     the pick
+     * @param offer    what the question is asked under
+     * @param snapshot the snapshot to read the live slot from
      * @param scope    the question's scope
-     * @return why the answer must not be stored, or empty when it may be
+     * @return true when the question may carry the pick
+     */
+    boolean admitsPick(AskPick pick, Offer offer, AskSnapshot snapshot, Collection<String> scope) {
+        if (!picks || !offer.windowIds().contains(pick.windowId())) {
+            return false;
+        }
+        Optional<AskSnapshot.Candidate> candidate = snapshot.candidate(pick.windowId(), pick.locationId());
+        return candidate.isPresent()
+                && AskSnapshot.regionInScope(scope, candidate.get().region().name())
+                && admitsSlot(candidate.get().slot());
+    }
+
+    /**
+     * An answer reduced to what this question may carry: an events question loses any pick and any
+     * event it does not admit; a pick question loses every event. The picks of a pick question are
+     * never dropped here (dropping one would renumber the ranks and could remove the BEST BET lead): a
+     * wrong pick fails {@link #violation} instead.
+     *
+     * @param answer the validated answer
+     * @return the answer with the irrelevant events and picks removed
+     */
+    AskAnswer relevantPart(AskAnswer answer) {
+        List<AskEvent> events = answer.events().stream().filter(e -> admitsEvent(e.type())).toList();
+        return new AskAnswer(answer.answerable(), answer.summary(), picks ? answer.picks() : List.of(),
+                events, answer.missing());
+    }
+
+    /**
+     * Whether {@link #relevantPart} would remove an event that carries a safety warning. Such an
+     * answer cannot be stored: the summary may name the event, and dropping its card would drop the
+     * warning the card must show.
+     *
+     * @param answer the validated answer
+     * @return true when an event with a safety note would be dropped
+     */
+    boolean dropsWarning(AskAnswer answer) {
+        return answer.events().stream().anyMatch(e -> !admitsEvent(e.type()) && e.safetyNote() != null);
+    }
+
+    /**
+     * Whether an answer is what this question wants and carries nothing it may not: a pick question
+     * needs a pick and carries no event, an events question needs an event and carries no pick, every
+     * event is of an admitted type ({@link #admitsEvent}) and every pick is admitted
+     * ({@link #admitsPick}). Run on the reduced answer when it is stored and on the stored answer when
+     * it is served, so a row written under an older, looser rule is withheld rather than served.
+     *
+     * @param answer   the answer
+     * @param offer    what the question is asked under
+     * @param snapshot the snapshot to read live slots from
+     * @param scope    the question's scope
+     * @return why the answer must not be stored or served, or empty when it may be
      */
     Optional<String> violation(AskAnswer answer, Offer offer, AskSnapshot snapshot,
             Collection<String> scope) {
@@ -236,12 +331,15 @@ public enum ReadyQuestion {
         if (!picks && answer.events().isEmpty()) {
             return Optional.of("an events question with no event");
         }
-        if (!offer.windowIds().isEmpty()) {
-            for (AskPick pick : answer.picks()) {
-                if (!offer.windowIds().contains(pick.windowId())) {
-                    return Optional.of("pick " + pick.rank() + " is on " + pick.windowId()
-                            + ", outside the question's windows");
-                }
+        for (AskEvent event : answer.events()) {
+            if (!admitsEvent(event.type())) {
+                return Optional.of("a " + event.type() + " event is not relevant to " + name());
+            }
+        }
+        for (AskPick pick : answer.picks()) {
+            if (!admitsPick(pick, offer, snapshot, scope)) {
+                return Optional.of("pick " + pick.rank() + " is not relevant to " + name() + " ("
+                        + pick.windowId() + ")");
             }
         }
         return Optional.empty();

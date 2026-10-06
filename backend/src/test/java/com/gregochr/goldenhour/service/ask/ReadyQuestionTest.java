@@ -303,7 +303,7 @@ class ReadyQuestionTest {
         assertThat(ReadyQuestion.BEST_WEEKEND.violation(ReadyFixtures.answer(onSaturday), weekend, friday, ALL))
                 .isEmpty();
         assertThat(ReadyQuestion.BEST_WEEKEND.violation(ReadyFixtures.answer(onSaturday, onFriday), weekend,
-                friday, ALL)).hasValueSatisfying(v -> assertThat(v).contains("outside the question's windows"));
+                friday, ALL)).hasValueSatisfying(v -> assertThat(v).contains("is not relevant to BEST_WEEKEND"));
         assertThat(ReadyQuestion.BEST_WEEKEND.violation(
                 new AskAnswer(true, "Nothing.", List.of(), List.of(), null), weekend, friday, ALL))
                 .hasValueSatisfying(v -> assertThat(v).contains("no pick"));
@@ -326,7 +326,7 @@ class ReadyQuestionTest {
         assertThat(ReadyQuestion.COASTAL_HIGH.violation(ReadyFixtures.answer(coastal), offer, snapshot, ALL))
                 .isEmpty();
         assertThat(ReadyQuestion.COASTAL_HIGH.violation(ReadyFixtures.answer(inland), offer, snapshot, ALL))
-                .hasValueSatisfying(v -> assertThat(v).contains("not a coastal spot at high water"));
+                .hasValueSatisfying(v -> assertThat(v).contains("is not relevant to COASTAL_HIGH"));
     }
 
     private static String offerText(ReadyQuestion q, AskSnapshot snapshot) {

@@ -74,7 +74,7 @@ class AskReadyClaudeEngineTest {
         AskSnapshot snapshot = ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
                 List.of(day(oct(9), false, true, null, ReadyFixtures.teesdale())),
                 List.of(AskFixtures.topic("AURORA", "Aurora tonight", "Kp 6", oct(9), List.of()),
-                        AskFixtures.topic("SNOW", "Snow on the Cheviot", "Fresh snow", oct(9), List.of())));
+                        AskFixtures.topic("SNOW_TOPS", "Snow on the Cheviot", "Fresh snow", oct(9), List.of())));
         when(snapshotBuilder.build()).thenReturn(Optional.of(snapshot));
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
         when(jobRunService.startRun(any(RunType.class), anyBoolean(), any(EvaluationModel.class)))
@@ -102,7 +102,7 @@ class AskReadyClaudeEngineTest {
                         List.of(Map.of("type", "AURORA", "why", "Kp 6.")))),
                 toolTurn(tool("t4", "get_hot_topics", Map.of())),
                 submit(Map.of("answerable", true, "summary", "Snow on the Cheviot.", "events",
-                        List.of(Map.of("type", "SNOW", "why", "Fresh snow.")))));
+                        List.of(Map.of("type", "SNOW_TOPS", "why", "Fresh snow.")))));
         AskReadyService service = new AskReadyService(properties, snapshotBuilder, engine, regions, store,
                 jobRunService, mock(JobRunRepository.class), mock(HotTopicSimulationService.class),
                 mock(AuroraStateCache.class), clock, Duration.ofMinutes(5));

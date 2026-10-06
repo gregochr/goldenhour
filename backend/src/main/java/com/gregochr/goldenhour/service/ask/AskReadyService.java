@@ -341,9 +341,22 @@ public class AskReadyService {
             counts.failed++;
             return true;
         }
-        AskAnswer answer = outcome.answer();
+        if (task.question().dropsWarning(outcome.answer())) {
+            LOG.warn("[ASK] Ready {} discarded: it carries a warned event the question would drop", label);
+            counts.failed++;
+            return true;
+        }
+        // The model is not trusted to keep to its question: events and picks the question does not
+        // admit are removed before anything is judged or stored (the same predicate the serve re-applies).
+        AskAnswer answer = task.question().relevantPart(outcome.answer());
+        if (answer.events().size() < outcome.answer().events().size()
+                || answer.picks().size() < outcome.answer().picks().size()) {
+            LOG.info("[ASK] Ready {} had events or picks it may not carry; they were removed", label);
+        }
         if (!task.question().picks() && answer.picks().isEmpty() && answer.events().isEmpty()) {
-            // An events question may honestly find nothing: there is no card to show, so no row. A
+            // An events question may honestly find nothing, or nothing relevant once the irrelevant
+            // events are removed: there is no card to show, and a "no snow" summary cannot be verified
+            // against the prose, so no row (a SNOW_TOPS answer that only found an aurora lands here). A
             // pick question that returns nothing is not honest (the offer said a pick existed): it
             // falls through to the violation check and counts as a failure.
             LOG.info("[ASK] Ready {} found nothing to show; not stored", label);

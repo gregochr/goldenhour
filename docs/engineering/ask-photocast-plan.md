@@ -761,6 +761,28 @@ each question's own `runLabel`; role matrix (LITE/PRO/ADMIN + anonymous); flag o
   (an empty one is `skipped`: "no rare events" is not a card), no pick may sit outside the question's own windows
   (a "this weekend" card on a Friday is a model error the server decides, not the validator, which only anchors
   pick 1), and a coastal-high question's picks must be at high water. `answerable:false` is never stored.
+- **Relevance is server-side, from two predicates, and applied at both store and serve** (a Codex review found a
+  `SNOW_TOPS` answer could carry any tool-returned event, because the validator only proves an event came from a
+  tool). `ReadyQuestion.admitsEvent(type)` and `admitsPick(pick, offer, snapshot, scope)` decide; at store time
+  `relevantPart` first removes what the question may not carry (events of other types, and any pick on an events
+  question) and `violation` then judges the rest; at serve time `AskReadyFreshness` runs the same `violation` on the
+  stored row, so a row written under an older, looser rule is **withheld**, never served. Picks of a pick question are
+  never stripped (that would renumber ranks and could remove the BEST BET lead): a pick the question does not admit
+  discards the answer. An answer that would lose an event carrying a `safetyNote` is not stored at all (the summary
+  may name the event and its card is the only place the warning is shown). A `SNOW_TOPS` answer with no snow event
+  left is not stored (a "no snow" summary cannot be verified against the prose); it counts as skipped. Residual,
+  stated: a kept answer's summary prose may still mention something that was removed.
+
+  | Question | Event types kept | Picks kept (all: pick-eligible in the question's scope) | Slot must be |
+  |---|---|---|---|
+  | `BEST_WEEKEND` | none | on a Saturday or Sunday window of the window set; pick 1 on the BEST BET window when there is one | any |
+  | `BEST_SOON` | none | on a window that has a pick in scope (offered only when the weekend question is not); BEST BET lead | any |
+  | `BEST_NEXT` | none | on the next window alone; BEST BET lead | any |
+  | `COASTAL_HIGH` | none | on a window with a coastal slot at high water | coastal, `tideState` HIGH |
+  | `AM_OR_PM` | none | on either window of the offered date | any |
+  | `RARE_EVENTS` | any type | none | n/a |
+  | `SNOW_TOPS` | `SNOW_TOPS`, `SNOW_FRESH`, `SNOW_MIST` (the three snow hot-topic types; no almanac type is about snow, so none is listed) | none | n/a |
+
 - **Serve-time freshness is the plan's four rules plus three** (`AskReadyFreshness`): a question is also withheld
   when it would no longer be offered **under the same text** (a "tomorrow morning" stored on Sunday is not served
   on Monday although its window is still ahead; BEST_SOON once the weekend question has taken over), when the live
