@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.entity;
 
+import com.anthropic.models.messages.Model;
+
 /**
  * Identifies which evaluation path produced a {@code ForecastEvaluationEntity} row.
  *
@@ -10,13 +12,13 @@ package com.gregochr.goldenhour.entity;
 public enum EvaluationModel {
 
     /** Claude Haiku — lower cost, 1–5 rating output. */
-    HAIKU("4.5", "claude-haiku-4-5-20251001"),
+    HAIKU("4.5", Model.CLAUDE_HAIKU_4_5_20251001),
 
     /** Claude Sonnet — higher accuracy, dual 0–100 score output. */
-    SONNET("4.6", "claude-sonnet-4-6"),
+    SONNET("4.6", Model.CLAUDE_SONNET_4_6),
 
     /** Claude Sonnet with extended thinking — same model, thinking enabled. */
-    SONNET_ET("4.6", "claude-sonnet-4-6"),
+    SONNET_ET("4.6", Model.CLAUDE_SONNET_4_6),
 
     /**
      * Claude Sonnet 5.5 — selectable only, never a default. Thinking is left at the model's
@@ -31,13 +33,13 @@ public enum EvaluationModel {
      * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}
      * exactly like any other failed result (it can contribute to a place's auto-disable count).
      */
-    SONNET_55("5.5", "claude-sonnet-5-5"),
+    SONNET_55("5.5", Model.CLAUDE_SONNET_5_5),
 
     /** Claude Opus — highest accuracy, dual 0–100 score output. */
-    OPUS("4.6", "claude-opus-4-6"),
+    OPUS("4.6", Model.CLAUDE_OPUS_4_6),
 
     /** Claude Opus with extended thinking — same model, thinking enabled. */
-    OPUS_ET("4.6", "claude-opus-4-6"),
+    OPUS_ET("4.6", Model.CLAUDE_OPUS_4_6),
 
     /** No Claude call — raw comfort weather data only (temperature, wind, rain). */
     WILDLIFE(null, null);
@@ -47,9 +49,14 @@ public enum EvaluationModel {
     private final String version;
     private final String modelId;
 
-    EvaluationModel(String version, String modelId) {
+    /**
+     * Each model id comes from the SDK's typed {@link Model} constants, so a typo is a compile error
+     * and the SDK's own deprecation markers are visible at the point of use. {@code WILDLIFE} makes
+     * no Claude call and so has no model.
+     */
+    EvaluationModel(String version, Model model) {
         this.version = version;
-        this.modelId = modelId;
+        this.modelId = model == null ? null : model.asString();
     }
 
     /**

@@ -155,7 +155,6 @@ management:
 
 anthropic:
   api-key: ${ANTHROPIC_API_KEY}
-  model: claude-sonnet-4-5-20250929
 
 worldtides:
   api-key: ${WORLDTIDES_API_KEY}
