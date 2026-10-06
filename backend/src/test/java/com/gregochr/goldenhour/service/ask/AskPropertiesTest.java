@@ -106,6 +106,31 @@ class AskPropertiesTest {
     }
 
     @Test
+    @DisplayName("the allowance is LITE 3, PRO 30, ADMIN 30 (the PRO allowance); an unknown role gets the smallest")
+    void allowanceByRole() {
+        AskProperties p = new AskProperties();
+
+        assertThat(p.limitFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isEqualTo(3);
+        assertThat(p.limitFor(com.gregochr.goldenhour.entity.UserRole.PRO_USER)).isEqualTo(30);
+        assertThat(p.limitFor(com.gregochr.goldenhour.entity.UserRole.ADMIN)).isEqualTo(30);
+        assertThat(p.limitFor(null)).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("the engine ceiling is the multiplier (3) times the role's allowance, and follows both settings")
+    void ceilingByRole() {
+        AskProperties p = new AskProperties();
+
+        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isEqualTo(9);
+        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.PRO_USER)).isEqualTo(90);
+        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.ADMIN)).isEqualTo(90);
+        p.setLimitLite(4);
+        p.setEngineCeilingMultiplier(5);
+        assertThat(p.engineCeilingFor(com.gregochr.goldenhour.entity.UserRole.LITE_USER)).isEqualTo(20);
+        assertThat(p.engineCeilingFor(null)).isEqualTo(20);
+    }
+
+    @Test
     @DisplayName("the spend cap is above 0 and at most 1000 dollars; NaN and infinity are refused")
     void spendCapBounds() {
         AskProperties p = new AskProperties();

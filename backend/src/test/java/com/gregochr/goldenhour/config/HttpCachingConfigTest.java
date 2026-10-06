@@ -110,6 +110,9 @@ class HttpCachingConfigTest {
         // The Coming up badge's last-seen write (plan D3/P5). Write-only (PUT) today, pinned for
         // the same reason as map-colours: per-user state must never gain a revalidatable GET here.
         "/api/user/settings/coming-up-seen",
+        // Ask PhotoCast's allowance (B4): the caller's own count today. A GET, so unlike the entries
+        // above it is the one that WOULD be filtered if the whitelist ever matched by prefix.
+        "/api/user/settings/ask",
         // Close to home is derived from the caller's home postcode and their own drive times.
         // It sits UNDER /api/briefing, which IS revalidated — so this entry is the one that
         // proves the whitelist's exact-match semantics are doing real work here, not just in
@@ -147,6 +150,20 @@ class HttpCachingConfigTest {
         assertThat(filter.shouldNotFilter(get("/api/ask"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/ask/ready/precompute"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/admin/ask/ready/precompute"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("The typed endpoint is a POST and personal: never filtered, with or without a query string, "
+            + "and the Ready read's entry cannot pull it in")
+    void typedAskPostIsNeverFiltered() {
+        MockHttpServletRequest plain = new MockHttpServletRequest("POST", "/api/ask");
+        MockHttpServletRequest withQuery = new MockHttpServletRequest("POST", "/api/ask");
+        withQuery.setQueryString("scope=3");
+        MockHttpServletRequest readyPath = new MockHttpServletRequest("POST", "/api/ask/ready");
+
+        assertThat(filter.shouldNotFilter(plain)).isTrue();
+        assertThat(filter.shouldNotFilter(withQuery)).isTrue();
+        assertThat(filter.shouldNotFilter(readyPath)).as("even the Ready path, as a POST").isTrue();
     }
 
     @Test

@@ -309,6 +309,39 @@ class AdminAlertServiceTest {
     }
 
     @Test
+    @DisplayName("the Ask spend-cap alert emails every enabled ADMIN with an address, naming the day, the "
+            + "spend and the cap in dollars")
+    void askSpendCapAlert_sendsToEveryAdmin() throws Exception {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
+                admin("alice", "alice@example.com", true), admin("seed", "", true)));
+        MimeMessage message = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(message);
+
+        enabledService().sendAskSpendCapAlert(java.time.LocalDate.of(2026, 10, 6), 512_345L, 500_000L);
+
+        verify(mailSender, times(1)).send(message);
+        assertThat(message.getSubject()).isEqualTo("PhotoCast: Ask spend cap reached on 2026-10-06");
+        assertThat(message.getAllRecipients()[0].toString()).isEqualTo("alice@example.com");
+        String body = (String) message.getContent();
+        assertThat(body).contains("$0.51 on 2026-10-06").contains("daily cap of $0.50")
+                .contains("photocast.ask.daily-spend-cap-usd").contains("until UK midnight");
+    }
+
+    @Test
+    @DisplayName("with admin alerts disabled, or no mail sender, or no admin address, the Ask alert sends "
+            + "nothing and throws nothing")
+    void askSpendCapAlert_silentWhenItCannotSend() {
+        java.time.LocalDate day = java.time.LocalDate.of(2026, 10, 6);
+        new AdminAlertService(mailSender, appUserRepository, false).sendAskSpendCapAlert(day, 1L, 1L);
+        new AdminAlertService(null, appUserRepository, true).sendAskSpendCapAlert(day, 1L, 1L);
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of());
+        enabledService().sendAskSpendCapAlert(day, 1L, 1L);
+
+        verify(mailSender, never()).createMimeMessage();
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
     @DisplayName("a location alert whose recipient lookup throws never escapes the method")
     void locationAlert_repositoryThrows_neverEscapes() {
         when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN))

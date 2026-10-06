@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.UserRole;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.beans.factory.InitializingBean;
@@ -213,6 +214,34 @@ public class AskProperties implements InitializingBean {
                 .multiply(BigDecimal.valueOf(MICRO_DOLLARS_PER_DOLLAR))
                 .setScale(0, RoundingMode.HALF_UP)
                 .longValueExact();
+    }
+
+    /**
+     * A role's daily allowance of typed questions (plan §2.5 step 8, §6 Q6): LITE
+     * {@code limit-lite}, PRO and ADMIN {@code limit-pro} (D-7: ADMIN has the PRO allowance; the
+     * spend cap is the real ceiling). A null role gets the smallest allowance, so an unresolved
+     * role can only ever ask for less.
+     *
+     * @param role the asker's role, or null
+     * @return the number of typed questions that role may ask a UK day
+     */
+    public int limitFor(UserRole role) {
+        if (role == UserRole.PRO_USER || role == UserRole.ADMIN) {
+            return limitPro;
+        }
+        return limitLite;
+    }
+
+    /**
+     * The never-refunded daily ceiling on engine calls for a role: {@code engine-ceiling-multiplier}
+     * times its allowance (plan §1 #20). Refunds make an unanswerable question free to the asker, so
+     * this is what bounds the Claude calls a user can still cause in a day.
+     *
+     * @param role the asker's role, or null
+     * @return the most engine calls that role may cause a UK day
+     */
+    public int engineCeilingFor(UserRole role) {
+        return limitFor(role) * engineCeilingMultiplier;
     }
 
     /**

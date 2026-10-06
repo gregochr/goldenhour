@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.ask;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.repository.RegionRepository;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -20,7 +21,36 @@ import java.util.TreeSet;
  */
 public final class AskScopes {
 
+    /** The most region ids a question may name; the roster is a handful, so more is a mistake. */
+    public static final int MAX_REGION_IDS = 20;
+
     private AskScopes() {
+    }
+
+    /**
+     * The region ids a request may ask about, when every one is a distinct, enabled region. The one
+     * definition for the typed endpoint and the admin dry-run, so a region that one refuses the other
+     * cannot accept.
+     *
+     * @param regionRepository resolves ids to regions
+     * @param requested        the ids asked for; null or empty means every region
+     * @return the distinct ids in the order given (empty for "every region"), or empty when there are
+     *         more than {@value #MAX_REGION_IDS}, one is null, or any is unknown or disabled
+     */
+    public static Optional<List<Long>> validRegionIds(RegionRepository regionRepository,
+            List<Long> requested) {
+        if (requested == null || requested.isEmpty()) {
+            return Optional.of(List.of());
+        }
+        // Not requested.contains(null): an immutable list throws on that, and a null id is a refusal.
+        if (requested.size() > MAX_REGION_IDS || requested.stream().anyMatch(java.util.Objects::isNull)) {
+            return Optional.empty();
+        }
+        Set<Long> ids = new LinkedHashSet<>(requested);
+        List<RegionEntity> found = regionRepository.findAllById(ids);
+        boolean allEnabled = found.size() == ids.size()
+                && found.stream().allMatch(RegionEntity::isEnabled);
+        return allEnabled ? Optional.of(new ArrayList<>(ids)) : Optional.empty();
     }
 
     /**

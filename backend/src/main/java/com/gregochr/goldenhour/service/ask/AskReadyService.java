@@ -425,6 +425,35 @@ public class AskReadyService {
         if (live.isEmpty()) {
             return new AskReadyResponse(echo, List.of());
         }
+        List<Fresh> fresh = freshQuestions(scopeKey, scopeNames, live.get());
+        List<AskReadyResponse.Question> questions = new ArrayList<>();
+        for (int i = 0; i < fresh.size(); i++) {
+            questions.add(toQuestion(fresh, i));
+        }
+        return new AskReadyResponse(echo, questions);
+    }
+
+    /**
+     * Up to {@code limit} Ready questions of a scope that are fresh against the given snapshot, in
+     * catalogue order: the {@code try} suggestions of a typed answer that could not answer (plan
+     * §2.9). The same freshness test {@link #serve} applies, so a suggestion is always one the client
+     * will find in its Ready list.
+     *
+     * @param scopeKey   {@link #ALL} or a region id as text
+     * @param scopeNames the scope's region names; empty for every region
+     * @param live       the live snapshot the freshness check is made against
+     * @param limit      the most suggestions to return
+     * @return the suggestions; empty when none is fresh
+     */
+    public List<AskReadyResponse.Suggestion> suggestions(String scopeKey, Collection<String> scopeNames,
+            AskSnapshot live, int limit) {
+        return freshQuestions(scopeKey, scopeNames, live).stream().limit(Math.max(0, limit))
+                .map(f -> new AskReadyResponse.Suggestion(f.question().name(), f.stored().questionText()))
+                .toList();
+    }
+
+    /** The stored questions of a scope that are still true against {@code live}, in catalogue order. */
+    private List<Fresh> freshQuestions(String scopeKey, Collection<String> scopeNames, AskSnapshot live) {
         Map<String, AskReadyStore.Stored> byId = new LinkedHashMap<>();
         store.findScope(scopeKey).forEach(s -> byId.put(s.questionId(), s));
 
@@ -435,18 +464,14 @@ public class AskReadyService {
                 continue;
             }
             AskReadyFreshness.Verdict verdict =
-                    AskReadyFreshness.check(question, stored, live.get(), scopeNames);
+                    AskReadyFreshness.check(question, stored, live, scopeNames);
             if (verdict.fresh()) {
                 fresh.add(new Fresh(question, stored, verdict.answer()));
             } else {
                 LOG.debug("[ASK] Ready {}/{} withheld: {}", scopeKey, question, verdict.reason());
             }
         }
-        List<AskReadyResponse.Question> questions = new ArrayList<>();
-        for (int i = 0; i < fresh.size(); i++) {
-            questions.add(toQuestion(fresh, i));
-        }
-        return new AskReadyResponse(echo, questions);
+        return fresh;
     }
 
     private record Fresh(ReadyQuestion question, AskReadyStore.Stored stored, AskAnswer answer) {
