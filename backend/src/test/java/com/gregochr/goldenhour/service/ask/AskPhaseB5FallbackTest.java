@@ -1,13 +1,19 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.repository.AskLogRepository;
+import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.service.HotTopicSimulationService;
+import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import java.time.Clock;
 import java.util.Collection;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 /**
  * The B5 seams' no-op stand-ins are {@code @Fallback} component classes: with nothing else defined
@@ -69,6 +75,49 @@ class AskPhaseB5FallbackTest {
         runner.withBean("realPreFilter", AskPreFilter.class, () -> real)
                 .withBean(Consumer.class)
                 .run(context -> assertThat(context.getBean(Consumer.class).preFilter).isSameAs(real));
+    }
+
+    @Test
+    @DisplayName("B5's own four components, registered beside the no-ops with no qualifier, are the beans "
+            + "resolved and injected: nothing was deleted and nothing conflicts")
+    void b5ComponentsWinOverTheNoOps() {
+        runner.withUserConfiguration(PhraseAskPreFilter.class, KeywordAskIntentMatcher.class,
+                        CaffeineAskAnswerCache.class, DatabaseAskLog.class, Everything.class)
+                .withBean(AskReadyService.class, () -> mock(AskReadyService.class))
+                .withBean(AskProperties.class, AskProperties::new)
+                .withBean(RegionRepository.class, () -> mock(RegionRepository.class))
+                .withBean(HotTopicSimulationService.class, () -> mock(HotTopicSimulationService.class))
+                .withBean(AuroraStateCache.class, () -> mock(AuroraStateCache.class))
+                .withBean(AskLogRepository.class, () -> mock(AskLogRepository.class))
+                .withBean(Clock.class, Clock::systemUTC)
+                .run(context -> {
+                    assertThat(context.getBean(AskPreFilter.class)).isInstanceOf(PhraseAskPreFilter.class);
+                    assertThat(context.getBean(AskIntentMatcher.class))
+                            .isInstanceOf(KeywordAskIntentMatcher.class);
+                    assertThat(context.getBean(AskAnswerCache.class))
+                            .isInstanceOf(CaffeineAskAnswerCache.class);
+                    assertThat(context.getBean(AskLog.class)).isInstanceOf(DatabaseAskLog.class);
+                    Everything consumer = context.getBean(Everything.class);
+                    assertThat(consumer.preFilter).isInstanceOf(PhraseAskPreFilter.class);
+                    assertThat(consumer.matcher).isInstanceOf(KeywordAskIntentMatcher.class);
+                    assertThat(consumer.cache).isInstanceOf(CaffeineAskAnswerCache.class);
+                    assertThat(consumer.log).isInstanceOf(DatabaseAskLog.class);
+                });
+    }
+
+    /** Takes all four seams by constructor, as {@code AskService} does. */
+    static class Everything {
+        private final AskPreFilter preFilter;
+        private final AskIntentMatcher matcher;
+        private final AskAnswerCache cache;
+        private final AskLog log;
+
+        Everything(AskPreFilter preFilter, AskIntentMatcher matcher, AskAnswerCache cache, AskLog log) {
+            this.preFilter = preFilter;
+            this.matcher = matcher;
+            this.cache = cache;
+            this.log = log;
+        }
     }
 
     /** Takes one seam by constructor, as {@code AskService} does. */

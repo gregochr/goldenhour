@@ -27,7 +27,7 @@ it (adjacent rows conflict between open PRs).
 | B2a | The engine: Claude tool loop, properties, run types, cost logging | L | merged (#1015) |
 | B2b | Stub engine, local fixture seeder, admin dry-run | M | merged (#1017) |
 | B3 | Ready answers: catalogue, precompute after the pipeline, `GET /api/ask/ready` | L | merged (#1019) |
-| B4 | `POST /api/ask`: allowance, limits, spend cap, `GET /api/user/settings/ask` | L | not started |
+| B4 | `POST /api/ask`: allowance, limits, spend cap, `GET /api/user/settings/ask` | L | merged (#1021) |
 | B5 | Pre-filter, Ready intent match, typed cache, `ask_log`, metrics endpoint | M/L | not started |
 | F1a | Client core, unmounted: API, hooks, provider, pick model, conversation and cards | M/L | not started |
 | F1b | Phone and tablet-portrait entry: ask bar, tall sheet, shell wiring | M/L | not started |
@@ -874,8 +874,8 @@ off.
   `Outcome`), each with a no-op class (`NoOpAskPreFilter`, `NoOpAskIntentMatcher`, `NoOpAskAnswerCache`,
   `NoOpAskLog`: `@Component @Fallback`, overriding methods, the interfaces stay abstract) rather than
   `@ConditionalOnMissingBean`, which depends on scan order outside auto-configuration, so B5 adds a plain `@Component`
-  and deletes nothing (`AskPhaseB5FallbackTest` proves a user-supplied bean wins). **Not built:** the in-memory per-user-per-hour count of denied requests (§2.5's INFO line);
-  denials log at DEBUG (rate limit) or WARN (cap) for now — left with the log in B5.
+  and deletes nothing (`AskPhaseB5FallbackTest` proves a user-supplied bean wins). **Not built here:** the in-memory per-user-per-hour count of denied requests (§2.5's INFO line);
+  denials log at DEBUG (rate limit) or WARN (cap) for now — built in B5 (`AskDenialCounter`).
 - **Shared and fixed on the way:** `AskScopes.validRegionIds` (the admin dry-run now uses it too; it used
   `List.contains(null)`, which throws on an immutable list), and `AdminAlertService.deliver` takes any reference, not
   only a run id.
@@ -891,6 +891,78 @@ separates users for personal answers, region sets, UK dates; a hit that fails fr
 a hit is not charged; nothing cached during a simulation; denied requests write no row; the
 question is stored only for `CLAUDE_OK` / `CLAUDE_CANT`; deleting a user nulls `user_id`; metrics
 never return a raw question.
+
+*As built (B5), where the plan was wrong or silent:*
+- **Files:** `PhraseAskPreFilter`, `KeywordAskIntentMatcher` + `ReadyIntentRules` (the pure word rules),
+  `CaffeineAskAnswerCache`, `DatabaseAskLog` + `AskLogEntity`/`AskLogRepository` + `V167__ask_log.sql`,
+  `AskLogCleanupJob`, `AskMetricsService` + `GET /api/admin/ask/metrics`, `AskDenialCounter`, `AskSimulation`
+  (the one "is a simulation on" test, shared by the Ready precompute and the cache). Each implements B4's seam as a
+  plain `@Component`; the four no-ops stay (`@Fallback`) and nothing was deleted. `AskService`'s constructor gained
+  the denial counter. `AskReadyFreshness.recheck` (the pick and event half of the freshness test, with no Ready
+  question behind it) was extracted from `check` so the cache **shares** it rather than copying it, and
+  `AskReadyService.freshAnswers` (the fresh, decorated Ready questions for a snapshot the caller holds) was added so
+  the matcher serves exactly what a tap on the question would.
+- **The pre-filter phrase list** (whole words, split on anything that is not a letter or a digit, lower-cased):
+  car park / car parks / car parking / carpark(s) / parking; opening time(s) / opening hour(s); crowd / crowds /
+  crowded / crowding; busy / busier / busiest; queue / queues / queued / queuing / queueing; toilet(s); café(s) /
+  cafe(s); shop(s); pub(s); restaurant(s). Each topic has one fixed `missing` phrase (priority order: car park
+  information, opening times, visitor numbers or crowd information, toilet information, café, pub, restaurant or
+  shop information); a question that is about both the car park and the crowds says "visitor numbers or car park
+  data". The `summary` is fixed too ("PhotoCast covers sky colour, weather and tides. It has no <missing>."), never
+  the model's. **"Busy" is the one judgement call:** it is kept as a whole word, but a "busy" beside a sky word (sky,
+  skies, cloud(s), clouded, horizon: before it, after it, or before it with is/are/looks/gets/be between) is a busy
+  sky, not a busy place, and is not a match — a wrongly passed question costs one refunded engine call, a wrongly
+  refused one costs the reader their answer.
+- **The matcher's rules** (`ReadyIntentRules`): every word of the normalised question must be accounted for. The Ready
+  question's own subject phrase is taken out, and every word left must be a plain asking word (where, best, good,
+  spot, go, for, in, on, at, of, over, worth, should…) or one of a few subject-specific words, and at least one of them
+  must ask for a place. An unknown word is a reason not to match: a named place, a drive or distance, a number, another
+  day, a time of day the answer ignores, a negation. The common drive and distance words are also refused by name
+  (`QUALIFIERS`), and any location or region name in the snapshot, as whole words, stops a match even when it is made of
+  ordinary words. Subjects: weekend ("this weekend", "weekend"; and "Saturday"/"Sunday" only while every pick of the
+  answer is on that day, since the answer covers both); next few days ("next few days", "next couple of days", "coming
+  days", "few days", "this week"); the next window, read from the Ready question's own text (tonight / this evening,
+  this morning, tomorrow morning / sunrise, tomorrow evening / night / sunset, "Saturday evening"…); "high tide" / "high
+  water" with an optional coastal word; "sunrise or sunset" with the Ready question's own day or none; a rare / special /
+  unusual with event(s) / anything / happening / things; snow with tops / hills / fells / mountains. A question with a
+  word no rule knows costs no read at all; otherwise one `findScope` read. **The context window is not a reason to
+  decline** (a matched question has fixed its own time; one that names none is never matched).
+- **The cache key as built:** `(sorted distinct region ids | ALL, UK civil date from the injected clock, the
+  snapshot's generatedAt, normalised question, windowId | null, userId | null)`. **`personal` is
+  `AskOutcome.personal()`, which `AskTools` sets the moment a conversation calls `rank_spots` with `maxDriveMinutes`
+  (before it checks the asker has drive times) — the server's decision, never the model's.** A personal answer is
+  stored under the asker's id; a lookup tries the shared key and then only the caller's own key, so another user's
+  personal answer cannot be named. Residual: a personal answer is not re-keyed on a change of home within its 30
+  minutes. A hit is `AskReadyFreshness.recheck` against the live snapshot with the scope names stored at write time
+  (so a hit costs no database read); a failed check evicts that entry and is a miss. **Only an answer with a pick or an
+  event is stored**: one with neither ("nothing is worth it today") has nothing the freshness test can hold it to, so
+  serving it later could contradict the forecast. Nothing is stored while a simulation is active (lookup is not
+  blocked: a hit is re-checked against live data like any other). Maintenance runs on the calling thread, so the
+  bound holds at once; the cache's clock is the injected one.
+- **`ask_log`** is V167. Outcomes are the six in B4's `AskLog.Outcome` (no more). `outcome` is plain text, not a Java
+  enum column (no local H2 enum trap when one is added), and the row is inserted by one native statement with the three
+  nullable columns cast (no half-persisted entity in the request's session, and a typed null on Postgres). The
+  question is stored only for `CLAUDE_OK`/`CLAUDE_CANT` — by `DatabaseAskLog`, **and by a check constraint** on the
+  table — capped at 200 characters; `missing` only for `PREFILTER_CANT`/`CLAUDE_CANT`, capped at 60 (both cut on code
+  points). A failed write is logged at ERROR and swallowed. **The cron slot is 03:55 UTC** (every seed across the
+  migrations was read: 02:00 Mon, 02:40, 03:00, 03:10, 03:30, 03:45, 03:50, 04:00, 04:40, 05:00, 05:30/17:30, 14:00,
+  15:00, 22:00 and :20 past every hour are taken). Retention is on `created_at`: a row exactly the retention old is
+  kept, the first deleted is a moment older.
+- **Denied requests** are every `AskRefusal` except `UNAUTHENTICATED` and `ENGINE_FAILED` (a failure has its own
+  `CLAUDE_FAILED` row): rate limited, a malformed or over-long question, allowance used up, the daily engine ceiling,
+  typed questions unavailable before the engine ran. `AskDenialCounter` keeps one open hour per user (bounded: a user is
+  reported and forgotten when their next denial arrives in a later hour or a sweep, every 64 denials, finds the hour
+  over) and logs one INFO line per user per hour with the counts by reason. It never carries a question.
+- **Metrics** (`days` is a whole number, clamped 1..90, default 7; blank is the default, non-numeric is 400): the
+  window is the last N UK civil days including today. `cacheHitRate` = hits / (hits + engine runs);
+  `readyMatchRate` = Ready matches / every answered request; `cantRate` = (pre-filter + engine can't) / answered, where
+  answered excludes `CLAUDE_FAILED`; each is null when its denominator is zero. Spend is
+  `sumCostMicroDollarsByRunTypeStartedSince` for `ASK` (it includes an admin's Claude dry-run) and `ASK_READY` over the
+  window; cost the engine could not record is not in a multi-day figure. The only free text is the `missing` phrase;
+  no query selects the question column.
+- **Not done / not feasible:** a JPA-level (H2) proof that deleting a user nulls `user_id` — the entity holds the user as
+  a plain column, as every per-user table does, so H2 has no foreign key to test; V167's Testcontainers test proves it on
+  Postgres (pending CI).
 
 ### F1a — Client core, unmounted — M/L
 **Files:** `api/askApi.js`, `hooks/useAskReady.js`, `hooks/useAskAllowance.js`,

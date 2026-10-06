@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
+import com.gregochr.goldenhour.service.ask.AskDenialCounter;
 import com.gregochr.goldenhour.service.ask.AskEngine;
 import com.gregochr.goldenhour.service.ask.AskJobRunService;
 import com.gregochr.goldenhour.service.ask.AskProperties;
@@ -81,7 +82,8 @@ class AskAdmissionTest {
                 mock(RegionRepository.class), snapshotBuilder, engine, usageStore,
                 new AskSpendGuard(properties, jobRuns, mock(AdminAlertService.class), clock),
                 mock(AskReadyService.class), mock(DriveTimeResolver.class), new NoOpAskPreFilter(),
-                new NoOpAskIntentMatcher(), new NoOpAskAnswerCache(), new NoOpAskLog(), clock);
+                new NoOpAskIntentMatcher(), new NoOpAskAnswerCache(), new NoOpAskLog(),
+                new AskDenialCounter(clock), clock);
         AskController controller = new AskController(properties, mock(AskReadyService.class),
                 mock(RegionRepository.class), service);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)

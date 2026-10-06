@@ -6,7 +6,15 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.ask.AskErrorCode;
 import com.gregochr.goldenhour.service.ask.AskEvent;
+import com.gregochr.goldenhour.service.ask.AskAnswerCache;
+import com.gregochr.goldenhour.service.ask.AskIntentMatcher;
+import com.gregochr.goldenhour.service.ask.AskLog;
+import com.gregochr.goldenhour.service.ask.AskPreFilter;
 import com.gregochr.goldenhour.service.ask.AskProperties;
+import com.gregochr.goldenhour.service.ask.CaffeineAskAnswerCache;
+import com.gregochr.goldenhour.service.ask.DatabaseAskLog;
+import com.gregochr.goldenhour.service.ask.KeywordAskIntentMatcher;
+import com.gregochr.goldenhour.service.ask.PhraseAskPreFilter;
 import com.gregochr.goldenhour.service.ask.AskReadyResponse;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import com.gregochr.goldenhour.service.ask.AskRequest;
@@ -66,6 +74,14 @@ class AskTypedControllerTest extends AbstractControllerTest {
     private MockMvc mockMvc;
     @Autowired
     private AskProperties properties;
+    @Autowired
+    private AskPreFilter preFilter;
+    @Autowired
+    private AskIntentMatcher intentMatcher;
+    @Autowired
+    private AskAnswerCache answerCache;
+    @Autowired
+    private AskLog askLog;
 
     @BeforeEach
     void setUp() {
@@ -88,6 +104,18 @@ class AskTypedControllerTest extends AbstractControllerTest {
                 "Certified solar filter on the lens");
         return new AskResponse(true, "own", "Whitby at sunset.", List.of(pick), List.of(event), null, List.of(),
                 2, 3, true, LocalDateTime.of(2026, 10, 5, 5, 2, 11), "06:02");
+    }
+
+    // -- the four seams ------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("in the real application context each B5 seam resolves to B5's implementation, not B4's "
+            + "no-op: the plain @Component wins over the @Fallback")
+    void theRealSeamsAreWired() {
+        assertThat(preFilter).isInstanceOf(PhraseAskPreFilter.class);
+        assertThat(intentMatcher).isInstanceOf(KeywordAskIntentMatcher.class);
+        assertThat(answerCache).isInstanceOf(CaffeineAskAnswerCache.class);
+        assertThat(askLog).isInstanceOf(DatabaseAskLog.class);
     }
 
     // -- who may call -------------------------------------------------------------------------

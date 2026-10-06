@@ -77,6 +77,7 @@ class AskServiceTest {
     private final AskIntentMatcher matcher = mock(AskIntentMatcher.class);
     private final AskAnswerCache cache = mock(AskAnswerCache.class);
     private final AskLog askLog = mock(AskLog.class);
+    private final AskDenialCounter denials = mock(AskDenialCounter.class);
 
     private AskSnapshot snapshot;
     private AskUsageStore usageStore;
@@ -115,7 +116,7 @@ class AskServiceTest {
         AskSpendGuard guard = new AskSpendGuard(properties, jobRuns, alerts, clock);
         service = new AskService(properties, new AskRateLimiter(properties, clock), users, regions,
                 snapshotBuilder, engine, usageStore, guard, readyService, driveTimes, preFilter, matcher,
-                cache, askLog, clock);
+                cache, askLog, denials, clock);
     }
 
     private static Authentication reader() {

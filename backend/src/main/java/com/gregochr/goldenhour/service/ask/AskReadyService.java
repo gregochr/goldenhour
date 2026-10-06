@@ -407,7 +407,7 @@ public class AskReadyService {
     }
 
     private boolean simulationActive() {
-        return hotTopicSimulation.isEnabled() || auroraStateCache.getSimulatedData() != null;
+        return AskSimulation.active(hotTopicSimulation, auroraStateCache);
     }
 
     // -- serve ------------------------------------------------------------------------------
@@ -425,12 +425,28 @@ public class AskReadyService {
         if (live.isEmpty()) {
             return new AskReadyResponse(echo, List.of());
         }
-        List<Fresh> fresh = freshQuestions(scopeKey, scopeNames, live.get());
+        return new AskReadyResponse(echo, freshAnswers(scopeKey, scopeNames, live.get()));
+    }
+
+    /**
+     * The Ready questions of a scope that are still true against a snapshot the caller already holds,
+     * each decorated exactly as {@link #serve} serves it. The typed question's intent match uses this,
+     * so a Ready answer given to a typed question is the very object, with the very freshness test,
+     * a tap on the same question would have got.
+     *
+     * @param scopeKey   {@link #ALL} or a region id as text
+     * @param scopeNames the scope's region names; empty for every region
+     * @param live       the live snapshot the freshness check is made against
+     * @return the fresh questions in catalogue order; empty when none is fresh
+     */
+    public List<AskReadyResponse.Question> freshAnswers(String scopeKey, Collection<String> scopeNames,
+            AskSnapshot live) {
+        List<Fresh> fresh = freshQuestions(scopeKey, scopeNames, live);
         List<AskReadyResponse.Question> questions = new ArrayList<>();
         for (int i = 0; i < fresh.size(); i++) {
             questions.add(toQuestion(fresh, i));
         }
-        return new AskReadyResponse(echo, questions);
+        return questions;
     }
 
     /**
