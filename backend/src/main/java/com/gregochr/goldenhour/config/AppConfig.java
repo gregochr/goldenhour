@@ -122,6 +122,7 @@ public class AppConfig {
      * Two ways forward, neither taken yet: run on JDK 24+ (JEP 491 ends monitor pinning,
      * after which the SDK builder is fine) or implement
      * {@code com.anthropic.core.http.HttpClient} in-house over an HTTP/1.1 OkHttp client.
+     * The runtime is now Java 25, so JEP 491 is in force and the pin can be lifted in a follow-up.
      *
      * @param properties Anthropic API configuration
      * @return a configured {@link AnthropicClient}
