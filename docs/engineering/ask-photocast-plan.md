@@ -34,8 +34,8 @@ it (adjacent rows conflict between open PRs).
 | F2 | Desktop: tab-row field, the `/` key, the docked column | L | merged (#1028) |
 | F3 | Map linkage: numbered picks, dimming, camera, window follow | L | merged (#1029) |
 | F4 | Phone Map: the ask row in the peek sheet | L | merged (#1030) |
-| F5 | "Plan this", "Open in Plan", the Plan-card highlight | M | not started |
-| Z | Sweep: CLAUDE.md, prompt-regression class, measured Verify list, production enable | S/M | not started |
+| F5 | "Plan this", "Open in Plan", the Plan-card highlight | M | merged (#1031) |
+| Z | Sweep: CLAUDE.md, prompt-regression class, measured Verify list, production enable | S/M | merged (#1032) |
 
 Strictly sequential, top to bottom. A phase does not start until its predecessor is merged to
 `main`. (B5 beside F1a was considered and refused: F1a must render replies B5 produces.)
@@ -1892,6 +1892,12 @@ invariants only, **its assertions shown to the owner for approval before the com
 later session may change them; §7 measured; the production enable checklist (flag, cap value,
 `notifications.admin-alerts.enabled`).
 
+*As built (Z):*
+- **CLAUDE.md** — corrected: the Plan-tab paragraph's "search is the Plan tab's alone: `/` refuses elsewhere" (search is the ⌕ and the origin button only; `/` is Ask's from 1024px), the dialog-stack paragraph (Ask's sheet and dock are layers that are not stack members), "THREE routes into settings" (five), the location sheet's routes (a third, from Ask), the Map v2 bullet's "one handoff carries all three" (the phone peek's Open in Plan is the exception), the whole of the peek-sheet bullet's 74px/`--psh`/D-7/`'peek:*'`/"every map touch collapses it" wording (now the Ask-off truth plus one ⚠️ saying what F4 changed), `RunType`, *Resilience*, *Rewind*, *Roles*, the suite sizes and the integration-class count (6 → 13). Added: the *Ask PhotoCast* bullets (the two doors, the horizon-aware catalogue, the engine, the guards, the client), the *Backend-heavy* bullet's note that Ask adds no class, an *Ask PhotoCast* section in *API Endpoints* with the error table, `GET /api/user/settings/ask`, the V165–V167 rows, the local-dev recipe, the `photocast.ask.*` keys, *Role gating*. `backend/AGENTS.md` gained deliberate-decision 11 and the prompt-regression rule.
+- **`application-example.yml`** — every `photocast.ask.*` key with default and range (the `ask` resilience instances were already there from B2a).
+- **`AskPromptRegressionTest`** (`service/ask/`, `@Tag("prompt-regression")`, in PIT's `excludedTestClasses`; `PitExclusionDriftTest` passes) — three cases through the REAL `ClaudeAskEngine` against `src/test/resources/prompt-regression/ask/ask-fixture-snapshot.json` (a compact description the test maps through `AskFixtures` and the real `AskSnapshotBuilder`): a where question, a rare-events question, and an unanswerable one. Structural invariants only. **It skips (the class is aborted in `@BeforeAll` by an assumption) when `ANTHROPIC_API_KEY` is unset** — the two older regression classes throw instead; a skip is the brief's wording and is visible in the surefire report. It was compiled and skip-tested only: no real call was made by the session that wrote it. **Its assertions were shown to the owner before the commit; once approved they are frozen and no later session may change them.**
+- **§7, §11, §12** below.
+
 ---
 
 ## §4 Disagreements with the spec, on purpose
@@ -1963,18 +1969,24 @@ later session may change them; §7 measured; the production enable checklist (fl
 
 ## §7 Verify by measurement
 
-| Check | How |
-|---|---|
-| A Ready answer opens with no request | network panel: zero requests between tap and answer |
-| A typed question costs about 1p | mean **and p95** of `api_call_log` cost over 20 dry-run questions |
-| Monday offers no weekend question | B3's predicate test + the browser on a Monday fixture |
-| Ask's "best" agrees with BEST BET | B3's anchor test + the browser: pick 1's card wears BEST BET |
-| Picks on the map match the cards | each chip's rating equals its card's, on the stub |
-| Nothing personal is ETag-cached | response headers on `/api/user/settings/ask` and `POST /api/ask` |
-| An abuser cannot spend freely | B4's `DAILY_LIMIT` test; 10 unanswerable questions as LITE locally |
-| Phone: answer minimises, callout clears it | 390 × 844 and 375 × 667, measured rects |
-| iOS keyboard does not cover the input | Simulator, the sheet on Plan |
-| Desktop: columns stay aligned, map refits | 1280 and 1600: masthead and panel left edges equal |
+Measured 2026-10-06 on `29382830` plus Phase Z, by the Z session, with **no real Claude call**: the backend gate (`./mvnw clean verify
+-Dtest='!**/integration/**'`, 11,146 tests, exit 0), the frontend gate (lint, 8,398 tests in 331 files, `npm audit` 0 vulnerabilities, build, exit 0),
+and a local backend on the stub engine against a fresh H2 file with the §9 fixture (`--photocast.ask.seed-local-fixture=true`, a dummy
+`ANTHROPIC_API_KEY` and a dead HTTPS proxy so nothing could leave the machine), driven with `curl` as the local `admin` user. The session could
+not sign in to a browser, so every browser row is the owner's (§11).
+
+| Check | How | Result |
+|---|---|---|
+| A Ready answer opens with no request | network panel: zero requests between tap and answer | **Asserted from code and test, not from a network panel.** `AskContext.openReady` makes no request: the answer is already in the list `useAskReady` fetched (the 400 ms is a timer), pinned by `AskConversation.test.jsx` "makes no request to open it: the answer is already in the list". The list itself is one `GET /api/ask/ready` per surface open, ETag-revalidated: measured `200` with `ETag` then **`304`** on `If-None-Match`. Network-panel check: §11 |
+| A typed question costs about 1p | mean **and p95** of `api_call_log` cost over 20 dry-run questions | **Needs the real engine — owner's run.** Start the backend on the real key with `stub` off (this bills it), sign in as an admin, then for each of 20 varied questions: read `total_cost_micro_dollars` of today's `ASK` `job_run` (`SELECT id, total_cost_micro_dollars FROM job_run WHERE run_type = 'ASK' ORDER BY id DESC LIMIT 1`), `POST /api/admin/ask/dry-run {"question": …, "regionIds": []}`, read it again; the difference is that question's cost (the increment is display-only but is the same figure the cap sums). Mean and p95 of the 20 differences; the answer to "about 1p" is those two numbers. Also record `turns` and the `trace` of each (a 4-turn conversation is the tail) |
+| Monday offers no weekend question | B3's predicate test + the browser on a Monday fixture | **Tested, and seen on the API, on a Tuesday.** `ReadyQuestionTest` ("`BEST_WEEKEND` is not offered on a Monday … but is offered on a Friday") passes in the gate. Live: `POST /api/admin/ask/ready/precompute` on the stub on Tuesday 2026-10-06 wrote **5 of 7** questions for scope `all` — `BEST_SOON`, `BEST_NEXT`, `COASTAL_HIGH`, `AM_OR_PM`, `RARE_EVENTS` — and no `BEST_WEEKEND` (Saturday is outside the window set) and no `SNOW_TOPS` (no snow topic); `{written: 15, skipped: 13, failed: 0}` over 4 scopes (3 fixture regions + `all`). The browser on a Monday: §11 |
+| Ask's "best" agrees with BEST BET | B3's anchor test + the browser: pick 1's card wears BEST BET | **Tested; the browser check needs a real gloss — owner's run.** The B3/validator anchor tests pass (`AskReadyServiceTest` "only a BEST_* question carries an anchor…", `AskAnswerValidatorTest`). The local fixture has **no BEST BET** (a window's pick needs the region's Claude gloss headline and the fixture makes none), so it cannot be rehearsed locally. With the real engine, `AskPromptRegressionTest`'s first case asserts pick 1 is on the fixture's BEST BET window |
+| Picks on the map match the cards | each chip's rating equals its card's, on the stub | **Tested; seen in F3's stub harness, not on the real shell.** `MapLabelsAsk`, `MapViewAsk`, `PinsLayerAsk` and `AskMapLinkage` assert a pick chip carries its own window's rating, the one its card shows; F3 saw "Whitby Tue PM 5★" and the other two chips against their cards at 1280 on a scratch page. §11 |
+| Nothing personal is ETag-cached | response headers on `/api/user/settings/ask` and `POST /api/ask` | **Measured.** `GET /api/user/settings/ask` → `200`, `Cache-Control: no-cache, no-store, max-age=0, must-revalidate`, `Pragma: no-cache`, `Expires: 0`, **no `ETag`**. `POST /api/ask` → the same, no `ETag`. `GET /api/ask/ready` (user-independent) → `Cache-Control: private, no-cache` and an `ETag`, as intended. `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` pins the personal path |
+| An abuser cannot spend freely | B4's `DAILY_LIMIT` test; 10 unanswerable questions as LITE locally | **Tested; the 10-question local run is not possible on the stub.** `AskServiceTest` "an unanswerable question every time hits DAILY_LIMIT at 3 x the allowance with used still 0" passes. The stub never answers `answerable:false` (so nothing is ever refunded) and a LITE account would have to be created, so the row is the owner's with the real engine: as a LITE user ask 10 questions the forecast cannot answer that pass the pre-filter ("What's the pollen count?"), expect the 10th to be 429 `DAILY_LIMIT` with `GET /api/user/settings/ask` still showing `used: 0`. **Measured instead, live:** five rapid `POST /api/ask` — four `200` then **`429 RATE_LIMITED`**, and a **malformed body is `429` too** (the limiter runs before the body is read); the typed cache: the same non-Ready question twice → `kind: own, charged: true, allowanceLeft: 29` then `charged: false, allowanceLeft: 29`; `GET /api/admin/ask/metrics` counted the outcomes (`PREFILTER_CANT` 4, `READY_MATCH` 1, `CLAUDE_OK` 1, `CACHE_HIT` 1) and returned no question text |
+| Phone: answer minimises, callout clears it | 390 × 844 and 375 × 667, measured rects | **Owner's run (§11).** F4 saw the sheet at exactly 126 / 470 / 112 px at 390 × 844 and 320 × 568 on a scratch page and a 10px gap under the pill at a 440px frame; the real `MapView` with a real callout over the 112px line was tested in jsdom only |
+| iOS keyboard does not cover the input | Simulator, the sheet on Plan | **Owner's run (§11).** Tested only (`visualViewport` arithmetic); the Simulator needs the signed-in app |
+| Desktop: columns stay aligned, map refits | 1280 and 1600: masthead and panel left edges equal | **Owner's run on the real shell (§11).** F2 measured both edges at 16 → 884 (1280) and 70 → 1150 (1600) on a scratch harness with a stubbed briefing; the real `MapView` refit under the dock was tested, not seen |
 
 ## §8 How the chain is run
 
@@ -2049,3 +2061,59 @@ generation abandoned at the client timeout; how a travel day is marked on the se
 it is not, and uses `TravelDayService`); whether `RunType.ASK` trips an H2 enum constraint under local
 `ddl-auto: update` (it does, and B2b fixed it, above). When the plan was written nothing had been built or
 run.
+
+## §11 Owner's browser check
+
+Everything below was **tested but not seen**, or is an accepted limit the owner should look at once with the app signed in (the implementing
+sessions cannot sign in). Run the backend per §9 (stub, fixture) with `npm run dev`; the checks that need real numbers are marked.
+Tick each; a defect found here is a new fix, not an edit to the sessions' notes.
+
+**F1b — phone and tablet-portrait entry**
+- [ ] 390 × 844: the 48px ask bar does not cover the last Plan row or the footer links; tabbing near the bottom scrolls clear of it.
+- [ ] Tablet field beside 3 and 4 tabs at 640 / 720 / 834 / 1023 — as an admin with the Coming-up badge showing, check **720 and 726** (under 10px of slack; raise the collapse breakpoint to 740 if the tab row scrolls).
+- [ ] Sheet slide-up and height; the input stays above the iOS keyboard (open and close with the keyboard up; the dead gap on a notched iPhone); focusing the input on open raises the keyboard at once and the dialog's name may not be announced first — decide whether that is acceptable.
+- [ ] `inert` really blocks Tab and pointer behind the sheet; focus returns to the bar, and to the Map tab after "Show on map ›".
+- [ ] Forced-colours focus rings; the Map tab on a tablet with the sheet over it.
+- [ ] Accepted: a held answer does not announce itself while the sheet is closed; a disabled entry gives no reason.
+
+**F2 — desktop dock**
+- [ ] 1024 / 1280 / 1600: masthead and panel left edges equal with the dock open; on Plan the dock's input stays in view while the page scrolls.
+- [ ] The REAL map refits when the dock opens and closes (picks near the right edge are not clipped); the width animation; reduced motion.
+- [ ] The dock beside the real banners and the real footer; the dock under a window popup's scrim; Safari (container queries, `dvh`, `inert`); an iPad at 1024 with real insets.
+- [ ] **Owner question, decide now:** with `photocast.ask.enabled` false `/` does nothing on Plan (search lost its key; `/` was also the only keyboard route to search over an open popup). Keep, or give `/` a fallback to search while Ask is off?
+- [ ] Accepted: a short Plan column scrolls ~170px under the 100dvh dock; the dock is not `inert` under the map overlay; no skip link past the dock; Escape discards an unsent draft; four tabs collapse under ~751px viewport on a tablet for an admin.
+
+**F3 — map linkage**
+- [ ] Numbered picks with their own window and rating, everything else at `.25`, the heat dimmer next to the REAL coastline stroke; the camera fits on a real dock open/close; choosing a pick flies to about zoom 10.5 and opens no callout.
+- [ ] The bare rank circle under a label squeeze and the forced dot; the 25px compact circle; the chosen chip's focus ring; reduced motion; forced colours; the tablet sheet holding and releasing the fit.
+- [ ] Accepted: an aurora window draws no chips (the camera still fits); a typed question in flight clears the numbering for its duration; a stale selection at the pane's first mount can win over a Plan door.
+
+**F4 — phone Map peek**
+- [ ] 390 × 844 and 375 × 667 with measured rects: the open sheet never covers the pill; a minimised answer and a callout do not overlap; the real `MapView` + Leaflet + real callout over the 112px line.
+- [ ] The iOS keyboard with the field at the top of a sheet that is not `visualViewport`-aware; the transition and reduced motion; whether the re-fit when a touch minimises the answer reads as a jump; a screen reader on the parked Ask node and the minimised line; Safari; the deferred inset re-apply during a drag.
+- [ ] Accepted: on frames under ~590px the expanded sheet covers the fitted picks (minimising re-fits); the parked focus node has no role; Tide and Layers are a step further while an answer is minimised; `--psh` steps instantly while the sheet animates.
+
+**F5 — Plan this**
+- [ ] The real shell with a real dock or sheet beside the real matrix: the highlight scrolls clear of the sticky lens bar; "Open in Plan ›" opens the location sheet at the right row and focus comes back (dock, tablet sheet, phone peek); Safari's mouse-press focus rule.
+- [ ] The phone plan view in a real 470px peek and its minimised line; the iOS keyboard with the plan view's input row; forced colours; reduced motion; a screen reader on the plan view, the quiet return to the answer and the highlight's name.
+- [ ] Accepted, decide whether each is acceptable: a pick whose event has passed keeps "Plan this ›" and its Plan card is gone; **a postcode with no measured drive time shows dashes and no reason** (§6 Q7 promised an explanation for typed drive questions, this view has none); Escape closes the dock or sheet rather than stepping back from the plan view; a refused "Open in Plan ›" says nothing; the phone peek's route has no return address; a plan whose card disappears and returns reappears unasked.
+
+**Z — the rest**
+- [ ] §7's rows marked "owner's run": the 20-question cost figure, the Monday browser check, pick 1 wearing BEST BET, the 10-question LITE run, the Network panel for a Ready tap, the phone rects, the iOS Simulator keyboard, the desktop edges.
+- [ ] `AskPromptRegressionTest` once with a real key (§12 step 8).
+- [ ] The Coming up tab itself shows no solar-eclipse safety warning (the warning exists on the Plan card's hot topic and, through Ask, on Ask's cards): look at it and decide.
+
+## §12 Production enable checklist
+
+Ask ships **off**. Nothing below is done by the implementing sessions; each step is the owner's, in order.
+
+1. **CI is green on the Ask PRs, and the migrations ran.** V165–V167 are proven before merge only by CI's Backend job. After the deploy, confirm production applied them: `SELECT version, description, success FROM flyway_schema_history WHERE version::int >= 165 ORDER BY installed_rank;` (three rows, `success = t`), the tables `ask_ready_answer`, `ask_usage` and `ask_log` exist, and `SELECT job_key, cron_expression, status FROM scheduler_job_config WHERE job_key = 'ask_log_cleanup';` returns `0 55 3 * * *`, `ACTIVE` (the prod DB recipe is in the owner's notes: the container is `goldenhour-db`).
+2. **Read the RUNNING config, not this repo's.** The production host's checkout is stale and its config hand-edited. Confirm: `photocast.ask.enabled` is what you intend (default false); **`photocast.ask.stub` is absent or false** (startup refuses `stub=true` under `prod`, so a wrongly set flag is a failed boot, not a silent template); the `ask` blocks exist under `resilience4j.retry`, `circuitbreaker` and `bulkhead` (`application-prod.yml` has them; a host file that replaces it wholesale without them would run the `ask` instances on Resilience4j defaults and the 4-concurrent bulkhead would not exist).
+3. **The spend cap.** `photocast.ask.daily-spend-cap-usd` defaults to 0.50 a UK day, typed questions only (roughly 40–50 questions at the estimated 1p — replace that with §7's measured figure). Reaching it answers 503 `TYPED_UNAVAILABLE` to **everyone** until the next UK day, and the only signal is an email to the admins.
+4. **That email can arrive.** `notifications.admin-alerts.enabled: true` (committed true in `application-prod.yml`; confirm on the host) and working mail (the health widget's mail probe). Without either, the cap trips silently.
+5. **Turn it on:** set `photocast.ask.enabled=true`, restart, and confirm `GET /api/user/settings/ask` returns `enabled: true` for a signed-in user and the client now shows Ask. With the flag off the client shows nothing and every endpoint is 404.
+6. **First Ready answers.** `POST /api/admin/ask/ready/precompute` once (it spends real Claude money: at most (regions + 1) × 7 Haiku conversations, billed to an `ASK_READY` run), or wait for the next pipeline cycle (at most `ready.max-cycles-per-day`, 6, scheduled runs a day). A manual briefing rebuild does NOT trigger it. Then `GET /api/ask/ready?scope=all` and `GET /api/admin/ask/metrics`.
+7. **The first real dry-run is the owner's paid call.** `POST /api/admin/ask/dry-run` with a handful of questions; read the `trace` and `turns`, look at the day's `ASK` run in Operations, and do §7's 20-question cost measurement before announcing it to anyone.
+8. **Run the regression class once with a real key:** `cd backend && ANTHROPIC_API_KEY=… ./mvnw test -Pprompt-regression -Dtest=AskPromptRegressionTest` (a few pence). Its assertions are the owner's (shown to them at the Phase Z stop point, frozen once approved); a failure is a prompt or tool regression, never a reason to loosen them.
+9. **Rollback is the flag.** Set `photocast.ask.enabled=false` and restart: every Ask endpoint is 404 and the client hides every surface. There is no data to unwind; `ask_ready_answer`, `ask_usage` and `ask_log` may stay (the log prunes itself at 90 days, the Ready table is at most (regions + 1) × 7 rows).
+10. **Open owner questions that outlive Z:** (a) `/` does nothing on Plan while the flag is off (§11, F2); (b) "Pro: 30 a day" is a constant on the client — if `limit-pro` ever changes, add a `proLimit` to `GET /api/user/settings/ask`; (c) the Coming up tab shows no solar-eclipse warning; (d) a postcode with no measured drive time to a pick shows dashes with no reason; (e) §6 Q5 and Q8 are still on their defaults; (f) the floating card (Q3) and an Ask-aware aurora window (no chips there) are not built.
