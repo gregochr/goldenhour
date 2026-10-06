@@ -769,3 +769,88 @@ describe('JobRunDetail — Fallback-parsed responses', () => {
     expect(screen.queryByText(/Fallback-parsed responses/)).not.toBeInTheDocument();
   });
 });
+
+describe('JobRunDetail — Prompt-cache diagnostics', () => {
+  const MISS = '{"status":"MISS","reason":"messages_changed","missedInputTokens":1234}';
+  const DIAGNOSED_CALL = {
+    ...ANTHROPIC_CALL,
+    id: 11,
+    customId: 'fc-42-2026-10-08-SUNRISE',
+    cacheReadInputTokens: 4726,
+    cacheDiagnostics: MISS,
+  };
+
+  it('shows a badge per diagnosed call, with the reason and what the cache did to its tokens', async () => {
+    getApiCalls.mockResolvedValue({ data: [ANTHROPIC_CALL, DIAGNOSED_CALL] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('cache-diagnostics')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Prompt-cache diagnostics: 1')).toBeInTheDocument();
+    expect(screen.getAllByTestId('cache-diagnostics-row')).toHaveLength(1);
+    expect(screen.getByText('fc-42-2026-10-08-SUNRISE')).toBeInTheDocument();
+    expect(screen.getByTestId('cache-badge').textContent)
+      .toBe('cache: read 4,726 · miss — messages_changed (1,234 tok)');
+  });
+
+  it('tallies reasons across every diagnosed call but lists only the first 25', async () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      ...DIAGNOSED_CALL,
+      id: 100 + i,
+      customId: `fc-${i}-2026-10-08-SUNRISE`,
+    }));
+    const systemChanged = {
+      ...DIAGNOSED_CALL,
+      id: 200,
+      customId: 'fc-x-2026-10-08-SUNRISE',
+      cacheDiagnostics: '{"status":"MISS","reason":"system_changed","missedInputTokens":4800}',
+    };
+    getApiCalls.mockResolvedValue({ data: [...many, systemChanged] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('cache-diagnostics')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Prompt-cache diagnostics: 31')).toBeInTheDocument();
+    expect(screen.getAllByTestId('cache-diagnostics-row')).toHaveLength(25);
+    expect(screen.getByTestId('cache-diagnostics-more').textContent).toBe('+6 more');
+    const tally = screen.getByTestId('cache-diagnostics-tally').textContent;
+    expect(tally).toContain('messages_changed ×30');
+    expect(tally).toContain('system_changed ×1');
+  });
+
+  it('words a pending comparison, and a reason with no token estimate', async () => {
+    getApiCalls.mockResolvedValue({ data: [
+      { ...DIAGNOSED_CALL, id: 1, cacheReadInputTokens: 0, cacheDiagnostics: '{"status":"PENDING"}' },
+      {
+        ...DIAGNOSED_CALL,
+        id: 2,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 4726,
+        cacheDiagnostics: '{"status":"MISS","reason":"previous_message_not_found"}',
+      },
+    ] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId('cache-badge')).toHaveLength(2);
+    });
+    const badges = screen.getAllByTestId('cache-badge').map((b) => b.textContent);
+    expect(badges).toEqual([
+      'cache: pending',
+      'cache: write 4,726 · miss — previous_message_not_found',
+    ]);
+  });
+
+  it('hides the section entirely when no call carries diagnostics, or the field is not valid JSON', async () => {
+    getApiCalls.mockResolvedValue({ data: [
+      ANTHROPIC_CALL,
+      { ...ANTHROPIC_CALL, id: 3, cacheDiagnostics: null },
+      { ...ANTHROPIC_CALL, id: 4, cacheDiagnostics: 'not json' },
+    ] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('ANTHROPIC')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('cache-diagnostics')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Prompt-cache diagnostics/)).not.toBeInTheDocument();
+  });
+});

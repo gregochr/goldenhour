@@ -6,6 +6,9 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
@@ -43,6 +46,7 @@ public class JobRunService {
     private final ForecastBatchRepository forecastBatchRepository;
     private final CostCalculator costCalculator;
     private final ExchangeRateService exchangeRateService;
+    private final ObjectMapper objectMapper;
     private final String appVersion;
 
     /**
@@ -53,6 +57,7 @@ public class JobRunService {
      * @param forecastBatchRepository repository for forecast batch entities
      * @param costCalculator          service for calculating API call costs
      * @param exchangeRateService     service for fetching exchange rates
+     * @param objectMapper            serialises a call's cache diagnostics for {@code api_call_log}
      * @param appVersion              application version stamped on each run, from {@code APP_VERSION}
      */
     public JobRunService(JobRunRepository jobRunRepository,
@@ -60,12 +65,14 @@ public class JobRunService {
             ForecastBatchRepository forecastBatchRepository,
             CostCalculator costCalculator,
             ExchangeRateService exchangeRateService,
+            ObjectMapper objectMapper,
             @Value("${APP_VERSION:dev}") String appVersion) {
         this.jobRunRepository = jobRunRepository;
         this.apiCallLogRepository = apiCallLogRepository;
         this.forecastBatchRepository = forecastBatchRepository;
         this.costCalculator = costCalculator;
         this.exchangeRateService = exchangeRateService;
+        this.objectMapper = objectMapper;
         this.appVersion = appVersion;
     }
 
@@ -172,6 +179,36 @@ public class JobRunService {
             boolean succeeded, String errorMessage, EvaluationModel model,
             TokenUsage tokenUsage, boolean isBatch,
             LocalDate targetDate, TargetType targetType, String errorType) {
+        return logAnthropicApiCall(jobRunId, durationMs, statusCode, responseBody, succeeded,
+                errorMessage, model, tokenUsage, isBatch, targetDate, targetType, errorType,
+                CacheDiagnostics.EMPTY);
+    }
+
+    /**
+     * Records an Anthropic API call with token usage, the failure reason when it failed, and the
+     * prompt-cache diagnostics the response carried.
+     *
+     * @param jobRunId         the job run ID
+     * @param durationMs       duration in milliseconds
+     * @param statusCode       HTTP status code, or null when the failure carried none
+     * @param responseBody     response body on error, or null on success
+     * @param succeeded        true if the call succeeded
+     * @param errorMessage     brief error message if failed, or null
+     * @param model            evaluation model (HAIKU, SONNET, or OPUS)
+     * @param tokenUsage       token counts from the API response
+     * @param isBatch          whether this was a batch API call
+     * @param targetDate       target date for forecast evaluations, or null
+     * @param targetType       target type (SUNRISE/SUNSET), or null
+     * @param errorType        short classification of the failure, or null on success
+     * @param cacheDiagnostics the response's cache diagnostics; null or empty stores nothing
+     * @return the newly created API call log entity
+     */
+    public ApiCallLogEntity logAnthropicApiCall(Long jobRunId,
+            long durationMs, Integer statusCode, String responseBody,
+            boolean succeeded, String errorMessage, EvaluationModel model,
+            TokenUsage tokenUsage, boolean isBatch,
+            LocalDate targetDate, TargetType targetType, String errorType,
+            CacheDiagnostics cacheDiagnostics) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage, isBatch);
 
@@ -198,6 +235,7 @@ public class JobRunService {
                 .isBatch(isBatch)
                 .costMicroDollars(costMicroDollars)
                 .errorType(truncate(errorType, ERROR_TYPE_MAX_CHARS))
+                .cacheDiagnostics(serialise(cacheDiagnostics))
                 .build();
         return apiCallLogRepository.save(log);
     }
@@ -257,6 +295,34 @@ public class JobRunService {
             String errorType, String errorMessage,
             EvaluationModel model, TokenUsage tokenUsage,
             LocalDate targetDate, TargetType targetType, String responseBody) {
+        logBatchResult(jobRunId, batchId, customId, succeeded, status, errorType, errorMessage,
+                model, tokenUsage, targetDate, targetType, responseBody, CacheDiagnostics.EMPTY);
+    }
+
+    /**
+     * Records a batch result with an optional raw {@code response_body} and the prompt-cache
+     * diagnostics the succeeded message carried.
+     *
+     * @param jobRunId         the linked job run ID
+     * @param batchId          the Anthropic batch ID
+     * @param customId         the per-request custom ID
+     * @param succeeded        true if the request succeeded
+     * @param status           result status string
+     * @param errorType        error type / diagnostic marker, or null
+     * @param errorMessage     error message, or null
+     * @param model            evaluation model, or null if unknown
+     * @param tokenUsage       token counts, or null
+     * @param targetDate       target date decoded from customId, or null
+     * @param targetType       target type decoded from customId, or null
+     * @param responseBody     raw response text to persist for diagnosis, or null to store nothing
+     * @param cacheDiagnostics the message's cache diagnostics; null or empty stores nothing
+     */
+    public void logBatchResult(Long jobRunId, String batchId, String customId,
+            boolean succeeded, String status,
+            String errorType, String errorMessage,
+            EvaluationModel model, TokenUsage tokenUsage,
+            LocalDate targetDate, TargetType targetType, String responseBody,
+            CacheDiagnostics cacheDiagnostics) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
 
         long costMicroDollars = 0;
@@ -294,6 +360,7 @@ public class JobRunService {
                 .customId(customId)
                 .errorType(errorType)
                 .batchId(batchId)
+                .cacheDiagnostics(serialise(cacheDiagnostics))
                 .build();
         apiCallLogRepository.save(log);
     }
@@ -408,7 +475,8 @@ public class JobRunService {
             long durationMs, Integer statusCode, String responseBody,
             boolean succeeded, String errorMessage, EvaluationModel model) {
         return logApiCall(jobRunId, service, requestMethod, requestUrl, requestBody,
-                durationMs, statusCode, responseBody, succeeded, errorMessage, model, null, null);
+                durationMs, statusCode, responseBody, succeeded, errorMessage, model,
+                (LocalDate) null, (TargetType) null);
     }
 
     /**
@@ -440,6 +508,35 @@ public class JobRunService {
             long durationMs, Integer statusCode, String responseBody,
             boolean succeeded, String errorMessage, EvaluationModel model,
             TokenUsage tokenUsage) {
+        return logApiCall(jobRunId, service, requestMethod, requestUrl, requestBody, durationMs,
+                statusCode, responseBody, succeeded, errorMessage, model, tokenUsage,
+                CacheDiagnostics.EMPTY);
+    }
+
+    /**
+     * As the overload taking a {@link TokenUsage}, also recording the prompt-cache diagnostics the
+     * Anthropic response carried.
+     *
+     * @param jobRunId         the job run ID
+     * @param service          the service name
+     * @param requestMethod    HTTP method (GET, POST, etc.) or null
+     * @param requestUrl       full request URL
+     * @param requestBody      request body (JSON) or null
+     * @param durationMs       duration in milliseconds
+     * @param statusCode       HTTP status code or null
+     * @param responseBody     response body on error, or null on success
+     * @param succeeded        true if the call succeeded
+     * @param errorMessage     brief error message if failed, or null
+     * @param model            evaluation model for Anthropic calls, or null
+     * @param tokenUsage       token counts from the Anthropic response, or null
+     * @param cacheDiagnostics the response's cache diagnostics; null or empty stores nothing
+     * @return the newly created API call log entity
+     */
+    public ApiCallLogEntity logApiCall(Long jobRunId, ServiceName service,
+            String requestMethod, String requestUrl, String requestBody,
+            long durationMs, Integer statusCode, String responseBody,
+            boolean succeeded, String errorMessage, EvaluationModel model,
+            TokenUsage tokenUsage, CacheDiagnostics cacheDiagnostics) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         long costMicroDollars = (service == ServiceName.ANTHROPIC)
                 ? (tokenUsage != null
@@ -467,6 +564,7 @@ public class JobRunService {
                         tokenUsage != null ? tokenUsage.cacheCreationInputTokens() : null)
                 .cacheReadInputTokens(tokenUsage != null ? tokenUsage.cacheReadInputTokens() : null)
                 .costMicroDollars(costMicroDollars)
+                .cacheDiagnostics(serialise(cacheDiagnostics))
                 .build();
         return apiCallLogRepository.save(log);
     }
@@ -728,6 +826,23 @@ public class JobRunService {
         LocalDateTime since = LocalDateTime.now(ZoneOffset.UTC).minusDays(7);
         List<JobRunEntity> runs = jobRunRepository.findByStartedAtAfterOrderByStartedAtDesc(since);
         return runs.stream().limit(limit).toList();
+    }
+
+    /**
+     * Serialises a call's cache diagnostics for {@code api_call_log.cache_diagnostics}: compact JSON,
+     * or null when the response carried none. Never fails a log write; a diagnostics value that
+     * cannot be written is dropped with a warning.
+     */
+    private String serialise(CacheDiagnostics diagnostics) {
+        if (diagnostics == null || !diagnostics.isPresent()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(diagnostics);
+        } catch (JsonProcessingException e) {
+            LOG.warn("Could not serialise cache diagnostics {}: {}", diagnostics.summary(), e.getMessage());
+            return null;
+        }
     }
 
     private static String truncate(String value, int maxLength) {

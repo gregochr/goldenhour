@@ -7,16 +7,21 @@ import ch.qos.logback.core.read.ListAppender;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.ClientOptions;
 import com.anthropic.core.RequestOptions;
+import com.anthropic.core.http.StreamResponse;
 import com.anthropic.errors.AnthropicIoException;
 import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.BatchListPage;
 import com.anthropic.models.messages.batches.BatchListParams;
 import com.anthropic.models.messages.batches.MessageBatch;
+import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.models.messages.batches.MessageBatchRequestCounts;
+import com.anthropic.models.messages.batches.MessageBatchResult;
+import com.anthropic.models.messages.batches.MessageBatchSucceededResult;
 import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
 import com.gregochr.goldenhour.config.BatchSubmitRetryPredicate;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
@@ -756,6 +761,49 @@ class AnthropicBatchClientTest {
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
         verify(batchService).retrieve(eq("msgbatch_r"), options.capture());
         assertThat(options.getValue().getTimeout().request()).isEqualTo(Duration.ofSeconds(7));
+    }
+
+    @Test
+    @DisplayName("readFirstSucceededMessage: returns the succeeded message under the timeout, closes the stream")
+    void readFirstSucceededMessage_returnsTheMessageAndClosesTheStream() {
+        com.anthropic.models.messages.Message message = CacheDiagnosticsFixtures.message(
+                "msg_primer", java.util.Optional.empty(), "{}", 4726, 4726, 0);
+        MessageBatchIndividualResponse errored = mock(MessageBatchIndividualResponse.class);
+        MessageBatchResult erroredResult = mock(MessageBatchResult.class);
+        when(errored.result()).thenReturn(erroredResult);
+        when(erroredResult.succeeded()).thenReturn(java.util.Optional.empty());
+        MessageBatchIndividualResponse succeeded = mock(MessageBatchIndividualResponse.class);
+        MessageBatchResult succeededResult = mock(MessageBatchResult.class);
+        MessageBatchSucceededResult payload = mock(MessageBatchSucceededResult.class);
+        when(succeeded.result()).thenReturn(succeededResult);
+        when(succeededResult.succeeded()).thenReturn(java.util.Optional.of(payload));
+        when(payload.message()).thenReturn(message);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> stream = mock(StreamResponse.class);
+        when(stream.stream()).thenReturn(java.util.stream.Stream.of(errored, succeeded));
+        when(batchService.resultsStreaming(eq("msgbatch_p"), any(RequestOptions.class))).thenReturn(stream);
+
+        assertThat(client.readFirstSucceededMessage("msgbatch_p", Duration.ofSeconds(7))).containsSame(message);
+
+        ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
+        verify(batchService).resultsStreaming(eq("msgbatch_p"), options.capture());
+        assertThat(options.getValue().getTimeout().request()).isEqualTo(Duration.ofSeconds(7));
+        verify(stream).close();
+    }
+
+    @Test
+    @DisplayName("readFirstSucceededMessage: a batch with no succeeded request yields nothing")
+    void readFirstSucceededMessage_noSuccess_isEmpty() {
+        MessageBatchIndividualResponse errored = mock(MessageBatchIndividualResponse.class);
+        MessageBatchResult erroredResult = mock(MessageBatchResult.class);
+        when(errored.result()).thenReturn(erroredResult);
+        when(erroredResult.succeeded()).thenReturn(java.util.Optional.empty());
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> stream = mock(StreamResponse.class);
+        when(stream.stream()).thenReturn(java.util.stream.Stream.of(errored));
+        when(batchService.resultsStreaming(eq("msgbatch_p"), any(RequestOptions.class))).thenReturn(stream);
+
+        assertThat(client.readFirstSucceededMessage("msgbatch_p", Duration.ofSeconds(7))).isEmpty();
     }
 
     @Test

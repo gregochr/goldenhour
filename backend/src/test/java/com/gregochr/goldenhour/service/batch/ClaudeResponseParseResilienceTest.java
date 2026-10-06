@@ -294,7 +294,7 @@ class ClaudeResponseParseResilienceTest {
                 eq(testCase.loggedSucceeded()), any(String.class),
                 eq(testCase.loggedErrorType()), any(),
                 any(), any(),
-                eq(DATE), eq(SUNSET), any());
+                eq(DATE), eq(SUNSET), any(), eq(null));
     }
 
     // ── The gap assertion (iii) cannot make ──────────────────────────────────
@@ -326,7 +326,7 @@ class ClaudeResponseParseResilienceTest {
                 eq(false), eq("PARSE_FAILED"),
                 eq("parse_error"), contains("Failed to parse evaluation response"),
                 eq((EvaluationModel) null), eq((TokenUsage) null),
-                eq(DATE), eq(SUNSET), eq((String) null));
+                eq(DATE), eq(SUNSET), eq((String) null), eq(null));
     }
 
     @Test
@@ -374,7 +374,7 @@ class ClaudeResponseParseResilienceTest {
                 eq(true), eq("SUCCESS"),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNSET), any(String.class));
+                eq(DATE), eq(SUNSET), any(String.class), eq(null));
     }
 
     @Test
@@ -412,7 +412,7 @@ class ClaudeResponseParseResilienceTest {
                 eq(true), eq("SUCCESS"),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNSET), any(String.class));
+                eq(DATE), eq(SUNSET), any(String.class), eq(null));
     }
 
     // ── f55ed200: an unknown custom-id prefix discards a perfectly good answer ──
@@ -460,7 +460,7 @@ class ClaudeResponseParseResilienceTest {
                 eq(false), eq("MALFORMED_ID"),
                 eq("parse_error"), eq("malformed customId"),
                 eq((EvaluationModel) null), eq((TokenUsage) null),
-                eq((LocalDate) null), eq((TargetType) null));
+                eq((LocalDate) null), eq((TargetType) null), eq(null), eq(null));
 
         ArgumentCaptor<ForecastBatchEntity> saved =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);

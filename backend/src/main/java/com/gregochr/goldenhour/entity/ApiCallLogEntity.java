@@ -139,4 +139,12 @@ public class ApiCallLogEntity {
     /** Anthropic batch ID (e.g. "msgbatch_01VyXG"). Null for SSE calls. */
     @Column(name = "batch_id", length = 100)
     private String batchId;
+
+    /**
+     * The Anthropic prompt-cache diagnostics the response carried, as compact JSON (V168), or null
+     * when it carried none: a failed call, a request that named no previous message to compare
+     * against, a comparison that found no divergence, a non-Anthropic call, a legacy row.
+     */
+    @Column(name = "cache_diagnostics", columnDefinition = "TEXT")
+    private String cacheDiagnostics;
 }

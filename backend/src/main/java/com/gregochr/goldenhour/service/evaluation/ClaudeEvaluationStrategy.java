@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -110,7 +111,8 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
         SunsetEvaluation result = parser.parseEvaluation(text, objectMapper);
         long durationMs = System.currentTimeMillis() - startMs;
 
-        return new EvaluationDetail(result, userMessage, text, durationMs, tokenUsage);
+        return new EvaluationDetail(result, userMessage, text, durationMs, tokenUsage,
+                CacheDiagnostics.from(response));
     }
 
     /**

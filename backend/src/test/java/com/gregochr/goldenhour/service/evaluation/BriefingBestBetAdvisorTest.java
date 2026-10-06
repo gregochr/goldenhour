@@ -18,6 +18,8 @@ import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
@@ -399,7 +401,7 @@ class BriefingBestBetAdvisorTest {
                     eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(),
                     org.mockito.ArgumentMatchers.anyLong(), eq(200), eq(truncated),
                     succeeded.capture(), errorMessage.capture(), eq(EvaluationModel.OPUS),
-                    org.mockito.ArgumentMatchers.isNull());
+                    org.mockito.ArgumentMatchers.isNull(), eq(CacheDiagnostics.EMPTY));
             assertThat(succeeded.getValue()).isFalse();
             assertThat(errorMessage.getValue()).isEqualTo("Claude's best-bet response was truncated "
                     + "at the max_tokens limit (stop_reason=max_tokens)");
@@ -460,7 +462,7 @@ class BriefingBestBetAdvisorTest {
                     org.mockito.ArgumentMatchers.anyLong(), eq(200),
                     eq("I can't help with evaluating this request."),
                     succeeded.capture(), errorMessage.capture(), eq(EvaluationModel.OPUS),
-                    org.mockito.ArgumentMatchers.isNull());
+                    org.mockito.ArgumentMatchers.isNull(), eq(CacheDiagnostics.EMPTY));
             assertThat(succeeded.getValue()).isFalse();
             assertThat(errorMessage.getValue())
                     .isEqualTo("Claude refused the best-bet request (stop_reason=refusal)");
@@ -3380,6 +3382,37 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
+        @DisplayName("capture: advise() writes the response's cache diagnostics to api_call_log")
+        void captureWritesCacheDiagnostics() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"" + tomorrow + "_sunset\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            Usage usage = mock(Usage.class);
+            when(usage.inputTokens()).thenReturn(1500L);
+            when(usage.outputTokens()).thenReturn(400L);
+            when(usage.cacheCreationInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(usage.cacheReadInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(stub.usage()).thenReturn(usage);
+            when(stub.diagnostics()).thenReturn(java.util.Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED));
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            advisor.advise(List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())))),
+                    7L, Map.of());
+
+            verify(jobRunService).logApiCall(eq(7L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(), anyLong(), eq(200),
+                    eq(response), eq(true), isNull(), eq(EvaluationModel.OPUS),
+                    eq(new TokenUsage(1500L, 400L, 0L, 0L)),
+                    eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
+        }
+
+        @Test
         @DisplayName("capture: advise() writes the rollup JSON and real token usage to api_call_log")
         void captureWritesRollupToRequestBody() {
             stubModelSelection();
@@ -3409,7 +3442,7 @@ class BriefingBestBetAdvisorTest {
             verify(jobRunService).logApiCall(eq(7L), eq(ServiceName.ANTHROPIC), eq("POST"),
                     eq("briefing-best-bet"), bodyCaptor.capture(), anyLong(), eq(200),
                     eq(response), eq(true), isNull(), eq(EvaluationModel.OPUS),
-                    eq(new TokenUsage(1500L, 400L, 0L, 0L)));
+                    eq(new TokenUsage(1500L, 400L, 0L, 0L)), eq(CacheDiagnostics.EMPTY));
             String captured = bodyCaptor.getValue();
             assertThat(captured).isNotNull();
             assertThat(captured).contains("\"validEvents\"");
@@ -3863,7 +3896,7 @@ class BriefingBestBetAdvisorTest {
                     org.mockito.ArgumentMatchers.anyLong(), eq(200), eq(""), eq(false),
                     eq("Claude refused the best-bet request (stop_reason=refusal)"),
                     eq(EvaluationModel.SONNET_55),
-                    eq(new com.gregochr.goldenhour.model.TokenUsage(10, 20, 0, 0, 0)));
+                    eq(new com.gregochr.goldenhour.model.TokenUsage(10, 20, 0, 0, 0)), eq(CacheDiagnostics.EMPTY));
         }
 
         @Test

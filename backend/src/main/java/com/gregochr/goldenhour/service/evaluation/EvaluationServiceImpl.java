@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
@@ -297,7 +298,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                     .findFirst()
                     .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text"));
             outcome = ClaudeSyncOutcome.success(text, extractTokens(response),
-                    task.model(), System.currentTimeMillis() - start);
+                    task.model(), System.currentTimeMillis() - start,
+                    CacheDiagnostics.from(response));
         } catch (Exception e) {
             LOG.warn("evaluateNow forecast {} failed: {}", task.taskKey(), e.getMessage());
             outcome = ClaudeSyncOutcome.failure(e, task.model(), System.currentTimeMillis() - start);
@@ -341,7 +343,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                     .findFirst()
                     .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text"));
             outcome = ClaudeSyncOutcome.success(text, extractTokens(response),
-                    task.model(), System.currentTimeMillis() - start);
+                    task.model(), System.currentTimeMillis() - start,
+                    CacheDiagnostics.from(response));
         } catch (Exception e) {
             LOG.warn("evaluateNow aurora {} failed: {}", task.taskKey(), e.getMessage());
             outcome = ClaudeSyncOutcome.failure(e, task.model(), System.currentTimeMillis() - start);

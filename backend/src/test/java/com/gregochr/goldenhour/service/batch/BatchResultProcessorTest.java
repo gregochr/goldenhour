@@ -9,6 +9,7 @@ import com.anthropic.services.blocking.messages.BatchService;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
@@ -380,7 +381,7 @@ class BatchResultProcessorTest {
                 eq(99L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
                 eq(false), eq("OVERLOADED_ERROR"),
                 eq("overloaded_error"), eq("busy"),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), eq(null), eq(null));
     }
 
     @Test
@@ -412,7 +413,7 @@ class BatchResultProcessorTest {
                 eq("Claude's response was truncated at the max_tokens limit "
                         + "(stop_reason=max_tokens)"),
                 eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
-                isNull(), isNull());
+                isNull(), isNull(), eq(null), eq(CacheDiagnostics.EMPTY));
 
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
@@ -448,7 +449,7 @@ class BatchResultProcessorTest {
                 eq(EvaluationFailure.TYPE_REFUSAL),
                 eq("Claude refused to evaluate this forecast (stop_reason=refusal)"),
                 eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
-                isNull(), isNull());
+                isNull(), isNull(), eq(null), eq(CacheDiagnostics.EMPTY));
 
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
@@ -511,7 +512,7 @@ class BatchResultProcessorTest {
                 eq(77L), eq("msgbatch_fail"), eq("fc-99-2026-04-07-SUNRISE"),
                 eq(false), eq("LOCATION_NOT_FOUND"),
                 eq("lookup_error"), any(),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), eq(null), eq(null));
     }
 
     @Test
@@ -535,7 +536,7 @@ class BatchResultProcessorTest {
                 eq(88L), eq("msgbatch_fail"), eq("garbage-prefix-123"),
                 eq(false), eq("MALFORMED_ID"),
                 eq("parse_error"), any(),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), eq(null), eq(null));
     }
 
     @Test
@@ -560,7 +561,7 @@ class BatchResultProcessorTest {
                 eq(false), eq("MALFORMED_ID"),
                 eq("parse_error"),
                 eq("aurora customId in forecast batch"),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), eq(null), eq(null));
     }
 
     @Test
@@ -710,7 +711,7 @@ class BatchResultProcessorTest {
                 eq(false), eq("REFUSAL"), eq(EvaluationFailure.TYPE_REFUSAL),
                 eq("Claude refused to interpret the aurora conditions (stop_reason=refusal)"),
                 eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
-                isNull(), isNull());
+                isNull(), isNull(), eq(null), eq(CacheDiagnostics.EMPTY));
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
@@ -746,7 +747,7 @@ class BatchResultProcessorTest {
                 eq("Claude's aurora response was truncated at the max_tokens limit "
                         + "(stop_reason=max_tokens)"),
                 eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
-                isNull(), isNull());
+                isNull(), isNull(), eq(null), eq(CacheDiagnostics.EMPTY));
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
@@ -1209,5 +1210,114 @@ class BatchResultProcessorTest {
         // scored is fine, but the sweep still needs to close out whatever this batch's
         // still-PENDING rows are (the never-received rest of the batch).
         verify(evaluationAbandonmentService).abandonPendingForBatch("msgbatch_fail");
+    }
+
+    // ── Prompt-cache diagnostics ride every logged message ──────────────────────
+
+    private static final com.anthropic.models.messages.Diagnostics API_DIAGNOSTICS =
+            com.anthropic.models.messages.Diagnostics.of(
+                    com.anthropic.models.messages.CacheMissReason.ofMessagesChanged(1234L));
+
+    private static final CacheDiagnostics EXPECTED_DIAGNOSTICS =
+            new CacheDiagnostics(CacheDiagnostics.Status.MISS, "messages_changed", 1234L);
+
+    private static void withApiDiagnostics(MessageBatchIndividualResponse response) {
+        when(response.result().succeeded().orElseThrow().message().diagnostics())
+                .thenReturn(Optional.of(API_DIAGNOSTICS));
+    }
+
+    @Test
+    @DisplayName("FORECAST: the succeeded message's cache diagnostics reach the handler's outcome")
+    void forecast_success_carriesCacheDiagnosticsToTheHandler() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65}");
+        withApiDiagnostics(response);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+        when(forecastResultHandler.parseBatchResponse(
+                eq(location), any(ForecastIdentity.class),
+                any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(Optional.empty());
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<ClaudeBatchOutcome> outcome = ArgumentCaptor.forClass(ClaudeBatchOutcome.class);
+        verify(forecastResultHandler).parseBatchResponse(
+                eq(location), any(ForecastIdentity.class), outcome.capture(), any(ResultContext.class));
+        assertThat(outcome.getValue().cacheDiagnostics()).isEqualTo(EXPECTED_DIAGNOSTICS);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a refused response's cache diagnostics are logged on its failed row")
+    void forecast_refusal_logsCacheDiagnostics() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 55L);
+        MessageBatchIndividualResponse response = succeededResponseWithStopReason(
+                "fc-42-2026-04-07-SUNRISE", StopReason.REFUSAL);
+        withApiDiagnostics(response);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(
+                eq(55L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
+                eq(false), eq("REFUSAL"), eq(EvaluationFailure.TYPE_REFUSAL), any(),
+                eq(EvaluationModel.SONNET_55), any(TokenUsage.class),
+                isNull(), isNull(), eq(null), eq(EXPECTED_DIAGNOSTICS));
+    }
+
+    @Test
+    @DisplayName("AURORA: the succeeded message's cache diagnostics reach the handler's outcome")
+    void aurora_success_carriesCacheDiagnosticsToTheHandler() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-07", "[{\"name\":\"X\",\"stars\":4}]");
+        withApiDiagnostics(response);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+        when(auroraResultHandler.processBatchResponse(
+                eq(AlertLevel.MODERATE), any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(AuroraBatchOutcome.ok(7));
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<ClaudeBatchOutcome> outcome = ArgumentCaptor.forClass(ClaudeBatchOutcome.class);
+        verify(auroraResultHandler).processBatchResponse(
+                eq(AlertLevel.MODERATE), outcome.capture(), any(ResultContext.class));
+        assertThat(outcome.getValue().cacheDiagnostics()).isEqualTo(EXPECTED_DIAGNOSTICS);
+    }
+
+    @Test
+    @DisplayName("AURORA: a refused response's cache diagnostics are logged on its failed row")
+    void aurora_refusal_logsCacheDiagnostics() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 61L);
+        MessageBatchIndividualResponse response = succeededResponseWithStopReason(
+                "au-MODERATE-2026-04-07", StopReason.REFUSAL);
+        withApiDiagnostics(response);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(
+                eq(61L), eq("msgbatch_fail"), eq("au-MODERATE-2026-04-07"),
+                eq(false), eq("REFUSAL"), eq(EvaluationFailure.TYPE_REFUSAL), any(),
+                eq(EvaluationModel.SONNET_55), any(TokenUsage.class),
+                isNull(), isNull(), eq(null), eq(EXPECTED_DIAGNOSTICS));
     }
 }

@@ -1,5 +1,9 @@
 package com.gregochr.goldenhour.service.batch;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
@@ -13,6 +17,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.service.WoodlandVerdictEvaluator;
 import com.gregochr.goldenhour.service.batch.BatchCachePrimer.Outcome;
@@ -22,11 +27,13 @@ import com.gregochr.goldenhour.service.evaluation.BluebellPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.service.evaluation.PrimerMessageIds;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.WoodlandPromptBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -39,6 +46,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -519,6 +527,104 @@ class BatchCachePrimerTest {
 
     private static java.util.Optional<CacheControlEphemeral.Ttl> ttlOf(BatchCreateParams.Request request) {
         return request.params().system().get().asTextBlockParams().get(0).cacheControl().get().ttl();
+    }
+
+    // ── what a primer's own response says ────────────────────────────────────
+
+    private ListAppender<ILoggingEvent> captureLog() {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ((Logger) LoggerFactory.getLogger(BatchCachePrimer.class)).addAppender(appender);
+        return appender;
+    }
+
+    private static void releaseLog(ListAppender<ILoggingEvent> appender) {
+        ((Logger) LoggerFactory.getLogger(BatchCachePrimer.class)).detachAppender(appender);
+    }
+
+    @Test
+    void anEndedPrimersResultIsReadAndItsCacheWriteAndDiagnosticsAreOnTheSummaryLine() {
+        ListAppender<ILoggingEvent> log = captureLog();
+        try {
+            stubCreate("b1");
+            stubStatus("b1", MessageBatch.ProcessingStatus.ENDED, 1);
+            when(batchClient.readFirstSucceededMessage("b1", CALL)).thenReturn(Optional.of(
+                    CacheDiagnosticsFixtures.message("msg_primer", Optional.empty(), "{}", 4726, 4726, 0)));
+
+            primer.prime(oneInlandBucket());
+
+            assertThat(log.list).filteredOn(e -> e.getLevel() == Level.INFO)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .singleElement().asString()
+                    .contains("1 warmed")
+                    .contains("cache results: {" + HAIKU + "|inland=msg_primer wrote 4726 tokens "
+                            + "(4726 at 1h), read 0, diagnostics none}");
+        } finally {
+            releaseLog(log);
+        }
+    }
+
+    @Test
+    void aPrimersDiagnosticsAppearInTheSummaryLineWhenTheApiReportedAny() {
+        ListAppender<ILoggingEvent> log = captureLog();
+        try {
+            stubCreate("b1");
+            stubStatus("b1", MessageBatch.ProcessingStatus.ENDED, 1);
+            when(batchClient.readFirstSucceededMessage("b1", CALL)).thenReturn(Optional.of(
+                    CacheDiagnosticsFixtures.message("msg_primer",
+                            Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED), "{}", 0, 0, 4726)));
+
+            primer.prime(oneInlandBucket());
+
+            assertThat(log.list).extracting(ILoggingEvent::getFormattedMessage)
+                    .anyMatch(m -> m.contains("read 4726, diagnostics messages_changed (1234 tokens)"));
+        } finally {
+            releaseLog(log);
+        }
+    }
+
+    @Test
+    void theMessageIdsAreHandedToTheRegistryByPrefixAndReplacedEveryCycle() {
+        PrimerMessageIds ids = new PrimerMessageIds();
+        BatchCachePrimer withRegistry = new BatchCachePrimer(factory, batchClient, properties, clock,
+                d -> clock.advance(d), ids);
+        stubCreate("b1");
+        stubStatus("b1", MessageBatch.ProcessingStatus.ENDED, 1);
+        when(batchClient.readFirstSucceededMessage("b1", CALL)).thenReturn(Optional.of(
+                CacheDiagnosticsFixtures.message("msg_primer", Optional.empty(), "{}", 4726, 4726, 0)));
+
+        withRegistry.prime(oneInlandBucket());
+
+        assertThat(ids.forPrefix(HAIKU + "|inland")).contains("msg_primer");
+        assertThat(ids.forPrefix(HAIKU + "|coastal")).isEmpty();
+
+        when(batchClient.readFirstSucceededMessage("b1", CALL)).thenReturn(Optional.empty());
+        withRegistry.prime(oneInlandBucket());
+
+        assertThat(ids.forPrefix(HAIKU + "|inland")).as("a cycle that read nothing clears the last one's ids")
+                .isEmpty();
+    }
+
+    @Test
+    void aResultThatCannotBeReadChangesNothingElse_stillWarmed() {
+        stubCreate("b1");
+        stubStatus("b1", MessageBatch.ProcessingStatus.ENDED, 1);
+        when(batchClient.readFirstSucceededMessage("b1", CALL)).thenThrow(new RuntimeException("429"));
+
+        PrimeResult result = primer.prime(oneInlandBucket());
+
+        assertThat(result.warmedPrefixes()).containsExactly(HAIKU + "|inland");
+        assertThat(result.outcomes()).containsEntry(HAIKU + "|inland", Outcome.ENDED);
+    }
+
+    @Test
+    void aPrimerThatDidNotEndIsNeverRead() {
+        stubCreate("b1");
+        stubStatus("b1", MessageBatch.ProcessingStatus.IN_PROGRESS, 0);
+
+        primer.prime(oneInlandBucket());
+
+        verify(batchClient, never()).readFirstSucceededMessage(anyString(), any(Duration.class));
     }
 
     private void stubCreate(String... ids) {

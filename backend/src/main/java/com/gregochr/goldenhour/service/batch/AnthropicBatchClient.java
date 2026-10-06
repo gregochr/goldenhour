@@ -2,9 +2,12 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.RequestOptions;
+import com.anthropic.core.http.StreamResponse;
+import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.BatchListParams;
 import com.anthropic.models.messages.batches.MessageBatch;
+import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.models.messages.batches.MessageBatchRequestCounts;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import io.github.resilience4j.retry.Retry;
@@ -392,6 +395,26 @@ public class AnthropicBatchClient {
      */
     public MessageBatch retrieveBatch(String batchId, Duration timeout) {
         return batchClient.messages().batches().retrieve(batchId, callOptions(timeout));
+    }
+
+    /**
+     * Reads the response of an ended primer batch's single request, on the transport-retry-disabled
+     * client, under a short per-call timeout. Used only by the cache primer, to log what the primer
+     * wrote to the cache and to name it as the previous message of the requests it warmed.
+     *
+     * @param batchId Anthropic batch id of a primer batch that has ended
+     * @param timeout per-call timeout
+     * @return the first succeeded message of the batch, empty when no request succeeded
+     */
+    public Optional<Message> readFirstSucceededMessage(String batchId, Duration timeout) {
+        try (StreamResponse<MessageBatchIndividualResponse> results = batchClient.messages().batches()
+                .resultsStreaming(batchId, callOptions(timeout))) {
+            return results.stream()
+                    .map(response -> response.result().succeeded())
+                    .flatMap(Optional::stream)
+                    .map(succeeded -> succeeded.message())
+                    .findFirst();
+        }
     }
 
     private static RequestOptions callOptions(Duration timeout) {

@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
@@ -39,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -73,7 +75,8 @@ class ClaudeAskEngineLatchTest {
         CostCalculator costCalculator = mock(CostCalculator.class);
         when(costCalculator.calculateCostMicroDollars(any(), any(), anyBoolean())).thenReturn(1_000L);
         when(jobRunService.logApiCall(anyLong(), any(), any(), any(), any(), anyLong(), any(), any(),
-                anyBoolean(), any(), any(), any())).thenAnswer(inv -> {
+                anyBoolean(), any(), any(), nullable(TokenUsage.class),
+                nullable(CacheDiagnostics.class))).thenAnswer(inv -> {
                     if (!databaseUp.get()) {
                         throw new IllegalStateException("db down");
                     }

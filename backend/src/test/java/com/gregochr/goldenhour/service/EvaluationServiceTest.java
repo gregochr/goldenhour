@@ -247,6 +247,7 @@ class EvaluationServiceTest {
                 org.mockito.ArgumentMatchers.eq(false),
                 org.mockito.ArgumentMatchers.eq(data.solarEventTime().toLocalDate()),
                 org.mockito.ArgumentMatchers.eq(data.targetType()),
+                org.mockito.ArgumentMatchers.isNull(),
                 org.mockito.ArgumentMatchers.isNull());
     }
 }

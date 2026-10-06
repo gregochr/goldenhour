@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -251,7 +252,7 @@ public class BatchResultProcessor {
                             "truncation_error",
                             "Claude's response was truncated at the max_tokens limit "
                                     + "(stop_reason=max_tokens)", null, null,
-                            responseModel, responseUsage);
+                            responseModel, responseUsage, CacheDiagnostics.from(message));
                     continue;
                 }
 
@@ -264,7 +265,7 @@ public class BatchResultProcessor {
                     inlineFailureLog(context, customId, "REFUSAL",
                             EvaluationFailure.TYPE_REFUSAL,
                             "Claude refused to evaluate this forecast (stop_reason=refusal)",
-                            null, null, responseModel, responseUsage);
+                            null, null, responseModel, responseUsage, CacheDiagnostics.from(message));
                     continue;
                 }
 
@@ -345,7 +346,7 @@ public class BatchResultProcessor {
                 TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead, cacheCreate1h);
                 EvaluationModel model = resolveEvaluationModel(message.model().asString());
                 ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
-                        customId, text, tokens, model);
+                        customId, text, tokens, model, CacheDiagnostics.from(message));
 
                 Optional<BatchSuccess> success;
                 if (isBluebell) {
@@ -474,6 +475,7 @@ public class BatchResultProcessor {
         com.gregochr.goldenhour.entity.AlertLevel level =
                 com.gregochr.goldenhour.entity.AlertLevel.QUIET;
         String auroraModelId = null;
+        CacheDiagnostics auroraDiagnostics = CacheDiagnostics.EMPTY;
         String customId = null;
         long totalInput = 0;
         long totalOutput = 0;
@@ -502,6 +504,7 @@ public class BatchResultProcessor {
                 if (message != null) {
                     rawResponse = extractTextFromMessage(message);
                     auroraModelId = message.model().asString();
+                    auroraDiagnostics = CacheDiagnostics.from(message);
 
                     Usage usage = message.usage();
                     totalInput = usage.inputTokens();
@@ -554,7 +557,7 @@ public class BatchResultProcessor {
         TokenUsage tokens = new TokenUsage(totalInput, totalOutput, totalCacheCreate, totalCacheRead,
                 totalCacheCreate1h);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
-                customId, rawResponse, tokens, model);
+                customId, rawResponse, tokens, model, auroraDiagnostics);
 
         AuroraBatchOutcome handlerResult =
                 auroraResultHandler.processBatchResponse(level, outcome, context);
@@ -631,7 +634,7 @@ public class BatchResultProcessor {
             String errorType, String errorMessage,
             LocalDate targetDate, TargetType targetType) {
         inlineFailureLog(context, customId, status, errorType, errorMessage,
-                targetDate, targetType, null, null);
+                targetDate, targetType, null, null, null);
     }
 
     /**
@@ -641,7 +644,7 @@ public class BatchResultProcessor {
     private void inlineFailureLog(ResultContext context, String customId, String status,
             String errorType, String errorMessage,
             LocalDate targetDate, TargetType targetType,
-            EvaluationModel model, TokenUsage tokenUsage) {
+            EvaluationModel model, TokenUsage tokenUsage, CacheDiagnostics cacheDiagnostics) {
         if (context == null || context.jobRunId() == null) {
             return;
         }
@@ -649,7 +652,7 @@ public class BatchResultProcessor {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), customId,
                     false, status, errorType, errorMessage,
-                    model, tokenUsage, targetDate, targetType);
+                    model, tokenUsage, targetDate, targetType, null, cacheDiagnostics);
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
                     customId, e.getMessage());
@@ -897,7 +900,8 @@ public class BatchResultProcessor {
                 jobRunService.logBatchResult(batch.getJobRunId(), batch.getAnthropicBatchId(),
                         customId, false, refusal ? "REFUSAL" : "MAX_TOKENS", errorType, reason,
                         resolveEvaluationModel(message.model().asString()),
-                        TokenUsage.from(message.usage()), null, null);
+                        TokenUsage.from(message.usage()), null, null, null,
+                        CacheDiagnostics.from(message));
             } catch (Exception e) {
                 LOG.warn("Aurora batch: failed to persist api_call_log for customId={}: {}",
                         customId, e.getMessage());

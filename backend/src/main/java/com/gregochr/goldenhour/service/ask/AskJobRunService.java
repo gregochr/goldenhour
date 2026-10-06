@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
@@ -254,9 +255,27 @@ public class AskJobRunService {
      * @param succeeded  whether the turn was a usable one
      * @param error      why not, or null
      * @param usage      the tokens the API reported, or null when it reported none
+     * @param cacheDiagnostics the prompt-cache diagnostics the response carried, or null
      */
     public record Turn(long runId, boolean ready, EvaluationModel model, long durationMs, Integer status,
-            boolean succeeded, String error, TokenUsage usage) {
+            boolean succeeded, String error, TokenUsage usage, CacheDiagnostics cacheDiagnostics) {
+
+        /**
+         * A turn whose response carried no cache diagnostics.
+         *
+         * @param runId      the job run it is billed to
+         * @param ready      true for a Ready (user-less) conversation
+         * @param model      the model that answered
+         * @param durationMs how long the call took
+         * @param status     the HTTP status, or null when none was received
+         * @param succeeded  whether the turn was a usable one
+         * @param error      why not, or null
+         * @param usage      the tokens the API reported, or null
+         */
+        public Turn(long runId, boolean ready, EvaluationModel model, long durationMs, Integer status,
+                boolean succeeded, String error, TokenUsage usage) {
+            this(runId, ready, model, durationMs, status, succeeded, error, usage, null);
+        }
     }
 
     /** A turn whose row could not be written, with the cost it is priced at. */
@@ -298,7 +317,7 @@ public class AskJobRunService {
     private ApiCallLogEntity writeRow(Turn t) {
         return jobRunService.logApiCall(t.runId(), ServiceName.ANTHROPIC, "POST",
                 t.ready() ? URL_READY : URL_TYPED, null, t.durationMs(), t.status(), null, t.succeeded(),
-                t.error(), t.model(), t.usage());
+                t.error(), t.model(), t.usage(), t.cacheDiagnostics());
     }
 
     private void hold(Turn turn, long cost, RuntimeException cause) {

@@ -234,6 +234,32 @@ class JobMetricsControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/metrics/api-calls serves a call's stored cache diagnostics JSON, and none as null")
+    @WithMockUser(roles = "ADMIN")
+    void getApiCalls_servesCacheDiagnostics() throws Exception {
+        String stored = "{\"status\":\"MISS\",\"reason\":\"messages_changed\",\"missedInputTokens\":1234}";
+        com.gregochr.goldenhour.entity.ApiCallLogEntity withDiagnostics =
+                com.gregochr.goldenhour.entity.ApiCallLogEntity.builder()
+                        .id(1L).jobRunId(1L)
+                        .service(com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC)
+                        .succeeded(true).cacheDiagnostics(stored)
+                        .build();
+        com.gregochr.goldenhour.entity.ApiCallLogEntity without =
+                com.gregochr.goldenhour.entity.ApiCallLogEntity.builder()
+                        .id(2L).jobRunId(1L)
+                        .service(com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC)
+                        .succeeded(true)
+                        .build();
+        when(jobRunService.getApiCallsForRun(1L)).thenReturn(List.of(withDiagnostics, without));
+
+        mockMvc.perform(get("/api/metrics/api-calls?jobRunId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].cacheDiagnostics").value(stored))
+                .andExpect(jsonPath("$[1].cacheDiagnostics").doesNotExist());
+    }
+
+    @Test
     @DisplayName("GET /api/metrics/api-calls requires ADMIN role")
     @WithMockUser(roles = "PRO_USER")
     void getApiCalls_requiresAdminRole() throws Exception {

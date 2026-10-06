@@ -2,7 +2,10 @@ package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
@@ -32,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -72,7 +76,8 @@ class AskUnrecordedCostTest {
         when(costCalculator.calculateCostMicroDollars(any(), any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(1) == null ? 0L : COST);
         when(jobRunService.logApiCall(anyLong(), any(), any(), any(), any(), anyLong(), any(), any(),
-                anyBoolean(), any(), any(), any())).thenAnswer(inv -> {
+                anyBoolean(), any(), any(), nullable(TokenUsage.class),
+                nullable(CacheDiagnostics.class))).thenAnswer(inv -> {
                     if (!databaseUp.get()) {
                         throw new IllegalStateException("db down");
                     }
@@ -123,6 +128,19 @@ class AskUnrecordedCostTest {
         assertThat(service.accountingAvailable()).isTrue();
         assertThat(rowsWritten.get()).isEqualTo(1);
         verify(jobRuns).addCostMicroDollars(RUN, COST);
+    }
+
+    @Test
+    @DisplayName("a turn's cache diagnostics are written with its api_call_log row")
+    void turnDiagnosticsAreWrittenWithTheRow() {
+        AskJobRunService.Turn turn = new AskJobRunService.Turn(RUN, false, EvaluationModel.HAIKU, 12, 200, true,
+                null, new TokenUsage(10, 5, 0, 0), CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+
+        service.recordTurn(turn);
+
+        verify(jobRunService).logApiCall(eq(RUN), eq(ServiceName.ANTHROPIC), eq("POST"), any(), eq(null),
+                eq(12L), eq(200), eq(null), eq(true), eq(null), eq(EvaluationModel.HAIKU),
+                eq(new TokenUsage(10, 5, 0, 0)), eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
     }
 
     @Test
@@ -203,7 +221,8 @@ class AskUnrecordedCostTest {
             rowsWritten.incrementAndGet();
             return ApiCallLogEntity.builder().costMicroDollars(COST).build();
         }).when(jobRunService).logApiCall(anyLong(), any(), any(), any(), any(), anyLong(), any(), any(),
-                anyBoolean(), any(), any(), any());
+                anyBoolean(), any(), any(), nullable(TokenUsage.class),
+                nullable(CacheDiagnostics.class));
 
         assertThat(service.accountingAvailable()).isFalse();
 
@@ -410,7 +429,8 @@ class AskUnrecordedCostTest {
             rowsWritten.incrementAndGet();
             return ApiCallLogEntity.builder().costMicroDollars(COST).build();
         }).when(jobRunService).logApiCall(anyLong(), any(), any(), any(), any(), anyLong(), any(), any(),
-                anyBoolean(), any(), any(), any());
+                anyBoolean(), any(), any(), nullable(TokenUsage.class),
+                nullable(CacheDiagnostics.class));
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<Boolean> flush = pool.submit(service::accountingAvailable);

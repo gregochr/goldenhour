@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
@@ -237,7 +238,7 @@ public class ClaudeAskEngine implements AskEngine {
                 response = callModel(params, callTimeout, remaining);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                logTurn(runId, ready, model, started, null, false, "interrupted", null);
+                logTurn(runId, ready, model, started, null, false, "interrupted", null, null);
                 return failed("interrupted", turns, tools.personal(), trace);
             } catch (AnthropicApiClient.CallRefusedException e) {
                 // The gate refused the attempt, so no request was made for this turn (a retry's
@@ -246,24 +247,24 @@ public class ClaudeAskEngine implements AskEngine {
                 return failed(AskRun.ACCOUNTING_UNAVAILABLE, turn - 1, tools.personal(), trace);
             } catch (Exception e) {
                 Integer status = e instanceof AnthropicServiceException s ? s.statusCode() : null;
-                logTurn(runId, ready, model, started, status, false, describe(e), null);
+                logTurn(runId, ready, model, started, status, false, describe(e), null, null);
                 return failed("the model call failed: " + describe(e), turns, tools.personal(), trace);
             }
 
             TokenUsage usage = response.usage() == null ? null : TokenUsage.from(response.usage());
             String stopProblem = stopProblem(response);
             if (stopProblem != null) {
-                logTurn(runId, ready, model, started, HTTP_OK, false, stopProblem, usage);
+                logTurn(runId, ready, model, started, HTTP_OK, false, stopProblem, usage, response);
                 return failed(stopProblem, turns, tools.personal(), trace);
             }
             List<ToolUseBlock> toolUses = response.content().stream()
                     .filter(ContentBlock::isToolUse).map(ContentBlock::asToolUse).toList();
             if (toolUses.isEmpty()) {
                 String reason = "the turn asked for a tool but carried no tool call";
-                logTurn(runId, ready, model, started, HTTP_OK, false, reason, usage);
+                logTurn(runId, ready, model, started, HTTP_OK, false, reason, usage, response);
                 return failed(reason, turns, tools.personal(), trace);
             }
-            logTurn(runId, ready, model, started, HTTP_OK, true, null, usage);
+            logTurn(runId, ready, model, started, HTTP_OK, true, null, usage, response);
 
             List<ContentBlockParam> results = new ArrayList<>();
             for (ToolUseBlock block : toolUses) {
@@ -448,10 +449,10 @@ public class ClaudeAskEngine implements AskEngine {
      * reader's question.
      */
     private void logTurn(long runId, boolean ready, EvaluationModel model, Instant started,
-            Integer status, boolean succeeded, String error, TokenUsage usage) {
+            Integer status, boolean succeeded, String error, TokenUsage usage, Message response) {
         long durationMs = Math.max(0L, Duration.between(started, clock.instant()).toMillis());
         jobRuns.recordTurn(new AskJobRunService.Turn(runId, ready, model, durationMs, status, succeeded, error,
-                usage));
+                usage, CacheDiagnostics.from(response)));
     }
 
     /**

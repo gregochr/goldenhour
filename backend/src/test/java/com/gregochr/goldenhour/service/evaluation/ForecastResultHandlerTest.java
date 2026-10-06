@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TideSnapshot;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -149,10 +150,36 @@ class ForecastResultHandlerTest {
                 eq(true), eq("SUCCESS"),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNRISE), eq(outcome.rawText()));
+                eq(DATE), eq(SUNRISE), eq(outcome.rawText()), eq(null));
         // evalRowId is null on this identity — R5's row-scoring seam must never be touched.
         verify(forecastEvaluationRepository, never()).findById(any());
         verify(forecastEvaluationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("parseBatchResponse: the outcome's cache diagnostics reach the api_call_log row")
+    void parseBatchResponse_logsTheOutcomesCacheDiagnostics() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU, CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+
+        handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE"),
+                eq(true), eq("SUCCESS"),
+                eq(null), eq(null),
+                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
+                eq(DATE), eq(SUNRISE), eq(outcome.rawText()),
+                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
     }
 
     // ── R5: scoring a PENDING row in place ─────────────────────────────────────
@@ -737,7 +764,7 @@ class ForecastResultHandlerTest {
                 eq(true), eq("SUCCESS"),
                 eq(ForecastResultHandler.REGEX_FALLBACK_MARKER), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNRISE), eq(rawText));
+                eq(DATE), eq(SUNRISE), eq(rawText), eq(null));
     }
 
     @Test
@@ -760,7 +787,7 @@ class ForecastResultHandlerTest {
                 eq(false), eq("OVERLOADED_ERROR"),
                 eq("overloaded_error"), eq("busy"),
                 eq(null), eq(null),
-                eq(DATE), eq(SUNRISE), eq(null));
+                eq(DATE), eq(SUNRISE), eq(null), eq(null));
         verifyNoInteractions(parser);
     }
 
@@ -787,7 +814,7 @@ class ForecastResultHandlerTest {
                 eq(false), statusCaptor.capture(),
                 eq("parse_error"), eq("bad json"),
                 eq(null), eq(null),
-                eq(DATE), eq(SUNRISE), eq(null));
+                eq(DATE), eq(SUNRISE), eq(null), eq(null));
         assertThat(statusCaptor.getValue()).isEqualTo("PARSE_FAILED");
     }
 
@@ -941,7 +968,7 @@ class ForecastResultHandlerTest {
                 eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE-r777"),
                 eq(true), eq("SUCCESS"), eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNRISE), eq(outcome.rawText()));
+                eq(DATE), eq(SUNRISE), eq(outcome.rawText()), eq(null));
     }
 
     @Test
@@ -1053,7 +1080,7 @@ class ForecastResultHandlerTest {
         org.mockito.Mockito.doThrow(new RuntimeException("DB down"))
                 .when(jobRunService).logBatchResult(
                         any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(),
-                        any(), any(), any(), any(), any(), any(), any(), any());
+                        any(), any(), any(), any(), any(), any(), any(), any(), eq(null));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
                 location, identity, outcome, ResultContext.forBatch(
@@ -1371,7 +1398,32 @@ class ForecastResultHandlerTest {
                 eq(null), eq(true), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(DATE), eq(SUNRISE), eq(null));
+                eq(DATE), eq(SUNRISE), eq(null), eq(null));
+    }
+
+    @Test
+    @DisplayName("handleSyncResult: the outcome's cache diagnostics reach the api_call_log row")
+    void handleSyncResult_logsTheOutcomesCacheDiagnostics() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
+                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU, 8500, CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
+
+        handler.handleSyncResult(task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
+
+        verify(jobRunService).logAnthropicApiCall(
+                eq(99L), eq(8500L), eq(200),
+                eq(null), eq(true), eq(null),
+                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
+                eq(false),
+                eq(DATE), eq(SUNRISE), eq(null),
+                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
     }
 
     @Test
@@ -1398,7 +1450,7 @@ class ForecastResultHandlerTest {
                 eq(null), eq(true), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(DATE), eq(SUNRISE), eq(null));
+                eq(DATE), eq(SUNRISE), eq(null), eq(null));
     }
 
     @Test
@@ -1423,7 +1475,7 @@ class ForecastResultHandlerTest {
                 eq("busy"), eq(false), eq("busy"),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(DATE), eq(SUNRISE), eq("overloaded_error"));
+                eq(DATE), eq(SUNRISE), eq("overloaded_error"), eq(null));
     }
 
     @Test

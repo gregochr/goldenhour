@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.anthropic.core.ObjectMappers;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.CacheControlEphemeral;
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.config.BatchCachePrimerProperties;
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LunarTideType;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -422,6 +425,94 @@ class BatchRequestFactoryTest {
         assertThat(primer.params().outputConfig()).isEqualTo(real.params().outputConfig());
         assertThat(primer.params().model()).isEqualTo(real.params().model());
         assertThat(primer.customId()).isEqualTo("pw-0");
+    }
+
+    // ── cache diagnostics: the primer opts in, the requests it warmed name it ──
+
+    private static String wire(BatchCreateParams.Request request) throws Exception {
+        return ObjectMappers.jsonMapper().writeValueAsString(request);
+    }
+
+    private BatchRequestFactory diagnosticsFactory(boolean on, PrimerMessageIds ids) {
+        BatchCachePrimerProperties properties = new BatchCachePrimerProperties();
+        properties.setDiagnostics(on);
+        return new BatchRequestFactory(inlandBuilder, coastalBuilder, bluebellBuilder, woodlandBuilder,
+                properties, ids);
+    }
+
+    @Test
+    void diagnosticsOff_noRequestCarriesADiagnosticsObject() throws Exception {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+        PrimerMessageIds ids = new PrimerMessageIds();
+        ids.replace(Map.of(HAIKU_INLAND, "msg_primer"));
+        BatchRequestFactory off = diagnosticsFactory(false, ids);
+
+        BatchCreateParams.Request primer = off.buildCachePrimerRequest(
+                CustomIdFactory.forCachePrimer(0), EvaluationModel.HAIKU, data, 1024);
+        BatchCreateParams.Request warmed = off.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024, Set.of(HAIKU_INLAND)).request();
+
+        assertThat(primer.params().diagnostics()).isEmpty();
+        assertThat(warmed.params().diagnostics()).isEmpty();
+        assertThat(wire(primer)).doesNotContain("diagnostics");
+        assertThat(wire(warmed)).doesNotContain("diagnostics");
+        assertThat(primer).isEqualTo(factory.buildCachePrimerRequest(
+                CustomIdFactory.forCachePrimer(0), EvaluationModel.HAIKU, data, 1024));
+    }
+
+    @Test
+    void diagnosticsOn_thePrimerOptsInWithANullPreviousMessage() throws Exception {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request primer = diagnosticsFactory(true, new PrimerMessageIds())
+                .buildCachePrimerRequest(CustomIdFactory.forCachePrimer(0), EvaluationModel.HAIKU, data, 1024);
+
+        assertThat(primer.params().diagnostics()).isPresent();
+        assertThat(wire(primer)).contains("\"diagnostics\":{\"previous_message_id\":null}");
+    }
+
+    @Test
+    void diagnosticsOn_aWarmedRequestNamesThePrimerThatWarmedItsPrefix() throws Exception {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+        PrimerMessageIds ids = new PrimerMessageIds();
+        ids.replace(Map.of(HAIKU_INLAND, "msg_primer"));
+
+        BatchCreateParams.Request warmed = diagnosticsFactory(true, ids).buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024, Set.of(HAIKU_INLAND)).request();
+
+        assertThat(wire(warmed)).contains("\"diagnostics\":{\"previous_message_id\":\"msg_primer\"}");
+        assertThat(cacheControlOf(warmed).ttl()).contains(CacheControlEphemeral.Ttl.TTL_1H);
+    }
+
+    @Test
+    void diagnosticsOn_aWarmedRequestWhosePrimerIdWasNotReadCarriesNone() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request warmed = diagnosticsFactory(true, new PrimerMessageIds())
+                .buildForecastRequestAndPrompt("fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024,
+                        Set.of(HAIKU_INLAND)).request();
+
+        assertThat(warmed.params().diagnostics()).isEmpty();
+    }
+
+    @Test
+    void diagnosticsOn_anUnwarmedRequestAndEveryOtherRequestCarryNone() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .bluebellConditionScore(woodlandConditions()).build();
+        PrimerMessageIds ids = new PrimerMessageIds();
+        ids.replace(Map.of(HAIKU_INLAND, "msg_primer"));
+        BatchRequestFactory on = diagnosticsFactory(true, ids);
+
+        assertThat(on.buildForecastRequestAndPrompt("fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data,
+                1024, Set.of()).request().params().diagnostics()).isEmpty();
+        assertThat(on.buildForecastRequestAndPrompt("fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data,
+                1024).request().params().diagnostics()).isEmpty();
+        assertThat(on.buildForecastRequest("e_1_0_1", EvaluationModel.HAIKU, data, 1024)
+                .params().diagnostics()).isEmpty();
+        assertThat(on.buildWoodlandRequest("wd-1-2026-11-16-SUNRISE", EvaluationModel.HAIKU, data, 1024)
+                .params().diagnostics()).isEmpty();
+        assertThat(on.buildBluebellRequest("bb-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024)
+                .params().diagnostics()).isEmpty();
     }
 
     @Test

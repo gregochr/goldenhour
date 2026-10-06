@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
@@ -407,6 +408,32 @@ class EvaluationServiceImplTest {
         assertThat(outcome.tokenUsage().cacheReadInputTokens()).isEqualTo(1000L);
         assertThat(outcome.tokenUsage().cacheCreationInputTokens()).isZero();
         assertThat(outcome.model()).isEqualTo(EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("evaluateNow: the response's cache diagnostics ride the sync outcome, EMPTY when absent")
+    void evaluateNow_forecastSuccess_carriesCacheDiagnostics() {
+        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
+        when(batchRequestFactory.selectBuilder(eq(task.data())))
+                .thenReturn(new PromptBuilder());
+        Message withDiagnostics = mockMessageWithText("{\"rating\":4}", 500L, 200L, 0L, 1000L);
+        when(withDiagnostics.diagnostics()).thenReturn(Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED));
+        Message without = mockMessageWithText("{\"rating\":4}", 500L, 200L, 0L, 1000L);
+        when(anthropicApiClient.createMessage(any())).thenReturn(withDiagnostics).thenReturn(without);
+        when(forecastResultHandler.handleSyncResult(eq(task),
+                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
+                .thenReturn(new EvaluationResult.Scored("ok"));
+
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor = ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        verify(forecastResultHandler, org.mockito.Mockito.times(2)).handleSyncResult(
+                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
+        assertThat(outcomeCaptor.getAllValues().get(0).cacheDiagnostics())
+                .isEqualTo(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+        assertThat(outcomeCaptor.getAllValues().get(1).cacheDiagnostics())
+                .isSameAs(com.gregochr.goldenhour.model.CacheDiagnostics.EMPTY);
     }
 
     @Test
