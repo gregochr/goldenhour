@@ -58,9 +58,12 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * @param {{current: ?HTMLElement}} props.entryRef the entry button's node — the sheet's other
  *        focus-return routes (the Regions and Filters sheets, which close back onto the Layers button
  *        and find it gone while an answer has replaced the buttons) fall back to it
+ * @param {{openInPlan: ?function(object): void, setPostcode: ?function(): void}} [props.planActions]
+ *        the doors out of "Plan this" (F5): {@code MapView}'s, since the shell's own are out of the
+ *        pane's reach. "Open in Plan ›" moves the tab, so the pane goes hidden and the section closes
  */
 export default function MapPeekAsk({
-  mode, onOpen, onClose, entryRef,
+  mode, onOpen, onClose, entryRef, planActions = undefined,
 }) {
   const ask = useAsk();
   const requestContext = useAskRequestContext('map', FALLBACK_VIEW_LABEL);
@@ -187,6 +190,7 @@ export default function MapPeekAsk({
             windowLabel={requestContext.windowLabel}
             windowId={requestContext.windowId}
             regionIds={requestContext.regionIds}
+            planActions={planActions}
           />
         </div>
       )}
@@ -206,6 +210,7 @@ MapPeekAsk.propTypes = {
   onOpen: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   entryRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
+  planActions: PropTypes.shape({ openInPlan: PropTypes.func, setPostcode: PropTypes.func }),
 };
 
 /**
@@ -216,19 +221,21 @@ MapPeekAsk.propTypes = {
  */
 function MinimisedLine({ ask, onOpen }) {
   const {
-    phase, pickCards, selectedPick, answer, error,
+    phase, pickCards, selectedPick, planPick, answer, error,
   } = ask;
   if ((phase === 'answer' || phase === 'plan') && pickCards.length > 0) {
-    const card = pickCards.find((c) => c.rank === selectedPick) ?? pickCards[0];
+    const shown = phase === 'plan' ? planPick : selectedPick;
+    const card = pickCards.find((c) => c.rank === shown) ?? pickCards[0];
     const when = [card.shortWindow, card.eventTime].filter(Boolean).join(' ');
-    const count = picksWord(pickCards.length);
+    // In the plan view the line says what the reader was doing, not how many picks there are (F5).
+    const count = phase === 'plan' ? 'Plan this' : picksWord(pickCards.length);
     return (
       <button
         type="button"
         className="wf-map-peek-mini"
         data-testid="wf-map-peek-mini"
         aria-expanded="false"
-        aria-label={`Pick ${card.rank}, ${card.name}${when ? `, ${when}` : ''}. ${count}. Show the answer`}
+        aria-label={`Pick ${card.rank}, ${card.name}${when ? `, ${when}` : ''}. ${count}. Show the ${phase === 'plan' ? 'plan' : 'answer'}`}
         onClick={onOpen}
       >
         <span className="wf-map-peek-mini-rk" aria-hidden="true">{card.rank}</span>
@@ -261,6 +268,7 @@ MinimisedLine.propTypes = {
     phase: PropTypes.string,
     pickCards: PropTypes.arrayOf(PropTypes.object),
     selectedPick: PropTypes.number,
+    planPick: PropTypes.number,
     answer: PropTypes.object,
     error: PropTypes.object,
   }).isRequired,

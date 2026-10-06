@@ -4922,6 +4922,33 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
+   * The two doors out of the Ask section's "Plan this" view (F5, plan §2.8) — the phone's version of what
+   * the shell hands the dock and the sheet.
+   *
+   * <p>"Open in Plan ›" is {@code onOpenLocationSheet} with {@code inPlan: true} and the PICK'S window —
+   * <b>not</b> {@code handleOpenLocationSheet}, which reads the date and the event off the active map
+   * window and the place off the selection (a card the map has not followed yet would open the wrong
+   * window). The shell's handoff effect moves the tab and opens the sheet in one batch; the pane then goes
+   * hidden, {@code panelShown} falls and the Ask section closes (the conversation, plan view and all,
+   * is kept), so the Map comes back minimised.
+   *
+   * <p>Each door exists only when the host handed one over: a control that does nothing is not drawn.
+   */
+  const askPlanActions = {
+    openInPlan: onOpenLocationSheet
+      ? (card) => onOpenLocationSheet({
+        id: card.locationId ?? null,
+        name: card.name,
+        regionName: card.regionName ?? null,
+        inPlan: true,
+        date: card.date,
+        targetType: card.targetType,
+      })
+      : undefined,
+    setPostcode: onOpenSettings ? () => onOpenSettings() : undefined,
+  };
+
+  /**
    * The Layers Tide segment's press handler (map-mobile-sheet-plan.md §3 M5 task 4) — the segment
    * moves at once (`saveTideMode` sets `mapTideMode` synchronously before its own save resolves,
    * `useReaderSettings.js`'s own doc), and this only has to react to the OUTCOME: clear a standing
@@ -6420,6 +6447,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       onOpen={openAskSection}
                       onClose={() => setOpenMapMenu(null)}
                       entryRef={askEntryRef}
+                      planActions={askPlanActions}
                     />
                   ) : null}
                   onPressWindows={() => handlePeekPress('win')}

@@ -33,7 +33,7 @@ it (adjacent rows conflict between open PRs).
 | F1b | Phone and tablet-portrait entry: ask bar, tall sheet, shell wiring | M/L | merged (#1025) |
 | F2 | Desktop: tab-row field, the `/` key, the docked column | L | merged (#1028) |
 | F3 | Map linkage: numbered picks, dimming, camera, window follow | L | merged (#1029) |
-| F4 | Phone Map: the ask row in the peek sheet | L | not started |
+| F4 | Phone Map: the ask row in the peek sheet | L | merged (#1030) |
 | F5 | "Plan this", "Open in Plan", the Plan-card highlight | M | not started |
 | Z | Sweep: CLAUDE.md, prompt-regression class, measured Verify list, production enable | S/M | not started |
 
@@ -1730,6 +1730,159 @@ callout do not overlap (measured rects).
 the no-postcode state; "‹ Back to the answer" restores the selected pick and focus; Open in Plan
 closes the sheet first and opens the location sheet at the pick's window; the highlight is distinct
 from `data-open`, does not open the popup, and a pick with no card highlights nothing.
+
+*As built (F5), where the plan was wrong or silent:*
+- **Files:** `components/ask/AskPlanThis.jsx`, `utils/askPlan.js` (the four figures), `utils/postcodeNudge.js` (the tick line's
+  "set a postcode" words, now one home for both), `context/AskContext.jsx` (`openPlan`, `backToAnswer`, the derived `phase`/`planPick`),
+  `components/ask/{AskConversation,AskDock,AskSheet,AskClearAnswer}.jsx`, `components/map/MapPeekAsk.jsx`, `components/MapView.jsx`
+  (`askPlanActions`), `components/WindowFirstShell.jsx`, `components/WindowFirstHeatStrip.jsx` (`highlightKeys`),
+  `components/LocationFourDaySheet.jsx` (`restoreFocusFallback`), `components/MastheadTickLine.jsx` (reads the constants),
+  `utils/locationSheet.js` (`lightWindows` exported; `departureWithDay` extracted and exported), `utils/shellForeignDialog.js`
+  (`ignore`), `utils/askPeek.js` (a comment), the F5 block at the end of `index.css`. Nothing on the backend, the map's markers or
+  camera, the peek heights or the `/` key moved.
+- **"Plan this ›" is drawn by `AskConversation`, not injected through `pickActions` (the plan, F1a/F1b and the brief all said the
+  latter).** It is a move of the CONVERSATION (`ask.openPlan(rank)`), so it needs nothing from a host, and the phone peek —
+  which has no `pickActions` — gets it with no seam. It is drawn after whatever `pickActions` adds ("Show on map ›"), on all four
+  hosts, with the accessible name "Plan this — <place>". The brief's token mapping: border `rgba(201,162,75,.5)` is `--color-home` at
+  50% (no alpha token exists; the F1a block writes the same literal for the selected card) and text `#EBD9A8` is exactly
+  `--color-segment-active`.
+- **The second seam is one prop, `planActions = {openInPlan(card, pressedControl), setPostcode()}`**, threaded
+  shell → `AskDock`/`AskSheet` → `AskConversation` → `AskPlanThis`, and `MapView.askPlanActions` → `MapPeekAsk` →
+  `AskConversation` for the phone. A door the host did not hand over draws no control (never a button that does nothing).
+  "‹ Back to the answer" needs no seam: it is the conversation's. The F4 note's "a seam from the shell through
+  `WindowFirstMapPane`" was not needed: `MapView` already holds `onOpenLocationSheet` and `onOpenSettings`, and the pane forwards them.
+- **The plan phase.** `phase` and `planPick` are DERIVED, like `selectedPick`: a plan whose card has gone (a briefing rebuilt without
+  that slot) reads as the answer again, and focus the plan view held is parked on the conversation root (a rebuild with no press
+  would otherwise leave it on `<body>`). `openPlan` selects the pick as well (nonce bumped, so the Map follows it and the Plan card
+  is highlighted); `selectPick` of any rank during `plan` returns to `answer` (F4's open question: a chip on the map is a choice,
+  and the reader wants the list); `clear()`, a typed question and a Ready tap supersede it; a refused question puts a plan view
+  back with the rest of the conversation and takes no focus. `answer.id` is untouched by entering and leaving (tested: F3's camera
+  must not refit). **Known limit, accepted:** the STORED phase stays `plan` while the derived one reads `answer`, so if that card
+  returns on a later briefing the plan view reappears unasked.
+- **`AskClearAnswer`'s settled set now includes `plan`** (F4's note asked it stay untouched "until F5 gives it its seam"; the seam is
+  not what it needed — a reader in the plan view should be able to end the conversation as the peek's ✕ can). `PEEK_SETTLED_PHASES`
+  and that set now agree but remain two lists for two questions.
+- **Returning from the plan puts the answer back QUIETLY.** The answer is re-inserted into the live region otherwise, and a screen
+  reader reads the whole of it again around the focus that lands on the card (an accessibility review, P2): `backToAnswer` and a
+  choice made in the plan view set `restored`, the flag a refusal already uses to render outside the live region. Focus returns to the
+  "Plan this ›" of the card that opened the plan — **without `preventScroll`**, since the answer regrows near the top of its scroller
+  and a later card is likely below the fold. The hand-off is set only by the two presses and spent once (a stale intent stole focus
+  from a reader after a later answer: found by mutation, the first test of it passed vacuously because a mock that resolves at once
+  lets React batch `busy` and `answer` into one render — it now holds the question in flight).
+- **The four figures are the location sheet's own functions** (`utils/askPlan.js`): Leave home is `departureWithDay` over the card's
+  served `eventInstant` and the HOME drive — extracted from `buildLocationSheet`'s row (`leaveByParts` plus the day word) and used by
+  both; Best light is the exported `lightWindows` over `buildScoreIndex(scoreRows)`; Drive is the card's `driveLabel`
+  (`formatDriveDuration` already); Tide is the card's own tide fact (already the tide-alignment index's), drawn with the map chip's
+  `TideWave` (the letter for a match, the arrow for a miss) and the `STATE_WORD`. `askPlan.test.js` builds both sides from one
+  briefing through the real `buildLocationSheet` and compares them value for value (including the midnight wrap, the id-less name
+  lookup, a zero-minute drive and every missing input). **A dash is spoken as "Not known" — except Tide, "No tide data"**: an
+  inland spot has no tide, which is not something unknown about it.
+- **The no-postcode state.** Dashes for Leave home and Drive, and the tick line's own button ("Set a postcode for light and drive
+  times", the long form as its accessible name at every width, the short form drawn on a phone) **only when the reader is KNOWN to have
+  no postcode (`homePlace === null`, the tick line's positive answer, never an absent one)** and a door to settings exists. A reader
+  with a postcode and no measured drive time to that spot sees dashes and no reason — **an open owner call**, not decided here
+  (§6 Q7 promises an explanatory empty result for typed drive questions; this view has none). Pressed from the sheet, the nudge closes
+  Ask first (`selectTab(effectiveTab)`) and hands settings `askRestoreFallback` as its return address.
+- **The note is `card.summary` or nothing**, and no placeholder sentence stands in for it (§1 #7).
+- **"Open in Plan ›" takes the primary style** (gold wash and edge, 44px): "Add to Coming up" carried it in the mocks, and a lone
+  secondary button reads as disabled.
+- **"Open in Plan ›", route by route.** Dock: `askOpenInPlan` = `selectTab('plan')`, `setSheetSpot`, `setSheetWindowKey(date:targetType)` in
+  ONE handler (the batch the handoff effect's note explains); Ask stays open and goes `inert` (`askDialogOpen` already reads
+  `sheetSpot`). Tablet and phone sheets: the same handler closes the Ask sheet through `selectTab`, so the location sheet is the
+  single modal. Phone peek: `MapView.askPlanActions` calls `onOpenLocationSheet({…, inPlan: true, date, targetType})` with **the
+  pick's own window — not `handleOpenLocationSheet`, which reads the date and event off the active map window and the place off the
+  selection** (tested with a parent that does not follow the pick's date, so the map is on another window); `App`'s handoff does the
+  rest, the pane goes hidden, `panelShown` falls and the Ask section closes (tested as one chain through the real shell and pane:
+  `AskPeekPlanChain.test.jsx`). A dialog this shell does not own refuses the press — **but Ask's own sheet is itself a dialog outside the
+  shell root**, so `foreignDialogOpen` refused every press from the sheet hosts until it gained `ignore` (the one dialog the press is
+  about to close, matched by `ASK_SHEET_LABEL`); every other foreign dialog still refuses (tested with a positive control that also
+  warms the lazy sheet — without one a sheet that DID open is only the Suspense fallback and the negative passes vacuously).
+- **The way OUT of the location sheet — three defects found, all fixed.** (1) On the sheet hosts the Ask sheet's own close runs in the
+  same commit as the location sheet's mount, with the Ask trigger already `disabled` and a modal standing, so its restore declines,
+  nothing holds focus, the location sheet captures `<body>` as its opener and closing it left the reader there. `LocationFourDaySheet`
+  gained `restoreFocusFallback` (`Modal`'s own option); the shell passes `askSheetFallback`, live only for a sheet opened from Ask's
+  sheet. Closing now lands on the Ask bar or field. (2) From the dock the pressed button goes `inert` and `AskDock`'s rescue hands
+  focus to the Plan tab, which is where the sheet's restore returns; the shell then returns the reader to the pressed control **only if
+  focus was left on the PLAN tab (or nowhere)** — the first cut accepted any tab and yanked a reader who had arrowed along the tab bar
+  (which closes the sheet too). (3) Safari and Firefox on macOS do not focus a button on a mouse press, so `activeElement` was
+  `<body>` and there was no opener: the view passes the pressed control (`event.currentTarget`) to `openInPlan`. **Accepted:** the phone
+  peek's route inherits the Map callout's — no return address of its own — and its postcode nudge passes none.
+- **The highlight (`highlightKeys` is a `Map` of `date:targetType` → rank, not a `Set`):** the rank has to be drawn on the card, and
+  only the selected pick highlights, so there is at most one entry. Gated in the shell on **the Plan tab being the one in force, Ask's
+  SHEET not covering it, and Ask being available** (a 404 hides every surface but keeps the conversation, and a ring with nothing
+  to clear it would stick). It is therefore also live on a dock that was closed with its ✕ (the conversation is kept; §2.8's "live on
+  the dock"), and returning to the Plan tab scrolls to it again. The mark is the spec's border (.7) and wash (.08) **plus a second
+  inset pixel of the same gold plus the rank circle**, because the open card's own look (border .62, wash .11) is almost the same
+  gold; it keeps its own `:hover` arm and a doubled class so it beats `button.wf-hc.best.on:hover` by order. **The rank circle is in
+  the card's top row beside the sun word, not hung over the corner** (measured in a browser: an overhanging circle sat 1px on the word's
+  top edge, and the 2px ring bit 3px into it; 12px of overhang would have met the rail label above the first column). It costs
+  the card its verdict tint and, on a BEST BET / ALSO GOOD card, the green border and ring (as `.wf-hc.on` already does); the legend
+  keeps its ink. Forced colours: an inset outline, with the focus ring's own offset restored so focusing the card changes something.
+  `scrollIntoView({block: 'nearest', behavior: 'auto' | 'smooth'})`, guarded for jsdom, on arrival or move only (the effect keys on the
+  highlight's signature, never the cards), "Ask pick N" last in the card's accessible name. An away cell highlights nothing.
+- **Known limits, accepted, for the owner:** (1) a pick whose event has PASSED keeps "Plan this ›" (a past "leave" time) and its Plan card
+  is gone, and "Open in Plan ›" opens the sheet's own best window because the key names a window it does not hold (`buildLocationSheet`
+  drops it) — only an answer left open past its window reaches this; (2) a typed answer is not re-checked against the clock the way
+  Ready answers are; (3) under an away Plan origin the card says ⌂ and the sheet it opens measures from the base (§1 #24 decided
+  both); (4) `Escape` in the plan view closes the dock or sheet, not one level; (5) a refused "Open in Plan ›" (a foreign dialog) says
+  nothing; (6) the phone peek's `Open in Plan ›` and postcode nudge have no return address (above).
+- **Tests (every file's claims mutation-tested; 41 one-line mutants, all killed; two were dropped as equivalent or stale):**
+  `askPlan.test.js`, `AskPlanThis.test.jsx`, `AskShellPlan.test.jsx` (dock, tablet and phone sheets), `AskPeekPlanChain.test.jsx`,
+  the F5 block of `AskPeekChain.test.jsx`, `WindowFirstHeatStripAskHighlight.test.jsx`, `askPlanCss.test.js` (the mock's measurements
+  and tokens, the cascade facts, forced colours), `shellForeignDialog.test.js`; `AskConversation.test.jsx`'s "no Plan this" test
+  became "Plan this on every pick, never Add to Coming up". The suite went from 325 files / 8,262 tests to 331 / 8,398 (the gate
+  also ran lint, `npm audit --audit-level=high`, 0 vulnerabilities, and the build).
+- **Review (six read-only lenses — runtime, CSS/tokens, test quality, accessibility, conventions, what it leaves for Z — then
+  adjudicated):** fixed from review — the answer re-read by a screen reader after Back; off-screen focus after Back; the forced-colours
+  focus ring and the grid's lost rules; the circle's collision; a vacuous foreign-dialog test and an untested postcode route; an
+  untested ignore predicate; the dead guard and the misplaced doc block; `windowKey` reused; the highlight outliving Ask; the
+  arrow-key yank; the macOS mouse press; focus lost when a rebuild drops the plan. The rest is the list above.
+- **Seen vs tested** (a scratch Vite page mounting the real `index.css`, `AskDock`, `AskConversation`, `AskPlanThis`, `AskPickCard` and
+  `WindowFirstHeatStrip` with the briefing and the Ask API stubbed through aliases, deleted; Chromium in the Browser pane): SEEN — the
+  pick cards with "Plan this ›" in the dock (380px) and in a 320px column; the plan view in both (spot name `600 22px / 24.2px
+  Newsreader`, the 2×2 at 130–152px cells, Leave home `16:46` for an 18:41 sunset with a 1h 35 drive, Drive `⌂ 1h 35min`, golden and
+  blue ranges unbroken and wrapping label-over-range at 320px, the tide cell, the served note, the primary "Open in Plan ›"); and the
+  matrix with a highlighted, an open and a highlighted-and-open card, a BEST BET and an ALSO GOOD card highlighted, the circle beside
+  the sun word. **TESTED, NOT SEEN:** the real shell with a real dock or sheet beside the real matrix; the location sheet opening at the
+  pick's row and the focus returns (jsdom, with a real `inert`-less DOM); `scrollIntoView` against the sticky lens bar; the phone Map's
+  plan view in a real peek sheet (470px) and its minimised line; the iOS keyboard with the plan view's input row; forced colours;
+  reduced motion; Safari's mouse-press focus rule; a screen reader on the plan view, the quiet return and the highlight's name.
+- **For Z (everything this series has made false or incomplete in CLAUDE.md, and the rest of the sweep):**
+  - *Plan tab paragraph:* "Search is the Plan tab's alone: `/` refuses elsewhere" is false from F2 (`/` is Ask's from 1024px;
+    search keeps ⌕ and the origin button). Each matrix card can now wear Ask's pick (`highlightKeys` → `data-ask-highlight`, the rank
+    circle in the top row, "Ask pick N" in the accessible name, a scroll into view), a different mark from `data-open`; live only on the
+    Plan tab, with Ask's sheet not covering it and Ask available. The two-deep paragraph gains a route: Ask's sheet is a dialog outside
+    the shell root and "Open in Plan ›" closes it through `selectTab('plan')` (`foreignDialogOpen(root, ignore)` excuses only it); the
+    dock stays open and goes `inert`; focus returns through `askOpenerRef` (dock) and `restoreFocusFallback` (sheet). "THREE routes into
+    that dialog" (settings) becomes five: Ask's nudge (`askSetPostcode`, through `selectTab(effectiveTab)`) and the peek's (no return
+    address). The location sheet's hosts: a third opening route (Ask's Open in Plan, seeded with the pick's `date:targetType`) and the
+    `restoreFocusFallback` prop.
+  - *Map tab paragraphs:* "three sheet routes … one handoff" — the peek's Open in Plan calls `onOpenLocationSheet` directly with the
+    pick's window, not `handleOpenLocationSheet`. The whole of F4's For-Z list (the phone peek's 74 → 126/112/470, `peek:ask`, derived
+    minimised, three-valued `--psh`, the touch rules) plus: the peek carries the plan view and its minimised line reads "Plan this".
+  - *Backend-heavy bullet:* `askModel.js` (the pick join), `askPlan.js` (`planFigures`), `departureWithDay`, the exported `lightWindows`,
+    the shell's `askHighlight`, `AskContext`'s derived `phase`/`planPick`, `utils/askMapContext.js` and `useAskRequestContext` are all the
+    already-licensed filter/map/select class; none is a new member and none re-derives a served verdict.
+  - *Elsewhere in CLAUDE.md (the series as a whole is undocumented there):* What's Built (Ask PhotoCast: the Claude tool-loop engine,
+    the stub engine, Ready answers precomputed after the pipeline run), API Endpoints (`POST /api/ask`, `GET /api/ask/ready`,
+    `GET /api/user/settings/ask`, `/api/admin/ask/{dry-run,ready/precompute,metrics}`), the migrations table (the Ask migrations),
+    `RunType` (`ASK`, `ASK_READY`), Resilience (`ask` retry, breaker, bulkhead), Roles (open to every role), User Settings (the new
+    path under `HttpCachingConfigTest.personalDataPathsAreNeverFiltered`), the Rewind bullet (Ask is not mounted under a rewind), the
+    Configuration keys (`photocast.ask.*`), local-dev (the fixture seeder), the suite sizes (re-measure; this phase alone is +5 files and
+    +100 tests), and `AskPromptRegressionTest` with PIT's `excludedTestClasses`.
+  - *This plan:* mark the F4/F3/F2/F1b "For F5" bullets and the "reserved for F5 / null until F5" lines as discharged; §2.8's "`lightWindows`
+    … F5 exports it" and "Leave home = `leaveByParts`" (it is `departureWithDay`, which is `leaveByParts` plus the day word) are now
+    history; §3's F5 file list and "pickActions joins" are superseded by this note; §4 gains: the plan view hides the chips and the
+    question bubble, "Open in Plan ›" takes the primary style, the minimised line says "Plan this", the highlight is window-only and
+    carries the rank in the card's top row.
+  - *Production-enable checklist (known from this series):* `photocast.ask.enabled` (default false; the prod host's config is hand-edited,
+    so read the running file); `stub` must NOT be true; `daily-spend-cap-usd` (0.50) and what happens when it trips (503
+    `TYPED_UNAVAILABLE` for everyone until the next UK day, with only an admin email as the signal) — so `notifications.admin-alerts.enabled`
+    and working mail; the `ask` resilience blocks in the production profile; the Ask migrations proven by CI's Backend job; `POST
+    /api/admin/ask/ready/precompute` once after enabling, then the metrics endpoint; §7's measurements (about 1p a typed question over 20
+    dry-runs, the Monday and BEST BET checks, the iOS Simulator keyboard, 390 × 844 and 375 × 667); `AskPromptRegressionTest` with the
+    owner's approval of its assertions; the frontend hides Ask on a 404 or `enabled: false`, so rollback is the flag; and the open owner
+    calls above (the postcode-with-no-drive-time empty state; the passed-window pick).
 
 ### Z — Sweep — S/M
 CLAUDE.md (What's Built, API Endpoints, the migrations table, the Backend-heavy bullet's note on

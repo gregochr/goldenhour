@@ -225,7 +225,9 @@ function Capture() {
 
 let selectedDates;
 /** A parent that owns the date, as `App` does — a pick moves the window only if the parent follows. */
-function Harness({ onSelectDate }) {
+function Harness({
+  onSelectDate, onOpenLocationSheet, onOpenSettings, freezeDate = false,
+}) {
   const [date, setDate] = useState(TODAY);
   return (
     <AskProvider>
@@ -234,8 +236,15 @@ function Harness({ onSelectDate }) {
         locations={LOCATIONS}
         dates={[TODAY, TOMORROW]}
         selectedDate={date}
-        onSelectDate={(d, opts) => { selectedDates.push(d); onSelectDate?.(d, opts); setDate(d); }}
+        onSelectDate={(d, opts) => {
+          selectedDates.push(d);
+          onSelectDate?.(d, opts);
+          // A parent that does NOT follow (`freezeDate`): the map's own window stays where it was.
+          if (!freezeDate) setDate(d);
+        }}
         autoEventType="SUNSET"
+        onOpenLocationSheet={onOpenLocationSheet}
+        onOpenSettings={onOpenSettings}
       />
     </AskProvider>
   );
@@ -274,7 +283,15 @@ async function renderMap(props = {}) {
   document.body.appendChild(root);
   let result;
   await act(async () => {
-    result = render(<Harness onSelectDate={props.onSelectDate} />, { container: root });
+    result = render(
+      <Harness
+        onSelectDate={props.onSelectDate}
+        onOpenLocationSheet={props.onOpenLocationSheet}
+        onOpenSettings={props.onOpenSettings}
+        freezeDate={props.freezeDate}
+      />,
+      { container: root },
+    );
   });
   await waitFor(() => expect(ask$?.availability).toBe(props.availability ?? 'on'));
   return result;
@@ -564,3 +581,127 @@ describe('Escape from an expanded answer, from where focus really is', () => {
   });
 });
 
+
+describe('Plan this, in the expanded Ask section (F5)', () => {
+  /** An answer in the open sheet, then "Plan this ›" on pick 2 — Whitby's sunrise, ANOTHER window from tonight. */
+  async function planPickTwo(props = {}) {
+    await renderMap(props);
+    await openAsk();
+    await typeQuestion();
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-this-2')); });
+  }
+
+  it('replaces the answer in the section body with that pick’s plan, and takes focus to it', async () => {
+    await planPickTwo();
+
+    expect(ask$.phase).toBe('plan');
+    expect(ask$.planPick).toBe(2);
+    expect(mode()).toBe('expanded');
+    expect(screen.getByTestId('ask-plan-name')).toHaveTextContent('Whitby');
+    expect(screen.queryByTestId('ask-picks')).toBeNull();
+    // The unmounted "Plan this ›" took focus with it; the plan view is where it went, never <body>.
+    expect(document.activeElement).toBe(screen.getByTestId('ask-plan'));
+  });
+
+  it('numbers the picks on the map and follows the chosen one to ITS window, as any choice does', async () => {
+    await planPickTwo();
+
+    expect(ask$.selectedPick).toBe(2);
+    expect(pickChips()).toHaveLength(2);
+    expect(selectedDates).toContain(TOMORROW);
+  });
+
+  it('"Open in Plan ›" hands the shell the PICK’s own place and window, with inPlan set', async () => {
+    const onOpenLocationSheet = vi.fn();
+    await planPickTwo({ onOpenLocationSheet });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-open')); });
+
+    expect(onOpenLocationSheet).toHaveBeenCalledTimes(1);
+    expect(onOpenLocationSheet).toHaveBeenCalledWith({
+      id: WHITBY, name: 'Whitby', regionName: 'North York Moors & Coast', inPlan: true,
+      date: TOMORROW, targetType: 'SUNRISE',
+    });
+  });
+
+  it('"Open in Plan ›" names the PICK’s window even when the map is showing another — it never reads the map’s own', async () => {
+    const onOpenLocationSheet = vi.fn();
+    // The parent does not follow the pick's date, so the map stays on tonight while pick 2 is tomorrow's sunrise.
+    await planPickTwo({ onOpenLocationSheet, freezeDate: true });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-open')); });
+
+    expect(onOpenLocationSheet).toHaveBeenCalledWith(expect.objectContaining({
+      id: WHITBY, date: TOMORROW, targetType: 'SUNRISE', inPlan: true,
+    }));
+  });
+
+  it('draws no "Open in Plan ›" when the host gave the pane no door — never a button that does nothing', async () => {
+    await planPickTwo();
+
+    expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
+    expect(screen.queryByTestId('ask-plan-open')).toBeNull();
+  });
+
+  it('with no postcode, offers the tick line’s nudge and it opens settings', async () => {
+    const onOpenSettings = vi.fn();
+    await planPickTwo({ onOpenSettings });
+
+    // The fixture's home has a drive time only to Whitby, so pick 2 has one; pick 1 (Saltburn) has none.
+    expect(screen.queryByTestId('ask-plan-postcode')).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-back')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-this-1')); });
+
+    expect(screen.getByTestId('ask-plan-leave')).toHaveTextContent('—');
+    fireEvent.click(screen.getByTestId('ask-plan-postcode'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('the line the sheet minimises to says it is the plan, for the planned pick', async () => {
+    await planPickTwo();
+
+    await dragMap();
+
+    expect(mode()).toBe('minimised');
+    const line = screen.getByTestId('wf-map-peek-mini');
+    expect(line).toHaveTextContent('Whitby');
+    expect(line).toHaveTextContent('Plan this ▴');
+    expect(line).toHaveAccessibleName(/Pick 2, Whitby.*Plan this\. Show the plan/);
+    // The conversation is still the plan: tapping the line brings it back, not the answer.
+    await act(async () => { fireEvent.click(line); });
+    expect(mode()).toBe('expanded');
+    expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
+  });
+
+  it('a chip pressed on the map leaves the plan for the answer, with that card chosen', async () => {
+    await planPickTwo();
+
+    await act(async () => { fireEvent.click(pickChips().find((c) => c.textContent.includes('Saltburn'))); });
+
+    expect(ask$.phase).toBe('answer');
+    expect(ask$.selectedPick).toBe(1);
+    expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
+    expect(mode()).toBe('expanded');
+  });
+
+  it('the ✕ clears a plan view like any settled answer, and focus lands on the Ask row', async () => {
+    await planPickTwo();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-ask-x')); });
+
+    expect(ask$.phase).toBe('empty');
+    expect(mode()).toBe('collapsed');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  it('"Back to the answer" keeps the section open and puts focus on the card that opened the plan', async () => {
+    await planPickTwo();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-back')); });
+
+    expect(mode()).toBe('expanded');
+    expect(ask$.phase).toBe('answer');
+    expect(ask$.selectedPick).toBe(2);
+    expect(document.activeElement).toBe(screen.getByTestId('ask-plan-this-2'));
+  });
+});

@@ -13,7 +13,7 @@ import WindowSpotSheet from './WindowSpotSheet.jsx';
 import AskBar from './ask/AskBar.jsx';
 import AskDock, { ASK_DOCK_ID } from './ask/AskDock.jsx';
 import AskField from './ask/AskField.jsx';
-import AskSheet from './ask/AskSheet.jsx';
+import AskSheet, { ASK_SHEET_LABEL } from './ask/AskSheet.jsx';
 import { useAsk } from '../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { formatRelativeAge } from '../utils/relativeTime.js';
@@ -29,6 +29,7 @@ import {
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
+import { windowKey } from '../utils/heatSpots.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
@@ -111,6 +112,9 @@ function warmStackedChunks() {
   import('./LocationFourDaySheet.jsx').catch(() => {});
   import('./PlanSearch.jsx').catch(() => {});
 }
+
+/** The matrix's Ask highlight when there is none to show: one shared, empty map, so nothing re-renders for it. */
+const NO_HIGHLIGHT = new Map();
 
 /**
  * How long the first fetch has to run before the Plan pane's pending line admits it is taking a
@@ -1395,10 +1399,10 @@ export default function WindowFirstShell({
     selectTab('map');
     requestAnimationFrame(() => document.getElementById(tabDomId('map'))?.focus());
   };
-  // The controls on a pick card's own row. A function whether or not it has anything to draw, so the
-  // next control (F5's "Plan this ›") joins here rather than replacing a prop that is sometimes absent.
-  // "Show on map ›" is offered only where it goes somewhere: a Map pane exists, and the reader is not
-  // already on it.
+  // The controls on a pick card's own row, AFTER the "Plan this ›" every card carries (that one is a move
+  // of the conversation and `AskConversation` draws it on every surface, the phone's peek included). A
+  // function whether or not it has anything to draw. "Show on map ›" is offered only where it goes
+  // somewhere: a Map pane exists, and the reader is not already on it.
   // ...and, since F3, on the tablet's Ask SHEET over the Map: the picks are numbered on a map the sheet
   // covers, and this is the press that uncovers it (the dock, which covers nothing, is not offered it).
   const askCanShowOnMap = mapPane != null && (effectiveTab !== 'map' || askSheetOpen);
@@ -1427,6 +1431,110 @@ export default function WindowFirstShell({
     if (trigger?.isConnected && !trigger.disabled) return trigger;
     return shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null;
   }, []);
+  /**
+   * The control in the DOCK that "Open in Plan ›" was pressed on, so closing the location sheet it opened
+   * can put focus back there (null on every other host, where the pressed control went with its surface).
+   */
+  const askOpenerRef = useRef(null);
+  /**
+   * Whether the location sheet now up was opened from Ask's SHEET. Pressed there, the Ask sheet's own
+   * close runs in the same commit as the location sheet's mount, with the Ask trigger already
+   * {@code disabled} (a dialog is open) and a modal standing — so its restore declines, nothing holds
+   * focus, and the location sheet captures {@code <body>} as its opener: closing it would leave the
+   * reader nowhere. This is what makes the close land on the trigger (or the tab) instead, read at
+   * CLOSE time by the sheet's {@code restoreFocusFallback} and put away when it is gone.
+   */
+  const askSheetReturnRef = useRef(false);
+  const askSheetFallback = useCallback(
+    () => (askSheetReturnRef.current ? askRestoreFallback() : null),
+    [askRestoreFallback],
+  );
+  /**
+   * "Open in Plan ›" on a pick's "Plan this" view (F5, plan §2.8): the Plan tab, the pick's own location
+   * sheet, opened AT the pick's window.
+   *
+   * <p><b>The two-deep rule, route by route.</b> {@code selectTab('plan')} is the one list that takes
+   * every dialog this shell owns down, and it is where the ASK SHEET goes (it sets {@code askOpen} false),
+   * so the location sheet is the single modal on the tablet and the phone. The DOCK is not a layer and is
+   * not on that list: it stays open beside the plan the reader asked to see, and turns {@code inert}
+   * for as long as the sheet is up ({@code askDialogOpen} reads {@code sheetSpot} through
+   * {@code stackedOverPopup}). A dialog this shell does not own (the map overlay) refuses the press, as
+   * {@code openAsk} does — a second {@code aria-modal} over it is the thing the rule is for.
+   *
+   * <p>The sheet is the Plan tab's own, with the window the handoff effect above gives the map's callout:
+   * {@code sheetWindowKey} is {@code date:targetType}, so it opens on the pick's window rather than on its
+   * own best. {@code selectTab} clears {@code sheetSpot}, and the setter after it wins only because both
+   * are in ONE batch — the reason that effect's own note records, and why this is a handler and not
+   * an effect.
+   *
+   * <p><b>Focus, out.</b> From the dock the pressed button stays on screen but goes {@code inert}, and
+   * {@code AskDock}'s own rescue hands focus to the tab in force in that commit — which is where the
+   * sheet's restore sends it on close. The reader pressed a control in the dock, so when the sheet has
+   * gone and focus was left on the tab (or nowhere) it is returned to that control. On the sheet
+   * surfaces the pressed control went with the Ask sheet and its own restore has already done its work.
+   */
+  const askOpenInPlan = (card, pressed = null) => {
+    // Ask's own sheet is a dialog outside this root, and this very press closes it: it is not a second
+    // modal to refuse for. Every other dialog this shell does not own still is.
+    const closesWithThisPress = (node) => askSheetOpen && node.getAttribute('aria-label') === ASK_SHEET_LABEL;
+    if (foreignDialogOpen(shellRef.current, closesWithThisPress)) return;
+    // The control that was pressed — passed by the view, because Safari and Firefox on macOS do not focus a
+    // button on a mouse press, so `activeElement` would be <body> there and there would be nothing to return to.
+    const opener = pressed instanceof HTMLElement ? pressed : document.activeElement;
+    askOpenerRef.current = askDockShown && opener instanceof HTMLElement ? opener : null;
+    askSheetReturnRef.current = askSheetOpen;
+    warmStackedChunks();
+    selectTab('plan');
+    setSheetSpot({
+      id: card.locationId ?? null,
+      name: card.name,
+      regionName: card.regionName ?? null,
+    });
+    setSheetWindowKey(windowKey(card.date, card.targetType));
+  };
+  useEffect(() => {
+    if (sheetSpot != null) return;
+    askSheetReturnRef.current = false;
+    const opener = askOpenerRef.current;
+    if (!opener) return;
+    askOpenerRef.current = null;
+    const focused = document.activeElement;
+    const nowhere = !focused || focused === document.body || focused === document.documentElement;
+    // Only a reader who was left where the sheet's own restore parks them — the PLAN tab, which the press
+    // moved to and the dock's rescue chose — or on nowhere is sent back. Another tab is a choice (arrowing
+    // along the tab bar closes the sheet too), and so is anywhere else they have Tabbed: the same rule
+    // `useDialogFocus`'s own restore keeps.
+    if ((nowhere || focused === document.getElementById(tabDomId('plan')))
+      && opener.isConnected && !opener.closest('[inert]')) {
+      opener.focus({ preventScroll: true });
+    }
+  }, [sheetSpot]);
+  /**
+   * The postcode nudge inside "Plan this": the tick line's own route (close what is open, then
+   * settings on the postcode field), with the Ask return address as its restore target.
+   */
+  const askSetPostcode = () => {
+    selectTab(effectiveTab);
+    (onSetPostcode ?? onOpenSettings)?.(askRestoreFallback);
+  };
+  const askPlanActions = { openInPlan: askOpenInPlan, setPostcode: askSetPostcode };
+  /**
+   * The Plan card the selected pick lands on, for the matrix's highlight (F5, plan §2.8): a map of
+   * {@code date:targetType} to the pick's rank, empty unless it can be SEEN — the Plan tab is the one in
+   * force and Ask's SHEET is not covering it (on a phone or tablet the sheet is a modal over the pane, and
+   * the highlight, and the scroll it brings, are "applied when the sheet closes"). The pick the plan view is
+   * about IS the selected one ({@code openPlan} selects it, and choosing another leaves the plan).
+   * Filter/map/select over the conversation's own joined card.
+   */
+  const askActiveRank = ask.selectedPick;
+  const askAvailable = ask.availability === 'on' || ask.availability === 'down';
+  const askHighlight = useMemo(() => {
+    // Off the moment Ask is: a server that answered 404 hides every surface but keeps the conversation, and a
+    // ring with no surface left to clear it would be stuck on the card for the session.
+    if (!askAvailable || effectiveTab !== 'plan' || askSheetOpen || askActiveRank == null) return NO_HIGHLIGHT;
+    const card = ask.pickCards.find((c) => c.rank === askActiveRank);
+    return card ? new Map([[windowKey(card.date, card.targetType), card.rank]]) : NO_HIGHLIGHT;
+  }, [askAvailable, effectiveTab, askSheetOpen, askActiveRank, ask.pickCards]);
   /**
    * Where the dock's focus goes if the dock stops being somewhere focus can be while it holds it
    * (it turns {@code inert} under a dialog or a dead backend, or is released because the window
@@ -2313,6 +2421,7 @@ export default function WindowFirstShell({
                bucketing. `WindowFirstDoors` reads the same field the same way. */
             hotTopics={briefing?.hotTopics}
             openKeys={openWindowKeys}
+            highlightKeys={askHighlight}
             todayStr={todayStr}
             runAge={age}
             onOpenWindow={openWindow}
@@ -2447,6 +2556,7 @@ export default function WindowFirstShell({
           onClose={closeAskDock}
           fallbackFocus={askTabFocus}
           pickActions={askPickActions}
+          planActions={askPlanActions}
         />
       )}
 
@@ -2469,6 +2579,7 @@ export default function WindowFirstShell({
           view={askViewSpec.view}
           viewLabel={askViewSpec.label}
           pickActions={askPickActions}
+          planActions={askPlanActions}
           restoreFallback={askRestoreFallback}
         />
       )}
@@ -2701,6 +2812,9 @@ export default function WindowFirstShell({
             tideAlignmentIndex={sheetTideAlignmentIndex}
             // The eclipse spot line, per solar row (L7).
             eclipseIndex={sheetEclipseIndex}
+            // Where the close lands when the sheet was opened from Ask's sheet (F5); null for every
+            // other opening, which keeps its restore exactly as it was.
+            restoreFocusFallback={askSheetFallback}
             escapeEnabled={searchSeed == null}
             // The footer's origin action (M4.3, D-4). `planFrom` is null when the shell holds no
             // record for the place's region, which is the honest answer rather than a guessed

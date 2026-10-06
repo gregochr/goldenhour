@@ -19,8 +19,9 @@ import { ukDateStr } from '../utils/mapDates.js';
  *
  * <h2>State</h2>
  * {@code phase}: {@code empty} (nothing asked) | {@code busy} | {@code answer} | {@code cant} (the
- * "Not in the forecast" reply) | {@code error} | {@code plan} (reserved for F5's "Plan this" — nothing
- * enters it in F1a). {@code kind} is the wire's: {@code ready} | {@code own} | {@code cant}, and
+ * "Not in the forecast" reply) | {@code error} | {@code plan} ("Plan this" — one pick's own view, F5:
+ * entered by {@code openPlan(rank)}, left by {@code backToAnswer()}, by choosing another pick, by any
+ * new question and by {@code clear()}). {@code kind} is the wire's: {@code ready} | {@code own} | {@code cant}, and
  * while busy it is the kind being waited for (a Ready tap is {@code ready}, a typed question
  * {@code own}), which is what chooses the busy line. {@code pickCards} are the answer's picks joined
  * to the briefing (`utils/askModel.js`).
@@ -43,6 +44,12 @@ import { ukDateStr } from '../utils/mapDates.js';
  *       unmounts the tree, and the next reader starts empty.</li>
  *   <li><b>Drive is HOME.</b> {@code pickCards} read the provider's {@code reachById}, never
  *       {@code effectiveReachById}, which the Plan origin replaces (plan §1 #24).</li>
+ *   <li><b>The plan phase is a view of the answer, never a new one.</b> {@code openPlan} and
+ *       {@code backToAnswer} leave {@code answer} (and so {@code answer.id}) untouched, so F3's camera,
+ *       which fits once per answer, does not refit on either; a refused question puts a plan view back
+ *       with the rest of the conversation. The exposed {@code phase} and {@code planPick} are
+ *       <em>derived</em>: a plan whose card has gone (a briefing rebuilt without that pick's slot) reads
+ *       as the answer again, the way {@code selectedPick} reads as null.</li>
  *   <li><b>The cards are live, the prose is not.</b> {@code pickCards} are re-joined to the briefing
  *       the reader is looking at, so they always agree with the Plan tab; the summary is the answer's
  *       own words and the footer names the run it came from. An answer left open across a rebuild is
@@ -112,15 +119,17 @@ const INITIAL = {
  * @property {?{regionIds: Array<number>, regionNames: Array<string>, windowId: ?string,
  *           windowLabel: ?string, viewLabel: string}} mapContext what the Map pane last published
  *           (`utils/askMapContext.js`), or null when no Map pane is mounted
- * @property {?number} planPick F5's; always null in F1a
+ * @property {?number} planPick the rank whose "Plan this" view is on screen, or null — non-null only
+ *           while {@code phase} is {@code plan} and that pick still has a card
  * @property {boolean} contextWindow false while a window has been removed from the request
  * @property {?string} removedWindow the id of the window whose chip was removed; a DIFFERENT
  *           window brings the chip back by itself
  * @property {?{status: ?number, code: ?string, message: string}} error set in phase {@code error}
  * @property {?string} inputError a refusal's sentence; {@code AskConversation} renders it
- * @property {boolean} restored the conversation on screen is an EARLIER one that a refusal put back;
- *           {@code AskConversation} then renders it outside its live region, so a screen reader is
- *           not made to read the whole old answer again around the refusal sentence
+ * @property {boolean} restored the conversation on screen is an EARLIER one that was put back — by a
+ *           refusal, or by a return from the plan view (F5: "Back to the answer", choosing another
+ *           pick); {@code AskConversation} then renders it outside its live region, so a screen reader is
+ *           not made to read the whole old answer again
  * @property {?string} busyRunLabel the run of the Ready answer being opened, while busy
  * @property {object} allowance {@code useAskAllowance}'s value
  * @property {boolean} typedDisabled typed questions are off: the field reads "Ready questions only
@@ -139,7 +148,11 @@ const INITIAL = {
  *           second argument is the context it is opened in (the chips' labels)
  * @property {function(?object): void} registerMapContext the Map pane's channel: it publishes the
  *           scope and window the Map is showing, and null when it goes
- * @property {function(?number): void} selectPick
+ * @property {function(?number): void} selectPick choosing a pick during {@code plan} returns the
+ *           conversation to its answer (the pick list is where the choice was made)
+ * @property {function(number): void} openPlan shows one pick's "Plan this" view and selects the pick
+ *           (the map follows it, as for any choice); a rank with no card is ignored
+ * @property {function(): void} backToAnswer leaves the plan view for the answer, keeping the selection
  * @property {function(): void} clear
  * @property {function(): Promise<void>} retry re-asks the question the error state is showing
  * @property {function(string): void} removeContextWindow takes a window out of the request
@@ -182,6 +195,8 @@ const AskContext = createContext({
   openReady: NOOP,
   selectPick: NOOP,
   registerMapContext: NOOP,
+  openPlan: NOOP,
+  backToAnswer: NOOP,
   clear: NOOP,
   retry: async () => {},
   removeContextWindow: NOOP,
@@ -430,8 +445,39 @@ export function AskProvider({ children }) {
     if (!pickCards.some((card) => card.rank === rank)) return;
     selectionSeq.current += 1;
     const nonce = selectionSeq.current;
-    setConv((prev) => ({ ...prev, selectedPick: rank, selectionNonce: nonce }));
+    // Choosing a pick leaves the plan view for the answer: the pick list is where a choice is made (a
+    // chip on the map is one too), and the reader who tapped another spot wants to see it in the list,
+    // not a plan for the one they were on.
+    setConv((prev) => ({
+      ...prev,
+      selectedPick: rank,
+      selectionNonce: nonce,
+      ...(prev.phase === 'plan' ? { phase: 'answer', planPick: null, restored: true } : null),
+    }));
   }, [pickCards]);
+
+  const openPlan = useCallback((rank) => {
+    if (!pickCards.some((card) => card.rank === rank)) return;
+    // The pick is chosen as well as planned: the map follows it and the Plan card is highlighted, so
+    // "Plan this" on a card nobody had selected does what selecting it would have done.
+    selectionSeq.current += 1;
+    const nonce = selectionSeq.current;
+    setConv((prev) => (prev.answer && (prev.phase === 'answer' || prev.phase === 'plan')
+      ? {
+        ...prev, phase: 'plan', planPick: rank, selectedPick: rank, selectionNonce: nonce,
+      }
+      : prev));
+  }, [pickCards]);
+
+  const backToAnswer = useCallback(() => {
+    // The answer is put BACK, not delivered: it goes outside the live region (`restored`), or a screen
+    // reader would read the whole of it again around the focus that lands on the card.
+    setConv((prev) => (prev.phase === 'plan'
+      ? {
+        ...prev, phase: 'answer', planPick: null, restored: true,
+      }
+      : prev));
+  }, []);
 
   /** The Map pane's channel. An unchanged context leaves the state alone: the pane publishes on a key. */
   const registerMapContext = useCallback((next) => {
@@ -442,6 +488,12 @@ export function AskProvider({ children }) {
   const selectedPick = pickCards.some((card) => card.rank === conv.selectedPick)
     ? conv.selectedPick
     : null;
+
+  // The plan view only means something while its card does: a briefing that moved on can drop the pick,
+  // and a plan for a spot nobody can see is the answer again, not a blank.
+  const planCardLive = conv.phase === 'plan' && pickCards.some((card) => card.rank === conv.planPick);
+  const planPick = planCardLive ? conv.planPick : null;
+  const phase = conv.phase === 'plan' && !planCardLive ? 'answer' : conv.phase;
 
   const blockedToday = blocked !== null && blocked.date === ukDateStr();
   let availability = 'on';
@@ -456,7 +508,7 @@ export function AskProvider({ children }) {
     || (allowance.loaded && allowance.left <= 0);
 
   const value = useMemo(() => ({
-    phase: conv.phase,
+    phase,
     kind: conv.kind,
     question: conv.question,
     answer: conv.answer,
@@ -465,7 +517,7 @@ export function AskProvider({ children }) {
     selectedPick,
     selectionNonce: conv.selectionNonce,
     mapContext,
-    planPick: conv.planPick,
+    planPick,
     contextWindow: removedWindow === null,
     removedWindow,
     error: conv.error,
@@ -479,14 +531,16 @@ export function AskProvider({ children }) {
     askTyped,
     openReady,
     selectPick,
+    openPlan,
+    backToAnswer,
     registerMapContext,
     clear,
     retry,
     removeContextWindow,
     restoreContextWindow,
-  }), [conv, pickCards, selectedPick, mapContext, removedWindow, allowance, typedDisabled,
-    availability, isPro, askTyped, openReady, selectPick, registerMapContext, clear, retry,
-    removeContextWindow, restoreContextWindow]);
+  }), [conv, phase, planPick, pickCards, selectedPick, mapContext, removedWindow, allowance,
+    typedDisabled, availability, isPro, askTyped, openReady, selectPick, openPlan, backToAnswer,
+    registerMapContext, clear, retry, removeContextWindow, restoreContextWindow]);
 
   return <AskContext.Provider value={value}>{children}</AskContext.Provider>;
 }

@@ -119,9 +119,9 @@ function pickLabel({ rank, name, date, targetType, rating }) {
  *   summary: ?string, dayWord: string, shortWindow: string, driveMinutes: ?number,
  *   driveLabel: ?string,
  *   tide: ?{tier: 'match'|'miss', state: ?string, shortfall: ?string, clause: ?string},
- *   label: string}>} {@code eventInstant} is the slot's served UTC instant (F5's leave-by reads it
- *   raw) and {@code summary} the slot's served one-line reading (F5's note); neither is rendered
- *   by the card.
+ *   label: string}>} {@code eventInstant} is the slot's served UTC instant (the "Plan this" view's
+ *   leave-by reads it raw) and {@code summary} the slot's served one-line reading (its note); neither is
+ *   rendered by the pick card itself.
  */
 export function buildPickCards(picks, briefingDays, homeReachById) {
   if (!Array.isArray(picks) || picks.length === 0) return [];

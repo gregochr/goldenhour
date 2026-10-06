@@ -2,6 +2,7 @@ import React, { useCallback, useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { GOLDEN } from './shared/MastheadLight.jsx';
 import { watchDeparture } from '../utils/watchDeparture.js';
+import { SET_POSTCODE_LONG, SET_POSTCODE_SHORT } from '../utils/postcodeNudge.js';
 
 /**
  * The same amber as a Tailwind class, for the nudge link's hover.
@@ -305,13 +306,13 @@ export default function MastheadTickLine({
               // replaced, whose visible words genuinely were "Set postcode"/"Set" — and the copy
               // changed underneath it, so neither rendered string appeared in the name and a
               // speech-input reader saying what they could see hit nothing.
-              aria-label="Set a postcode for light and drive times"
+              aria-label={SET_POSTCODE_LONG}
               className={`wf-tick-origin wf-tick-nudge ${GOLDEN_HOVER}`}
             >
               <Pin away={false} />
               <span aria-hidden="true" className="wf-tick-place">
-                <span className="hidden sm:inline">Set a postcode for light and drive times</span>
-                <span className="sm:hidden">Set a postcode</span>
+                <span className="hidden sm:inline">{SET_POSTCODE_LONG}</span>
+                <span className="sm:hidden">{SET_POSTCODE_SHORT}</span>
               </span>
             </button>
           ) : statement ? (

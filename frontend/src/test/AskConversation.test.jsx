@@ -524,12 +524,13 @@ describe('AskConversation — a Ready answer', () => {
     expect(ctx.allowance).toMatchObject({ left: 3, used: 0 });
   });
 
-  it('keeps no "Plan this" and no "Add to Coming up" on the answer', async () => {
+  it('offers "Plan this" on every pick (F5) and never "Add to Coming up" (removed, plan §1 #9)', async () => {
     await renderAsk();
     await tapReady('BEST_NEXT');
     await finishOpening();
 
-    expect(screen.queryByText(/plan this/i)).toBeNull();
+    // Two picks, two buttons — it was `null` until F5 built it; "Add to Coming up" still is.
+    expect(screen.getAllByText(/plan this/i)).toHaveLength(2);
     expect(screen.queryByText(/add to coming up/i)).toBeNull();
   });
 });

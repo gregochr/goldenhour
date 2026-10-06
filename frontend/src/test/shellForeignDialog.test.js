@@ -66,3 +66,44 @@ describe('foreignDialogOpen', () => {
     expect(foreignDialogOpen(shell)).toBe(false);
   });
 });
+
+describe('foreignDialogOpen — the one dialog a caller is about to close itself (F5)', () => {
+  const named = (parent, label) => {
+    const node = dialogIn(parent);
+    node.setAttribute('aria-label', label);
+    return node;
+  };
+  const isAsk = (node) => node.getAttribute('aria-label') === 'Ask PhotoCast';
+
+  it('does not count the dialog the predicate names', () => {
+    const shell = root();
+    named(document.body, 'Ask PhotoCast');
+
+    expect(foreignDialogOpen(shell)).toBe(true);
+    expect(foreignDialogOpen(shell, isAsk)).toBe(false);
+  });
+
+  it('still counts every OTHER dialog outside the root, beside the ignored one', () => {
+    const shell = root();
+    named(document.body, 'Ask PhotoCast');
+    named(document.body, 'Settings');
+
+    expect(foreignDialogOpen(shell, isAsk)).toBe(true);
+  });
+
+  it('never ignores a dialog INSIDE the root (they never counted) or changes the no-root rule', () => {
+    const shell = root();
+    named(shell, 'Window');
+
+    expect(foreignDialogOpen(shell, () => true)).toBe(false);
+    named(document.body, 'Elsewhere');
+    expect(foreignDialogOpen(null, isAsk)).toBe(true);
+  });
+
+  it('an absent predicate is the old behaviour exactly', () => {
+    const shell = root();
+    named(document.body, 'Ask PhotoCast');
+
+    expect(foreignDialogOpen(shell, undefined)).toBe(foreignDialogOpen(shell));
+  });
+});

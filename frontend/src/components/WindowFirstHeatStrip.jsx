@@ -27,6 +27,7 @@ import { leaveBy } from '../utils/leaveBy.js';
 import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
 import { tideRun } from '../utils/windowFirstTideRun.js';
 import TideWave from './map/TideWave.jsx';
+import { prefersReducedMotion } from '../utils/askCamera.js';
 
 /**
  * The thumbnail frame's aspect clamps.
@@ -532,6 +533,13 @@ function areaLabel(regionName, tiny) {
  *                                    and (at M2) the science notes. Absent simply means no topic is
  *                                    scope-filtered — see {@code windowFirstTopics.js}
  * @param {Set}      [props.openKeys] the window keys whose cards are open
+ * @param {?Map<string, number>} [props.highlightKeys] Ask PhotoCast's selected pick, as the window key
+ *                                    its card carries mapped to the pick's rank (F5, plan §2.8 — a Map
+ *                                    and not a Set because the rank is drawn on the card). Empty or
+ *                                    absent highlights nothing, and so does a key whose card is not a
+ *                                    control (an away cell) or is not among the rendered windows. The
+ *                                    highlight never opens the popup and is a different mark from
+ *                                    {@code openKeys}'s: both can sit on one card.
  * @param {string}   props.todayStr   today's ISO date in Europe/London, for the horizon fallback,
  *                                    the today column and the elapsed-morning cell
  * @param {?string}  [props.runAge]   the last forecast run's age, already formatted by the shell
@@ -547,7 +555,7 @@ function areaLabel(regionName, tiny) {
  */
 export default function WindowFirstHeatStrip({
   cards, pointSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
-  origin = null, onSearchRegion, colourMode = null, homeCoords = null,
+  origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
 }) {
   // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
   // It must never become the point set — handing the scoped list to the kernel would turn the
@@ -983,6 +991,28 @@ export default function WindowFirstHeatStrip({
     repaintNow();
   }, [isMobile, repaintNow]);
 
+  /**
+   * Ask PhotoCast's highlight, scrolled into view when it ARRIVES or MOVES (F5, plan §2.8) — never on
+   * an unrelated re-render, which is why the effect keys on the highlight's own signature and not on
+   * the cards. {@code block: 'nearest'} moves the page only as far as the card needs (the lens bar's
+   * {@code scroll-margin-top} is what keeps it from landing under the sticky bar), and a reader who
+   * asked the system for less motion gets none. {@code scrollIntoView} is guarded because jsdom has no
+   * layout and no such method.
+   */
+  const stripRef = useRef(null);
+  const highlightSignature = highlightKeys && highlightKeys.size > 0
+    ? [...highlightKeys].map(([key, rank]) => `${key}#${rank}`).join('|')
+    : '';
+  useEffect(() => {
+    if (!highlightSignature) return;
+    const node = stripRef.current?.querySelector('[data-ask-highlight="true"]');
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({
+        block: 'nearest', inline: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      });
+    }
+  }, [highlightSignature]);
+
   // Nothing to index. The matrix is a picture of the field, so with no catalogue joined — a scores
   // fetch that failed, a session with no roster — it withdraws entirely rather than drawing six
   // empty coastlines under a header claiming to summarise them. The window rows are untouched.
@@ -1003,6 +1033,9 @@ export default function WindowFirstHeatStrip({
   const renderCard = (card, column, row, solo) => {
     const notScored = unscored.has(card.key);
     const open = Boolean(openKeys?.has(card.key));
+    // Ask's pick lands here — only on a card that is a control: an away cell is a read-out and a
+    // highlight on it would promise a window nobody forecast.
+    const askRank = card.away ? null : (highlightKeys?.get(card.key) ?? null);
     const facts = derived.get(card.key);
     // The thumbnail overlay's geometry for this card, and its placement once measured. `measured`
     // is false on the very first render after a paint — before the layout effect has had a chance
@@ -1073,6 +1106,9 @@ export default function WindowFirstHeatStrip({
       }).filter(Boolean))
       .concat(card.pickKind === 'best' ? ['best bet'] : [])
       .concat(card.pickKind === 'also' ? ['also good'] : [])
+      // Said last, after the forecast's own claims, so it reads as what it is: Ask's pick, not the
+      // forecast's. The rank circle that draws it is aria-hidden below.
+      .concat(askRank !== null ? [`Ask pick ${askRank}`] : [])
       .join(', ');
     const nameId = `wf-heat-name-${card.key.replace(/:/g, '-')}`;
     const body = (
@@ -1103,6 +1139,14 @@ export default function WindowFirstHeatStrip({
           <span data-testid="wf-heat-sun" className={`wf-hc-sun ${card.sunrise ? 'am' : 'pm'}`}>
             {card.sunrise ? 'SUNRISE' : 'SUNSET'}
           </span>
+          {/* The pick's rank, in the top row beside the word (F5): the gold border alone is the open
+              card's own look, so this circle is what says "Ask's pick" rather than "the open one". IN the
+              row's flow and not hung over the card's edge like the pick legend: measured in a browser, a
+              circle overhanging the top-left corner sat on the sun word's own top edge (1px) and, one
+              px more, would have met the rail's label above the first column. */}
+          {askRank !== null && (
+            <span className="wf-hc-ask" data-testid="wf-heat-ask-rank">{askRank}</span>
+          )}
         </span>
         {!geoFailed && (
           <span data-testid="wf-heat-well" className="wf-hc-cv">
@@ -1373,6 +1417,9 @@ export default function WindowFirstHeatStrip({
         // glance — back under the floor that measurement set.
         data-unscored={notScored ? 'true' : undefined}
         data-open={open ? 'true' : undefined}
+        // Ask PhotoCast's selected pick (F5) — a DIFFERENT mark from `data-open`, and the two can sit on
+        // one card: the highlight never opens the popup, and an open popup never takes the highlight.
+        data-ask-highlight={askRank !== null ? 'true' : undefined}
         // Which window is open was a CSS-only signal — a gold border tint and two recoloured words
         // — so a screen-reader user could not tell which one they were in, and neither could anyone
         // who cannot resolve the tint.
@@ -1478,7 +1525,7 @@ export default function WindowFirstHeatStrip({
   // matches no visible text, announced ahead of buttons that each name themselves. The grouping
   // the matrix needs is visual, and the buttons carry the words.
   return (
-    <section data-testid="wf-heat-strip" className="wf-hstrip-block">
+    <section ref={stripRef} data-testid="wf-heat-strip" className="wf-hstrip-block">
       <div data-testid="wf-heat-head" className="wf-hstrip-h">
         {/* ⚠️ A HEADING, not a span. It is a section heading by every visual convention — 9.5px mono,
             600, letter-spaced, uppercase, beside a full-width hairline — and it was marked up as a
@@ -1764,6 +1811,7 @@ WindowFirstHeatStrip.propTypes = {
   /** The served hot topics, for the scope filter. Absent means nothing is scope-filtered. */
   hotTopics: PropTypes.array,
   openKeys: PropTypes.instanceOf(Set),
+  highlightKeys: PropTypes.instanceOf(Map),
   todayStr: PropTypes.string,
   runAge: PropTypes.string,
   onOpenWindow: PropTypes.func,

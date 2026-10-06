@@ -7,6 +7,9 @@ import AskInputRow from './AskInputRow.jsx';
 import { useAsk } from '../../context/AskContext.jsx';
 import useAskRequestContext from '../../hooks/useAskRequestContext.js';
 
+/** The sheet's accessible name — also how the shell recognises it among the dialogs outside its root. */
+export const ASK_SHEET_LABEL = 'Ask PhotoCast';
+
 /**
  * Ask PhotoCast's sheet — the answer surface below 1024px (plan §2.6): a {@link BottomSheet} in its
  * `tall` size (the visual viewport minus 24px) over the app's shared scrim, holding the conversation
@@ -41,10 +44,14 @@ import useAskRequestContext from '../../hooks/useAskRequestContext.js';
  *        question is sent with
  * @param {string} props.viewLabel the view chip's text, e.g. "Plan · all regions"
  * @param {function(object): React.ReactNode} [props.pickActions] controls for each pick card's row
+ * @param {{openInPlan: ?function(object): void, setPostcode: ?function(): void}} [props.planActions]
+ *        the doors out of "Plan this" (F5): this sheet is modal, so the shell's {@code openInPlan} closes it
+ *        before it opens the location sheet
  * @param {function(): ?Element} [props.restoreFallback] where focus goes when the opener cannot take it
  */
 export default function AskSheet({
-  open, onClose, view, viewLabel, pickActions = undefined, restoreFallback = undefined,
+  open, onClose, view, viewLabel, pickActions = undefined, planActions = undefined,
+  restoreFallback = undefined,
 }) {
   const ask = useAsk();
   const inputRef = useRef(null);
@@ -61,7 +68,7 @@ export default function AskSheet({
       size="tall"
       closeOnEscape
       reserveCloseStrip
-      label="Ask PhotoCast"
+      label={ASK_SHEET_LABEL}
       restoreFallback={restoreFallback}
       footer={<AskInputRow inputRef={inputRef} view={view} viewLabel={viewLabel} />}
     >
@@ -73,6 +80,7 @@ export default function AskSheet({
         windowId={requestContext.windowId}
         regionIds={requestContext.regionIds}
         pickActions={pickActions}
+        planActions={planActions}
       />
       <AskClearAnswer inputRef={inputRef} />
     </BottomSheet>
@@ -85,5 +93,6 @@ AskSheet.propTypes = {
   view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
   viewLabel: PropTypes.string.isRequired,
   pickActions: PropTypes.func,
+  planActions: PropTypes.shape({ openInPlan: PropTypes.func, setPostcode: PropTypes.func }),
   restoreFallback: PropTypes.func,
 };

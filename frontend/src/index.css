@@ -12052,3 +12052,226 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   font-family: var(--font-mono);
   font-size: 11px;
 }
+
+/* ── PLAN THIS, AND THE PLAN-CARD HIGHLIGHT (F5, `docs/engineering/ask-photocast-plan.md` §2.8) ────────
+   Token mapping for this block (the F1a block's own rule — the design's bare `--panel`/`--ink-3` do not
+   exist in this app): `--panel`/`--border` → `--color-plex-panel`/`--color-plex-border`; `--ink-2`/`--ink-3`
+   → `--color-plex-text-secondary` (the muted token measures ~3.5:1 and every line here is information);
+   `--home` → `--color-home`; `#1B1411` → `--color-plex-bg`; `#EBD9A8` → `--color-segment-active` (the same
+   hex); `#F9F1E2` → `--color-plex-gold-light`. The one literal left is the gold at an alpha
+   (`rgba(201,162,75,…)` is `--color-home` at .5/.6/.7/.18/.08): no alpha token exists and the F1a block
+   above writes the same literal for the selected pick card. Newsreader is `--font-serif`. */
+
+/* "Plan this ›" — the card row's button: gold edge at .5, the primary ink for its text (`.pk .act button`). */
+.wf-ask-act-plan {
+  border-color: rgba(201, 162, 75, .5);
+  color: var(--color-segment-active);
+}
+.wf-ask-act-plan:hover {
+  color: var(--color-plex-gold-light);
+  border-color: rgba(201, 162, 75, .8);
+}
+
+/* The plan view (`planView()` in the mocks: `.bk`, `.plh`, `.figs`, `.why2`, `.acts`). */
+.wf-ask-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.wf-ask-plan:focus { outline: none; }
+.wf-ask-bk {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.wf-ask-bk:hover { color: var(--color-plex-text); }
+.wf-ask-bk:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-ask-plh { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.wf-ask-plh-rk {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-home);
+  color: var(--color-plex-bg);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+}
+.wf-ask-plh-main { min-width: 0; flex: 1; }
+.wf-ask-plh-nm {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.wf-ask-plh-main .wf-ask-l2 { margin-top: 4px; gap: 8px; }
+/* The verdict word sits in the sub-line at the pick card's own type (it is `.wf-ask-sc`), not pushed right. */
+.wf-ask-plh-sc { margin-left: 0; }
+/* The 2×2: one-pixel rules between cells, drawn by the grid's own gap over the border colour. */
+.wf-ask-figs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 0;
+  background: var(--color-plex-border);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.wf-ask-fig {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--color-plex-panel);
+}
+.wf-ask-fig dt {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-fig dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 0;
+}
+.wf-ask-fig dd[data-tier="match"] { color: var(--color-badge-tide); }
+.wf-ask-fig dd[data-tier="miss"] { color: var(--color-plex-text-secondary); }
+/* Golden and blue hour are two ranges, one per line, smaller so a range fits the cell at 320px; the range
+   itself never breaks (the location sheet's own rule: a break inside it prints half a window). */
+.wf-ask-fig dd[data-multi="true"] {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  font-size: 12.5px;
+}
+.wf-ask-fig-w { display: block; }
+/* The note is the slot's own served reading, in the card's `why` voice. */
+.wf-ask-why2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+/* The tick line's own nudge, as a quiet text link under the figures it explains. */
+.wf-ask-nudge {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  color: var(--color-segment-active);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.wf-ask-nudge:hover { color: var(--color-plex-gold-light); }
+.wf-ask-nudge:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+/* "Open in Plan ›" — the ONLY action (the primary "Add to Coming up" was removed), so it takes the primary
+   style (`.acts .pri`): a lone secondary button reads as disabled. */
+.wf-ask-acts { display: flex; gap: 6px; }
+.wf-ask-open {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 162, 75, .6);
+  background: rgba(201, 162, 75, .18);
+  color: var(--color-segment-active);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wf-ask-open:hover { color: var(--color-plex-gold-light); border-color: rgba(201, 162, 75, .85); }
+.wf-ask-open:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+
+/* The highlight on the Plan card Ask's selected pick lands on (the spec's `border rgba(201,162,75,.7)`,
+   `bg rgba(201,162,75,.08)`). The open card's own look is a gold border at .62 and a .11 wash, so the gold
+   alone would read as "the open one": this carries a SECOND pixel of the same gold (inset, so it moves
+   nothing — the pick card's own selected rule does the same) AND the pick's rank circle, which is what
+   names it. The class is doubled so the rule is (0,3,1) at rest and (0,4,1) on hover: that ties the most
+   specific competitor, `button.wf-hc.best.on:hover`, and wins it by coming later — so the highlight
+   survives a card that is also a pick or also open, and the two attributes then sit on one card. */
+button.wf-hc.wf-hc[data-ask-highlight='true'],
+button.wf-hc.wf-hc[data-ask-highlight='true']:hover {
+  border-color: rgba(201, 162, 75, .7);
+  background: linear-gradient(rgba(201, 162, 75, .08), rgba(201, 162, 75, .08)), var(--color-plex-panel);
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 75, .7);
+}
+@media (forced-colors: active) {
+  button.wf-hc.wf-hc[data-ask-highlight='true'] {
+    border-color: Highlight;
+    outline: 2px solid Highlight;
+    outline-offset: -3px;
+  }
+  /* The mark above is an inset outline, which would swallow the card's own focus ring (same colour, same
+     place): focus keeps its outset ring, which is what tells the two apart. */
+  button.wf-hc.wf-hc[data-ask-highlight='true']:focus-visible {
+    outline-offset: 2px;
+  }
+}
+/* Forced colours strip the grid's background (its 1px rules) and the rank circles' fill: give the cells and
+   the circles an edge the system's own colours draw. */
+@media (forced-colors: active) {
+  .wf-ask-fig {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  .wf-ask-plh-rk,
+  .wf-hc-ask {
+    border: 1px solid CanvasText;
+  }
+}
+/* The rank circle: in the top row's flow beside the sun word, so it cannot collide with the word, the rail
+   label above the first column or the pick legend, and is clipped by nothing. Not interactive; the row is
+   `aria-hidden` and the card's sentence says "Ask pick N". */
+.wf-hc-ask {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-home);
+  color: var(--color-plex-bg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}

@@ -1,8 +1,12 @@
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
 
-/** The phases with something on screen the reader may want to end: not empty, and not still busy. */
-const SETTLED_PHASES = new Set(['answer', 'cant', 'error']);
+/**
+ * The phases with something on screen the reader may want to end: not empty, and not still busy.
+ * {@code plan} is one (F5): a reader looking at one pick's plan can end the whole conversation from
+ * there, as the phone peek's ✕ can, rather than having to step back to the answer first.
+ */
+const SETTLED_PHASES = new Set(['answer', 'plan', 'cant', 'error']);
 
 /**
  * "Clear answer" — the one explicit way to END a conversation (the sheet and the dock both CLOSE
