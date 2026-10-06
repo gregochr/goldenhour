@@ -47,6 +47,19 @@ public interface JobRunRepository extends JpaRepository<JobRunEntity, Long> {
             RunType runType, LocalDateTime since);
 
     /**
+     * Counts the runs of a type, started either by a person or by the scheduler, at or after a
+     * moment. Ask's Ready precompute counts its scheduled runs since UK midnight against its
+     * per-day ceiling: the count is the durable record, so a restart cannot reset the ceiling.
+     *
+     * @param runType           the run type
+     * @param triggeredManually true for runs a person started, false for scheduled ones
+     * @param since             the earliest start, inclusive (UTC)
+     * @return how many such runs there are
+     */
+    long countByRunTypeAndTriggeredManuallyAndStartedAtGreaterThanEqual(RunType runType,
+            Boolean triggeredManually, LocalDateTime since);
+
+    /**
      * Adds to a run's cost without reading or rewriting anything else on the row.
      *
      * <p>{@code JobRunService.completeRun} sums a run's cost once, at completion, and the Ask run is

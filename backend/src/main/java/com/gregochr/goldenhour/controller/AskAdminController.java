@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.service.ask.AskOutcome;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskQuestion;
 import com.gregochr.goldenhour.service.ask.AskQuestionSanitiser;
+import com.gregochr.goldenhour.service.ask.AskReadyService;
 import com.gregochr.goldenhour.service.ask.AskRun;
 import com.gregochr.goldenhour.service.ask.AskRunOptions;
 import com.gregochr.goldenhour.service.ask.AskSnapshot;
@@ -35,8 +36,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Admin-only Ask PhotoCast endpoints (plan §2.9). Today that is the dry-run; B3 adds the Ready
- * precompute and B5 the metrics endpoint.
+ * Admin-only Ask PhotoCast endpoints (plan §2.9): the dry-run and the Ready precompute; B5 adds the
+ * metrics endpoint.
  *
  * <p>Every endpoint answers 404 while {@code photocast.ask.enabled} is false, so a switched-off
  * feature has no surface (the role check still comes first: a non-admin is 403 and an anonymous
@@ -56,6 +57,7 @@ public class AskAdminController {
     private final RegionRepository regionRepository;
     private final UserSettingsService settingsService;
     private final DriveTimeResolver driveTimeResolver;
+    private final AskReadyService readyService;
 
     /**
      * Constructs the controller.
@@ -66,16 +68,19 @@ public class AskAdminController {
      * @param regionRepository  validates the question's region ids
      * @param settingsService   resolves the calling admin's user id
      * @param driveTimeResolver whether the calling admin has stored drive times
+     * @param readyService      the Ready precompute
      */
     public AskAdminController(AskProperties properties, AskEngine engine,
             AskSnapshotBuilder snapshotBuilder, RegionRepository regionRepository,
-            UserSettingsService settingsService, DriveTimeResolver driveTimeResolver) {
+            UserSettingsService settingsService, DriveTimeResolver driveTimeResolver,
+            AskReadyService readyService) {
         this.properties = properties;
         this.engine = engine;
         this.snapshotBuilder = snapshotBuilder;
         this.regionRepository = regionRepository;
         this.settingsService = settingsService;
         this.driveTimeResolver = driveTimeResolver;
+        this.readyService = readyService;
     }
 
     /**
@@ -151,6 +156,45 @@ public class AskAdminController {
         return ResponseEntity.ok(new DryRunResponse(
                 properties.isStub() ? "stub" : "claude", outcome.status(),
                 outcome.answer(), outcome.personal(), outcome.turns(), run.reason(), run.trace()));
+    }
+
+    /**
+     * The Ready precompute's report.
+     *
+     * @param written the answers stored
+     * @param skipped the questions not run (unavailable for a scope, nothing to show, or left when
+     *                the 5-minute deadline came)
+     * @param failed  the questions that failed and stored nothing
+     */
+    public record PrecomputeResponse(int written, int skipped, int failed) {
+    }
+
+    /**
+     * Runs the Ready precompute now, on the calling thread, and reports what it did: the owner's
+     * lever after a manual briefing rebuild (which does not trigger it) and the only way to get
+     * Ready answers locally. It is the same precompute the pipeline dispatches after each cycle —
+     * the same 5-minute deadline, the same refusals — except that it is not counted against, or
+     * stopped by, {@code photocast.ask.ready.max-cycles-per-day}: pressing it is a person's
+     * decision.
+     *
+     * <p>⚠️ With the Claude engine this spends real money (one run per scope and question, billed to
+     * an {@code ASK_READY} job run); with {@code photocast.ask.stub=true} it spends nothing.
+     *
+     * @return 200 with {@code {written, skipped, failed}}; 404 when Ask is off; 409 with
+     *         {@code {error}} when the precompute was refused as a whole (no fresh briefing, a
+     *         simulation is active, or another precompute is running)
+     */
+    @PostMapping("/ready/precompute")
+    public ResponseEntity<?> precompute() {
+        if (!properties.isEnabled()) {
+            return ResponseEntity.notFound().build();
+        }
+        AskReadyService.Result result = readyService.precomputeOnDemand();
+        if (result.wasRefused()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", result.refusal()));
+        }
+        return ResponseEntity.ok(new PrecomputeResponse(result.written(), result.skipped(),
+                result.failed()));
     }
 
     /** The region ids to ask about when every one is a distinct, enabled region; empty otherwise. */

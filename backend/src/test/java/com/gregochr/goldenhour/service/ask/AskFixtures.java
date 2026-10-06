@@ -158,16 +158,22 @@ final class AskFixtures {
 
     static AskSnapshot snapshotOf(DailyBriefingResponse briefing,
             List<com.gregochr.goldenhour.model.comingup.ComingUpEntry> almanac) {
+        return snapshotAt(NOW, briefing, almanac);
+    }
+
+    /** As {@link #snapshotOf} with the clock, and the solar-event "now", at {@code now} (UTC). */
+    static AskSnapshot snapshotAt(LocalDateTime now, DailyBriefingResponse briefing,
+            List<com.gregochr.goldenhour.model.comingup.ComingUpEntry> almanac) {
         BriefingService briefingService = Mockito.mock(BriefingService.class);
         TravelDayService travelDays = Mockito.mock(TravelDayService.class);
         AlmanacService almanacService = Mockito.mock(AlmanacService.class);
         SolarEventFreshness freshness = Mockito.mock(SolarEventFreshness.class);
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
-        when(freshness.now()).thenReturn(NOW);
+        when(freshness.now()).thenReturn(now);
         when(almanacService.getFeed(AlmanacService.DEFAULT_DAYS))
                 .thenReturn(new ComingUpResponse(TODAY, null, null, List.of(), new ArrayList<>(almanac)));
         return new AskSnapshotBuilder(briefingService, travelDays, almanacService, freshness,
-                clockAt(NOW)).build().orElseThrow();
+                clockAt(now)).build().orElseThrow();
     }
 
     static Instant instant(LocalDateTime utc) {
