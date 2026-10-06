@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.service.ask.AskRefusal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -15,6 +16,7 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 /**
@@ -46,6 +48,19 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ErrorResponse handleNotFound(NoSuchElementException ex) {
         return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Renders an Ask refusal in the one shape every Ask error shares, {@code {"error","code"}}, with
+     * the status its code fixes (plan §2.9's table). The only place an {@link AskRefusal} becomes a
+     * response.
+     *
+     * @param ex the refusal
+     * @return the status and body its code defines
+     */
+    @ExceptionHandler(AskRefusal.class)
+    public ResponseEntity<Map<String, String>> handleAskRefusal(AskRefusal ex) {
+        return ResponseEntity.status(ex.code().status()).body(ex.body());
     }
 
     /**

@@ -103,4 +103,145 @@ class AskQuestionSanitiserTest {
     void hugeInputWithShortText() {
         assertThat(clean("x" + " ".repeat(100_000))).isEqualTo("x");
     }
+
+    // -- the typed (strict) pass ---------------------------------------------------------------
+
+    private static AskQuestionSanitiser.Result typed(String raw) {
+        return AskQuestionSanitiser.sanitiseTyped(raw);
+    }
+
+    private static String typedClean(String raw) {
+        AskQuestionSanitiser.Result result = typed(raw);
+        assertThat(result.ok()).as(String.valueOf(result.error())).isTrue();
+        return result.sanitised();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Where's the best spot? (Tonight!)", "Whitby & Saltburn: sunrise/sunset, 5-6 stars.",
+        "What’s on at Café Rouge's", "Zürich naïve façade", "Ångström fjörd", "Best spot 2 days from now"})
+    @DisplayName("letters (accented too), digits, spaces and the allow-listed punctuation pass untouched")
+    void typedAllowList(String question) {
+        assertThat(typedClean(question)).isEqualTo(question);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"best​spot", "best‍spot", "best‮spot", "﻿best spot",
+        "best\u0000spot", "best\u0007spot", "best\u007Fspot", "best\u0085spot", "best 🌅 spot",
+        "best spot 😀", "best spot #1", "best spot @home", "best spot <b>", "best spot; drop",
+        "best \"spot\"", "best_spot", "best spot +1", "best spot = 5", "best spot – ok", "x ́",
+        "best spot [now]", "best spot {now}", "best spot %", "best spot \\ now", "best spot |", "best spot ~",
+        "best spot £", "best spot \uD800"})
+    @DisplayName("zero-width, bidi, control, emoji, symbol and combining characters are refused, never stripped")
+    void typedRefuses(String question) {
+        AskQuestionSanitiser.Result result = typed("Is " + question);
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.sanitised()).isNull();
+        assertThat(result.normalised()).isNull();
+        assertThat(result.error()).contains("letters, numbers and ordinary punctuation");
+    }
+
+    @Test
+    @DisplayName("an accent typed as letter + combining mark is composed first, so it is the same visible letter")
+    void typedComposesAccents() {
+        assertThat(typedClean("Café spot")).isEqualTo("Café spot");
+        assertThat(typed("Café spot").normalised()).isEqualTo(typed("Café spot").normalised());
+    }
+
+    @Test
+    @DisplayName("whitespace (tab, newline, no-break space) still collapses to one space and trims, as before")
+    void typedCollapsesWhitespace() {
+        assertThat(typedClean("  best \t\n spot  tonight \r\n")).isEqualTo("best spot tonight");
+    }
+
+    @Test
+    @DisplayName("200 code points pass, 201 do not; supplementary letters count once each")
+    void typedLengthBoundary() {
+        assertThat(typed("a".repeat(199)).ok()).isTrue();
+        assertThat(typed("a".repeat(200)).ok()).isTrue();
+        assertThat(typed("a".repeat(201)).ok()).isFalse();
+        assertThat(typed("a".repeat(201)).error()).contains("at most 200 characters");
+        String deseret = "𐐀";
+        assertThat(typed(deseret.repeat(200)).ok()).isTrue();
+        assertThat(typed(deseret.repeat(201)).ok()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a raw input over the cap is refused before anything else, even when it would collapse short")
+    void typedRawCap() {
+        assertThat(typed("x" + " ".repeat(AskQuestionSanitiser.MAX_RAW_LENGTH)).ok()).isFalse();
+        assertThat(typed("x" + " ".repeat(AskQuestionSanitiser.MAX_RAW_LENGTH - 1)).ok()).isTrue();
+        assertThat(typed("x".repeat(5_000_000)).ok()).isFalse();
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   ", "\t\n", "?", "?!", "...", "()", "'", "’ ’"})
+    @DisplayName("blank input, and input with no letter or digit in it, is refused")
+    void typedRefusesBlankAndWordless(String raw) {
+        assertThat(typed(raw).ok()).isFalse();
+        assertThat(typed(raw).error()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("the lenient pass is unchanged: it still strips invisible characters the strict pass refuses")
+    void lenientPassUnchanged() {
+        assertThat(clean("be​st sp\u0000ot 🌅")).isEqualTo("best spot 🌅");
+        assertThat(AskQuestionSanitiser.sanitise("best").normalised()).isNull();
+    }
+
+    @Test
+    @DisplayName("the normalised form is lower case, punctuation-free, apostrophe-free and filler-free")
+    void normalisedForm() {
+        assertThat(typed("Please, could you tell me the Best Spot tonight?!").normalised())
+                .isEqualTo("best spot tonight");
+        assertThat(typed("What’s the best spot?").normalised()).isEqualTo(typed("what's the best spot").normalised())
+                .isEqualTo("whats best spot");
+        assertThat(typed("Whitby/Saltburn - sunrise (5-6)").normalised()).isEqualTo("whitby saltburn sunrise 5 6");
+        assertThat(typed("BEST   spot").normalised()).isEqualTo("best spot");
+    }
+
+    @Test
+    @DisplayName("normalising never merges two different questions: day, place, negation and 'my' survive")
+    void normalisedKeepsMeaning() {
+        assertThat(typed("best spot tonight").normalised()).isNotEqualTo(typed("best spot tomorrow").normalised());
+        assertThat(typed("is there snow").normalised()).isNotEqualTo(typed("is there no snow").normalised());
+        assertThat(typed("best spot near me").normalised()).isNotEqualTo(typed("best spot near my home").normalised());
+        assertThat(typed("best spot at Whitby").normalised()).isNotEqualTo(typed("best spot at Bamburgh").normalised());
+        assertThat(typed("will I see aurora").normalised()).contains("will").contains("see");
+        java.util.List<String> kept = java.util.List.of("tonight", "tomorrow", "not", "no", "my", "near", "will",
+                "should", "weekend", "sunrise", "sunset", "high", "low", "tide");
+        for (String word : kept) {
+            assertThat(AskQuestionSanitiser.FILLER_WORDS).as(word).doesNotContain(word);
+        }
+    }
+
+    @Test
+    @DisplayName("a question of nothing but filler keeps its words rather than normalising to nothing")
+    void normalisedAllFiller() {
+        assertThat(typed("Please, tell me!").normalised()).isEqualTo("please tell me");
+        assertThat(AskQuestionSanitiser.normalise("the")).isEqualTo("the");
+        assertThat(AskQuestionSanitiser.normalise("??")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the filler list is one fixed set, lower case, single words only")
+    void fillerList() {
+        assertThat(AskQuestionSanitiser.FILLER_WORDS).isNotEmpty().allSatisfy(word -> {
+            assertThat(word).isEqualTo(word.toLowerCase(java.util.Locale.ROOT));
+            assertThat(word).doesNotContain(" ");
+        });
+    }
+
+    @Test
+    @DisplayName("lower-casing is by root locale: a Turkish default locale does not break the key")
+    void normalisedRootLocale() {
+        java.util.Locale original = java.util.Locale.getDefault();
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr"));
+            assertThat(typed("BEST SPOT IN").normalised()).isEqualTo("best spot in");
+        } finally {
+            java.util.Locale.setDefault(original);
+        }
+    }
 }

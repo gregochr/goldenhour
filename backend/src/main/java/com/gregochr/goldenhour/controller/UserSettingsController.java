@@ -13,6 +13,8 @@ import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.service.ReachService;
 import com.gregochr.goldenhour.service.TodaysLightService;
 import com.gregochr.goldenhour.service.UserSettingsService;
+import com.gregochr.goldenhour.service.ask.AskService;
+import com.gregochr.goldenhour.service.ask.AskSettingsResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -38,6 +40,7 @@ public class UserSettingsController {
     private final DriveTimeResolver driveTimeResolver;
     private final ReachService reachService;
     private final TodaysLightService todaysLightService;
+    private final AskService askService;
 
     /**
      * Constructs a {@code UserSettingsController}.
@@ -46,15 +49,32 @@ public class UserSettingsController {
      * @param driveTimeResolver  the drive time resolver for fetching per-user drive times
      * @param reachService       the caller's reach over the whole roster
      * @param todaysLightService today's light at the caller's home, for the masthead
+     * @param askService         the caller's Ask allowance
      */
     public UserSettingsController(UserSettingsService settingsService,
             DriveTimeResolver driveTimeResolver,
             ReachService reachService,
-            TodaysLightService todaysLightService) {
+            TodaysLightService todaysLightService,
+            AskService askService) {
         this.settingsService = settingsService;
         this.driveTimeResolver = driveTimeResolver;
         this.reachService = reachService;
         this.todaysLightService = todaysLightService;
+        this.askService = askService;
+    }
+
+    /**
+     * The caller's Ask allowance today and whether typed questions are available right now (plan
+     * §2.9), so the empty state can show the count before any question is asked. <b>Always 200</b>:
+     * with Ask switched off it is {@code enabled: false} and zeros. Personal (it names the caller's
+     * own count), so it lives under this prefix, which {@code HttpCachingConfig} never filters.
+     *
+     * @param auth the current authentication context
+     * @return the allowance
+     */
+    @GetMapping("/ask")
+    public AskSettingsResponse getAskSettings(Authentication auth) {
+        return askService.settings(auth);
     }
 
     /**

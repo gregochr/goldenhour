@@ -26,7 +26,7 @@ it (adjacent rows conflict between open PRs).
 | B1 | Read model, tool functions, answer contract, validator (no Claude, no endpoint) | M/L | merged (#1008) |
 | B2a | The engine: Claude tool loop, properties, run types, cost logging | L | merged (#1015) |
 | B2b | Stub engine, local fixture seeder, admin dry-run | M | merged (#1017) |
-| B3 | Ready answers: catalogue, precompute after the pipeline, `GET /api/ask/ready` | L | not started |
+| B3 | Ready answers: catalogue, precompute after the pipeline, `GET /api/ask/ready` | L | merged (#1019) |
 | B4 | `POST /api/ask`: allowance, limits, spend cap, `GET /api/user/settings/ask` | L | not started |
 | B5 | Pre-filter, Ready intent match, typed cache, `ask_log`, metrics endpoint | M/L | not started |
 | F1a | Client core, unmounted: API, hooks, provider, pick model, conversation and cards | M/L | not started |
@@ -813,6 +813,59 @@ allow-list (accented letters pass, zero-width and control characters are 400); r
 cap blocks, alerts once per UK day, and ignores Ready spend; deleting a user with usage rows
 succeeds; the personal path is pinned in `HttpCachingConfigTest`; settings GET is 200 with the flag
 off.
+
+*As built (B4), where the plan was wrong or silent:*
+- **Files:** `AskService` (the ordered steps), `AskController.ask`, `AskRateLimiter`, `AskUsageStore` +
+  `AskUsageEntity`/`AskUsageRepository` + `V166__ask_usage.sql`, `AskSpendGuard`, `AskRequest`/`AskResponse`/
+  `AskSettingsResponse`, `AskRefusal` + `AskErrorCode` (the one error shape), the four B5 seams below,
+  `UserSettingsController` `GET /ask`, `AdminAlertService.sendAskSpendCapAlert`, and `AskReadyService.suggestions`
+  (the `try` choice reuses `serve`'s freshness test through one extracted `freshQuestions`). `AskProperties` already
+  held every §2.9 key; B4 added only `limitFor(role)` and `engineCeilingFor(role)`.
+- **Order as built, and where the snapshot is first built:** user lookup (one indexed read; the token carries only
+  a username) → 1 rate limit → 2 sanitise/validate → 3 pre-filter → **4 snapshot (first built here)** → 5 Ready
+  match → 6 cache → 7 spend cap + accounting latch → 8 reservation → cap asked again → 9 engine → 10 respond,
+  cache, log. Steps 5 and 6 are *before* the cap on purpose: a match or hit costs nothing, so it is served even
+  when typed questions are off for the day.
+- **No briefing is 503 `TYPED_UNAVAILABLE`** (the admin dry-run's 409 has no row in §2.9's table, and 503 is
+  what the client reads as "Ready questions only today").
+- **The three 429s and the 503s are told apart by `code` only.** `RATE_LIMITED` is the limiter; `ALLOWANCE_EXHAUSTED`
+  is `used >= limit` (named first when both ceilings are reached, since it is the one the reader can see);
+  `DAILY_LIMIT` is the never-refunded `engine_calls` ceiling reached with the allowance not. `TYPED_UNAVAILABLE`
+  covers the spend cap, the accounting latch (`AskJobRunService.accountingAvailable()`; `AskRun.accountingUnavailable()`
+  from the engine, which is also refunded), no briefing, and a database that cannot reserve (fail closed);
+  `ENGINE_FAILED` (502) is any other FAILED run, including an engine that throws. Two additions the table lacks:
+  a malformed or wrongly typed body is 400 `INVALID` (a controller-local handler, with a fixed sentence that echoes
+  nothing; flag off still wins with 404), and a token for a deleted user is 401 `UNAUTHENTICATED`.
+- **The cap is a soft ceiling, and the gap is decided, not closed.** The cap check (step 7) and the engine run are
+  separate steps and the spend figure is memoised for up to 30 s, so requests that all pass it just before it is
+  crossed can together overshoot it. B4 asks the cap **again after the reservation and before the engine runs**
+  (a trip refunds `used`; `engine_calls` stays burned, which is harmless because a reached cap stays reached until
+  UK midnight). The residual overshoot is bounded by the 5/min rate limit, the daily allowance, the `ask` bulkhead
+  (4 concurrent calls) and at most 4 turns a conversation, and the engine's own per-call latch closes the
+  unrecorded-cost case. The alert is once per UK day from an in-memory latch (a restart the same day may repeat it).
+- **Sanitiser.** `AskQuestionSanitiser` is still the one place: `sanitise` (lenient, the dry-run) and `sanitiseTyped`
+  (strict) share one pass. The typed pass composes to NFC first, then *refuses* (never strips) control, format
+  (zero-width, bidi, BOM), surrogate, symbol, emoji and combining characters and anything outside letters, digits,
+  space and `? ! ' ’ , . - : / & ( )`; whitespace collapses; 200 code points; a raw input over 1,000 UTF-16 units is
+  refused before anything else; text with no letter or digit is refused. `normalised` (B5's key) is lower-cased by
+  root locale, apostrophes removed, other punctuation a word break, `FILLER_WORDS` dropped (the one list, deliberately
+  conservative: no day, place, negation, modal, `my` or `near`), and a question of only filler keeps its words.
+- **`try`** is filled only for a `cant` (up to two fresh Ready questions of the question's scope: one region → that
+  region, otherwise `ALL`, §6 Q8); an `own` answer carries `[]`. A pre-filter `cant` has no briefing time to name, so
+  its `generatedAt`/`runLabel` are null when no snapshot exists.
+- **`ask_usage`** is `ON DELETE CASCADE` with a unique `(user_id, usage_date)`; find-or-insert is an `existsBy` + a
+  native `INSERT` whose unique violation is read as "the row exists now" (a violation after which the row still does
+  not exist is rethrown), then ONE conditional `UPDATE` takes both counters. All reads are projections, never the
+  entity (open-session-in-view is on). No pruning yet: at most one row per asking user per day. The usage-row
+  cascade is proved on Postgres only by `AskUsageMigrationTest` (pending CI).
+- **B5 seams** are `AskPreFilter`, `AskIntentMatcher`, `AskAnswerCache` and `AskLog` (with its `Entry` and
+  `Outcome`), each with a no-op constant wired by `AskPhaseB5Defaults` as a `@Fallback` bean (not
+  `@ConditionalOnMissingBean`, which depends on scan order outside auto-configuration), so B5 adds a `@Component`
+  and deletes nothing. **Not built:** the in-memory per-user-per-hour count of denied requests (§2.5's INFO line);
+  denials log at DEBUG (rate limit) or WARN (cap) for now — left with the log in B5.
+- **Shared and fixed on the way:** `AskScopes.validRegionIds` (the admin dry-run now uses it too; it used
+  `List.contains(null)`, which throws on an immutable list), and `AdminAlertService.deliver` takes any reference, not
+  only a run id.
 
 ### B5 — Pre-filter, intent match, cache, log — M/L
 **Files:** `AskPreFilter`, `AskIntentMatcher`, `AskAnswerCache`, `AskLogEntity` + repository,

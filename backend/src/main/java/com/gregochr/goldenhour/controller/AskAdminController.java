@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
@@ -14,6 +13,7 @@ import com.gregochr.goldenhour.service.ask.AskQuestionSanitiser;
 import com.gregochr.goldenhour.service.ask.AskReadyService;
 import com.gregochr.goldenhour.service.ask.AskRun;
 import com.gregochr.goldenhour.service.ask.AskRunOptions;
+import com.gregochr.goldenhour.service.ask.AskScopes;
 import com.gregochr.goldenhour.service.ask.AskSnapshot;
 import com.gregochr.goldenhour.service.ask.AskSnapshotBuilder;
 import com.gregochr.goldenhour.service.ask.AskTools;
@@ -27,13 +27,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Admin-only Ask PhotoCast endpoints (plan §2.9): the dry-run and the Ready precompute; B5 adds the
@@ -47,9 +44,6 @@ import java.util.Set;
 @RequestMapping("/api/admin/ask")
 @PreAuthorize("hasRole('ADMIN')")
 public class AskAdminController {
-
-    /** The most region ids a dry-run may name; the roster is a handful, so more is a mistake. */
-    static final int MAX_REGION_IDS = 20;
 
     private final AskProperties properties;
     private final AskEngine engine;
@@ -138,7 +132,7 @@ public class AskAdminController {
         if (!cleaned.ok()) {
             return badRequest(cleaned.error());
         }
-        Optional<List<Long>> regionIds = validRegionIds(request.regionIds());
+        Optional<List<Long>> regionIds = AskScopes.validRegionIds(regionRepository, request.regionIds());
         if (regionIds.isEmpty()) {
             return badRequest("Unknown, disabled or too many region ids.");
         }
@@ -195,21 +189,6 @@ public class AskAdminController {
         }
         return ResponseEntity.ok(new PrecomputeResponse(result.written(), result.skipped(),
                 result.failed()));
-    }
-
-    /** The region ids to ask about when every one is a distinct, enabled region; empty otherwise. */
-    private Optional<List<Long>> validRegionIds(List<Long> requested) {
-        if (requested == null || requested.isEmpty()) {
-            return Optional.of(List.of());
-        }
-        if (requested.size() > MAX_REGION_IDS || requested.contains(null)) {
-            return Optional.empty();
-        }
-        Set<Long> ids = new LinkedHashSet<>(requested);
-        List<RegionEntity> found = regionRepository.findAllById(ids);
-        boolean allEnabled = found.size() == ids.size()
-                && found.stream().allMatch(RegionEntity::isEnabled);
-        return allEnabled ? Optional.of(new ArrayList<>(ids)) : Optional.empty();
     }
 
     /** The calling admin as a conversation's asker: their id, and whether they have drive times. */

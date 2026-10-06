@@ -62,6 +62,8 @@ public class HttpCachingConfig {
      *   <li>{@code /api/user/settings/map-colours} — write-only (PUT), so it is excluded from this
      *       set by construction, but it lives under the same personal-data prefix and is pinned
      *       alongside its siblings so a later GET added here cannot be missed.</li>
+     *   <li>{@code /api/user/settings/ask} — the caller's own Ask allowance today; and the typed
+     *       {@code POST /api/ask}, which is a write and is skipped by the GET-only rule.</li>
      * </ul>
      * Admin-only and interaction-only reads are omitted too: they pay the response-buffering cost
      * with no repeat-fetch payoff, and every extra entry widens the surface that has to stay in

@@ -17,6 +17,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -182,6 +183,42 @@ public class AdminAlertService {
     }
 
     /**
+     * Sends the "Ask spend cap reached" alert: today's typed Ask questions spent as much as
+     * {@code photocast.ask.daily-spend-cap-usd}, so typed questions are off for everyone until UK
+     * midnight (Ready answers still work). The caller sends it at most once per UK day.
+     *
+     * <p>Same channel, recipients and best-effort rules as {@link #sendPipelineDegradedAlert}:
+     * asynchronous, never throws, silent when alerts are disabled or no mail sender or admin address
+     * exists.
+     *
+     * @param day              the UK civil day the cap was reached on
+     * @param spentMicroDollars today's typed spend, in micro-dollars
+     * @param capMicroDollars   the cap, in micro-dollars
+     */
+    @Async
+    public void sendAskSpendCapAlert(LocalDate day, long spentMicroDollars, long capMicroDollars) {
+        if (!enabled) {
+            LOG.debug("notifications.admin-alerts.enabled=false — skipping ask-spend-cap admin alert ({})",
+                    day);
+            return;
+        }
+        Supplier<String> subject = () -> "PhotoCast: Ask spend cap reached on " + day;
+        deliver(subject, () -> buildAskSpendCapBody(day, spentMicroDollars, capMicroDollars),
+                "ask-spend-cap", day);
+    }
+
+    private static String buildAskSpendCapBody(LocalDate day, long spent, long cap) {
+        return "Typed Ask PhotoCast questions have spent $" + dollars(spent) + " on " + day
+                + ", reaching the daily cap of $" + dollars(cap) + " (photocast.ask.daily-spend-cap-usd).\n\n"
+                + "Typed questions are switched off for every reader until UK midnight. Ready answers "
+                + "(precomputed, free to ask) are unaffected.\n";
+    }
+
+    private static String dollars(long microDollars) {
+        return String.format(java.util.Locale.ROOT, "%.2f", microDollars / 1_000_000.0);
+    }
+
+    /**
      * One place disabled by the auto-disable rule, as named in the alert.
      *
      * @param name   the location name
@@ -198,11 +235,11 @@ public class AdminAlertService {
      * to one recipient — every public method here promises it never throws into the caller.
      */
     private void deliver(Supplier<String> subjectSupplier, Supplier<String> bodySupplier,
-            String what, Long runId) {
+            String what, Object reference) {
         try {
             if (mailSender == null) {
-                LOG.debug("Mail sender not configured — skipping {} admin alert (runId={})",
-                        what, runId);
+                LOG.debug("Mail sender not configured — skipping {} admin alert ({})",
+                        what, reference);
                 return;
             }
             List<String> recipients = appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)
@@ -211,8 +248,8 @@ public class AdminAlertService {
                     .filter(email -> email != null && !email.isBlank())
                     .toList();
             if (recipients.isEmpty()) {
-                LOG.warn("Pipeline run {} raised a {} alert, but no enabled ADMIN account has an "
-                        + "email address — no alert sent", runId, what);
+                LOG.warn("{} alert ({}) raised, but no enabled ADMIN account has an "
+                        + "email address — no alert sent", what, reference);
                 return;
             }
 
@@ -221,18 +258,18 @@ public class AdminAlertService {
             for (String recipient : recipients) {
                 try {
                     sendPlainTextEmail(recipient, subject, body);
-                    LOG.info("{} alert sent to {} for run {}", what,
-                            LogSanitizer.sanitize(recipient), runId);
+                    LOG.info("{} alert sent to {} for {}", what,
+                            LogSanitizer.sanitize(recipient), reference);
                 } catch (Exception ex) {
                     // Best-effort: one admin's mailbox rejecting the message must not stop the
                     // others from being told, and must never propagate into the caller.
-                    LOG.warn("Failed to send {} alert to {} for run {}: {}", what,
-                            LogSanitizer.sanitize(recipient), runId,
+                    LOG.warn("Failed to send {} alert to {} for {}: {}", what,
+                            LogSanitizer.sanitize(recipient), reference,
                             LogSanitizer.sanitize(ex.getMessage()));
                 }
             }
         } catch (Exception ex) {
-            LOG.warn("{} admin alert failed for run {}: {}", what, runId,
+            LOG.warn("{} admin alert failed for {}: {}", what, reference,
                     LogSanitizer.sanitize(ex.getMessage()), ex);
         }
     }

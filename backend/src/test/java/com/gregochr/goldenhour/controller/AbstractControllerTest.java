@@ -240,6 +240,9 @@ abstract class AbstractControllerTest {
     protected UserSettingsService settingsService;
 
     @MockitoBean
+    protected com.gregochr.goldenhour.service.ask.AskService askService;
+
+    @MockitoBean
     protected com.gregochr.goldenhour.service.CloseToHomeService closeToHomeService;
 
 

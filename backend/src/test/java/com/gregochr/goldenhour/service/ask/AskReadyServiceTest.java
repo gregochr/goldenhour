@@ -774,6 +774,33 @@ class AskReadyServiceTest {
     }
 
     @Test
+    @DisplayName("suggestions are the first fresh questions in catalogue order, at most the limit, and a stale "
+            + "one is never suggested")
+    void suggestionsAreFreshAndBounded() {
+        LocalDateTime morning = LocalDateTime.of(2026, 10, 9, 5, 2, 11);
+        when(store.findScope("ALL")).thenReturn(List.of(aurora(morning), tonight(morning),
+                saturdayBest(morning, 4)));
+
+        // The weekend answer was stored at 4★ and the live rating differs: stale, so it is not suggested.
+        assertThat(service.suggestions("ALL", Set.of(), snapshot, 2)).extracting(
+                AskReadyResponse.Suggestion::id).containsExactly("BEST_NEXT", "RARE_EVENTS");
+        assertThat(service.suggestions("ALL", Set.of(), snapshot, 1)).extracting(
+                AskReadyResponse.Suggestion::id).containsExactly("BEST_NEXT");
+        assertThat(service.suggestions("ALL", Set.of(), snapshot, 0)).isEmpty();
+        assertThat(service.suggestions("ALL", Set.of(), snapshot, -1)).isEmpty();
+        assertThat(service.suggestions("ALL", Set.of(), snapshot, 2).getFirst().text())
+                .isEqualTo("Best spot tonight?");
+    }
+
+    @Test
+    @DisplayName("with nothing stored for the scope there is nothing to suggest")
+    void suggestionsWithNothingStored() {
+        when(store.findScope("3")).thenReturn(List.of());
+
+        assertThat(service.suggestions("3", Set.of("Northumberland"), snapshot, 2)).isEmpty();
+    }
+
+    @Test
     @DisplayName("with no briefing a serve is an empty list, not an error")
     void serveWithNoBriefing() {
         when(snapshotBuilder.current()).thenReturn(Optional.empty());
