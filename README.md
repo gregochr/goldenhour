@@ -60,7 +60,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 
 ## Prerequisites
 
-- Java 21
+- Java 25
 - Node 20
 - A GitHub personal access token with `read:packages` scope (for `solar-utils`)
 - An Anthropic API key

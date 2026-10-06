@@ -11,6 +11,7 @@ updates:
       # constructor AppConfig uses to force HTTP/1.1 (virtual-thread pinning on Java 21).
       # Lift this once the app runs on JDK 24+ or ships its own HttpClient — see
       # backend/pom.xml and AppConfig#anthropicClient.
+      # The runtime is now Java 25 (JEP 491), so this ignore rule can be lifted in a follow-up.
       - dependency-name: "com.anthropic:anthropic-java"
         versions: [">= 2.63.0"]
 
