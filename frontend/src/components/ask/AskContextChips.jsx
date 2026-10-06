@@ -15,7 +15,9 @@ import PropTypes from 'prop-types';
  * @param {object} props
  * @param {string} props.viewLabel the non-removable view chip's text
  * @param {?string} [props.windowLabel] the removable window chip's text; no chip when null
- * @param {function(): void} [props.onRemoveWindow] called by the window chip's ✕
+ * @param {function(): void} [props.onRemoveWindow] called by the window chip's ✕. Absent, the chip is a
+ *        plain label: that is how it reads above an answer, where it says what was SENT and removing
+ *        it would change nothing
  */
 export default function AskContextChips({ viewLabel, windowLabel = null, onRemoveWindow }) {
   return (
@@ -24,15 +26,17 @@ export default function AskContextChips({ viewLabel, windowLabel = null, onRemov
       {windowLabel && (
         <span className="wf-ask-cx" data-testid="ask-chip-window">
           {windowLabel}
-          <button
-            type="button"
-            className="wf-ask-cx-x"
-            data-testid="ask-chip-window-remove"
-            aria-label={`Remove ${windowLabel} from the question`}
-            onClick={onRemoveWindow}
-          >
-            <span aria-hidden="true">✕</span>
-          </button>
+          {onRemoveWindow && (
+            <button
+              type="button"
+              className="wf-ask-cx-x"
+              data-testid="ask-chip-window-remove"
+              aria-label={`Remove ${windowLabel} from the question`}
+              onClick={onRemoveWindow}
+            >
+              <span aria-hidden="true">✕</span>
+            </button>
+          )}
         </span>
       )}
       <span className="wf-ask-cx" data-testid="ask-chip-view">{viewLabel}</span>

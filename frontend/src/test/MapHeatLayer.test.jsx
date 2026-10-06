@@ -1226,3 +1226,77 @@ describe('MapHeatLayer — Pins mode (map-tab-v2-plan.md §3 P10, `fieldEnabled`
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
   });
 });
+
+/**
+ * `dim` — Ask PhotoCast's picks step the field's FILL back (F3, plan §1 #14 / §2.7).
+ *
+ * <p>The field, the coastline stroke and the reach rings are painted on ONE canvas, which is why the
+ * dim is a factor inside the draw and not an opacity on the pane: a pane opacity would dim the
+ * coastline too, and a test of "the heat looks dimmer" could not tell the two apart. These tests read
+ * what the draw was handed and what the stroke was painted with.
+ */
+describe('MapHeatLayer — dim (Ask PhotoCast’s picks)', () => {
+  let ctxStub;
+
+  beforeEach(() => {
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue({ __stub: 'land' });
+    landMaskInvalidate.mockReset();
+    ctxStub = makeCanvasCtxStub();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+  });
+
+  it('leaves the fill exactly as it was by default (dim 1)', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92, 5);
+  });
+
+  it('multiplies the fill by dim — and multiplies the zoom fade rather than replacing it', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ dim: 0.36 });
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.36, 5);
+
+    drawTiles.mockClear();
+    currentMap = makeMap({ zoom: 13, panes: markerPanes() });
+    await mount({ dim: 0.36 });
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.35 * 0.36, 5);
+  });
+
+  it('⚠️ leaves the coastline stroke exactly as strong as without it', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    const undimmed = ctxStub.strokeStyle;
+    expect(undimmed).toMatch(/^rgba\(242,231,211,/);
+
+    ctxStub.stroke.mockClear();
+    document.body.innerHTML = '';
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ dim: 0.36 });
+
+    expect(ctxStub.stroke).toHaveBeenCalled();
+    expect(ctxStub.strokeStyle).toBe(undimmed);
+  });
+
+  it('repaints when dim changes — the field is a picture and nothing else would redraw it', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    const view = await mount({ dim: 1 });
+    drawTiles.mockClear();
+
+    await act(async () => { view.rerender(<MapHeatLayer points={POINTS} conf={1} dim={0.36} />); });
+    await act(async () => { runFrames(); });
+
+    expect(drawTiles).toHaveBeenCalled();
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.36, 5);
+  });
+
+  it('draws the field at full strength again once the dim is lifted', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    const view = await mount({ dim: 0.36 });
+
+    await act(async () => { view.rerender(<MapHeatLayer points={POINTS} conf={1} dim={1} />); });
+    await act(async () => { runFrames(); });
+
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92, 5);
+  });
+});

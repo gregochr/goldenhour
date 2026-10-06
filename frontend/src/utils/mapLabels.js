@@ -238,7 +238,9 @@ export function ringLabelItems({
  * @param {number} args.zoom the map's current zoom, for {@link chipBudget}
  * @param {?string} [args.selectedName] the selected location's name — always kept, and always
  *        moved to the FRONT of the returned order, so a caller can rely on
- *        {@code result[0] === selected} whenever a selection exists and survived the filters.
+ *        {@code result[0] === selected} whenever a selection exists and survived the filters —
+ *        unless Ask PhotoCast's picks are on the map (a spot with {@code askPick}), which go before
+ *        everything, the selection included, and are always offered.
  * @returns {Array<object>} the ordered subset of {@code spots} to offer the placer
  */
 export function chipCandidates({
@@ -281,7 +283,17 @@ export function chipCandidates({
     if (selectedSpot) shown.unshift(selectedSpot);
   }
 
-  return shown;
+  // ⚠️ Ask PhotoCast's picks (F3, plan §2.7) go FIRST — ahead of the selected location too, which is
+  // the one thing this function otherwise promises about order — and are all offered, in view or not
+  // and whatever the budget says: the answer named them, and the greedy pass that follows gives an
+  // earlier item its space regardless of what a later one would have preferred. The chosen pick leads
+  // the others, then rank order. A spot is a pick by carrying `askPick`; identity is still the name.
+  const picks = sorted.filter((s) => s.askPick);
+  if (picks.length === 0) return shown;
+  picks.sort((a, b) => (Number(b.askPick.selected === true) - Number(a.askPick.selected === true))
+    || (a.askPick.rank - b.askPick.rank));
+  const pickNames = new Set(picks.map((s) => s.name));
+  return [...picks, ...shown.filter((s) => !pickNames.has(s.name))];
 }
 
 // ── The placement pass ───────────────────────────────────────────────────────────────────────────

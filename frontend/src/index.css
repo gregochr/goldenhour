@@ -6346,6 +6346,141 @@ button.wf-hc.also.on:hover {
   opacity: 0.85;
 }
 
+/* ── Ask PhotoCast's picks on the map (F3, docs/engineering/ask-photocast-plan.md §2.7) ──────────
+   While an answer's picks are showing, every OTHER chip and pin steps back to a quarter of its
+   strength and each pick is a numbered mark. Three things worth knowing before touching this block.
+
+   ⚠️ THE CASCADE. `.wf-maplab-chip[data-tide='miss']` and `.wf-pin[data-tide='miss']` set `opacity:
+   .72` at specificity (0,2,0), and a tie goes to source order. The fade is therefore written at
+   (0,3,0) — `.wf-maplab-layer` in front — so a coastal MISS that is also faded reads .25, not .72, whatever
+   order the two blocks end up in. Hover and a selected location restore a faded mark to full strength
+   (a faded mark you press must not stay a ghost), at (0,4,0) so they beat the fade in their turn.
+   Pinned against this stylesheet by `askMapCascade.test.jsx`.
+
+   The pick's plate is the design's `.lc.pick`: a 1px home-gold ring, and the chosen pick a 2px pale-gold
+   ring (`--color-segment-active`, the design's #EBD9A8) with a 4px halo. The rank circle is the card's
+   own (`.wf-ask-rk`), 17px here. The rating is in the verdict's own TEXT colour — the badge tokens the
+   card's `.wf-ask-sc` uses, which were chosen for contrast on this plate — and never the ramp colour, the
+   rule `.wf-maplab-chip-r` records. */
+.wf-maplab-layer .wf-maplab-chip[data-ask='fade'],
+.wf-maplab-layer .wf-pin[data-ask='fade'] {
+  opacity: 0.25;
+  transition: opacity 0.25s;
+}
+.wf-maplab-layer .wf-maplab-chip[data-ask='fade']:hover,
+.wf-maplab-layer .wf-maplab-chip[data-ask='fade']:focus-visible,
+.wf-maplab-layer .wf-maplab-chip[data-ask='fade'][data-selected='true'],
+.wf-maplab-layer .wf-pin[data-ask='fade']:hover,
+.wf-maplab-layer .wf-pin[data-ask='fade']:focus-visible,
+.wf-maplab-layer .wf-pin[data-ask='fade'][data-selected='true'] {
+  opacity: 1;
+}
+/* A pick paints ABOVE every other chip (they are all `position: absolute` siblings, so a later one paints
+   over an earlier one — and the picks are first in the DOM, in rank order, which is also their tab order):
+   a faded chip over a pick would dim it and take its press. The chosen pick is above the other picks. */
+.wf-maplab-chip.wf-maplab-pick {
+  z-index: 1;
+  gap: 5px;
+  padding: 4px 7px 4px 4px;
+  background: rgba(20, 15, 12, 0.97);
+  box-shadow: inset 0 0 0 1px var(--color-home), 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+/* Hover — and the pick's location being the selected location — keep the ordinary chip's affordance
+   (a 1.5px home ring over a denser plate); written BEFORE the chosen-pick rule so a chosen pick keeps its
+   own ring under the pointer. */
+.wf-maplab-chip.wf-maplab-pick:hover,
+.wf-maplab-chip.wf-maplab-pick[data-selected='true'] {
+  background: rgba(14, 11, 9, 1);
+  box-shadow: inset 0 0 0 1.5px var(--color-home), 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+.wf-maplab-chip.wf-maplab-pick[data-ask-selected='true'] {
+  z-index: 2;
+  box-shadow: inset 0 0 0 2px var(--color-segment-active), 0 0 0 4px rgba(201, 162, 75, 0.25);
+}
+/* The base chip's focus ring sits INSIDE the plate (offset -2px) — exactly where the chosen pick's pale ring
+   is, in nearly the same cream. A pick's goes outside, past the plate. */
+.wf-maplab-chip.wf-maplab-pick:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-maplab-pick-rk {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-home);
+  color: var(--color-plex-bg);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 10px;
+}
+.wf-maplab-chip.wf-maplab-pick .wf-maplab-pick-n {
+  font-size: 11px;
+}
+.wf-maplab-pick-w {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-maplab-pick-r {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 600;
+  padding-left: 5px;
+  border-left: 1px solid var(--color-plex-border-light);
+  color: var(--color-plex-text);
+}
+.wf-maplab-pick-r[data-tier='WORTH_IT'] { color: var(--color-badge-go); }
+.wf-maplab-pick-r[data-tier='MAYBE'] { color: var(--color-badge-maybe); }
+.wf-maplab-pick-r[data-tier='STAND_DOWN'] { color: var(--color-badge-poor); }
+/* The bare rank circle a pick falls back to when the placer cannot fit its chip: the same button, its
+   words not drawn (their accessible name is the button's own aria-label, so nothing is lost to a
+   screen reader). */
+.wf-maplab-chip.wf-maplab-pick[data-compact='true'] {
+  padding: 4px;
+}
+.wf-maplab-pick[data-compact='true'] .wf-maplab-pick-n,
+.wf-maplab-pick[data-compact='true'] .wf-maplab-pick-w,
+.wf-maplab-pick[data-compact='true'] .wf-maplab-pick-r {
+  display: none;
+}
+/* Pins mode: the pick's dot carries a gold ring (the dot's own colour is the pick window's rating), and
+   the chosen one a pale-gold ring with a halo. An outline, because the dot's box-shadow is set inline. */
+.wf-pin[data-ask='pick'] {
+  border-color: var(--color-home);
+}
+.wf-pin[data-ask='pick'][data-ask-selected='true'] {
+  border-color: var(--color-segment-active);
+  outline: 2px solid rgba(201, 162, 75, 0.45);
+  outline-offset: 2px;
+}
+/* ⚠️ The chosen pick's halo is an OUTLINE, and so is the keyboard focus ring: at equal specificity the
+   halo would replace the ring on exactly the pin a keyboard user has just pressed. The ring is one class
+   deeper, opaque, and further out. */
+.wf-maplab-layer .wf-pin[data-ask='pick']:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-maplab-layer .wf-maplab-chip[data-ask='fade'],
+  .wf-maplab-layer .wf-pin[data-ask='fade'] {
+    transition: none;
+  }
+}
+/* Forced colours strip box-shadow, which is all that marks the chosen pick chip; the card's own twin
+   (`.wf-ask-pick`) has an outline for the same reason. */
+@media (forced-colors: active) {
+  .wf-maplab-chip.wf-maplab-pick[data-ask-selected='true'],
+  .wf-pin[data-ask='pick'][data-ask-selected='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
 /* ── The Legend panel (map-tab-v2-plan.md §3 P10, README §8) ───────────────────────────────────
    Bottom-left, opening UPWARD (`bottom: calc(100% + 6px)`, not the window/filters chips' downward
    `top`) because the chip itself sits at the bottom of the frame. `.wf-legend-chip` takes the same
@@ -11501,6 +11636,17 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   gap: 6px;
   padding: 8px 10px 10px;
   border-top: 1px solid var(--color-plex-border);
+}
+/* "Next question" — what the field below will send, when that is not what the answer above was asked in
+   (F3). It carries the row's top rule so the field's own is not drawn twice. */
+.wf-ask-next {
+  flex: none;
+  padding: 8px 10px 0;
+  border-top: 1px solid var(--color-plex-border);
+}
+.wf-ask-next + .wf-ask-in {
+  border-top: 0;
+  padding-top: 6px;
 }
 .wf-ask-in-field {
   flex: 1;

@@ -59,6 +59,9 @@ import {
 } from '../utils/mapDrilldown.js';
 import MapRegionPanel from './map/MapRegionPanel.jsx';
 import { regionGlossEntry } from '../utils/regionGloss.js';
+import AskCameraController from './map/AskCameraController.jsx';
+import { askWindowOf } from '../utils/askMapContext.js';
+import { ASK_HEAT_DIM } from '../utils/askCamera.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
 const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
@@ -320,6 +323,8 @@ const EMPTY_ROWS = [];
  * dodge it.
  */
 const EMPTY_DATES = [];
+/** Stable empty list: no Ask answer on screen. A fresh `[]` per render would defeat `MapView`'s memo. */
+const NO_ASK_PICKS = [];
 
 /**
  * One night's served rows (astro conditions or stored aurora results), keyed by location name —
@@ -1366,8 +1371,28 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * `WindowFirstBriefingContext`, or null at home; the pane passes the context's live value, the
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
+ *
+ * <h2>Ask PhotoCast's six props (`docs/engineering/ask-photocast-plan.md` §2.7, F3) — Map tab only</h2>
+ * The frozen overlay never passes any of them, and with none passed this component draws exactly what
+ * it drew before they existed.
+ * <ul>
+ *   <li>{@code askPicks} — the answer's picks as {@code {rank, locationId, name, date, eventType,
+ *       shortWindow, rating, verdict, label}}, each already joined to the briefing (the card's own
+ *       facts: the rating and verdict are the PICK'S window's, not the active one's). They become the
+ *       numbered chips and pins, and dim everything else, while any is on the map.</li>
+ *   <li>{@code askSelectedRank}, {@code onSelectAskPick} — the chosen card's rank, and the chip's way
+ *       of choosing one.</li>
+ *   <li>{@code askWindow} — {@code {date, eventType, nonce}}: the window a chosen pick names. Its own
+ *       channel and its own effect, NOT {@code planHandoff}: that effect applies the Plan lens (rating
+ *       floor, reach tier, scope) and mounts the breadcrumb for every source that is not
+ *       {@code 'map'}, and is one slot a second writer would clobber. This one sets the window and
+ *       nothing else (no lens, no scope, no camera, no breadcrumb).</li>
+ *   <li>{@code askAnswerId} — the answer on screen, so the camera fits ONCE per answer.</li>
+ *   <li>{@code onAskContext} — called with the facts a question asked from here carries (the region in
+ *       scope, the window on the pill), whenever they change.</li>
+ * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -3520,6 +3545,82 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
 
   /**
+   * What a question asked from this tab is sent with (F3, plan §2.6 "Scope follows the Map's scope,
+   * never the camera") — published up whenever it changes, never read back. A focused region (a
+   * Regions jump that still stands) is that region; otherwise "My area" is the regions the scope pool
+   * holds — and only when the segment narrows anything (a home or an origin exists; with neither it is
+   * the whole catalogue whatever the segment says, the rule {@code jumpResetArea} applies) — and
+   * "Everywhere" is all of them. The window is the pill's, for a SOLAR row the briefing served only.
+   * The CAMERA is never an input: a reader who pans away has not changed what they are asking about.
+   *
+   * <p>Keyed on primitives, not on a fresh facts object, so a render that changed none of them
+   * publishes nothing. The pane turns names into region ids and words (`utils/askMapContext.js`).
+   */
+  /** The last `askWindow` nonce this map applied — see the window-follow effect below. */
+  const appliedAskNonce = useRef(null);
+  const askWindowFacts = askWindowOf(activeMapEvent);
+  const askFocusRegion = jumpFitOverride?.regionName ?? null;
+  const askScoped = Boolean(heat?.hasHome) && heatArea;
+  const askAreaLabel = heat?.areaLabel ?? null;
+  const askAreaKey = regionsInScope.join('\u0000');
+  useEffect(() => {
+    if (!onAskContext) return;
+    onAskContext({
+      focusRegion: askFocusRegion,
+      scoped: askScoped,
+      areaNames: askAreaKey === '' ? [] : askAreaKey.split('\u0000'),
+      areaLabel: askAreaLabel,
+      window: askWindowFacts,
+    });
+    // `askWindowFacts` is a fresh object each render; its three fields are the key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onAskContext, askFocusRegion, askScoped, askAreaKey, askAreaLabel,
+    askWindowFacts?.date, askWindowFacts?.eventType, askWindowFacts?.label]);
+
+  /**
+   * A pick was chosen (a card, or its chip): clear the selection, and follow the pick's window.
+   * Its own channel and its own effect — see the {@code askWindow} note at the top of this component
+   * for why it is not {@code planHandoff} — and it does the smallest thing that is true: the window,
+   * and nothing else. No lens (the rating floor, the reach tier and the scope are the reader's and
+   * stay), no breadcrumb, no camera (`AskCameraController` owns that), and no callout: the selected
+   * location is CLEARED, because a callout left open for another window would contradict the window
+   * the map just moved to.
+   *
+   * <p>The row goes through the same forwarding rule {@code selectEvRow} applies ({@code
+   * isForwardableRow}): a window {@code App} would refuse is not followed, so the map and its parent
+   * can never name two different days. The rating-floor reset {@code selectEvRow} makes on a change of
+   * event kind is deliberately NOT made — a reader moving between two picks has not asked for their
+   * floor back at the default.
+   */
+  useEffect(() => {
+    // ⚠️ Applied ONCE per choice, whatever re-renders around it. `askWindow` goes null while a typed
+    // question is out (the busy conversation holds no answer) and comes back with the SAME nonce when a
+    // refusal puts the earlier answer back — which, keyed on the nonce alone, was a second choice: the
+    // map snapped back to a window the reader had since moved away from and dropped their callout.
+    // And held until the pane is on screen with nothing modal over it (`paneVisible`, the camera's own
+    // gate): a card chosen in the dock on Plan must not move the app's date behind the reader, and one
+    // chosen in the tablet's sheet applies when the sheet closes, with the camera. A choice made while
+    // the pane was never mounted applies on its first mount, which is what "Show on map ›" needs.
+    if (!askWindow || !paneVisible || appliedAskNonce.current === askWindow.nonce) return;
+    appliedAskNonce.current = askWindow.nonce;
+    // The async wrapper is this file's own idiom for `react-hooks/set-state-in-effect` (see the
+    // handoff effects above): the body still runs synchronously in this tick.
+    (async () => {
+      setSelectedLocationName(null);
+      const row = mapEvents[findEvIndex(mapEvents, askWindow.eventType, askWindow.date)];
+      if (!row || !isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight })) return;
+      setEventType(row.eventType);
+      setUserHasOverriddenEvent(true);
+      setLocalNightDate(null);
+      if (row.date !== date) forwardedDateRef.current = row.date;
+      onSelectDate?.(row.date, { isNight: false });
+    })();
+    // The nonce IS the trigger (every other handoff effect here reasons the same way), and the pane
+    // being on screen is the other; the rest are read at the moment it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askWindow?.nonce, paneVisible]);
+
+  /**
    * The peek sheet's "Other windows" button value (map-mobile-sheet-plan.md §3 M2 task 3) — a scan
    * over the SAME `mapEvents`/`evVerdicts` the pill and the Windows section both already read, never
    * a second roster. Phone only; harmless to compute on desktop (it is simply never rendered there).
@@ -3688,11 +3789,52 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)) {
       spots.push(spotOf(selectedLoc));
     }
+    // ⚠️ Ask PhotoCast's picks (F3, plan §2.7). Every pick is on the map: one the reader's rating
+    // floor, subject chips or scope removed is APPENDED, exactly as the selected location is above,
+    // because the answer named it and a numbered card with no number on the map is the failure. The
+    // pick rides on the spot as `askPick` — the card's own facts for the PICK'S window (rank, short
+    // window, that window's rating and verdict) — so the chip draws those and not the active window's
+    // `rating`, which the spot keeps for everything else that reads it. Identity is id first, name
+    // second (`heatSpots`' doctrine); two picks at one location cannot be asked of the server, but the
+    // lowest rank wins if one ever arrives. A pick whose location the catalogue does not hold, or holds
+    // without coordinates, has nowhere to be drawn and is skipped.
+    if (askPicks.length > 0) {
+      const taken = new Set();
+      for (const pick of [...askPicks].sort((a, b) => a.rank - b.rank)) {
+        const loc = locations.find((l) => l.id === pick.locationId)
+          ?? locations.find((l) => l.name === pick.name);
+        if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon) || taken.has(loc.name)) continue;
+        taken.add(loc.name);
+        const askPick = {
+          rank: pick.rank,
+          shortWindow: pick.shortWindow,
+          rating: pick.rating,
+          verdict: pick.verdict,
+          label: pick.label,
+          selected: pick.rank === askSelectedRank,
+        };
+        const at = spots.findIndex((s) => s.name === loc.name);
+        if (at >= 0) spots[at] = { ...spots[at], askPick };
+        else spots.push({ ...spotOf(loc), askPick });
+      }
+    }
     return spots;
   }, [
     scopedVisibleLocations, getRatingForLocation, getTideOnLightForLocation, driveMinutesFor,
-    selectedLoc, isStandDownLocation, tideCuesOn,
+    selectedLoc, isStandDownLocation, tideCuesOn, locations, askPicks, askSelectedRank,
   ]);
+  /** The pick spots that actually reached the map — what dims the rest and what the camera frames. */
+  const askPickSpots = labelSpots.filter((spot) => spot.askPick);
+  const askActive = askPickSpots.length > 0;
+  /** The chosen pick, as the camera flies to it: `askWindow.nonce` is new on every choice. */
+  const askSelectedSpot = askPickSpots.find((spot) => spot.askPick.selected) ?? null;
+  const askSelection = askWindow && askSelectedSpot
+    ? {
+      lat: askSelectedSpot.lat,
+      lng: askSelectedSpot.lng,
+      nonce: askWindow.nonce,
+    }
+    : null;
 
   /**
    * The map "in force" for reach-MEASUREMENT purposes (D1, plan-to-map-doors-plan.md §3) — the
@@ -5364,6 +5506,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 homeCoords={homeGeo}
                 rings={ringsEnabled}
                 fieldEnabled={heatOn}
+                // Ask's picks are on the map: the FILL steps back (a factor inside the draw — never
+                // a pane opacity, which would take the coastline and the reach rings with it).
+                dim={askActive ? ASK_HEAT_DIM : 1}
               />
             </Suspense>
           )}
@@ -5382,6 +5527,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 reachMeasured={mapReachMeasured}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}
+                onSelectAskPick={onSelectAskPick}
                 eventLabel={mapEventLabel}
               />
             </Suspense>
@@ -5393,6 +5539,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 homeCoords={homeGeo}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}
+                onSelectAskPick={onSelectAskPick}
                 eventLabel={mapEventLabel}
               />
             </Suspense>
@@ -5517,6 +5664,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           <MapSizeSync trigger={overlayMode ? advancedOpen : resizeNonce} />
           <FlyToController target={flyTarget} />
           <FitBoundsController target={fitBoundsTarget} />
+          {/* Ask PhotoCast's camera (F3): fits the picks once per answer and flies to a chosen one.
+              Tab only — the frozen overlay never shows an answer. `active` is the pane's own "is this
+              on screen with nothing modal over it" (`paneVisible`), which is what holds the fit while
+              the tablet's Ask sheet stands over the map and releases it when the sheet closes. */}
+          {!overlayMode && (
+            <AskCameraController
+              active={paneVisible}
+              answerId={askAnswerId}
+              points={askPickSpots}
+              selection={askSelection}
+            />
+          )}
           <HandoffPopupController
             locationName={handoffLocationName}
             nonce={handoffNonce}
@@ -6768,6 +6927,30 @@ MapView.propTypes = {
    * on the plan itself with no dialog reopened and no window key carried (plan §6 Q2, decided).
    */
   onReturnToPlan: PropTypes.func,
+  /**
+   * Ask PhotoCast's picks (F3) — see the six-prop note above `MapView`. {@code rating}/{@code verdict}
+   * are the PICK'S window's, joined by `utils/askModel.buildPickCards`.
+   */
+  askPicks: PropTypes.arrayOf(PropTypes.shape({
+    rank: PropTypes.number.isRequired,
+    locationId: PropTypes.number,
+    name: PropTypes.string.isRequired,
+    date: PropTypes.string,
+    eventType: PropTypes.string,
+    shortWindow: PropTypes.string,
+    rating: PropTypes.number,
+    verdict: PropTypes.string,
+    label: PropTypes.string,
+  })),
+  askSelectedRank: PropTypes.number,
+  onSelectAskPick: PropTypes.func,
+  askWindow: PropTypes.shape({
+    date: PropTypes.string.isRequired,
+    eventType: PropTypes.string.isRequired,
+    nonce: PropTypes.number.isRequired,
+  }),
+  askAnswerId: PropTypes.number,
+  onAskContext: PropTypes.func,
 };
 
 export default React.memo(MapView);

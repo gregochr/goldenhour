@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ASK_SURFACE_SELECTOR } from '../hooks/useOutsideDismiss.js';
+import { useAsk } from '../context/AskContext.jsx';
 import { resetViewport } from './askViewport.js';
 import {
   MAP_PANE, OPERATIONS_PANE, matrixCtx, renderAskShell,
@@ -370,17 +371,22 @@ describe('opening, closing and the conversation', () => {
 
     fireEvent.click(tab('Coming up'));
     expect(screen.getByTestId('ask-dock-context')).toHaveTextContent('· on Coming up');
-    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Coming up · all regions');
+    // ⚠️ F3: the answer on screen was ASKED on Plan, and a tab switch must not relabel it — the chip
+    // says what was sent. The dock's header follows the tab; the chips follow the question.
+    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Plan · all regions');
+    // With nothing on screen the chips say what the NEXT question will carry: this tab's.
     fireEvent.click(screen.getByTestId('ask-clear'));
+    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Coming up · all regions');
     await askOne('Any rare events?');
     expect(ask).toHaveBeenLastCalledWith({ question: 'Any rare events?', regionIds: [], view: 'coming-up' });
+    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Coming up · all regions');
 
-    // The Map: its scope and window are `MapView` state the shell cannot see (F3 builds that channel),
-    // so for this phase the dock says — and sends — "all regions", no window.
+    // The Map pane here is a stub that publishes nothing, so the dock says — and sends — "all
+    // regions", no window (the real pane's channel is `AskMapContext.test.jsx`'s).
     fireEvent.click(tab('Map'));
     expect(screen.getByTestId('ask-dock-context')).toHaveTextContent('· on Map');
-    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · all regions');
     fireEvent.click(screen.getByTestId('ask-clear'));
+    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · all regions');
     await askOne('Best on the map?');
     expect(ask).toHaveBeenLastCalledWith({ question: 'Best on the map?', regionIds: [], view: 'map' });
   });
@@ -757,5 +763,93 @@ describe('it cannot come back by itself, and it does not outlive what draws it',
     await act(async () => {});
     expect(screen.queryByTestId('ask-field')).toBeNull();
     expect(dock()).toBeNull();
+  });
+});
+
+describe('the Map\'s scope and window reach the dock and the sheet (F3)', () => {
+  const LAKES = {
+    regionIds: [3],
+    regionNames: ['The Lake District'],
+    windowId: '2026-10-10_sunrise',
+    windowLabel: 'Saturday sunrise',
+    viewLabel: 'Map · The Lake District',
+  };
+  /** A Map pane that publishes the way the real one does: on mount, and a null when it goes. */
+  function PublishingMapPane() {
+    const { registerMapContext } = useAsk();
+    useEffect(() => {
+      registerMapContext(LAKES);
+      return () => registerMapContext(null);
+    }, [registerMapContext]);
+    return <div data-testid="map-pane-stub">map</div>;
+  }
+  const props = { mapPane: <PublishingMapPane /> };
+
+  it('on the Map the dock says — and the Ready list is fetched for — the one region in scope, with the window chip', async () => {
+    renderAskShell({ width: 1280, props });
+    await openDock();
+    fireEvent.click(tab('Map'));
+
+    await waitFor(() => expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · The Lake District'));
+    expect(screen.getByTestId('ask-chip-window')).toHaveTextContent('Saturday sunrise');
+    await waitFor(() => expect(getReady).toHaveBeenLastCalledWith(3));
+  });
+
+  it('a typed question from the Map is sent with that region, that window and the map view', async () => {
+    renderAskShell({ width: 1280, props });
+    await openDock();
+    fireEvent.click(tab('Map'));
+    await waitFor(() => expect(screen.getByTestId('ask-chip-window')).toBeInTheDocument());
+
+    await askOne('Best here?');
+
+    expect(ask).toHaveBeenLastCalledWith({
+      question: 'Best here?', regionIds: [3], view: 'map', windowId: '2026-10-10_sunrise',
+    });
+  });
+
+  it('⚠️ Plan and Coming up still send all regions, and fetch the Ready list for all', async () => {
+    renderAskShell({ width: 1280, props });
+    await openDock();
+    fireEvent.click(tab('Map'));
+    await waitFor(() => expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Lake District'));
+
+    fireEvent.click(tab('Plan'));
+
+    await waitFor(() => expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Plan · all regions'));
+    expect(screen.queryByTestId('ask-chip-window')).toBeNull();
+    await waitFor(() => expect(getReady).toHaveBeenLastCalledWith('all'));
+    await askOne('Best at dawn?');
+    expect(ask).toHaveBeenLastCalledWith({ question: 'Best at dawn?', regionIds: [], view: 'plan' });
+  });
+
+  it('an answer asked on the Map keeps saying so on Plan — the dock outlives the tab, the answer keeps its context', async () => {
+    renderAskShell({ width: 1280, props });
+    await openDock();
+    fireEvent.click(tab('Map'));
+    await waitFor(() => expect(screen.getByTestId('ask-chip-window')).toBeInTheDocument());
+    await askOne('Best here?');
+
+    fireEvent.click(tab('Plan'));
+
+    expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · The Lake District');
+    expect(screen.getByTestId('ask-chip-window')).toHaveTextContent('Saturday sunrise');
+  });
+
+  it('the tablet\'s sheet over the Map carries the same context', async () => {
+    renderAskShell({ width: 800, props });
+    await fieldReady();
+    fireEvent.click(tab('Map'));
+    await waitFor(() => expect(tab('Map')).toHaveAttribute('aria-selected', 'true'));
+    fireEvent.click(field());
+    await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
+
+    await waitFor(() => expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · The Lake District'));
+    ask.mockResolvedValue(ownResponse());
+    await userEvent.type(screen.getByTestId('ask-input'), 'Best here?{Enter}');
+
+    expect(ask).toHaveBeenLastCalledWith({
+      question: 'Best here?', regionIds: [3], view: 'map', windowId: '2026-10-10_sunrise',
+    });
   });
 });
