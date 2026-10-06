@@ -195,6 +195,41 @@ describe('App — where Ask PhotoCast is mounted', () => {
     expect(screen.queryByTestId('ask-field')).toBeNull();
   });
 
+  it('rewound, no field, no dock and no `/` on a desktop either', async () => {
+    installViewport(1280);
+    act(() => setRewind(REWIND_TO));
+    renderApp('ADMIN');
+    await screen.findByRole('tab', { name: 'Map' });
+    await act(async () => {});
+    expect(getAskSettings).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('ask-field')).toBeNull();
+    const press = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    fireEvent(document, press);
+    expect(press.defaultPrevented).toBe(false);
+    expect(screen.queryByTestId('ask-dock')).toBeNull();
+  });
+
+  it('live on a desktop, the field opens the dock and `/` focuses it — with the footer and the banners still live', async () => {
+    installViewport(1280);
+    renderApp('PRO_USER');
+    // The app opens on the Map at this width, which draws no footer: Plan is where it is.
+    fireEvent.click(await screen.findByRole('tab', { name: 'Plan' }));
+    fireEvent.click(await screen.findByTestId('ask-field'));
+    const dock = await screen.findByRole('complementary', { name: 'Ask PhotoCast' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Not modal: nothing outside the dock is made inert by it.
+    expect(screen.getByRole('link', { name: 'Instagram' }).closest('[inert]')).toBeNull();
+    expect(dock.closest('[inert]')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('ask-dock-close'));
+    expect(screen.queryByTestId('ask-dock')).toBeNull();
+    const press = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    fireEvent(document, press);
+    expect(press.defaultPrevented).toBe(true);
+    expect(await screen.findByTestId('ask-dock')).toBeInTheDocument();
+    expect(screen.getByTestId('ask-input')).toHaveFocus();
+  });
+
   it('entering a rewind takes Ask away, and returning to live brings it back with a fresh read', async () => {
     renderApp('ADMIN');
     expect(await screen.findByTestId('ask-bar')).toBeInTheDocument();

@@ -14,7 +14,9 @@
 import React, { useRef, useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { useOutsideDismiss, isInsideMapFrame, MAP_FRAME_SELECTOR } from '../hooks/useOutsideDismiss.js';
+import {
+  useOutsideDismiss, isInsideMapFrame, MAP_FRAME_SELECTOR, isInsideAskSurface, ASK_SURFACE_SELECTOR,
+} from '../hooks/useOutsideDismiss.js';
 
 /**
  * A panel inside a map frame, with a sibling target outside it — the real shape: the frame wraps
@@ -34,6 +36,10 @@ function Harness({ open = true, enabled = true, onDismiss }) {
         </div>
       </div>
       <div data-testid="masthead">outside the frame entirely</div>
+      {/* Ask's dock: a sibling of the whole shell column, outside the frame and outside the panel. */}
+      <aside data-ask-surface="" data-testid="ask-surface">
+        <button type="button" data-testid="pick-card">a pick card in the dock</button>
+      </aside>
     </div>
   );
 }
@@ -181,5 +187,49 @@ describe('useOutsideDismiss', () => {
     fireEvent.mouseDown(screen.getByTestId('masthead'));
 
     expect(calls).toEqual([2]);
+  });
+});
+
+describe('isInsideAskSurface', () => {
+  it('is true for the dock and for anything nested inside it, and false for the page around it', () => {
+    render(<Harness onDismiss={vi.fn()} />);
+
+    expect(isInsideAskSurface(screen.getByTestId('ask-surface'))).toBe(true);
+    expect(isInsideAskSurface(screen.getByTestId('pick-card'))).toBe(true);
+    expect(isInsideAskSurface(screen.getByTestId('masthead'))).toBe(false);
+    expect(isInsideAskSurface(screen.getByTestId('map-marker'))).toBe(false);
+  });
+
+  it('is false for anything that is not an Element, rather than throwing', () => {
+    expect(isInsideAskSurface(document)).toBe(false);
+    expect(isInsideAskSurface(null)).toBe(false);
+    expect(isInsideAskSurface(window)).toBe(false);
+  });
+
+  it('names the dock by the attribute `AskDock` renders', () => {
+    expect(ASK_SURFACE_SELECTOR).toBe('[data-ask-surface]');
+  });
+});
+
+describe('useOutsideDismiss and Ask\'s dock', () => {
+  it('⚠️ does NOT dismiss on a press inside the dock — choosing a pick card must not close the drilldown it is compared with', () => {
+    const onDismiss = vi.fn();
+    render(<Harness onDismiss={onDismiss} />);
+
+    fireEvent.mouseDown(screen.getByTestId('pick-card'));
+    fireEvent.mouseDown(screen.getByTestId('ask-surface'));
+
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('still dismisses on a press elsewhere outside the panel, so the dock exemption is not a blanket one', () => {
+    const onDismiss = vi.fn();
+    render(<Harness onDismiss={onDismiss} />);
+
+    fireEvent.mouseDown(screen.getByTestId('pick-card'));
+    expect(onDismiss).not.toHaveBeenCalled();
+    fireEvent.mouseDown(screen.getByTestId('masthead'));
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

@@ -11,6 +11,7 @@ import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
 import AskBar from './ask/AskBar.jsx';
+import AskDock, { ASK_DOCK_ID } from './ask/AskDock.jsx';
 import AskField from './ask/AskField.jsx';
 import AskSheet from './ask/AskSheet.jsx';
 import { useAsk } from '../context/AskContext.jsx';
@@ -27,6 +28,7 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
+import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
@@ -93,8 +95,8 @@ const LocationFourDaySheet = lazy(() => import('./LocationFourDaySheet.jsx'));
  * would flash a second loading state on every cold open for a wait that is usually zero; deferring
  * {@code stacked} until the arriving layer reports its mount means a new prop on three components
  * and an extra commit on the hottest interaction on the page, at the settling commit. Warming
- * removes the window on every route that exists: a chip, a spot card, a pick badge and {@code /}
- * are all reachable ONLY from an open popup, so the fetch has the reader's whole reading time to
+ * removes the window on every route that exists: a chip, a spot card, a pick badge and the masthead's
+ * ⌕ (formerly {@code /} too) are all reachable ONLY from an open popup, so the fetch has the reader's whole reading time to
  * finish. It is idempotent (the module registry dedupes), it is fire-and-forget, and a failure is
  * the same failure the real import would have had.
  *
@@ -176,14 +178,27 @@ const ASK_BAR_PROMPT = {
 /**
  * What the view chip says, and what the question is sent with, by tab. Map reads "all regions" here
  * because the shell cannot see the Map's own scope segment or window (they are `MapView` state): the
- * chip names what is SENT, and until F3/F4 carry the Map's scope to a surface, a question from this
- * sheet is sent with no region and no window.
+ * chip names what is SENT, and until F3/F4 carry the Map's scope to a surface, a question from the
+ * sheet OR the dock is sent with no region and no window.
  */
 const ASK_VIEW = {
   plan: { view: 'plan', label: 'Plan · all regions' },
   'coming-up': { view: 'coming-up', label: 'Coming up · all regions' },
   map: { view: 'map', label: 'Map · all regions' },
 };
+
+/** What the dock's header says it is beside, by tab (the mock's "· on Plan" / "· on Map"). */
+const ASK_DOCK_CONTEXT = {
+  plan: 'on Plan',
+  'coming-up': 'on Coming up',
+  map: 'on Map',
+};
+
+/**
+ * The field's width by band: 340px with the `/` hint from 1180px, 260px from 1024 to 1179 where the
+ * dock (360px) leaves the tab row too little room for more, and the tablet's 260px below it.
+ */
+const ASK_FIELD_WIDTH = { tablet: 260, desktop: 260, wide: 340 };
 
 /** `window-first-tab-plan` — the id the panel points back at, and the existing test-id. */
 const tabDomId = (id) => `window-first-tab-${id}`;
@@ -396,7 +411,8 @@ export default function WindowFirstShell({
    * The search dialog's open state, and the region it should be pre-filled with.
    *
    * <p>Two values in one, because "open with a query" and "open empty" are the same gesture from
-   * two places: the chip and the {@code /} key open it empty, and the strip's beyond line opens it
+   * two places: the ⌕ and the origin button open it empty (the {@code /} key did too until F2 gave it to
+   * Ask), and the strip's beyond line opens it
    * on the first region beyond the planning area (the link P2 deferred to here). {@code null} is
    * closed; a string — possibly empty — is open.
    */
@@ -410,8 +426,21 @@ export default function WindowFirstShell({
    * {@code AskContext}, which holds the conversation and nothing about a surface.
    */
   const [askOpen, setAskOpen] = useState(false);
-  /** The Ask bar or field that is on screen, where closing the sheet returns focus. */
+  /**
+   * Whether Ask PhotoCast's DOCK is open (F2) — its own state, deliberately not a value of
+   * {@code askOpen}/{@code askEntry}. {@code askSheetOpen} drives the app container's {@code inert}, and
+   * the dock is not modal: folding it in would make the dock inert itself and the page beside it dead.
+   *
+   * <p>Not on {@code selectTab}'s list either, and that is the point of a dock: it survives a switch
+   * between Plan, Coming up and Map (the conversation chips and suggestions follow the tab). It goes
+   * when nothing can draw it any more — Operations, a band below 1024px, Ask switched off — through the
+   * same render-time release {@code askOpen} uses.
+   */
+  const [askDockOpen, setAskDockOpen] = useState(false);
+  /** The Ask bar or field that is on screen, where closing the sheet or the dock returns focus. */
   const askTriggerRef = useRef(null);
+  /** The dock's question field, so `/` can focus it when the dock is already open. */
+  const askDockInputRef = useRef(null);
   const ask = useAsk();
   const askSurface = useAskSurface();
   /**
@@ -1235,8 +1264,10 @@ export default function WindowFirstShell({
    * was dormant through M2 — {@code /} was refused while <em>any</em> dialog was open, so search
    * could never sit over anything and the three {@code escapeEnabled} props below guarded a case
    * that could not arise. M3 anchors search to the masthead, which the popup is drawn over rather
-   * than in, so {@code /} is now permitted while the window popup is open and refused over
-   * everything else.
+   * than in, so search is permitted while the window popup is open and refused over everything else.
+   * ⚠️ Since F2 the way in is the masthead's ⌕ and the origin button ONLY — {@code /} belongs to Ask
+   * (plan §6 Q1) and is refused over the popup. The rung is unchanged: the same controls open the
+   * same search over the same popup, and the same guards refuse it over a layer already stacked.
    *
    * <p>⚠️ <b>The stack is TWO deep, never the bundle README's three.</b> The rung over the popup is
    * search <em>or</em> a stacked sheet, and since M5 never both — every route into search is
@@ -1266,7 +1297,10 @@ export default function WindowFirstShell({
    * <p>Below 640px the 48px bar, on Plan and Coming up ONLY — the phone Map gets its entry in the peek
    * sheet (F4) and Operations gets none. From 640 to 1023px the 260px field beside the tab list on
    * those two tabs and on Map (on a tablet the Map's controls are not a peek sheet, so the sheet is
-   * the surface). From 1024px nothing yet: the dock and its field are F2's.
+   * the surface). From 1024px the same field (340px with the {@code /} hint from 1180px) opens the
+   * DOCK on Plan, Coming up and Map — {@code askDockEntry} below, which is deliberately not a value of
+   * {@code askEntry}: {@code askEntry} says "a modal sheet can be drawn" and drives the app container's
+   * {@code inert}, and the dock is not modal.
    * {@code availability} decides whether Ask exists at all: {@code pending} and {@code off} draw
    * nothing (a flash on a server with the flag off is the failure), {@code down} draws the entry
    * disabled. Under a rewind there is no provider, so the context's default {@code off} applies and
@@ -1288,6 +1322,11 @@ export default function WindowFirstShell({
     if (askSurface === 'tablet') return onSkyTab || effectiveTab === 'map' ? 'field' : null;
     return null;
   })();
+  // The docked surface's entry: the same tabs as the tablet's field, from 1024px. "Is there a dock to
+  // open" — `askDockOpen` is "is it open".
+  const askDocked = askSurface === 'desktop' || askSurface === 'wide';
+  const askDockEntry = (ask.availability === 'on' || ask.availability === 'down')
+    && askDocked && effectiveTab !== 'operations';
   // ⚠️ `askOpen` would otherwise be held while NOTHING draws the sheet — the window crossing 1024px, a
   // phone Map, Ask switched off — and bring the sheet back by itself the next time an entry exists (an
   // iPad turned landscape and back reopened it, unasked, focus and all). So it is let go the render
@@ -1295,6 +1334,11 @@ export default function WindowFirstShell({
   // above uses, so no commit holds both states. The conversation is untouched.
   if (askOpen && askEntry === null) setAskOpen(false);
   const askSheetOpen = askOpen && askEntry !== null;
+  // The dock's twin: Operations, a window narrowed below 1024px and Ask switched off all take away what
+  // the dock hangs from, and a state left true would bring it back unasked the next time one exists.
+  // A tab switch between Plan, Coming up and Map is NOT one of them — see `askDockOpen`.
+  if (askDockOpen && !askDockEntry) setAskDockOpen(false);
+  const askDockShown = askDockOpen && askDockEntry;
   // `openCard`, not `openWindowKey`: the popup draws only for a live card, and a key whose card has
   // gone (its event passed) is deliberately never released — it would leave the entry disabled with
   // no dialog on screen and nothing to say why.
@@ -1304,8 +1348,10 @@ export default function WindowFirstShell({
   // The tablet's Operations tab draws no field, but the tab list is `flex: 1` with Operations pinned
   // to its right edge (`.wf-tab-gated`): without something holding the field's width, pressing
   // Operations would widen the list and slide the button out from under the pointer.
-  const askGhost = askSurface === 'tablet' && effectiveTab === 'operations'
+  // Held from 1024px too (F2), where Operations is the same admin-only tab pinned to the same edge.
+  const askGhost = (askSurface === 'tablet' || askDocked) && effectiveTab === 'operations'
     && (ask.availability === 'on' || ask.availability === 'down');
+  const askFieldWidth = ASK_FIELD_WIDTH[askSurface] ?? 260;
   /**
    * Opens the sheet. The entry is {@code disabled} (a real attribute, so no press reaches this) while
    * one of THIS shell's dialogs or settings stands; what that flag cannot see is a dialog this shell
@@ -1313,10 +1359,7 @@ export default function WindowFirstShell({
    * {@code role="dialog"} outside this root), at press time, and refused with nothing taken down.
    */
   const openAsk = () => {
-    const root = shellRef.current;
-    const foreign = Array.from(document.querySelectorAll('[role="dialog"]'))
-      .some((node) => !root || !root.contains(node));
-    if (foreign) return;
+    if (foreignDialogOpen(shellRef.current)) return;
     setAskOpen(true);
   };
   /**
@@ -1333,6 +1376,11 @@ export default function WindowFirstShell({
    * pick this leaves. Focus goes to the Map tab button a frame later, the same idiom the
    * {@code tabRequest} effect uses, because the bar that opened the sheet is unmounted by this very
    * press and focus would otherwise fall to {@code <body>}.
+   *
+   * <p>From the DOCK the same route is right for the same reason and costs nothing extra: the dock is
+   * NOT on {@code selectTab}'s list, so it stays open beside the map with the conversation in it, and
+   * the pressed control — which is not offered on the Map — goes with the tab, so focus is moved
+   * rather than left to fall.
    */
   const askShowOnMap = (card) => {
     ask.selectPick(card.rank);
@@ -1369,6 +1417,41 @@ export default function WindowFirstShell({
     if (trigger?.isConnected && !trigger.disabled) return trigger;
     return shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null;
   }, []);
+  /**
+   * Where the dock's focus goes if the dock stops being somewhere focus can be while it holds it
+   * (it turns {@code inert} under a dialog or a dead backend, or is released because the window
+   * narrowed past 1024px): the tab in force. Never the field, which is disabled in the first case
+   * and about to be replaced by another in the second. See {@code AskDock}'s {@code useKeepFocusAlive}.
+   */
+  const askTabFocus = useCallback(
+    () => shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null,
+    [],
+  );
+  /**
+   * The field's press from 1024px, and the whole of what {@code /} does once it is past its
+   * refusals: open the dock, or — when it is already open — put the cursor back in its question field
+   * (the field is "on" and a second press must not close what the reader just asked for). Refused
+   * over a dialog this shell does not own, exactly as {@code openAsk} is; the field is
+   * {@code disabled} while one of its own stands. Opening focuses the field from the dock's own mount.
+   */
+  const openAskDock = () => {
+    if (foreignDialogOpen(shellRef.current)) return;
+    if (askDockShown) askDockInputRef.current?.focus({ preventScroll: true });
+    else setAskDockOpen(true);
+  };
+  /**
+   * The ✕ and Escape inside the dock: CLOSE, keep the conversation, and put focus on the field.
+   *
+   * <p>Focus moves BEFORE the state changes. The ✕ — or whatever inside the dock held focus — goes with
+   * the dock, and a focused node that unmounts takes focus to {@code <body>} with it, after which no
+   * Escape rule that runs "while focus is inside a surface" is ever reached again (the defect the Map
+   * tab's panels had five times). {@code askRestoreFallback} is the sheet's own answer to a field that
+   * cannot take it: the tab in force.
+   */
+  const closeAskDock = () => {
+    askRestoreFallback()?.focus({ preventScroll: true });
+    setAskDockOpen(false);
+  };
   /**
    * The page behind the sheet, dead while it is open: {@code inert} on the app's own container (the
    * ancestor of this shell that sits directly under {@code <body>} — {@code #root} in production).
@@ -1524,55 +1607,44 @@ export default function WindowFirstShell({
     onShowOnMap?.(card.date, card.targetType, spot.locationName)
   );
   /**
-   * {@code /} opens search — the design's own shortcut, and the one keyboard affordance the chip
-   * cannot advertise.
+   * {@code /} moves to Ask — at 1024px and up, on Plan, Coming up and the Map (plan §6 Q1, decided).
+   * It opens the dock when it is closed and puts the cursor in its question field when it is open.
+   * It used to open Plan search; search is now reached through the masthead's ⌕ and the origin button
+   * ONLY, and below 1024px {@code /} does nothing (the sheet is the surface there, and it has no key).
    *
-   * <p>Guarded four ways, because a bare global {@code /} listener is a well-known way to make a
-   * page hostile: it is ignored while the reader is in a field (input, textarea, select, or
-   * anything {@code contenteditable} — the almanac has none but the settings modal is a sibling in
-   * {@code App}); when a modifier is held, so browser and OS shortcuts are untouched; while a
-   * dialog this shell does not own is open; and while any of its own dialogs EXCEPT the window
-   * popup is. That last exclusion is M3's, and the guard below spells out why the popup is the one
-   * stack this arm supports. It is also Plan-only: on Coming up or the Map tab there is no window
-   * list to search into, and a shortcut that opens a dialog about another tab is worse than none.
-   * The tick line's two search buttons follow the same tab rule since 2026-09-16 — see
-   * {@code onOpenSearch} on its mount below.
+   * <p>Guarded the way the search shortcut was, because the reasons did not change: a bare global
+   * {@code /} listener is a well-known way to make a page hostile. It is ignored while the reader is in
+   * a field (input, textarea, select, or anything {@code contenteditable} — the settings modal is a
+   * sibling in {@code App}); when a modifier is held, so browser and OS shortcuts are untouched (Shift
+   * is NOT refused: on a German layout {@code /} is Shift+7); and while anything is over the shell —
+   * any of its own dialogs, the WINDOW POPUP included, search, settings, a dialog this shell does not
+   * own, or a dead backend. {@code askDisabled} is every one of the shell's own, and is the same flag
+   * that disables the field, so the key can never be live where the control beside it is not.
+   *
+   * <p>⚠️ <b>The window popup refuses it, where it used to be the one dialog search was allowed over.</b>
+   * Search is anchored to the masthead, a surface the popup is drawn over, so the two stacked; the dock
+   * is a column beside the page that the popup's scrim covers. Opening it under an {@code aria-modal}
+   * dialog would put a live control where the popup says nothing is, and the popup stays.
    */
   useEffect(() => {
-    if (effectiveTab !== 'plan') return undefined;
+    if (!askDockEntry) return undefined;
     const onKeyDown = (event) => {
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (searchSeed != null) return;
-      // ⚠️ The WINDOW POPUP is deliberately absent from this list, and everything else is in it.
-      // Search is the topmost layer of the Escape order (M2.5) and M3 anchors it to the masthead —
-      // a surface the popup is drawn over rather than inside — so `/` over an open popup is the
-      // one stack this arm supports. Over a sheet, the pick dialog or the location sheet it stays
-      // refused: those are already stacked on the popup, and a third layer has nowhere to go.
-      if (stackedOverPopup) return;
-      // ⚠️ And a dialog this shell does not own still refuses, which is a DIFFERENT question from
-      // the flags above. `UserSettingsModal` is a SIBLING of the shell in `App` — `/` over an open
-      // settings dialog stacked a second `aria-modal` overlay on it, with two document-level
-      // Escape handlers and two interleaved focus restores. `Modal` renders in place rather than
-      // through a portal, so every dialog this shell owns is a DESCENDANT of its root and every
-      // one it does not is not: containment answers "is this mine" without naming any of them,
-      // which is what lets the popup be excluded above without also excusing the settings modal.
-      // It still covers the unclosable drive-times spinner, the worst one to land a dialog on.
-      const root = shellRef.current;
-      const foreign = Array.from(document.querySelectorAll('[role="dialog"]'))
-        .some((node) => !root || !root.contains(node));
-      if (foreign) return;
-      // The shell is inert under a dead backend (`pointer-events: none`), so a keyboard shortcut
-      // into it would be the one live control on a surface that says it is not.
-      if (contentDisabled) return;
+      if (askDisabled) return;
+      // ⚠️ A dialog this shell does not own still refuses, which is a DIFFERENT question from the flag
+      // above: `UserSettingsModal` and the map overlay are siblings of the shell in `App`, invisible to
+      // its state. Containment answers it — see `foreignDialogOpen`.
+      if (foreignDialogOpen(shellRef.current)) return;
       const el = event.target;
       const tag = el?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
       event.preventDefault();
-      setSearchSeed('');
+      if (askDockShown) askDockInputRef.current?.focus({ preventScroll: true });
+      else setAskDockOpen(true);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [effectiveTab, searchSeed, stackedOverPopup, contentDisabled]);
+  }, [askDockEntry, askDockShown, askDisabled]);
 
   /**
    * The plan's way out of a lens that has shut it — the bar's controls, reached from the message.
@@ -1662,7 +1734,8 @@ export default function WindowFirstShell({
   /**
    * `←`/`→` step the open window, and nothing else may be on top.
    *
-   * <p>Guarded the way {@code /} is, and for the same reasons plus one: a stacked sheet or search
+   * <p>Guarded the way the {@code /} shortcut is (its refusals, now Ask's), and for the same reasons plus
+   * one: a stacked sheet or search
    * has its own arrow behaviour (the search list's selection moves on Up/Down and its input takes
    * Left/Right to move the caret), so stepping the window underneath it would move a surface the
    * reader cannot see. Modified arrows are somebody else's shortcut — Alt+Left is the browser's
@@ -1708,7 +1781,9 @@ export default function WindowFirstShell({
       // masthead and the tab bar stay wrapped at `WRAP_MAX_WIDTH` below on every tab, and — since
       // O-17 (bundle rev 2, owner decision 2026-09-03, reversing P7's width release) — the panel
       // region's own wrapper further down now applies that SAME `WRAP_MAX_WIDTH` on the Map tab
-      // too, rather than releasing it.
+      // too, rather than releasing it. (A third carrier of the same constant exists while the Ask
+      // dock is open: the COLUMN around both wrappers, which the dock sits beside. It is the same
+      // value from the same constant, so the three cannot disagree.)
       //
       // ⚠️ That closes the gap at `sm` (640px) and up, but NOT below it. `App.jsx`'s `<main>`
       // carries `sm:px-4` on the Map tab — present at `sm`+, absent on the phone — because P12's
@@ -1726,9 +1801,31 @@ export default function WindowFirstShell({
       // wrap below, then the panel region) stack and share it the same way. Every other tab keeps
       // plain block flow (`w-full` alone), which is today's unchanged layout and scroll. O-17 is
       // WIDTH ONLY — this vertical/height chain is untouched.
-      className={`${effectiveTab === 'map' ? 'wf-shell w-full flex-1 min-h-0 flex flex-col' : 'wf-shell w-full'}${
+      //
+      // ⚠️ With the Ask dock open (F2) the root is a ROW — `[column][dock]`, centred as a pair — and
+      // `wf-shell--docked` says so in the stylesheet; on the Map it is then `flex` without `flex-col`
+      // (a utility and a rule of the same specificity would be an order-of-source bet). Everything
+      // else about the chain below is unchanged: the column wrapper takes the root's old place in it.
+      className={`${effectiveTab === 'map'
+        ? `wf-shell w-full flex-1 min-h-0 flex${askDockShown ? '' : ' flex-col'}`
+        : 'wf-shell w-full'}${askDockShown ? ' wf-shell--docked' : ''}${
         askEntry === 'bar' ? ' wf-ask-bar-on' : ''}`}
     >
+      {/* THE SHELL COLUMN: the masthead, the tab row and the panel region, and nothing else. It exists
+          so the Ask dock (this wrapper's next sibling in the shell root) can sit BESIDE all three at once — the
+          masthead and the panel then narrow together and O-17's "the two columns never drift apart"
+          holds, which a dock inside either wrapper could not promise. Undocked it is a plain block
+          (a `flex-1 min-h-0` flex column on the Map, taking the root's old place in that chain), so
+          nothing about the layout changes when Ask is off or closed. The two wrappers inside are
+          deliberately NOT re-indented one level, for the reason the tab row's own wrapper gives. */}
+      <div
+        className={effectiveTab === 'map' ? 'wf-shell-col flex-1 min-h-0 flex flex-col' : 'wf-shell-col'}
+        // Docked, the column is a flex item that takes what the dock leaves, up to the one width the
+        // masthead and the panel inside it share. Undocked it is a block and the two wrappers cap
+        // themselves, exactly as before.
+        style={askDockShown ? { maxWidth: WRAP_MAX_WIDTH } : undefined}
+        data-testid="window-first-shell-col"
+      >
       {/* Masthead + tab bar + tab rule — wrapped at `WRAP_MAX_WIDTH` on EVERY tab, and since O-17
           the panel region below shares that same width on every tab too (there is no longer a tab
           whose wrap "releases"), at `sm` (640px) and up — below it `<main>`'s own padding still
@@ -1809,8 +1906,9 @@ export default function WindowFirstShell({
           light={light}
           origin={origin ?? null}
           homePlace={homePlace}
-          // ⚠️ HANDED OVER ON THE PLAN TAB ONLY — the `/` shortcut's tab rule, which the tick line's
-          // two search buttons (the ⌕ and the origin button) did not follow until 2026-09-16.
+          // ⚠️ HANDED OVER ON THE PLAN TAB ONLY — the tab rule the old `/` search shortcut had, which
+          // the tick line's two search buttons (the ⌕ and the origin button) did not follow until
+          // 2026-09-16. They are search's ONLY way in since F2: `/` is Ask's.
           // Everything search finds is a Plan object, and every pick acts on the Plan: a window opens
           // the popup, a place opens the four-day sheet, a region moves the origin. On Coming up the
           // first two opened over the almanac feed with the tab unmoved (reproduced in jsdom through
@@ -1822,15 +1920,15 @@ export default function WindowFirstShell({
           // own reason (P11: panning is the search there). The beyond line, the third trigger, sits
           // inside the Plan pane and is hidden with it.
           //
-          // ⚠️ And the SAME stacking guard the `/` shortcut carries, which M5 added because the
-          // button did not. Measured in a browser: from an open location sheet a keyboard reader
+          // ⚠️ And the SAME stacking guard the old `/` search shortcut carried, which M5 added because
+          // the button did not. Measured in a browser: from an open location sheet a keyboard reader
           // reached this control on the seventeenth Tab and opened search as a THIRD layer — and
           // `Modal` gives every dialog `fixed inset-0 z-50`, so with equal z-index paint order is DOM
           // order and the sheet, which renders after search, painted its scrim and its whole card
           // OVER the search panel. The reader typed into a box behind a dead, dimmed sheet. The
-          // shortcut's own comment already settled the rule this restores — "those are already
-          // stacked on the popup, and a third layer has nowhere to go" — so the button was simply
-          // bypassing it.
+          // shortcut's own comment (since deleted with it) had settled the rule this restores — "those
+          // are already stacked on the popup, and a third layer has nowhere to go" — so the button was
+          // simply bypassing it.
           onOpenSearch={effectiveTab === 'plan'
             ? () => { if (!stackedOverPopup) setSearchSeed(''); }
             : undefined}
@@ -1995,8 +2093,29 @@ export default function WindowFirstShell({
           buttonRef={askTriggerRef}
         />
       )}
+      {/* From 1024px the same field opens the DOCK, and says so: no popup-dialog claim, a pointer at the
+          dock while it is open, and the `/` key cap only where there is room for it (the 340px form,
+          from 1180px). `controls` is what takes the dialog claim off (see `AskField`). */}
+      {askDockEntry && (
+        <AskField
+          width={askFieldWidth}
+          showKeyHint={askSurface === 'wide'}
+          keyShortcut
+          prompt="Ask about the forecasts…"
+          disabled={askDisabled}
+          expanded={askDockShown}
+          controls={ASK_DOCK_ID}
+          onOpen={openAskDock}
+          buttonRef={askTriggerRef}
+        />
+      )}
       {askGhost && (
-        <div className="wf-askf wf-askf-ghost" aria-hidden="true" data-width="260" data-testid="ask-field-ghost" />
+        <div
+          className="wf-askf wf-askf-ghost"
+          aria-hidden="true"
+          data-width={askFieldWidth}
+          data-testid="ask-field-ghost"
+        />
       )}
       </div>
       <div data-testid="window-first-tabrule" className="h-px bg-plex-border" />
@@ -2296,6 +2415,30 @@ export default function WindowFirstShell({
         </div>
       ))}
       </div>
+      </div>
+
+      {/* Ask PhotoCast's DOCK — the second child of the root row, a sibling of the whole shell column
+          (F2, plan §2.6/D-4). Mounted only while open and only from 1024px, on Plan, Coming up and the
+          Map. NOT a dialog: the page beside it stays live, and it is `inert` (never the page) while
+          a shell dialog, search or settings is open. Under a dead backend it is NOT inert — the field
+          is disabled and `/` refused, but a dock already open must stay closable (an inert ✕ would
+          pin it there, dimmed, for as long as the backend is down). On the Map the dock is the
+          frame's own height and the map pane's `ResizeObserver` tells Leaflet about its new width;
+          on Plan and Coming up it sticks to the viewport with the input row at its foot. */}
+      {askDockShown && (
+        <AskDock
+          band={askSurface}
+          sticky={effectiveTab !== 'map'}
+          inert={askDialogOpen}
+          view={askViewSpec.view}
+          viewLabel={askViewSpec.label}
+          contextLabel={ASK_DOCK_CONTEXT[effectiveTab] ?? ASK_DOCK_CONTEXT.plan}
+          inputRef={askDockInputRef}
+          onClose={closeAskDock}
+          fallbackFocus={askTabFocus}
+          pickActions={askPickActions}
+        />
+      )}
 
       {/* Ask PhotoCast. The phone's bar is `position: fixed` and sits BELOW every `Modal` (z-50) and
           the sheet's scrim; the sheet is a `BottomSheet`, portalled to <body>. Both are drawn only

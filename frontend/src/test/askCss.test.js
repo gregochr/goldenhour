@@ -24,10 +24,10 @@ function ruleBody(selector) {
   return null;
 }
 
-/** Every `@media`/`@supports` block in the Ask section, as text, braces balanced. */
+/** Every `@media`/`@supports`/`@container` block in the Ask section, as text, braces balanced. */
 function conditionalBlocks() {
   const blocks = [];
-  const re = /@(media|supports)[^{]*\{/g;
+  const re = /@(media|supports|container)[^{]*\{/g;
   let m = re.exec(askBlock);
   while (m !== null) {
     let depth = 1;
@@ -121,8 +121,12 @@ describe('the Ask entry stylesheet (F1b) — what jsdom cannot see', () => {
   it('collapses the four-tab field by CLIPPING its label, never display:none, so the name survives', () => {
     const block = conditionalBlocks().find((b) => b.includes('wf-askf-q'));
     expect(block).toBeDefined();
-    expect(block).toMatch(/clip:\s*rect\(0, 0, 0, 0\)/);
-    expect(block).not.toMatch(/display:\s*none/);
+    // The label's own rule, not the block: the block also hides the key cap (aria-hidden, no room in
+    // a 34px button), which IS `display: none` and is not the name.
+    const label = /\.wf-askf-q\s*\{([^}]*)\}/.exec(block);
+    expect(label).not.toBeNull();
+    expect(label[1]).toMatch(/clip:\s*rect\(0, 0, 0, 0\)/);
+    expect(label[1]).not.toMatch(/display:\s*none/);
   });
 
   it('keeps the tab list a shrinking flex item beside the field, so it still scrolls', () => {
