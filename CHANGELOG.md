@@ -5,6 +5,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.23.1] - 2026-10-06
+
+### Changed — Java 21 → 25 (the LTS that carries JEP 491)
+
+The backend now builds and runs on Java 25. On Java 21 a held `synchronized` monitor pins a
+virtual thread to its carrier, which is why `AppConfig.anthropicClient` forces HTTP/1.1 (OkHttp's
+HTTP/2 frame writer deadlocked batches of 200+) and why the Anthropic SDK is stuck at 2.62.0. JEP 491
+(Java 24) removed that pinning and Java 25 is the LTS that ships it, so this is the runtime half of
+lifting both.
+
+What moved: `<java.version>` (which also drives `maven.compiler.release`) in `backend/pom.xml`; both
+stages of `backend/Dockerfile` (`eclipse-temurin:25-jdk-alpine` builder, `25-jre-alpine` runtime) and
+the root `Dockerfile`; `java-version` in `ci.yml`, `codeql.yml`, `security-scan.yml`, `pitest.yml` and
+`real-api-smoke.yml`; the README prerequisite; CLAUDE.md's Dev Setup, Deployment and Virtual threads
+lines. No Maven plugin needed a bump: JaCoCo 0.8.15 (Java 25 supported from 0.8.14), SpotBugs plugin
+4.10.4.1 over SpotBugs 4.10.4, FindSecBugs 1.14.0, PIT 1.30.0, Lombok 1.18.46 and
+maven-compiler-plugin 3.15.0 already handle class-file version 69. No source change was needed.
+
+What did NOT move, deliberately: the HTTP/1.1 OkHttp client, the `anthropic-java` pin at 2.62.0 and
+the Dependabot ignore rule keep their code and comments (each gained one sentence saying the runtime
+is now Java 25 and the pin can be lifted). Moving the runtime and removing the workaround are separate
+changes, so a Java 25 problem can be reverted without also reverting the HTTP client.
+
+One new runtime warning, not suppressed: `sun.misc.Unsafe::objectFieldOffset` called by
+`lombok.permit.Permit` during compilation (JEP 498, Java 24+; a Lombok matter, harmless today). The
+test JVM's dynamic-agent warning from Mockito's self-attaching inline mock maker is the JEP 451
+warning Java 21 already printed, not a new one.
+
+### Changed — Anthropic SDK 2.62.0 → 2.68.0: the HTTP/1.1 client is gone
+
+`AppConfig.anthropicClient` is now built with the SDK's own `AnthropicOkHttpClient.builder()` instead of
+a hand-assembled, HTTP/1.1-only OkHttp client. That client existed because, on Java 21, OkHttp's HTTP/2
+frame writer pinned virtual threads under `synchronized` and deadlocked batches of 200+; it is what held
+the SDK at 2.62.0 (2.63.0 removed the constructor it needed) and what the Dependabot ignore rule for
+`com.anthropic:anthropic-java` was guarding. The runtime is Java 25 now (JEP 491), so all three go: the
+pin, the HTTP/1.1 forcing and the ignore rule. The SDK's default protocols (HTTP/2 with an HTTP/1.1
+fallback) are back.
+
+The pool sizing carries over (`maxIdleConnections` 10, `keepAliveDuration` 2 minutes). The old client's
+OkHttp timeouts (10 s connect/read/write, 90 s call) are not carried over, because none of them was ever in
+force: the SDK overwrites all four on a per-request client from the request's own `Timeout`, identically in
+2.62.0 and 2.68.0, so every call ran, and still runs, with connect 60 s, read and write and call 600 s unless
+it passes its own `RequestOptions`. That 10-minute ceiling (a silent connection can hold a thread about 30
+minutes across the SDK's two retries) is unchanged; setting a short client-wide timeout would also cut off
+the batch-results downloads. The Ask door still makes one HTTP attempt per call (`maxRetries(0)` on its
+derived client), now pinned against the real SDK rather than a mock.
+
+SDK 2.68.0 made `Message.diagnostics` a required field, which only the tests that build a `Message` by
+hand needed to learn about. `WireMockAnthropicClientTestConfiguration` now builds from the production
+builder (`AppConfig.anthropicClientBuilder`), so the integration tests' client can no longer drift from
+production's options. The explicit `okhttp` dependency stays, runtime-scoped and pinned to 4.12.0.
+
+`AnthropicWireMockFixtureContractTest` no longer pins an SDK quirk that 2.68.0 removed: on 2.62.0
+`MessageBatch.ProcessingStatus.of(String)` always built a new instance (so `==` never matched an ended batch,
+the `f49959dd` bug), but 2.68.0 returns the interned constant for the three known strings, so its
+`isNotSameAs` assertion became false. The test keeps the lesson instead: a known status equals its constant,
+and an unknown one (`"ended "`, `"finalised"`) deserialises without throwing and equals none of them, which is
+why `BatchPollingService` must keep comparing with `equals`. The production comparisons already do.
+
 ## [v2.23.0] - 2026-10-06
 
 ### Fixed — the backend CI job no longer spends three minutes waiting for a cache primer that can never finish
