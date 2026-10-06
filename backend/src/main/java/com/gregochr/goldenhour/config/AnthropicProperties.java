@@ -16,7 +16,4 @@ public class AnthropicProperties {
 
     /** Anthropic API key. */
     private String apiKey;
-
-    /** Model identifier (default: claude-sonnet-4-5-20250929). */
-    private String model = "claude-sonnet-4-5-20250929";
 }
