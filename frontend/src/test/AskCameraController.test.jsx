@@ -424,6 +424,27 @@ describe('the frame changes size under an answer (the dock opens or closes)', ()
     expect(fitBounds).not.toHaveBeenCalled();
   });
 
+  // F4: a map touch minimises the answer, which changes the inset, which re-applies the move — so a drag
+  // that begins INSIDE the camera's own 900ms (an answer fitted a moment ago) must still end the
+  // re-applying, or the camera snaps the map back under the reader's finger.
+  it('⚠️ a drag is the reader\'s even inside the camera\'s own move window: a later inset change re-applies nothing', () => {
+    vi.useFakeTimers();
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    const COVER = (bottom) => ({
+      top: 0, right: 0, bottom, left: 0,
+    });
+    const view = render(controller({ inset: COVER(470) }));
+    // The fit was made a moment ago: its own window is still open. The reader drags the map...
+    act(() => { vi.advanceTimersByTime(100); });
+    act(() => { testMap.fire('dragstart'); });
+    fitBounds.mockClear();
+
+    // ...and the sheet comes down in answer to it.
+    view.rerender(controller({ inset: COVER(112) }));
+
+    expect(fitBounds).not.toHaveBeenCalled();
+  });
+
   it('a NEW choice after a reader\'s move starts afresh', () => {
     vi.useFakeTimers();
     const setView = vi.spyOn(testMap, 'setView');
@@ -527,5 +548,220 @@ describe('the inset changes under an answer (F4\'s peek sheet grows and shrinks,
     // The fit that was owed is made with the CURRENT inset; there is nothing left to re-apply.
     expect(flyToBounds).toHaveBeenCalledTimes(1);
     expect(fitBounds).not.toHaveBeenCalled();
+  });
+});
+
+// ── F4: the phone's peek sheet is the caller of both seams ─────────────────────────────────────────
+describe('the peek sheet\'s figures on a 667px-tall phone frame (F4)', () => {
+  const PHONE = { width: 375, height: 667 };
+  const COVER = (bottom) => ({
+    top: 0, right: 0, bottom, left: 0,
+  });
+
+  beforeEach(() => {
+    testMap.remove();
+    testMap = makeMap(PHONE);
+  });
+
+  // The sheet expanded (470) is taller than half the frame: unclamped, 60 + 470 of bottom padding and 80
+  // above is 610 against a 667px frame — over the cap, and the clamp is what keeps the fit finite.
+  it.each([470, 408, 112])('a %ipx covering surface never takes more than 60%% of the frame, and every pick lands inside it', (bottom) => {
+    mockReducedMotion(true); // synchronous, so the viewport can be read straight away
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+
+    render(controller({ inset: COVER(bottom) }));
+
+    const options = fitBounds.mock.calls[0][1];
+    expect(options.paddingTopLeft[1] + options.paddingBottomRight[1]).toBeLessThanOrEqual(PHONE.height * 0.6 + 1e-9);
+    expect(Number.isFinite(testMap.getZoom())).toBe(true);
+    const view = testMap.getBounds();
+    expect(view.contains([54.49, -0.61])).toBe(true);
+    expect(view.contains([55.0, -1.4])).toBe(true);
+  });
+
+  it('minimising the answer (470 → 112) re-fits the picks into the room that opens up, without animation', () => {
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    const view = render(controller({ inset: COVER(470) }));
+    fitBounds.mockClear();
+
+    view.rerender(controller({ inset: COVER(112) }));
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    const options = fitBounds.mock.calls[0][1];
+    expect(options.animate).toBe(false);
+    // 60 + 112 below (172), against the 667 frame: untouched by the cap.
+    expect(options.paddingBottomRight[1]).toBe(172);
+  });
+});
+
+// F4: the sheet minimises on `touchstart`, i.e. BEFORE a drag's first move. A camera move in that gap leaves
+// Leaflet's Draggable holding the map pane's old position, so the drag begins from where the map no longer
+// is. The re-apply for a changed inset therefore waits for the pointers to lift.
+describe('an inset that changes under a finger waits for the finger (F4)', () => {
+  const COVER = (bottom) => ({
+    top: 0, right: 0, bottom, left: 0,
+  });
+  /** A pointer event, as a browser sends one: jsdom's generic Event with the id a PointerEvent carries. */
+  const pointer = (type, pointerId = 1) => {
+    const event = new Event(type, { bubbles: true });
+    event.pointerId = pointerId;
+    return event;
+  };
+  const press = (id) => act(() => { testMap.getContainer().dispatchEvent(pointer('pointerdown', id)); });
+  const lift = (id, type = 'pointerup') => act(() => { document.dispatchEvent(pointer(type, id)); });
+
+  it('does not re-apply while a pointer is down, and re-applies once on release (a tap)', () => {
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    const view = render(controller({ inset: COVER(470) }));
+    fitBounds.mockClear();
+    press();
+
+    view.rerender(controller({ inset: COVER(112) }));
+    expect(fitBounds).not.toHaveBeenCalled();
+    lift();
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds.mock.calls[0][1].animate).toBe(false);
+    // The 112px inset, in a 400px-tall frame: 80 above + 60 + 112 below = 252, over the 240 cap, so scaled.
+    expect(fitBounds.mock.calls[0][1].paddingBottomRight[1]).toBeCloseTo((60 + 112) * (240 / 252), 5);
+  });
+
+  it('a drag that begins while it waits has taken the camera: nothing is re-applied on release', () => {
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    const view = render(controller({ inset: COVER(470) }));
+    fitBounds.mockClear();
+    press();
+    view.rerender(controller({ inset: COVER(112) }));
+
+    act(() => { testMap.fire('dragstart'); });
+    lift();
+
+    expect(fitBounds).not.toHaveBeenCalled();
+  });
+
+  it('waits for the LAST of two fingers', () => {
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    const view = render(controller({ inset: COVER(470) }));
+    fitBounds.mockClear();
+    press(1);
+    press(2);
+    view.rerender(controller({ inset: COVER(112) }));
+
+    lift(1);
+    expect(fitBounds).not.toHaveBeenCalled();
+    lift(2);
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+  });
+
+  it('a cancelled pointer releases it too', () => {
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    const view = render(controller({ inset: COVER(470) }));
+    fitBounds.mockClear();
+    press();
+    view.rerender(controller({ inset: COVER(112) }));
+
+    lift(1, 'pointercancel');
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+  });
+
+  it('with no pointer down the change re-applies at once, as before', () => {
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    const view = render(controller({ inset: COVER(470) }));
+    fitBounds.mockClear();
+
+    view.rerender(controller({ inset: COVER(112) }));
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+  });
+
+  it('a release with nothing owed does nothing', () => {
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    render(controller({ inset: COVER(470) }));
+    fitBounds.mockClear();
+
+    press();
+    lift();
+
+    expect(fitBounds).not.toHaveBeenCalled();
+  });
+
+  it('stops listening when it unmounts', () => {
+    const fitBounds = vi.spyOn(testMap, 'fitBounds');
+    const view = render(controller({ inset: COVER(470) }));
+    press();
+    view.rerender(controller({ inset: COVER(112) }));
+    fitBounds.mockClear();
+
+    view.unmount();
+    lift();
+
+    expect(fitBounds).not.toHaveBeenCalled();
+  });
+});
+
+describe('the 667px phone frame — what the camera leaves visible (F4)', () => {
+  it('with the sheet minimised (112), every pick lands above it, not merely inside the frame', () => {
+    testMap.remove();
+    testMap = makeMap({ width: 375, height: 667 });
+    mockReducedMotion(true);
+
+    render(controller({ inset: { top: 0, right: 0, bottom: 112, left: 0 } }));
+
+    for (const [lat, lng] of [[54.49, -0.61], [55.0, -1.4]]) {
+      const { y } = testMap.latLngToContainerPoint([lat, lng]);
+      expect(y, `${lat},${lng}`).toBeGreaterThan(0);
+      expect(y, `${lat},${lng}`).toBeLessThan(667 - 112);
+    }
+  });
+});
+
+describe('the camera announces its own moves (F4: the peek sheet must tell them from a hand)', () => {
+  it('tells its owner BEFORE the fit, with an instant in the future', () => {
+    const order = [];
+    const onOwnMove = vi.fn((until) => order.push(['own', until]));
+    vi.spyOn(testMap, 'flyToBounds').mockImplementation(() => { order.push(['fly']); return testMap; });
+    const before = Date.now();
+
+    render(controller({ onOwnMove }));
+
+    expect(order.map(([kind]) => kind)).toEqual(['own', 'fly']);
+    expect(order[0][1]).toBeGreaterThan(before);
+  });
+
+  it('tells it before a chosen pick\'s flight and before a re-apply too', () => {
+    const onOwnMove = vi.fn();
+    const view = render(controller({ onOwnMove, inset: { top: 0, right: 0, bottom: 0, left: 0 } }));
+    onOwnMove.mockClear();
+
+    view.rerender(controller({
+      onOwnMove, selection: { lat: 55.0, lng: -1.4, nonce: 1 }, inset: { top: 0, right: 0, bottom: 0, left: 0 },
+    }));
+    expect(onOwnMove).toHaveBeenCalledTimes(1);
+
+    view.rerender(controller({
+      onOwnMove, selection: { lat: 55.0, lng: -1.4, nonce: 1 }, inset: { top: 0, right: 0, bottom: 112, left: 0 },
+    }));
+    expect(onOwnMove).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not announce a move that is not made: the map shown again with nothing owed stamps nothing', () => {
+    const onOwnMove = vi.fn();
+    const view = render(controller({ onOwnMove }));
+    onOwnMove.mockClear();
+
+    view.rerender(controller({ onOwnMove, active: false }));
+    view.rerender(controller({ onOwnMove, active: true }));
+
+    expect(onOwnMove).not.toHaveBeenCalled();
+  });
+
+  it('is optional — no owner, no call, and the same camera', () => {
+    const flyToBounds = vi.spyOn(testMap, 'flyToBounds');
+
+    render(controller());
+
+    expect(flyToBounds).toHaveBeenCalledTimes(1);
   });
 });

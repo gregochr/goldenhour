@@ -141,6 +141,13 @@ const LEAFLET_CORNER_SELECTOR = '.leaflet-bottom.leaflet-right';
 const RING_OFFFRAME_FACTOR = 1.15;
 
 /**
+ * What the phone's peek sheet always leaves clear at the top of the frame, in px — the window pill
+ * ({@code top: 10px; height: 44px}) plus its margins. The sheet's own CSS clamps to
+ * {@code calc(100% - 64px)}; the {@code bottomInset} obstacle is clamped to the same figure.
+ */
+const PEEK_PILL_CLEARANCE = 64;
+
+/**
  * The side of a pick's BARE rank circle, in px — the 17px circle plus the 4px of plate around it
  * (`.wf-maplab-pick[data-compact]`). Known rather than measured: the fallback is placed in the same
  * layout effect that measured the full chip, from a node that is still showing its full width.
@@ -252,10 +259,18 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  *   carrying {@code askPick}; without this prop a pick chip falls back to {@code onSelect}
  * @param {string}   [props.eventLabel] the active EV row's label+time, for the hover tooltip's
  *   "event" line (e.g. "Sunset · Tonight 19:58")
+ * @param {number}   [props.bottomInset] the height in px of a surface standing over the frame's bottom
+ *   edge that is NOT in the DOM list above — the phone's peek sheet, while an answer's picks are on the
+ *   map (F4). Seeded as one more obstacle, from the sheet's TARGET height rather than its live rect
+ *   (which, mid-transition, is neither where it was nor where it is going), and re-placed when it
+ *   changes. 0 — the default, and what every other caller gets — seeds nothing. The pick the sheet
+ *   would hide is the failure: a numbered card with its marker under a 112px line is worse than one
+ *   shifted a little. Without the answer the sheet stays what it has always been to this layer, a
+ *   thing a label may sit under
  */
 export default function MapLabels({
   spots, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
-  onSelect = null, onSelectAskPick = null, eventLabel = '',
+  onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0,
 }) {
   const map = useMap();
 
@@ -427,7 +442,7 @@ export default function MapLabels({
   // list, above), and `paintRef` is already pointed at the fresh closure by the layout effect
   // above by the time this runs. `repaintNow` rather than a bare call so a frame the throttle
   // already owes is not doubled.
-  useEffect(() => { repaintNow(); }, [paint, repaintNow]);
+  useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset]);
 
   /**
    * The measure-then-place pass (see the class doc). Keyed on the `frame` OBJECT's identity, the
@@ -486,11 +501,19 @@ export default function MapLabels({
         ? [...containerEl.parentElement.querySelectorAll(OBSTACLE_SELECTOR)]
         : [];
       const leafletChrome = [...containerEl.querySelectorAll(LEAFLET_CORNER_SELECTOR)];
-      obstacles = seedObstacles(
-        [...siblingChrome, ...leafletChrome].map((el) => el.getBoundingClientRect()),
-        containerRect,
-        5,
-      );
+      const rects = [...siblingChrome, ...leafletChrome].map((el) => el.getBoundingClientRect());
+      // Clamped as the sheet's own CSS is (`calc(100% - 64px)`): it never covers the window pill.
+      const covered = Math.min(bottomInset, Math.max(containerRect.height - PEEK_PILL_CLEARANCE, 0));
+      if (covered > 0) {
+        // A box standing on the frame's bottom edge, in the page's coordinates like the rects above.
+        rects.push({
+          left: containerRect.left,
+          top: containerRect.top + containerRect.height - covered,
+          width: containerRect.width,
+          height: covered,
+        });
+      }
+      obstacles = seedObstacles(rects, containerRect, 5);
     }
 
     const placed = placeLabelPass(items, frame.width, frame.height, obstacles);
@@ -898,4 +921,5 @@ MapLabels.propTypes = {
   onSelect: PropTypes.func,
   onSelectAskPick: PropTypes.func,
   eventLabel: PropTypes.string,
+  bottomInset: PropTypes.number,
 };

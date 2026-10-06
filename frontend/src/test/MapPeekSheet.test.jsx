@@ -37,6 +37,121 @@ describe('MapPeekSheet — collapsed/open height class', () => {
   });
 });
 
+describe('MapPeekSheet — the Ask row (F4: the sheet derives nothing, it draws the mode it is told)', () => {
+  const draw = (askMode, extra = {}) => render(
+    <MapPeekSheet
+      section={null}
+      onPressWindows={() => {}}
+      onPressLayers={() => {}}
+      onPressTide={() => {}}
+      tideVisible
+      askMode={askMode}
+      ask={<div data-testid="ask-part">ask</div>}
+      {...extra}
+    />,
+  );
+
+  it('with Ask off is the sheet before Ask existed: no Ask part even if one is handed in, the buttons always', () => {
+    draw('off');
+
+    expect(screen.queryByTestId('ask-part')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek')).toHaveAttribute('data-ask', 'off');
+    expect(screen.getByTestId('wf-map-peek-btn-win')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-btn-tide')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-btn-lay')).toBeInTheDocument();
+  });
+
+  it.each(['collapsed', 'section'])('%s: the Ask part sits ABOVE the three buttons, which are all drawn', (mode) => {
+    draw(mode);
+
+    expect(screen.getByTestId('wf-map-peek')).toHaveAttribute('data-ask', mode);
+    const ask = screen.getByTestId('ask-part');
+    const win = screen.getByTestId('wf-map-peek-btn-win');
+    expect(ask.compareDocumentPosition(win) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('wf-map-peek-btn-tide')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-btn-lay')).toBeInTheDocument();
+  });
+
+  it.each(['expanded', 'minimised'])('%s: the answer REPLACES the three buttons', (mode) => {
+    draw(mode);
+
+    expect(screen.getByTestId('ask-part')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-btn-win')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-btn-tide')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-btn-lay')).not.toBeInTheDocument();
+  });
+
+  it('defaults to off — every caller before F4 is the sheet it was', () => {
+    render(<MapPeekSheet section={null} onPressWindows={() => {}} onPressLayers={() => {}} />);
+
+    expect(screen.getByTestId('wf-map-peek')).toHaveAttribute('data-ask', 'off');
+  });
+
+  it('another section open over the Ask row keeps its body and the open class (the 408px state)', () => {
+    draw('section', { section: 'win', windowsBody: <div data-testid="win-body" /> });
+
+    expect(screen.getByTestId('wf-map-peek').className).toContain('wf-map-peek-open');
+    expect(screen.getByTestId('win-body')).toBeInTheDocument();
+    expect(screen.getByTestId('ask-part')).toBeInTheDocument();
+  });
+});
+
+describe('MapPeekSheet — focus is rescued when the answer takes the buttons (F4)', () => {
+  const entryRef = { current: null };
+  const sheet = (askMode) => (
+    <MapPeekSheet
+      section={null}
+      onPressWindows={() => {}}
+      onPressLayers={() => {}}
+      askMode={askMode}
+      fallbackFocusRef={entryRef}
+      ask={(
+        <button type="button" data-testid="entry" ref={(node) => { entryRef.current = node; }}>entry</button>
+      )}
+    />
+  );
+
+  it.each(['minimised', 'expanded'])('a focused peek button unmounting into %s hands focus to the fallback', (mode) => {
+    const view = render(sheet('collapsed'));
+    screen.getByTestId('wf-map-peek-btn-lay').focus();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+
+    view.rerender(sheet(mode));
+
+    expect(screen.queryByTestId('wf-map-peek-btn-lay')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('entry'));
+  });
+
+  it('does nothing when focus was not inside the row (the reader was somewhere else, or nowhere)', () => {
+    const view = render(<div><button type="button" data-testid="elsewhere">x</button>{sheet('collapsed')}</div>);
+    screen.getByTestId('elsewhere').focus();
+
+    view.rerender(<div><button type="button" data-testid="elsewhere">x</button>{sheet('minimised')}</div>);
+
+    expect(document.activeElement).toBe(screen.getByTestId('elsewhere'));
+  });
+
+  it('does nothing while the buttons stay (a re-render is not an unmount)', () => {
+    const view = render(sheet('collapsed'));
+    screen.getByTestId('wf-map-peek-btn-lay').focus();
+
+    view.rerender(sheet('section'));
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+  });
+
+  it('with no fallback given, leaves focus alone rather than throwing', () => {
+    const view = render(
+      <MapPeekSheet section={null} onPressWindows={() => {}} onPressLayers={() => {}} askMode="collapsed" ask={<span />} />,
+    );
+    screen.getByTestId('wf-map-peek-btn-lay').focus();
+
+    expect(() => view.rerender(
+      <MapPeekSheet section={null} onPressWindows={() => {}} onPressLayers={() => {}} askMode="minimised" ask={<span />} />,
+    )).not.toThrow();
+  });
+});
+
 describe('MapPeekSheet — one body at a time', () => {
   it('renders ONLY the Windows body while section is "win", never the Layers body', () => {
     render(

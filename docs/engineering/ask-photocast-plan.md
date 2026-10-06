@@ -32,7 +32,7 @@ it (adjacent rows conflict between open PRs).
 | F1a | Client core, unmounted: API, hooks, provider, pick model, conversation and cards | M/L | merged (#1023) |
 | F1b | Phone and tablet-portrait entry: ask bar, tall sheet, shell wiring | M/L | merged (#1025) |
 | F2 | Desktop: tab-row field, the `/` key, the docked column | L | merged (#1028) |
-| F3 | Map linkage: numbered picks, dimming, camera, window follow | L | not started |
+| F3 | Map linkage: numbered picks, dimming, camera, window follow | L | merged (#1029) |
 | F4 | Phone Map: the ask row in the peek sheet | L | not started |
 | F5 | "Plan this", "Open in Plan", the Plan-card highlight | M | not started |
 | Z | Sweep: CLAUDE.md, prompt-regression class, measured Verify list, production enable | S/M | not started |
@@ -550,7 +550,9 @@ expanded"; whether an answer exists and whether it is minimised is Ask state.
 
 `--psh` is set inline on `.wf-map-tab` from state (126 / 112); every 74 literal in the phone block
 becomes 126; `MapCallout` gains a `bandKey` prop so it repaints when the sheet's height changes
-(its own doc records this stale-band defect for the tide strip).
+(its own doc records this stale-band defect for the tide strip). *As built (F4):* **`--psh` is 74 / 126 / 112, and the
+phone block's literals became `var(--psh, 74px)`, not 126** — with Ask off the sheet is what it was — and "minimised" is
+derived (a settled answer, no section open), not a state of its own: see "As built (F4)".
 
 ### 2.8 Plan linkage (F5)
 - **Highlight.** `WindowFirstHeatStrip` gains `highlightKeys` → `data-ask-highlight`, the spec's
@@ -1596,6 +1598,130 @@ focus never falls to `<body>` when the ask row replaces the buttons (asserted on
 `document.activeElement`).
 **Seen:** 390 × 844 and 375 × 667 — the open sheet never covers the pill; a minimised answer and a
 callout do not overlap (measured rects).
+
+*As built (F4), where the plan was wrong or silent:*
+- **Files:** `utils/askPeek.js` (the heights, `askPeekMode`, `peekTargetHeight`, `peekRestingHeight`,
+  `PEEK_SETTLED_PHASES`), `components/map/MapPeekAsk.jsx` (the Ask row, the Ask section's body, the minimised line),
+  `MapPeekSheet.jsx` (`askMode`/`ask`/`fallbackFocusRef`, the button row's focus rescue), `MapView.jsx`,
+  `WindowFirstMapPane.jsx` (three new props), `MapCallout.jsx` (`bandKey`), `MapLabels.jsx` (`bottomInset`),
+  `AskCameraController.jsx` (`onOwnMove`), the F4 blocks of `index.css`. `AskInputRow` and `AskConversation` are reused
+  unchanged. **`AskClearAnswer` is not** (the brief said the row reuses it): its text button has no place in a 44px
+  row, and the ✕ implements the same rule itself — clear what is settled, never what is still being fetched.
+- **The sheet's state is derived, not stored — that is how "one test per cell" stays honest.** Three facts decide it:
+  whether the Ask section is **expanded** (`openMapMenu === 'peek:ask'`, D-1's one gate, and nothing else), whether
+  another section is open, and whether the conversation has something **settled** (`AskContext.phase` in
+  `PEEK_SETTLED_PHASES`: answer, plan, cant, error). **"Minimised" is "a settled answer and no section open"**, so every
+  table cell that ends on the 112px line is the *same write* (`openMapMenu → null`) as the cell that ends on the 126px
+  row; the conversation decides which the reader sees. A tab switch needs only to close the expanded section: the
+  pane's own `panelShown` (the ResizeObserver's 0×0 box) falling nulls `'peek:ask'`, which `selectTab` cannot reach (the
+  pane is mounted but hidden, and gets no `active` prop). Another section (`peek:win`) is deliberately left alone, as it
+  always was.
+- **The two dismiss paths, as built.** `SheetDismissOnMapTouch` gained two things, not the one the brief expected: the
+  **busy exemption** (the table is silent; the mock leaves the section open, and collapsing would hide the only sign
+  the question is out) and an **own-move gate on `zoomstart`**: Leaflet fires one for *any* zoom, and Ask's camera
+  flies to a new answer's picks and to a chosen card, which minimised the very answer that had just landed. The
+  camera stamps the end of each move of its own (`onOwnMove`, before the move) into a ref the listener reads; a
+  press, a touch and a drag are never gated. **The selection→collapse effect gained nothing**: with the state derived
+  it is already "minimise". Pick chips stop their own click propagation, so a pick press is never a map touch; it
+  clears the selection itself (not left to the window-follow effect, which runs only while the pane is on screen)
+  and expands only from null or a peek value, so an open drilldown, Regions or Filters stays open — **which means a
+  pick pressed while the drilldown is open selects the card but the sheet stays on the 112px line** (the table's
+  "minimised: expand, select card" holds when nothing else is open; panels persist under a press on the map).
+- **`--psh` is three-valued, not "every 74 becomes 126" (the plan was wrong).** With Ask not offered (the flag, an
+  unreachable server, a rewind) the sheet must be exactly what it was — a 52px empty band would be a defect — so
+  `MapView` writes `--psh` inline on the pane (an inline style in a "Tailwind only" codebase: `--tsh` is written the same
+  way, and the value is state): **74** with no Ask row, **126** with one, **112** under a minimised
+  answer, and every consumer (the Leaflet corner's padding, `.wf-map-chrome-bl`'s `calc(var(--psh, 74px) + 27px + 8px)`,
+  `.wf-map-empty-low`, `MapCallout`) reads the property; the `74px` left in the stylesheet is its default and each
+  `var()` fallback. jsdom resolves no `var()`, so `mapPhoneChromeCascade.test.jsx` was rewritten to substitute the
+  three resting heights (`atPsh`) — a stronger test, it checks the whole lifted stack at each. `MapViewMobilePeekSheet`,
+  `mapCalloutClampCascade` and `MapViewTideStripCalloutWiring` needed **no change** (their 74 is the Ask-off truth).
+  Sheet heights (`.wf-map-peek[data-ask=…]`): 126 collapsed, 112 minimised, 408 another section, 470 Ask, all under the
+  base rule's `max-height: calc(100% - 64px)`. The transition is the README's `.28s cubic-bezier(.3,.7,.2,1)` (the
+  mock's own CSS says `.26s`, which the sheet had before). The height literals live in `utils/askPeek.js` *and* the
+  stylesheet; `askPeekCss.test.js` reads one against the other.
+- **D-7 is broken in exactly one state, on purpose, and `map-mobile-sheet-plan.md` §5 D-7 now says so:** a callout may
+  stand over the **112px minimised line**. It is safe because that height is fixed (the band is read from the target,
+  never mid-transition), `--psh` is live, and `MapCallout`'s new `bandKey` prop (the resting height) repaints the
+  band when it changes — tested at 74, 126 and 112, and with the key withheld to show the defect it prevents. An
+  *open* sheet (356 / 408 / 470) and a callout still never coexist, in either order.
+- **The answer replaces the three buttons, in the expanded state and the minimised one** (the mock's
+  `.sh.askmin .pk{display:none}`; there is no room in 112px). So with an answer minimised **Tide and Layers are one
+  step further**: the pill opens the Windows section, which draws the buttons. The table's "a peek button" cell for the
+  minimised column is therefore reachable through the pill only. The minimised row is the **entry button** plus the
+  line, not the mock's field: the field mounts when the section opens, so a draft does not survive a collapse (the
+  sheet's and the dock's rule too).
+- **Focus.** Every control that is replaced by another is handled, asserted on `document.activeElement`: opening
+  puts the cursor in the field when there is nothing to read and on the Ask node (`tabIndex -1`) when there is, and only
+  when focus has actually been lost; ✕ and Escape park focus on that node first (Escape through a native listener,
+  which runs before the pane's own handler, and stands down for a dialog the pane stands down for) and an effect hands
+  it to the entry button; and **the three-button row reports from a layout-effect cleanup that it held focus when it
+  unmounted** (an answer lands, a section closes onto the minimised line — the ordinary route, found in review) and
+  `MapPeekSheet` focuses the entry button. `restoreFallback` for Regions and Filters falls back to the entry.
+- **A refusal's sentence is shown in the collapsed row only while unseen.** The conversation, while open, renders and
+  announces `inputError`; the provider keeps it until the next question, so a row that mirrored it would keep a
+  read sentence where the prompt belongs and announce it again on every collapse. "Seen" is what the open
+  conversation last showed (state adjusted during render; forgotten when the sentence goes, so the same refusal twice
+  is two refusals). It wraps to two lines in the 44px row; the full sentence is the button's accessible name.
+- **The camera.** `inset.bottom` is the sheet's TARGET height (470 expanded, 408 under another section, 112 minimised)
+  while picks are on the map; the controller's 60% clamp is untouched, and a change re-applies the last move without
+  animation, which is how the picks re-fit when the answer is minimised. **Two camera changes F3 did not have:**
+  `dragstart` now ends the re-applying *whenever* it comes (it was gated by the own-move window like `zoomstart`, so a
+  drag begun within 900ms of a fit left the camera free to snap the map back when the touch minimised the sheet), and
+  `startOwnMove` is called only where a move is made, not before the branches. **And a re-apply for a changed inset
+  waits for the pointers to lift**: the sheet minimises on `touchstart`, before a drag's first move, and a camera
+  move in that gap leaves Leaflet's Draggable holding the map pane's old position (found by the second review pass,
+  from Leaflet's source — not seen in a browser); a drag that begins meanwhile has cleared the move, so nothing is
+  re-applied, and a tap re-applies on release (pointer events, a set of ids, so two fingers wait for the last).
+- **Label obstacles — decided: yes, but only while an answer's picks are numbered.** `MapLabels` takes `bottomInset`
+  and seeds a synthetic box of the sheet's target height (clamped to frame − 64, like the CSS) as one more obstacle; a
+  pick a 112px line would hide is worse than a shifted one. Without picks the sheet is not an obstacle, as it never was
+  (changing that would alter every phone's placement); `PinsLayer` (dots, no placement pass but the home label) is
+  unchanged. The box is built from `containerRect.top + height`, not `.bottom`: the first draft read `.bottom` and a
+  test's rect without one made the obstacle `NaN`.
+- **Seen vs tested.** SEEN, in a browser (a scratch Vite page mounting the real `index.css`, `MapPeekSheet`,
+  `MapPeekAsk`, `AskInputRow` and `AskPickCard` with the conversation context stubbed, a fake map and pill, at 390×844
+  and 320×568, deleted): the sheet at exactly **126 / 470 / 112** px; at a 440px frame the expanded sheet clamped to
+  **376** and left the pill a 10px gap; the minimised line ("1 Saltburn Tue PM 17:41 · 3 picks ▴"); the expanded
+  field, ✕, chips and cards; the attribution flush above the sheet at 112 (`--psh`) and a stand-in callout 8px above
+  it; focus on the entry after ✕; an unseen refusal in the row; at 320px the 16px placeholder measured 183px against
+  176px available, so the field's side padding in the row is 8px. **TESTED, NOT SEEN:** the real `MapView` with real
+  Leaflet and a real callout over the 112px line (the band is tested in jsdom against `--psh`); the iOS keyboard with
+  the field at the top of a sheet that is not `visualViewport`-aware; the 667px phone's actual map frame (the clamp is
+  asserted as text); the transition and reduced motion; focus rings in forced colours; whether a map touch that
+  minimises the answer makes the camera's re-fit read as a jump (the plan asks for it; the mock does not refit); a
+  screen reader on the parked Ask node and on the minimised line's name; Safari.
+- **Review (six read-only lenses — runtime, CSS, test quality, accessibility, conventions, F5 — 60+ charges, then a
+  refutation pass over what was deferred and one over the fixes) and 20 mutants** over the state table, both dismiss
+  paths, the camera stamp, the selection clearing, the focus handoffs, `bandKey`, the inline `--psh`, the inset and the
+  obstacle, all killed. **Fixed from review:** focus fell to `<body>` when a section closed back onto the minimised
+  line (the buttons unmounted holding it); a pick press under a callout relied on another effect to clear it; a drag
+  within the camera's own window could snap the map back; a read refusal stuck in the row and was announced twice; the
+  transition's attribution; a misplaced doc block, stale 74px prose and an unfocusable-ring clip on the line.
+  **Accepted, with the reason, and refuted as defects by the second pass:** the expanded 470px sheet covers the picks the
+  camera fits on frames under ~590px (nothing the camera can do shows them; minimising re-fits); the parked node has no
+  role; an answer landing while the section was closed on purpose is not announced; Tide and Layers are two steps
+  away while an answer is minimised; `--psh` steps instantly while the sheet animates (a 14px step).
+- **For F5:** (1) `'plan'` is already in `PEEK_SETTLED_PHASES` and `MinimisedLine` treats it like an answer; F5 must
+  give the line a plan text and decide that choosing a pick during `plan` returns the conversation to `answer`
+  (`handleSelectAskPick` expands whatever the phase). `AskClearAnswer`'s own list is untouched and must stay so until
+  F5 gives it its seam. (2) `MapView.handleOpenLocationSheet(inPlan, spot)` reads the date and event from
+  `activeMapEvent`, not the pick: "Plan this ›" / "Open in Plan ›" on a card the Map has not followed yet need an
+  explicit window argument. (3) The peek sheet passes no `pickActions` and the shell's `askPickActions` is out of the
+  pane's reach: F5 needs a seam from the shell through `WindowFirstMapPane` into `MapPeekAsk`. (4) `AskConversation` is
+  mounted only while the section is expanded, so scroll position and card focus do not survive a collapse; keep it
+  mounted `hidden` if F5 needs them. (5) "Open in Plan ›" moves the tab: `panelShown` goes false and the section closes,
+  so the Map comes back minimised — test that route. (6) Opening a non-`inPlan` four-day sheet over the Map leaves
+  `'peek:ask'` open and not `inert` (O-20); `openAskSection` refuses over a dialog, `handleSelectAskPick` does not.
+- **For Z (CLAUDE.md, *Map tab on a phone — the peek sheet*):** these sentences are now false and the sweep must change
+  them — "74px tall showing three summary buttons … opening to 356px" (126 with the Ask row; a section 356, or 408 with
+  it; Ask 470; an answer minimised 112); "`MapCallout`'s phone placement band reads a fixed `--psh: 74px` … every map
+  tap collapses the sheet first" (`--psh` is state-driven inline, and a callout may stand over the 112px line); "the
+  whole phone lifted stack was rewritten off the sheet's 74px floor"; "the open section is a value of … `'peek:win' |
+  'peek:tide' | 'peek:lay'`" (add `'peek:ask'`, meaning expanded only); "any installed map touch or selection
+  collapses it" (an expanded answer minimises, busy is exempt, the camera's own zoom is not a touch); "three summary
+  buttons" (an answer replaces them). Add: `MapView` takes `askOffered`/`askPhase`/`panelShown` from the pane; the Ask
+  row is phone-only inside `MapView`, and the shell's `askEntry` stays null on the phone Map.
 
 ### F5 — Plan this — M
 **Files:** `components/ask/AskPlanThis.jsx`, `utils/locationSheet.js` (export `lightWindows`),

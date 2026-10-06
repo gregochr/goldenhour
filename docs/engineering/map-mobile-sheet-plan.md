@@ -726,6 +726,12 @@ Branch `feature/map-mobile-sheet-m6-sweep`; slug `map-mobile-sheet-m6-sweep`, he
   before the sheet grows, and any INSTALLED selection collapses an open section (an effect on
   `selectedLocationName`, because selection has several writers — M2 task 7); the test pins both
   orders. Desktop keeps its live `--tsh` band.
+  ⚠️ **Amended by Ask PhotoCast F4** (`docs/engineering/ask-photocast-plan.md`, "As built (F4)"): `--psh`
+  is now the sheet's RESTING height and is written inline by `MapView` — 74 with no Ask row, 126 with
+  one, 112 under a minimised answer — and **D-7 is deliberately broken in exactly one state: a callout
+  may stand over the 112px minimised line.** It is safe because that height is fixed (not mid-transition:
+  the band reads the target), `--psh` is live, and `MapCallout`'s `bandKey` repaints the band when it
+  changes. An OPEN sheet (356 / 408 / 470px) and a callout still never coexist, in either order.
 - **D-8** The pill's dropdown listbox is unreachable on the phone after M2 (the pill toggles the
   Windows section). Everything it held is in the section (rows, drilldown) or withheld on phone
   anyway (the landing reopen row).

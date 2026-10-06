@@ -1163,6 +1163,58 @@ describe('MapLabels — obstacle seeding from the live chrome', () => {
   });
 });
 
+describe('MapLabels — the peek sheet as an obstacle while an answer\'s picks are on the map (F4 bottomInset)', () => {
+  // The frame is 500px tall; `latLngToContainerPoint` is `y = (56 - lat) * 10`, so these homes sit at
+  // y = 110 and y = 40. The sheet's covered band is the bottom `bottomInset` px, clamped to the frame
+  // less the window pill's 64px: [64, 500] at most.
+  const LOW_HOME = { lat: 45, lon: -1.4 };
+  const HIGH_HOME = { lat: 52, lon: -1.4 };
+
+  async function placed(props) {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 9 });
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    await mount(props);
+    await act(async () => { runFrames(); });
+    return document.querySelector('[data-testid="map-label-home"]');
+  }
+
+  it('places a label under where the sheet WILL be when no inset is given — the sheet is not one of the chrome rects', async () => {
+    expect((await placed({ homeCoords: LOW_HOME })).style.display).not.toBe('none');
+  });
+
+  it('drops a label whose every rung lands under the sheet\'s target height', async () => {
+    expect((await placed({ homeCoords: LOW_HOME, bottomInset: 470 })).style.display).toBe('none');
+  });
+
+  it('leaves the top of the frame alone: the clamp keeps 64px clear, so a 500px inset does not cover y = 40', async () => {
+    expect((await placed({ homeCoords: HIGH_HOME, bottomInset: 500 })).style.display).not.toBe('none');
+  });
+
+  it('a small inset (the 112px minimised line) covers only its own 112px: a label at y = 110 is clear of it', async () => {
+    // Covered band [388, 500]; the label at y = 110 is nowhere near it.
+    expect((await placed({ homeCoords: LOW_HOME, bottomInset: 112 })).style.display).not.toBe('none');
+  });
+
+  it('re-places when the inset changes — the sheet growing under labels that were already placed', async () => {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 9 });
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    const { rerender } = await mount({ homeCoords: LOW_HOME, bottomInset: 112 });
+    await act(async () => { runFrames(); });
+    expect(document.querySelector('[data-testid="map-label-home"]').style.display).not.toBe('none');
+
+    await act(async () => { rerender(<MapLabels spots={SPOTS} homeCoords={LOW_HOME} bottomInset={470} />); });
+    await act(async () => { runFrames(); });
+
+    expect(document.querySelector('[data-testid="map-label-home"]').style.display).toBe('none');
+  });
+});
+
 describe('MapLabels — re-paints on the same rAF-guarded cadence as the field', () => {
   // Spies on `latLngToContainerPoint` — called once per paint (for the home point) — rather than
   // inspecting rendered DOM: React reconciles by KEY, so a repaint that produces an

@@ -1,3 +1,4 @@
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { VERDICT_LABEL } from '../../utils/windowFirstCards.js';
@@ -10,7 +11,9 @@ import { KindChip } from './WindowControl.jsx';
  *
  * <p>Replaces the phone's floating map controls (the window pill's own dropdown, the tide strip,
  * `.wf-map-chrome-tr`'s Regions/Heat-Pins/Filters bar) with one bottom sheet that starts collapsed
- * (74px, three summary buttons — Tide arrives in M3) and opens to one section at a time.
+ * (three summary buttons: 74px, or 126px with Ask's row above them) and opens to one section at a
+ * time (356px, or 408px with the Ask row; Ask's own section is 470px and, minimised, 112px — see
+ * `utils/askPeek.js` for every figure and `MapPeekAsk` for the row).
  *
  * <h2>Why this is a NEW component rather than {@code BottomSheet}</h2>
  *
@@ -80,6 +83,17 @@ import { KindChip } from './WindowControl.jsx';
  *        close-and-rescue rule, fixed at M5 — see `MapView`'s `tideButtonHadFocusRef` for why).
  * @param {?Function} [props.onTideButtonBlur] called on the Tide button's own `blur` event —
  *        the counterpart to `onTideButtonFocus`.
+ * @param {('off'|'collapsed'|'expanded'|'minimised'|'section')} [props.askMode='off'] the sheet's Ask
+ *        state (`utils/askPeek.js#askPeekMode`, derived by `MapView`: this component still holds none).
+ *        `'off'` is the sheet before Ask existed (its transition is the README's .28s now, not .26s). Otherwise {@code ask} is drawn above
+ *        the three buttons, and while the Ask section is {@code 'expanded'} or the answer is
+ *        {@code 'minimised'} the answer REPLACES the buttons (design README: "answer replaces the
+ *        Window/Tide/Layers buttons") — they come back when the answer is cleared or another section
+ *        is opened. It is `data-ask` on the root, which is what the stylesheet's heights key on.
+ * @param {React.ReactNode} [props.ask] `MapPeekAsk` — the entry row, the Ask section's body and the
+ *        minimised line, in one node, since the three share focus handling.
+ * @param {?{current: ?HTMLElement}} [props.fallbackFocusRef] where focus goes when the button row is
+ *        removed while one of its buttons holds it (the Ask row's entry button) — see `PeekButtonRow`.
  */
 export default function MapPeekSheet({
   section, onPressWindows, onPressLayers, onPressTide = null, tideVisible = false,
@@ -88,63 +102,80 @@ export default function MapPeekSheet({
   windowsBody = null, tideBody = null, layersBody = null,
   layersButtonRef = null, windowsButtonRef = null, tideButtonRef = null,
   onTideButtonFocus = null, onTideButtonBlur = null,
+  askMode = 'off', ask = null, fallbackFocusRef = null,
 }) {
   const open = section != null;
+  // Set by the button row when it unmounts WHILE holding focus (see `PeekButtonRow`); acted on once the
+  // commit that removed it has landed.
+  const focusLostRef = useRef(false);
+  useEffect(() => {
+    if (!focusLostRef.current) return;
+    focusLostRef.current = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) fallbackFocusRef?.current?.focus({ preventScroll: true });
+  });
+  // The answer takes the buttons' place (expanded) or the line's room (minimised); with Ask off
+  // there is no answer, so the buttons are always drawn.
+  const buttonsShown = askMode !== 'expanded' && askMode !== 'minimised';
   return (
     <section
       data-testid="wf-map-peek"
       aria-label="Map panels"
       className={`wf-map-peek${open ? ' wf-map-peek-open' : ''}`}
+      data-ask={askMode}
     >
       <div className="wf-map-peek-hdl" aria-hidden="true"><i /></div>
-      <div className="wf-map-peek-row">
-        <button
-          ref={windowsButtonRef}
-          type="button"
-          data-testid="wf-map-peek-btn-win"
-          className={`wf-map-peek-btn${section === 'win' ? ' wf-map-peek-btn-on' : ''}`}
-          aria-expanded={section === 'win'}
-          aria-controls="wf-map-peek-body"
-          onClick={onPressWindows}
-        >
-          {/* Tapping the ACTIVE button collapses; the design's own "OTHER WINDOWS" ⇄ "CLOSE"
-              swap (README "Peek row" table) is the reader's only cue that a second tap closes it,
-              since neither button ever moves or disappears. */}
-          <span className="wf-map-peek-k">{section === 'win' ? 'CLOSE' : 'OTHER WINDOWS'}</span>
-          <span className="wf-map-peek-v">{otherWindowContent}</span>
-        </button>
-        {tideVisible && onPressTide && (
+      {askMode !== 'off' && ask}
+      {buttonsShown && (
+        <PeekButtonRow onUnmountWithFocus={() => { focusLostRef.current = true; }}>
           <button
-            ref={tideButtonRef}
+            ref={windowsButtonRef}
             type="button"
-            data-testid="wf-map-peek-btn-tide"
-            className={`wf-map-peek-btn wf-map-peek-btn-tide${section === 'tide' ? ' wf-map-peek-btn-on' : ''}${tidePulse ? ' wf-map-peek-btn-pulse' : ''}`}
-            aria-expanded={section === 'tide'}
+            data-testid="wf-map-peek-btn-win"
+            className={`wf-map-peek-btn${section === 'win' ? ' wf-map-peek-btn-on' : ''}`}
+            aria-expanded={section === 'win'}
             aria-controls="wf-map-peek-body"
-            onClick={onPressTide}
-            onAnimationEnd={onTidePulseEnd}
-            onFocus={onTideButtonFocus}
-            onBlur={onTideButtonBlur}
+            onClick={onPressWindows}
           >
-            {/* Fixed key — unlike Other windows, Tide never swaps to CLOSE (design README "Peek
-                row" table gives it one key throughout). */}
-            <span className="wf-map-peek-k">TIDE AT THIS LIGHT</span>
-            <span className="wf-map-peek-v">{tideButtonContent}</span>
+            {/* Tapping the ACTIVE button collapses; the design's own "OTHER WINDOWS" ⇄ "CLOSE"
+                swap (README "Peek row" table) is the reader's only cue that a second tap closes it,
+                since neither button ever moves or disappears. */}
+            <span className="wf-map-peek-k">{section === 'win' ? 'CLOSE' : 'OTHER WINDOWS'}</span>
+            <span className="wf-map-peek-v">{otherWindowContent}</span>
           </button>
-        )}
-        <button
-          ref={layersButtonRef}
-          type="button"
-          data-testid="wf-map-peek-btn-lay"
-          className={`wf-map-peek-btn wf-map-peek-btn-lay${section === 'lay' ? ' wf-map-peek-btn-on' : ''}`}
-          aria-expanded={section === 'lay'}
-          aria-controls="wf-map-peek-body"
-          onClick={onPressLayers}
-        >
-          <span className="wf-map-peek-k">LAYERS</span>
-          <span className="wf-map-peek-v" aria-hidden="true">&#9776;</span>
-        </button>
-      </div>
+          {tideVisible && onPressTide && (
+            <button
+              ref={tideButtonRef}
+              type="button"
+              data-testid="wf-map-peek-btn-tide"
+              className={`wf-map-peek-btn wf-map-peek-btn-tide${section === 'tide' ? ' wf-map-peek-btn-on' : ''}${tidePulse ? ' wf-map-peek-btn-pulse' : ''}`}
+              aria-expanded={section === 'tide'}
+              aria-controls="wf-map-peek-body"
+              onClick={onPressTide}
+              onAnimationEnd={onTidePulseEnd}
+              onFocus={onTideButtonFocus}
+              onBlur={onTideButtonBlur}
+            >
+              {/* Fixed key — unlike Other windows, Tide never swaps to CLOSE (design README "Peek
+                  row" table gives it one key throughout). */}
+              <span className="wf-map-peek-k">TIDE AT THIS LIGHT</span>
+              <span className="wf-map-peek-v">{tideButtonContent}</span>
+            </button>
+          )}
+          <button
+            ref={layersButtonRef}
+            type="button"
+            data-testid="wf-map-peek-btn-lay"
+            className={`wf-map-peek-btn wf-map-peek-btn-lay${section === 'lay' ? ' wf-map-peek-btn-on' : ''}`}
+            aria-expanded={section === 'lay'}
+            aria-controls="wf-map-peek-body"
+            onClick={onPressLayers}
+          >
+            <span className="wf-map-peek-k">LAYERS</span>
+            <span className="wf-map-peek-v" aria-hidden="true">&#9776;</span>
+          </button>
+        </PeekButtonRow>
+      )}
       {/* Rendered only when open — the design's own rule ("Body (visible only when open)"), and
           what makes a section swap tear the PREVIOUS section's content down rather than leaving two
           panes stacked in the DOM. */}
@@ -158,6 +189,33 @@ export default function MapPeekSheet({
     </section>
   );
 }
+
+/**
+ * The three peek buttons' row, which is UNMOUNTED whenever Ask's answer replaces it (an answer lands,
+ * the Ask section opens, a section closes back onto the minimised line). A focused control that is
+ * removed takes focus to {@code <body>} with it, after which the pane's Escape rule — which runs only
+ * while focus is inside the pane — goes quiet: the defect this tab's panels have had five times. So the
+ * row reports, from its layout-effect CLEANUP (which runs before the DOM is removed, while the focused
+ * button is still {@code document.activeElement}; no blur event is reliable for a removed node), that
+ * it held focus, and {@code MapPeekSheet} hands focus to {@code fallbackFocusRef} — the Ask row's entry
+ * button, which exists in every mode the row can vanish into — once the commit has landed.
+ *
+ * <p>The row's own class is the test for "was focus inside me", so it needs no ref (a ref is already
+ * detached by the time a cleanup could read it) and no listener.
+ */
+function PeekButtonRow({ onUnmountWithFocus, children }) {
+  const report = useRef(onUnmountWithFocus);
+  useEffect(() => { report.current = onUnmountWithFocus; });
+  useLayoutEffect(() => () => {
+    if (document.activeElement?.closest?.('.wf-map-peek-row')) report.current?.();
+  }, []);
+  return <div className="wf-map-peek-row">{children}</div>;
+}
+
+PeekButtonRow.propTypes = {
+  onUnmountWithFocus: PropTypes.func.isRequired,
+  children: PropTypes.node,
+};
 
 MapPeekSheet.propTypes = {
   section: PropTypes.oneOf(['win', 'tide', 'lay']),
@@ -186,6 +244,10 @@ MapPeekSheet.propTypes = {
    * fixed at M5) — never removed via a `document.activeElement` comparison after the fact. */
   onTideButtonFocus: PropTypes.func,
   onTideButtonBlur: PropTypes.func,
+  askMode: PropTypes.oneOf(['off', 'collapsed', 'expanded', 'minimised', 'section']),
+  ask: PropTypes.node,
+  /** Where focus goes when the buttons unmount while holding it — the Ask row's entry button. */
+  fallbackFocusRef: PropTypes.shape({ current: PropTypes.any }),
 };
 
 /**
