@@ -12,6 +12,21 @@ import {
   TYPED_BUSY_LINE,
 } from '../../utils/askModel.js';
 
+/** One shared empty list, so an absent {@code regionIds} is not a new array on every render. */
+const NO_REGIONS = [];
+
+/**
+ * What a Ready answer's chip says when the Ready list it came from is the WHOLE catalogue's: the
+ * Map's "My area" across several regions is one (plan §6 Q8 — the list is fetched for a single region
+ * in scope, else for ALL), and a chip reading "Map · My area" over an answer about every region would
+ * claim a narrower scope than the answer has. The shell's own all-regions labels, by view.
+ */
+const READY_ALL_LABEL = {
+  map: 'Map · all regions',
+  plan: 'Plan · all regions',
+  'coming-up': 'Coming up · all regions',
+};
+
 /**
  * Ask PhotoCast's conversation, every phase of it (design README, States 1–3, 5 and 7), rendered
  * from {@code context/AskContext.jsx}. It is a body, not a surface: the field, the sheet, the dock
@@ -51,12 +66,14 @@ import {
  * @param {string} [props.windowId] the window's id, the same one the surface passes to
  *        {@code askTyped}; required whenever {@code windowLabel} is given. It is what the chip's ✕
  *        removes, and a different window brings the chip back
+ * @param {Array<number>} [props.regionIds] the regions in scope, for a Ready answer's own record of
+ *        the context it was opened in
  * @param {boolean} [props.hidden=false] the surface is closed or covered: render an empty shell
  * @param {function(object): React.ReactNode} [props.pickActions] controls for a pick card's own row
  */
 export default function AskConversation({
-  view, scope = 'all', viewLabel, windowLabel = null, windowId = undefined, hidden = false,
-  pickActions = undefined,
+  view, scope = 'all', viewLabel, windowLabel = null, windowId = undefined, regionIds = NO_REGIONS,
+  hidden = false, pickActions = undefined,
 }) {
   const ask = useAsk();
   const { briefing } = useWindowFirstBriefing();
@@ -76,13 +93,25 @@ export default function AskConversation({
 
   const offered = questionsForView(ready.questions, view);
   const { phase } = ask;
+  // ⚠️ The chips say what the answer on screen was ASKED in, never what the surface says now: a tab
+  // switch must not relabel it (an answer asked on Plan reading "Map · Everywhere" above it). With
+  // nothing asked yet they say what the NEXT question will carry, and only then is the window chip
+  // removable — removing it from a finished answer would change nothing the reader can see.
+  const asked = phase === 'empty' ? null : ask.asked;
   const showWindowChip = windowLabel !== null && ask.removedWindow !== windowId;
+  const chipView = asked?.viewLabel || viewLabel;
+  const chipWindow = asked ? asked.windowLabel : (showWindowChip ? windowLabel : null);
   // Moves focus somewhere that survives the press. Called first, before the state change that
   // unmounts the control.
   const keepFocus = () => root.current?.focus({ preventScroll: true });
   const openReady = (question) => {
     keepFocus();
-    ask.openReady(question);
+    const wholeCatalogue = scope === 'all';
+    ask.openReady(question, {
+      view,
+      viewLabel: wholeCatalogue ? (READY_ALL_LABEL[view] ?? viewLabel) : viewLabel,
+      regionIds: wholeCatalogue ? NO_REGIONS : regionIds,
+    });
   };
   const busyText = ask.kind === KIND.READY ? readyBusyLine(ask.busyRunLabel) : TYPED_BUSY_LINE;
   const body = (
@@ -110,9 +139,9 @@ export default function AskConversation({
       tabIndex={-1}
     >
       <AskContextChips
-        viewLabel={viewLabel}
-        windowLabel={showWindowChip ? windowLabel : null}
-        onRemoveWindow={() => {
+        viewLabel={chipView}
+        windowLabel={chipWindow}
+        onRemoveWindow={asked ? undefined : () => {
           keepFocus();
           ask.removeContextWindow(windowId);
         }}
@@ -155,6 +184,7 @@ AskConversation.propTypes = {
       ? new Error(`${component}: \`${name}\` is required whenever \`windowLabel\` is given`)
       : null
   ),
+  regionIds: PropTypes.arrayOf(PropTypes.number),
   hidden: PropTypes.bool,
   pickActions: PropTypes.func,
 };

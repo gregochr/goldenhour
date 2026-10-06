@@ -31,7 +31,7 @@ it (adjacent rows conflict between open PRs).
 | B5 | Pre-filter, Ready intent match, typed cache, `ask_log`, metrics endpoint | M/L | merged (#1022) |
 | F1a | Client core, unmounted: API, hooks, provider, pick model, conversation and cards | M/L | merged (#1023) |
 | F1b | Phone and tablet-portrait entry: ask bar, tall sheet, shell wiring | M/L | merged (#1025) |
-| F2 | Desktop: tab-row field, the `/` key, the docked column | L | not started |
+| F2 | Desktop: tab-row field, the `/` key, the docked column | L | merged (#1028) |
 | F3 | Map linkage: numbered picks, dimming, camera, window follow | L | not started |
 | F4 | Phone Map: the ask row in the peek sheet | L | not started |
 | F5 | "Plan this", "Open in Plan", the Plan-card highlight | M | not started |
@@ -506,10 +506,12 @@ No Ask on the Operations tab: the field is not rendered there and switching to i
 `MapView` gains `askPicks` (`[{rank, locationId, name, date, eventType, shortWindow, rating,
 verdict}]`), `askSelectedRank`, `onSelectAskPick`, `askWindow` (`{date, eventType, nonce}`).
 
-- **Window follow is its own channel.** `askWindow` is App state with its own nonce and its own
-  effect in `MapView` (`setEventType`, `setUserHasOverriddenEvent(true)`); `App.selectDate` carries
-  the date. It does **not** ride `mapTabHandoff`: that effect applies the Plan lens to every source
-  that is not `'map'`, mounts `MapBreadcrumb`, and is a single slot a second writer would clobber.
+- **Window follow is its own channel.** `askWindow` is derived in the Map **pane** (not App state:
+  `AppInner` is above `AskProvider` and cannot hear the conversation — see "As built (F3)") with its
+  own nonce and its own effect in `MapView` (`setEventType`, `setUserHasOverriddenEvent(true)`);
+  the existing `onSelectDate` carries the date. It does **not** ride `mapTabHandoff`: that effect
+  applies the Plan lens to every source that is not `'map'`, mounts `MapBreadcrumb`, and is a single
+  slot a second writer would clobber.
 - **Markers.** Chips and pins carry `data-ask="pick" | "fade"`. A pick chip is built from the
   **pick's own window** (rank circle, name, short window, that window's rating in its tier colour;
   no tide glyph and no tooltip borrowed from the active window). Picks go first in the label
@@ -520,8 +522,9 @@ verdict}]`), `askSelectedRank`, `onSelectAskPick`, `askWindow` (`{date, eventTyp
 - **Heat:** `MapHeatLayer` takes `dim` (0.36) applied to the heat fill only, with a repaint.
 - **Camera.** On an answer with picks, `flyToBounds` over them, `maxZoom: 10`. Padding comes from
   the **measured** rect of the covering surface, clamped so padding never exceeds 60% of
-  `map.getSize()` on either axis (Leaflet returns a NaN zoom when padding exceeds the frame, and
-  the mock's 490px is taller than the real phone frame). Selecting a pick: `flyTo` at zoom 10.5,
+  `map.getSize()` on either axis (padding larger than the frame puts the picks outside it — measured
+  against Leaflet 1.9 it is not a NaN zoom but an Infinity one, capped to `maxZoom`; and the mock's
+  490px is taller than the real phone frame). Selecting a pick: `flyTo` at zoom 10.5,
   offset by the same clamped inset. Reduced motion: no animation.
 - **Selecting a pick** clears `selectedLocationName` (no stale callout for another window), sets
   `askWindow`, and does not open a callout. Tapping a map pick selects its card. Tapping an
@@ -1447,17 +1450,142 @@ view while the page scrolls; the tab row at 1024 with four tabs.
   is "live on the dock" (§2.8), so F5 can apply it as soon as the answer lands.
 
 ### F3 — Map linkage — L
-**Files:** `App.jsx` (`askWindow`), `WindowFirstMapPane.jsx`, `MapView.jsx`, `MapLabels.jsx` +
-`utils/mapLabels.js`, `PinsLayer.jsx`, `MapHeatLayer.jsx`, a new `AskCameraController`, `index.css`.
+**Files:** `WindowFirstMapPane.jsx` (the window channel and the context channel — not `App.jsx`: see
+"As built (F3)"), `MapView.jsx`, `MapLabels.jsx` + `utils/mapLabels.js`, `PinsLayer.jsx`,
+`MapHeatLayer.jsx`, a new `AskCameraController`, `AskContext`/`AskInputRow`/`AskDock`/`AskSheet`/
+`AskConversation`, `index.css`.
 **Tests:** `askWindow` sets the window without touching the lens, the scope, `minStars` or the
 breadcrumb, and a live Plan-door handoff survives it; a pick chip shows its own window's rating; a
 pick filtered out by the reader's floor is still labelled; an unplaceable pick falls back to its
 rank circle; fade beats tide dimming (cascade test); the heat dim leaves the coastline alone;
-padding is clamped on a 400px-tall frame (no NaN zoom); selecting a card clears the selection and
+padding is clamped on a 400px-tall frame (every pick inside it); selecting a card clears the selection and
 opens no callout; selecting a map pick selects the card; clearing restores everything; reduced
 motion.
 **Seen:** dock at 1280 — the map narrows, refits, all picks inside the viewport, each chip's rating
 equal to its card's.
+
+*As built (F3), where the plan was wrong or silent:*
+- **Files:** `components/map/AskCameraController.jsx`, `utils/askCamera.js` (the padding clamp, the select offset, the
+  heat-dim constant, `prefersReducedMotion`), `utils/askMapContext.js` (the Map's facts to the question's context),
+  `hooks/useAskRequestContext.js`; `AskContext.jsx` (`asked`, `selectionNonce`, `mapContext` + `registerMapContext`),
+  `AskInputRow`/`AskDock`/`AskSheet`/`AskConversation`/`AskContextChips`, `WindowFirstMapPane.jsx`, `MapView.jsx` (six `ask*`
+  props), `MapLabels.jsx` + `utils/mapLabels.js`, `PinsLayer.jsx`, `MapHeatLayer.jsx` (`dim`), `WindowFirstShell.jsx` (one
+  branch), the F3 blocks of `index.css`.
+- **The window channel is in the pane, not App (the plan was wrong, F1b's note was right).** `AppInner` is above
+  `AskProvider`; `WindowFirstMapPane` is a provider descendant. It reads `pickCards`/`selectedPick`/`selectionNonce`, derives
+  `askWindow = {date, eventType, nonce}` for the chosen card and hands it to `MapView`, whose own effect sets `setEventType` +
+  `setUserHasOverriddenEvent(true)` and reports the date through the existing `onSelectDate`, through the same
+  `isForwardableRow` rule `selectEvRow` applies (so the map and `App` cannot name two days). It touches no lens, scope, rating
+  floor or breadcrumb — **including the floor reset `selectEvRow` makes on a change of event kind**, deliberately not made.
+  `selectionNonce` is new on EVERY choice (the same pick chosen twice is two) from a provider-wide counter that never
+  repeats. Three guards, each from review: it applies **once per nonce** (a refused follow-up empties the conversation and
+  puts the earlier answer back with the same nonce — keyed on the nonce alone that was a second choice and snapped the map
+  back to a window the reader had left); it **waits for `paneVisible`** (a card chosen in the dock on Plan must not move
+  the app's date behind the reader, and one chosen in the tablet's sheet applies when the sheet closes, with the camera);
+  and a choice made while the pane was never mounted applies at its first mount, which is what "Show on map ›" from Plan
+  needs.
+- **The context channel.** The pane publishes `{regionIds, regionNames, windowId, windowLabel, viewLabel}` into
+  `AskContext.mapContext` (`registerMapContext`, de-duplicated by value, `null` on unmount). `MapView` computes the facts
+  (`jumpFitOverride?.regionName` = the focused region; `heat.hasHome && heatArea` = "My area"; the scope pool's region names;
+  `askWindowOf(activeMapEvent)`, solar and served rows only — a night row sends none) and the pane turns names into ids with
+  `regions` and writes the chip words; it republishes when `regions` arrive. **One rule, "the chip names what is SENT":** a
+  region the list cannot place sends — and says — "Map · Everywhere". "My area" sends the WHOLE regions of the scope pool, so
+  it can be wider than the area (an area drawn round locations, a question scoped by region); the module says so.
+  `useAskRequestContext(view, viewLabel)` is the one reader (dock, sheet, input row): on the Map it is the published context,
+  elsewhere "all regions"; `scope` for the Ready list is a single region's id, else `all` (Q8). **F4's peek row must call it
+  the same way and pass all four fields to `AskConversation`** (`scope`, `viewLabel`, `windowLabel`/`windowId`, `regionIds`).
+- **The answer stores the context it was asked in** (`conv.asked = {view, viewLabel, regionIds, windowId, windowLabel}`). The
+  chips over an answer say what was SENT and are plain labels (the window chip loses its ✕ — removing it from a finished
+  answer would change nothing); with nothing asked yet they are the live chips and the ✕ works. "Try again" re-sends the
+  stored context through `send`, bypassing `removedWindow`. A Ready answer records its scope and **no window**, and says
+  "<tab> · all regions" when its list is the whole catalogue's. **Review finding, fixed:** the NEXT typed question is sent with
+  the surface's context of the moment, and choosing a pick moves the Map's window — so after an answer the next question
+  could carry a window nothing on screen named. `AskInputRow` now draws a "Next question" row (view + window with a ✕, focus
+  to the field first) whenever the next question differs from what was asked or a window can be removed; it is quiet on Plan.
+- **Padding is clamped, but the failure is not a NaN zoom (the plan was wrong).** Measured on a real Leaflet 1.9 map: padding
+  over the frame makes the scale negative, `getScaleZoom` turns the NaN into `Infinity`, `maxZoom` caps it, and the fit lands
+  at zoom 10 with the picks **outside the frame**, silently. A `Number.isFinite` check passes on the broken version; "every
+  pick is inside the viewport afterwards" (400px-tall frame, 490px inset) is what fails — written first, watched fail on
+  unclamped padding, then the clamp (`clampPadding`: each axis scaled until its pair is ≤ 60% of the frame). Padding = base
+  (80 top, 60 elsewhere, for the map's own chrome) + the inset.
+- **The camera (`AskCameraController`)** fits **once per `answer.id`** (a refusal that puts an earlier answer back changes
+  nothing), no closer than zoom 10; a chosen pick flies to 10.5, offset by the inset; reduced motion jumps. **It holds while
+  `active` (`MapView`'s `paneVisible`) is false** — the tab hidden, the page not focused, or a foreign `aria-modal` dialog over
+  the pane, which is how the tablet's Ask sheet holds the fit until it closes (SEEN: an unfocused page held the fit and it ran
+  the moment the page took focus). A selection that arrives while held is covered by the fit that follows. It re-measures
+  (`invalidateSize`) before every move and **re-applies its last move without animation** when the frame has resized and
+  settled (250ms after the last Leaflet `resize`, which covers the dock opening and closing — F2's note) **and when the inset
+  changes** (the seam F4's peek sheet uses: its height changes while the frame does not). **A reader's own move ends the
+  re-applying** (`dragstart`, or a `zoomstart` outside the camera's own flight), or closing the dock would drag the camera back
+  over a pan. `inset` is passed by nothing in F3 (it is tested; F4 is its caller).
+- **Chips and pins.** `labelSpots` appends each pick (id first, name second; lowest rank wins a duplicate; a pick not in the
+  catalogue is skipped) with `askPick = {rank, shortWindow, rating, verdict, label, selected}` — the card's facts for the pick's
+  own window; the spot's own `rating` stays the active window's. `chipCandidates` puts picks first (chosen first, then rank),
+  ahead of the selected location, and offers all of them whatever the budget; `MapLabels` places them before the region
+  names. **The fallback ladder:** full chip → the same button drawn as the bare 25px rank circle (`data-compact`, placed against
+  everything committed) → the circle on its own point regardless of clear air → only a point outside the frame is left
+  unmarked. The chip has the card's accessible name ("Pick 1, Whitby, Saturday sunrise, 5 stars"), no tide glyph or
+  `data-tide` and **no tooltip**; the one tide gate (`tideTier` in `labelSpots`) is untouched and pick chips never read it.
+  **DOM order is tab order**: picks first in rank order (choosing one does not reorder them); paint order is CSS (`z-index`, 1
+  and 2 for the chosen). In Pins mode picks are first in the DOM and on top by an inline z-index (best-ranked highest), show
+  the rank in place of the star in the pick window's colour with a readable ink.
+- **Heat** takes `dim` (0.36, `ASK_HEAT_DIM`) as a factor on the fill inside the draw; the coastline stroke is asserted
+  unchanged; the reach rings are drawn by code that does not read `dim` (not asserted by a test).
+- **CSS cascade.** The fade is `.wf-maplab-layer .wf-maplab-chip[data-ask='fade']` (0,3,0) over the tide-miss `.72` (0,2,0), so
+  it wins on specificity, not on source order — `askMapCascade.test.jsx` injects the real rules in BOTH orders; a mutant that
+  dropped the prefix survived every other test and died to the reordered one. Hover, keyboard focus and "the selected
+  location" restore a faded mark to full strength (0,4,0). Review findings fixed: the chosen pin's halo (an outline) had
+  replaced its focus ring; a faded chip never restored on keyboard focus; faded chips painted over picks (`z-index`); an
+  unrated pick pin printed its rank in its own fill colour; a pick lost the chip's hover ring; no forced-colours marker; tab
+  order did not follow rank. Not fixed (named): the fade-in transitions and the fade-out snaps (the transition is on the faded
+  rule only); the 4px selected halo is not reserved by the placer.
+- **"Show on map ›"** is now also offered on the **tablet's Ask sheet over the Map** (the brief's "closes the sheet and fits"):
+  it selects the pick and closes the sheet; the camera and the window follow on the release of `paneVisible`. The dock, which
+  covers nothing, is not offered it. Focus returns through the sheet's own restore, to the field.
+- **Changes to the existing suite (deliberate):** `AskShellDock`'s "sends the view it is open on" no longer expects the chip
+  to follow the tab for an answer already asked (the chip keeps what was SENT; the empty state's chips follow the tab);
+  `AskShellEntry`'s "not offered on the Map tab itself (tablet)" became "offered on the sheet, and it uncovers the map".
+- **Known limits, accepted.** (1) **An aurora window has no chips**: `MapLabels`/`PinsLayer` mount only while the field is
+  offered (`heatOffered`, false in aurora mode), so picks are unmarked there and the dim cannot apply until a card is chosen
+  (which moves the window to a solar one); the camera still fits. (2) **A typed question in flight empties the conversation**,
+  so the numbering, the dim and the fade go for the duration and return with a refused question's restored answer. (3) **A
+  stale selection applies at the pane's first mount** and, being later in effect order than the Plan door's handoff, would
+  win over it for a reader who chose a pick and then opened the Map for the first time through a door. (4) **A pick appended
+  past the reader's filters joins `labelSpots`, which also feeds the tide strip's in-view coastal counts** — the
+  selected-location append already did. (5) **On a phone** the picks are numbered and fitted too (F1b's "Show on map ›"
+  reaches the Map), with only the base 60px bottom padding against the 74px peek sheet; the sheet and its inset are F4's.
+  (6) `paneVisible` includes the page's focus, so an answer landing while the window is blurred is held until it is back.
+  (7) The first fit ignores a chosen pick (it fits every pick, the chosen one ringed); only a LATER choice flies to it. (8) Two
+  picks at one location (the server cannot send this) leave the second unmarked. (9) Under a docked column the camera's
+  re-fit after a close is not asserted against a real `ResizeObserver`/`MapSizeSync` chain.
+- **For F4:** the phone table's "pick chip press while minimised → expand and select" meets the existing map-touch collapse (a
+  pick chip is a map touch): order them in `MapView`, not in the controller. `askWindow`/`selectionNonce`/`asked` are
+  surface-independent; `inset` re-applies on change, so a sheet height change needs only a new inset object, not a new
+  answer. `useAskRequestContext` has no dock/sheet assumption. The camera's `active` gate is a modal test, which the peek sheet
+  is not (correct for it). Every 74px literal is still F4's.
+- **For F5:** `selectionNonce` > 0 and `selectedPick` outlive a `phase === 'plan'`; `askPickActions` is shared, and the
+  `askCanShowOnMap` condition now includes `askSheetOpen`, so "Plan this ›"/"Open in Plan ›" added to it must not render a dead
+  "Show on map ›" over Plan (the condition is the Map's alone, and Plan is not the Map).
+- **For Z (CLAUDE.md):** `utils/askMapContext.js` (names to ids, the window id, the labels), `useAskRequestContext`'s
+  `scope = one region's id, else all`, and `labelSpots`' pick append are filter/map/select over served facts — the
+  already-licensed class, no new member; `askMapContext` re-states `jumpResetArea`'s "a segment narrows only with a home"
+  rule. New architecture to record: the Map pane publishes into `AskContext` (`registerMapContext`), and the window follow is
+  its own channel beside `planHandoff`. The "Backend-heavy" bullet needs no new class.
+- **Review (six read-only lenses — runtime, CSS, test quality, accessibility, conventions, what it makes harder for F4/F5 —
+  then adjudicated against the code):** the findings fixed are named above; the accepted ones are the "Known limits". 25
+  mutants over the camera, the window channel, the label placer, the cascade and the context channel were all killed.
+- **Seen vs tested** (a scratch Vite harness mounting the real pane, `MapView`, `MapLabels`, `PinsLayer`, `AskProvider` and the
+  dock, the briefing and auth stubbed and the network answered by an axios adapter, at 1280px; deleted): SEEN — the dock's
+  chips "Tonight sunset" and "Map · Everywhere"; the question sent with `windowId` = tonight's id and no regions; three picks
+  numbered with their own window's short window and rating ("Whitby Tue PM 5★", "Saltburn Wed AM 5★"); every other chip at
+  `.25`, four of them coastal tide matches; the heat visibly dimmer; the camera fitting the picks (zoom 10) from a map zoomed
+  out by hand, and HELD while the page had no focus and run the moment it took it; choosing card 2 moving the pill to "Tomorrow
+  sunrise", ringing chip 2 and its card, flying to Saltburn at about zoom 10.5 and opening no callout; the "Next question" row
+  following the window; picks first in the DOM in rank order with z-indexes 1/2/1 (chips) and 99/98/97 (pins); Pins mode with the
+  numbered dots and the faded rest and a visible focus ring on a focused pick pin. **Tested, not seen:** the bare rank circle
+  under a label-budget squeeze and the forced dot, the camera under `prefers-reduced-motion`, the settle re-fit when a real dock
+  opens and closes, the tablet sheet holding the fit and releasing it, the heat dim next to a real coastline stroke, forced
+  colours, the compact circle's 25px box in a real layout, and the chosen pick chip's focus ring.
 
 ### F4 — Phone Map — L
 Per §2.7's phone table: **one test per cell**. Updates every 74 literal and the tests that pin them

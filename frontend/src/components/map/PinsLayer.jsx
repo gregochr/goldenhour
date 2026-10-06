@@ -90,6 +90,9 @@ const NAMED_PIN_PX = 26;
  */
 const UNNAMED_PIN_PX = 13;
 
+/** What a pick pin's z-index counts down from (rank 1 highest): comfortably above any ordinary pin's `auto`. */
+const PICK_Z_BASE = 100;
+
 /** `.wf-maplab-tip`'s own CSS `max-width` — see `MapLabels.jsx`'s identical fallback constant. */
 const TOOLTIP_WIDTH_FALLBACK = 240;
 
@@ -158,10 +161,16 @@ function darkenHex(hex, factor) {
  * @param {?Function} [props.onSelect] called with a location's name on pin click — the SAME
  *   handler `MapLabels`' chips call, so a pin click opens the P9 callout exactly as a chip click
  *   does
+ * @param {?Function} [props.onSelectAskPick] called with a pick's RANK when its pin is pressed (Ask
+ *   PhotoCast, F3). A spot is a pick by carrying {@code askPick}: its pin is drawn from the PICK'S
+ *   window (its rating's colour, its rank in place of the star), is first in the DOM (tab order, rank
+ *   order) and on top by z-index, has no tooltip, and every other pin steps back. Without this prop
+ *   it falls back to {@code onSelect}
  * @param {string} [props.eventLabel] the active EV row's label+time, for the hover tooltip
  */
 export default function PinsLayer({
-  spots, homeCoords = null, selectedName = null, onSelect = null, eventLabel = '',
+  spots, homeCoords = null, selectedName = null, onSelect = null, onSelectAskPick = null,
+  eventLabel = '',
 }) {
   const map = useMap();
 
@@ -221,8 +230,12 @@ export default function PinsLayer({
     // Weakest first (README §3), so later DOM order — later paint — is what puts the best pin on
     // top with no z-index bookkeeping: two plain, unstacked absolutely-positioned siblings paint in
     // source order. Missing/non-finite ratings sort as the WEAKEST value, never as strongest.
+    // Ask's picks come FIRST in the DOM, in rank order — which is the order a keyboard reader Tabs
+    // through them — and are put on top by a z-index on the pin (best-ranked highest), not by being drawn last.
     const pins = [...spots]
       .sort((a, b) => {
+        if (Boolean(a.askPick) !== Boolean(b.askPick)) return a.askPick ? -1 : 1;
+        if (a.askPick && b.askPick) return a.askPick.rank - b.askPick.rank;
         const ra = Number.isFinite(a.rating) ? a.rating : UNRATED_SORT_VALUE;
         const rb = Number.isFinite(b.rating) ? b.rating : UNRATED_SORT_VALUE;
         return ra - rb;
@@ -356,8 +369,13 @@ export default function PinsLayer({
   // Resolved off the LIVE pool on every render, and forgotten once its location has left it — see
   // `MapLabels.jsx`'s `hover` for the reasoning. The pool alone decides here, where it does not
   // there: every spot is a pin, with no budget to unmount one whose location is still in `spots`.
-  const hover = hoverName == null ? null : (spots.find((spot) => spot.name === hoverName) ?? null);
+  // A pick has no tooltip (it would speak for the window on screen): a pin that BECOMES one under a
+  // resting pointer — an answer landing — is forgotten like one that left the pool.
+  const hoverSpot = hoverName == null ? null : (spots.find((spot) => spot.name === hoverName) ?? null);
+  const hover = hoverSpot?.askPick ? null : hoverSpot;
   if (hoverName != null && hover == null) setHoverName(null);
+  /** An answer's picks are on this map: every pin that is not one steps back. */
+  const askActive = spots.some((spot) => spot.askPick);
 
   if (!pane || !frame) return null;
 
@@ -378,6 +396,48 @@ export default function PinsLayer({
       ))}
 
       {frame.pins.map(({ spot, x, y }) => {
+        const pick = spot.askPick ?? null;
+        if (pick) {
+          // Ask PhotoCast's pick (F3): the PICK'S window's colour, its RANK where the star would be,
+          // the card's own accessible name, no tooltip and no tide cue (both would speak for the
+          // window on screen). The size is the named pin's.
+          const pickHasRating = Number.isFinite(pick.rating);
+          const pickFill = pickHasRating ? rampHex(pick.rating) : NO_DATA_COLOUR;
+          // The ink is chosen against the fill either way: the rank is printed whether or not a rating is.
+          const pickInk = readableInkOn(pickFill);
+          return (
+            <button
+              key={spot.name}
+              type="button"
+              className="wf-pin"
+              data-testid="map-pin"
+              data-named="true"
+              data-ask="pick"
+              data-ask-rank={pick.rank}
+              data-ask-selected={pick.selected ? 'true' : undefined}
+              data-selected={selectedName === spot.name ? 'true' : undefined}
+              aria-label={pick.label}
+              aria-current={pick.selected ? 'true' : undefined}
+              style={{
+                left: `${x}px`,
+                top: `${y}px`,
+                width: NAMED_PIN_PX,
+                height: NAMED_PIN_PX,
+                // Above every other pin, the best-ranked highest (an inline value: it is data).
+                zIndex: PICK_Z_BASE - pick.rank,
+                background: pickFill,
+                color: pickInk,
+                boxShadow: `0 2px 0 -1px ${darkenHex(pickFill, 0.5)}, 0 5px 12px rgba(0,0,0,.5)`,
+              }}
+              onClick={() => {
+                if (onSelectAskPick) onSelectAskPick(pick.rank);
+                else onSelect?.(spot.name);
+              }}
+            >
+              <span aria-hidden="true">{pick.rank}</span>
+            </button>
+          );
+        }
         const hasRating = Number.isFinite(spot.rating);
         const named = spot.named !== false;
         const size = named ? NAMED_PIN_PX : UNNAMED_PIN_PX;
@@ -402,6 +462,9 @@ export default function PinsLayer({
             // by it (§7 check 12's rule, the CSS opacity dims the whole dot rather than re-colours
             // it).
             data-tide={spot.tideTier ?? undefined}
+            // While an answer's picks are on the map every OTHER pin steps back (opacity .25, which
+            // beats the tide rule's .72 — see the cascade in index.css).
+            data-ask={askActive ? 'fade' : undefined}
             // Mirrors the chip's own aria-label extension (`MapLabels.jsx`, T4 item 2) — a pin's
             // ONLY other statement of the tide fact is the hover tooltip below, and a screen
             // reader user who never triggers a hover must not be left with nothing (adversarial
@@ -505,9 +568,19 @@ PinsLayer.propTypes = {
     tideTier: PropTypes.oneOf(['match', 'miss']),
     /** The formatted fit phrase for EITHER tier — the tooltip's third line reads this. */
     tideFitPhrase: PropTypes.string,
+    /** Ask PhotoCast's pick (F3) — the answer's own facts for the pick's window. */
+    askPick: PropTypes.shape({
+      rank: PropTypes.number.isRequired,
+      shortWindow: PropTypes.string,
+      rating: PropTypes.number,
+      verdict: PropTypes.string,
+      label: PropTypes.string,
+      selected: PropTypes.bool,
+    }),
   })).isRequired,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   selectedName: PropTypes.string,
   onSelect: PropTypes.func,
+  onSelectAskPick: PropTypes.func,
   eventLabel: PropTypes.string,
 };

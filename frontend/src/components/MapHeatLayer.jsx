@@ -370,10 +370,15 @@ function restoreMarkerPanes(map) {
  *        — `PinsLayer`'s dots here, `MapLabels`' chips in Heat — and one location must render in
  *        one place, not two. See the block above `paint` for the two conditions that used to be on
  *        that hide and why both were wrong.
+ * @param {number}   [props.dim] a factor on the FIELD's fill opacity, 1 by default (no change). Ask
+ *        PhotoCast's picks pass less than 1 so the field steps back behind the numbered chips; it
+ *        reaches the fill inside the draw and nothing else, so the coastline stroke and the reach
+ *        rings that share the canvas keep their own strength. A change repaints (it is a dependency
+ *        of the paint callback, which is what the canvas hook repaints on).
  */
 export default function MapHeatLayer({
   points, conf = null, colourMode = null, homeCoords = null, rings = false,
-  fieldEnabled = true,
+  fieldEnabled = true, dim = 1,
 }) {
   const map = useMap();
 
@@ -518,7 +523,10 @@ export default function MapHeatLayer({
         // confidence, which is the honest default for a window the backend declined to qualify —
         // the haze is a qualifier on a claim, not a claim of its own.
         conf,
-        opacity: HEAT_OPACITY * fade.heat,
+        // `dim` steps the FILL back while Ask's picks are on the map (`MapView`'s `ASK_HEAT_DIM`). It
+        // is a factor here, inside the draw, and nowhere else: the coastline stroke and the reach
+        // rings below are drawn on this same canvas, and an opacity on the pane would dim them too.
+        opacity: HEAT_OPACITY * fade.heat * dim,
         // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's whole
         // rationale is the temp ramp's luminance inversion, and the verdict ramp has none — an ember
         // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
@@ -578,7 +586,7 @@ export default function MapHeatLayer({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, conf, colourMode, landMask, rings, homeCoords, fieldEnabled]);
+  }, [map, points, conf, colourMode, landMask, rings, homeCoords, fieldEnabled, dim]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -730,4 +738,6 @@ MapHeatLayer.propTypes = {
    * passes false: the coastline stroke still draws, but `drawTiles`/bloom/rings do not, and the
    * medallion markers are held fully hidden regardless of zoom. */
   fieldEnabled: PropTypes.bool,
+  /** A factor on the field's fill opacity (default 1) — Ask's picks dim the field behind them. */
+  dim: PropTypes.number,
 };

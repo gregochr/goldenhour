@@ -707,7 +707,9 @@ describe('"Show on map ›"', () => {
     expect(screen.queryByTestId('ask-show-on-map-1')).toBeNull();
   });
 
-  it('is not offered on the Map tab itself, where there is nowhere to go (tablet)', async () => {
+  it('on the tablet\'s Map it is the press that UNCOVERS the map: it closes the sheet, selects the pick, and stays on the Map', async () => {
+    // F3: the tab is already the Map, but the sheet is a modal over it (and the map's camera is holding
+    // for exactly this). So the button is offered there and its whole job is to close the sheet.
     renderAskShell({ width: 800, props: { mapPane: MAP_PANE } });
     await fieldReady();
     fireEvent.click(tab('Map'));
@@ -715,7 +717,17 @@ describe('"Show on map ›"', () => {
     await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
     fireEvent.click(await screen.findByTestId('ask-ready-COASTAL_HIGH'));
     await screen.findByTestId('ask-picks');
-    expect(screen.queryByTestId('ask-show-on-map-1')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('ask-show-on-map-1'));
+
+    expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
+    expect(tab('Map')).toHaveAttribute('aria-selected', 'true');
+    // Focus is not left on <body>: the sheet's own restore hands it back to the field that opened it.
+    expect(document.activeElement).toBe(field());
+    // The chosen pick is still chosen when the sheet is reopened.
+    fireEvent.click(field());
+    await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
+    expect(screen.getByTestId('ask-pick-select-1')).toHaveAttribute('aria-current', 'true');
   });
 
   it('on the tablet\'s Map the field reopens the sheet with the answer retained', async () => {

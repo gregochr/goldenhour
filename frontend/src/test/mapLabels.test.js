@@ -297,6 +297,64 @@ describe('mapLabels — chipCandidates', () => {
 
 });
 
+describe('mapLabels — chipCandidates: Ask PhotoCast\'s picks (F3)', () => {
+  const pickOf = (name, rid, rating, rank, over = {}) => ({
+    ...spot(name, rid, rating), askPick: { rank, selected: false, ...over },
+  });
+
+  it('⚠️ puts the picks FIRST, in rank order, ahead of better-rated chips', () => {
+    const spots = [
+      spot('Best', 'A', 5),
+      pickOf('Low pick', 'A', 1, 2),
+      spot('Good', 'B', 4),
+      pickOf('Other pick', 'B', 2, 1),
+    ];
+
+    const names = chipCandidates({ spots, zoom: 13 }).map((s) => s.name);
+
+    expect(names.slice(0, 2)).toEqual(['Other pick', 'Low pick']);
+    expect(names).toEqual(expect.arrayContaining(['Best', 'Good']));
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('the CHOSEN pick leads the other picks', () => {
+    const spots = [
+      pickOf('One', 'A', 3, 1),
+      pickOf('Two', 'A', 3, 2, { selected: true }),
+      pickOf('Three', 'A', 3, 3),
+    ];
+
+    expect(chipCandidates({ spots, zoom: 13 }).map((s) => s.name)).toEqual(['Two', 'One', 'Three']);
+  });
+
+  it('offers every pick however low the zoom budget is, in view or not', () => {
+    // Zoom 8 gives a budget of 6; thirty better-rated chips fill it. The pick is still offered.
+    const crowd = Array.from({ length: 30 }, (_, i) => spot(`Crowd ${i}`, `R${i}`, 5));
+    const pick = pickOf('Quiet pick', 'Z', 1, 1);
+
+    const names = chipCandidates({
+      spots: [...crowd, pick], inViewNames: new Set(crowd.map((s) => s.name)), zoom: 8,
+    }).map((s) => s.name);
+
+    expect(names[0]).toBe('Quiet pick');
+  });
+
+  it('puts a pick ahead of the SELECTED location too — the one other thing the order promises', () => {
+    const spots = [spot('Selected', 'A', 5), pickOf('The pick', 'B', 1, 1)];
+
+    const names = chipCandidates({ spots, zoom: 13, selectedName: 'Selected' }).map((s) => s.name);
+
+    expect(names).toEqual(['The pick', 'Selected']);
+  });
+
+  it('is exactly what it was when no spot is a pick', () => {
+    const spots = [spot('B', 'A', 3), spot('A', 'A', 5), spot('C', 'B', 4)];
+
+    expect(chipCandidates({ spots, zoom: 13, selectedName: 'B' }).map((s) => s.name))
+      .toEqual(['B', 'A', 'C']);
+  });
+});
+
 describe('mapLabels — placeLabelPass (the whole greedy priority pass)', () => {
   it('places every item when nothing collides', () => {
     const items = [

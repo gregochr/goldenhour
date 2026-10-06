@@ -5,6 +5,7 @@ import AskClearAnswer from './AskClearAnswer.jsx';
 import AskConversation from './AskConversation.jsx';
 import AskInputRow from './AskInputRow.jsx';
 import { useAsk } from '../../context/AskContext.jsx';
+import useAskRequestContext from '../../hooks/useAskRequestContext.js';
 
 /**
  * Ask PhotoCast's sheet — the answer surface below 1024px (plan §2.6): a {@link BottomSheet} in its
@@ -47,6 +48,7 @@ export default function AskSheet({
 }) {
   const ask = useAsk();
   const inputRef = useRef(null);
+  const requestContext = useAskRequestContext(view, viewLabel);
   const { typedDisabled } = ask;
   useEffect(() => {
     if (open && !typedDisabled) inputRef.current?.focus({ preventScroll: true });
@@ -61,12 +63,15 @@ export default function AskSheet({
       reserveCloseStrip
       label="Ask PhotoCast"
       restoreFallback={restoreFallback}
-      footer={<AskInputRow inputRef={inputRef} view={view} />}
+      footer={<AskInputRow inputRef={inputRef} view={view} viewLabel={viewLabel} />}
     >
       <AskConversation
         view={view}
-        scope="all"
-        viewLabel={viewLabel}
+        scope={requestContext.scope}
+        viewLabel={requestContext.viewLabel}
+        windowLabel={requestContext.windowLabel}
+        windowId={requestContext.windowId}
+        regionIds={requestContext.regionIds}
         pickActions={pickActions}
       />
       <AskClearAnswer inputRef={inputRef} />

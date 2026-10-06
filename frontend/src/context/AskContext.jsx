@@ -81,8 +81,10 @@ const INITIAL = {
   kind: null,
   question: '',
   answer: null,
+  asked: null,
   busyRunLabel: null,
   selectedPick: null,
+  selectionNonce: 0,
   planPick: null,
   error: null,
   inputError: null,
@@ -100,7 +102,16 @@ const INITIAL = {
  *           monotonic number, new for every answer that LANDS and unchanged when a refusal puts an
  *           earlier answer back — what a camera fit should key on
  * @property {Array<object>} pickCards {@code answer.picks} joined to the briefing; see askModel
+ * @property {?{view: ?string, viewLabel: ?string, windowLabel: ?string, windowId: ?string,
+ *           regionIds: Array<number>}} asked the context the question on screen was ASKED in — what
+ *           was sent, not what the surface says now. A tab switch must not relabel an answer, and
+ *           "Try again" re-sends it
  * @property {?number} selectedPick the selected card's rank, or null
+ * @property {number} selectionNonce new on EVERY choice of a pick, the same pick again included (0
+ *           until one is made): the map's window follow and camera key on it
+ * @property {?{regionIds: Array<number>, regionNames: Array<string>, windowId: ?string,
+ *           windowLabel: ?string, viewLabel: string}} mapContext what the Map pane last published
+ *           (`utils/askMapContext.js`), or null when no Map pane is mounted
  * @property {?number} planPick F5's; always null in F1a
  * @property {boolean} contextWindow false while a window has been removed from the request
  * @property {?string} removedWindow the id of the window whose chip was removed; a DIFFERENT
@@ -119,10 +130,15 @@ const INITIAL = {
  *           off (settings say disabled, or a POST was 404 — hide every surface); {@code down}: the
  *           settings read failed and nothing is known (show Ask disabled); {@code on}
  * @property {boolean} isPro PRO_USER or ADMIN
- * @property {function(string, {windowId?: string, regionIds?: Array<number>, view?: string}=):
+ * @property {function(string, {windowId?: string, regionIds?: Array<number>, view?: string,
+ *           viewLabel?: string, windowLabel?: string}=):
  *           Promise<'ignored'|'answered'|'refused'|'failed'|'superseded'>} askTyped resolves with what
- *           became of the question, so a field knows whether to keep the text it typed
- * @property {function(object): void} openReady takes a question from the Ready list
+ *           became of the question, so a field knows whether to keep the text it typed.
+ *           {@code viewLabel}/{@code windowLabel} are only what the chips will say about it
+ * @property {function(object, object=): void} openReady takes a question from the Ready list; the
+ *           second argument is the context it is opened in (the chips' labels)
+ * @property {function(?object): void} registerMapContext the Map pane's channel: it publishes the
+ *           scope and window the Map is showing, and null when it goes
  * @property {function(?number): void} selectPick
  * @property {function(): void} clear
  * @property {function(): Promise<void>} retry re-asks the question the error state is showing
@@ -144,7 +160,10 @@ const AskContext = createContext({
   question: '',
   answer: null,
   pickCards: EMPTY_CARDS,
+  asked: null,
   selectedPick: null,
+  selectionNonce: 0,
+  mapContext: null,
   planPick: null,
   contextWindow: true,
   removedWindow: null,
@@ -162,6 +181,7 @@ const AskContext = createContext({
   askTyped: async () => 'ignored',
   openReady: NOOP,
   selectPick: NOOP,
+  registerMapContext: NOOP,
   clear: NOOP,
   retry: async () => {},
   removeContextWindow: NOOP,
@@ -240,6 +260,10 @@ export function AskProvider({ children }) {
   const [removedWindow, setRemovedWindow] = useState(null);
   const [blocked, setBlocked] = useState(null);
   const [serverOff, setServerOff] = useState(false);
+  /** What the Map pane last published (`utils/askMapContext.js`); null while no Map pane is mounted. */
+  const [mapContext, setMapContext] = useState(null);
+  /** Numbers every choice of a pick, so the same pick chosen twice is two choices. */
+  const selectionSeq = useRef(0);
 
   /** Bumped by every ask, Ready tap and clear; a response that finds it moved is stale. */
   const sequence = useRef(0);
@@ -255,19 +279,22 @@ export function AskProvider({ children }) {
   // no such guard — React ignores an update to a tree that is gone.
   useEffect(() => () => clearTimeout(openTimer.current), []);
 
-  const askTyped = useCallback(async (question, { windowId, regionIds = [], view } = {}) => {
-    const text = typeof question === 'string' ? question.trim() : '';
-    if (text === '') return 'ignored';
+  /**
+   * Sends a question with the context it is ASKED in. That context is stored on the conversation —
+   * the chips above the answer say what was sent, whatever tab the reader is on later — and "Try
+   * again" sends it again unchanged, which is why this is separate from {@code askTyped}: a retry
+   * must not read the surface's context of the moment, nor the chip the reader has since removed.
+   */
+  const send = useCallback(async (text, asked) => {
     sequence.current += 1;
     const mine = sequence.current;
     clearTimeout(openTimer.current);
     const restore = settled.current;
-    const retryWith = { question: text, options: { windowId, regionIds, view } };
-    setConv({ ...INITIAL, phase: 'busy', kind: KIND.OWN, question: text });
+    const retryWith = { question: text, asked };
+    setConv({ ...INITIAL, phase: 'busy', kind: KIND.OWN, question: text, asked });
 
-    const body = { question: text, regionIds, view };
-    // A window whose chip the reader removed is left out; any other window is sent.
-    if (windowId && windowId !== removedWindow) body.windowId = windowId;
+    const body = { question: text, regionIds: asked.regionIds, view: asked.view };
+    if (asked.windowId) body.windowId = asked.windowId;
 
     try {
       const data = await postAsk(body);
@@ -281,7 +308,7 @@ export function AskProvider({ children }) {
       if (answer) answerSeq.current += 1;
       if (!answer) {
         setConv({
-          ...INITIAL, phase: 'error', kind: KIND.OWN, question: text, retryWith,
+          ...INITIAL, phase: 'error', kind: KIND.OWN, question: text, asked, retryWith,
           error: errorFor({ status: 200, code: null, error: null }),
         });
         refetchAllowance();
@@ -293,6 +320,7 @@ export function AskProvider({ children }) {
         kind: answer.kind,
         question: text,
         answer,
+        asked,
       });
       if (answer.allowanceLeft !== null && answer.allowanceLimit !== null) {
         applyServed({ left: answer.allowanceLeft, limit: answer.allowanceLimit });
@@ -318,16 +346,42 @@ export function AskProvider({ children }) {
         return 'refused';
       }
       setConv({
-        ...INITIAL, phase: 'error', kind: KIND.OWN, question: text, retryWith, error: errorFor(err),
+        ...INITIAL, phase: 'error', kind: KIND.OWN, question: text, asked, retryWith, error: errorFor(err),
       });
       refetchAllowance();
       return 'failed';
     }
-  }, [removedWindow, applyServed, refetchAllowance]);
+  }, [applyServed, refetchAllowance]);
 
-  const openReady = useCallback((readyQuestion) => {
+  const askTyped = useCallback(async (question, {
+    windowId, regionIds = [], view, viewLabel, windowLabel,
+  } = {}) => {
+    const text = typeof question === 'string' ? question.trim() : '';
+    if (text === '') return 'ignored';
+    // A window whose chip the reader removed is left out; any other window is sent.
+    const sentWindow = windowId && windowId !== removedWindow ? windowId : null;
+    return send(text, {
+      view,
+      viewLabel: viewLabel ?? null,
+      regionIds,
+      windowId: sentWindow,
+      windowLabel: sentWindow ? (windowLabel ?? null) : null,
+    });
+  }, [removedWindow, send]);
+
+  const openReady = useCallback((readyQuestion, context = {}) => {
     const answer = fromReady(readyQuestion, answerSeq.current + 1);
     if (!answer) return;
+    // A Ready answer was built once, for a scope, from no window: nothing is "sent", so the context
+    // it names is the scope's alone — a window chip over it would claim the answer is about that
+    // window.
+    const asked = {
+      view: context.view ?? null,
+      viewLabel: context.viewLabel ?? null,
+      regionIds: context.regionIds ?? [],
+      windowId: null,
+      windowLabel: null,
+    };
     answerSeq.current += 1;
     // Bumping the sequence strands a typed question still out; clearing the timer strands a Ready
     // answer still opening. Both are needed — they guard different requests.
@@ -335,10 +389,12 @@ export function AskProvider({ children }) {
     clearTimeout(openTimer.current);
     const question = typeof readyQuestion.text === 'string' ? readyQuestion.text : '';
     setConv({
-      ...INITIAL, phase: 'busy', kind: KIND.READY, question, busyRunLabel: answer.runLabel,
+      ...INITIAL, phase: 'busy', kind: KIND.READY, question, asked, busyRunLabel: answer.runLabel,
     });
     openTimer.current = setTimeout(() => {
-      setConv({ ...INITIAL, phase: 'answer', kind: KIND.READY, question, answer });
+      setConv({
+        ...INITIAL, phase: 'answer', kind: KIND.READY, question, answer, asked,
+      });
     }, READY_OPEN_MS);
   }, []);
 
@@ -351,8 +407,9 @@ export function AskProvider({ children }) {
   const { retryWith } = conv;
   const retry = useCallback(async () => {
     if (!retryWith) return;
-    await askTyped(retryWith.question, retryWith.options);
-  }, [retryWith, askTyped]);
+    // The question exactly as it was asked: its own context, not the surface's of the moment.
+    await send(retryWith.question, retryWith.asked);
+  }, [retryWith, send]);
 
   const removeContextWindow = useCallback((windowId) => setRemovedWindow(windowId ?? null), []);
   const restoreContextWindow = useCallback(() => setRemovedWindow(null), []);
@@ -366,11 +423,20 @@ export function AskProvider({ children }) {
   );
 
   const selectPick = useCallback((rank) => {
-    setConv((prev) => ({
-      ...prev,
-      selectedPick: rank === null || pickCards.some((card) => card.rank === rank) ? rank : prev.selectedPick,
-    }));
+    if (rank === null) {
+      setConv((prev) => ({ ...prev, selectedPick: null }));
+      return;
+    }
+    if (!pickCards.some((card) => card.rank === rank)) return;
+    selectionSeq.current += 1;
+    const nonce = selectionSeq.current;
+    setConv((prev) => ({ ...prev, selectedPick: rank, selectionNonce: nonce }));
   }, [pickCards]);
+
+  /** The Map pane's channel. An unchanged context leaves the state alone: the pane publishes on a key. */
+  const registerMapContext = useCallback((next) => {
+    setMapContext((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, []);
 
   // The selected rank only means something while its card does: a briefing that moved on can drop it.
   const selectedPick = pickCards.some((card) => card.rank === conv.selectedPick)
@@ -395,7 +461,10 @@ export function AskProvider({ children }) {
     question: conv.question,
     answer: conv.answer,
     pickCards,
+    asked: conv.asked,
     selectedPick,
+    selectionNonce: conv.selectionNonce,
+    mapContext,
     planPick: conv.planPick,
     contextWindow: removedWindow === null,
     removedWindow,
@@ -410,12 +479,14 @@ export function AskProvider({ children }) {
     askTyped,
     openReady,
     selectPick,
+    registerMapContext,
     clear,
     retry,
     removeContextWindow,
     restoreContextWindow,
-  }), [conv, pickCards, selectedPick, removedWindow, allowance, typedDisabled, availability, isPro,
-    askTyped, openReady, selectPick, clear, retry, removeContextWindow, restoreContextWindow]);
+  }), [conv, pickCards, selectedPick, mapContext, removedWindow, allowance, typedDisabled,
+    availability, isPro, askTyped, openReady, selectPick, registerMapContext, clear, retry,
+    removeContextWindow, restoreContextWindow]);
 
   return <AskContext.Provider value={value}>{children}</AskContext.Provider>;
 }

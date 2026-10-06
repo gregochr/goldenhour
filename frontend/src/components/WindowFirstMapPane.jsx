@@ -4,6 +4,8 @@ import React, {
 import PropTypes from 'prop-types';
 import MapView from './MapView.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import { useAsk } from '../context/AskContext.jsx';
+import { buildMapAskContext } from '../utils/askMapContext.js';
 // From `heatGeometry`, NOT `heatField` — this is the whole reason that module exists. `heatField`
 // statically imports `d3-geo`, and this pane is not behind the same `lazy()` boundary the layer is,
 // so importing a bounding-box helper from there fetched a 24 KB projection chunk the moment the Map
@@ -274,8 +276,66 @@ export default function WindowFirstMapPane({
   useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
     heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
-    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing,
+    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions,
   } = useWindowFirstBriefing();
+
+  // ── Ask PhotoCast (F3, docs/engineering/ask-photocast-plan.md §2.7) ─────────────────────────────
+  // This pane is a descendant of `AskProvider` (the shell's tree) and `MapView` is the pane's own
+  // child, so the pane is the one place both ends of the linkage meet: it hands the answer DOWN as
+  // props and takes the Map's scope and window UP into `AskContext`'s registration channel, which the
+  // dock and the tablet sheet read. With no provider (every pane test that predates Ask) the context
+  // default is Ask OFF with no cards, so every value below is the empty one and `MapView` draws
+  // exactly what it did before.
+  const ask = useAsk();
+  const {
+    pickCards, selectedPick, selectionNonce, answer: askAnswer, selectPick: selectAskPick,
+    registerMapContext,
+  } = ask;
+  /**
+   * The picks `MapView` marks, each already joined to the briefing (`utils/askModel.buildPickCards`):
+   * the rating and verdict are the PICK'S window's, never the active window's. Filter/map over served
+   * facts. Stable while the cards are.
+   */
+  const askPicks = useMemo(() => pickCards.map((card) => ({
+    rank: card.rank,
+    locationId: card.locationId,
+    name: card.name,
+    date: card.date,
+    eventType: card.targetType,
+    shortWindow: card.shortWindow,
+    rating: card.rating,
+    verdict: card.verdict,
+    label: card.label,
+  })), [pickCards]);
+  /**
+   * The window the CHOSEN pick names, with a nonce that is new on every choice — the pick chosen
+   * twice is two choices, and the second must move the map back if the reader has moved it since. The
+   * window-follow channel lives here (and in `MapView`'s own effect), not in `App`: `AppInner` is
+   * ABOVE `AskProvider` and cannot hear the conversation. Not `planHandoff`: see `MapView`.
+   */
+  const chosenCard = pickCards.find((card) => card.rank === selectedPick) ?? null;
+  const chosenDate = chosenCard?.date ?? null;
+  const chosenType = chosenCard?.targetType ?? null;
+  const askWindow = useMemo(
+    () => (chosenDate && chosenType && selectionNonce > 0
+      ? { date: chosenDate, eventType: chosenType, nonce: selectionNonce }
+      : null),
+    [chosenDate, chosenType, selectionNonce],
+  );
+  /** The camera fits once per answer that has picks on the map. */
+  const askAnswerId = pickCards.length > 0 ? (askAnswer?.id ?? null) : null;
+  /**
+   * The Map's scope and window, as `AskContext` wants them: names become region ids by name (the one
+   * key the briefing and the regions payload share), and the words for the chips are written once.
+   * `useCallback`'d, not a literal — `MapView` is `React.memo`'d and an unstable function would defeat it.
+   */
+  const onAskContext = useCallback(
+    (facts) => registerMapContext(buildMapAskContext(facts, regions)),
+    [registerMapContext, regions],
+  );
+  // The pane never unmounts while the app lives, but a test (or a future change) can unmount it: the
+  // dock must not go on quoting a scope that no longer exists.
+  useEffect(() => () => registerMapContext(null), [registerMapContext]);
   /**
    * A STRUCTURED handoff, distinguished from the overlay hatch's on the SAME `handoff` channel
    * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — all of them arrive as `App.jsx`'s
@@ -618,6 +678,12 @@ export default function WindowFirstMapPane({
         // `useCallback`'d above, not an inline literal — see that declaration's own doc note.
         onClearOrigin={onClearOrigin}
         onReturnToPlan={onReturnToPlan}
+        askPicks={askPicks}
+        askSelectedRank={selectedPick}
+        onSelectAskPick={selectAskPick}
+        askWindow={askWindow}
+        askAnswerId={askAnswerId}
+        onAskContext={onAskContext}
       />
     </div>
   );

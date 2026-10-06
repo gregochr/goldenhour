@@ -1384,6 +1384,14 @@ export default function WindowFirstShell({
    */
   const askShowOnMap = (card) => {
     ask.selectPick(card.rank);
+    if (effectiveTab === 'map') {
+      // The tablet's Ask sheet over the Map (F3): the map is already the tab, but a modal covers it.
+      // Closing the sheet is the whole of "show": the map's camera was holding for exactly this
+      // (`AskCameraController` waits while a modal stands over the pane) and fits the moment it goes.
+      // Focus returns through the sheet's own restore, so nothing is moved here.
+      dismissAsk();
+      return;
+    }
     selectTab('map');
     requestAnimationFrame(() => document.getElementById(tabDomId('map'))?.focus());
   };
@@ -1391,7 +1399,9 @@ export default function WindowFirstShell({
   // next control (F5's "Plan this ›") joins here rather than replacing a prop that is sometimes absent.
   // "Show on map ›" is offered only where it goes somewhere: a Map pane exists, and the reader is not
   // already on it.
-  const askCanShowOnMap = mapPane != null && effectiveTab !== 'map';
+  // ...and, since F3, on the tablet's Ask SHEET over the Map: the picks are numbered on a map the sheet
+  // covers, and this is the press that uncovers it (the dock, which covers nothing, is not offered it).
+  const askCanShowOnMap = mapPane != null && (effectiveTab !== 'map' || askSheetOpen);
   const askPickActions = (card) => (askCanShowOnMap ? (
     <button
       type="button"
