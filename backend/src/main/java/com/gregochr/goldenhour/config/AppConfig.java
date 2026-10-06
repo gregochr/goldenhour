@@ -1,9 +1,7 @@
 package com.gregochr.goldenhour.config;
 
-import com.anthropic.backends.AnthropicBackend;
 import com.anthropic.client.AnthropicClient;
-import com.anthropic.client.AnthropicClientImpl;
-import com.anthropic.core.ClientOptions;
+import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
@@ -22,15 +20,10 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
-import okhttp3.ConnectionPool;
-import okhttp3.Protocol;
-
 import java.time.Clock;
 import java.time.Duration;
-import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Core Spring application configuration.
@@ -49,6 +42,12 @@ public class AppConfig {
 
     /** Read timeout applied to every outbound REST client built here. */
     static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
+
+    /** Idle connections the Anthropic client's pool keeps. */
+    static final int ANTHROPIC_MAX_IDLE_CONNECTIONS = 10;
+
+    /** How long an idle Anthropic connection is kept before it is closed. */
+    static final Duration ANTHROPIC_KEEP_ALIVE = Duration.ofMinutes(2);
 
     /**
      * Shared {@link ObjectMapper} for JSON serialisation/deserialisation.
@@ -105,64 +104,51 @@ public class AppConfig {
     }
 
     /**
-     * Anthropic client for Claude API calls with HTTP/1.1 to avoid virtual-thread pinning.
+     * Anthropic client for Claude API calls, built with the SDK's own builder.
      *
-     * <p>OkHttp's HTTP/2 implementation uses {@code synchronized} blocks for frame
-     * writing/reading. When 200+ virtual threads multiplex over a shared HTTP/2
-     * connection, they pin carrier threads in the ForkJoinPool and deadlock. Forcing
-     * HTTP/1.1 gives each request its own connection, avoiding monitor contention.
+     * <p>The SDK's default transport protocols are in use: HTTP/2 with an HTTP/1.1 fallback.
+     * ⚠️ Until 2026-10-06 this bean forced HTTP/1.1 through a hand-built OkHttp client, because
+     * on Java 21 OkHttp's HTTP/2 frame writer pins a carrier thread under {@code synchronized},
+     * and 200+ virtual threads multiplexed over one HTTP/2 connection deadlocked the
+     * ForkJoinPool. That workaround held the SDK at 2.62.0 (2.63.0 removed the
+     * {@code OkHttpClient(okhttp3.OkHttpClient, Backend)} constructor it needed, and the SDK
+     * builder has no protocol option). The runtime is Java 25 now, where JEP 491 ends monitor
+     * pinning of virtual threads, so the workaround is gone. Do not reintroduce protocol forcing.
      *
-     * <p>Connection pool sized at 10 idle connections with 2-minute keep-alive to
-     * support parallel evaluation runs without excessive connection churn.
+     * <p>Connection pool sized at 10 idle connections with a 2-minute keep-alive to support
+     * parallel evaluation runs without excessive connection churn.
      *
-     * <p>⚠️ This construction pins the SDK at 2.62.0: 2.63.0 removed the
-     * {@code OkHttpClient(okhttp3.OkHttpClient, Backend)} constructor, and the SDK's own
-     * builder ({@code AnthropicOkHttpClient.builder()}) exposes timeouts, proxy and pool
-     * sizing but no protocol list, so it would reintroduce HTTP/2 and the pinning above.
-     * Two ways forward, neither taken yet: run on JDK 24+ (JEP 491 ends monitor pinning,
-     * after which the SDK builder is fine) or implement
-     * {@code com.anthropic.core.http.HttpClient} in-house over an HTTP/1.1 OkHttp client.
-     * The runtime is now Java 25, so JEP 491 is in force and the pin can be lifted in a follow-up.
+     * <p>⚠️ No client-wide timeout is set, deliberately. The "90 second call timeout" the old
+     * OkHttp client carried never applied to an SDK call: the SDK re-applies the request's own
+     * timeout (its default, or one derived from {@code max_tokens}, or the
+     * {@link com.anthropic.core.RequestOptions} the caller passes) as OkHttp's call timeout on
+     * every request. Setting one here <em>would</em> apply, and would cut off the streamed
+     * batch-results downloads, which pass no options of their own and can run for minutes.
+     * {@code AnthropicClientWireMockRoutingTest} pins this.
      *
      * @param properties Anthropic API configuration
      * @return a configured {@link AnthropicClient}
      */
     @Bean
     public AnthropicClient anthropicClient(AnthropicProperties properties) {
-        okhttp3.OkHttpClient okHttp = createOkHttpClient();
-
-        AnthropicBackend backend = AnthropicBackend.builder()
-                .apiKey(properties.getApiKey())
-                .build();
-
-        com.anthropic.client.okhttp.OkHttpClient httpClient =
-                new com.anthropic.client.okhttp.OkHttpClient(okHttp, backend);
-
-        ClientOptions clientOptions = ClientOptions.builder()
-                .httpClient(httpClient)
-                // Since SDK 2.58.0 the transport no longer falls back to the backend's base URL;
-                // ClientOptions owns it and defaults to production. Mirror what
-                // AnthropicOkHttpClient.builder() does so the two never disagree.
-                .baseUrl(backend.baseUrl())
-                .build();
-
-        return new AnthropicClientImpl(clientOptions);
+        return anthropicClientBuilder(properties.getApiKey()).build();
     }
 
     /**
-     * Creates the OkHttp client with HTTP/1.1 protocol only.
+     * The production client's builder, before the base URL is chosen.
      *
-     * <p>Package-visible for testing. HTTP/1.1 avoids virtual-thread pinning
-     * caused by OkHttp's {@code synchronized} HTTP/2 frame writers.
+     * <p>Public and static so the integration tests' WireMock-routed client
+     * ({@code WireMockAnthropicClientTestConfiguration}) is built from exactly the same
+     * options and differs only in {@code baseUrl}.
      *
-     * @return configured OkHttp client
+     * @param apiKey the Anthropic API key
+     * @return a builder carrying the API key and the pool sizing
      */
-    okhttp3.OkHttpClient createOkHttpClient() {
-        return new okhttp3.OkHttpClient.Builder()
-                .protocols(List.of(Protocol.HTTP_1_1))
-                .connectionPool(new ConnectionPool(10, 2, TimeUnit.MINUTES))
-                .callTimeout(Duration.ofSeconds(90))
-                .build();
+    public static AnthropicOkHttpClient.Builder anthropicClientBuilder(String apiKey) {
+        return AnthropicOkHttpClient.builder()
+                .apiKey(apiKey)
+                .maxIdleConnections(ANTHROPIC_MAX_IDLE_CONNECTIONS)
+                .keepAliveDuration(ANTHROPIC_KEEP_ALIVE);
     }
 
     /**

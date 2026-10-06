@@ -19,16 +19,8 @@
 
     <properties>
         <java.version>25</java.version>
-        <!-- ⚠️ 2.62.0 is the ceiling while the app runs on Java 21: 2.63.0 removed the
-             OkHttpClient(okhttp3.OkHttpClient, Backend) constructor that AppConfig uses to force
-             HTTP/1.1 (OkHttp's HTTP/2 frame writer pins virtual threads under `synchronized` and
-             deadlocked batches of 200+), and the SDK's own builder offers no protocol control.
-             Moving past it needs either JDK 24+ (JEP 491 ends the pinning) or an in-house
-             com.anthropic.core.http.HttpClient. Dependabot is told to ignore newer versions in
-             .github/dependabot.yml — see the AppConfig javadoc.
-             The runtime is now Java 25, so JEP 491 is in force and this pin can be lifted in a
-             follow-up. -->
-        <anthropic-sdk.version>2.62.0</anthropic-sdk.version>
+        <!-- built with the SDK's own client since 2026-10-06; see AppConfig#anthropicClient -->
+        <anthropic-sdk.version>2.68.0</anthropic-sdk.version>
         <surefire.excludedGroups>prompt-regression</surefire.excludedGroups>
 
         <!--
@@ -206,11 +198,14 @@
             <version>${anthropic-sdk.version}</version>
         </dependency>
 
-        <!-- OkHttp — explicit compile scope for HTTP/1.1 protocol config (transitive is runtime) -->
+        <!-- OkHttp — the transport under the SDK's own client (no application code touches okhttp3
+             any more). Pinned to the 4.x line the SDK declares: Spring Boot's BOM manages a 5.x
+             that would otherwise replace it. -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>
             <version>4.12.0</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- ==================== Internal Libraries ==================== -->

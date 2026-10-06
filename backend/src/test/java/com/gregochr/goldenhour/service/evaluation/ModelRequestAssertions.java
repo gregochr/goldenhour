@@ -103,6 +103,7 @@ final class ModelRequestAssertions {
                 .stopReason(stopReason)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(Usage.builder()
                         .inputTokens(10)
                         .outputTokens(20)

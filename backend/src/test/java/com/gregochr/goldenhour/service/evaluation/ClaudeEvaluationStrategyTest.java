@@ -96,6 +96,7 @@ class ClaudeEvaluationStrategyTest {
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(buildUsage(10, 20, 0, 0))
                 .build();
 
@@ -615,6 +616,7 @@ class ClaudeEvaluationStrategyTest {
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(buildUsage(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens))
                 .build();
     }
@@ -632,6 +634,7 @@ class ClaudeEvaluationStrategyTest {
                 .stopReason(stopReason)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(buildUsage(10, 20, 0, 0))
                 .build();
     }
