@@ -24,6 +24,7 @@ import EclipseSpotLine from './EclipseSpotLine.jsx';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
+import { PEEK_HEIGHT } from '../../utils/askPeek.js';
 
 /** The desktop/tablet card width (README §7: "286px (266px mobile)"). */
 const CALLOUT_WIDTH = 286;
@@ -93,13 +94,14 @@ const LEAFLET_CORNER_SELECTOR = '.leaflet-bottom.leaflet-right';
 const NO_PENDING_ROWS = new Set();
 
 /**
- * The peek sheet's own collapsed height, in px — the fallback for {@code --psh} when the CSS
- * custom property cannot be read (a test harness with no real stylesheet, mainly). Matches
- * `index.css`'s own `--psh: 74px` publish exactly (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8);
+ * The peek sheet's own collapsed height with NO Ask row, in px — the fallback for {@code --psh} when
+ * the CSS custom property cannot be read (a test harness with no real stylesheet, mainly). Matches
+ * `index.css`'s own `--psh: 74px` default exactly (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8);
  * kept as a named constant rather than a bare literal so the one place this number is duplicated
- * says so.
+ * says so. With Ask offered `MapView` overrides the property inline (126, or 112 under a minimised
+ * answer), so on a real phone this fallback is only what a stylesheet-less read gets.
  */
-const PEEK_SHEET_COLLAPSED_HEIGHT = 74;
+const PEEK_SHEET_COLLAPSED_HEIGHT = PEEK_HEIGHT.plain;
 
 /** am / pm / night — reuses `WindowControl.jsx`'s own kind-chip class rather than minting a second
  * chip vocabulary (that file's own comment on `.wf-hc-sun`). */
@@ -231,6 +233,15 @@ function kindShort(event) {
  *        every other repaint-trigger prop in this list already takes (Codex P1 on the T7 PR: the
  *        strip toggling open/collapsed changed its real rect with nothing in this component's
  *        listeners to notice, so the callout's card kept the stale band until an unrelated pan/zoom)
+ * @param {?number} [props.bandKey] the phone peek sheet's RESTING height in px (74 with no Ask row, 126
+ *        with one, 112 under a minimised answer — the `--psh` `MapView` publishes on the pane), or null
+ *        off the phone. Like {@code tideStripHeight} it is read for NOTHING but its identity changing: a
+ *        repaint trigger. `paint()` reads `--psh` off the pane fresh every time it runs, but nothing in
+ *        this component's listeners notices the sheet changing height under a card that is already
+ *        placed (the stale-band defect the note below records for the tide strip) — and since Ask a card
+ *        may stand over the 112px minimised line, the height under a placed card genuinely changes
+ *        (an answer lands, is cleared, or Ask goes off). The value is the sheet's REST height, never
+ *        an open one: a card and an OPEN sheet still never coexist
  * @param {?Array<object>} [props.hourlyRows] the selected location's served HOURLY comfort rows
  *        for the active window's DATE (`forecastsByDate.get(date).hourly` — latest run per hour, in
  *        time order). Read ONLY for a pure wildlife hide (`locationTypes.isWildlifeOnly`) on a
@@ -272,7 +283,7 @@ export default function MapCallout({
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
-  tideStripHeight = null, hourlyRows = null, now = null, dayMode = false,
+  tideStripHeight = null, bandKey = null, hourlyRows = null, now = null, dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
   const map = useMap();
@@ -329,11 +340,14 @@ export default function MapCallout({
       };
     });
     // ⚠️ **The peek sheet is a FIXED obstacle on the phone, never a measured one**
-    // (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8): the callout and an open (356px) sheet never
-    // coexist on this tab in either order, so the band only ever has to clear the sheet's
-    // COLLAPSED height — reading `--psh` off the pane rather than measuring `.wf-map-peek`'s own
+    // (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8): the callout and an OPEN (356/408/470px) sheet
+    // never coexist on this tab in either order, so the band only ever has to clear the sheet's
+    // RESTING height — reading `--psh` off the pane rather than measuring `.wf-map-peek`'s own
     // DOM rect keeps this floor from ever momentarily reading the OPEN figure mid-transition, the
-    // one thing "never a measured height" is there to rule out. A synthetic bar, not a DOM
+    // one thing "never a measured height" is there to rule out. ⚠️ Since Ask (F4) the resting height
+    // is state-driven (`MapView` sets it inline: 74 / 126 / 112) and D-7 is broken in exactly ONE
+    // state, on purpose: a card may stand over the 112px MINIMISED line — fixed height, `--psh`
+    // live, repainted on `bandKey` — so it still never meets a sheet that moves under it. A synthetic bar, not a DOM
     // element — `always: true` (full-width by construction) and spanning the frame's own bottom
     // edge, exactly the shape `calloutBand`'s floor branch already expects.
     if (isMobile) {
@@ -446,7 +460,7 @@ export default function MapCallout({
   // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, evaluationGateIndex,
-    tideAlignmentIndex, tideStripHeight, hourlyRows, repaintNow,
+    tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -1114,6 +1128,7 @@ MapCallout.propTypes = {
   auroraResultsByDate: PropTypes.instanceOf(Map),
   pendingNightRowIds: PropTypes.instanceOf(Set),
   tideStripHeight: PropTypes.number,
+  bandKey: PropTypes.number,
   /** A hide's served hourly comfort rows for the active window's date — see the JSDoc above. */
   hourlyRows: PropTypes.arrayOf(PropTypes.object),
   /** A wildlife hide's card when the tab has no map event at all — see the JSDoc above. */

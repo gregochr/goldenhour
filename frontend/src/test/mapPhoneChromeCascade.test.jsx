@@ -106,6 +106,20 @@ function inject(slice) {
   return () => el.remove();
 }
 
+/**
+ * The peek sheet's three RESTING heights (`utils/askPeek.js`'s `peekRestingHeight`; `MapView` writes the
+ * one in force inline as `--psh`): no Ask row, the Ask row above the buttons, an answer minimised to
+ * its one line. Since Ask (F4) every rule that clears the sheet reads `var(--psh, 74px)` — and jsdom
+ * resolves no `var()` (the sibling files' own note), so what a rule comes to at each height is stated
+ * by substituting the figure, in the one place the cascade would.
+ */
+const RESTING_HEIGHTS = [74, 126, 112];
+
+/** `slice` with every `var(--psh, 74px)` replaced by `px` — a custom property jsdom cannot resolve. */
+function atPsh(slice, px) {
+  return slice.replace(/var\(--psh,\s*74px\)/g, `${px}px`);
+}
+
 let cleanupFns = [];
 afterEach(() => {
   for (const fn of cleanupFns) fn();
@@ -368,14 +382,14 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     }
   });
 
-  it('⚠️ M2: the bottom-left chrome (LITE upsell) clears the SHEET and the ATTRIBUTION row, never a bar that no longer renders on this viewport', () => {
+  it.each(RESTING_HEIGHTS)('⚠️ M2: the bottom-left chrome (LITE upsell) clears the SHEET and the ATTRIBUTION row, never a bar that no longer renders on this viewport — the sheet at rest at %ipx', (psh) => {
     // `.wf-map-chrome-tr` is not rendered on the phone at all (task 1, §1 #1) — the bar this test
     // used to clear is gone, and the floor this chip must clear now is the peek sheet's own
     // collapsed height PLUS attribution's real row, which sits directly above it (see index.css's
     // own comment on `.wf-map-chrome-bl`, above, for why attribution — full-width by measurement —
     // still cannot be shared with).
     const slice = extractRulesIncludingMedia(['.wf-map-chrome-bl', '.leaflet-bottom.leaflet-right']);
-    const cleanup = inject(slice);
+    const cleanup = inject(atPsh(slice, psh));
     try {
       const attributionBottom = parseFloat(
         computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).paddingBottom,
@@ -383,6 +397,7 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       const blBottom = parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom);
       const MEASURED_ATTRIBUTION_HEIGHT = 27; // live 390×780 pass, documented in index.css
       const CLEARANCE_GAP = 8;
+      expect(attributionBottom).toBe(psh);
       expect(blBottom).toBeGreaterThanOrEqual(attributionBottom + MEASURED_ATTRIBUTION_HEIGHT + CLEARANCE_GAP);
     } finally {
       cleanup();
@@ -494,17 +509,19 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     }
   });
 
-  it('⚠️ M2: Leaflet\'s attribution control lifts clear of the PEEK SHEET (not the retired bar) via its corner container\'s padding', () => {
-    // `74px`, exactly the sheet's own collapsed height (§3 M2 task 8) — no extra clearance gap is
-    // needed the way the row ABOVE attribution takes one: the sheet's own border/shadow already
-    // reads as a hard edge, and the corner container's padding moves the whole control up by
-    // exactly this figure.
+  it.each(RESTING_HEIGHTS)('⚠️ M2: Leaflet\'s attribution control lifts clear of the PEEK SHEET (not the retired bar) via its corner container\'s padding — the sheet\'s resting height, %ipx', (psh) => {
+    // `--psh`, exactly the sheet's own RESTING height (§3 M2 task 8; state-driven since Ask, F4) — no
+    // extra clearance gap is needed the way the row ABOVE attribution takes one: the sheet's own
+    // border/shadow already reads as a hard edge, and the corner container's padding moves the whole
+    // control up by exactly this figure.
     const slice = extractRulesIncludingMedia('.leaflet-bottom.leaflet-right');
     expect(slice).toContain('.wf-map-tab .leaflet-bottom.leaflet-right');
-    const cleanup = inject(slice);
+    // …and it is the property, with no literal of its own to drift from it.
+    expect(slice).toContain('padding-bottom: var(--psh, 74px)');
+    const cleanup = inject(atPsh(slice, psh));
     try {
       const corner = computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']);
-      expect(parseFloat(corner.paddingBottom)).toBe(74);
+      expect(parseFloat(corner.paddingBottom)).toBe(psh);
     } finally {
       cleanup();
     }
@@ -606,7 +623,6 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     const FRAME_HEIGHT = 780;
     const ASSUMED_CHIP_HEIGHT = 28; // a single-line pill/text chip — chrome-bl
     const MEASURED_ATTRIBUTION_HEIGHT = 27; // live 390×780 pass: y 677–704
-    const PEEK_SHEET_COLLAPSED_HEIGHT = 74; // `.wf-map-peek`'s own real, literal height
 
     /** `{top, bottom}` of an element anchored `bottomPx` from the frame's own bottom edge,
      * `heightPx` tall — both measured downward from the frame's TOP, matching
@@ -622,18 +638,18 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       return a.bottom <= b.top || b.bottom <= a.top;
     }
 
-    it('every one of the 3 pairs among {peek sheet, attribution, chrome-bl} is vertically disjoint', () => {
+    it.each(RESTING_HEIGHTS)('every one of the 3 pairs among {peek sheet, attribution, chrome-bl} is vertically disjoint — the sheet at rest at %ipx', (psh) => {
       const slice = extractRulesIncludingMedia([
         '.wf-map-chrome-bl', '.leaflet-bottom.leaflet-right',
       ]);
-      const cleanup = inject(slice);
+      const cleanup = inject(atPsh(slice, psh));
       try {
         const attributionBottom = parseFloat(
           computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).paddingBottom,
         );
 
         const rects = {
-          peek_sheet: rectFromBottom(0, PEEK_SHEET_COLLAPSED_HEIGHT),
+          peek_sheet: rectFromBottom(0, psh),
           attribution: rectFromBottom(attributionBottom, MEASURED_ATTRIBUTION_HEIGHT),
           chrome_bl: rectFromBottom(
             parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom),
@@ -673,7 +689,7 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
  * sheet's own fixed `--psh` instead of a live-measured strip height (§5 D-7). This describe block
  * used to assert the strip's own phone geometry (T7); it now asserts that geometry is GONE and that
  * `.wf-map-chrome-bl`'s phone `bottom` no longer branches on `--tsh`/`.wf-tide-strip-on` at all —
- * the M2 literal (`calc(74px + 27px + 8px)`) is the only value left, on the phone, in EITHER state.
+ * the M2 formula (`calc(var(--psh, 74px) + 27px + 8px)`) is the only value left, on the phone, in EITHER state.
  */
 describe('the phone tide strip is retired (map-mobile-sheet-plan.md §3 M3)', () => {
   it('`.wf-map-tide-strip` carries no phone-media override any more — only the desktop/tablet rule survives', () => {
@@ -699,14 +715,15 @@ describe('the phone tide strip is retired (map-mobile-sheet-plan.md §3 M3)', ()
     expect(css).not.toMatch(/\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-chrome-bl/);
   });
 
-  it('the phone `.wf-map-chrome-bl` bottom is the fixed M2 literal, unaffected by `.wf-tide-strip-on`', () => {
+  it.each([[74, '109px'], [126, '161px'], [112, '147px']])('the phone `.wf-map-chrome-bl` bottom is the sheet\'s resting height plus attribution plus the clearance, unaffected by `.wf-tide-strip-on` — %ipx → %s', (psh, bottom) => {
     const slice = extractRulesIncludingMedia('.wf-map-chrome-bl');
-    const cleanup = inject(slice);
+    // calc(var(--psh, 74px) + 27px + 8px) — the sheet's own RESTING height, plus attribution's real
+    // height, plus this stack's standing clearance (M2 task 8's formula, `--psh`-driven since Ask).
+    expect(slice).toContain('calc(var(--psh, 74px) + 27px + 8px)');
+    const cleanup = inject(atPsh(slice, psh));
     try {
       for (const ancestors of [['wf-map-tab'], ['wf-map-tab wf-tide-strip-on']]) {
-        // calc(74px + 27px + 8px) — the sheet's own collapsed height, plus attribution's real
-        // height, plus this stack's standing clearance (M2 task 8's own literal).
-        expect(computedStyleFor('wf-map-chrome-bl', ancestors).bottom).toBe('109px');
+        expect(computedStyleFor('wf-map-chrome-bl', ancestors).bottom).toBe(bottom);
       }
     } finally {
       cleanup();

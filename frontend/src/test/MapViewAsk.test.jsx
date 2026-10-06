@@ -549,7 +549,10 @@ describe('picks on the map', () => {
 
     await renderTab({ askPicks: [pick()], askAnswerId: 1, onSelectAskPick });
 
-    expect(lastLabels().onSelectAskPick).toBe(onSelectAskPick);
+    // Not the same function since F4 (the phone wraps it to expand a minimised answer), but the same
+    // CHOICE: pressing a chip reaches the caller with the rank, unchanged.
+    act(() => { lastLabels().onSelectAskPick(2); });
+    expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(2);
   });
 
   it('⚠️ with no answer, nothing carries a pick and nothing is dimmed', async () => {
@@ -568,7 +571,8 @@ describe('Pins view carries the picks too', () => {
 
     expect(screen.getByTestId('pins-layer')).toBeInTheDocument();
     expect(lastPins().spots.filter((s) => s.askPick).map((s) => s.name)).toEqual(['Near']);
-    expect(lastPins().onSelectAskPick).toBe(onSelectAskPick);
+    act(() => { lastPins().onSelectAskPick(3); });
+    expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(3);
   });
 });
 

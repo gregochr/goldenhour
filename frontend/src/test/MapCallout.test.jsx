@@ -1190,6 +1190,67 @@ describe('MapCallout — phone width (map-tab-v2-plan.md §3 P12, README §7: "2
 });
 
 /**
+ * The peek sheet's RESTING height is state-driven since Ask (F4): `MapView` writes `--psh` inline on the
+ * pane — 74 (no Ask row), 126 (the Ask row), 112 (an answer minimised to its line) — and the callout's
+ * band reads it when it paints. A callout may now stand over the 112px line, so the height under a card
+ * that is already placed really changes, and `bandKey` is what repaints it. `card.style.maxHeight` is the
+ * one rendered value that exposes the band (`bot - top`), so it is what is read. The frame is 500px tall:
+ * `bot = 500 - psh - 8`, `top = 8`.
+ */
+describe('MapCallout — the phone band follows the sheet\'s resting height (Ask, F4)', () => {
+  let restore;
+  beforeEach(() => {
+    mockIsMobile = true;
+    currentMap = makeMap();
+    restore = withMeasuredCard(266, 200);
+    currentMap.container.parentElement.className = 'wf-map-tab';
+  });
+  afterEach(() => restore());
+
+  const setPsh = (px) => currentMap.container.parentElement.style.setProperty('--psh', px === null ? '' : `${px}px`);
+
+  it.each([[74, '410px'], [126, '358px'], [112, '372px']])(
+    'reads --psh %ipx off the pane: the band is %s tall',
+    async (psh, maxHeight) => {
+      setPsh(psh);
+      await mount();
+      expect(screen.getByTestId('map-callout').style.maxHeight).toBe(maxHeight);
+    },
+  );
+
+  it('falls back to the no-Ask 74px when the property cannot be read (a stylesheet-less harness)', async () => {
+    setPsh(null);
+    await mount();
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('410px');
+  });
+
+  it('repaints its band when `bandKey` changes under a card that is already placed — and not otherwise', async () => {
+    setPsh(126);
+    const { rerender } = await mount({ bandKey: 126 });
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('358px');
+
+    // The sheet comes down to the minimised line: only `--psh` and `bandKey` move.
+    setPsh(112);
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} bandKey={112} />);
+    });
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('372px');
+  });
+
+  it('is stale WITHOUT the key — a changed `--psh` alone repaints nothing (the defect `bandKey` exists for)', async () => {
+    setPsh(126);
+    const { rerender } = await mount({ bandKey: 126 });
+
+    setPsh(112);
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} bandKey={126} />);
+    });
+
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('358px');
+  });
+});
+
+/**
  * Increment §1 — the clamped prose is the ROUTE, not a dead end.
  *
  * <p><b>What breaks if these fail:</b> a real ~90-word Claude narrative clamps to three lines and

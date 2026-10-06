@@ -83,10 +83,14 @@ const insetKeyOf = (inset) => `${inset.top ?? 0}|${inset.right ?? 0}|${inset.bot
  * @param {?{lat: number, lng: number, nonce: number}} props.selection the chosen pick;
  *        {@code nonce} is new on every choice, so choosing the same pick again moves the camera again
  * @param {{top: number, right: number, bottom: number, left: number}} [props.inset] what a surface
- *        covers of the frame; none by default. Nothing passes one yet: F4's peek sheet is the first
+ *        covers of the frame; none by default. The phone's peek sheet is the one caller that passes one
+ *        (F4): 470 with the Ask section open, 112 for the minimised line — a change re-applies the move
+ * @param {function(number): void} [props.onOwnMove] called, before each move of the camera's own, with
+ *        the {@code Date.now()} value at which it will have ended — so whoever must tell the camera's
+ *        zooms from a hand's (the peek sheet's map-touch listener) can
  */
 export default function AskCameraController({
-  active, answerId, points, selection, inset = NO_INSET,
+  active, answerId, points, selection, inset = NO_INSET, onOwnMove = null,
 }) {
   const map = useMap();
   /** The answer already fitted — never fitted twice. */
@@ -99,6 +103,22 @@ export default function AskCameraController({
   const appliedInset = useRef(insetKeyOf(inset));
   /** The time before which a zoom is the camera's own (see {@link OWN_MOVE_MS}). */
   const ownMoveUntil = useRef(0);
+  /**
+   * Starts a move of the camera's own: stamps when it ends and tells whoever must tell the camera's
+   * zooms from a hand's too (`onOwnMove`: the phone peek sheet's map-touch listener) — before the move
+   * itself, so the {@code zoomstart} it fires is already known to be ours.
+   */
+  const startOwnMove = () => {
+    const until = Date.now() + OWN_MOVE_MS;
+    ownMoveUntil.current = until;
+    onOwnMove?.(until);
+  };
+  /** The pointers (fingers, a mouse button) currently down on the map — see the re-apply below. */
+  const pointersDown = useRef(new Set());
+  /** A re-apply owed once the last pointer is up (the inset changed while one was down). */
+  const reapplyOwed = useRef(false);
+  /** The effect's own `reapply`, for the pointer-up listener (a different effect) to call. */
+  const reapplyNow = useRef(null);
   /** True while this controller itself calls {@code invalidateSize} (its own resize is no news). */
   const resizing = useRef(false);
   const latest = useRef(null);
@@ -126,10 +146,10 @@ export default function AskCameraController({
     // The size Leaflet holds may be stale (the pane was hidden, the dock just animated).
     remeasure();
     const reduced = prefersReducedMotion();
-    ownMoveUntil.current = Date.now() + OWN_MOVE_MS;
     appliedInset.current = insetKeyOf(pad);
 
     if (fittedFor.current !== answerId) {
+      startOwnMove();
       fittedFor.current = answerId;
       selectedNonce.current = sel?.nonce ?? null;
       const bounds = L.latLngBounds(pts.map((p) => [p.lat, p.lng]));
@@ -140,6 +160,7 @@ export default function AskCameraController({
       return;
     }
     if (sel && sel.nonce !== selectedNonce.current) {
+      startOwnMove();
       selectedNonce.current = sel.nonce;
       const at = selectCentre(map, sel, pad);
       lastMove.current = { kind: 'pick', sel };
@@ -159,7 +180,7 @@ export default function AskCameraController({
       remeasure();
       const pad = latest.current.inset;
       appliedInset.current = insetKeyOf(pad);
-      ownMoveUntil.current = Date.now() + OWN_MOVE_MS;
+      startOwnMove();
       if (move.kind === 'fit') {
         map.fitBounds(move.bounds, { ...fitOptions(map, pad), animate: false });
       } else {
@@ -174,21 +195,64 @@ export default function AskCameraController({
         reapply();
       }, SETTLE_REFIT_MS);
     };
-    // A hand on the map: a drag is only ever the reader's; a zoom is theirs unless it is our own flight.
-    const onReaderMove = () => {
+    // A hand on the map. ⚠️ A drag is ONLY ever the reader's (Leaflet's Draggable is the one thing that
+    // fires `dragstart`), so it ends the re-applying whenever it comes — a camera that re-applied
+    // because the sheet came down in answer to that very drag (F4: a map touch minimises the answer,
+    // which changes the inset) would snap the map back under the reader's finger. A zoom is theirs
+    // unless it is our own flight, which Leaflet reports as a `zoomstart` too.
+    const onReaderDrag = () => { lastMove.current = null; };
+    const onReaderZoom = () => {
       if (Date.now() >= ownMoveUntil.current) lastMove.current = null;
     };
-    // A changed inset (not a first one) re-applies at once: the frame did not resize, so nothing else will.
-    if (appliedInset.current !== insetKey) reapply();
+    reapplyNow.current = reapply;
+    // A changed inset (not a first one) re-applies: the frame did not resize, so nothing else will.
+    // ⚠️ But NOT under a pointer that is down. F4's sheet minimises on `touchstart`, which changes the
+    // inset before the first `touchmove` — and a camera move between a Leaflet drag's `_onDown` and its
+    // first move leaves the Draggable holding the map pane's OLD position, so the drag then starts from
+    // somewhere the map no longer is. Held until the last pointer is up instead: a drag has cleared the
+    // move by then (nothing to re-apply — the reader has taken the camera), and a tap re-applies on release.
+    if (appliedInset.current !== insetKey) {
+      if (pointersDown.current.size > 0) reapplyOwed.current = true;
+      else reapply();
+    }
     map.on('resize', onResize);
-    map.on('dragstart zoomstart', onReaderMove);
+    map.on('dragstart', onReaderDrag);
+    map.on('zoomstart', onReaderZoom);
     return () => {
       map.off('resize', onResize);
-      map.off('dragstart zoomstart', onReaderMove);
+      map.off('dragstart', onReaderDrag);
+      map.off('zoomstart', onReaderZoom);
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `remeasure` closes over refs and `map`
   }, [map, active, insetKey]);
+
+  // Which pointers are down on the map, and the re-apply that waited for them (above). Pointer events
+  // cover a mouse, a touch and a pen alike, and a second finger is a second pointer. Listened for in the
+  // capture phase on the container (Leaflet's own handlers stop propagation), and for the release on the
+  // document, since a finger can lift outside the frame.
+  useEffect(() => {
+    const el = map?.getContainer?.();
+    if (!el || typeof el.addEventListener !== 'function') return undefined;
+    const pressed = pointersDown.current;
+    const down = (event) => { pressed.add(event.pointerId); };
+    const up = (event) => {
+      pressed.delete(event.pointerId);
+      if (pressed.size > 0 || !reapplyOwed.current) return;
+      reapplyOwed.current = false;
+      reapplyNow.current?.();
+    };
+    el.addEventListener('pointerdown', down, true);
+    document.addEventListener('pointerup', up, true);
+    document.addEventListener('pointercancel', up, true);
+    return () => {
+      el.removeEventListener('pointerdown', down, true);
+      document.removeEventListener('pointerup', up, true);
+      document.removeEventListener('pointercancel', up, true);
+      pressed.clear();
+      reapplyOwed.current = false;
+    };
+  }, [map]);
 
   return null;
 }
@@ -208,4 +272,5 @@ AskCameraController.propTypes = {
   inset: PropTypes.shape({
     top: PropTypes.number, right: PropTypes.number, bottom: PropTypes.number, left: PropTypes.number,
   }),
+  onOwnMove: PropTypes.func,
 };

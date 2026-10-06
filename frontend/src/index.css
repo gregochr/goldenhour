@@ -4028,10 +4028,17 @@ button.wf-hc.also.on:hover {
      Heat-Pins/Filters bar this stack's every row used to clear at `bottom: 8px, height: 48px` — is
      no longer rendered on the phone at all (its three children live in the peek sheet's Layers
      section instead, mounted outside `.wf-map-chrome-tr` — see `MapView.jsx`'s own mount comment).
-     The new floor every phone chip clears is the peek sheet's own COLLAPSED height, 74px
-     (`.wf-map-peek`, above) — never the OPEN 356px height, because D-7 guarantees the callout and
-     an open sheet never coexist on the phone in either order, so nothing on this tab is ever asked
-     to clear more than the collapsed sheet.
+     The new floor every phone chip clears is the peek sheet's own RESTING height, `--psh`
+     (`.wf-map-peek`, above) — never an OPEN height (356 / 408 / 470px), because D-7 guarantees the
+     callout and an open sheet never coexist on the phone in either order, so nothing on this tab is
+     ever asked to clear more than the resting sheet. ⚠️ **`--psh` is state-driven since Ask (F4)**:
+     `MapView` sets it inline on `.wf-map-tab` — 74px with no Ask row (the figure below is that
+     default), 126px with the Ask row above the three buttons, 112px while an answer is minimised to
+     its one line. Every figure in the table is therefore the 74px case, and each row's `bottom` is the
+     `--psh` it clears plus its own offset: at 126px the whole stack moves up 52px, at 112px 38px. The
+     one deliberate break of D-7 is the 112px state, where a callout may stand over the line: the sheet's
+     height is fixed there and `--psh` is live, so the band is simply measured against it
+     (`MapCallout`'s `bandKey` repaints it when it changes).
 
      The counts footer has no phone home (plan §4 #10, §6 Q3 — "hidden until asked") — WITHDRAWN
      from the lifted stack entirely rather than given a new row in it, so this query no longer
@@ -4040,9 +4047,9 @@ button.wf-hc.also.on:hover {
      viewline-upsell chip, each clearing the row below it by its own real/assumed height plus the
      stack's standing 8px gap — the identical discipline the four-row stack used, just with two
      rows instead of four.
-       Peek sheet (collapsed)     bottom  0px,  height  74px (real)     → top   74px
-       Attribution (full width)   bottom 74px,  height  27px (measured) → top  101px (clears the sheet, no gap — its own corner container already sits flush against it)
-       LITE viewline-upsell chip  bottom 109px, height  28px (assumed)  → top  137px (clears attribution by 8px)
+       Peek sheet (collapsed)     bottom  0px,  height  74px (real)     → top   74px   [`--psh`]
+       Attribution (full width)   bottom 74px,  height  27px (measured) → top  101px (clears the sheet, no gap — its own corner container already sits flush against it)   [`--psh`]
+       LITE viewline-upsell chip  bottom 109px, height  28px (assumed)  → top  137px (clears attribution by 8px)   [`--psh` + 35px]
      `mapPhoneChromeCascade.test.jsx` is REWRITTEN for this phase (§3 M2), not merely re-tuned: THE
      SWEEP's bar-clearance rows are gone with the bar, and the new pairwise fact to pin is "every
      lifted element's floor is `>= ` the row below it, with the peek sheet's own collapsed height as
@@ -4083,13 +4090,14 @@ button.wf-hc.also.on:hover {
      first staggered this stack found Leaflet's attribution control rendering at the FULL frame
      width (measured x:0–390 on a 390px frame), which the bar's removal does not change: it is a
      property of the CONTROL's own content, not of anything that used to sit beside it. So
-     `calc(74px + 8px)` (the sheet's own collapsed height plus the standing 8px gap) is not enough
-     on its own — attribution now sits in exactly that gap (`padding-bottom: 74px`, next rule down)
+     `calc(var(--psh) + 8px)` (the sheet's own resting height plus the standing 8px gap) is not enough
+     on its own — attribution now sits in exactly that gap (`padding-bottom: var(--psh)`, next rule down)
      and its own measured 27px height pushes its top edge up to 101px from the frame's bottom edge.
-     Chrome-bl clears THAT, not the sheet directly: `74px` (sheet) `+ 27px` (attribution's own
-     measured height) `+ 8px` (this stack's standing clearance) `= 109px`. */
+     Chrome-bl clears THAT, not the sheet directly: `--psh` (sheet; 74px with no Ask row) `+ 27px`
+     (attribution's own measured height) `+ 8px` (this stack's standing clearance) `= 109px` there,
+     161px with the Ask row and 147px under a minimised answer. */
   .wf-map-tab .wf-map-chrome-bl {
-    bottom: calc(74px + 27px + 8px);
+    bottom: calc(var(--psh, 74px) + 27px + 8px);
   }
 
   /* The scored-locations chip / toast (`photocast-scored-legend`) — PR #741 review found it
@@ -4132,23 +4140,28 @@ button.wf-hc.also.on:hover {
      quieting styles on `.leaflet-control-attribution` itself (background/colour/font-size/padding)
      are a DIFFERENT selector entirely and are untouched by this rule.
 
-     ⚠️ **`74px`, not the pre-M2 `76px`** (map-mobile-sheet-plan.md §3 M2 task 8) — it clears the
-     peek sheet's own collapsed height exactly (`.wf-map-peek`, above), which is the ONLY thing this
+     ⚠️ **`--psh` (74px with no Ask row), not the pre-M2 `76px`** (map-mobile-sheet-plan.md §3 M2 task 8) — it clears the
+     peek sheet's own resting height exactly (`.wf-map-peek`, above), which is the ONLY thing this
      row shares the frame's bottom edge with now that the bar is gone. No extra clearance gap is
      needed the way the OTHER lifted rows below take one: the sheet's own `border-radius` and shadow
      already read as a hard edge, and the corner container's `padding-bottom` moves the WHOLE
      Leaflet control box up by exactly this figure, so `74px` is precise rather than approximate. */
   .wf-map-tab .leaflet-bottom.leaflet-right {
-    padding-bottom: 74px;
+    padding-bottom: var(--psh, 74px);
   }
 
-  /* The peek sheet's own collapsed height, published as a CSS custom property rather than a
+  /* The peek sheet's own RESTING height, published as a CSS custom property rather than a
      measured rect (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8) — `MapCallout`'s phone band
      reads this INSTEAD of measuring `.wf-map-peek`'s real DOM rect, because the callout and an
-     open (356px) sheet never coexist on the phone in either order (D-7: every callout-opening
-     route is a map tap, which collapses the sheet; a peek press clears the selection first), so
-     the band only ever has to clear the COLLAPSED figure — never the live height a `ResizeObserver`
-     would report while the sheet happens to be open. */
+     open (356 / 408 / 470px) sheet never coexist on the phone in either order (D-7: every
+     callout-opening route is a map tap, which collapses the sheet; a peek press clears the
+     selection first), so the band only ever has to clear the RESTING figure — never the live height
+     a `ResizeObserver` would report while the sheet happens to be open.
+     ⚠️ This is the DEFAULT, the sheet with no Ask row (74px). With Ask offered `MapView` writes the
+     property INLINE on the pane — 126px, or 112px while an answer is minimised to its one line — and
+     an inline custom property outranks this rule, so every consumer (`.wf-map-chrome-bl` and the
+     Leaflet corner above, `.wf-map-empty-low`, `MapCallout`) follows state without a literal of its
+     own. The sheet's own heights are the `data-ask` rules next to `.wf-map-peek`. */
   .wf-map-tab {
     --psh: 74px;
   }
@@ -4158,7 +4171,7 @@ button.wf-hc.also.on:hover {
      `.wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl` (the `--tsh`-driven bottom, tide-window-plan.md
      §3 T7) both lived here — the strip's content is now the peek sheet's Tide section
      (`MapPeekTideSection`, ".wf-map-peek-tide-*" below) and `.wf-map-chrome-bl`'s phone bottom is
-     therefore the plain, unconditional `calc(74px + 27px + 8px)` literal set above (M2 task 8) —
+     therefore the plain, unconditional `calc(var(--psh, 74px) + 27px + 8px)` set above (M2 task 8, `--psh` since Ask) —
      `--tsh`/`wf-tide-strip-on` are desktop/tablet-only from here; the desktop mount's own top-level
      rule (`.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer`, far above) is untouched. The counts
      footer's `sr-only` clip (also set above) was already unconditional since M2, so nothing about
@@ -4206,7 +4219,9 @@ button.wf-hc.also.on:hover {
   display: flex;
   flex-direction: column;
   height: 74px;
-  transition: height .26s cubic-bezier(.3, .7, .2, 1);
+  /* Every height below is clamped to the frame — never over the window pill (see `.wf-map-peek-open`). */
+  max-height: calc(100% - 64px);
+  transition: height .28s cubic-bezier(.3, .7, .2, 1);
 }
 /* Clamped to the frame (plan §4 #7): 356px is the reference frame's own figure, but an iPhone SE
    (667 tall) or Safari's bars expanded leaves under 420px of map area, where 356 would cover the
@@ -4215,6 +4230,19 @@ button.wf-hc.also.on:hover {
   height: 356px;
   max-height: calc(100% - 64px);
 }
+/* ── The sheet's Ask states (Ask PhotoCast F4, plan §2.7's phone paragraph) ───────────────────────
+   `data-ask` is `utils/askPeek.js#askPeekMode`'s answer, written by `MapView`; `off` — the sheet
+   before Ask existed — has no rule here at all, so with Ask off the heights above are all there is.
+   The numbers are `PEEK_HEIGHT` in `utils/askPeek.js` and `askPeekCss.test.js` reads this file to
+   hold the two together. All clamp to `calc(100% - 64px)` (the base rule's), so the pill is never
+   covered on a 667px phone. Specificity (0,2,0) beats `.wf-map-peek-open` (0,1,0), whatever the order.
+   The transition is the README's `.28s cubic-bezier(.3,.7,.2,1)` ("Sheet height transition"; the mock's
+   own CSS says `.26s`, which is what this sheet had before Ask — the README is the stated figure), set on
+   the base rule, and none under reduced motion below. */
+.wf-map-peek[data-ask='collapsed'] { height: 126px; }
+.wf-map-peek[data-ask='minimised'] { height: 112px; }
+.wf-map-peek[data-ask='section'] { height: 408px; }
+.wf-map-peek[data-ask='expanded'] { height: 470px; }
 @media (prefers-reduced-motion: reduce) {
   .wf-map-peek { transition: none; }
 }
@@ -11850,4 +11878,177 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   display: flex;
   flex-direction: column;
   padding: 0 16px 14px;
+}
+
+/* ══ Ask PhotoCast — the phone Map's peek row (docs/engineering/ask-photocast-plan.md §2.7, F4) ════
+   `components/map/MapPeekAsk.jsx`, recreated from `Map Ask in Peek.html` Option A (`.ar`, `.askp`,
+   `.mini`, `.sbody`) in the app's own tokens (the mapping is the F1a block's). The sheet's HEIGHTS are
+   the `data-ask` rules beside `.wf-map-peek`; this block is what lives inside them. ⚠️ The row is 44px
+   with an 8px margin below (52px), so 74px (the three buttons) + 52px is the collapsed 126px; the
+   minimised 112px is the handle (14px) + the row (52px) + the one 44px line + the sheet's own rule. */
+.wf-map-peek-ask {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* The pane's own node is a programmatic-only focus target (`tabIndex -1`): focus parks here when a
+   control that held it unmounts, and moves on to the entry button. It needs no ring. */
+.wf-map-peek-ask:focus { outline: none; }
+.wf-map-peek[data-ask='expanded'] .wf-map-peek-ask { flex: 1 1 auto; }
+.wf-map-peek-ask-row {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 10px 8px;
+}
+/* THE COLLAPSED ROW — "ASK · Ask about what's on the map… ↑". */
+.wf-map-peek-ask-entry {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 12px;
+  border-radius: 12px;
+  background: var(--color-plex-surface);
+  border: 1px solid rgba(201, 162, 75, .45);
+  text-align: left;
+  cursor: pointer;
+}
+.wf-map-peek-ask-entry:disabled { opacity: .5; cursor: default; }
+.wf-map-peek-ask-entry:focus-visible,
+.wf-map-peek-ask-x:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+/* The minimised line is the LAST thing in a sheet whose content ends at 111 of its 112px: an outline
+   drawn outside it would run 3px past the frame's edge, where `.wf-body--map` clips it. Inset instead. */
+.wf-map-peek-mini:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+.wf-map-peek-ask-k {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--color-home);
+}
+.wf-map-peek-ask-q {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A refusal's sentence stands where the prompt was (the conversation, which would carry it, is not
+   mounted while the row is collapsed). */
+.wf-map-peek-ask-q[data-error='true'] {
+  color: var(--color-badge-poor);
+  /* A sentence, not a prompt: up to two short lines inside the row's 44px rather than one cut-off one. */
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.wf-map-peek-ask-go {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: rgba(201, 162, 75, .16);
+  color: var(--color-segment-active);
+  font-size: 14px;
+}
+/* THE EXPANDED ROW — the field (`AskInputRow`, whose own rules are the sheet's) and the ✕. */
+.wf-map-peek-ask-field { flex: 1; min-width: 0; }
+.wf-map-peek-ask-field .wf-ask-in { padding: 0; border-top: 0; }
+.wf-map-peek-ask-field .wf-ask-next { padding: 0 0 6px; border-top: 0; }
+.wf-map-peek-ask-field .wf-ask-next + .wf-ask-in { padding-top: 0; }
+/* The row holds the field, ↑ and ✕ in a 320px phone's 300px: 8px of side padding instead of 12 gives the
+   16px placeholder ("Ask about the forecasts…", 183px measured) the 191px it needs rather than 176. */
+.wf-map-peek-ask-field .wf-ask-in-field { padding: 0 8px; }
+.wf-map-peek-ask-x {
+  flex: none;
+  /* Level with the field, not with a "Next question" row that may stand above it. */
+  align-self: flex-end;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: none;
+  border: 1px solid var(--color-plex-border-light);
+  color: var(--color-plex-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wf-map-peek-ask-x:hover { color: var(--color-plex-text); }
+/* THE ANSWER — scrolls under the row, which stays put. */
+.wf-map-peek-ask-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 14px 14px;
+  border-top: 1px solid var(--color-plex-border);
+}
+/* THE MINIMISED LINE — one 44px button: rank, spot, time, "N picks ▴". */
+.wf-map-peek-mini {
+  flex: none;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-map-peek-mini-rk {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-home);
+  color: var(--color-plex-bg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+.wf-map-peek-mini-name {
+  min-width: 0;
+  color: var(--color-plex-text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-map-peek-mini-text { flex: 1; font-weight: 400; color: var(--color-plex-text-secondary); }
+.wf-map-peek-mini-when {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.wf-map-peek-mini-n {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
 }

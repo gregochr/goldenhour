@@ -289,8 +289,15 @@ export default function WindowFirstMapPane({
   const ask = useAsk();
   const {
     pickCards, selectedPick, selectionNonce, answer: askAnswer, selectPick: selectAskPick,
-    registerMapContext,
+    registerMapContext, availability: askAvailability, phase: askPhase,
   } = ask;
+  /**
+   * Whether the phone's peek sheet draws Ask's row (F4): Ask is on, or unreachable and shown disabled
+   * — the shell's own "an entry exists" test, `pending` and `off` draw nothing (and the default
+   * context, with no provider, is `off`: a rewound page and every test that predates Ask). `MapView`
+   * adds the phone and the tab.
+   */
+  const askOffered = askAvailability === 'on' || askAvailability === 'down';
   /**
    * The picks `MapView` marks, each already joined to the briefing (`utils/askModel.buildPickCards`):
    * the rating and verdict are the PICK'S window's, never the active window's. Filter/map over served
@@ -684,6 +691,9 @@ export default function WindowFirstMapPane({
         askWindow={askWindow}
         askAnswerId={askAnswerId}
         onAskContext={onAskContext}
+        askOffered={askOffered}
+        askPhase={askPhase}
+        panelShown={panelShown}
       />
     </div>
   );

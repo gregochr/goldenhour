@@ -60,8 +60,12 @@ import {
 import MapRegionPanel from './map/MapRegionPanel.jsx';
 import { regionGlossEntry } from '../utils/regionGloss.js';
 import AskCameraController from './map/AskCameraController.jsx';
+import MapPeekAsk from './map/MapPeekAsk.jsx';
+import {
+  askPeekMode, peekRestingHeight, peekTargetHeight, PEEK_SETTLED_PHASES,
+} from '../utils/askPeek.js';
 import { askWindowOf } from '../utils/askMapContext.js';
-import { ASK_HEAT_DIM } from '../utils/askCamera.js';
+import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
 const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
@@ -749,13 +753,26 @@ BoundsTracker.propTypes = {
  * directly, so it never reaches Leaflet's own {@code mousedown}. The SECOND half of rule 4 is the
  * {@code selectedLocationName} effect above this component, which collapses the sheet whenever a
  * selection is installed, whatever installed it.
+ *
+ * <p><b>With Ask's section expanded this is "minimise", and it is the same write</b> (F4, plan §2.7's
+ * table): the section closes ({@code openMapMenu → null}) and the conversation, not this listener,
+ * decides whether the reader is left with the 126px row (nothing settled) or the 112px line (an answer).
+ * The one exemption {@code open} carries is an answer still being fetched — the table is silent on it
+ * and the mock leaves it open: collapsing then would hide the only sign the question is out.
  */
-function SheetDismissOnMapTouch({ open, onCollapse }) {
+function SheetDismissOnMapTouch({ open, onCollapse, ownMoveUntil }) {
+  // ⚠️ A `zoomstart` is not always a hand. Leaflet fires one for ANY zoom, programmatic included, and
+  // Ask's camera flies to a new answer's picks and to a chosen pick's card — which, ungated, minimised
+  // the very answer that had just landed (and the card the reader had just chosen) the instant the
+  // camera moved. The camera stamps the end of each of its own moves into `ownMoveUntil`; a zoom
+  // inside that window is its, and says nothing about the reader. A press, a touch and a drag are
+  // only ever a hand, so those are never gated (the camera's own `dragstart` reasoning).
+  const ownZoom = () => Date.now() < ownMoveUntil.current;
   useMapEvents({
     mousedown: () => { if (open) onCollapse(); },
     touchstart: () => { if (open) onCollapse(); },
     dragstart: () => { if (open) onCollapse(); },
-    zoomstart: () => { if (open) onCollapse(); },
+    zoomstart: () => { if (open && !ownZoom()) onCollapse(); },
   });
   return null;
 }
@@ -763,6 +780,7 @@ function SheetDismissOnMapTouch({ open, onCollapse }) {
 SheetDismissOnMapTouch.propTypes = {
   open: PropTypes.bool.isRequired,
   onCollapse: PropTypes.func.isRequired,
+  ownMoveUntil: PropTypes.shape({ current: PropTypes.number }).isRequired,
 };
 
 /**
@@ -1391,8 +1409,21 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   <li>{@code onAskContext} — called with the facts a question asked from here carries (the region in
  *       scope, the window on the pill), whenever they change.</li>
  * </ul>
+ *
+ * <h2>…and the phone's three (F4, plan §2.7's phone paragraph and state table)</h2>
+ * <ul>
+ *   <li>{@code askOffered} — the peek sheet draws Ask's row (Ask is on, or unreachable and shown
+ *       disabled; never while rewound). False draws the sheet exactly as it was before Ask.</li>
+ *   <li>{@code askPhase} — {@code AskContext.phase}. Whether an answer is SETTLED decides the sheet's
+ *       resting height (126 with nothing, 112 with an answer: the minimised line), and a map touch
+ *       leaves an answer that is still being fetched alone.</li>
+ *   <li>{@code panelShown} — the shell is showing this pane's tab. Going false closes the Ask section
+ *       (the table's "tab switch away and back": closed with nothing settled, minimised with an answer),
+ *       which `selectTab` cannot do: the pane is mounted but hidden between visits and `openMapMenu` is
+ *       this component's own state.</li>
+ * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1672,6 +1703,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * must never be conditional, and an unused value on the overlay mount costs nothing.
    */
   const [openMapMenu, setOpenMapMenu] = useState(null);
+  /**
+   * The end of the Ask camera's own latest move (a `Date.now()` stamp), shared between the camera
+   * (writes it) and the peek sheet's map-touch listener (reads it) — see `SheetDismissOnMapTouch`.
+   */
+  const askMoveClockRef = useRef(0);
+  /** The Ask row's entry button — the sheet's other focus-return routes fall back to it. */
+  const askEntryRef = useRef(null);
   /**
    * The drilldown's LEVEL, while `openMapMenu === 'window-panel'` (map-landing-plan.md §3 L6) — a
    * region NAME for the region panel, null for the window panel above it.
@@ -2365,8 +2403,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * {@code setSelectedLocationName} directly (a Codex finding on the plan's M0). Keyed on the
    * value itself, not on a ref-based "did it change" test, so a selection that arrives while a
    * section is open (a Plan-tab handoff landing mid-browse) collapses it exactly like a chip press
-   * does — the callout this selection is about to draw must never sit placed for the collapsed 74px
-   * under an open 356px sheet.
+   * does — the callout this selection is about to draw must never sit placed for the RESTING sheet
+   * (74 / 126 / 112px) under an open one (356 / 408 / 470px). ⚠️ With Ask's section expanded this is
+   * "minimise" (`utils/askPeek.js`: the same write, `openMapMenu → null`, leaves the 112px line when an
+   * answer is settled and the 126px row when not) — which is why this effect needed no exemption.
    *
    * <p>Phone only: `openMapMenu` never holds a `'peek:'` value on desktop/tablet, so this is inert
    * there regardless of the `isMobile` guard.
@@ -2381,6 +2421,32 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     })();
     return undefined;
   }, [isMobile, selectedLocationName]);
+
+  /**
+   * **Ask's section cannot outlive its row, or its tab** (F4, plan §2.7's table). `'peek:ask'` means
+   * "the Ask section is EXPANDED" and nothing else: whether an answer exists is Ask's own state
+   * (`askPhase`), and "minimised" is simply no section open with an answer settled
+   * (`utils/askPeek.js`). So both releases here are the same write, {@code → null}:
+   * <ul>
+   *   <li>{@code panelShown} going false — the table's "tab switch away and back" row: nothing settled
+   *       comes back closed, an answer comes back minimised, a minimised one is already null. This is
+   *       the Map pane's own signal because the shell cannot reach this state: `selectTab` runs during
+   *       the shell's render and may only call the shell's own setters, and the pane is mounted but
+   *       hidden between visits (it gets no `active` prop, which `panelShown` is the stand-in for).</li>
+   *   <li>{@code askOffered} going false (Ask switched off, a rewind, a widening past the phone) —
+   *       otherwise a stale value would sit in `openMapMenu` with no row to show for it, and every
+   *       "is anything open" test on this tab (the Escape ladder, the landing card) would answer
+   *       for a sheet that is not there.</li>
+   * </ul>
+   * Other sections ({@code 'peek:win'} and so on) are deliberately left alone, as they always were.
+   */
+  useEffect(() => {
+    if (panelShown && askOffered && isMobile) return undefined;
+    (async () => {
+      setOpenMapMenu((cur) => (cur === 'peek:ask' ? null : cur));
+    })();
+    return undefined;
+  }, [panelShown, askOffered, isMobile]);
 
   // Fetch per-location aurora scores when an alert is active (MODERATE or STRONG).
   // Scores are keyed by location name for O(1) lookup in popup render.
@@ -4761,8 +4827,37 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * a `'peek:'` value at all, so this is always null there regardless of the `isMobile` guard.
    */
   const sheetSection = isMobile && typeof openMapMenu === 'string' && openMapMenu.startsWith('peek:')
+    && openMapMenu !== 'peek:ask'
     ? openMapMenu.slice(5)
     : null;
+
+  // ── The Ask row of the sheet (F4, plan §2.7's phone paragraph) ────────────────────────────────────
+  // Three facts, one derivation (`utils/askPeek.js`): is the Ask section EXPANDED (a value of
+  // `openMapMenu`, D-1's one gate), is another section open, and is an answer SETTLED (Ask's state).
+  // "Minimised" is no flag: it is a settled answer with nothing open. The row exists only on a phone,
+  // on the tab, and while Ask is offered.
+  const askRowOn = isMobile && !overlayMode && askOffered;
+  const askSettled = PEEK_SETTLED_PHASES.includes(askPhase);
+  const askMode = askPeekMode({
+    offered: askRowOn,
+    expanded: askRowOn && openMapMenu === 'peek:ask',
+    section: sheetSection,
+    phase: askPhase,
+  });
+  /** What the sheet RESTS at — `--psh`, the callout's band and the chrome's floor. See `peekRestingHeight`. */
+  const peekResting = isMobile ? peekRestingHeight(askRowOn, askSettled) : null;
+  /** What the sheet is heading for — the camera's inset, and the label placer's obstacle. */
+  const peekTarget = peekTargetHeight(askMode, sheetSection != null);
+
+  /**
+   * What the phone's peek sheet covers of the frame, for the camera (F4, plan §2.7): the sheet's TARGET
+   * height — 470 with the Ask section open, 112 for the minimised line, 408 under another section — as
+   * a bottom inset, so the picks are fitted into what the reader can see. The camera clamps it to 60%
+   * of the frame (`utils/askCamera.js`), and re-applies its last move when it changes, which is how the
+   * map re-fits when the answer is minimised. Only while picks are on the map and the sheet is a phone's:
+   * everywhere else it is no inset at all, which is what the camera was already being given.
+   */
+  const askInset = isMobile && askActive ? { ...NO_INSET, bottom: peekTarget } : NO_INSET;
 
   /**
    * A peek button (or the phone pill override) was pressed — the ONE toggle rule both routes share
@@ -4773,11 +4868,57 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * an open sheet must never coexist on the phone in EITHER order: every callout-opening route is a
    * map tap, which the map-touch listener below already collapses the sheet for, and this is the
    * reverse route — growing the sheet while a callout is up would otherwise place a card for the
-   * collapsed 74px underneath a 356px sheet a beat later. Harmless to call with nothing selected.
+   * RESTING sheet underneath an open one a beat later. Harmless to call with nothing selected.
    */
   function handlePeekPress(section) {
     setSelectedLocationName(null);
     setOpenMapMenu((cur) => (cur === `peek:${section}` ? null : `peek:${section}`));
+  }
+
+  /**
+   * The Ask camera is about to make a move of its own, ending at {@code until}: stamped so the sheet's
+   * map-touch listener can tell the zoom Leaflet fires for it from a hand (`SheetDismissOnMapTouch`).
+   */
+  function stampAskMove(until) {
+    askMoveClockRef.current = until;
+  }
+
+  /**
+   * The Ask row's entry button, or the minimised line, was pressed: open the Ask section. It is
+   * `handlePeekPress('ask')`'s write without its toggle — same gate, same clearing of the selection (the
+   * callout and an EXPANDED sheet must never coexist; only the 112px line may) — behind the one refusal
+   * every Ask entry makes: it never opens over a dialog (`foreignModalOver`, the predicate every Escape
+   * rule on this tab and the shell's own `openAsk` apply).
+   */
+  function openAskSection() {
+    if (foreignModalOver(mapPaneRef.current)) return;
+    // Not `handlePeekPress`'s toggle: this only ever OPENS (the control that calls it is not drawn while
+    // the section is open), and a second press landing before the first has re-rendered must not shut it.
+    setSelectedLocationName(null);
+    setOpenMapMenu('peek:ask');
+  }
+
+  /**
+   * A pick chip was pressed (the table's "Pick chip press" row): choose the card, and make sure the
+   * card is on screen — a minimised answer EXPANDS (the chip is a map press, but never a "map touch":
+   * it stops its own propagation, so the minimise-on-touch rule cannot meet it), an expanded one stays
+   * put, and another peek section gives way. Phone only; elsewhere the pick is chosen and nothing moves.
+   *
+   * <p>⚠️ **The selection is cleared HERE, not left to the window-follow effect** (`askWindow`, which
+   * clears it too): that effect runs only while the pane is on screen and once per choice, so it is a
+   * second line of defence, not the guarantee — the callout and an EXPANDED sheet must never coexist,
+   * and a callout standing over the 112px line would otherwise be left standing over the 470px one.
+   * ⚠️ **And a drilldown, Regions or Filters stays open**: those are panels ABOUT the map that persist
+   * under a press on it (map-landing L3), so only a peek value — or nothing — makes way for the Ask
+   * section.
+   */
+  function handleSelectAskPick(rank) {
+    onSelectAskPick?.(rank);
+    if (!askRowOn) return;
+    setSelectedLocationName(null);
+    setOpenMapMenu((cur) => (cur == null || (typeof cur === 'string' && cur.startsWith('peek:'))
+      ? 'peek:ask'
+      : cur));
   }
 
   /**
@@ -5099,6 +5240,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // class sits on THIS element, the one carrying `mapPaneRef` and the pane's key handler,
       // rather than merely existing somewhere in the tree.
       data-testid={overlayMode ? undefined : 'wf-map-pane'}
+      // The peek sheet's RESTING height, published for everything that clears it (`index.css`'s
+      // lifted stack, the Leaflet corner's padding) and for `MapCallout`'s band, which reads it off
+      // this element when it paints. State-driven since Ask (F4): 74 with no Ask row, 126 with one,
+      // 112 while an answer is minimised. Phone and tab only — unset elsewhere, so desktop and tablet
+      // see exactly the stylesheet's own value (none), as before.
+      style={!overlayMode && isMobile ? { '--psh': `${peekResting}px` } : undefined}
       onKeyDown={overlayMode ? undefined : handleMapPaneKeyDown}
     >
       {overlayMode && (
@@ -5527,8 +5674,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 reachMeasured={mapReachMeasured}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}
-                onSelectAskPick={onSelectAskPick}
+                onSelectAskPick={onSelectAskPick ? handleSelectAskPick : null}
                 eventLabel={mapEventLabel}
+                // The phone's peek sheet is an obstacle while an answer's picks are on the map (F4),
+                // from its TARGET height; with no answer it is not one, as it never was.
+                bottomInset={isMobile && askActive ? peekTarget : 0}
               />
             </Suspense>
           )}
@@ -5539,7 +5689,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 homeCoords={homeGeo}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}
-                onSelectAskPick={onSelectAskPick}
+                onSelectAskPick={onSelectAskPick ? handleSelectAskPick : null}
                 eventLabel={mapEventLabel}
               />
             </Suspense>
@@ -5632,8 +5782,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               only; the sheet itself is never mounted on desktop/tablet. */}
           {!overlayMode && isMobile && (
             <SheetDismissOnMapTouch
-              open={sheetSection != null}
+              open={sheetSection != null || (askMode === 'expanded' && askPhase !== 'busy')}
               onCollapse={() => setOpenMapMenu(null)}
+              ownMoveUntil={askMoveClockRef}
             />
           )}
           {/* Tab only — the overlay has no ground-click behaviour of its own.
@@ -5674,6 +5825,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               answerId={askAnswerId}
               points={askPickSpots}
               selection={askSelection}
+              inset={askInset}
+              onOwnMove={stampAskMove}
             />
           )}
           <HandoffPopupController
@@ -5872,6 +6025,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               auroraResultsByDate={auroraResultsByDate}
               pendingNightRowIds={pendingNightRowIds}
               tideStripHeight={tideStripHeight}
+              // The phone sheet's resting height (74 / 126 / 112 — `--psh`): a callout may stand over
+              // the 112px minimised line, and the sheet changing height under a card that is already
+              // placed must repaint its band. Null off the phone.
+              bandKey={peekResting}
               // A wildlife hide's hourly comfort rows for the ACTIVE WINDOW's date — SOLAR windows
               // only: the rows are a daylight forecast, and on an astro or aurora night (whose
               // `date` can be a night kept local, or yesterday's until dawn) they would be another
@@ -6245,14 +6402,26 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 collapsed (map-mobile-sheet-plan.md §3 M2 task 6). */}
             {isMobile && (
               <>
-                <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current} />
-                <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current} />
+                {/* The Layers button is not drawn while an answer has replaced the buttons (F4), so the
+                    return address falls back to the Ask row's entry button, which always is. */}
+                <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askEntryRef.current} />
+                <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askEntryRef.current} />
                 {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2, Tide wired at M3, its
                     fuller Auto/Always/Off gate and pulse wired at M5). The Tide button is gated on
                     `tideCuesOn` — the SAME one gate the spot-build site's `tideTier` null reads
                     (§1 #6) — never a second flag. */}
                 <MapPeekSheet
                   section={sheetSection}
+                  askMode={askMode}
+                  fallbackFocusRef={askEntryRef}
+                  ask={askRowOn ? (
+                    <MapPeekAsk
+                      mode={askMode}
+                      onOpen={openAskSection}
+                      onClose={() => setOpenMapMenu(null)}
+                      entryRef={askEntryRef}
+                    />
+                  ) : null}
                   onPressWindows={() => handlePeekPress('win')}
                   onPressLayers={() => handlePeekPress('lay')}
                   onPressTide={() => handlePeekPress('tide')}
@@ -6951,6 +7120,9 @@ MapView.propTypes = {
   }),
   askAnswerId: PropTypes.number,
   onAskContext: PropTypes.func,
+  askOffered: PropTypes.bool,
+  askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),
+  panelShown: PropTypes.bool,
 };
 
 export default React.memo(MapView);
