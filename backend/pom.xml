@@ -19,7 +19,14 @@
 
     <properties>
         <java.version>21</java.version>
-        <anthropic-sdk.version>2.60.0</anthropic-sdk.version>
+        <!-- ⚠️ 2.62.0 is the ceiling while the app runs on Java 21: 2.63.0 removed the
+             OkHttpClient(okhttp3.OkHttpClient, Backend) constructor that AppConfig uses to force
+             HTTP/1.1 (OkHttp's HTTP/2 frame writer pins virtual threads under `synchronized` and
+             deadlocked batches of 200+), and the SDK's own builder offers no protocol control.
+             Moving past it needs either JDK 24+ (JEP 491 ends the pinning) or an in-house
+             com.anthropic.core.http.HttpClient. Dependabot is told to ignore newer versions in
+             .github/dependabot.yml — see the AppConfig javadoc. -->
+        <anthropic-sdk.version>2.62.0</anthropic-sdk.version>
         <surefire.excludedGroups>prompt-regression</surefire.excludedGroups>
 
         <!--

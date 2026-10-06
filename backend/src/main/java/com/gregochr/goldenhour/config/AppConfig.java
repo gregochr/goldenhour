@@ -115,6 +115,14 @@ public class AppConfig {
      * <p>Connection pool sized at 10 idle connections with 2-minute keep-alive to
      * support parallel evaluation runs without excessive connection churn.
      *
+     * <p>⚠️ This construction pins the SDK at 2.62.0: 2.63.0 removed the
+     * {@code OkHttpClient(okhttp3.OkHttpClient, Backend)} constructor, and the SDK's own
+     * builder ({@code AnthropicOkHttpClient.builder()}) exposes timeouts, proxy and pool
+     * sizing but no protocol list, so it would reintroduce HTTP/2 and the pinning above.
+     * Two ways forward, neither taken yet: run on JDK 24+ (JEP 491 ends monitor pinning,
+     * after which the SDK builder is fine) or implement
+     * {@code com.anthropic.core.http.HttpClient} in-house over an HTTP/1.1 OkHttp client.
+     *
      * @param properties Anthropic API configuration
      * @return a configured {@link AnthropicClient}
      */
