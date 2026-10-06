@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.config.RewindAwareClock;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
@@ -16,6 +17,7 @@ import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.TravelDayService;
+import com.gregochr.goldenhour.util.Rewind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -394,6 +397,76 @@ class AskSnapshotBuilderTest {
 
         assertThat(third.orElseThrow()).isNotSameAs(first.orElseThrow());
         verify(briefingService, times(2)).getCachedBriefingForApi();
+    }
+
+    @Test
+    @DisplayName("a clock that has gone backwards is never 'younger than 30 seconds': the memo is rebuilt, "
+            + "not reused, and then holds the snapshot built at the earlier time")
+    void current_negativeAgeRebuilds() {
+        stub(AskFixtures.briefing(List.of(), List.of()));
+
+        Optional<AskSnapshot> first = builder.current();
+        clock.set(NOW.toInstant(ZoneOffset.UTC).minus(Duration.ofHours(1)));
+        Optional<AskSnapshot> second = builder.current();
+        Optional<AskSnapshot> third = builder.current();
+
+        assertThat(second.orElseThrow()).isNotSameAs(first.orElseThrow());
+        assertThat(third.orElseThrow()).isSameAs(second.orElseThrow());
+        verify(briefingService, times(2)).getCachedBriefingForApi();
+    }
+
+    // -- an admin's rewind -------------------------------------------------------------------
+
+    /** A builder on the real rewind-aware clock bean, over the test's own moving clock. */
+    private AskSnapshotBuilder rewindAwareBuilder() {
+        return new AskSnapshotBuilder(briefingService, travelDayService, almanacService, freshness,
+                new RewindAwareClock(clock));
+    }
+
+    @Test
+    @DisplayName("while a rewind is active the memo is neither read nor written: the request gets a snapshot "
+            + "built for the rewound moment, the memo still holds the live one, and a second rewound "
+            + "request builds again")
+    void current_rewoundRequestBypassesTheMemo() {
+        stub(AskFixtures.briefing(List.of(), List.of()));
+        AskSnapshotBuilder rewound = rewindAwareBuilder();
+        Optional<AskSnapshot> live = rewound.current();
+
+        Instant twoDaysBack = NOW.toInstant(ZoneOffset.UTC).minus(Duration.ofDays(2));
+        Optional<AskSnapshot> first;
+        Optional<AskSnapshot> second;
+        Rewind.set(twoDaysBack);
+        try {
+            first = rewound.current();
+            second = rewound.current();
+        } finally {
+            Rewind.clear();
+        }
+        Optional<AskSnapshot> after = rewound.current();
+
+        assertThat(live.orElseThrow().today()).isEqualTo(TODAY);
+        assertThat(first.orElseThrow().today()).isEqualTo(TODAY.minusDays(2));
+        assertThat(second.orElseThrow()).isNotSameAs(first.orElseThrow());
+        assertThat(after.orElseThrow()).isSameAs(live.orElseThrow());
+        verify(briefingService, times(3)).getCachedBriefingForApi();
+    }
+
+    @Test
+    @DisplayName("a rewound request an hour back does not reuse the live memo even though its age is negative "
+            + "and it was built moments ago")
+    void current_rewoundAnHourBackDoesNotReuseTheLiveMemo() {
+        stub(AskFixtures.briefing(List.of(), List.of()));
+        AskSnapshotBuilder rewound = rewindAwareBuilder();
+        AskSnapshot live = rewound.current().orElseThrow();
+
+        Rewind.set(NOW.toInstant(ZoneOffset.UTC).minus(Duration.ofHours(1)));
+        try {
+            assertThat(rewound.current().orElseThrow()).isNotSameAs(live);
+        } finally {
+            Rewind.clear();
+        }
+
+        assertThat(rewound.current().orElseThrow()).isSameAs(live);
     }
 
     @Test

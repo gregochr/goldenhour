@@ -161,7 +161,8 @@ everyone. A second, **never-refunded** per-user daily ceiling on engine calls bo
 `HotTopicSimulationService.isEnabled()` is global; aurora simulation is
 `AuroraStateCache.getSimulatedData() != null`. While either is active, Ready precompute is skipped
 and typed answers are not cached. A POST sees the real clock under rewind, so **Ask is hidden while
-a rewind is active**.
+a rewind is active**. A rewound admin GET of `/api/ask/ready` (a GET does see the rewound clock) is served from a
+snapshot built for that moment and bypasses the snapshot memo (§2.2), so its cards agree with the rewound Plan view.
 
 ### 22. Cost recording
 `api_call_log.job_run_id` is NOT NULL, has no label column, and `completeRun` sums cost once, at
@@ -209,7 +210,10 @@ window: id, date, target type, event time, served verdict, best rating, and the 
 `claudeHeadline`, `canopy`, and from `tide()`: `tideState`, `tideAligned`, `tideFitPhrase`.
 **Coastal** means `tide().tideState() != null`. Plus the served hot topics and the almanac entries.
 
-The snapshot is memoised for 30 seconds (the assembly is not cheap; CLAUDE.md's digest note).
+The snapshot is memoised for 30 seconds (the assembly is not cheap; CLAUDE.md's digest note). *As built
+(B3):* **a request under an admin's rewind (`Rewind.isActive()`, the test `AlmanacService` makes for its day cache)
+neither reads nor writes the memo** and gets a snapshot built for the rewound clock, and a memo whose age is
+negative (the clock has gone backwards) is rebuilt rather than reused.
 
 **Pick-eligible slot:** non-null `locationId` and a non-blank name (a card needs one); not
 `canopy`; a `claudeRating` on Claude's 1–5 scale (`RatingValidator.isInRange`, the bound

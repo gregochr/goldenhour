@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.service.PlanWindowProjector;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.util.ForecastHorizon;
+import com.gregochr.goldenhour.util.Rewind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -103,12 +104,23 @@ public class AskSnapshotBuilder {
     /**
      * The snapshot, reused for {@value #MEMO_SECONDS} seconds.
      *
+     * <p><b>A rewound request never touches the memo.</b> While an admin's rewind is active
+     * ({@link Rewind#isActive()}, the same test {@code AlmanacService} makes for its day cache) the
+     * clock bean answers with the rewound instant, so the snapshot is built fresh for that moment and
+     * the memo is neither read, which would serve the live snapshot to a view that is meant to be in
+     * the past, nor written, which would serve the rewound one to every reader after it.
+     *
+     * <p>The memo's age test is also correct on its own terms: an age that is negative (the clock has
+     * gone backwards) is never "younger than {@value #MEMO_SECONDS} seconds", so it rebuilds.
+     *
      * @return the snapshot, or empty when no briefing has been built yet
      */
     public synchronized Optional<AskSnapshot> current() {
+        if (Rewind.isActive()) {
+            return build();
+        }
         Instant now = clock.instant();
-        if (memo != null && Duration.between(memoBuiltAt, now).compareTo(
-                Duration.ofSeconds(MEMO_SECONDS)) < 0) {
+        if (memo != null && isFresh(Duration.between(memoBuiltAt, now))) {
             return Optional.of(memo);
         }
         Optional<AskSnapshot> built = build();
@@ -117,6 +129,11 @@ public class AskSnapshotBuilder {
             memoBuiltAt = now;
         });
         return built;
+    }
+
+    /** Whether a memo of this age may be reused: not negative, and under {@value #MEMO_SECONDS} seconds. */
+    private static boolean isFresh(Duration age) {
+        return !age.isNegative() && age.compareTo(Duration.ofSeconds(MEMO_SECONDS)) < 0;
     }
 
     /**
