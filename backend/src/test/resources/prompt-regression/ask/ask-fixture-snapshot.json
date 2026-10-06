@@ -1,0 +1,47 @@
+{
+  "_comment": "A small served forecast for AskPromptRegressionTest. 'now' is Monday 5 Oct 2026 12:00 UTC. Ratings are keyed by window id (yyyy-MM-dd_sunrise|sunset); a location with no entry for a window is not on that window. 'canopy' marks a wood, whose rating means the opposite of a sky rating. 'eligible' is the region's verdict-sample gate: the Hand-Rated Fells region is the 2026-09-29 shape, a 5-star slot in a region the Plan tab refuses to crown, and must never be offered or picked.",
+  "now": "2026-10-05T12:00:00",
+  "windows": [
+    {"date": "2026-10-05", "type": "SUNSET", "time": "17:40", "best": 4},
+    {"date": "2026-10-06", "type": "SUNRISE", "time": "06:15", "best": 5,
+     "bestBet": {"region": "Northumberland", "location": "Bamburgh", "locationId": 1}},
+    {"date": "2026-10-06", "type": "SUNSET", "time": "17:38", "best": 4}
+  ],
+  "regions": [
+    {"name": "Northumberland", "eligible": true, "slots": [
+      {"locationId": 1, "name": "Bamburgh", "coastal": true, "tideState": "HIGH", "tideAligned": true,
+       "headline": "Clear low horizon, high cloud to catch the colour",
+       "ratings": {"2026-10-05_sunset": 4, "2026-10-06_sunrise": 5, "2026-10-06_sunset": 4}},
+      {"locationId": 2, "name": "Cheviot Edge", "headline": "Broken mid cloud over open hills",
+       "ratings": {"2026-10-05_sunset": 4, "2026-10-06_sunrise": 4, "2026-10-06_sunset": 3}},
+      {"locationId": 3, "name": "Kielder Wood", "canopy": true, "headline": "Still air under the canopy",
+       "ratings": {"2026-10-05_sunset": 5, "2026-10-06_sunrise": 5, "2026-10-06_sunset": 5}},
+      {"locationId": 4, "name": "Grey Moor", "headline": "Thick low cloud on the horizon",
+       "ratings": {"2026-10-05_sunset": 2, "2026-10-06_sunrise": 2, "2026-10-06_sunset": 2}},
+      {"locationId": 5, "name": "Seahouses", "coastal": true, "tideState": "LOW", "tideAligned": false,
+       "headline": "Good sky, but the water is out",
+       "ratings": {"2026-10-05_sunset": 4, "2026-10-06_sunrise": 4, "2026-10-06_sunset": 3}}
+    ]},
+    {"name": "North York Moors & Coast", "eligible": true, "slots": [
+      {"locationId": 6, "name": "Whitby", "coastal": true, "tideState": "HIGH", "tideAligned": true,
+       "headline": "Layered cloud lifting off the east",
+       "ratings": {"2026-10-05_sunset": 3, "2026-10-06_sunrise": 4, "2026-10-06_sunset": 4}},
+      {"locationId": 7, "name": "Saltburn", "coastal": true, "tideState": "LOW", "tideAligned": false,
+       "headline": "Open sky over the pier",
+       "ratings": {"2026-10-05_sunset": 4, "2026-10-06_sunrise": 3, "2026-10-06_sunset": 4}}
+    ]},
+    {"name": "Hand-Rated Fells", "eligible": false, "slots": [
+      {"locationId": 20, "name": "Lonely Tarn", "headline": "Rated by hand, one slot in forty",
+       "ratings": {"2026-10-05_sunset": 5, "2026-10-06_sunrise": 5, "2026-10-06_sunset": 5}}
+    ]}
+  ],
+  "topics": [
+    {"type": "ECLIPSE", "label": "Partial solar eclipse", "detail": "Maximum 17:12, low in the south-west",
+     "date": "2026-10-09", "regions": ["Northumberland", "North York Moors & Coast"],
+     "safetyNote": "Certified solar filter on the lens — not only over your eye"},
+    {"type": "KING_TIDE", "label": "King tide", "detail": "Highest water of the year on the east coast",
+     "date": "2026-10-08", "regions": ["Northumberland", "North York Moors & Coast"]},
+    {"type": "AURORA", "label": "Aurora possible tomorrow night", "detail": "Kp 5 forecast",
+     "date": "2026-10-06", "regions": ["Northumberland"]}
+  ]
+}

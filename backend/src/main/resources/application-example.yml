@@ -209,15 +209,36 @@ coming-up:
                             # through config rather than hardcoded, ready for P7
 
 photocast:
-  # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; the defaults
-  # are all "off". Uncomment to change one.
+  # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
+  # is shown. Uncomment to change one. A value outside its stated range fails startup.
   #   ask:
-  #     enabled: false              # the whole feature; false answers 404 on every Ask endpoint
+  #     enabled: false              # the whole feature; false answers 404 on every Ask endpoint and
+  #                                 # the client hides Ask. Rollback is this flag: there is no data to unwind
   #     stub: false                 # true = StubAskEngine: no Anthropic call, no cost row. NEVER
-  #                                 # true in production (it would answer every question from a
-  #                                 # template); false (the default) bills the real key
+  #                                 # true in production (startup refuses it under the prod profile);
+  #                                 # false (the default) bills the real key
   #     seed-local-fixture: false   # local profile only, H2 only: writes "Fixture ..." regions,
   #                                 # rated entries and a briefing build into the local database
+  #     model: HAIKU                # HAIKU or SONNET only; Sonnet 5.5 is refused (it cannot disable thinking)
+  #     max-turns: 4                # model turns per conversation, 1-6
+  #     max-tokens: 600             # per model turn, 200-2000
+  #     call-timeout-seconds: 20    # per model call, 1-60; must not exceed deadline-seconds
+  #     deadline-seconds: 30        # whole conversation, 1-120
+  #     rate-per-minute: 5          # per user, in memory, 1-600; checked before the body is read
+  #     limit-lite: 3               # typed questions a day, LITE_USER, 0-1000
+  #     limit-pro: 30               # typed questions a day, PRO_USER and ADMIN, 0-1000. The client's
+  #                                 # "Pro: 30 a day" copy is a constant: change both together
+  #     engine-ceiling-multiplier: 3  # never-refunded engine calls a day = this x the role's limit, 1-20
+  #     daily-spend-cap-usd: 0.50   # typed spend a day (UK date), above 0 and at most 1000; tripping
+  #                                 # it answers 503 TYPED_UNAVAILABLE to everyone and emails the
+  #                                 # admins once (needs notifications.admin-alerts.enabled)
+  #     ready:
+  #       max-cycles-per-day: 6     # scheduled Ready precomputes a day, 1-48
+  #     cache:
+  #       max-entries: 2000         # typed-answer cache, 1-100000
+  #       ttl-minutes: 30           # 1-1440
+  #     log:
+  #       retention-days: 90        # ask_log rows kept, 1-3650
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.
