@@ -187,11 +187,15 @@ export function eventInstantOf(score, targetType) {
  * them in exactly this order for exactly this reason, and a drill-down that reversed them would
  * have the same two facts telling two different stories about the same evening.
  *
+ * <p>Exported for Ask PhotoCast's "Plan this" (F5): its "Best light" cell reads the identical
+ * windows through this function rather than a copy, so the figure there and the row's light line
+ * here cannot disagree about one window.
+ *
  * @param {?object} score      the score-row entry, or null
  * @param {string}  targetType SUNRISE or SUNSET
  * @returns {?Array<{label: string, range: string}>} ordered windows, or null when neither prints
  */
-function lightWindows(score, targetType) {
+export function lightWindows(score, targetType) {
   if (!score) return null;
   const golden = lightWindow('golden', score.goldenHourStart, score.goldenHourEnd);
   const blue = lightWindow('blue', score.blueHourStart, score.blueHourEnd);
@@ -533,6 +537,26 @@ export function shortDow(dateStr) {
 }
 
 /**
+ * The departure for a spot, with the day marker named — {@code leaveByParts} plus the one word a
+ * renderer needs to print it.
+ *
+ * <p>Named here rather than in the component so the ONE thing a renderer has to do with it is print
+ * it. {@code dayWord} is null exactly when the departure shares the event's UK day. Exported because
+ * Ask PhotoCast's "Plan this" (F5) shows the same departure in its "Leave home" cell: one function,
+ * so the cell and the sheet's row cannot answer differently for the same fixture.
+ *
+ * @param {string|Date|null} eventTimeUtc the slot's own {@code solarEventTime}
+ * @param {?number} driveMinutes the drive to the spot (the caller chooses whose: this sheet's page
+ *        origin, Ask's home)
+ * @returns {?{time: string, date: string, sameDay: boolean, dayWord: ?string}} or null on the terms
+ *          {@code leaveByParts} answers null
+ */
+export function departureWithDay(eventTimeUtc, driveMinutes) {
+  const parts = leaveByParts(eventTimeUtc, driveMinutes);
+  return parts && { ...parts, dayWord: parts.sameDay ? null : shortDow(parts.date) };
+}
+
+/**
  * The window this sheet's one map handoff should open on.
  *
  * <p>The best-rated window, because that is the one a reader who searched a place came to find; the
@@ -781,10 +805,7 @@ export function buildLocationSheet(spot, windows, {
     const regionSummary = card.away || ownSummary != null
       ? null
       : regionGlossFor(regionGlossIndex, card.date, card.targetType, spot?.regionName);
-    const parts = card.away ? null : leaveByParts(slot?.eventTime, driveMinutes);
-    // The day marker, named here rather than in the component so the ONE thing a renderer has to do
-    // with it is print it. Null exactly when the departure shares the event's UK day.
-    const leave = parts && { ...parts, dayWord: parts.sameDay ? null : shortDow(parts.date) };
+    const leave = card.away ? null : departureWithDay(slot?.eventTime, driveMinutes);
     return {
       key: card.key,
       date: card.date,

@@ -124,12 +124,18 @@ const DIM_AT_OR_BELOW = 2;
  *        the per-location eclipse line (L7) on every solar row reads THIS location's own entry per
  *        window, exactly like {@code tideAlignmentIndex} above. Null renders no line at all, on a
  *        payload that predates the field or on any night with no catalogued eclipse
+ * @param {?Function} [props.restoreFocusFallback] where focus goes on close when the element that was
+ *        focused at opening cannot take it back — {@code Modal}'s own option. Ask PhotoCast's "Open in
+ *        Plan ›" (F5) is the caller: pressed inside Ask's sheet, whose own close leaves the page with
+ *        nowhere focused, so the opener this sheet captures is {@code <body>}. Omitted, the close is
+ *        exactly what it was
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
   scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
   planFrom = null, onPlanFrom = null, escapeEnabled = true, location = null,
   focusWindowKey = null, regionGlossIndex = null, tideAlignmentIndex = null, eclipseIndex = null,
+  restoreFocusFallback = null,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
@@ -321,6 +327,7 @@ export default function LocationFourDaySheet({
          precisely so a future caller cannot set one and forget the other. See `Modal`'s own note
          for what this is NOT: it is not a focus trap, and Tab still leaves the topmost dialog. */
       stacked={!escapeEnabled}
+      restoreFocusFallback={restoreFocusFallback}
       data-testid="location-sheet"
     >
       <div className="wf-sheet-card">
@@ -801,6 +808,7 @@ LocationFourDaySheet.propTypes = {
    * ordering, because only it knows what else is open (plan-matrix §6 M2.5).
    */
   escapeEnabled: PropTypes.bool,
+  restoreFocusFallback: PropTypes.func,
   spot: PropTypes.shape({
     id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     name: PropTypes.string,

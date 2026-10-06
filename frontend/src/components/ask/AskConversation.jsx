@@ -1,4 +1,4 @@
-import { useId, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../../context/WindowFirstBriefingContext.jsx';
@@ -7,6 +7,7 @@ import ProPill from '../shared/ProPill.jsx';
 import AskContextChips from './AskContextChips.jsx';
 import AskEventCard from './AskEventCard.jsx';
 import AskPickCard from './AskPickCard.jsx';
+import AskPlanThis from './AskPlanThis.jsx';
 import {
   KIND, newestRunLabel, PRO_DAILY_LIMIT, questionsForView, readyBusyLine, resolveSuggestions,
   TYPED_BUSY_LINE,
@@ -52,11 +53,26 @@ const READY_ALL_LABEL = {
  * control takes focus to {@code <body>} with it and the surface's Escape rule, which runs only while
  * focus is inside the surface, goes quiet — the defect the Map tab's panels had five times.
  *
+ * <h2>Plan this (F5)</h2>
+ * <p>Every pick card carries "Plan this ›" on every surface — it is drawn HERE, beside whatever the
+ * surface adds through {@code pickActions} (F1b's "Show on map ›"), because it is a move of the
+ * conversation and not of the shell. In the {@code plan} phase the answer is replaced by that pick's
+ * {@link AskPlanThis} view (the chips and the question bubble go with it, as in the design), outside the
+ * answer's live region: the view takes focus when it opens, and its name is what is announced. The two
+ * doors OUT of it — "Open in Plan ›" and the postcode nudge — are the surface's, handed in as
+ * {@code planActions}: a dock, a sheet and the phone's peek each close or keep what they must around the
+ * location sheet, and none of that is the conversation's to know.
+ *
+ * <p><b>Focus, both ways.</b> The pressed "Plan this ›" unmounts with the answer, so focus is moved to
+ * the plan view; "‹ Back to the answer" unmounts with it, so focus is moved back to the "Plan this ›" on
+ * the card that opened it (the card's own select button when it has none) — a layout-time hand-off keyed
+ * on the phase, set only by those two presses, so a plan view that appears because a refusal restored it
+ * never takes focus from the field.
+ *
  * <h2>Nothing here decides anything</h2>
  * <p>The suggestions are the served Ready questions offered on this view; the footer names the run
- * and the allowance the server stated; the cards are joined facts. "Plan this ›" is F5's and "Add to
- * Coming up" was removed by owner decision (plan §1 #9) — neither is rendered, and a surface that
- * wants a control on each pick (F1b's "Show on map ›", F5's "Plan this ›") passes {@code pickActions}.
+ * and the allowance the server stated; the cards are joined facts. "Add to Coming up" was removed by
+ * owner decision (plan §1 #9) and is never rendered.
  *
  * @param {object} props
  * @param {'map'|'plan'|'coming-up'} props.view the tab the suggestions are offered for
@@ -69,15 +85,52 @@ const READY_ALL_LABEL = {
  * @param {Array<number>} [props.regionIds] the regions in scope, for a Ready answer's own record of
  *        the context it was opened in
  * @param {boolean} [props.hidden=false] the surface is closed or covered: render an empty shell
- * @param {function(object): React.ReactNode} [props.pickActions] controls for a pick card's own row
+ * @param {function(object): React.ReactNode} [props.pickActions] controls for a pick card's own row,
+ *        after the "Plan this ›" every card carries
+ * @param {{openInPlan: ?function(object): void, setPostcode: ?function(): void}} [props.planActions]
+ *        the surface's two doors out of the plan view; see {@link AskPlanThis}
  */
 export default function AskConversation({
   view, scope = 'all', viewLabel, windowLabel = null, windowId = undefined, regionIds = NO_REGIONS,
-  hidden = false, pickActions = undefined,
+  hidden = false, pickActions = undefined, planActions = undefined,
 }) {
   const ask = useAsk();
   const { briefing } = useWindowFirstBriefing();
   const root = useRef(null);
+  const planRef = useRef(null);
+  /**
+   * Where focus goes once the phase this press asked for has rendered: {@code {to: 'plan'}} or
+   * {@code {to: 'card', rank}}. Set only by the two presses, consumed once.
+   */
+  const handoff = useRef(null);
+  const { phase: livePhase, planPick: livePlanPick } = ask;
+  const previousPhase = useRef(livePhase);
+  useEffect(() => {
+    const was = previousPhase.current;
+    previousPhase.current = livePhase;
+    const intent = handoff.current;
+    if (!intent) {
+      // The plan view went WITHOUT a press — a briefing rebuilt without that pick's slot reads as the answer
+      // again — and the control that held focus went with it, which would leave the reader on <body> (and the
+      // surface's Escape rule, which runs only while focus is inside it, dead). Park focus on this root.
+      if (was === 'plan' && livePhase === 'answer'
+        && (!document.activeElement || document.activeElement === document.body)) {
+        root.current?.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (intent.to === 'plan' && livePhase === 'plan') {
+      handoff.current = null;
+      planRef.current?.focus({ preventScroll: true });
+    } else if (intent.to === 'card' && livePhase === 'answer') {
+      handoff.current = null;
+      const li = root.current?.querySelector(`[data-ask-pick="${intent.rank}"]`);
+      // Not `preventScroll`: the answer has just regrown from a short view and its scroller sits near the
+      // top, so a later card's button is likely below the fold — focus the reader cannot see fails 2.4.7.
+      (li?.querySelector('[data-ask-plan-this]') ?? li?.querySelector('[data-ask-pick-select]'))
+        ?.focus();
+    }
+  }, [livePhase, livePlanPick]);
   // Nothing to fetch until a briefing exists: no briefing, no Ready answers (precompute skips it),
   // and fetching before it lands would only be refetched the moment it does.
   const generatedAt = briefing?.generatedAt ?? null;
@@ -114,9 +167,18 @@ export default function AskConversation({
     });
   };
   const busyText = ask.kind === KIND.READY ? readyBusyLine(ask.busyRunLabel) : TYPED_BUSY_LINE;
+  const planCard = phase === 'plan' ? ask.pickCards.find((c) => c.rank === ask.planPick) : null;
+  const openPlan = (rank) => {
+    handoff.current = { to: 'plan' };
+    ask.openPlan(rank);
+  };
+  const backToAnswer = () => {
+    handoff.current = { to: 'card', rank: ask.planPick };
+    ask.backToAnswer();
+  };
   const body = (
     <>
-      {phase === 'answer' && <Answer ask={ask} pickActions={pickActions} />}
+      {phase === 'answer' && <Answer ask={ask} pickActions={pickActions} onPlan={openPlan} />}
       {phase === 'cant' && <CantAnswer ask={ask} questions={ready.questions} onOpen={openReady} />}
       {phase === 'error' && (
         <ErrorState
@@ -138,15 +200,17 @@ export default function AskConversation({
       ref={root}
       tabIndex={-1}
     >
-      <AskContextChips
-        viewLabel={chipView}
-        windowLabel={chipWindow}
-        onRemoveWindow={asked ? undefined : () => {
-          keepFocus();
-          ask.removeContextWindow(windowId);
-        }}
-      />
-      {phase !== 'empty' && ask.question && (
+      {planCard === null && (
+        <AskContextChips
+          viewLabel={chipView}
+          windowLabel={chipWindow}
+          onRemoveWindow={asked ? undefined : () => {
+            keepFocus();
+            ask.removeContextWindow(windowId);
+          }}
+        />
+      )}
+      {planCard === null && phase !== 'empty' && ask.question && (
         <div className="wf-ask-yq" data-testid="ask-question">{ask.question}</div>
       )}
       <div role="status" className="sr-only" data-testid="ask-status">
@@ -160,6 +224,10 @@ export default function AskConversation({
       )}
       {phase === 'empty' && (
         <EmptyState questions={offered} runLabel={newestRunLabel(offered)} ask={ask} onOpen={openReady} />
+      )}
+      {planCard && (
+        // Outside the live region on purpose: the whole view is not news, its name is (focus lands on it).
+        <AskPlanThis ref={planRef} card={planCard} onBack={backToAnswer} actions={planActions} />
       )}
       <div aria-live="polite" data-testid="ask-live" className="wf-ask-live">
         {!ask.restored && body}
@@ -187,6 +255,10 @@ AskConversation.propTypes = {
   regionIds: PropTypes.arrayOf(PropTypes.number),
   hidden: PropTypes.bool,
   pickActions: PropTypes.func,
+  planActions: PropTypes.shape({
+    openInPlan: PropTypes.func,
+    setPostcode: PropTypes.func,
+  }),
 };
 
 /** The Ready tag and its question — one tappable row. */
@@ -283,7 +355,7 @@ function footerFor(answer) {
 }
 
 /** State 3 — the summary, the events, the picks and the footer. */
-function Answer({ ask, pickActions }) {
+function Answer({ ask, pickActions, onPlan }) {
   const { answer, pickCards, selectedPick } = ask;
   return (
     <>
@@ -306,7 +378,12 @@ function Answer({ ask, pickActions }) {
               card={card}
               selected={selectedPick === card.rank}
               onSelect={ask.selectPick}
-              actions={pickActions ? pickActions(card) : null}
+              actions={(
+                <>
+                  {pickActions ? pickActions(card) : null}
+                  <PlanThisButton card={card} onPlan={onPlan} />
+                </>
+              )}
             />
           ))}
         </ol>
@@ -319,6 +396,34 @@ function Answer({ ask, pickActions }) {
 Answer.propTypes = {
   ask: PropTypes.object.isRequired,
   pickActions: PropTypes.func,
+  onPlan: PropTypes.func.isRequired,
+};
+
+/**
+ * "Plan this ›" — a control in a pick card's own row (`.pk .act button`), on every surface. Every card has
+ * a slot to plan: {@code buildPickCards} drops a pick that has none, so there is nothing to guard here.
+ */
+function PlanThisButton({ card, onPlan }) {
+  return (
+    <button
+      type="button"
+      className="wf-ask-act wf-ask-act-plan"
+      data-ask-plan-this=""
+      data-testid={`ask-plan-this-${card.rank}`}
+      // The visible words lead the name (WCAG 2.5.3) and the place follows, so a list of these is not
+      // N identical "Plan this"s.
+      aria-label={`Plan this — ${card.name}`}
+      onClick={() => onPlan(card.rank)}
+    >
+      Plan this
+      <span aria-hidden="true"> ›</span>
+    </button>
+  );
+}
+
+PlanThisButton.propTypes = {
+  card: PropTypes.shape({ rank: PropTypes.number, name: PropTypes.string }).isRequired,
+  onPlan: PropTypes.func.isRequired,
 };
 
 /** State 5 — "Not in the forecast". */

@@ -29,9 +29,9 @@
 /**
  * The phases the peek sheet treats as "something SETTLED to keep and to clear": not empty, not still
  * being fetched. Includes {@code 'plan'} (F5's phase — a conversation that has an answer and is looking
- * at one pick's plan is still an answer to keep, to minimise and to clear), which nothing enters yet.
- * Deliberately NOT {@code AskClearAnswer}'s own list: that text button must not appear in a plan phase
- * until F5 gives it a seam, and the two are different questions.
+ * at one pick's plan is still an answer to keep, to minimise and to clear). {@code AskClearAnswer}'s own
+ * list agrees since F5 (it, too, can end a conversation from the plan view), but they remain two lists
+ * for two questions: this one decides the sheet's height, that one whether a text button is drawn.
  */
 export const PEEK_SETTLED_PHASES = Object.freeze(['answer', 'plan', 'cant', 'error']);
 

@@ -16,10 +16,15 @@
  * <p>With no {@code root} (the shell has not mounted, or its ref is gone) every dialog counts as
  * foreign: not locating your own root is not evidence that nothing is over you.
  *
+ * <p>{@code ignore} names the one dialog a caller is about to close itself: Ask's own sheet is outside the
+ * root, and "Open in Plan ›" pressed inside it closes it first, so it is not a second modal for that press
+ * to refuse (F5). Nothing else is ever ignored.
+ *
  * @param {?Element} root the shell's root node
+ * @param {function(Element): boolean} [ignore] a dialog that does not count
  * @returns {boolean} true when any {@code role="dialog"} stands outside {@code root}
  */
-export function foreignDialogOpen(root) {
+export function foreignDialogOpen(root, ignore = undefined) {
   return Array.from(document.querySelectorAll('[role="dialog"]'))
-    .some((node) => !root || !root.contains(node));
+    .some((node) => (!root || !root.contains(node)) && !(ignore && ignore(node)));
 }

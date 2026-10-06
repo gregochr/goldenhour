@@ -130,10 +130,13 @@ function useKeepFocusAlive(ref, inert, fallbackFocus) {
  * @param {function(): ?HTMLElement} props.fallbackFocus where focus goes if the dock stops being focusable
  *        while it holds it (the tab in force)
  * @param {function(object): React.ReactNode} [props.pickActions] controls for each pick card's row
+ * @param {{openInPlan: ?function(object): void, setPostcode: ?function(): void}} [props.planActions]
+ *        the doors out of "Plan this" (F5). The dock is not modal, so {@code openInPlan} leaves it open
+ *        beside the location sheet it opens (which makes it {@code inert} while it is up)
  */
 export default function AskDock({
   band, sticky, inert, view, viewLabel, contextLabel, inputRef, onClose, fallbackFocus,
-  pickActions = undefined,
+  pickActions = undefined, planActions = undefined,
 }) {
   const dockRef = useRef(null);
   // On the Map: the region in scope and the window on the pill, as the pane published them.
@@ -203,6 +206,7 @@ export default function AskDock({
             windowId={requestContext.windowId}
             regionIds={requestContext.regionIds}
             pickActions={pickActions}
+            planActions={planActions}
           />
           <AskClearAnswer inputRef={inputRef} />
         </div>
@@ -223,4 +227,5 @@ AskDock.propTypes = {
   onClose: PropTypes.func.isRequired,
   fallbackFocus: PropTypes.func.isRequired,
   pickActions: PropTypes.func,
+  planActions: PropTypes.shape({ openInPlan: PropTypes.func, setPostcode: PropTypes.func }),
 };
