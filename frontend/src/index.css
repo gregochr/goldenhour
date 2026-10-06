@@ -11323,3 +11323,266 @@ button.wf-mchip:hover {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
 }
+
+/* ══ Ask PhotoCast — the phone and tablet entry (plan §2.6, F1b) ═════════════════════════════════
+   From `Ask Everywhere.html` Option B (`.askbar`, `.inrow`, `.pk .act button`) and `Ask on Desktop
+   and iPad.html` (`.askf`), in the app's tokens (the mapping is in the conversation block above).
+   The sheet's own geometry — the 24px top margin, the 16px radius, the scrim — is `BottomSheet`'s
+   `size="tall"`, not drawn here. Nothing in this block removes Ask content at any width: its one
+   media query (the four-tab field below) clips a label that stays in the accessible name. */
+
+/* THE PHONE'S BAR. `position: fixed`, 10px above the bottom edge plus the home-indicator inset
+   (`--safe-b`; fixed elements are viewport-relative, so the root's own safe padding does not apply
+   to it). ⚠️ z-index 40 is deliberate: BELOW `Modal`'s `z-50` (Tailwind's 50), so a dialog covers the
+   bar rather than the bar painting over a dialog, and far below `BottomSheet`'s scrim (9999), so the
+   sheet's scrim covers it too. Raising it past 50 is the regression `askCss.test.js` pins. */
+.wf-ask-bar {
+  position: fixed;
+  z-index: 40;
+  left: calc(10px + var(--safe-l));
+  right: calc(10px + var(--safe-r));
+  bottom: calc(10px + var(--safe-b));
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 14px;
+  border-radius: 14px;
+  background: rgba(20, 15, 12, .96);
+  border: 1px solid rgba(201, 162, 75, .45);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .5);
+  text-align: left;
+  cursor: pointer;
+}
+.wf-ask-bar:disabled { opacity: .5; cursor: default; }
+.wf-ask-bar:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-ask-bar-k {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--color-home);
+}
+.wf-ask-bar-q {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-ask-bar-go {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(201, 162, 75, .16);
+  color: var(--color-segment-active);
+  font-size: 15px;
+}
+/* The bar takes 58px off the bottom of the page (the mock: "Takes 58 px off the bottom of every
+   tab" — on the two tabs it is drawn on) so the last thing on the page is not under it. It is added to the END OF THE DOCUMENT, after
+   the footer, not to the Plan pane's own padding: the footer's social links follow the pane, and
+   padding on the pane alone would leave them under the bar at the end of the scroll. The root's own
+   `--safe-b` padding stays (the bar's offset adds its own); `.wf-ask-bar-on` is set on the shell
+   only while the bar is drawn, so Map, Operations, every wider width and every Ask-off page keep
+   the root exactly as it was. Where `:has()` is unsupported the bar simply overlaps the footer. */
+.app-safe:has(.wf-ask-bar-on) { padding-bottom: calc(var(--safe-b) + 58px); }
+/* …and the same room for FOCUS (WCAG 2.2 SC 2.4.11, Focus Not Obscured): the end-of-document padding
+   only helps the last row. Tabbing to a control near the bottom of the viewport scrolls it just into
+   view, which is under the opaque bar, so the viewport keeps 58px (+ the bar's focus ring) clear —
+   the bottom twin of the `scroll-margin-top` the sticky lens bar already takes. The window is the
+   scroller on Plan and Coming up, the only tabs the bar is drawn on. */
+html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8px); }
+
+/* THE TABLET FIELD, beside the tab list in the tab ROW. The tab list is a flex item that keeps its
+   own overflow-x scroll (`min-width: 0`); the row is a plain flex row with or without the field, so
+   a tab row without Ask lays out as it always did. */
+.wf-tabrow { display: flex; align-items: flex-end; }
+.wf-tabrow > .wf-tabs { flex: 1 1 0; min-width: 0; }
+.wf-askf {
+  flex: none;
+  align-self: flex-end;
+  width: 260px;
+  height: 34px;
+  margin: 0 var(--wf-gutter) 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 6px 0 11px;
+  border-radius: 9px;
+  background: var(--color-plex-surface);
+  border: 1px solid rgba(201, 162, 75, .45);
+  text-align: left;
+  cursor: pointer;
+}
+.wf-askf[data-width="340"] { width: 340px; }
+/* The field's width held where the field is not drawn (the tablet's Operations tab), so the tab pinned
+   to the list's right edge does not move when the field leaves. A box, not a control: no role, no
+   focus, nothing to read. */
+.wf-askf-ghost { visibility: hidden; pointer-events: none; }
+.wf-askf[aria-expanded="true"] {
+  border-color: rgba(201, 162, 75, .8);
+  background: rgba(201, 162, 75, .1);
+}
+.wf-askf:disabled { opacity: .5; cursor: default; }
+.wf-askf:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-askf-k {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--color-home);
+}
+.wf-askf-q {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-askf-kbd {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+/* With four tabs (an admin) 260px does not fit beside them under 720px: the field becomes a 34px
+   "Ask" button. The label is CLIPPED, not hidden, so the prompt stays in the accessible name. */
+@media (max-width: 719px) {
+  .wf-tabrow[data-tab-count="4"] .wf-askf {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+  .wf-tabrow[data-tab-count="4"] .wf-askf-q {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+/* THE SHEET'S INPUT ROW (`.inrow`), the `footer` of the tall `BottomSheet`. ⚠️ The field's font is
+   16px and must stay so: iOS Safari zooms the page on focusing anything set smaller. */
+.wf-ask-in {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--color-plex-border);
+}
+.wf-ask-in-field {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--color-plex-surface);
+  /* The only thing that says where to type, so it clears 3:1 on the sheet (SC 1.4.11): the bone ink
+     at .4 measures 3.3:1 on the surface, where `--color-plex-border-light` measures 1.6:1. */
+  border: 1px solid rgba(242, 231, 211, .4);
+  color: var(--color-plex-text);
+  font-size: 16px;
+}
+.wf-ask-in-field::placeholder { color: var(--color-plex-text-secondary); }
+.wf-ask-in-field:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+/* Typed questions off: the field stops looking like one — no fill, a dashed edge — but its words are
+   NOT dimmed. Its placeholder is the reason typing is off, and opacity .6 took it to 3.3:1. */
+.wf-ask-in-field[aria-disabled="true"] {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--color-plex-border-light);
+  cursor: default;
+}
+.wf-ask-in-go {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(201, 162, 75, .18);
+  border: 1px solid rgba(201, 162, 75, .5);
+  color: var(--color-segment-active);
+  font-size: 16px;
+  cursor: pointer;
+}
+.wf-ask-in-go[aria-disabled="true"] { opacity: .5; cursor: default; }
+.wf-ask-in-go:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+
+/* THE TALL SHEET (`BottomSheet size="tall"`, which sets `data-size`): a flex column, so the scroller
+   takes what the handle and the `footer` leave. Written here and keyed on the attribute, not as
+   conditional utility classes, because `BottomSheet`'s class string is an exempt dialog root that
+   `formFieldFocusRules.test.js` reads as a plain literal. The scroller is addressed by its test id,
+   as `[data-testid='bottom-sheet-root']` already is above. */
+.app-safe-sheet[data-size="tall"] { display: flex; flex-direction: column; }
+.app-safe-sheet[data-size="tall"] > [data-testid="bottom-sheet-scroller"] { flex: 1 1 auto; min-height: 0; }
+
+/* "Clear answer" — ends the conversation in the sheet. A text control after the conversation, 44px
+   tall so it is an easy target at the foot of a long scroll. */
+.wf-ask-clear {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.wf-ask-clear:hover { color: var(--color-plex-text); }
+.wf-ask-clear:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+
+/* "Show on map ›" — a control in a pick card's own row (`.pk .act button`). */
+.wf-ask-act {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-plex-border-light);
+  background: none;
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.wf-ask-act:hover {
+  color: var(--color-plex-text);
+  border-color: rgba(201, 162, 75, .5);
+}
+.wf-ask-act:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}

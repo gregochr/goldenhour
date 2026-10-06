@@ -29,7 +29,7 @@ it (adjacent rows conflict between open PRs).
 | B3 | Ready answers: catalogue, precompute after the pipeline, `GET /api/ask/ready` | L | merged (#1019) |
 | B4 | `POST /api/ask`: allowance, limits, spend cap, `GET /api/user/settings/ask` | L | merged (#1021) |
 | B5 | Pre-filter, Ready intent match, typed cache, `ask_log`, metrics endpoint | M/L | merged (#1022) |
-| F1a | Client core, unmounted: API, hooks, provider, pick model, conversation and cards | M/L | not started |
+| F1a | Client core, unmounted: API, hooks, provider, pick model, conversation and cards | M/L | merged (#1023) |
 | F1b | Phone and tablet-portrait entry: ask bar, tall sheet, shell wiring | M/L | not started |
 | F2 | Desktop: tab-row field, the `/` key, the docked column | L | not started |
 | F3 | Map linkage: numbered picks, dimming, camera, window follow | L | not started |
@@ -481,8 +481,10 @@ No Ask on the Operations tab: the field is not rendered there and switching to i
 - **Sheet.** `BottomSheet` with `size="tall"` (full height minus 24px, both 60vh sites) and
   `closeOnEscape`. Its height follows `window.visualViewport` (new `hooks/useVisualViewportHeight`)
   so the input at its foot stays above the iOS keyboard; the input is 16px (iOS zooms below that).
-  The 48px ask bar is `position: fixed`, offset by `--safe-b`, below `Modal`'s z-50, and the pane
-  reserves 58px so the last row is not covered. A tab switch closes the sheet (`selectTab`'s list).
+  The 48px ask bar is `position: fixed`, offset by `--safe-b`, below `Modal`'s z-50, and the
+  document ends 58px later so the last row — and the footer that follows the pane — is not covered
+  (*as built, F1b: at the end of the page, not on the pane — see the F1b note*). A tab switch closes
+  the sheet (`selectTab`'s list).
 - **Sheet pick cards carry "Show on map ›"** (the mock's phone behaviour): it closes the sheet,
   moves to the Map tab and leaves the picks numbered there. The answer is kept; the field (640–
   1023) or the peek row (phone, F4) reopens it.
@@ -1111,6 +1113,161 @@ rewound and when `enabled` is false; disabled when the backend is down; no shell
 under it.
 **Seen:** 390 × 844 on the fixture — the bar does not cover the last Plan row; the iOS Simulator
 keyboard does not cover the input.
+
+*As built (F1b), where the plan was wrong or silent:*
+- **Files:** `components/ask/{AskBar,AskField,AskSheet,AskInputRow}.jsx` (the input row is its own component — F2's
+  dock and F4's peek row repeat it), `hooks/useVisualViewportHeight.js`,
+  `hooks/useAskSurface.js` (new; the band — `phone` < 640 via `useIsMobile`'s own query, `tablet` 640–1023,
+  `desktop` — F2 reads the third value, so it adds no second width test), `BottomSheet.jsx`,
+  `WindowFirstShell.jsx`, `App.jsx` (`AskWhenLive`), the F1b block at the end of `index.css`, and the shared test
+  helpers `test/askShellHarness.jsx` and `test/askViewport.js` (a width-aware `matchMedia`; the app's own
+  `resolveInitialTab` query has a comma in it, which the helper handles).
+- **Shell state.** `askOpen` is a `useState` of `WindowFirstShell` (declared with `searchSeed`, above `selectTab`),
+  and `selectTab`'s body gained exactly one line, `setAskOpen(false)` — so the settings edge, the cog, the nudge, a
+  `tabRequest`, the location-sheet handoff and a tab press all close the sheet through the one list. It is never set
+  from `AskContext`. What the shell derives from it: `askEntry` (`'bar'` phone on Plan/Coming up; `'field'` tablet on
+  Plan/Coming up/Map; else null — **nothing at ≥ 1024px until F2**), `askSheetOpen = askOpen && askEntry !== null`,
+  and `askDisabled` (Ask `down`, `contentDisabled`, a window popup, a layer over it, search or settings).
+- **`AskProvider` is in `App.jsx`, inside `WindowFirstBriefingProvider`, around `WindowFirstShell`, and is not
+  mounted while `useRewind()` is set** (`AskWhenLive`). Without a provider `useAsk()` is the F1a default —
+  `availability: 'off'` — so a rewound page has no Ask surface and makes no `GET /api/user/settings/ask`; the test
+  asserts the mocked call was never made. `RewindGate` remounts the tree on every change, so the choice never flips
+  in place.
+- **`BottomSheet` opt-ins, and one more.** `size="tall"` and `closeOnEscape` as briefed, plus `footer`, a node
+  held below the scroller and outside it — the input row cannot be a sticky child of the scroller (a sticky row sits
+  after short content, not at the sheet's foot, and the scroller's own padding scrolls). `tall` is the **visual
+  viewport** minus 24px as a `height` AND a `maxHeight` (an input at the foot has to BE at the foot), the scroller's
+  budget follows it (`calc(<tall>px − 40|64px − var(--safe-b))`), and the sheet is lifted by `bottomInset` (layout
+  viewport − visual height − offsetTop, clamped to 0) so a keyboard cannot cover it. `closeOnEscape` answers only
+  when the sheet is the LAST `role="dialog"` in DOM order (sheets portal to the end of `<body>` at one z-index, so DOM
+  order is paint order) and ignores an IME's composing Escape. **Defaults proven unchanged** by value in
+  `BottomSheetTall.test.jsx` (60vh, the exact class strings, no `data-size`, no `bottom`, no footer, no Escape, no
+  viewport subscription) with the pre-existing `BottomSheet.test.jsx` untouched and passing. Two seams you will
+  trip on: the tall flex-column layout is `.app-safe-sheet[data-size="tall"]` in `index.css`, **not** conditional
+  utility classes, because the sheet's class string is an exempt dialog root that `formFieldFocusRules.test.js`
+  reads as a plain literal; and the scroller gained `data-testid="bottom-sheet-scroller"` and the strip
+  `data-testid="bottom-sheet-strip"` (attributes only — the CSS and the tests address them by those). The calc
+  literal is also scanned by `safeAreas.test.jsx` for a safe-area term, so no comment spells it. Found in review and
+  fixed: the close-button strip is `shrink-0` (an empty flex item has no minimum size, and a long answer squeezed it
+  by ~12px so the scroller slid under the ✕), and the sheet gives back `max(0px, calc(var(--safe-b) − <lift>px))` of
+  its home-indicator padding as the keyboard lifts it, continuously rather than at "lift > 0" (iOS's toolbar
+  animation reports an inset of a pixel or two with no keyboard). The scrim is the app's one shared `.app-scrim`
+  (74%), not the mock's 50%.
+- **`useVisualViewportHeight(enabled)` returns `{height, bottomInset}`** (a number would not carry the keyboard's
+  lift). A `useSyncExternalStore` over a string of three rounded integers; with `enabled` false it subscribes to
+  nothing, which is how every existing `BottomSheet` pays nothing for it. Absent `visualViewport` (jsdom) it is
+  `innerHeight` with no inset.
+- **The page behind the sheet is `inert` — the whole app container, not the shell root.** Not in the plan:
+  `useDialogFocus` is not a focus trap, so a keyboard reader could Tab out of the sheet onto a window card behind the
+  scrim and open a popup UNDER it (two `aria-modal`s). The first cut put `inert` on the shell root; review found four
+  lenses agreeing that the banners (`AuroraBanner`'s "view on map" opens the z-200 `MapOverlay` under the sheet), the
+  session banners and the footer sit OUTSIDE it. It is now set on the shell's ancestor that is a direct child of
+  `<body>` (`#root`), by a **layout effect** with a hand-set attribute — on purpose: `useDialogFocus` restores focus in
+  a passive cleanup, a node inside an `inert` subtree cannot take focus, and a layout-effect cleanup runs earlier in
+  the same commit, so `inert` is gone by then (state in an ancestor would come off a commit later and the restore
+  would fail). The sheet portals to a different child of `<body>`, so it is not covered. The opener is blurred by
+  `inert` before `useDialogFocus` reads it (and a tap on iOS never focused it), so the sheet takes `restoreFallback`
+  (the trigger if still connected and enabled, else the tab in force, read from the DOM). jsdom has no `inert`: tests
+  assert the attribute and its removal on close and on unmount, never a browser's refusal. The attribute is neither set
+  nor cleared if something already holds it. Cost, stated: while the sheet is open the session-expiry banner's
+  "stay signed in" is as dead as the rest.
+- **Opening Ask never closes a dialog.** The entry is a real `disabled` button/field while any shell dialog,
+  a layer over it, search or settings is open (a refusal, nothing taken down); `openAsk` additionally refuses when a
+  `role="dialog"` outside the shell root stands (the map overlay, the settings modal are siblings the shell cannot see
+  as state), the way `/` does. The `/` handler is untouched and refuses over the sheet for the same reason.
+- **The entry controls are buttons, not inputs** (the mock's `<button class="askbar">` / `.askf`): the question is
+  typed in the sheet, where the answer is. The bar stays MOUNTED while the sheet is open (the mock hides it) because it
+  is the sheet's return address. `AskField` takes `width` (260|340), `showKeyHint` (draws "/" and sets
+  `aria-keyshortcuts`; F1b never sets it) and `prompt` — the props F2 needs. Below 720px with four tabs
+  (`data-tab-count="4"` on the always-rendered `.wf-tabrow`) CSS collapses the field to 34px by CLIPPING its label,
+  never `display: none`, so its name survives. The tab row wrapper is **always** rendered, with or without a field:
+  wrapping conditionally would remount the tab buttons when Ask's availability resolved. On the tablet's Operations
+  tab (no field) an `aria-hidden` ghost box (`.wf-askf-ghost`, `visibility: hidden`) holds the field's width, because
+  Operations is pinned to the tab list's right edge by `margin-left: auto` and would otherwise slide ~282px under
+  the pointer the moment it was pressed.
+- **The 58px reserve is at the end of the document, not on the pane** (plan §2.6 said the pane). The footer (two
+  social links) follows the pane, so padding on the pane would have left the links under the bar at the end of the
+  scroll. `.app-safe:has(.wf-ask-bar-on) { padding-bottom: calc(var(--safe-b) + 58px) }`, with `.wf-ask-bar-on` on the
+  shell root only while the bar is drawn; where `:has()` is unsupported the bar overlaps the footer. The same class
+  gives the viewport `scroll-padding-bottom: calc(var(--safe-b) + 58px + 8px)` (`html:has(.wf-ask-bar-on)`), the
+  bottom twin of the lens bar's `scroll-margin-top`: end-of-document padding only helps the LAST row, and a control
+  tabbed to near the bottom of the viewport otherwise scrolls to just under the opaque bar (WCAG 2.4.11). The bar's
+  z-index is 40 (a test reads `Modal`'s z-50 and the sheet's 9999 out of source and pins the order).
+- **What the sheet does and does not send.** `view` is the tab (`plan`/`coming-up`/`map`), `regionIds: []`, no
+  `windowId`, and the chip says what is sent: "Plan · all regions", "Coming up · all regions", and — on the tablet
+  Map — "**Map · all regions**", because the Map's scope segment and window are `MapView` state the shell cannot
+  see. Carrying them to a surface is F3/F4's.
+- **Closing keeps the conversation; "Clear answer" ends it.** The ✕, the scrim and Escape only close (`dismissAsk`
+  is `setAskOpen(false)`); the answer is there when the sheet reopens. The first cut cleared on close (the mock's ✕
+  does, and a first cut spared only a question still out); review found it contradicted this plan — §2.8's highlight
+  is "applied when the sheet closes", §2.7's "clearing the answer" is an explicit act — and was a trap: a mis-tap on a
+  full-viewport scrim binned an answer the reader was charged a question for, and on the tablet Map (where "Show on
+  map ›" is not offered) closing was the only way to see the map. So the sheet carries a **"Clear answer"** text
+  button after the conversation (answer, not-in-the-forecast and error phases; never while busy, since clearing then
+  drops a charged answer), which moves focus to the question field first (it unmounts when pressed) and is the only
+  way back to the Ready suggestions, which the conversation shows only in its empty phase. The phone-Map ask row's ✕
+  (F4) is the F4 table's own "clear answer". Navigating away keeps it too.
+- **`askOpen` cannot outlive its surface.** `askSheetOpen = askOpen && askEntry !== null`, so with the window crossing
+  1024px, a phone Map, or Ask switched off, the sheet unmounted but `askOpen` stayed true and the sheet **came back by
+  itself** (focus and all) when an entry next existed. The shell now lets `askOpen` go in the render the entry goes
+  (`if (askOpen && askEntry === null) setAskOpen(false)`, the settings edge's shape — own setter, during render, no
+  loop). The conversation is untouched.
+- **The entry is disabled by what is ON SCREEN, not by a stale key:** `askDialogOpen` reads `openCard`, not
+  `openWindowKey` — the key of a window whose event has passed is deliberately never released, and would leave the bar
+  dimmed with no dialog showing.
+- **"Show on map ›"** is a `pickActions` button on each pick: it selects that pick (`ask.selectPick(rank)` — F3
+  starts from it), `selectTab('map')` (which closes the sheet), then focuses the Map tab button a frame later — the
+  bar that opened the sheet unmounts on that press and focus would otherwise fall to `<body>`. `pickActions` is
+  always a function (returning null when there is nothing to offer) so F5's "Plan this ›" joins it. Offered only when
+  the shell was handed a Map pane and the reader is **not already on the Map** (nowhere to go). Its accessible name
+  is "Show on map — Whitby" (the visible words lead the name). Until F3 the Map shows nothing extra for the answer;
+  the conversation survives for the reader to reopen (tablet: the field; phone: F4's peek row, not built here).
+- **The question field is `readOnly` + `aria-disabled`, not `disabled`, when typed questions are off**
+  (`typedDisabled`, with `READY_ONLY_PLACEHOLDER`, which is also a hidden sentence the field is `aria-describedby`,
+  because a placeholder is not reliably announced on a read-only field; the locked state dims nothing — the first cut's
+  `opacity: .6` took the only explanation to 3.3:1). It can flip while the reader is typing (a refusal that means "none
+  today"), and a `disabled` control that held focus drops it to `<body>` — jsdom keeps it, so the test asserts
+  `not.toBeDisabled()`. It never submits while `phase === 'busy'` (the provider has no guard), clears itself on submit
+  and puts the text back for `refused`/`ignored`; 16px, pinned against `index.css` as text; its edge is the bone ink at
+  .4 (3.3:1 on the sheet), since `--color-plex-border-light` measures 1.6:1. Opening focuses it (the sheet's parent
+  effect runs after `useDialogFocus` has captured the opener) **unless typed questions are off**, when focus stays on
+  the dialog, which says what it is. Recorded for the owner's browser check: focusing the field at once raises the iOS
+  keyboard and the dialog's name may not be announced first (the brief mandates the focus; the locked case is the only
+  carve-out).
+- **Static import, no `lazy`:** a lazy sheet would leave a window with no dialog and the page already `inert`.
+- **Tested, not seen** (nothing past the login page could be reached — the session cannot sign in; the login page
+  rendered at 375 × 812 with no console errors, which is all that was SEEN): the bar's position over the last row and
+  the footer reserve; the field's alignment and width beside 3 and 4 tabs at 640/720/834/1023; the scrim and the
+  sheet's slide-up and height; the sheet's height and lift under the iOS keyboard (including that focusing the input
+  on open raises it at once, and the lift's dead gap on a notched iPhone); focus returning to the bar, and landing on
+  the Map tab; `inert` actually blocking Tab and pointer and the focus-restore ordering it relies on; `:has()` support
+  for the footer reserve and the focus scroll-padding; the field's focus ring in forced colours; the Map tab on a
+  tablet with the sheet over it; the 720px four-tab collapse (a hand estimate left under 10px of slack at 720 with
+  the Coming-up badge showing — check 720 and 726 as an admin, and raise the breakpoint to 740 if it scrolls).
+- **For F2:** (1) the four-tab collapse is a **viewport** media query, but the dock narrows the *column* (a 360px
+  dock leaves ~664px of column at a 1024px viewport, where no viewport query fires) — move it to a container query on
+  `.wf-tabrow`. (2) `askSheetOpen` drives the app-container `inert`; the dock is not modal, so give the dock its own
+  openness (do not add a `'dock'` value to `askEntry` and let `askSheetOpen` carry it, or the dock inerts itself),
+  and make the dock `inert` — not the page — while a shell dialog is open. (3) The "any `role="dialog"` outside the
+  shell root" test now exists in three places (the `/` handler, `openAsk`, and a test); extract it before the `/`
+  handler's rewrite adds a fourth. (4) `AskField`'s `width`/`showKeyHint` are built; "260 below 1180" needs a CSS
+  override or a fourth band from `useAskSurface`. (5) Closing keeps the conversation (above): a docked, non-modal
+  surface wants exactly that.
+- **For F3:** (1) **`askWindow` cannot be App state written from the conversation** — `AppInner` is *above* `AskProvider`
+  and cannot call `useAsk()`; the pane and `MapView` are provider descendants and can. Keep the channel in the pane
+  (or lift the provider above `AppInner`'s state). (2) The Map's scope segment, focused region and window are `MapView`
+  state: the shell sends `Map · all regions`, no region, no window for the tablet-on-Map sheet. F3/F4 need a small
+  registration channel (a context or ref the pane writes `{regionIds, windowId, windowLabel, viewLabel}` into) for the
+  sheet to read. (3) The tablet-on-Map sheet is a modal over an `inert` map, so a pick cannot be tapped on the map
+  while the sheet is open; with closing now keeping the answer, the reader closes the sheet to see the markers — decide
+  whether a pick-numbering arrival should also close the sheet there, and fit the camera when it closes, not when the
+  answer lands (the sheet covers the map then). `"Show on map ›"` leaves `selectedPick` set to the pressed pick.
+- **For F4:** `'peek:ask'` lives in `MapView`'s `openMapMenu`, which `selectTab` cannot reach; the pane is mounted but
+  hidden after the first visit and gets no `active` prop, so "tab switch away and back: closed" needs one.
+- **For F5:** `askPickActions` is the per-card hook ("Plan this ›" joins "Show on map ›"). The sheet's footer is the
+  input row whatever the phase; `phase === 'plan'` needs its own footer ("‹ Back to the answer") or a question typed
+  there silently supersedes the plan view. "Open in Plan ›" on the sheet surface closes Ask first: the shell's layers
+  are all inside the `inert` container, so nothing can stack over the Ask sheet.
 
 ### F2 — Desktop — L
 **Files:** `AskField.jsx` (340px, `/` hint), `components/ask/AskDock.jsx`,

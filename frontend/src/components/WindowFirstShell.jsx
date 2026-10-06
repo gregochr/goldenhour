@@ -1,4 +1,6 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
@@ -8,6 +10,10 @@ import WindowFirstDoors from './WindowFirstDoors.jsx';
 import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
+import AskBar from './ask/AskBar.jsx';
+import AskField from './ask/AskField.jsx';
+import AskSheet from './ask/AskSheet.jsx';
+import { useAsk } from '../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
@@ -23,6 +29,7 @@ import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
+import useAskSurface from '../hooks/useAskSurface.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
@@ -156,6 +163,27 @@ const TABS = [
   { id: 'map', label: 'Map', glyph: '◍', slot: 'mapPane' },
   { id: 'operations', label: 'Operations', glyph: null, slot: 'operationsPane', gated: true },
 ];
+
+/**
+ * The bar's prompt, by tab (design README, "Where Ask lives"). The bar is drawn on Plan and Coming up
+ * only, so those are the two keys.
+ */
+const ASK_BAR_PROMPT = {
+  plan: 'Ask about this weekend…',
+  'coming-up': 'Ask about rare events…',
+};
+
+/**
+ * What the view chip says, and what the question is sent with, by tab. Map reads "all regions" here
+ * because the shell cannot see the Map's own scope segment or window (they are `MapView` state): the
+ * chip names what is SENT, and until F3/F4 carry the Map's scope to a surface, a question from this
+ * sheet is sent with no region and no window.
+ */
+const ASK_VIEW = {
+  plan: { view: 'plan', label: 'Plan · all regions' },
+  'coming-up': { view: 'coming-up', label: 'Coming up · all regions' },
+  map: { view: 'map', label: 'Map · all regions' },
+};
 
 /** `window-first-tab-plan` — the id the panel points back at, and the existing test-id. */
 const tabDomId = (id) => `window-first-tab-${id}`;
@@ -373,6 +401,19 @@ export default function WindowFirstShell({
    * closed; a string — possibly empty — is open.
    */
   const [searchSeed, setSearchSeed] = useState(null);
+  /**
+   * Whether Ask PhotoCast's sheet is open (plan §2.6: whether Ask is OPEN is SHELL state).
+   *
+   * <p>The shell's own {@code useState}, and it must stay one: {@code selectTab} clears it, and
+   * {@code selectTab} runs during render on the settings edge, where it may call only this
+   * component's own setters. A context value could not be cleared from there. Never set from
+   * {@code AskContext}, which holds the conversation and nothing about a surface.
+   */
+  const [askOpen, setAskOpen] = useState(false);
+  /** The Ask bar or field that is on screen, where closing the sheet returns focus. */
+  const askTriggerRef = useRef(null);
+  const ask = useAsk();
+  const askSurface = useAskSurface();
   /**
    * The location whose four-day sheet is open, or null (P8).
    *
@@ -687,6 +728,10 @@ export default function WindowFirstShell({
     setSheetSpot(null);
     setSheetWindowKey(null);
     setSearchSeed(null);
+    // Ask's sheet is a layer like the rest: arriving anywhere ends it, and every route that only
+    // wants the dialogs gone (the cog, the nudge, the settings edge) takes it down with them. The
+    // CONVERSATION is not touched — it is context state, and this body may call only our own setters.
+    setAskOpen(false);
   };
   /**
    * The Coming up tab's handoff row, going the other way (plan P1/D14).
@@ -1213,6 +1258,146 @@ export default function WindowFirstShell({
    * onto `stackedOverPopup` at M3 that flag had no other reader.)
    */
   const modalOpenOverPopup = stackedOverPopup || searchSeed != null;
+
+  /**
+   * Ask PhotoCast's entry and sheet (plan §2.6, F1b).
+   *
+   * <h2>Where each entry shows</h2>
+   * <p>Below 640px the 48px bar, on Plan and Coming up ONLY — the phone Map gets its entry in the peek
+   * sheet (F4) and Operations gets none. From 640 to 1023px the 260px field beside the tab list on
+   * those two tabs and on Map (on a tablet the Map's controls are not a peek sheet, so the sheet is
+   * the surface). From 1024px nothing yet: the dock and its field are F2's.
+   * {@code availability} decides whether Ask exists at all: {@code pending} and {@code off} draw
+   * nothing (a flash on a server with the flag off is the failure), {@code down} draws the entry
+   * disabled. Under a rewind there is no provider, so the context's default {@code off} applies and
+   * no surface exists — that rule is {@code App}'s, not a test made here.
+   *
+   * <h2>One modal, held by this component</h2>
+   * <p>The sheet claims {@code aria-modal}, so while it is up nothing else may be a dialog. That is held
+   * four ways, because {@code useDialogFocus} is deliberately not a focus trap: the entry is DISABLED
+   * while any shell dialog or settings is open (opening Ask never closes one — a refusal, not a
+   * take-down), and {@code openAsk} refuses over a dialog this shell does not own; the whole React app
+   * container is {@code inert} while the sheet is open (the layout effect below), so a keyboard
+   * reader who Tabs out of the sheet reaches neither a card behind the scrim nor a banner above the
+   * shell; and {@code selectTab} closes the sheet on any tab change, from any route.
+   */
+  const askEntry = (() => {
+    if (ask.availability !== 'on' && ask.availability !== 'down') return null;
+    const onSkyTab = effectiveTab === 'plan' || effectiveTab === 'coming-up';
+    if (askSurface === 'phone') return onSkyTab ? 'bar' : null;
+    if (askSurface === 'tablet') return onSkyTab || effectiveTab === 'map' ? 'field' : null;
+    return null;
+  })();
+  // ⚠️ `askOpen` would otherwise be held while NOTHING draws the sheet — the window crossing 1024px, a
+  // phone Map, Ask switched off — and bring the sheet back by itself the next time an entry exists (an
+  // iPad turned landscape and back reopened it, unasked, focus and all). So it is let go the render
+  // the entry goes: during render and with this component's own setter, the shape the settings edge
+  // above uses, so no commit holds both states. The conversation is untouched.
+  if (askOpen && askEntry === null) setAskOpen(false);
+  const askSheetOpen = askOpen && askEntry !== null;
+  // `openCard`, not `openWindowKey`: the popup draws only for a live card, and a key whose card has
+  // gone (its event passed) is deliberately never released — it would leave the entry disabled with
+  // no dialog on screen and nothing to say why.
+  const askDialogOpen = openCard != null || modalOpenOverPopup || settingsOpen;
+  const askDisabled = ask.availability === 'down' || Boolean(contentDisabled) || askDialogOpen;
+  const askViewSpec = ASK_VIEW[effectiveTab] ?? ASK_VIEW.plan;
+  // The tablet's Operations tab draws no field, but the tab list is `flex: 1` with Operations pinned
+  // to its right edge (`.wf-tab-gated`): without something holding the field's width, pressing
+  // Operations would widen the list and slide the button out from under the pointer.
+  const askGhost = askSurface === 'tablet' && effectiveTab === 'operations'
+    && (ask.availability === 'on' || ask.availability === 'down');
+  /**
+   * Opens the sheet. The entry is {@code disabled} (a real attribute, so no press reaches this) while
+   * one of THIS shell's dialogs or settings stands; what that flag cannot see is a dialog this shell
+   * does not own — the map overlay — so it is found the way {@code /} finds it (any
+   * {@code role="dialog"} outside this root), at press time, and refused with nothing taken down.
+   */
+  const openAsk = () => {
+    const root = shellRef.current;
+    const foreign = Array.from(document.querySelectorAll('[role="dialog"]'))
+      .some((node) => !root || !root.contains(node));
+    if (foreign) return;
+    setAskOpen(true);
+  };
+  /**
+   * The ✕, the scrim and Escape: CLOSE, and keep the conversation (plan §2.6, §2.8 — the answer
+   * survives a close, and a Plan-card highlight is "applied when the sheet closes"). Ending it is the
+   * sheet's own "Clear answer" control. A scrim is a full-viewport target and Escape is global; either
+   * discarding an answer the reader was charged a question for would be a trap.
+   */
+  const dismissAsk = () => setAskOpen(false);
+  /**
+   * "Show on map ›" on a pick: select that pick, leave the sheet, land on the Map tab, keep the
+   * answer. {@code selectTab} is the route (it closes the sheet with the rest of the layers); the
+   * numbered markers are F3's, so until then the Map shows nothing extra, and F3 reads the selected
+   * pick this leaves. Focus goes to the Map tab button a frame later, the same idiom the
+   * {@code tabRequest} effect uses, because the bar that opened the sheet is unmounted by this very
+   * press and focus would otherwise fall to {@code <body>}.
+   */
+  const askShowOnMap = (card) => {
+    ask.selectPick(card.rank);
+    selectTab('map');
+    requestAnimationFrame(() => document.getElementById(tabDomId('map'))?.focus());
+  };
+  // The controls on a pick card's own row. A function whether or not it has anything to draw, so the
+  // next control (F5's "Plan this ›") joins here rather than replacing a prop that is sometimes absent.
+  // "Show on map ›" is offered only where it goes somewhere: a Map pane exists, and the reader is not
+  // already on it.
+  const askCanShowOnMap = mapPane != null && effectiveTab !== 'map';
+  const askPickActions = (card) => (askCanShowOnMap ? (
+    <button
+      type="button"
+      className="wf-ask-act"
+      data-testid={`ask-show-on-map-${card.rank}`}
+      // The visible words lead the name (WCAG 2.5.3), and the place follows so a list of these
+      // buttons is not N identical "Show on map"s.
+      aria-label={`Show on map — ${card.name}`}
+      onClick={() => askShowOnMap(card)}
+    >
+      Show on map
+      <span aria-hidden="true"> ›</span>
+    </button>
+  ) : null);
+  /**
+   * Where focus goes on close when the trigger cannot take it back (a tap never focused it, it was
+   * unmounted by the press, or it is disabled): the trigger if it is still there, else the tab in
+   * force — read from the DOM, since a ref to the tab only catches up in a passive effect and this
+   * runs in the close's own cleanup, before it.
+   */
+  const askRestoreFallback = useCallback(() => {
+    const trigger = askTriggerRef.current;
+    if (trigger?.isConnected && !trigger.disabled) return trigger;
+    return shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null;
+  }, []);
+  /**
+   * The page behind the sheet, dead while it is open: {@code inert} on the app's own container (the
+   * ancestor of this shell that sits directly under {@code <body>} — {@code #root} in production).
+   * The sheet is portalled to a different child of {@code <body>}, so it is not covered; the banners
+   * above the shell, the footer, the masthead, the tabs and every pane all are.
+   *
+   * <p>⚠️ <b>A layout effect, and an attribute set by hand, on purpose.</b> {@code useDialogFocus}
+   * restores focus to the opener in a PASSIVE cleanup when the sheet closes, and a node inside an
+   * {@code inert} subtree cannot take focus. This effect's cleanup runs earlier in the SAME commit, so
+   * {@code inert} is already gone when the restore runs. The same attribute driven by a React state in
+   * an ancestor would come off one commit later, after the restore had failed. The reverse is handled
+   * too: setting it blurs the opener before the sheet reads it as its return address, which is why the
+   * sheet takes {@code restoreFallback}. jsdom has no {@code inert}; tests assert the attribute.
+   */
+  useLayoutEffect(() => {
+    if (!askSheetOpen) return undefined;
+    let container = shellRef.current;
+    while (container?.parentElement && container.parentElement !== document.body) {
+      container = container.parentElement;
+    }
+    // Never <body> or <html> themselves: a shell mounted straight into <body> has no container below it.
+    if (!container || container === document.body || container === document.documentElement) {
+      return undefined;
+    }
+    // Not ours to set, nor to clear, if something else already holds it.
+    if (container.hasAttribute('inert')) return undefined;
+    container.setAttribute('inert', '');
+    return () => container.removeAttribute('inert');
+  }, [askSheetOpen]);
   const dimmed = contentDisabled ? ' opacity-50 pointer-events-none' : '';
   // The shared tiers, not a local copy: `generatedAt` is a zone-less UTC instant, and the one
   // formatter that already knows that is the one that appends the Z. Hand-rolling it here read an
@@ -1541,7 +1726,8 @@ export default function WindowFirstShell({
       // wrap below, then the panel region) stack and share it the same way. Every other tab keeps
       // plain block flow (`w-full` alone), which is today's unchanged layout and scroll. O-17 is
       // WIDTH ONLY — this vertical/height chain is untouched.
-      className={effectiveTab === 'map' ? 'wf-shell w-full flex-1 min-h-0 flex flex-col' : 'wf-shell w-full'}
+      className={`${effectiveTab === 'map' ? 'wf-shell w-full flex-1 min-h-0 flex flex-col' : 'wf-shell w-full'}${
+        askEntry === 'bar' ? ' wf-ask-bar-on' : ''}`}
     >
       {/* Masthead + tab bar + tab rule — wrapped at `WRAP_MAX_WIDTH` on EVERY tab, and since O-17
           the panel region below shares that same width on every tab too (there is no longer a tab
@@ -1721,6 +1907,12 @@ export default function WindowFirstShell({
           argued the other way, and a reader who wants it back should move the age into the tick
           line AND strip `runAge` from the change line — never add a second copy. */}
 
+      {/* The tab ROW: the tab list and, from 640 to 1023px, the Ask field BESIDE it (plan §2.6).
+          Always rendered, with or without the field — wrapping conditionally would remount the tab
+          buttons the moment Ask's availability resolved, taking focus from one a reader was on.
+          (The tab list inside is deliberately NOT re-indented one level: that would turn a
+          four-line wrapper into a reflow of eighty lines nobody has to review.) */}
+      <div className="wf-tabrow" data-testid="window-first-tabrow" data-tab-count={tabs.length}>
       <div
         data-testid="window-first-tabs"
         role="tablist"
@@ -1792,6 +1984,20 @@ export default function WindowFirstShell({
             </button>
           );
         })}
+      </div>
+      {askEntry === 'field' && (
+        <AskField
+          width={260}
+          prompt="Ask about the forecasts…"
+          disabled={askDisabled}
+          expanded={askSheetOpen}
+          onOpen={openAsk}
+          buttonRef={askTriggerRef}
+        />
+      )}
+      {askGhost && (
+        <div className="wf-askf wf-askf-ghost" aria-hidden="true" data-width="260" data-testid="ask-field-ghost" />
+      )}
       </div>
       <div data-testid="window-first-tabrule" className="h-px bg-plex-border" />
       </div>
@@ -2090,6 +2296,29 @@ export default function WindowFirstShell({
         </div>
       ))}
       </div>
+
+      {/* Ask PhotoCast. The phone's bar is `position: fixed` and sits BELOW every `Modal` (z-50) and
+          the sheet's scrim; the sheet is a `BottomSheet`, portalled to <body>. Both are drawn only
+          where `askEntry` says (plan §2.6). */}
+      {askEntry === 'bar' && (
+        <AskBar
+          prompt={ASK_BAR_PROMPT[effectiveTab] ?? ASK_BAR_PROMPT.plan}
+          disabled={askDisabled}
+          expanded={askSheetOpen}
+          onOpen={openAsk}
+          buttonRef={askTriggerRef}
+        />
+      )}
+      {askEntry !== null && (
+        <AskSheet
+          open={askSheetOpen}
+          onClose={dismissAsk}
+          view={askViewSpec.view}
+          viewLabel={askViewSpec.label}
+          pickActions={askPickActions}
+          restoreFallback={askRestoreFallback}
+        />
+      )}
 
       {/* The window popup — the plan's drill-down, over the plan rather than inside it.
           Mounted only while open, and lazily, for the reasons its own boundary records. */}

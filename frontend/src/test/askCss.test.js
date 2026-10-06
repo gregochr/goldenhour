@@ -80,3 +80,87 @@ describe('the Ask stylesheet — a pick card’s own row can be pressed', () => 
     expect(row).toMatch(/z-index:\s*1/);
   });
 });
+
+describe('the Ask entry stylesheet (F1b) — what jsdom cannot see', () => {
+  const modalSource = readFileSync(resolve(process.cwd(), 'src/components/shared/Modal.jsx'), 'utf8');
+  const sheetSource = readFileSync(resolve(process.cwd(), 'src/components/BottomSheet.jsx'), 'utf8');
+
+  it('draws the phone bar BELOW Modal\'s z-index, so a dialog covers it and never the reverse', () => {
+    const bar = Number(/z-index:\s*(\d+)/.exec(ruleBody('.wf-ask-bar') ?? '')?.[1]);
+    const modal = Number(/\bz-(\d+)\b/.exec(modalSource)?.[1]);
+    expect(Number.isFinite(bar)).toBe(true);
+    expect(Number.isFinite(modal)).toBe(true);
+    expect(bar).toBeLessThan(modal);
+  });
+
+  it('and below the tall sheet\'s scrim, so the scrim covers the bar it opened from', () => {
+    const bar = Number(/z-index:\s*(\d+)/.exec(ruleBody('.wf-ask-bar') ?? '')?.[1]);
+    const scrim = Number(/bottom-sheet-overlay[\s\S]*?zIndex:\s*(\d+)/.exec(sheetSource)?.[1]);
+    expect(Number.isFinite(scrim)).toBe(true);
+    expect(bar).toBeLessThan(scrim);
+  });
+
+  it('fixes the bar 10px above the bottom plus the home-indicator inset, 48px tall', () => {
+    const body = ruleBody('.wf-ask-bar');
+    expect(body).toMatch(/position:\s*fixed/);
+    expect(body).toMatch(/bottom:\s*calc\(10px \+ var\(--safe-b\)\)/);
+    expect(body).toMatch(/height:\s*48px/);
+  });
+
+  it('reserves the bar\'s 58px at the END of the page, after the footer, only while the bar is drawn', () => {
+    const body = ruleBody('.app-safe:has(.wf-ask-bar-on)');
+    expect(body).not.toBeNull();
+    expect(body).toMatch(/padding-bottom:\s*calc\(var\(--safe-b\) \+ 58px\)/);
+  });
+
+  it('sets the question field at 16px or more, because iOS Safari zooms on anything smaller', () => {
+    const size = Number(/font-size:\s*(\d+(?:\.\d+)?)px/.exec(ruleBody('.wf-ask-in-field') ?? '')?.[1]);
+    expect(size).toBeGreaterThanOrEqual(16);
+  });
+
+  it('collapses the four-tab field by CLIPPING its label, never display:none, so the name survives', () => {
+    const block = conditionalBlocks().find((b) => b.includes('wf-askf-q'));
+    expect(block).toBeDefined();
+    expect(block).toMatch(/clip:\s*rect\(0, 0, 0, 0\)/);
+    expect(block).not.toMatch(/display:\s*none/);
+  });
+
+  it('keeps the tab list a shrinking flex item beside the field, so it still scrolls', () => {
+    expect(ruleBody('.wf-tabrow')).toMatch(/display:\s*flex/);
+    expect(ruleBody('.wf-tabrow > .wf-tabs')).toMatch(/min-width:\s*0/);
+  });
+
+  it('makes the tall sheet a flex column whose scroller shrinks, off the data-size BottomSheet sets', () => {
+    const sheet = ruleBody('.app-safe-sheet[data-size="tall"]');
+    expect(sheet).toMatch(/display:\s*flex/);
+    expect(sheet).toMatch(/flex-direction:\s*column/);
+    expect(ruleBody('.app-safe-sheet[data-size="tall"] > [data-testid="bottom-sheet-scroller"]'))
+      .toMatch(/min-height:\s*0/);
+    expect(sheetSource).toContain('data-size={tall ?');
+    expect(sheetSource).toContain('bottom-sheet-scroller');
+  });
+
+  it('keeps the viewport 58px (+ a ring) clear of the bar for FOCUS, not only at the end of the page', () => {
+    // SC 2.4.11: a focused control near the bottom of the viewport scrolls only to the edge, under the bar.
+    const rule = /html:has\(\.wf-ask-bar-on\)\s*\{([^}]*)\}/.exec(askBlock);
+    expect(rule).not.toBeNull();
+    expect(rule[1]).toMatch(/scroll-padding-bottom:\s*calc\(var\(--safe-b\) \+ 58px \+ 8px\)/);
+  });
+
+  it('does not dim the locked field\'s words: its placeholder is the only reason typing is off', () => {
+    const body = ruleBody('.wf-ask-in-field[aria-disabled="true"]');
+    expect(body).not.toBeNull();
+    expect(body).not.toMatch(/opacity/);
+    expect(body).toMatch(/border-style:\s*dashed/);
+  });
+
+  it('draws the question field\'s edge at 3:1 or better (the bone ink at .4 alpha), not border-light', () => {
+    expect(ruleBody('.wf-ask-in-field')).toMatch(/border:\s*1px solid rgba\(242, 231, 211, \.4\)/);
+  });
+
+  it('holds the field\'s width where it is not drawn, as a box nobody can reach', () => {
+    const body = ruleBody('.wf-askf-ghost');
+    expect(body).toMatch(/visibility:\s*hidden/);
+    expect(body).toMatch(/pointer-events:\s*none/);
+  });
+});
