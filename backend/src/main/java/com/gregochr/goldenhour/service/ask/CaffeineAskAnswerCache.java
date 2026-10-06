@@ -170,9 +170,14 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
         if (answer.picks().isEmpty() && answer.events().isEmpty()) {
             return;
         }
-        if (outcome.personal() && (user == null || !user.hasUser())) {
-            // A personal answer with nobody to keep it for cannot be shared: drop it.
-            return;
+        // A shared answer has no owner; a personal one is kept for its asker alone.
+        Long owner = null;
+        if (outcome.personal()) {
+            if (user == null || !user.hasUser()) {
+                // A personal answer with nobody to keep it for cannot be shared: drop it.
+                return;
+            }
+            owner = user.userId();
         }
         if (AskSimulation.active(hotTopicSimulation, auroraStateCache)) {
             return;
@@ -181,7 +186,7 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
         if (names.isEmpty()) {
             return;
         }
-        entries.put(key(question, snapshot, outcome.personal() ? user.userId() : null),
+        entries.put(key(question, snapshot, owner),
                 new Stored(answer, Set.copyOf(names.get())));
     }
 

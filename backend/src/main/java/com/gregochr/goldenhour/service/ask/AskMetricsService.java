@@ -164,11 +164,11 @@ public class AskMetricsService {
                     Long::sum));
         }
         long total = counts.values().stream().mapToLong(Long::longValue).sum();
-        long engineRuns = counts.get(AskLog.Outcome.CLAUDE_OK) + counts.get(AskLog.Outcome.CLAUDE_CANT)
-                + counts.get(AskLog.Outcome.CLAUDE_FAILED);
-        long answered = total - counts.get(AskLog.Outcome.CLAUDE_FAILED);
-        long cant = counts.get(AskLog.Outcome.PREFILTER_CANT) + counts.get(AskLog.Outcome.CLAUDE_CANT);
-        long hits = counts.get(AskLog.Outcome.CACHE_HIT);
+        long engineRuns = countOf(counts, AskLog.Outcome.CLAUDE_OK) + countOf(counts, AskLog.Outcome.CLAUDE_CANT)
+                + countOf(counts, AskLog.Outcome.CLAUDE_FAILED);
+        long answered = total - countOf(counts, AskLog.Outcome.CLAUDE_FAILED);
+        long cant = countOf(counts, AskLog.Outcome.PREFILTER_CANT) + countOf(counts, AskLog.Outcome.CLAUDE_CANT);
+        long hits = countOf(counts, AskLog.Outcome.CACHE_HIT);
 
         Map<String, Long> byName = new LinkedHashMap<>();
         counts.forEach((outcome, count) -> byName.put(outcome.name(), count));
@@ -176,7 +176,7 @@ public class AskMetricsService {
                 .stream().map(row -> new MissingPhrase(row.getMissing(), row.getTotal())).toList();
 
         return new Metrics(days, from, total, byName, rate(hits, hits + engineRuns),
-                rate(counts.get(AskLog.Outcome.READY_MATCH), total), rate(cant, answered), missing,
+                rate(countOf(counts, AskLog.Outcome.READY_MATCH), total), rate(cant, answered), missing,
                 apiCallLogRepository.sumCostMicroDollarsByRunTypeStartedSince(RunType.ASK, startUtc)
                         / MICRO_PER_DOLLAR,
                 apiCallLogRepository.sumCostMicroDollarsByRunTypeStartedSince(RunType.ASK_READY, startUtc)
@@ -190,6 +190,11 @@ public class AskMetricsService {
             // A row from a newer build (a rollback): not counted, never an error for the owner.
             return Optional.empty();
         }
+    }
+
+    /** One outcome's count; zero when absent, so no caller unboxes a missing entry. */
+    private static long countOf(Map<AskLog.Outcome, Long> counts, AskLog.Outcome outcome) {
+        return counts.getOrDefault(outcome, 0L);
     }
 
     private static Double rate(long part, long whole) {
