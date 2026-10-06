@@ -35,7 +35,7 @@ it (adjacent rows conflict between open PRs).
 | F3 | Map linkage: numbered picks, dimming, camera, window follow | L | merged (#1029) |
 | F4 | Phone Map: the ask row in the peek sheet | L | merged (#1030) |
 | F5 | "Plan this", "Open in Plan", the Plan-card highlight | M | merged (#1031) |
-| Z | Sweep: CLAUDE.md, prompt-regression class, measured Verify list, production enable | S/M | in progress |
+| Z | Sweep: CLAUDE.md, prompt-regression class, measured Verify list, production enable | S/M | merged (#1032) |
 
 Strictly sequential, top to bottom. A phase does not start until its predecessor is merged to
 `main`. (B5 beside F1a was considered and refused: F1a must render replies B5 produces.)
