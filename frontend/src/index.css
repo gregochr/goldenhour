@@ -10839,3 +10839,487 @@ button.wf-mchip:hover {
   .wf-prose { min-height: 112px; }
   .wf-spots > .wf-spot { flex: 0 0 calc((100% - 16px) / 2.6); }
 }
+
+/* ══ Ask PhotoCast — the conversation (docs/engineering/ask-photocast-plan.md §2.6, F1a) ══════════
+   Recreated from the design bundle's `Map Ask in Peek.html` (`.askp`, `.ctxr`, `.cx`, `.sug`, `.yq`,
+   `.sum`, `.think`, `.apk`, `.cant`, `.usage`, `.foot2`) and `Ask Everywhere.html` (`.evc`) in the
+   app's own tokens — the bundle's bare `--bg`/`--ink`/`--go` do not exist here. Mapping, as built:
+     --surface → --color-plex-surface        --panel → --color-plex-panel
+     --border → --color-plex-border          --border-light → --color-plex-border-light
+     --ink → --color-plex-text               --home → --color-home
+     --ink-2 (70%) → --color-plex-text-secondary (66%)
+     --ink-3 (50%) → --color-plex-text-secondary as well: the muted token (42%) measures ~3.5:1 on
+        a card, under AA for the 10–11px mono these lines are set in, and every line the bundle sets
+        in --ink-3 here is information (the allowance, the footer, a kicker), not decoration.
+     --go #8AAE72 → --color-badge-go (text) / --color-verdict-go at .4 alpha (the Ready tag's border)
+     #8FC0C7 (tide text) → --color-badge-tide      #EBD9A8 → --color-segment-active
+     #F9F1E2 (summary) → --color-plex-gold-light   #1B1411 (rank ink) → --color-plex-bg
+     #EE8064 / --dawn (event badges) → --color-plex-coral-bright / --color-plex-dawn
+     --marginal #E0A542 / #E0735E (verdict word) → --color-badge-maybe / --color-badge-poor, the
+        lifted text variants every other verdict word in the app uses
+   Deviations, deliberate: a tide MISS reads in the secondary ink (the colour is the match's, as on
+   the map's chip, whose own doc says a miss takes the muted ink); the suggestion row, the chip's ✕
+   and the Ready tag have hover/focus states the bundle does not draw; the chip is `min-height`, not
+   `height`, so a long label wraps instead of overflowing; the selected card's edge is doubled to 2px.
+   Event-card hues come from `badgeChannel`'s five channels, never the bundle's three hex values.
+   Nothing here is ever hidden by a media query: the safety note in particular wraps, it does not
+   drop. Every grid/flex child that can hold prose has `min-width: 0` so a long place name or a
+   60-character `missing` wraps instead of widening the sheet. */
+.wf-ask-conv {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 10px;
+  min-width: 0;
+  color: var(--color-plex-text);
+  font-family: var(--font-sans);
+}
+/* The root is a programmatic focus target only (a pressed control that unmounts hands focus here),
+   so it paints no ring of its own. */
+.wf-ask-conv:focus { outline: none; }
+.wf-ask-live {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+/* The two live regions are mounted while empty so their first text is announced (see
+   AskConversation). An empty flex item still takes a gap; this takes it back. */
+.wf-ask-live:empty,
+.wf-ask-notice-region:empty { margin-top: -12px; }
+.wf-ask-k {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-ready-h { margin-bottom: 2px; }
+
+/* "Asking about" chips */
+.wf-ask-ctx {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wf-ask-cx {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 4px 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--color-plex-border-light);
+  background: var(--color-plex-surface);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wf-ask-cx:last-child { padding-right: 9px; }
+.wf-ask-cx-x {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  font-size: 9px;
+  color: var(--color-plex-text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.wf-ask-cx-x:hover { color: var(--color-plex-text); background: var(--color-plex-surface-light); }
+.wf-ask-cx-x:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+
+/* The reader's own question */
+.wf-ask-yq {
+  align-self: flex-end;
+  max-width: 88%;
+  font-size: 13.5px;
+  background: var(--color-plex-surface);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 12px 12px 4px 12px;
+  padding: 7px 11px;
+  overflow-wrap: anywhere;
+}
+
+/* Busy */
+.wf-ask-think {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-think i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-home);
+  animation: wf-ask-blink 1s ease infinite;
+}
+@keyframes wf-ask-blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) {
+  .wf-ask-think i { animation: none; }
+}
+
+/* Suggestions — a Ready question, tagged */
+.wf-ask-sugs { display: flex; flex-direction: column; }
+.wf-ask-sug {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  /* Horizontal padding so the inset focus ring and the hover tint sit AROUND the text, not over its
+     first and last pixels (the design's row has neither state). */
+  padding: 0 6px;
+  border: 0;
+  border-bottom: 1px solid var(--color-plex-border);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.wf-ask-sug:last-child { border-bottom: 0; }
+.wf-ask-sug::after {
+  content: '›';
+  /* Generated content joins a button's accessible name; the empty alternative keeps the chevron
+     out of it (the first declaration is the fallback for a browser without the syntax). */
+  content: '›' / '';
+  flex: none;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-sug:hover { background: var(--color-plex-surface); }
+.wf-ask-sug:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+.wf-ask-sug > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.wf-ask-rd {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--color-badge-go);
+  border: 1px solid rgba(138, 174, 114, .4);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* The answer */
+.wf-ask-sum {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.35;
+  color: var(--color-plex-gold-light);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+.wf-ask-cards,
+.wf-ask-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wf-ask-usage,
+.wf-ask-foot {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-notice {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-badge-poor);
+}
+
+/* A pick card (`.apk`). The rank circle is a sibling of the button so it can carry its own name; the
+   button's ::after stretches it over the whole card, so the circle is not a dead zone. */
+.wf-ask-pick {
+  position: relative;
+  /* Its own stacking context, so the actions row's z-index competes only with the card's own ::after. */
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 10px 10px 10px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 12px;
+  background: var(--color-plex-panel);
+}
+.wf-ask-pick[data-selected='true'] {
+  border-color: rgba(201, 162, 75, .65);
+  background: rgba(201, 162, 75, .08);
+  /* A second 1px of the same gold, so the selected edge reads as 2px against its neighbours' 1px —
+     the design's colour alone measures under 3:1 against an unselected card's border. */
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 75, .65);
+}
+/* box-shadow and the tint are both stripped in forced-colours mode, which would leave a selected
+   card looking like every other (the same failure `.wf-land-row.on` records). An outline survives. */
+@media (forced-colors: active) {
+  .wf-ask-pick[data-selected='true'] {
+    border-color: Highlight;
+    outline: 1px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+.wf-ask-pick:has(.wf-ask-pick-main:focus-visible) {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-ask-rk {
+  grid-column: 1;
+  grid-row: 1;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-home);
+  color: var(--color-plex-bg);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+}
+.wf-ask-pick-main {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wf-ask-pick-main::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+}
+.wf-ask-pick-main:focus-visible { outline: none; }
+/* The ring above lives on the card via :has(); where that is unsupported the button keeps its own. */
+@supports not selector(:has(*)) {
+  .wf-ask-pick-main:focus-visible {
+    outline: 2px solid var(--color-plex-gold);
+    outline-offset: 2px;
+  }
+}
+/* The card's own row — F5's "Plan this ›", F1b's "Show on map ›". A sibling of the button, below it,
+   and ABOVE the button's stretched ::after (a positioned element later in the tree paints over an
+   earlier one; an unpositioned sibling would be unclickable). */
+.wf-ask-pick-act {
+  grid-column: 2;
+  grid-row: 2;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.wf-ask-l1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wf-ask-nm { min-width: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.wf-ask-sc {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-sc[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
+.wf-ask-sc[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
+.wf-ask-sc[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
+.wf-ask-l2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--color-plex-text-secondary);
+}
+.wf-ask-evb {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--color-plex-border-light);
+}
+.wf-ask-evb[data-target="SUNSET"] {
+  color: var(--color-plex-coral-bright);
+  border-color: rgba(232, 89, 63, .5);
+  background: rgba(232, 89, 63, .1);
+}
+.wf-ask-evb[data-target="SUNRISE"] {
+  color: var(--color-plex-dawn);
+  border-color: rgba(143, 168, 196, .5);
+  background: rgba(143, 168, 196, .1);
+}
+.wf-ask-tide {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-badge-tide);
+}
+.wf-ask-tide[data-tier="miss"] { color: var(--color-plex-text-secondary); }
+.wf-ask-tide-wave { flex: none; }
+.wf-ask-why {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+/* An event card (`.evc`) — its left rule and kicker take the topic's badge channel. */
+.wf-ask-evc {
+  --wf-ask-c: var(--color-plex-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-plex-border);
+  border-left: 3px solid var(--wf-ask-c);
+  border-radius: 12px;
+  background: var(--color-plex-panel);
+}
+.wf-ask-evc[data-channel="eclipse"] { --wf-ask-c: var(--color-badge-eclipse); }
+.wf-ask-evc[data-channel="tide"] { --wf-ask-c: var(--color-badge-tide); }
+.wf-ask-evc[data-channel="nlc"] { --wf-ask-c: var(--color-badge-nlc); }
+.wf-ask-evc[data-channel="aurora"] { --wf-ask-c: var(--color-badge-go); }
+.wf-ask-evc[data-channel="snow"] { --wf-ask-c: var(--color-badge-snow); }
+.wf-ask-evc-k {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--wf-ask-c);
+}
+.wf-ask-evc-hl {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+.wf-ask-evc-wh {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-evc-why {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+/* The safety note (e.g. the lens-filter warning). In no media query, and with no role or width at
+   which it is dropped (`askCss.test.js` pins both). The text is the PRIMARY ink, as the Plan tab's
+   own safety lines are (`.wf-plan-safety`: "the one line that must not read as an aside"); the amber
+   edge and tint (#E0A542 = --color-verdict-marginal) only mark it out on the card. */
+.wf-ask-evc-safety {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(224, 165, 66, .5);
+  border-radius: 8px;
+  background: rgba(224, 165, 66, .1);
+  color: var(--color-plex-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* "Not in the forecast" (`.cant`) */
+.wf-ask-cant {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px dashed var(--color-plex-border-light);
+  border-radius: 12px;
+}
+.wf-ask-cant-k {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-cant-t { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.wf-ask-cant-m {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* The failure state, and its retry */
+.wf-ask-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 12px;
+}
+.wf-ask-error-t { margin: 0; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.wf-ask-retry {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(201, 162, 75, .5);
+  background: none;
+  color: var(--color-segment-active);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.wf-ask-retry:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}

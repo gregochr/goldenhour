@@ -28,7 +28,7 @@ it (adjacent rows conflict between open PRs).
 | B2b | Stub engine, local fixture seeder, admin dry-run | M | merged (#1017) |
 | B3 | Ready answers: catalogue, precompute after the pipeline, `GET /api/ask/ready` | L | merged (#1019) |
 | B4 | `POST /api/ask`: allowance, limits, spend cap, `GET /api/user/settings/ask` | L | merged (#1021) |
-| B5 | Pre-filter, Ready intent match, typed cache, `ask_log`, metrics endpoint | M/L | not started |
+| B5 | Pre-filter, Ready intent match, typed cache, `ask_log`, metrics endpoint | M/L | merged (#1022) |
 | F1a | Client core, unmounted: API, hooks, provider, pick model, conversation and cards | M/L | not started |
 | F1b | Phone and tablet-portrait entry: ask bar, tall sheet, shell wiring | M/L | not started |
 | F2 | Desktop: tab-row field, the `/` key, the docked column | L | not started |
@@ -977,6 +977,126 @@ and from `kind: cant`), allowance used up, each error code; a Ready tap makes no
 response, never decremented locally; a pick with no slot is dropped; drive is the **home** map even
 when the provider's origin is away; the live region is empty while hidden; nothing is written to
 `swrCache` or module scope (a logout must not carry an answer to the next user).
+
+*As built (F1a), where the plan was wrong or silent:*
+- **Files:** `api/askApi.js`, `hooks/useAskAllowance.js`, `hooks/useAskReady.js`, `context/AskContext.jsx`,
+  `utils/askModel.js`, `components/ask/{AskConversation,AskPickCard,AskEventCard,AskContextChips}.jsx`, the `.wf-ask-*`
+  block at the end of `index.css`, and one word in `utils/locationSheet.js` (`slotsOf` is now exported: the pick join
+  walks one window's slots through the same function every index in that file uses). Nothing is mounted; `App.jsx` and
+  the shell are untouched.
+- **The home reach map already exists and needed no change.** `WindowFirstBriefingProvider` publishes `reachById` (the
+  reader's `GET /api/user/settings/reach`, home) beside `effectiveReachById` (replaced by the region-base matrix when the
+  Plan origin moves), and has since the origin landed. Ask reads `reachById` and never the other. A test moves the
+  origin on the real provider and asserts both maps and the card's drive.
+- **The context API (what F1b/F2 consume).** `AskProvider` goes inside `WindowFirstBriefingProvider` and above every Ask
+  surface — F1b mounts it in `App.jsx` around `WindowFirstShell`, so a map pane rendered as a shell child sees it; F1a
+  mounts nothing. `useAsk()` returns:
+  `phase` (`empty|busy|answer|cant|error`; `plan` is reserved for F5 and entered by nothing here), `kind`
+  (`ready|own|cant`; while busy, the kind being waited for), `question`, `answer`
+  (`{id, answerable, kind, summary, picks, events, missing, try, runLabel, generatedAt, charged, allowanceLeft,
+  allowanceLimit}`; `id` is monotonic, new for every answer that lands and unchanged when a refusal puts an earlier
+  answer back, so F3's camera fits on a changed `answer.id`, never on `pickCards`' identity), `pickCards` (the picks
+  joined by `buildPickCards`), `selectedPick` (a rank or null, never a rank without a card), `planPick` (null until F5),
+  `contextWindow`/`removedWindow`, `error` (`{status, code, message}` in phase `error`), `inputError`, `restored` (the conversation on screen is an earlier
+  one a refusal put back), `busyRunLabel`,
+  `allowance` (`useAskAllowance`'s value), `typedDisabled`, `availability`, `isPro`, and the actions
+  `askTyped(question, {windowId, regionIds, view})`, `openReady(readyQuestion)`, `selectPick(rank|null)`, `clear()`,
+  `retry()`, `removeContextWindow(windowId)` and `restoreContextWindow()`. `askTyped` **resolves** with what became of
+  the question (`ignored|answered|refused|failed|superseded`), so a field that clears itself on submit knows whether to put
+  the text back. `AskConversation` takes `view`, `scope`, `viewLabel`, `windowLabel`, `windowId` (required with `windowLabel`),
+  `hidden` and `pickActions(card)` (a node for each pick card's own row: F1b's "Show on map ›", F5's "Plan this ›"). The field, the
+  placeholder (`READY_ONLY_PLACEHOLDER` in `askModel.js` when `typedDisabled`), Escape, scrolling and where Ask opens are
+  the surface's. **`AskConversation` renders `inputError` itself** (in its own live region), so a field must not render
+  it a second time; F4's collapsed ask row, where the conversation is `hidden`, must show it where the field is. **The
+  provider has no in-flight guard**: a second `askTyped` while one is out supersedes the first (its answer, if it was
+  charged, is dropped and the allowance re-read), so F1b's field must not submit while `phase === 'busy'`.
+- **`availability` has four values because "Ask is off" and "we do not know yet" are different.** `pending` (the first
+  settings read has not landed: show nothing, or Ask flashes on a server with the flag off), `off` (settings say
+  `enabled: false`, or a POST was 404: hide every surface), `down` (the first read failed and nothing is known: show Ask,
+  disabled) and `on`. A LATER failed read leaves `on`. The **default context value — no provider — is `off`**, so a shell
+  rendered without one (every shell test that predates Ask) draws no Ask surface and acts on no key. Rewind is the shell's
+  call and not here, and F1b must also keep the provider from mounting its settings read under a rewind, because the
+  axios interceptor puts the rewound clock on every GET outside `/api/admin/`.
+- **`typedDisabled` is true whenever Ask is not known to be on** (`availability` is not `on`: still pending, off, or
+  unreachable) **and** from two further sources, because settings alone cannot tell them apart: the settings read
+  (`typedAvailable: false`, or `left <= 0`) and a refusal this session that means "none today" — `ALLOWANCE_EXHAUSTED` or
+  `DAILY_LIMIT`, remembered for the UK day it came on (`DAILY_LIMIT` is the never-refunded engine ceiling, which
+  `GET /api/user/settings/ask` does not carry). `TYPED_UNAVAILABLE` is deliberately NOT remembered: it is transient (a
+  briefing rebuild, an accounting latch) and the settings read reports it live. The
+  allowance is also re-read when the tab returns on a later UK day (`useAskAllowance`, the shape of `useTodaysLight`'s
+  day check), so an installed PWA left open overnight does not stay on "No own questions left today".
+- **Refusals restore the conversation.** `INVALID`, `RATE_LIMITED` and the three "no typed questions" codes put back
+  what was on screen before the ask, with the server's sentence in `inputError` — nothing was used and a typo must not
+  cost the reader their answer. What "Try again" re-asks is part of that snapshot (`conv.retryWith`), so a refused
+  question cannot hijack the retry of an earlier failure (a review finding). Everything else that is not a refusal, the
+  404 or a superseded response becomes phase `error`: `ENGINE_FAILED`, an unreadable 200, a 401, any other status, and a
+  failure with no response. **A lost connection does not say "No question used"** (the request may have reached the
+  server); the allowance is re-read instead. A typed question has a 40 s client ceiling (`ASK_TIMEOUT_MS`), a little over
+  the server's own 30 s deadline.
+- **The allowance is re-read after every POST that could have moved it** (an answer, a failure, the three refusals that
+  can, and a superseded response that landed late), and a 200's own `allowanceLeft`/`allowanceLimit` is applied at once.
+  Nothing counts down locally, and a stale response's figure is never applied.
+- **Late responses and the Ready timer.** One sequence number is bumped by every ask, Ready tap and `clear()`; a typed
+  response that finds it moved is dropped, success and failure alike. The Ready answer's 400 ms is a timer, so it is
+  cancelled with `clearTimeout` in the four places that must (a new Ready tap, a typed ask, `clear()`, unmount);
+  mutation-tested one at a time. (An unmount needs no sequence bump: React ignores an update to a tree that is gone, so
+  that line was dead and was removed.)
+- **The Ready busy line is not the design's copy verbatim.** "Opening this morning's answer" is written for the 06:00
+  run, and there is an 18:00 run: `readyBusyLine(runLabel)` says "this evening's" for a run at or after 12:00 and
+  "Opening the answer" for an unreadable label. A lexical map over the served `HH:mm`, in the same licensed class as the
+  AM/PM word.
+- **The Ready list is fetched only once a briefing exists** (`generatedAt` is the hook's key), and the hook only ever
+  hands out a list fetched for the key it is asked about, so a scope change, a rebuilt briefing or a surface shown again
+  after being hidden shows an empty list rather than the old one while the new one loads. State is per mount, so a
+  surface that unmounts when closed (`BottomSheet` returns `null`) refetches each time it opens, which the browser's
+  ETag revalidation makes cheap. The "READY FROM THE HH:MM RUN · FREE" line names the **newest** run among the questions
+  offered on that tab (each question carries its own `runLabel`); the suggestions are every served question whose `tabs`
+  names the view, in served order, not the design's three. A `cant` reply's `try` suggestions are resolved against the
+  list the reader already holds, and one that does not resolve is left out.
+- **A pick whose slot is in the client's briefing but has no usable rating keeps its card** (verdict word "Not scored",
+  no number), because the Plan tab says exactly that of the slot; only a pick with no slot at all is dropped. Ranks are
+  never renumbered, so a card's number is its map marker's number. **The cards are live and the prose is not:** the cards
+  are re-joined to the briefing the reader is looking at on every render, so they always agree with the Plan tab, while
+  the summary is the answer's own words and its footer names the run it came from. An answer left open across a
+  briefing rebuild is therefore dated, not rewritten; if the owner wants it withdrawn instead, `answer.generatedAt` is
+  there to compare against the briefing's.
+- **Cards carry what F3 and F5 will read raw:** `eventInstant` (the slot's served UTC instant, for `leaveByParts`) and
+  `summary` (the slot's served one-line reading, F5's note), beside `shortWindow`, `dayWord` and `targetType` (F3's
+  `eventType`). `data-ask-pick`/`data-ask-pick-select` on the `li` and the button are the non-test hooks for scrolling
+  and focus.
+- **Pick card structure.** The rank circle is a sibling of the card's button, not inside it, because a button's
+  children are presentational to a screen reader and the circle must carry "Pick 1, Whitby, Saturday sunrise, 5 stars";
+  the button also leads with an sr-only "Pick N" because the circle is not focusable (in browse mode the rank is said
+  twice, the lesser cost). The button is stretched over the card with `::after`. **The card's own row is a third
+  element: `.wf-ask-pick-act`, below the button in column 2, positioned and raised above that `::after`** (a button
+  inside a button is invalid, and an unpositioned sibling would paint beneath the overlay and never be pressed). **The
+  selected card is `aria-current`, not `aria-pressed`**: choosing a pick does not toggle, and a pressed button promises
+  an undo it does not have. The first draft of this note put "Plan this ›" in a "right-hand cell"; there is none.
+- **Accessibility, as built.** Three live regions, each mounted empty: an sr-only `role="status"` carrying the busy line
+  (the visible dot and line are `aria-hidden`), one `aria-live` container for the answer / not-in-the-forecast / error,
+  and one for the refusal sentence, so a refusal is heard without the previous answer being read out around it; an earlier
+  answer that a refusal PUTS BACK is rendered outside the live region (`restored`) for the same reason. The empty
+  state's suggestions are outside all three (a `cant` reply's own "Try asking" list is part of that reply and inside). The three controls that unmount when pressed (a suggestion, "Try again", a chip's ✕)
+  move focus to the conversation root (`tabIndex -1`) first. The safety note names itself ("Safety warning:") to a
+  screen reader and is in no media query (`askCss.test.js` pins it against `index.css`, since jsdom loads no stylesheet).
+- **"Pro: 30 a day" is a constant** (`PRO_DAILY_LIMIT`): nothing serves the Pro limit. It is `photocast.ask.limit-pro`'s
+  default; if that is ever changed the copy lies, and the fix is a `proLimit` on `GET /api/user/settings/ask`.
+- **The window chip is keyed on the window, not a flag.** `removeContextWindow(windowId)` records which window's chip was
+  removed; a different window brings the chip back by itself and is sent, and `askTyped` leaves out only the removed one.
+  `restoreContextWindow()` is for a tab switch back to the same window.
+- **Token mapping** (the design's bare `--bg`/`--ink`/`--go` do not exist; the mapping and the deliberate deviations are
+  in the comment heading the `.wf-ask-*` block): `--surface/--panel/--border/--border-light` →
+  `--color-plex-surface/-panel/-border/-border-light`; `--ink` → `--color-plex-text`; `--ink-2` (70%) and `--ink-3` (50%)
+  both → `--color-plex-text-secondary` (66%), since the muted token (42%) is ~3.5:1 and every line the design sets in
+  `--ink-3` here is information; `--home` → `--color-home`; `--go` → `--color-badge-go` (text) with `rgba(138,174,114,.4)`
+  for the Ready tag's border; `--marginal`/`#E0735E` → `--color-badge-maybe`/`--color-badge-poor`; `#8FC0C7` →
+  `--color-badge-tide`; `#EBD9A8` → `--color-segment-active`; `#F9F1E2` → `--color-plex-gold-light`; `#1B1411` →
+  `--color-plex-bg`; `#EE8064` / `--dawn` → `--color-plex-coral-bright` / `--color-plex-dawn`; the event card's three hex
+  values → `badgeChannel`'s five channels (`--color-badge-eclipse/-tide/-nlc/-go/-snow`). The chip's ✕ is 24px, not 20.
+  The safety note's text is the primary ink, as the Plan tab's own safety lines are, with an amber edge and tint.
+- **Not built, by design:** "Plan this ›" (F5), "Add to Coming up" (removed), the input field, Escape, the sheet and the
+  dock (F1b/F2), the numbered markers (F3), and anything that carries the Map's window and scope to a surface (F1b/F2/F4
+  each read them from `MapView`'s own state; the `windowId`/`regionIds`/`view` arguments are theirs to supply).
 
 ### F1b — Phone and tablet-portrait entry — M/L
 **Files:** `components/ask/AskBar.jsx`, `AskSheet.jsx`, `hooks/useVisualViewportHeight.js`,
