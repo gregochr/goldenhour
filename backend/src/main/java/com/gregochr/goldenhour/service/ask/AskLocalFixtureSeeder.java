@@ -396,7 +396,7 @@ public class AskLocalFixtureSeeder {
             TideExtremeType atLight = spot.light() == Fixture.LightTide.HIGH_AT_LIGHT
                     ? TideExtremeType.HIGH : TideExtremeType.LOW;
             start = light.minusSeconds(HALF_TIDE_CYCLE_SECONDS * TIDE_BACK_HALF_CYCLES);
-            startType = TIDE_BACK_HALF_CYCLES % 2 == 0 ? atLight : opposite(atLight);
+            startType = typeAfterHalfCycles(atLight, TIDE_BACK_HALF_CYCLES);
         } else {
             TideExtremeEntity last = stored.getLast();
             if (!last.getEventTime().isBefore(wanted)) {
@@ -417,6 +417,20 @@ public class AskLocalFixtureSeeder {
         }
         tideExtremeRepository.saveAll(added);
         return added.size();
+    }
+
+    /**
+     * The extreme type reached after a number of half cycles from a starting type: high and low
+     * alternate, so an even count gives the same type back and an odd count the opposite. The series
+     * starts {@code TIDE_BACK_HALF_CYCLES} before the light, so its first type is the light's type
+     * walked back by that count.
+     *
+     * @param start      the type at the starting point
+     * @param halfCycles how many half cycles away (its sign does not matter)
+     * @return the type there
+     */
+    static TideExtremeType typeAfterHalfCycles(TideExtremeType start, int halfCycles) {
+        return halfCycles % 2 == 0 ? start : opposite(start);
     }
 
     private static TideExtremeType opposite(TideExtremeType type) {

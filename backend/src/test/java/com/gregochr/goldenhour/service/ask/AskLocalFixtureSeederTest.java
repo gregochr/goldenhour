@@ -273,6 +273,40 @@ class AskLocalFixtureSeederTest {
     }
 
     @Test
+    @DisplayName("high and low alternate: 0 and 2 half cycles give the same type back, 1 and 3 the opposite, "
+            + "whichever way the count runs")
+    void typeAfterHalfCycles_followsParity() {
+        for (TideExtremeType start : TideExtremeType.values()) {
+            TideExtremeType other = start == TideExtremeType.HIGH ? TideExtremeType.LOW : TideExtremeType.HIGH;
+            assertThat(AskLocalFixtureSeeder.typeAfterHalfCycles(start, 0)).isEqualTo(start);
+            assertThat(AskLocalFixtureSeeder.typeAfterHalfCycles(start, 1)).isEqualTo(other);
+            assertThat(AskLocalFixtureSeeder.typeAfterHalfCycles(start, 2)).isEqualTo(start);
+            assertThat(AskLocalFixtureSeeder.typeAfterHalfCycles(start, 3)).isEqualTo(other);
+            assertThat(AskLocalFixtureSeeder.typeAfterHalfCycles(start, 6)).isEqualTo(start);
+            assertThat(AskLocalFixtureSeeder.typeAfterHalfCycles(start, -1)).isEqualTo(other);
+        }
+    }
+
+    @Test
+    @DisplayName("the seeded series is unchanged by the helper: it starts six half cycles before the light "
+            + "with the light's own type, and its heights are the fixed high and low")
+    void seededSeriesStartIsPinned() {
+        seeder.seed();
+
+        for (String name : List.of("Bamburgh Beach (fixture)", "Dunstanburgh Shore (fixture)")) {
+            TideExtremeEntity first = all(locations.findByName(name).orElseThrow()).getFirst();
+            assertThat(first.getType()).isEqualTo(TideExtremeType.HIGH);
+            assertThat(first.getHeightMetres()).isEqualByComparingTo("5.000");
+        }
+        LocationEntity craster = locations.findByName("Craster Rocks (fixture)").orElseThrow();
+        TideExtremeEntity first = all(craster).getFirst();
+        assertThat(first.getType()).isEqualTo(TideExtremeType.LOW);
+        assertThat(first.getHeightMetres()).isEqualByComparingTo("0.600");
+        assertThat(first.getEventTime()).isEqualTo(firstLight(craster).minusSeconds(6 * HALF_CYCLE));
+        assertThat(all(craster)).hasSize(26);
+    }
+
+    @Test
     @DisplayName("the series alternates high and low every half cycle, and reaches four days past the first light")
     void tideSeriesIsAProperCurve() {
         seeder.seed();
