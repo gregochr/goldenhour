@@ -81,7 +81,41 @@ final class AskReadyFreshness {
         if (!offer.get().text().equals(stored.questionText())) {
             return Verdict.stale("the question is now asked differently: " + offer.get().text());
         }
-        AskAnswer answer = stored.answer();
+        Verdict rechecked = recheck(stored.answer(), live, scope);
+        if (!rechecked.fresh()) {
+            return rechecked;
+        }
+        AskAnswer decorated = rechecked.answer();
+        List<AskPick> picks = decorated.picks();
+        if (question.anchored()) {
+            Optional<AskSnapshot.Window> lead = AskAnswerValidator.anchoredWindow(live,
+                    question.anchor(offer.get()), scope);
+            if (lead.isPresent()
+                    && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
+                return Verdict.stale("the BEST BET is now on " + lead.get().id());
+            }
+        }
+        Optional<String> violation = question.violation(decorated, offer.get(), live, scope);
+        if (violation.isPresent()) {
+            return Verdict.stale(violation.get());
+        }
+        return new Verdict(decorated, null);
+    }
+
+    /**
+     * The part of the freshness test that depends only on what the answer itself claims, with no
+     * Ready question behind it: every pick's window still in the window set, its slot still
+     * pick-eligible in scope with the rating and verdict it was written under, and every event's
+     * topic still live. Shared by {@link #check} (a Ready answer) and the typed-answer cache (a
+     * paid-for answer served again), so the two cannot disagree about what "still true" means.
+     * Re-decorates what survives from the live snapshot.
+     *
+     * @param answer the stored answer
+     * @param live   the live snapshot
+     * @param scope  the answer's scope as region names; empty for every region
+     * @return the re-decorated answer, or the reason it is withheld
+     */
+    static Verdict recheck(AskAnswer answer, AskSnapshot live, Collection<String> scope) {
         List<AskPick> picks = new ArrayList<>();
         for (AskPick pick : answer.picks()) {
             Optional<AskSnapshot.Window> window = live.window(pick.windowId());
@@ -116,21 +150,8 @@ final class AskReadyFreshness {
             events.add(new AskEvent(event.type(), topic.get().label(), event.date(), event.why(),
                     topic.get().safetyNote()));
         }
-        AskAnswer decorated = new AskAnswer(answer.answerable(), answer.summary(), picks, events,
-                answer.missing());
-        if (question.anchored()) {
-            Optional<AskSnapshot.Window> lead = AskAnswerValidator.anchoredWindow(live,
-                    question.anchor(offer.get()), scope);
-            if (lead.isPresent()
-                    && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
-                return Verdict.stale("the BEST BET is now on " + lead.get().id());
-            }
-        }
-        Optional<String> violation = question.violation(decorated, offer.get(), live, scope);
-        if (violation.isPresent()) {
-            return Verdict.stale(violation.get());
-        }
-        return new Verdict(decorated, null);
+        return new Verdict(new AskAnswer(answer.answerable(), answer.summary(), picks, events,
+                answer.missing()), null);
     }
 
     /** What a live topic or entry contributes to an event card. */

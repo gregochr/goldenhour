@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.UserSettingsService;
 import com.gregochr.goldenhour.service.ask.AskAnswer;
 import com.gregochr.goldenhour.service.ask.AskEngine;
+import com.gregochr.goldenhour.service.ask.AskMetricsService;
 import com.gregochr.goldenhour.service.ask.AskOutcome;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskQuestion;
@@ -22,9 +23,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -33,8 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Admin-only Ask PhotoCast endpoints (plan §2.9): the dry-run and the Ready precompute; B5 adds the
- * metrics endpoint.
+ * Admin-only Ask PhotoCast endpoints (plan §2.9): the dry-run, the Ready precompute and the metrics.
  *
  * <p>Every endpoint answers 404 while {@code photocast.ask.enabled} is false, so a switched-off
  * feature has no surface (the role check still comes first: a non-admin is 403 and an anonymous
@@ -52,6 +54,7 @@ public class AskAdminController {
     private final UserSettingsService settingsService;
     private final DriveTimeResolver driveTimeResolver;
     private final AskReadyService readyService;
+    private final AskMetricsService metricsService;
 
     /**
      * Constructs the controller.
@@ -63,11 +66,12 @@ public class AskAdminController {
      * @param settingsService   resolves the calling admin's user id
      * @param driveTimeResolver whether the calling admin has stored drive times
      * @param readyService      the Ready precompute
+     * @param metricsService    the question-log metrics
      */
     public AskAdminController(AskProperties properties, AskEngine engine,
             AskSnapshotBuilder snapshotBuilder, RegionRepository regionRepository,
             UserSettingsService settingsService, DriveTimeResolver driveTimeResolver,
-            AskReadyService readyService) {
+            AskReadyService readyService, AskMetricsService metricsService) {
         this.properties = properties;
         this.engine = engine;
         this.snapshotBuilder = snapshotBuilder;
@@ -75,6 +79,7 @@ public class AskAdminController {
         this.settingsService = settingsService;
         this.driveTimeResolver = driveTimeResolver;
         this.readyService = readyService;
+        this.metricsService = metricsService;
     }
 
     /**
@@ -189,6 +194,32 @@ public class AskAdminController {
         }
         return ResponseEntity.ok(new PrecomputeResponse(result.written(), result.skipped(),
                 result.failed()));
+    }
+
+    /**
+     * How Ask PhotoCast is being used and what it costs over the last {@code days} UK civil days
+     * (including today): the count of each outcome, the cache-hit, Ready-match and can't-answer rates,
+     * the most common things PhotoCast was asked for and does not have, and the typed and Ready spend.
+     * <b>It never returns a question</b>, raw or normalised (see {@link AskMetricsService}).
+     *
+     * @param days the window as text; a whole number, clamped to 1..90 rather than refused (so an
+     *             absurdly large or negative one is a valid request), default 7
+     * @return 200 with the metrics; 400 when {@code days} is not a whole number; 404 when Ask is off
+     */
+    @GetMapping("/metrics")
+    public ResponseEntity<?> metrics(@RequestParam(name = "days", required = false) String days) {
+        if (!properties.isEnabled()) {
+            return ResponseEntity.notFound().build();
+        }
+        int window = AskMetricsService.DEFAULT_DAYS;
+        if (days != null && !days.isBlank()) {
+            try {
+                window = AskMetricsService.clampDays(days.strip());
+            } catch (NumberFormatException e) {
+                return badRequest("days must be a whole number.");
+            }
+        }
+        return ResponseEntity.ok(metricsService.metrics(window));
     }
 
     /** The calling admin as a conversation's asker: their id, and whether they have drive times. */

@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.UserSettingsService.HomeLocation;
 import com.gregochr.goldenhour.service.ask.AskAnswer;
 import com.gregochr.goldenhour.service.ask.AskEngine;
+import com.gregochr.goldenhour.service.ask.AskMetricsService;
 import com.gregochr.goldenhour.service.ask.AskOutcome;
 import com.gregochr.goldenhour.service.ask.AskPick;
 import com.gregochr.goldenhour.service.ask.AskProperties;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,17 +35,22 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsStringIgnoringCase;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -69,6 +76,8 @@ class AskAdminControllerTest extends AbstractControllerTest {
     private RegionRepository regionRepository;
     @MockitoBean
     private AskReadyService readyService;
+    @MockitoBean
+    private AskMetricsService metricsService;
 
     private final AskSnapshot snapshot = new AskSnapshot(null, null, LocalDate.of(2026, 10, 5), List.of(),
             List.of(), List.of());
@@ -273,7 +282,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
         var response = controller.dryRun(null, null);
 
         assertThat(response.getStatusCode().value()).isEqualTo(400);
-        assertThat(response.getBody()).isEqualTo(java.util.Map.of("error", "A request body is required."));
+        assertThat(response.getBody()).isEqualTo(Map.of("error", "A request body is required."));
         verifyNoInteractions(engine, snapshotBuilder);
     }
 
@@ -426,5 +435,103 @@ class AskAdminControllerTest extends AbstractControllerTest {
         mockMvc.perform(post(PRECOMPUTE_URL))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("a precompute is already running"));
+    }
+
+    // -- GET /api/admin/ask/metrics -----------------------------------------------------------------
+
+    private static final String METRICS_URL = "/api/admin/ask/metrics";
+
+    private static AskMetricsService.Metrics metricsFor(int days) {
+        return new AskMetricsService.Metrics(days, LocalDate.of(2026, 10, 6), 12,
+                Map.of("CLAUDE_OK", 12L), 0.25, 0.0, 0.1,
+                List.of(new AskMetricsService.MissingPhrase("car park information", 4)), 0.31, 1.2);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/admin/ask/metrics: ADMIN gets the metrics, 7 days by default, and no question in them")
+    void metrics_admin_ok() throws Exception {
+        when(metricsService.metrics(7)).thenReturn(metricsFor(7));
+
+        mockMvc.perform(get(METRICS_URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days").value(7))
+                .andExpect(jsonPath("$.total").value(12))
+                .andExpect(jsonPath("$.outcomes.CLAUDE_OK").value(12))
+                .andExpect(jsonPath("$.cacheHitRate").value(0.25))
+                .andExpect(jsonPath("$.topMissing[0].phrase").value("car park information"))
+                .andExpect(jsonPath("$.topMissing[0].count").value(4))
+                .andExpect(jsonPath("$.typedSpendUsd").value(0.31))
+                .andExpect(jsonPath("$.readySpendUsd").value(1.2))
+                .andExpect(content().string(not(containsStringIgnoringCase("question"))));
+    }
+
+    @ParameterizedTest(name = "days={0} reaches the service as {1}")
+    @CsvSource({"-1, 1", "0, 1", "1, 1", "89, 89", "90, 90", "91, 90", "500, 90", "99999999999999999999, 90",
+            "-99999999999999999999, 1", "+7, 7"})
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("days is clamped to 1..90 before the service sees it")
+    void metrics_daysClamped(String requested, int expected) throws Exception {
+        when(metricsService.metrics(expected)).thenReturn(metricsFor(expected));
+
+        mockMvc.perform(get(METRICS_URL).param("days", requested))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days").value(expected));
+        verify(metricsService).metrics(expected);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("a non-numeric days is a 400, a blank one is the default 7")
+    void metrics_badDays() throws Exception {
+        mockMvc.perform(get(METRICS_URL).param("days", "lots")).andExpect(status().isBadRequest());
+        mockMvc.perform(get(METRICS_URL).param("days", "7.5")).andExpect(status().isBadRequest());
+        verifyNoInteractions(metricsService);
+
+        when(metricsService.metrics(7)).thenReturn(metricsFor(7));
+        mockMvc.perform(get(METRICS_URL).param("days", " ")).andExpect(status().isOk());
+        verify(metricsService).metrics(7);
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("the metrics are 403 for PRO_USER and never read")
+    void metrics_pro_forbidden() throws Exception {
+        mockMvc.perform(get(METRICS_URL)).andExpect(status().isForbidden());
+        verifyNoInteractions(metricsService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("the metrics are 403 for LITE_USER and never read")
+    void metrics_lite_forbidden() throws Exception {
+        mockMvc.perform(get(METRICS_URL)).andExpect(status().isForbidden());
+        verifyNoInteractions(metricsService);
+    }
+
+    @Test
+    @DisplayName("the metrics are 401 without authentication")
+    void metrics_anonymous_unauthorised() throws Exception {
+        mockMvc.perform(get(METRICS_URL)).andExpect(status().isUnauthorized());
+        verifyNoInteractions(metricsService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("with Ask off the metrics are 404")
+    void metrics_flagOff_404() throws Exception {
+        properties.setEnabled(false);
+
+        mockMvc.perform(get(METRICS_URL)).andExpect(status().isNotFound());
+        verifyNoInteractions(metricsService);
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("with Ask off a non-admin is still 403 on the metrics: the role check comes first")
+    void metrics_flagOff_nonAdminStill403() throws Exception {
+        properties.setEnabled(false);
+
+        mockMvc.perform(get(METRICS_URL)).andExpect(status().isForbidden());
     }
 }

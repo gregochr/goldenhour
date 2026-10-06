@@ -27,14 +27,15 @@ import java.util.Set;
  *       before the snapshot is built. 429 {@code RATE_LIMITED}.</li>
  *   <li><b>Sanitise and validate</b> ({@link AskQuestionSanitiser#sanitiseTyped}, the view, the
  *       regions). 400 {@code INVALID}.</li>
- *   <li>Pre-filter ({@link AskPreFilter}; B5, no-op here): a can't-answer phrase. Free.</li>
+ *   <li>Pre-filter ({@link AskPreFilter}): a can't-answer phrase. Free; runs before the Ready match,
+ *       so "is the car park busy this weekend" is a can't-answer, never a Ready answer.</li>
  *   <li><b>Snapshot</b> ({@link AskSnapshotBuilder#current()}, memoised): <em>first built here</em>.
  *       None built yet is 503 {@code TYPED_UNAVAILABLE}, which the client shows as "Ready questions
  *       only today" — honest, since with no briefing nothing can be answered (a 409, as the admin
  *       dry-run answers, has no row in the plan's error table). A {@code windowId} outside the window
  *       set is ignored.</li>
- *   <li>Ready intent match ({@link AskIntentMatcher}; B5, no-op here). Free.</li>
- *   <li>Typed cache ({@link AskAnswerCache}; B5, no-op here). Free.</li>
+ *   <li>Ready intent match ({@link AskIntentMatcher}). Free.</li>
+ *   <li>Typed cache ({@link AskAnswerCache}). Free.</li>
  *   <li><b>Spend cap and accounting latch</b> ({@link AskSpendGuard}). 503 {@code TYPED_UNAVAILABLE},
  *       before anything is reserved.</li>
  *   <li><b>Daily ceilings</b> ({@link AskUsageStore#reserve}): one atomic reservation of the allowance
@@ -82,6 +83,7 @@ public class AskService {
     private final AskIntentMatcher intentMatcher;
     private final AskAnswerCache cache;
     private final AskLog askLog;
+    private final AskDenialCounter denials;
     private final Clock clock;
 
     /**
@@ -97,10 +99,11 @@ public class AskService {
      * @param spendGuard        the spend cap and the accounting latch
      * @param readyService      chooses the {@code try} suggestions
      * @param driveTimeResolver whether the asker has stored drive times
-     * @param preFilter         B5's can't-answer pre-filter (a no-op until then)
-     * @param intentMatcher     B5's Ready intent match (a no-op until then)
-     * @param cache             B5's typed-answer cache (a no-op until then)
-     * @param askLog            B5's question log (a no-op until then)
+     * @param preFilter         the can't-answer pre-filter (step 3)
+     * @param intentMatcher     the Ready intent match (step 5)
+     * @param cache             the typed-answer cache (step 6)
+     * @param askLog            the question log (step 10)
+     * @param denials           counts denied requests, for the hourly INFO line
      * @param clock             the application clock (the UK civil day); a POST sees the real clock
      */
     public AskService(AskProperties properties, AskRateLimiter rateLimiter,
@@ -108,7 +111,8 @@ public class AskService {
             AskSnapshotBuilder snapshotBuilder, AskEngine engine, AskUsageStore usageStore,
             AskSpendGuard spendGuard, AskReadyService readyService,
             DriveTimeResolver driveTimeResolver, AskPreFilter preFilter,
-            AskIntentMatcher intentMatcher, AskAnswerCache cache, AskLog askLog, Clock clock) {
+            AskIntentMatcher intentMatcher, AskAnswerCache cache, AskLog askLog,
+            AskDenialCounter denials, Clock clock) {
         this.properties = properties;
         this.rateLimiter = rateLimiter;
         this.userRepository = userRepository;
@@ -123,6 +127,7 @@ public class AskService {
         this.intentMatcher = intentMatcher;
         this.cache = cache;
         this.askLog = askLog;
+        this.denials = denials;
         this.clock = clock;
     }
 
@@ -151,7 +156,7 @@ public class AskService {
         AppUserEntity user = resolveUser(auth);
         if (!rateLimiter.tryAcquire(user.getId())) {
             LOG.debug("[ASK] User {} is over the rate limit", user.getId());
-            throw new AskRefusal(AskErrorCode.RATE_LIMITED);
+            throw denied(user.getId(), new AskRefusal(AskErrorCode.RATE_LIMITED));
         }
         return user;
     }
@@ -171,10 +176,15 @@ public class AskService {
 
         // 1. The rate limit was applied by admit(), before the body was converted.
         // 2. Sanitise and validate.
-        Asked asked = validate(request);
+        Asked asked;
+        try {
+            asked = validate(request);
+        } catch (AskRefusal refusal) {
+            throw denied(userId, refusal);
+        }
         AskQuestion question = asked.question();
 
-        // 3. Can't-answer pre-filter (B5).
+        // 3. Can't-answer pre-filter.
         Optional<AskAnswer> refused = preFilter.refuse(question);
         if (refused.isPresent()) {
             return cant(userId, user, refused.get(), asked, null, startedAt,
@@ -183,14 +193,14 @@ public class AskService {
 
         // 4. Snapshot — the first place it is built.
         AskSnapshot snapshot = snapshotBuilder.current()
-                .orElseThrow(() -> new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE));
+                .orElseThrow(() -> denied(userId, new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE)));
         question = withWindow(question, snapshot);
         AskUserContext context = new AskUserContext(userId, user.getRole(),
                 driveTimeResolver.hasDriveTimes(userId));
         LocalDate day = ForecastHorizon.today(clock);
         int limit = properties.limitFor(user.getRole());
 
-        // 5. Ready intent match (B5): free.
+        // 5. Ready intent match: free.
         Optional<AskReadyResponse.Question> ready = intentMatcher.match(question, snapshot,
                 asked.scopeKey(), asked.scopeNames());
         if (ready.isPresent()) {
@@ -202,7 +212,7 @@ public class AskService {
             return response;
         }
 
-        // 6. Typed cache (B5): free.
+        // 6. Typed cache: free.
         Optional<AskAnswer> hit = cache.lookup(question, snapshot, context);
         if (hit.isPresent()) {
             AskResponse response = own(hit.get(), snapshot, left(userId, day, limit), limit, false);
@@ -212,7 +222,7 @@ public class AskService {
 
         // 7. Spend cap and the accounting latch — before anything is reserved.
         if (spendGuard.refuse()) {
-            throw new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE);
+            throw denied(userId, new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE));
         }
 
         // 8. Daily ceilings: one atomic reservation of the allowance and the engine-call ceiling.
@@ -221,7 +231,7 @@ public class AskService {
         // The cap and the reservation are separate steps: ask the cap again at the last moment.
         if (spendGuard.refuse()) {
             usageStore.refund(userId, day);
-            throw new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE);
+            throw denied(userId, new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE));
         }
 
         // 9. Engine.
@@ -300,6 +310,19 @@ public class AskService {
         return new Asked(question, AskReadyService.ALL, Set.of());
     }
 
+    /**
+     * Counts a refusal as a denied request (no {@code ask_log} row, an hourly INFO line instead) and
+     * returns it to be thrown. The counter never throws into the request.
+     */
+    private AskRefusal denied(long userId, AskRefusal refusal) {
+        try {
+            denials.record(userId, refusal.code());
+        } catch (RuntimeException e) {
+            LOG.warn("[ASK] A denied request could not be counted: {}", e.toString());
+        }
+        return refusal;
+    }
+
     private static AskRefusal invalid(String message) {
         return new AskRefusal(AskErrorCode.INVALID, message);
     }
@@ -323,14 +346,15 @@ public class AskService {
         } catch (RuntimeException e) {
             // Nothing was reserved, so nothing is spent: fail closed.
             LOG.error("[ASK] Could not reserve a question for user {}: {}", userId, e.toString());
-            throw new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE);
+            throw denied(userId, new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE));
         }
         switch (reservation) {
             case RESERVED -> { }
-            case ALLOWANCE_EXHAUSTED -> throw new AskRefusal(AskErrorCode.ALLOWANCE_EXHAUSTED);
+            case ALLOWANCE_EXHAUSTED -> throw denied(userId,
+                    new AskRefusal(AskErrorCode.ALLOWANCE_EXHAUSTED));
             case DAILY_LIMIT -> {
                 LOG.warn("[ASK] User {} reached the daily engine-call ceiling {}", userId, ceiling);
-                throw new AskRefusal(AskErrorCode.DAILY_LIMIT);
+                throw denied(userId, new AskRefusal(AskErrorCode.DAILY_LIMIT));
             }
             default -> throw new IllegalStateException("Unhandled reservation " + reservation);
         }
