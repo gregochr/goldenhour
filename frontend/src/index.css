@@ -1018,16 +1018,6 @@
 }
 .wf-tick-group[data-away='true'] .wf-tick-sep { background: rgba(143, 182, 217, 0.45); }
 .wf-tick-glyph { font-size: 12px; }
-/* The keyboard hint, hidden on a phone — which has no keyboard to press it with, and no room. */
-.wf-tick-kbd {
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  line-height: 1;
-  padding: 2px 4px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 4px;
-  color: var(--color-plex-text-secondary);
-}
 .wf-tick-home {
   display: inline-flex;
   align-items: center;
@@ -1382,7 +1372,6 @@
     letter-spacing: 0.08em;
   }
   .wf-tick-home { min-width: 34px; min-height: 34px; }
-  .wf-tick-kbd { display: none; }
   .wf-tick-times {
     gap: 9px;
     font-size: 8.5px;
@@ -11406,7 +11395,7 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 /* THE TABLET FIELD, beside the tab list in the tab ROW. The tab list is a flex item that keeps its
    own overflow-x scroll (`min-width: 0`); the row is a plain flex row with or without the field, so
    a tab row without Ask lays out as it always did. */
-.wf-tabrow { display: flex; align-items: flex-end; }
+.wf-tabrow { display: flex; align-items: flex-end; container: wf-tabrow / inline-size; }
 .wf-tabrow > .wf-tabs { flex: 1 1 0; min-width: 0; }
 .wf-askf {
   flex: none;
@@ -11464,14 +11453,33 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   border-radius: 5px;
   padding: 1px 5px;
 }
-/* With four tabs (an admin) 260px does not fit beside them under 720px: the field becomes a 34px
-   "Ask" button. The label is CLIPPED, not hidden, so the prompt stays in the accessible name. */
-@media (max-width: 719px) {
-  .wf-tabrow[data-tab-count="4"] .wf-askf {
+/* With four tabs (an admin) 260px does not fit beside them under 720px of COLUMN width: the field
+   becomes a 34px "Ask" button. The label is CLIPPED, not hidden, so the prompt stays in the accessible
+   name.
+
+   ⚠️ A CONTAINER query on `.wf-tabrow`, not a viewport one (F2). Until the dock, the column was the
+   viewport minus `<main>`'s 32px, so a viewport query was a fair stand-in for "how much room is there".
+   The dock narrows the COLUMN and not the viewport: a 360px dock at a 1024px viewport leaves ~632px,
+   where no viewport query fires and four tabs plus a 260px field would scroll the tab list. The same
+   rule now also collapses the tablet's field at a column of 719px (a viewport of ~751px), 32px earlier
+   than the media query it replaces did — the safe direction, since that estimate left under 10px of
+   slack. Whether it fits is a browser check, not a jsdom test.
+
+   The 340px form (from 1180px, with the dock open the column is the viewport minus 412px) needs ~80px
+   more than the 260px one, so with four tabs it steps down to 260 under an ESTIMATED 800px before it
+   collapses at 720 — a hand estimate like the 720 itself, and in the same safe direction. The 34px rule
+   below names `[data-width]` so it outranks this one by specificity as well as by source order. */
+@container wf-tabrow (max-width: 799px) {
+  .wf-tabrow[data-tab-count="4"] .wf-askf[data-width="340"] { width: 260px; }
+}
+@container wf-tabrow (max-width: 719px) {
+  .wf-tabrow[data-tab-count="4"] .wf-askf[data-width] {
     width: 34px;
     padding: 0;
     justify-content: center;
   }
+  /* The key cap has no room in a 34px button, and no meaning: it is aria-hidden already. */
+  .wf-tabrow[data-tab-count="4"] .wf-askf-kbd { display: none; }
   .wf-tabrow[data-tab-count="4"] .wf-askf-q {
     position: absolute;
     width: 1px;
@@ -11585,4 +11593,115 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 .wf-ask-act:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
+}
+
+/* THE SHELL COLUMN AND THE DOCK (F2, `docs/engineering/ask-photocast-plan.md` §2.6, §5 D-4).
+
+   `.wf-shell-col` is the masthead, the tab row and the panel region — always rendered, a plain block
+   when nothing is docked. With the dock open the shell ROOT becomes a row, `[column][dock]`, centred
+   as a pair: the column takes what the dock leaves (up to the shell's own `WRAP_MAX_WIDTH`, which the
+   shell sets inline from that one constant, so no 1080 is written here to drift), and the masthead
+   and the panel inside it narrow together — O-17's "the two columns never drift apart" holds because
+   they still share one parent, not because two widths were kept in step. `min-width: 0` lets the
+   column shrink below its content instead of pushing the dock off the page.
+
+   On the Map tab the root is `flex` WITHOUT `flex-col` while docked (the shell drops the utility), so
+   this rule is the only one that names its direction. */
+.wf-shell-col { min-width: 0; }
+.wf-shell--docked { display: flex; flex-direction: row; justify-content: center; }
+.wf-shell--docked > .wf-shell-col { flex: 1 1 0%; }
+
+/* The dock itself: 380px from 1180px, 360px from 1024 (`data-band`, from `useAskSurface`). The OUTER box
+   animates its width in from 0 and clips; the INNER box is always the full width, so nothing inside
+   reflows while it opens. The 1px edge is the inner box's, so a dock at width 0 draws nothing. The map
+   needs no handling for the animation: its pane's `ResizeObserver` fires on every frame and
+   `MapSizeSync` keeps invalidating until 340ms after the last one. */
+.wf-ask-dock {
+  --wf-dock-w: 380px;
+  flex: none;
+  width: var(--wf-dock-w);
+  overflow: hidden;
+  background: var(--color-plex-bg);
+  display: flex;
+  flex-direction: column;
+  animation: wf-ask-dock-in .28s cubic-bezier(.3, .7, .2, 1);
+}
+.wf-ask-dock[data-band="desktop"] { --wf-dock-w: 360px; }
+@keyframes wf-ask-dock-in {
+  from { width: 0; }
+  to { width: var(--wf-dock-w); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-ask-dock { animation: none; }
+}
+/* Plan and Coming up: the document scrolls, so the dock sticks to the viewport and ends at its bottom.
+   `--wf-dock-top` is published by `AskDock` (the dock's own distance from the viewport top until it
+   sticks), so a 100dvh box does not hang below the fold on the first paint with its input row.
+
+   The insets: the page is `viewport-fit=cover`, so a sticky box at `top: 0` of a 100dvh height would
+   put its header under the status bar and its input row on the home indicator on an iPad at 1024px
+   (the root's own safe padding does not reach a sticky box, which is viewport-relative). It sticks
+   at `--safe-t` and gives `--safe-b` back; once stuck, `--wf-dock-top` IS `--safe-t`, so the two
+   terms are not counted twice. Every inset is 0 on a desktop. */
+.wf-ask-dock[data-sticky] {
+  position: sticky;
+  top: var(--safe-t);
+  align-self: flex-start;
+  height: calc(100dvh - var(--safe-b) - var(--wf-dock-top, 0px));
+}
+/* The Map: the frame's own height, from the root row, which has a definite one. */
+.wf-ask-dock:not([data-sticky]) { align-self: stretch; min-height: 0; }
+.wf-ask-dock-inner {
+  width: var(--wf-dock-w);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-plex-border-light);
+}
+.wf-ask-dock-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px 10px 16px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-ask-dock-t {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--color-home);
+}
+.wf-ask-dock-ctx {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-ask-dock-x {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: none;
+  border: 0;
+  color: var(--color-plex-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wf-ask-dock-x:hover { color: var(--color-plex-text); }
+.wf-ask-dock-x:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+/* The conversation's own scroller; the input row after it is `flex: none` and so stays at the foot. */
+.wf-ask-dock-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px 14px;
 }

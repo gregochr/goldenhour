@@ -73,6 +73,27 @@ import { foreignModalOverPaneOf } from '../utils/mapForeignModal.js';
 export const MAP_FRAME_SELECTOR = '[data-testid="map-container"]';
 
 /**
+ * Ask PhotoCast's docked column (`docs/engineering/ask-photocast-plan.md` §2.6). A press inside it is
+ * treated exactly like a press inside the map frame: it dismisses nothing, so choosing a pick card
+ * does not close an open drilldown the reader is comparing it with. The dock is a sibling of the
+ * whole shell column, outside the map frame and outside every panel's own root, so without this a
+ * press in it would satisfy both of the tests below and dismiss the panel.
+ */
+export const ASK_SURFACE_SELECTOR = '[data-ask-surface]';
+
+/**
+ * Whether {@code target} is inside Ask PhotoCast's docked column.
+ *
+ * <p>Same shape, and the same non-{@link Element} rule, as {@link isInsideMapFrame}.
+ *
+ * @param {EventTarget|null} target
+ * @returns {boolean}
+ */
+export function isInsideAskSurface(target) {
+  return target instanceof Element && Boolean(target.closest(ASK_SURFACE_SELECTOR));
+}
+
+/**
  * Whether a press on {@code target} should leave the map's panels open.
  *
  * <p>Exported so a caller (and a test) can ask the question without mounting a listener. Anything
@@ -108,6 +129,9 @@ export function useOutsideDismiss({ open, rootRef, onDismiss, enabled = true }) 
     function onDocMouseDown(e) {
       if (!rootRef.current || rootRef.current.contains(e.target)) return;
       if (isInsideMapFrame(e.target)) return;
+      // Ask's dock is the same kind of neighbour the map is: a press in it is part of the reader's
+      // comparison, not a decision to put the panel away (plan §2.6, "Outside press").
+      if (isInsideAskSurface(e.target)) return;
       // ⚠️ The POINTER twin of `map-landing-plan.md` §4 #37, found by an accessibility lens on the
       // Escape fix. A press inside a dialog from outside the pane — a row in the four-day sheet,
       // its close button, its backdrop — is neither inside `rootRef` nor inside the map frame, so

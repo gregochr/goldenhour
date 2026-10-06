@@ -305,189 +305,56 @@ describe('WindowFirstShell — the origin', () => {
     });
   });
 
-  describe('the / shortcut', () => {
+  describe('search is reached by its buttons — `/` is Ask\'s key now (F2, plan §6 Q1)', () => {
     /**
-     * Opens search with {@code /} and closes it again: the positive control every refusal below
-     * runs before its own press, when what that refusal asserts is an absence.
+     * Opens search with the ⌕ and closes it again: the positive control the absence below runs first.
      *
-     * <p>⚠️ <b>Without it, each absence below holds with its guard deleted, when run alone.</b>
-     * {@code PlanSearch} is {@code lazy()}, and the first time the shell renders it, it suspends,
-     * even when its module is already loaded (measured). A press the guard failed to refuse then
-     * commits only the {@code Suspense} fallback, which draws nothing, so
-     * {@code queryByTestId('plan-search')} is null whether or not the press opened search. In a
-     * whole-file run the refusals did fail on their mutants, but only because an earlier test had
-     * already opened search.
-     *
-     * <p>Opening search once through the shell, and waiting for it, settles that first suspension.
-     * From then on, a press that opens search renders it in that press's own commit, so an absence
-     * asserted straight after the press means the press was refused. Escape closes it again, so
-     * each refusal starts with no dialog open.
+     * <p>⚠️ <b>Without it the absence holds with the shortcut restored, when run alone.</b>
+     * {@code PlanSearch} is {@code lazy()}, and the first time the shell renders it, it suspends, even
+     * when its module is already loaded (measured). A press that opened it would then commit only the
+     * {@code Suspense} fallback, which draws nothing, so {@code queryByTestId('plan-search')} is null
+     * whether or not the press opened search. Opening it once through the button, and waiting for it,
+     * settles that first suspension; from then on a press that opens search renders it in its own
+     * commit, so an absence asserted straight after means the press did nothing.
      */
     const openAndCloseSearch = async () => {
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
       fireEvent.keyDown(document, { key: 'Escape' });
       expect(screen.queryByTestId('plan-search')).toBeNull();
     };
 
-    it('opens search on the Plan tab', async () => {
+    it('opens search from the ⌕ button on the Plan tab', async () => {
       renderShell();
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
     });
 
-    /**
-     * The four kinds of field the guard names, one case each, because each is its own clause:
-     * while only the input was tested, deleting any of the other three failed nothing.
-     *
-     * <p>⚠️ jsdom has no {@code isContentEditable}, and no {@code contentEditable} either: on jsdom
-     * 30.0.1, {@code 'isContentEditable' in HTMLElement.prototype} is false. An element carrying
-     * only the attribute is therefore no field here, and correct code opens search over it. So the
-     * host is given the {@code true} a browser computes from that attribute, and keeps the
-     * attribute too, so a guard that reads either one still refuses.
-     */
-    const FIELDS = [
-      ['an input', () => document.createElement('input')],
-      ['a textarea', () => document.createElement('textarea')],
-      ['a select', () => document.createElement('select')],
-      ['a contenteditable element', () => {
-        const host = document.createElement('div');
-        host.setAttribute('contenteditable', 'true');
-        Object.defineProperty(host, 'isContentEditable', { value: true });
-        return host;
-      }],
-    ];
-
-    it.each(FIELDS)('⚠️ is ignored while the reader is typing in %s', async (_kind, makeField) => {
+    it('⚠️ `/` no longer opens it, and the press is left alone (it is the reader\'s own character)', async () => {
+      // The shortcut's whole body moved to Ask (`AskShellKey.test.jsx` holds every refusal it kept).
+      // Here Ask is not mounted at all, so `/` has no behaviour: nothing opens, and nothing is
+      // swallowed — `defaultPrevented` is the lazy-proof observable for "this key did nothing".
       renderShell();
       await openAndCloseSearch();
-      const field = makeField();
-      document.body.appendChild(field);
-      try {
-        field.focus();
-        expect(field).toHaveFocus();
-        const press = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
-        fireEvent(field, press);
-        expect(screen.queryByTestId('plan-search')).toBeNull();
-        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
-        // The `/` is the reader's own character here, so opening nothing is not enough: the press
-        // must still reach the field.
-        expect(press.defaultPrevented).toBe(false);
-      } finally {
-        field.remove();
-      }
-    });
-
-    it.each(['metaKey', 'ctrlKey', 'altKey'])(
-      '⚠️ is ignored when %s is held, so browser shortcuts are untouched',
-      async (modifier) => {
-        renderShell();
-        await openAndCloseSearch();
-        const press = new KeyboardEvent('keydown', {
-          key: '/', bubbles: true, cancelable: true, [modifier]: true,
-        });
-        fireEvent(document, press);
-        expect(screen.queryByTestId('plan-search')).toBeNull();
-        expect(screen.queryAllByRole('dialog')).toHaveLength(0);
-        // Untouched means the browser still gets the press, not only that search stays shut.
-        expect(press.defaultPrevented).toBe(false);
-      },
-    );
-
-    it('⚠️ still opens with Shift held, because some keyboards need Shift to type it', async () => {
-      // On a German layout `/` is Shift+7, so the press arrives as `key: '/'` with `shiftKey` set.
-      // Shift is left out of the refusal above on purpose. The shell's arrow-key rule does refuse
-      // Shift, so a modifier check shared by the two would take this shortcut away from those
-      // readers, and until this test nothing failed when Shift was added.
-      renderShell();
-      const press = new KeyboardEvent('keydown', {
-        key: '/', bubbles: true, cancelable: true, shiftKey: true,
-      });
+      const press = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
       fireEvent(document, press);
-      expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
-    });
-
-    it('⚠️ is ignored while search is open, so what the reader typed survives', async () => {
-      // Search is keyed on its seed, so a `/` this guard let through would set the seed back to ''
-      // and remount the box empty. The seed comes from the beyond line's link: a box opened with
-      // `/` already has '' for a seed, and setting it again changes nothing on screen.
-      // No `openAndCloseSearch` first: what is asserted is a box that is already on screen, so the
-      // lazy boundary has resolved before the press.
-      renderShell({
-        reachById: new Map([[1, { driveMinutes: 400 }], [2, { driveMinutes: 40 }]]),
-      });
-      fireEvent.click(await screen.findByTestId('wf-heat-beyond-search'));
-      const input = await screen.findByTestId('plan-search-input');
-      expect(input).toHaveValue('Lake District');
-      fireEvent.change(input, { target: { value: 'Lake' } });
-      // Focus moves off the field first, because a `/` typed into the field is refused by the field
-      // guard whether or not this one works. A click on the panel that misses its controls, such
-      // as on a group heading, leaves focus on the dialog root (measured in Chromium, WebKit and
-      // Firefox, on a static page with the same structure).
-      const dialog = screen.getByRole('dialog', { name: 'Search days, regions and places' });
-      dialog.focus();
-      expect(dialog).toHaveFocus();
-
-      fireEvent.keyDown(dialog, { key: '/' });
-
-      expect(screen.getByTestId('plan-search-input')).toHaveValue('Lake');
-    });
-
-    it('⚠️ is ignored while a dialog this shell does not own is open', async () => {
-      // `UserSettingsModal` is a SIBLING of the shell in `App`, so the shell's own `modalOpen` flag
-      // cannot see it — and `/` over it stacked a second `aria-modal` overlay, with two
-      // document-level Escape handlers and two interleaved focus restores.
-      renderShell();
-      // Before the foreign dialog exists, because that dialog refuses the control's own press.
-      await openAndCloseSearch();
-      const foreign = document.createElement('div');
-      foreign.setAttribute('role', 'dialog');
-      document.body.appendChild(foreign);
-      try {
-        fireEvent.keyDown(document, { key: '/' });
-        expect(screen.queryByTestId('plan-search')).toBeNull();
-        // `getByRole` throws on a second dialog, so this also says nothing else opened.
-        expect(screen.getByRole('dialog')).toBe(foreign);
-      } finally {
-        foreign.remove();
-      }
-    });
-
-    it('is ignored while the arm is greyed for a dead backend', async () => {
-      // The shell is `pointer-events: none` under `contentDisabled`; a keyboard shortcut into it
-      // would be the one live control on a surface that says it is not.
-      const value = ctx();
-      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
-      const props = shellProps();
-      const view = render(<WindowFirstShell {...props} />);
-      // The control needs a live arm, because a greyed one refuses it too, so the arm greys after
-      // it. That is also the app's order: health status starts unknown, so the shell first mounts
-      // live and greys only once the status reads DOWN.
-      await openAndCloseSearch();
-      view.rerender(<WindowFirstShell {...props} contentDisabled />);
-
-      fireEvent.keyDown(document, { key: '/' });
       expect(screen.queryByTestId('plan-search')).toBeNull();
       expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+      expect(press.defaultPrevented).toBe(false);
     });
 
-    it('is ignored on another tab, where there is no window list to search into', async () => {
+    it('⚠️ and not with Shift held either, which is how some layouts type it', async () => {
       renderShell();
-      // The control runs on Plan, the only tab where `/` opens search. Without it, this absence is
-      // only the unresolved lazy boundary (see `openAndCloseSearch`), and the test passed alone
-      // with the tab guard deleted.
       await openAndCloseSearch();
-      fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.keyDown(document, { key: '/', shiftKey: true });
       expect(screen.queryByTestId('plan-search')).toBeNull();
-      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
     });
   });
 
   describe('search moves the origin', () => {
     it('hands the region RECORD to setOrigin, so a baseless one cannot become an origin', async () => {
       const value = renderShell();
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       const input = await screen.findByTestId('plan-search-input');
       fireEvent.change(input, { target: { value: 'lake' } });
       fireEvent.click(screen.getByRole('option', { name: /Lake District/ }));
@@ -586,7 +453,7 @@ describe('WindowFirstShell — the origin', () => {
       fireEvent.click(await screen.findByTestId('wf-heat-card'));
       expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
 
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       const input = await screen.findByTestId('plan-search-input');
       fireEvent.change(input, { target: { value: 'lake' } });
       fireEvent.click(screen.getByRole('option', { name: /Lake District/ }));
@@ -603,7 +470,7 @@ describe('WindowFirstShell — the origin', () => {
       // it is the one the shell's own "closes FIRST" rule already governs everywhere else.
       renderShell();
       fireEvent.click(await screen.findByTestId('wf-heat-card'));
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       fireEvent.change(await screen.findByTestId('plan-search-input'), { target: { value: 'derwent' } });
       const row = screen.queryAllByRole('option').find((o) => o.dataset.kind === 'location');
       expect(row, 'the fixture must offer a location row, or this test proves nothing').toBeTruthy();

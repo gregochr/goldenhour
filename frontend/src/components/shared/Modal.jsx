@@ -152,7 +152,7 @@ export default function Modal({
    * {@code lastInside} null, so the uncover restored nothing and left them on {@code <body>}
    * beneath a layer that is once again claiming {@code aria-modal="true"} — an AT hiding the rest
    * of the page while focus sits outside the dialog, and the next Tab walking the page behind the
-   * backdrop. Reachable by keyboard: open the popup, press {@code /} for search, then Escape.
+   * backdrop. Reachable by keyboard: open the popup, press the masthead's ⌕ for search, then Escape.
    *
    * <p>⚠️ <b>Not every-time on every engine, and the first draft of this said otherwise.</b> Paired
    * old-vs-new runs through Playwright: on WebKit the reader is stranded on every attempt; on

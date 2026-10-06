@@ -243,13 +243,14 @@ describe('the breakpoints', () => {
     expect(screen.queryByTestId(absent)).toBeNull();
   });
 
-  it('at 1024 px neither is drawn: the desktop dock and its field are F2\'s', async () => {
+  it('at 1024 px the phone bar is not drawn: the field is, and it opens the DOCK (F2), not the sheet', async () => {
     renderAskShell({ width: 1024 });
-    // Ask has resolved to "on" by the time the settings read has settled; the absence is then real.
-    await waitFor(() => expect(getAskSettings).toHaveBeenCalled());
-    await act(async () => {});
+    expect(await fieldReady()).toBeEnabled();
     expect(screen.queryByTestId('ask-bar')).toBeNull();
-    expect(screen.queryByTestId('ask-field')).toBeNull();
+    fireEvent.click(field());
+    expect(await screen.findByTestId('ask-dock')).toBeInTheDocument();
+    // No modal sheet: the dock is the surface from here up, and it is not a dialog.
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('swaps the bar for the field when the window is widened across 640', async () => {
@@ -567,8 +568,10 @@ describe('the sheet', () => {
       expect(screen.queryByRole('dialog', { name: 'Ask PhotoCast' })).toBeNull();
     });
 
-    it('lands focus on the tab in force when the entry that opened it has gone, never on <body>', async () => {
-      // The bar unmounts with the sheet (the window crosses 1023px), so there is no opener to return to.
+    it('lands focus on the entry that replaced the one that opened it, never on <body>', async () => {
+      // The bar unmounts with the sheet (the window crosses 1023px), so the opener it would return to
+      // is gone. From 1024px the dock's field is drawn in its place (F2), and it is the next best
+      // address: it is connected and enabled, which is exactly what the fallback asks.
       const { viewport } = renderAskShell({ width: 390 });
       await openSheet();
       await waitFor(() => expect(screen.getByTestId('ask-input')).toHaveFocus());
@@ -576,7 +579,7 @@ describe('the sheet', () => {
       act(() => viewport.resize(1024));
 
       expect(screen.queryByTestId('ask-bar')).toBeNull();
-      await waitFor(() => expect(tab('Plan')).toHaveFocus());
+      await waitFor(() => expect(field()).toHaveFocus());
     });
 
     it('moves to the other entry when the phone is widened with the sheet open, and closes by it', async () => {

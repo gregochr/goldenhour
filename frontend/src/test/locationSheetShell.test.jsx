@@ -238,7 +238,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
 
   /** Opens search and picks the named location — the entry that CLOSES the popup first. */
   const openSheetFor = async (name) => {
-    fireEvent.keyDown(document, { key: '/' });
+    fireEvent.click(screen.getByTestId('window-first-search'));
     const input = await screen.findByTestId('plan-search-input');
     fireEvent.change(input, { target: { value: name } });
     fireEvent.click(screen.getByRole('option', { name: new RegExp(name) }));

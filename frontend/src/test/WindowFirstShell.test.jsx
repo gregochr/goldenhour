@@ -587,17 +587,17 @@ describe('WindowFirstShell — the strip it hosts', () => {
        * The whole walk, with SEARCH on top — the rung that was wired at M2 and dormant until M3.
        *
        * <p>M2 built `escapeEnabled` on all three lower layers and recorded that the ordering's
-       * first rung could not be reached: `/` was refused while any dialog was open, and
+       * first rung could not be reached: search was refused while any dialog was open, and
        * `PlanSearch` closes itself on every pick, so search could never be open OVER anything. M3
        * anchors search to the masthead — a surface the popup is drawn over rather than inside — so
-       * `/` is now permitted with the popup open, and this is the first test that can walk all
-       * three layers down.
+       * search is now permitted with the popup open, and this is the first test that can walk all
+       * three layers down. ⚠️ Since F2 it is opened by the masthead's ⌕ here: `/` belongs to Ask.
        */
       it('⚠️ walks search → sheet → popup, one layer per press', async () => {
         renderWithBriefing(twoWindows());
         await openPopup(1);
         fireEvent.click(screen.getByTestId('window-sheet-pick'));
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
         // Search over a sheet over the popup would be three layers; the guard refuses it, so the
         // stack under test is search over the popup. Close the sheet first, then open search.
         expect(screen.queryByTestId('plan-search')).toBeNull();
@@ -605,7 +605,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
         expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
 
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
         expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
         expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
 
@@ -626,7 +626,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         await openPopup(1);
         const before = screen.getByTestId('window-sheet-title').textContent;
 
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
         await screen.findByTestId('plan-search');
         await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
 
@@ -634,12 +634,12 @@ describe('WindowFirstShell — the strip it hosts', () => {
       });
     });
 
-    describe('the / shortcut against the popup', () => {
+    describe('the search button against the popup', () => {
       it('opens search over an open popup — the stack M3 exists to allow', async () => {
         renderWithBriefing(twoWindows());
         await openPopup(1);
 
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
 
         expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
         // The popup stays MOUNTED underneath, which is what makes the Escape order meaningful —
@@ -654,7 +654,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         await openPopup(1);
         fireEvent.click(screen.getByTestId('window-sheet-pick'));
 
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
 
         expect(screen.queryByTestId('plan-search')).toBeNull();
         expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();

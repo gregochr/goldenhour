@@ -183,30 +183,18 @@ describe('Ask over an open dialog is refused, and nothing is closed', () => {
 });
 
 describe('with Ask\'s sheet open, nothing else can open', () => {
-  it('the "/" search shortcut is refused: the sheet is a dialog the shell does not own', async () => {
+  it('the "/" key does nothing under the sheet: below 1024px it has no meaning at all (the dock\'s own suite holds the controls)', async () => {
     renderAskShell({ width: 390 });
     fireEvent.click(await screen.findByTestId('ask-bar'));
     await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
 
     const pressed = fireEvent.keyDown(document, { key: '/' });
 
-    // `fireEvent` returns false when the handler called preventDefault — i.e. when the shortcut acted.
+    // `fireEvent` returns false when the handler called preventDefault — i.e. when the key acted.
     expect(pressed).toBe(true);
     expect(screen.queryByTestId('plan-search-panel')).toBeNull();
+    expect(screen.queryByTestId('ask-dock')).toBeNull();
     expect(modalCount()).toBe(1);
-  });
-
-  it('...and the same key DOES act once the sheet is closed (the positive control for the refusal above)', async () => {
-    renderAskShell({ width: 390 });
-    fireEvent.click(await screen.findByTestId('ask-bar'));
-    await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(askDialog()).toBeNull());
-
-    const pressed = fireEvent.keyDown(document, { key: '/' });
-
-    expect(pressed).toBe(false);
-    expect(await screen.findByTestId('plan-search-panel')).toBeInTheDocument();
   });
 
   it('the page behind it is inert, so a Tab out of the sheet reaches neither a window card nor anything the app draws around the shell', async () => {

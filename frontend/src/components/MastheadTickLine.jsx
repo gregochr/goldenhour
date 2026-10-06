@@ -121,8 +121,9 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * statement). With no home saved it opens the postcode field instead, on every tab, because that is
  * the one thing a reader in that state needs and a button labelled "set a postcode" that opened a
  * search box would be a control whose label lies. Search does not become unreachable on the Plan tab:
- * the ⌕ beside it and the {@code /} key both still open it, which is why the two are separate buttons
- * here rather than one.
+ * the ⌕ beside it still opens it (the {@code /} key it once shared that job with moved to Ask at F2,
+ * and its key cap came off the button with it), which is why the two are separate buttons here rather
+ * than one.
  *
  * <p>⚠️ <b>{@code homePlace} is the authority and {@code light} is only consulted while it is
  * unknown</b>, which is narrower than the OR this shipped with and had to be. The two arrive on
@@ -390,11 +391,10 @@ export default function MastheadTickLine({
                 // who opens it hears the same words the button promised.
                 aria-label="Search days, regions and places"
               >
+                {/* ⚠️ No `/` key cap here any more. The cap advertised the search shortcut, and `/` moved
+                    to Ask at F2 (plan §6 Q1): this button is now the way into search, and a cap on it
+                    would name a key that opens a different surface — the Ask field draws the one. */}
                 <span aria-hidden="true" className="wf-tick-glyph">⌕</span>
-                {/* Hidden on a phone, which has no keyboard to press it with. `aria-hidden` because
-                    the shortcut is an affordance for sighted pointer users; a screen-reader user is
-                    told nothing useful by hearing "slash". */}
-                <kbd aria-hidden="true" className="wf-tick-kbd">/</kbd>
               </button>
             </>
           )}

@@ -573,7 +573,8 @@ describe('WindowFirstShell — the reach lens across tabs', () => {
  *
  * <p>Everything search finds is a Plan object — one of the six windows, a region to plan from, or a
  * place's four-day sheet — and every pick opens a Plan dialog or moves the Plan's origin. The `/`
- * shortcut has been Plan-only since M3. Until 2026-09-16 the masthead's two buttons were not: on
+ * shortcut was Plan-only from M3 until F2 handed the key to Ask; search is now reached through the two
+ * buttons alone. Until 2026-09-16 the masthead's two buttons were not Plan-only: on
  * Coming up (and Operations) the ⌕ and the origin button both opened search, and a pick then opened
  * the window popup or the four-day sheet over a pane that was not the Plan's. `selectTab` exists to
  * prevent exactly that state, and nothing moved the tab. Reproduced in jsdom through both buttons

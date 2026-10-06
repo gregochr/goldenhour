@@ -109,6 +109,16 @@ describe('MastheadTickLine — the origin control', () => {
     expect(onOpenSearch).toHaveBeenCalledTimes(2);
   });
 
+  it('⚠️ the ⌕ carries no `/` key cap: the key moved to Ask (F2), and a cap would name it for search', () => {
+    // The cap used to advertise Plan search's shortcut. `/` now opens the Ask dock, whose own field
+    // draws the one cap on the page; a second, on the search button, would be a lie told twice.
+    renderTick({ onOpenSearch: vi.fn() });
+    const search = screen.getByTestId('window-first-search');
+    expect(search.querySelector('kbd')).toBeNull();
+    expect(search).not.toHaveTextContent('/');
+    expect(search).not.toHaveAttribute('aria-keyshortcuts');
+  });
+
   it('offers the way home only when the origin has moved', () => {
     const onGoHome = vi.fn();
     const { rerender } = render(

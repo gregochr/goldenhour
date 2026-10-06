@@ -1,12 +1,10 @@
 import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import BottomSheet from '../BottomSheet.jsx';
+import AskClearAnswer from './AskClearAnswer.jsx';
 import AskConversation from './AskConversation.jsx';
 import AskInputRow from './AskInputRow.jsx';
 import { useAsk } from '../../context/AskContext.jsx';
-
-/** The phases with something on screen the reader may want to end: not empty, and not still busy. */
-const SETTLED_PHASES = new Set(['answer', 'cant', 'error']);
 
 /**
  * Ask PhotoCast's sheet — the answer surface below 1024px (plan §2.6): a {@link BottomSheet} in its
@@ -54,11 +52,6 @@ export default function AskSheet({
     if (open && !typedDisabled) inputRef.current?.focus({ preventScroll: true });
   }, [open, typedDisabled]);
 
-  const clearAnswer = () => {
-    inputRef.current?.focus({ preventScroll: true });
-    ask.clear();
-  };
-
   return (
     <BottomSheet
       open={open}
@@ -76,16 +69,7 @@ export default function AskSheet({
         viewLabel={viewLabel}
         pickActions={pickActions}
       />
-      {SETTLED_PHASES.has(ask.phase) && (
-        <button
-          type="button"
-          className="wf-ask-clear"
-          data-testid="ask-clear"
-          onClick={clearAnswer}
-        >
-          Clear answer
-        </button>
-      )}
+      <AskClearAnswer inputRef={inputRef} />
     </BottomSheet>
   );
 }

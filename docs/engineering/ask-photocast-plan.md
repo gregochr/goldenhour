@@ -30,7 +30,7 @@ it (adjacent rows conflict between open PRs).
 | B4 | `POST /api/ask`: allowance, limits, spend cap, `GET /api/user/settings/ask` | L | merged (#1021) |
 | B5 | Pre-filter, Ready intent match, typed cache, `ask_log`, metrics endpoint | M/L | merged (#1022) |
 | F1a | Client core, unmounted: API, hooks, provider, pick model, conversation and cards | M/L | merged (#1023) |
-| F1b | Phone and tablet-portrait entry: ask bar, tall sheet, shell wiring | M/L | not started |
+| F1b | Phone and tablet-portrait entry: ask bar, tall sheet, shell wiring | M/L | merged (#1025) |
 | F2 | Desktop: tab-row field, the `/` key, the docked column | L | not started |
 | F3 | Map linkage: numbered picks, dimming, camera, window follow | L | not started |
 | F4 | Phone Map: the ask row in the peek sheet | L | not started |
@@ -1126,7 +1126,7 @@ keyboard does not cover the input.
   and `selectTab`'s body gained exactly one line, `setAskOpen(false)` — so the settings edge, the cog, the nudge, a
   `tabRequest`, the location-sheet handoff and a tab press all close the sheet through the one list. It is never set
   from `AskContext`. What the shell derives from it: `askEntry` (`'bar'` phone on Plan/Coming up; `'field'` tablet on
-  Plan/Coming up/Map; else null — **nothing at ≥ 1024px until F2**), `askSheetOpen = askOpen && askEntry !== null`,
+  Plan/Coming up/Map; else null — **nothing at ≥ 1024px until F2** — F2 gave those widths `askDockEntry`, a separate flag, below), `askSheetOpen = askOpen && askEntry !== null`,
   and `askDisabled` (Ask `down`, `contentDisabled`, a window popup, a layer over it, search or settings).
 - **`AskProvider` is in `App.jsx`, inside `WindowFirstBriefingProvider`, around `WindowFirstShell`, and is not
   mounted while `useRewind()` is set** (`AskWhenLive`). Without a provider `useAsk()` is the F1a default —
@@ -1174,7 +1174,7 @@ keyboard does not cover the input.
 - **Opening Ask never closes a dialog.** The entry is a real `disabled` button/field while any shell dialog,
   a layer over it, search or settings is open (a refusal, nothing taken down); `openAsk` additionally refuses when a
   `role="dialog"` outside the shell root stands (the map overlay, the settings modal are siblings the shell cannot see
-  as state), the way `/` does. The `/` handler is untouched and refuses over the sheet for the same reason.
+  as state), the way `/` does. The `/` handler was untouched in F1b (F2 rewrote it: it now belongs to Ask, and below 1024px it does nothing).
 - **The entry controls are buttons, not inputs** (the mock's `<button class="askbar">` / `.askf`): the question is
   typed in the sheet, where the answer is. The bar stays MOUNTED while the sheet is open (the mock hides it) because it
   is the sheet's return address. `AskField` takes `width` (260|340), `showKeyHint` (draws "/" and sets
@@ -1283,6 +1283,168 @@ dock and field are `inert` under each shell dialog and under settings; a press o
 not dismiss an open drilldown; the dock is `complementary`; switching to Operations closes Ask.
 **Seen:** at 1280 and 1600 the masthead and panel stay aligned; on Plan the dock's input stays in
 view while the page scrolls; the tab row at 1024 with four tabs.
+
+*As built (F2), where the plan was wrong or silent:*
+- **Files:** `components/ask/{AskDock,AskClearAnswer}.jsx`, `AskField.jsx` (+`controls`), `AskSheet.jsx` (now uses
+  `AskClearAnswer`), `hooks/useAskSurface.js` (four bands), `hooks/useOutsideDismiss.js`, `utils/shellForeignDialog.js`,
+  `WindowFirstShell.jsx`, `MastheadTickLine.jsx` (a key cap came off), the F2 block at the end of `index.css`, and the
+  re-pointed tests (below). `MapView`, the peek sheet, `MapCallout` and `App.jsx` are untouched.
+- **Four bands, not three.** `useAskSurface` returns `phone` (<640) / `tablet` (640–1023) / `desktop` (1024–1179) /
+  `wide` (≥1180). The dock is 360px and its field 260px (no key cap) in `desktop`; 380px and 340px with the `/` cap
+  in `wide`. **`aria-keyshortcuts="/"` is set in BOTH docked bands, not only `wide`** (a deviation from the brief, on
+  an accessibility review's finding): the key works from 1024px and the attribute needs no room, so `AskField` gained
+  `keyShortcut` beside `showKeyHint` (the cap implies the attribute). Never below 1024px. With no `matchMedia` match (every shell suite that predates Ask) the answer is `desktop`, not `wide`.
+- **The dock has its own openness, and `askEntry` is still the sheet's alone.** `askDockOpen` is a shell `useState`;
+  `askDockEntry` (Ask `on`/`down`, a docked band, not Operations) is "a dock can be drawn", and `askDockShown` is both.
+  `selectTab` is untouched: the dock is not a layer and survives Plan ↔ Coming up ↔ Map. It is released **during
+  render** when `askDockEntry` goes (Operations, a window narrowed below 1024px, Ask off), the shape `askOpen` uses, so
+  it cannot come back by itself — and the conversation is untouched. The app container is never made `inert` by it.
+  The dock itself is `inert` exactly when a shell DIALOG is up (`askDialogOpen`: a window popup, a layer over it,
+  search, settings) — and **not** under a dead backend or Ask `down`: there the field is disabled and `/` refused (the
+  `askDisabled` flag), but a dock already open must stay closable, and review found an inert ✕ would pin it open,
+  dimmed, for as long as the backend was down. (The `opacity: .5` the first cut put on `[inert]` went with that: the
+  dialogs' scrims already cover it.) Opening never closes a dialog and the dock never does either. **Focus is kept
+  alive across both ways the dock can stop being focusable while it holds focus** — turning `inert` under a
+  programmatically opened dialog, and being released (the window narrowing past 1024px under 200% zoom, an iPad
+  rotating, Ask off): `AskDock`'s layout effect hands focus to the tab in force (`fallbackFocus`), in the commit that
+  sets `inert` and in the unmount cleanup, never to the field (disabled in one case, about to be replaced in the
+  other). It does nothing when focus is elsewhere, so the ✕/Escape path, which moves focus first, is untouched.
+- **Placement: a `.wf-shell-col` wrapper, not just "the root becomes a row".** The masthead + tab row + panel region are
+  wrapped in one always-rendered `div` (`window-first-shell-col`; not re-indented, for the tab row wrapper's reason) and
+  the dock is the root's next child. Undocked the wrapper is a plain block — and on the Map `flex-1 min-h-0 flex
+  flex-col`, taking the root's old place in that chain, so every existing class pin held. Docked, the root gets
+  `wf-shell--docked` (a row, `justify-content: center`) and, on the Map, drops `flex-col` (a utility and a rule of one
+  specificity would be a source-order bet); the column takes `flex: 1 1 0%` with an INLINE `maxWidth: WRAP_MAX_WIDTH`,
+  so the 1080 is the shell's one constant and the CSS writes none. The masthead and the panel inside share the column,
+  which is what makes O-17 hold at any width. Measured in a browser on the real shell and stylesheet (a scratch
+  harness with the briefing stubbed — see "Seen"): at 1280 the masthead and panel are both 16→884 (868 wide) with the
+  dock 884→1264; at 1600 both are 70→1150 (1080) with the dock 1150→1530, the pair centred.
+- **The dock mounts on open; it is not kept at width 0.** The mock keeps `.ap` mounted and animates its width. A
+  sticky 100dvh box mounted shut would still make the root 100dvh tall, so it mounts on open and animates in with a
+  keyframe (`wf-ask-dock-in`, 0.28s; none under `prefers-reduced-motion`). **Correction to this note's first draft:**
+  the pane's `ResizeObserver` does fire every frame, but `MapSizeSync` RESTARTS its 60ms interval on every nonce
+  change, so it does not `invalidateSize` until ~60ms after the LAST frame and then polls for 340ms. Leaflet therefore
+  holds its old size for the 0.28s (the mock does too, until `transitionend`) and catches up afterwards — nothing to add
+  for F2, but see F3's note below. A stub pane observing itself reported 632px with the dock open at 1024px.
+- **`top: 0; height: 100dvh` was not enough, and the plan's own "Seen" line would have failed it.** At scroll 0 the
+  dock's top is the banners plus `<main>`'s padding down the page, so a 100dvh box hung that far below the fold with its
+  input row. `AskDock` publishes `--wf-dock-top` (its own `getBoundingClientRect().top`, floored at 0; it does not
+  depend on the dock's height, so there is no loop) from a scroll/resize/body-resize listener and the stylesheet
+  subtracts it: measured, the input row's bottom is 800 of 800 at scroll 0, 20, 40, 100 and 300. The dock sticks at
+  `--safe-t` and gives `--safe-b` back, because `safeAreas.test.jsx` (rightly) refuses a bare 100dvh: an iPad at
+  1024px is a docked width and the page is `viewport-fit=cover`. On the Map the dock is the frame's own height (the row's
+  stretch) and publishes nothing. The dock is bounded by the shell root, so at the very end of a short page it ends
+  above the footer rather than overlapping it.
+- **`/`.** The search handler is gone; the Ask handler is registered only while `askDockEntry` and acts only when
+  `askDisabled` is false, no `role="dialog"` stands outside the shell root (`foreignDialogOpen`, the one helper the
+  `/` handler, `openAsk` and the dock's opener now share), the target is not an INPUT/TEXTAREA/SELECT/contenteditable
+  and Meta/Ctrl/Alt are not held (Shift is). It opens the dock, or — already open — puts the cursor back in its field;
+  the field's own press does the same, so a second press never closes what was just asked. **The window popup now
+  refuses it**: search was allowed over the popup because it is anchored to the masthead the popup is drawn over; the
+  dock is not, and a live control under an `aria-modal` dialog is the thing this arm exists to prevent. Below 1024px,
+  on Operations, with Ask off, pending, `down` or rewound, `/` does nothing and is left alone (`defaultPrevented`
+  false). **Observation for the owner: with `photocast.ask.enabled` false (the shipped default) `/` is now dead on Plan,
+  where it used to open search — Q1 as decided has no fallback.**
+- **Tests re-pointed, and why.** Every `/`-opens-search test in `planOriginShell`, `WindowFirstShell` (the
+  search→sheet→popup walk, the arrows-under-search test, "opens search over an open popup", "refused over a stacked
+  layer"), `locationSheetShell` (`openSheetFor`) and `AskShellDialogs` now press the masthead's ⌕ (`window-first-search`)
+  — the same dialogs, the same Escape ladder, the same guards, a different way in. `planOriginShell`'s whole
+  `the / shortcut` block (the four field kinds, three modifiers, Shift, search-open, foreign dialog, dead backend,
+  "another tab") became `search is reached by its buttons`: the ⌕ opens it, `/` does not (with the lazy-boundary
+  positive control kept, and `defaultPrevented` false), and each refusal moved to `AskShellKey.test.jsx` against the new
+  key, every one paired with a control (the same press, refusal lifted, acts). "Ignored on another tab" became "acts on
+  Coming up and Map, nothing on Operations". `AskShellEntry`'s "at 1024px neither is drawn" and "focus lands on the tab
+  when the entry has gone" changed truth (a field IS drawn at 1024px now, and it is the next address).
+- **The ⌕ lost its `/` key cap** (`wf-tick-kbd`, deleted with its CSS). Found in the browser, not by a test: with
+  `/` moved, the masthead's search button still advertised it, and at 1180px+ the page carried two `/` caps. The Ask
+  field draws the one.
+- **`AskField` no longer claims a dialog from 1024px.** `aria-haspopup="dialog"` is dropped when `controls` is given
+  (the dock is a complementary landmark), and `aria-controls` names the dock only while it is open.
+- **Escape is a native listener on the dock's node**, not a React prop (the a11y lint refuses key handlers on an
+  `<aside>`, and a native one stops propagation at the dock, so no `document`-level Escape rule — a popup's, a map
+  panel's — sees a press the dock took). Only while focus is inside, an IME's composing Escape is left alone, and
+  closing focuses `askRestoreFallback()` (the field, else the tab in force) BEFORE the dock unmounts. The dock is NOT a
+  dialog, so `foreignModalOver` and every map Escape ladder behave as before: pinned by an Escape walk through a popup
+  and its Plan drill-down with the dock open (the MAP panels' ladders are pinned only at the hook —
+  `useOutsideDismiss`'s own test and the dock's `data-ask-surface` matching its selector — never with a real panel and
+  the real dock together; the Map pane is a stub in every shell test).
+- **`useOutsideDismiss` treats `[data-ask-surface]` like the map frame** (`isInsideAskSurface`). That is the only
+  consumer change; the Map's ground-click controller is a Leaflet event and a press in the dock never reaches it.
+- **The four-tab collapse is a CONTAINER query** (`.wf-tabrow { container: wf-tabrow / inline-size }`,
+  `@container wf-tabrow (max-width: 719px)`), as F1b's note asked, and it names `[data-width]` so it outranks a new
+  step: with four tabs the 340px field steps down to 260px under an ESTIMATED 800px of column. Measured natural widths
+  of four tabs plus field and gutters (admin): 752px with the 340 field, 672px with 260 — so 800 and 720 are both
+  conservative by ~48px, deliberately (a Coming-up badge adds ~25px). At 1024px with the dock open the admin's field is
+  the 34px "Ask" button (container 632); three tabs need no collapse anywhere. The key cap is hidden in the 34px state.
+  `askCss.test.js` reads `@container` blocks now too (the safety note may not hide in one).
+- **Operations holds the field's place at ≥1024px as well** (the ghost, at the band's width), for the reason F1b gave
+  for the tablet: Operations is pinned to the tab list's right edge.
+- **Context sent from the dock** is the sheet's: `view` plan / coming-up / map, `regionIds: []`, no `windowId`, chips
+  "Plan · all regions" / "Coming up · all regions" / "**Map · all regions**" (the Map's scope and window are `MapView`
+  state; F3 builds the channel), the header "· on Plan" / "· on Coming up" / "· on Map".
+- **"Show on map ›" works from the dock unchanged** (`selectTab('map')` leaves the dock open; focus goes to the Map tab,
+  because the pressed button is not offered on the Map and unmounts). `AskClearAnswer` is the sheet's "Clear answer",
+  extracted so the two surfaces share it.
+- **Seen vs tested.** SEEN, in a browser, on the real `WindowFirstShell` + `index.css` + `AskProvider` with the briefing
+  context stubbed through a scratch Vite alias and axios answering from the Ask fixtures (a scratch harness, deleted;
+  nothing past it was reachable without a sign-in, and no backend was started): the masthead/panel/dock edges at
+  1024, 1180, 1280 and 1600; the input row pinned at the foot of the viewport at scroll 0–300; the admin four-tab row at
+  1024 (34px "Ask") and 1180 (step-down to 260, cap shown); a stub map pane's own `ResizeObserver` reporting 632px with
+  the dock open at 1024; `/` opening the dock with the field focused and no slash typed; a typed answer rendering;
+  Escape closing it onto the field and the answer surviving a reopen — all BEFORE the review's fixes, so the dock as a flex column (its inner box no longer `height: 100%`), the `--safe-t`/`--safe-b` terms, the focus rescue and the un-dimmed dock were tested but not re-seen. TESTED, NOT SEEN: the real `MapView` refit and
+  `MapSizeSync` under the dock's animation; the dock beside the real banners and the real footer; real pick cards (the
+  stub briefing's slots had passed against the live clock); the width animation; reduced motion; the dock over a window
+  popup's scrim; forced colours; Safari (container queries, `dvh`, `inert`); an iPad at 1024px with real insets; the
+  focus return across `inert` in a real browser.
+- **Residuals, all accepted and named.** (1) The dock is not `inert` under a dialog this shell does not own (the map
+  overlay), only the press-time refusal `openAsk` also relies on: it is not reactive (`WindowFirstMapPane`'s
+  `MutationObserver` store would make it so). The consequence is narrow but real: Tab out of the non-trapping overlay
+  into the open dock and an Escape there closes the dock and is swallowed (the overlay's `window` listener never sees
+  it). (2) The pair is centred, so opening the dock at 1600px moves the column 190px left; that is the design (the
+  column "narrows"). (3) CLAUDE.md still says `/` opens Plan search — Z's sweep. (4) **A short column makes the page
+  scroll where it did not:** the sticky dock is a 100dvh-high row item, so on a Plan/Coming up page shorter than the
+  viewport (loading, empty, error) the root is as tall as the dock and the footer lands ~170px below the fold. That is
+  the plan's own `sticky; height: 100dvh` shape, and a size-contained cell or an overflow clip was worse (it hides the
+  input row). (5) The dock is the root's LAST child, after the whole panel in DOM order and inside `<main>` (axe's
+  `landmark-complementary-is-top-level` is a best-practice miss); there is no skip link. (6) Closing discards an unsent
+  draft (the input row mounts per opening, the sheet's rule). (7) Holding `/` with the dock closed types slashes once
+  the dock has opened and focus moved (auto-repeat targets the input). (8) `container-type: inline-size` on the tab
+  row implies layout containment (a stacking context and a containing block for fixed descendants); the tab row has
+  no positioned descendants and the health panel sits above it in the DOM and in z-index, which is reading, not
+  seeing. (9) The tablet band is NOT unchanged for an admin: the collapse is the column (viewport − 32px) now, so four
+  tabs collapse at a viewport under ~751px where 720px used to be the line — measured need is 672px with the 260
+  field (+~25px for a Coming-up badge), so 720 is conservative, and an iPad mini at 744px gets the 34px button.
+  (10) **Q1's consequence the owner should know:** `/` was the only way to open search OVER an open window popup
+  without leaving the keyboard-free hand (the popup's scrim covers the masthead's ⌕ for a pointer); that rung of the
+  Escape ladder is now reachable only by Tabbing out of the dialog. And with `photocast.ask.enabled` false (the
+  shipped default) `/` does nothing on Plan.
+- **For F3:** the dock is the surface and the pane is not a provider ancestor of it, so `AskContext` is the channel; the
+  Map's scope, window and label must reach the dock the way F1b's note says (a registration channel the pane writes).
+  **Where the arguments live is more than "two lines in the shell"** (a review correction to this note's first draft):
+  `AskInputRow` hardcodes `askTyped(question, { regionIds: [], view })` and takes no `regionIds`/`windowId`;
+  `AskDock` and `AskSheet` hardcode `scope="all"` and pass no `windowLabel`/`windowId` to `AskConversation`; the shell
+  holds only the chip label (`askViewSpec`). F3 changes all four. (§3's F3 file list still names `App.jsx (askWindow)`,
+  which F1b's note already showed cannot be the channel.) **The dock outlives a tab switch and the conversation does
+  not record the context it was asked in:** the chip follows the CURRENT tab (as §2.6 says), so an answer asked on Plan
+  reads "Map · all regions" above it after a switch, and Retry re-sends the original view. Harmless while every context
+  is "all regions"; with F3's region and window chips F3 must store the asked context on the answer. **Camera:** the
+  dock narrows the map and covers nothing, so the measured-rect padding of §2.7 is ZERO on desktop (do not measure
+  `[data-ask-surface]`, it is not an overlay). Fit AFTER an explicit `map.invalidateSize()` — not on `resizeNonce`,
+  which is a counter with no "settled" signal and also bumps on window resizes — and refit when the dock opens or
+  closes with an answer present (`invalidateSize` keeps the centre, so picks near the right edge are clipped); closing
+  keeps the answer, so that path is routine. Numbering a pick does not need the dock closed (it is non-modal) — the
+  F1b "close the sheet to see the markers" problem does not exist here.
+- **For F4:** nothing in F2 touches the phone; the dock's `AskInputRow` and `AskClearAnswer` are the pieces F4's ask
+  row repeats. `askDockOpen` never exists below 1024px. Note the semantics DIVERGE across surfaces: §2.7's phone table
+  closes the peek's ask section on a tab switch away and back; the dock survives one.
+- **For F5:** `askPickActions` is the one hook ("Plan this ›" joins "Show on map ›"), and it only injects a button into
+  a card's row. `AskDock` (like `AskSheet`) hardwires `AskConversation` → `AskClearAnswer` → `AskInputRow`, and
+  `AskClearAnswer`'s settled-phase set would draw nothing in a `plan` phase, so "‹ Back to the answer", "Open in Plan ›"
+  and the shell callbacks need a second seam on BOTH surfaces (a prop or a context), not just the footer. "Open in Plan
+  ›" from the dock does NOT close Ask (it is non-modal and the answer should stay beside the plan), but the four-day
+  sheet it opens counts in `stackedOverPopup`, so the dock goes `inert` while that sheet is up and focus must come back
+  to a node that was inert (the `fallbackFocus` route covers the way in; the way out is for F5 to test). The highlight
+  is "live on the dock" (§2.8), so F5 can apply it as soon as the answer lands.
 
 ### F3 — Map linkage — L
 **Files:** `App.jsx` (`askWindow`), `WindowFirstMapPane.jsx`, `MapView.jsx`, `MapLabels.jsx` +

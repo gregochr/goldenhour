@@ -4876,8 +4876,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>Containment, not "is any modal open": a dialog this pane renders INLINE is its own business
    * and must keep behaving exactly as it does — only a FOREIGN one suppresses the press. It is the
-   * same test, for the same reason, that `WindowFirstShell`'s `/` shortcut already applies to
-   * `UserSettingsModal`. ⚠️ <b>It is DOM containment, so it protects no component that exists
+   * same test, for the same reason, that `WindowFirstShell`'s `/` shortcut (now Ask's) and `openAsk` apply to
+   * `UserSettingsModal` (`utils/shellForeignDialog.js`). ⚠️ <b>It is DOM containment, so it protects no component that exists
    * today</b> — a first draft of this comment named the phone `BottomSheet` and was wrong:
    * `BottomSheet` portals to `document.body`, so it is foreign by this test whatever the React tree
    * says (unreachable either way — the tab's two callers pass `modal={false}`, and the only
