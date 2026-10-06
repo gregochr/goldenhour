@@ -46,6 +46,7 @@ final class AskMessages {
                 .stopReason(stop)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(usage(1_000, 100))
                 .build();
     }

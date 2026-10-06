@@ -138,6 +138,7 @@ class HaikuEvaluationStrategyTest {
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(Usage.builder()
                         .inputTokens(10)
                         .outputTokens(20)
