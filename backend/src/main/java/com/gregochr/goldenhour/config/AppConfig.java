@@ -118,13 +118,33 @@ public class AppConfig {
      * <p>Connection pool sized at 10 idle connections with a 2-minute keep-alive to support
      * parallel evaluation runs without excessive connection churn.
      *
-     * <p>⚠️ No client-wide timeout is set, deliberately. The "90 second call timeout" the old
-     * OkHttp client carried never applied to an SDK call: the SDK re-applies the request's own
-     * timeout (its default, or one derived from {@code max_tokens}, or the
-     * {@link com.anthropic.core.RequestOptions} the caller passes) as OkHttp's call timeout on
-     * every request. Setting one here <em>would</em> apply, and would cut off the streamed
-     * batch-results downloads, which pass no options of their own and can run for minutes.
-     * {@code AnthropicClientWireMockRoutingTest} pins this.
+     * <p>⚠️ <b>No timeout is set here, and none of the old client's was ever in force.</b> For every
+     * request the SDK builds a fresh OkHttp client and overwrites its connect, read, write and call
+     * timeouts from the request's {@code Timeout} (the caller's {@code RequestOptions}, else the
+     * client-wide default, which {@code RequestOptions.from(ClientOptions)} fills in first). SDK
+     * 2.62.0 and 2.68.0 do this identically ({@code OkHttpClient#newCall}), so the hand-built client's
+     * 10 s connect/read/write and 90 s call timeouts were dead, and the effective timeouts did not
+     * change with the SDK (call and read from the {@code X-Stainless-*} request headers, connect and
+     * write from {@code Timeout}'s bytecode defaults, 2026-10-06):
+     * <pre>
+     *                          connect   read    write   call
+     *   old client (2.62.0)      60 s    600 s   600 s   600 s   messages().create (any max_tokens),
+     *   this client (2.68.0)     60 s    600 s   600 s   600 s   batches().retrieve / resultsStreaming
+     * </pre>
+     * A call that passes {@code RequestOptions.timeout(...)} (Ask's 20 s, {@code AnthropicBatchClient}'s
+     * create and retrieve) gets that instead. The {@code max_tokens}-derived timeout the SDK also has
+     * is never reached on {@code messages().create}, because the client default is already in place.
+     * Do not add a client-wide {@code timeout(...)} shorter than a batch-results download: it would
+     * apply to {@code resultsStreaming}, which passes no options and can run for minutes.
+     *
+     * <p>What that costs, unchanged by this bump: a connection that accepts and then goes silent holds
+     * the calling thread for up to 600 s per SDK attempt, and the SDK makes up to 3 attempts
+     * ({@code maxRetries} 2, which retries IO failures), roughly 30 minutes. The {@code anthropic}
+     * Resilience4j retry does not add to it ({@code ClaudeRetryPredicate} retries only 500, 529 and the
+     * content-filter 400, never an IO failure). Bounding it means per-call {@code RequestOptions}
+     * timeouts sized to each caller, or a client-wide connect/read/write set alongside a
+     * {@code request} timeout that keeps the batch download alive; neither is done here.
+     * {@code AnthropicClientWireMockRoutingTest} pins the effective values above.
      *
      * @param properties Anthropic API configuration
      * @return a configured {@link AnthropicClient}

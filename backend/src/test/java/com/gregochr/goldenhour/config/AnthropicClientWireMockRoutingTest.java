@@ -42,6 +42,9 @@ class AnthropicClientWireMockRoutingTest {
 
     private static final int HTTP_NOT_FOUND = 404;
     private static final int HTTP_SERVER_ERROR = 500;
+    private static final int HTTP_BAD_REQUEST = 400;
+    private static final long MAX_TOKENS_FOR_A_FORECAST = 4096;
+    private static final String SDK_DEFAULT_TIMEOUT_SECONDS = "600";
 
     @RegisterExtension
     static final WireMockExtension WIRE_MOCK = WireMockExtension.newInstance()
@@ -79,17 +82,35 @@ class AnthropicClientWireMockRoutingTest {
     }
 
     @Test
-    @DisplayName("no client-wide call timeout: a request that sets none keeps the SDK's 10 minutes")
-    void request_withoutOptions_keepsTheSdkDefaultTimeout() {
-        // The old OkHttp client carried a "90 s call timeout" that the SDK overwrote on every
-        // request, so it never applied. Setting one on the SDK builder WOULD apply, and would cut
-        // off the streamed batch-results downloads, which pass no RequestOptions. The SDK states
-        // the call timeout it applied in X-Stainless-Timeout (seconds).
-        retrieveIgnoringSdkError("timeout-check");
+    @DisplayName("a call that sets no timeout gets the SDK's 10 minutes, on a message and a batch alike")
+    void request_withoutOptions_keepsTheSdkDefaultTimeouts() {
+        // The old hand-built OkHttp client carried 10 s connect/read/write and a 90 s call timeout.
+        // None of it ever applied: the SDK overwrites every one on a per-request client (identically
+        // in 2.62.0 and 2.68.0), so the effective call and read timeouts were 600 s then and are now.
+        // The SDK states what it applied in X-Stainless-Timeout (call) and X-Stainless-Read-Timeout,
+        // in seconds. A client-wide timeout set on the builder would show here, and would also cut off
+        // the resultsStreaming batch downloads, which pass no options.
+        WIRE_MOCK.stubFor(post(urlPathEqualTo("/v1/messages"))
+                .willReturn(aResponse().withStatus(HTTP_BAD_REQUEST)));
+        MessageCreateParams params = MessageCreateParams.builder()
+                .model("claude-haiku-4-5")
+                .maxTokens(MAX_TOKENS_FOR_A_FORECAST)
+                .addUserMessage("hello")
+                .build();
 
-        WIRE_MOCK.verify(getRequestedFor(
-                urlPathEqualTo("/v1/messages/batches/timeout-check"))
-                .withHeader("X-Stainless-Timeout", equalTo("600")));
+        retrieveIgnoringSdkError("timeout-check");
+        try {
+            client.messages().create(params);
+        } catch (RuntimeException expected) {
+            // The 400 is the stub's answer. The assertion is on the timeouts the request carried.
+        }
+
+        WIRE_MOCK.verify(getRequestedFor(urlPathEqualTo("/v1/messages/batches/timeout-check"))
+                .withHeader("X-Stainless-Timeout", equalTo(SDK_DEFAULT_TIMEOUT_SECONDS))
+                .withHeader("X-Stainless-Read-Timeout", equalTo(SDK_DEFAULT_TIMEOUT_SECONDS)));
+        WIRE_MOCK.verify(postRequestedFor(urlPathEqualTo("/v1/messages"))
+                .withHeader("X-Stainless-Timeout", equalTo(SDK_DEFAULT_TIMEOUT_SECONDS))
+                .withHeader("X-Stainless-Read-Timeout", equalTo(SDK_DEFAULT_TIMEOUT_SECONDS)));
     }
 
     @Test
