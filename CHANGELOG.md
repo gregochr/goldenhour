@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.24.0] - 2026-10-07
+
+### Fixed — the startup resume of pipeline cycles now really skips the `integration-test` profile
+
+`PipelineOrchestrator.resumeRunningCyclesOnStartup()` carried `@Profile("!integration-test")` on an
+`@EventListener` method. Spring evaluates `@Profile` (a `@Conditional`) only when registering bean
+definitions, so the annotation did nothing and the listener ran under every profile, integration
+tests included. The listener now lives on `PipelineOrchestratorStartup`, a small component guarded
+at class level exactly as `DynamicSchedulerBootstrap` is, and the orchestrator method is a plain
+public method with no listener annotation. A test publishes a real `ApplicationReadyEvent` into a
+context per profile and fails if the guard is removed, or if an `@EventListener` returns to the
+orchestrator. Behaviour under `local`, `dev` and `prod` is unchanged.
+
+### Fixed — the Coming up feed is built before anyone asks for it, and no longer takes a minute to build
+
+The Coming up tab was slow on the first request of each UK day and after every restart, and stayed as it was at that first request until midnight, so the dust and valley-inversion conditions never picked up the 06:00 and 18:00 UTC forecast runs. Three things made the build slow: every spring or king tide run re-read three years of tide history twice (a roster-wide scan plus one query per past run, roughly nine hundred queries a build), `TideService.getTideStats` re-read every stored high water for a place on each of hundreds of calls, and the size index loaded each high water as a full entity just to take a daily maximum. The run history, the size measurements and the per-place tide statistics are now each worked out once per UTC day and dropped when `tide_extreme` is written (the weekly refresh and the 12-month backfill, after the transaction completes); the size index reads three columns instead of the entity; and `AlmanacService.refresh()` rebuilds the default feed and swaps it in whole, at the tail of every pipeline cycle (after the run is finished, on the background executor, where nothing it throws can reach the run) and once at startup. The response for a given set of stored data is unchanged. Not done here: a midnight warm (a new scheduler job and its seed migration) — with the work above the first reader after midnight should pay little, and it is the follow-up if they do not. The 60-day dust and inversion trailing reads are also untouched.
+
 ## [v2.23.5] - 2026-10-07
 
 ### Fixed — the masthead no longer jumps 24px when switching to or from the Map tab
