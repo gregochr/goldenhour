@@ -4,6 +4,103 @@ import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 
 /**
+ * The per-day door row of a short multi-day map-door entry (see the class doc). Lead word and
+ * caption are plain text beside a group of chip buttons named by the lead word; the caption exists
+ * only while a FUTURE day is dimmed (a day that has gone is dimmed too but is not news), and says
+ * so differently when every future day is.
+ */
+function DayChips({ entry, onShowOnMap }) {
+  const { dayChips, doorNoun, action } = entry;
+  const coastal = action.kind === 'coastal-spots';
+  const noun = doorNoun.toLowerCase();
+  const future = dayChips.filter((chip) => !chip.gone);
+  const anyDimmed = future.some((chip) => !chip.live);
+  const allDimmed = future.every((chip) => !chip.live);
+  // A DOM id from an entry id like `spring-tide:2026-10-09:2026-10-14`.
+  const leadId = `${entry.id.replace(/[^A-Za-z0-9_-]/g, '-')}-days-lead`;
+
+  const open = (chip) => onShowOnMap({
+    kind: 'coming-up',
+    filterAction: coastal ? 'SEASCAPE' : null,
+    darkSky: !coastal,
+    // Names the day picked, so the overlay's title says which day's map it is.
+    label: `${entry.title} · ${chip.dateLabel}`,
+    date: chip.date,
+  });
+
+  // Today's chip shows the word Today in place of the weekday, so its name says Today too: the
+  // visible text is then contiguous in the name (label in name).
+  const nameOf = (chip) => {
+    const label = chip.today ? chip.dateLabel.replace(/^\S+/, 'Today') : chip.dateLabel;
+    const peak = chip.peak ? ', peak day' : '';
+    if (chip.gone) return `${label}${peak} — gone`;
+    if (!chip.live) return `${label}${peak} — no forecast yet`;
+    return `Show ${noun} for ${label}${peak}`;
+  };
+
+  return (
+    <div className="wf-cu-days" data-testid="coming-up-day-chips">
+      <span className="wf-cu-days-lead" id={leadId}>{doorNoun} by day</span>
+      {' '}
+      <div role="group" aria-labelledby={leadId} className="wf-cu-days-group">
+        {dayChips.map((chip) => {
+          const third = [chip.monthWord, chip.peak ? 'peak' : null].filter(Boolean).join(' · ');
+          return (
+            <button
+              key={chip.date}
+              type="button"
+              className="wf-cu-day"
+              disabled={!chip.live}
+              aria-label={nameOf(chip)}
+              onClick={chip.live ? () => open(chip) : undefined}
+              data-testid="coming-up-day-chip"
+              data-date={chip.date}
+              data-peak={chip.peak ? 'true' : 'false'}
+              data-live={chip.live ? 'true' : 'false'}
+            >
+              <span className="wf-cu-day-dow">{chip.today ? 'Today' : chip.dow}</span>
+              <span className="wf-cu-day-dn">{chip.day}</span>
+              {third && (
+                <span className="wf-cu-day-sub" data-testid="coming-up-day-chip-sub">{third}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {anyDimmed && (
+        <>
+          {' '}
+          <span className="wf-cu-days-note" data-testid="coming-up-day-chips-note">
+            {allDimmed ? 'no forecast for these days yet' : 'dimmed · no forecast yet'}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+DayChips.propTypes = {
+  entry: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    title: PropTypes.string.isRequired,
+    doorNoun: PropTypes.string.isRequired,
+    action: PropTypes.shape({ kind: PropTypes.string }).isRequired,
+    dayChips: PropTypes.arrayOf(PropTypes.shape({
+      date: PropTypes.string.isRequired,
+      dow: PropTypes.string.isRequired,
+      day: PropTypes.string.isRequired,
+      monthWord: PropTypes.string,
+      dateLabel: PropTypes.string.isRequired,
+      today: PropTypes.bool.isRequired,
+      gone: PropTypes.bool.isRequired,
+      peak: PropTypes.bool.isRequired,
+      live: PropTypes.bool.isRequired,
+    })).isRequired,
+  }).isRequired,
+  onShowOnMap: PropTypes.func.isRequired,
+};
+
+/**
  * One chronology entry: the date rail beside its card (design README §4, plan §6). Everything the
  * card shows is decided in {@code utils/comingUpFeed.js}'s {@code buildEntryView}; this component
  * only places it.
@@ -14,9 +111,10 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  * something. Only a {@code plan} action is wired to a real destination in this phase — the
  * {@code coastal-spots}/{@code dark-sky-spots} map channel is P3b's (D8), not built yet. So a
  * {@code plan}-action entry renders as a real {@code <button>}: native keyboard operation.
- * Everything else renders as a plain, non-interactive {@code <div>} — no pointer cursor, no hover
- * tint, no button role — so the inert state is honest rather than a promise the tab cannot keep
- * yet. The click handler dispatches on {@code entry.action.kind} itself, not merely on
+ * Everything else renders as a plain {@code <div>} — no pointer cursor, no hover tint, no button
+ * role. Without a control of its own that is the inert state (honest rather than a promise the tab
+ * cannot keep yet); a card carrying {@code dayChips} is the same {@code <div>} but is NOT inert,
+ * because its chips are the controls (see the run section below). The click handler dispatches on {@code entry.action.kind} itself, not merely on
  * {@code interactive}: when P3b widens the map channel it adds a branch here, and a
  * {@code coastal-spots} entry can never silently fall through to {@code onGoToPlan} because
  * {@code interactive} happened to be widened first (P3a phase-log row records this seam).
@@ -37,11 +135,34 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  *
  * <p>The feed covers 90 days but the reader holds colour forecasts for only the next few, so a
  * {@code coastal-spots}/{@code dark-sky-spots} action dated beyond them would open a map of unscored
- * pins. (A {@code plan} action is never withheld: its destination is the tab, not a date.) {@code buildEntryView} decides that ({@code actionWithheld}, with the reason in
+ * pins. (A {@code plan} action is never withheld: its destination is the tab, not a date.)
+ * {@code buildEntryView} decides that ({@code actionWithheld}, with the reason in
  * {@code actionNote}); here it is only drawn: the card takes the inert {@code <div>} form above —
  * never a disabled {@code <button>} — and the action line prints the note INSTEAD of the served
  * label, because the label ("Show coastal spots for 11 Oct →") promises a door and printing it on a
  * card that does nothing would be the dead pointer this section forbids.
+ *
+ * <h2>A short run is a row of per-day doors, and the card is not the control (plan §11.25)</h2>
+ *
+ * <p>A multi-day map-door entry of at most ten days (a tide run, or a multi-night supermoon) carries
+ * {@code entry.dayChips}: its
+ * single door named only the peak day, so most of the run had nowhere to go. The chip row replaces
+ * the action line, each chip is its own real {@code <button>} (a live one sends the same
+ * {@code kind:'coming-up'} handoff the single door does, with ITS date; a day with no forecast is
+ * {@code disabled}), and the card itself is the plain {@code <div>} — never a button, so there are no
+ * nested controls — without {@code wf-cu-card-inert}, since the card is not a dead door. This is the
+ * stated exception to "a click on the card invokes the entry's single action"; clicking the card body
+ * calls nothing. The component keys on {@code dayChips} itself, not on {@code interactive}, so a view
+ * that somehow carried both still renders the {@code <div>}. A day that has already gone is dimmed
+ * and disabled too, and a short caption says what dimmed means, appearing only while a FUTURE day is
+ * dimmed.
+ *
+ * <p>A chip DOES carry an {@code aria-label}, unlike the card button below, and that is deliberate:
+ * a chip's content is a weekday, a number and at most one short word, so the override loses nothing
+ * and the label states the whole fact ("Show coastal spots for Fri 9 Oct, peak day", "Mon 12 Oct — no
+ * forecast yet", "Fri 9 Oct — gone"; today's chip, which shows the word Today, is named with that
+ * word so the visible text is contiguous in its name), where the card button's content is the richest thing on the page and an override
+ * would discard it.
  *
  * <h2>No {@code aria-label} on the button — a corrected first attempt</h2>
  *
@@ -125,7 +246,9 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
     'wf-cu-card',
     entry.isFeature ? 'wf-cu-card-feat' : null,
     entry.isForecast ? 'wf-cu-card-fc' : null,
-    entry.interactive ? null : 'wf-cu-card-inert',
+    // A chip run is neither a button nor a dead door: its own chips are the controls.
+    entry.dayChips ? 'wf-cu-card-chips' : null,
+    entry.interactive || entry.dayChips ? null : 'wf-cu-card-inert',
     // The fresh box-shadow (design §4 "Fresh entries…also get box-shadow"; plan P5) — clears
     // together with the badge and the NEW flag below, all three keyed off the same `isNew`.
     entry.isNew ? 'wf-cu-card-fresh' : null,
@@ -293,7 +416,9 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
         </>
       )}
 
-      {entry.actionWithheld ? (
+      {entry.dayChips ? (
+        <DayChips entry={entry} onShowOnMap={onShowOnMap} />
+      ) : entry.actionWithheld ? (
         <span
           className="wf-cu-action wf-cu-action-withheld"
           data-testid="coming-up-action"
@@ -329,7 +454,7 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
         )}
       </div>
 
-      {entry.interactive ? (
+      {entry.interactive && !entry.dayChips ? (
         <button
           type="button"
           className={cardClassName}
@@ -383,6 +508,18 @@ WindowComingUpEntry.propTypes = {
     interactive: PropTypes.bool.isRequired,
     actionWithheld: PropTypes.bool,
     actionNote: PropTypes.string,
+    dayChips: PropTypes.arrayOf(PropTypes.shape({
+      date: PropTypes.string.isRequired,
+      dow: PropTypes.string.isRequired,
+      day: PropTypes.string.isRequired,
+      monthWord: PropTypes.string,
+      dateLabel: PropTypes.string.isRequired,
+      today: PropTypes.bool.isRequired,
+      gone: PropTypes.bool.isRequired,
+      peak: PropTypes.bool.isRequired,
+      live: PropTypes.bool.isRequired,
+    })),
+    doorNoun: PropTypes.string,
     tide: PropTypes.shape({
       range: PropTypes.number.isRequired,
       delta: PropTypes.number.isRequired,

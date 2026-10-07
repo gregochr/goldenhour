@@ -8686,7 +8686,11 @@ button.wf-hc.also.on:hover {
    the design's own 900, is where this arm's "phone" starts elsewhere). */
 .wf-cu-ent {
   display: grid;
-  grid-template-columns: 66px 1fr;
+  /* `minmax(0, 1fr)`, never a bare `1fr`: a bare `1fr` is `minmax(auto, 1fr)`, so a card holding
+     unwrappable content (the day-chip row, plan §11.25) grew the column to its min-content and
+     overhung the entry, where `.wf-cu`'s `overflow: hidden` clipped it. Measured in Chromium at 390
+     and 360px. */
+  grid-template-columns: 66px minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
   margin: 0 14px 7px;
@@ -8703,10 +8707,10 @@ button.wf-hc.also.on:hover {
   scroll-margin-top: 6px;
 }
 @media (max-width: 899px) {
-  .wf-cu-ent { grid-template-columns: 58px 1fr; }
+  .wf-cu-ent { grid-template-columns: 58px minmax(0, 1fr); }
 }
 @media (max-width: 639px) {
-  .wf-cu-ent { grid-template-columns: 54px 1fr; gap: 9px; }
+  .wf-cu-ent { grid-template-columns: 54px minmax(0, 1fr); gap: 9px; }
 }
 
 .wf-cu-rail {
@@ -8780,6 +8784,7 @@ button.wf-hc.also.on:hover {
   text-align: left;
   font-family: inherit;
   cursor: pointer;
+  min-width: 0;
   transition: background 0.14s, border-color 0.14s;
 }
 .wf-cu-card:hover {
@@ -8813,6 +8818,19 @@ button.wf-hc.also.on:hover {
    inert card's topic-colour rule on hover. Restating both back to their resting values is what
    makes this genuinely a no-op, matching the rule's own stated invariant above. */
 .wf-cu-card-inert:hover {
+  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 6%, transparent);
+  border-color: var(--color-plex-border);
+  border-left-color: var(--wf-cu-accent, var(--color-plex-border-light));
+}
+/* A chip run's card (plan §11.25): not a button and not a dead door — its day chips are the
+   controls. Keeps its resting look and takes neither the pointer nor the hover tint, which belong to
+   the chips; the hover rule restates the resting values for the reason `.wf-cu-card-inert:hover`
+   above gives (same specificity, later in the sheet, so it wins over `.wf-cu-card:hover`). */
+.wf-cu-card-chips {
+  cursor: default;
+  transition: none;
+}
+.wf-cu-card-chips:hover {
   background: color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 6%, transparent);
   border-color: var(--color-plex-border);
   border-left-color: var(--wf-cu-accent, var(--color-plex-border-light));
@@ -9089,6 +9107,103 @@ button.wf-hc.also.on:hover {
    topic accent. */
 .wf-cu-action.wf-cu-action-withheld {
   color: var(--color-plex-text-secondary);
+}
+
+/* The per-day door row of a short multi-day map-door entry (plan §11.25), replacing `.wf-cu-action`.
+   Lead word in the family accent like the action line; caption secondary. Six 40px boxes plus gaps
+   fit the card at 390px beside the 54px rail only at 38px, hence the phone rule below. Muting is by
+   COLOUR, never `opacity` (the P3a AA finding). */
+.wf-cu-days {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 9px;
+}
+.wf-cu-days-lead {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--wf-cu-accent, var(--color-plex-text-secondary));
+  white-space: nowrap;
+}
+.wf-cu-days-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  row-gap: 6px;
+}
+.wf-cu-days-note {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-day {
+  width: 40px;
+  padding: 4px 0 5px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  /* The button inherits the card's 1.5; the design's boxes run at `normal`. */
+  line-height: normal;
+}
+.wf-cu-day-dow {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-day-dn {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--color-plex-text);
+}
+.wf-cu-day-sub {
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-home);
+}
+.wf-cu-day:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 16%, transparent);
+}
+.wf-cu-day:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+/* The peak day: gold border and number, whether or not it is reachable. */
+.wf-cu-day[data-peak="true"] {
+  border: 1.5px solid var(--color-home);
+}
+.wf-cu-day[data-peak="true"] .wf-cu-day-dn { color: var(--color-home); }
+.wf-cu-day[data-peak="true"]:not(:disabled) { background: rgba(201, 162, 75, 0.12); }
+/* Its own hover fill, not the accent tint the other chips take: 16% accent over the 12% gold dropped
+   the gold number to ~4.1:1. Gold at 18% over the card ground (#1E1712 + 6% accent, sRGB blending,
+   worst accent) holds 4.81:1, and 4.63:1 even on the lighter `--color-plex-surface`. */
+.wf-cu-day[data-peak="true"]:hover:not(:disabled) { background: rgba(201, 162, 75, 0.18); }
+/* No forecast for the day: no fill, dim border, secondary text. A dimmed peak keeps its gold border
+   and gold third line (hence the `:not([data-peak])` on the border: the peak rule above sets it). */
+.wf-cu-day:disabled {
+  background: transparent;
+  cursor: default;
+}
+.wf-cu-day:disabled:not([data-peak="true"]) { border-color: var(--color-plex-border); }
+/* The `[data-peak]` selector is deliberate: the peak rule above sets the number gold at (0,3,0), the
+   same as `.wf-cu-day:disabled .wf-cu-day-dn`, so a dimmed peak's muted number would win by source
+   order alone. This makes it strictly more specific. */
+.wf-cu-day:disabled .wf-cu-day-dow,
+.wf-cu-day:disabled .wf-cu-day-dn,
+.wf-cu-day:disabled[data-peak] .wf-cu-day-dn { color: var(--color-plex-text-secondary); }
+@media (max-width: 639px) {
+  .wf-cu-days { flex-direction: column; align-items: flex-start; gap: 7px; }
+  .wf-cu-day { width: 38px; }
 }
 
 /* Loading, error and empty all share one line, because they are one slot: exactly one of them is

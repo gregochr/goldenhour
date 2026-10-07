@@ -1,0 +1,20 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-10-07T10:20:00Z"},
+  "title": "Coming up day chips",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 960, "h": 318, "title": "Viewed 7 Oct — 9 & 10 reachable, peak not yet"},
+    "PeakReachable.dc.html": {"x": 1040, "y": 0, "w": 960, "h": 318, "title": "Viewed 9 Oct — run under way, peak reachable"},
+    "BeyondForecast.dc.html": {"x": 2080, "y": 0, "w": 960, "h": 318, "title": "A run entirely beyond the forecast"},
+    "Phone.dc.html": {"x": 0, "y": 610, "w": 390, "h": 440, "title": "Phone 390 — viewed 7 Oct"},
+    "States.dc.html": {"x": 470, "y": 610, "w": 960, "h": 440, "title": "The box states, side by side"}
+  },
+  "order": ["Main.dc.html", "PeakReachable.dc.html", "BeyondForecast.dc.html", "Phone.dc.html", "States.dc.html"],
+  "notes": {
+    "t1": {"x": 0, "y": -300, "text": "Coming up — per-day map doors on a multi-day run", "kind": "title1", "maxW": 3040},
+    "t2": {"x": 0, "y": 380, "text": "The box states and the phone", "kind": "title1", "maxW": 1430}
+  },
+  "designSystems": []
+}

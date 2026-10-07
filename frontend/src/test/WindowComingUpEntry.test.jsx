@@ -255,6 +255,231 @@ describe('WindowComingUpEntry — a map door withheld for want of a forecast (pl
   });
 });
 
+describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §11.25)', () => {
+  /** Chips as `buildEntryView` builds them for 9–14 Oct, peaking on the 11th, viewed on the 7th with
+   *  only the 9th and 10th held. */
+  const chip = (date, dow, day, over = {}) => ({
+    date,
+    dow,
+    day,
+    monthWord: null,
+    dateLabel: `${dow} ${day} Oct`,
+    today: false,
+    gone: false,
+    peak: false,
+    live: false,
+    ...over,
+  });
+  const RUN_CHIPS = [
+    chip('2026-10-09', 'Fri', '9', { live: true }),
+    chip('2026-10-10', 'Sat', '10', { live: true }),
+    chip('2026-10-11', 'Sun', '11', { peak: true }),
+    chip('2026-10-12', 'Mon', '12'),
+    chip('2026-10-13', 'Tue', '13'),
+    chip('2026-10-14', 'Wed', '14'),
+  ];
+  const RUN = {
+    title: 'Spring tide run',
+    action: { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' },
+    interactive: false,
+    actionWithheld: false,
+    actionNote: null,
+    dayChips: RUN_CHIPS,
+    doorNoun: 'Coastal spots',
+  };
+  const chipNamed = (name) => screen.getByRole('button', { name });
+
+  it('renders the card as a plain div — never a button, so no control nests another', () => {
+    renderEntry(RUN);
+    const card = screen.getByTestId('coming-up-card');
+    expect(card.tagName).toBe('DIV');
+    expect(card).toHaveClass('wf-cu-card-chips');
+    expect(card).not.toHaveClass('wf-cu-card-inert');
+  });
+
+  it('puts the chips in a group named for the door, and replaces the action line entirely', () => {
+    renderEntry(RUN);
+    const group = screen.getByRole('group', { name: 'Coastal spots by day' });
+    expect(within(group).getAllByTestId('coming-up-day-chip')).toHaveLength(6);
+    expect(screen.queryByTestId('coming-up-action')).toBeNull();
+    expect(screen.getByTestId('coming-up-day-chips')).toHaveTextContent('Coastal spots by day');
+  });
+
+  it('names a live chip with the full fact', () => {
+    renderEntry(RUN);
+    expect(chipNamed('Show coastal spots for Fri 9 Oct')).toBeEnabled();
+    expect(chipNamed('Show coastal spots for Sat 10 Oct')).toBeEnabled();
+  });
+
+  it('names a dimmed chip, disabled, with its reason — and marks the dimmed peak', () => {
+    renderEntry(RUN);
+    expect(chipNamed('Mon 12 Oct — no forecast yet')).toBeDisabled();
+    const peak = chipNamed('Sun 11 Oct, peak day — no forecast yet');
+    expect(peak).toBeDisabled();
+    expect(peak).toHaveAttribute('data-peak', 'true');
+    expect(peak).toHaveAttribute('data-live', 'false');
+  });
+
+  it('names a live peak chip with ", peak day" appended', () => {
+    renderEntry({
+      ...RUN,
+      dayChips: RUN_CHIPS.map((c) => (c.peak ? { ...c, live: true } : c)),
+    });
+    const peak = chipNamed('Show coastal spots for Sun 11 Oct, peak day');
+    expect(peak).toBeEnabled();
+    expect(peak).toHaveAttribute('data-peak', 'true');
+    expect(chipNamed('Show coastal spots for Sat 10 Oct')).toHaveAttribute('data-peak', 'false');
+  });
+
+  it('reads Today in the weekday slot, and the word Today in the name, for today’s chip', () => {
+    // Label in name: the visible text is `Today` over `9`, so the name carries `Today 9` unbroken.
+    renderEntry({
+      ...RUN,
+      dayChips: RUN_CHIPS.map((c) => (c.date === '2026-10-09' ? { ...c, today: true } : c)),
+    });
+    const today = chipNamed('Show coastal spots for Today 9 Oct');
+    expect(today).toHaveTextContent('Today');
+    expect(today).not.toHaveTextContent('Fri');
+    expect(chipNamed('Show coastal spots for Sat 10 Oct')).toHaveTextContent('Sat');
+  });
+
+  it('draws the weekday over the day number, with a third line only on the peak or a new month', () => {
+    renderEntry({
+      ...RUN,
+      dayChips: [
+        chip('2026-09-30', 'Wed', '30', { live: true, dateLabel: 'Wed 30 Sept' }),
+        chip('2026-10-01', 'Thu', '1', { live: true, monthWord: 'Oct', peak: true }),
+        chip('2026-10-02', 'Fri', '2', { monthWord: null }),
+        chip('2026-10-03', 'Sat', '3', { monthWord: 'Oct' }),
+      ],
+    });
+    const chips = screen.getAllByTestId('coming-up-day-chip');
+    // An ordinary chip has NO third line at all — absence, not a substring that survives one.
+    expect(within(chips[0]).queryByTestId('coming-up-day-chip-sub')).toBeNull();
+    expect(within(chips[2]).queryByTestId('coming-up-day-chip-sub')).toBeNull();
+    expect(within(chips[1]).getByTestId('coming-up-day-chip-sub').textContent).toBe('Oct · peak');
+    expect(within(chips[3]).getByTestId('coming-up-day-chip-sub').textContent).toBe('Oct');
+    expect(chips[0]).toHaveTextContent(/^Wed30$/);
+    expect(chips[2]).toHaveTextContent(/^Fri2$/);
+  });
+
+  it('gives a peak chip the word peak alone, and no month word, inside one month', () => {
+    renderEntry(RUN);
+    const peak = screen.getAllByTestId('coming-up-day-chip')[2];
+    expect(within(peak).getByTestId('coming-up-day-chip-sub').textContent).toBe('peak');
+  });
+
+  it('sends the single door’s coastal handoff, with the chip’s own date, once', () => {
+    const { onShowOnMap } = renderEntry(RUN);
+    fireEvent.click(chipNamed('Show coastal spots for Fri 9 Oct'));
+    expect(onShowOnMap).toHaveBeenCalledTimes(1);
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false,
+      label: 'Spring tide run · Fri 9 Oct', date: '2026-10-09',
+    });
+  });
+
+  it('sends a dark-sky run’s handoff with darkSky and no type filter, under its own names', () => {
+    const { onShowOnMap } = renderEntry({
+      ...RUN,
+      title: 'Perseid run',
+      action: { label: 'Show dark-sky spots →', kind: 'dark-sky-spots', date: '2026-10-11' },
+      doorNoun: 'Dark-sky spots',
+    });
+    expect(screen.getByRole('group', { name: 'Dark-sky spots by day' })).toBeInTheDocument();
+    fireEvent.click(chipNamed('Show dark-sky spots for Sat 10 Oct'));
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'coming-up', filterAction: null, darkSky: true,
+      label: 'Perseid run · Sat 10 Oct', date: '2026-10-10',
+    });
+  });
+
+  it('calls nothing when a dimmed chip is clicked', () => {
+    const { onShowOnMap } = renderEntry(RUN);
+    fireEvent.click(chipNamed('Mon 12 Oct — no forecast yet'));
+    expect(onShowOnMap).not.toHaveBeenCalled();
+  });
+
+  it('calls nothing when the card body is clicked — the card is not the control', () => {
+    const { onShowOnMap, onGoToPlan } = renderEntry(RUN);
+    fireEvent.click(screen.getByTestId('coming-up-card'));
+    fireEvent.click(screen.getByTestId('coming-up-day-chips'));
+    expect(onShowOnMap).not.toHaveBeenCalled();
+    expect(onGoToPlan).not.toHaveBeenCalled();
+  });
+
+  it('explains dimming in a caption when some future days are dimmed', () => {
+    renderEntry(RUN);
+    expect(screen.getByTestId('coming-up-day-chips-note')).toHaveTextContent(/^dimmed · no forecast yet$/);
+  });
+
+  it('keeps the some-dimmed wording with exactly one live day of six', () => {
+    renderEntry({
+      ...RUN,
+      dayChips: RUN_CHIPS.map((c) => ({ ...c, live: c.date === '2026-10-09' })),
+    });
+    expect(screen.getByTestId('coming-up-day-chips-note')).toHaveTextContent(/^dimmed · no forecast yet$/);
+  });
+
+  it('uses the all-dimmed wording when no future day is live — and never names a horizon', () => {
+    renderEntry({ ...RUN, dayChips: RUN_CHIPS.map((c) => ({ ...c, live: false })) });
+    const note = screen.getByTestId('coming-up-day-chips-note');
+    expect(note).toHaveTextContent(/^no forecast for these days yet$/);
+    expect(note).not.toHaveTextContent('three days');
+  });
+
+  it('names a gone day, disabled, and keeps ", peak day" before the dash on a gone peak', () => {
+    renderEntry({
+      ...RUN,
+      dayChips: RUN_CHIPS.map((c) => (c.date === '2026-10-09' || c.peak
+        ? { ...c, gone: true, live: false } : c)),
+    });
+    expect(chipNamed('Fri 9 Oct — gone')).toBeDisabled();
+    expect(chipNamed('Sun 11 Oct, peak day — gone')).toBeDisabled();
+  });
+
+  it('does not count a gone day toward the caption: a run whose only dimmed days are gone has none', () => {
+    renderEntry({
+      ...RUN,
+      dayChips: RUN_CHIPS.map((c, i) => (i < 2
+        ? { ...c, gone: true, live: false } : { ...c, live: true })),
+    });
+    expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
+  });
+
+  it('judges the all-dimmed wording on future days alone, ignoring gone ones', () => {
+    renderEntry({
+      ...RUN,
+      dayChips: RUN_CHIPS.map((c, i) => (i < 2
+        ? { ...c, gone: true, live: false } : { ...c, live: false })),
+    });
+    expect(screen.getByTestId('coming-up-day-chips-note'))
+      .toHaveTextContent(/^no forecast for these days yet$/);
+  });
+
+  it('renders a div card even when a view carries interactive:true beside its chips', () => {
+    // The component keys on `dayChips` itself, so a mismatched view can never nest chips in a button.
+    renderEntry({ ...RUN, interactive: true });
+    expect(screen.queryByRole('button', { name: /Spring tide run/ })).toBeNull();
+    const card = screen.getByTestId('coming-up-card');
+    expect(card.tagName).toBe('DIV');
+    expect(card).toHaveClass('wf-cu-card-chips');
+    expect(card).not.toHaveClass('wf-cu-card-inert');
+  });
+
+  it('draws no caption at all when every day is live', () => {
+    renderEntry({ ...RUN, dayChips: RUN_CHIPS.map((c) => ({ ...c, live: true })) });
+    expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
+  });
+
+  it('draws no chip row on an entry that carries no chips, and keeps its single action line', () => {
+    renderEntry();
+    expect(screen.queryByTestId('coming-up-day-chips')).toBeNull();
+    expect(screen.getByTestId('coming-up-card')).not.toHaveClass('wf-cu-card-chips');
+    expect(screen.getByTestId('coming-up-action')).toBeInTheDocument();
+  });
+});
+
 describe('WindowComingUpEntry — the dashed rule', () => {
   it('marks a forecast entry\'s card as dashed', () => {
     renderEntry({ isForecast: true, action: { label: 'See the plan for 2 Sept →', kind: 'plan', date: '2026-09-02' }, interactive: true });

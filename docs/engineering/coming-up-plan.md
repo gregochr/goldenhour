@@ -343,7 +343,7 @@ and the orphan chain in P6** — with these exceptions and ledger duties:
   Write no compat shim.
 - `index.css`: precise delete/keep list in P6 (§9) — including one rule that must NOT be swept.
 
-**D8 — Map deep links.** "Show coastal spots for `<date>` →" has a working *mechanism* but not a
+**D8 — Map deep links** (a short run's chip row is an exception to the single card action, §11.25)**.** "Show coastal spots for `<date>` →" has a working *mechanism* but not a
 working *route*: the `filterAction` handoff into `MapView` exists, but its only producer is the
 door P6 deletes, so P3b **builds** the channel rather than reusing it. Route Coming up's actions
 through a **new `kind:'coming-up'` trigger modelled on the `topic` branch** (`mapOverlay.js:
@@ -593,7 +593,8 @@ Recreate design §4/§5 against the P2 payload. The design of record is
   `26 SEP` over `–1 OCT`, never `26–1 SEP`); countdown line; card with topic-colour left rule
   (`border-left-style:dashed` when `kind === 'FORECAST'`); title row (name, NEW-flag slot for P5,
   kind tag, superlative tag, headline metric); prose (feature cards); facts row (three tones per
-  §13); threshold line; exactly one action link. **Card click invokes the entry's single action** —
+  §13); threshold line; exactly one action link (excepted for a short run's chip row, §11.25).
+  **Card click invokes the entry's single action** (likewise excepted, §11.25) —
   the design's `cursor:pointer`/hover promises a behaviour, and the existing drilldowns can't
   serve T+13 (§11.5); the action is the honest destination.
 - **Header/footer copy replaced, not kept**: sub-line becomes `· dated events beyond Plan's four
@@ -832,7 +833,7 @@ purpose, so a later reader stops hunting for the "missing" piece.)
    treatment alive past `HotTopicStrip`'s deletion.
 5. **Card click "opens the existing drilldown"** — no drilldown exists beyond Plan's window; the
    card click **invokes the entry's single action** instead, honouring the affordance the design's
-   cursor/hover promises.
+   cursor/hover promises (excepted for a short run's chip row, §11.25).
 6. **The ghost wave's "3.3 m average tide"** — replaced by the representative port's own
    `avgRangeMetres` (the delta is the existing `rangeAnomaly`, promoted from meta).
 7. **Forecast-peak chronology rows** — mostly unreachable at first ship (aerosol horizon T+0..T+3
@@ -967,6 +968,47 @@ purpose, so a later reader stops hunting for the "missing" piece.)
     domain). The card renders as the inert `<div>` (never a disabled button) and prints the note
     **in place of** the served label, since the label promises a door the card no longer has; the
     muting is colour, not `opacity` (the P3a contrast finding).
+
+25. **A short multi-day map-door entry gets a chip per day instead of one door (2026-10-07).** This is
+    a stated exception to §6's "exactly one action link" and to D8's and §11.5's "a card click
+    invokes the entry's single action". Design of record: `docs/design/coming-up/day-chips-brief.md`
+    (the brief) and the five artboards handed back 2026-10-07, vendored verbatim under
+    `docs/design/coming-up/day-chips/` (see its `VENDORING.md`). Why: after §11.24 the Spring tide
+    run (9–14 Oct, viewed 7 Oct) read `Coastal spots: no forecast for 11 Oct`, because its one door
+    named the run's PEAK day, while 9 and 10 Oct were inside the forecast window and had a map worth
+    opening. `buildEntryView` derives `dayChips` — `{date, dow, day, monthWord, dateLabel, today,
+    gone, peak, live}`, one per day — for an entry whose `action.kind` is `coastal-spots` or
+    `dark-sky-spots` and whose span is more than one day and at most `MAX_CHIP_DAYS`. **The rule is
+    keyed on the door kind, never the family**, so a short dark-sky run gets chips unchanged: a
+    multi-night SUPERMOON (two or three nights, `dark-sky-spots`, `SupermoonAlmanacSource`) does get
+    chips; a `plan` entry never does. **The cap is 10**, not a week: tide runs can exceed seven days
+    (`TideAlmanacSource` walks up to ten each side) and a run over the cap would silently fall back
+    to the single peak door — the defect chips fix — so the row wraps to fit. The NLC season (a
+    months-long dark-sky entry) is over the cap and keeps its single, gated door as §11.24 left it,
+    as do single-day entries (meteors). `peak` is the served action date, `today` the reader's today,
+    and **`gone` is `date < todayStr`**: the forecast window reaches two days back (`PAST_WINDOW_DAYS`
+    = 2) and the Map tab refuses past dates (`resolveMapDate`), so a day that has gone is never live
+    and reads `Fri 9 Oct — gone`. A today whose light has passed stays live, exactly as the single
+    door does (accepted). **`live` is three-valued like §11.24**: `null`/absent `forecastDates` is not
+    known yet and every non-gone chip is live; an array is known and a chip is live iff it lists its
+    date. With chips the card is no longer the control: it renders as the plain `<div>`
+    (`wf-cu-card-chips`, neither a button nor `wf-cu-card-inert`), `interactive` is false and
+    `actionWithheld`/`actionNote` are false/null, since each chip carries its own state. A live chip
+    is a real `<button>` sending the same `kind:'coming-up'` handoff the single door sends, with the
+    chip's date and a label naming the day (`Spring tide run · Fri 9 Oct`); a dimmed one is
+    `disabled`. **Artboard decisions adopted:** the month word sits under the FIRST chip of a new
+    month only (`Oct`, or `Oct · peak`); today's weekday slot reads `Today`; a lead word
+    (`Coastal spots by day`, which also names the group via `aria-labelledby`); and a caption, shown
+    only while a FUTURE day is dimmed (`dimmed · no forecast yet`, or `no forecast for these days
+    yet` when every future day is — never a hard-coded forecast horizon, which is not a client
+    fact). Chips carry an `aria-label` (a chip's content is a weekday, a number and at most one short
+    word, so unlike the card button nothing is lost). Two accepted deviations/residuals: the month
+    word uses the house short form (`Sept`, §11.22) where the artboards print `Sep`; and the
+    peak-plus-month chip shows `Oct · peak` while its name says `Thu 1 Oct, peak day`, so its visible
+    text is not contiguous in the name (label-in-name residual; the Today chip was made contiguous).
+    `dayChips` is the same filter/map/select class as §11.24 — lookups of served dates in the
+    client's forecast-date domain, a comparison against `todayStr` and a walk of a served span — not
+    a new client aggregation.
 
 ---
 

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The day box states, side by side</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&amp;family=IBM+Plex+Sans:wght@400;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#6FA8B0}a:hover{color:#8FC0C7}
+button{font:inherit}
+</style>
+</helmet>
+<div style="width: 960px; height: 440px; box-sizing: border-box; padding: 28px 32px; background: #181210; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #F2E7D3; display: flex; flex-direction: column; gap: 26px">
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Five states, three channels: border colour says peak, fill and text strength say reachable, the weekday slot says today</span>
+    <div style="display: flex; gap: 28px; align-items: flex-start">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px">
+        <button type="button" aria-label="Show coastal spots for Fri 9 Oct" style="width: 40px; padding: 4px 0 5px; border: 1px solid #4A3A2E; border-radius: 7px; background: rgba(0,0,0,0.28); cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Fri</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: #F2E7D3">9</span>
+        </button>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; line-height: 1.5; text-align: center; color: rgba(242,231,211,0.66)">Live<br>forecast held, a door</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px">
+        <button type="button" aria-label="Show coastal spots for Fri 9 Oct" style="width: 40px; padding: 4px 0 5px; border: 1px solid #4A3A2E; border-radius: 7px; background: rgba(111,168,176,0.16); cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace; outline: 2px solid #F2E7D3; outline-offset: 2px">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Fri</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: #F2E7D3">9</span>
+        </button>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; line-height: 1.5; text-align: center; color: rgba(242,231,211,0.66)">Live, hovered / focused<br>the card's own tint and ring</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px">
+        <button type="button" aria-label="Show coastal spots for today, Fri 9 Oct" style="width: 40px; padding: 4px 0 5px; border: 1px solid #4A3A2E; border-radius: 7px; background: rgba(0,0,0,0.28); cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Today</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: #F2E7D3">9</span>
+        </button>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; line-height: 1.5; text-align: center; color: rgba(242,231,211,0.66)">Live, today<br>weekday slot reads Today</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px">
+        <button type="button" aria-label="Show coastal spots for Sun 11 Oct, peak day" style="width: 40px; padding: 4px 0 5px; border: 1.5px solid #C9A24B; border-radius: 7px; background: rgba(201,162,75,0.12); cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Sun</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: #C9A24B">11</span>
+          <span style="font-size: 7px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #C9A24B">peak</span>
+        </button>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; line-height: 1.5; text-align: center; color: rgba(242,231,211,0.66)">Peak, live<br>gold border, number and word</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px">
+        <button type="button" disabled aria-label="Sun 11 Oct, peak day — no forecast yet" style="width: 40px; padding: 4px 0 5px; border: 1.5px solid #C9A24B; border-radius: 7px; background: transparent; cursor: default; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Sun</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: rgba(242,231,211,0.66)">11</span>
+          <span style="font-size: 7px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #C9A24B">peak</span>
+        </button>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; line-height: 1.5; text-align: center; color: rgba(242,231,211,0.66)">Peak, no forecast<br>gold border kept, number muted</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px">
+        <button type="button" disabled aria-label="Mon 12 Oct — no forecast yet" style="width: 40px; padding: 4px 0 5px; border: 1px solid #3A2C23; border-radius: 7px; background: transparent; cursor: default; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Mon</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: rgba(242,231,211,0.66)">12</span>
+        </button>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; line-height: 1.5; text-align: center; color: rgba(242,231,211,0.66)">No forecast<br>no fill, dim border, muted text</span>
+      </div>
+    </div>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(242,231,211,0.66)">A run crossing a month, 30 Sep – 3 Oct: the first box of the new month carries its month, no other does</span>
+    <div style="display: flex; align-items: center; gap: 12px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #6FA8B0; white-space: nowrap">Coastal spots by day</span>
+      <div role="group" aria-label="Show coastal spots by day" style="display: flex; gap: 6px; align-items: flex-start">
+        <button type="button" aria-label="Show coastal spots for Wed 30 Sep" style="width: 40px; padding: 4px 0 5px; border: 1px solid #4A3A2E; border-radius: 7px; background: rgba(0,0,0,0.28); cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Wed</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: #F2E7D3">30</span>
+        </button>
+        <button type="button" aria-label="Show coastal spots for Thu 1 Oct, peak day" style="width: 40px; padding: 4px 0 5px; border: 1.5px solid #C9A24B; border-radius: 7px; background: rgba(201,162,75,0.12); cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Thu</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: #C9A24B">1</span>
+          <span style="font-size: 7px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #C9A24B">Oct · peak</span>
+        </button>
+        <button type="button" disabled aria-label="Fri 2 Oct — no forecast yet" style="width: 40px; padding: 4px 0 5px; border: 1px solid #3A2C23; border-radius: 7px; background: transparent; cursor: default; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Fri</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: rgba(242,231,211,0.66)">2</span>
+        </button>
+        <button type="button" disabled aria-label="Sat 3 Oct — no forecast yet" style="width: 40px; padding: 4px 0 5px; border: 1px solid #3A2C23; border-radius: 7px; background: transparent; cursor: default; text-align: center; display: flex; flex-direction: column; gap: 1px; font-family: 'IBM Plex Mono', monospace">
+          <span style="font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Sat</span>
+          <span style="font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: rgba(242,231,211,0.66)">3</span>
+        </button>
+      </div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: rgba(242,231,211,0.66)">when the peak is not the first of the month, the month word sits alone under that box</span>
+    </div>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(242,231,211,0.66)">Single-day entries and the NLC season keep the single action line exactly as shipped in v2.23.4</span>
+    <div style="display: flex; gap: 40px; align-items: baseline">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8E86D6">Show dark-sky spots for 21 Oct →</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: rgba(242,231,211,0.66)">Dark-sky spots: no forecast for 21 Oct</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8E86D6">Show dark-sky spots for 1 Jun →</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":960,"height":440}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

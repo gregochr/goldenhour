@@ -214,6 +214,72 @@ function withheldNote(kind, dateStr) {
 }
 
 /**
+ * The longest run, in days inclusive, that gets a row of per-day doors instead of one. A tide run is
+ * five or six days but can be longer (`TideAlmanacSource` walks up to ten days each side), and a run
+ * over the cap would silently fall back to the single peak door — the defect the chips fix — so the
+ * cap is ten, with the row wrapping to fit. A multi-night supermoon (two or three nights,
+ * `dark-sky-spots`) gets chips too. The NLC season is months, so it keeps its single (gated) door.
+ */
+export const MAX_CHIP_DAYS = 10;
+
+/** Whole days a span covers, both ends counted; NaN when either end is not a date. */
+function inclusiveSpanDays(startDate, endDate) {
+  return daysBetween(startDate, endDate) + 1;
+}
+
+/**
+ * The per-day door chips for a short multi-day map-door entry, or null when the entry does not get
+ * them. The rule is keyed on the door KIND, never on the family: a map door ({@code coastal-spots}
+ * or {@code dark-sky-spots}) whose entry spans more than one day and at most {@link MAX_CHIP_DAYS}.
+ * Single-day entries, {@code plan} entries and a months-long season are all null; so is a reversed
+ * or unparseable span (never an empty list).
+ *
+ * <p>Each chip is {@code {date, dow, day, monthWord, dateLabel, today, gone, peak, live}}:
+ * {@code peak} is the served action date (the day the card's figures describe), {@code today} the
+ * reader's today, {@code gone} is a day before today (the forecast window reaches two days back, so
+ * a passed day can still be listed, and the Map tab refuses a past date), {@code monthWord} is set
+ * only on the first chip of a NEW month when the run crosses one, and {@code live} is never true for
+ * a gone day and otherwise follows the same three-valued contract as the single door's withholding
+ * — null or undefined {@code forecastDates} is not known yet (every day live), an array is known
+ * (live iff it lists the date). A today whose light has passed stays live, as the single door does.
+ * Lookups of served dates in the client's forecast-date domain, a comparison against
+ * {@code todayStr} and a walk of a served span: the already-licensed filter/map/select class (plan
+ * §11.25), not a new derivation.
+ *
+ * @returns {?Array<object>}
+ */
+function buildDayChips(entry, action, todayStr, forecastDates) {
+  if (!MAP_ACTION_KINDS.includes(action.kind)) return null;
+  const { startDate, endDate } = entry;
+  if (!startDate || !endDate || startDate === endDate) return null;
+  const span = inclusiveSpanDays(startDate, endDate);
+  if (!(span >= 2 && span <= MAX_CHIP_DAYS)) return null;
+
+  const known = Array.isArray(forecastDates);
+  const chips = [];
+  let previousMonth = null;
+  for (let i = 0; i < span; i += 1) {
+    const date = new Date(atMidday(startDate).getTime() + i * 86400000).toISOString().slice(0, 10);
+    const month = monthName(date);
+    const crossed = previousMonth !== null && month !== previousMonth;
+    const gone = date < todayStr;
+    previousMonth = month;
+    chips.push({
+      date,
+      dow: weekday(date),
+      day: dayNum(date),
+      monthWord: crossed ? month : null,
+      dateLabel: `${weekday(date)} ${dayNum(date)} ${month}`,
+      today: date === todayStr,
+      gone,
+      peak: date === action.date,
+      live: !gone && (known ? forecastDates.includes(date) : true),
+    });
+  }
+  return chips;
+}
+
+/**
  * Turns one wire entry into the view a card renders. Almost entirely a pass-through — P2 already
  * decided every fact, tag and label — plus three client-only additions: the date rail (needs the
  * reader's clock, which the server does not have), {@code isFeature} (the card's larger-title
@@ -252,6 +318,13 @@ function withheldNote(kind, dateStr) {
  * An array means known: a map door is withheld when its date is not in it, so an empty array
  * withholds every one.
  *
+ * <p>A short multi-day map-door entry (a tide run) gets {@code dayChips} instead: one door per day of
+ * the run, because its single door named only the peak day and left the reachable days of the run
+ * with nowhere to go (plan §11.25, an exception to §6's one action link and D8's single card action).
+ * With chips the card is no longer the control, so {@code interactive}, {@code actionWithheld} and
+ * {@code actionNote} are all false/null — each chip carries its own state — and {@code doorNoun}
+ * names the door for the row's lead word and group label.
+ *
  * @param {object}  entry        a {@code ComingUpEntry} as served
  * @param {string}  todayStr     the reader's today, `YYYY-MM-DD`
  * @param {?string} lastSeenDate the reader's stored `comingUpLastSeenDate`, or null/undefined
@@ -263,7 +336,10 @@ function withheldNote(kind, dateStr) {
  */
 export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
   const action = entry.action ?? { label: '', kind: null, date: entry.startDate };
-  const actionWithheld = MAP_ACTION_KINDS.includes(action.kind)
+  const dayChips = buildDayChips(entry, action, todayStr, forecastDates);
+  // With chips each day carries its own state, so the single-door gate does not apply.
+  const actionWithheld = dayChips === null
+    && MAP_ACTION_KINDS.includes(action.kind)
     && Array.isArray(forecastDates)
     && !forecastDates.includes(action.date);
   return {
@@ -285,7 +361,9 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     aside: entry.aside ?? null,
     threshold: entry.threshold ?? null,
     action,
-    interactive: INTERACTIVE_ACTION_KINDS.includes(action.kind) && !actionWithheld,
+    interactive: dayChips === null && INTERACTIVE_ACTION_KINDS.includes(action.kind) && !actionWithheld,
+    dayChips,
+    doorNoun: dayChips === null ? null : DOOR_NAMES[action.kind],
     actionWithheld,
     actionNote: actionWithheld ? withheldNote(action.kind, action.date) : null,
     // Tide entries only (P2); the sparkline (plan §6b) and the coincidence card (D10) are both

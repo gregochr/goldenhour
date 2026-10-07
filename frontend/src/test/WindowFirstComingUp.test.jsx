@@ -560,9 +560,9 @@ describe('WindowFirstComingUp — map doors follow the reader’s forecast dates
       action: { label: 'Show dark-sky spots for 12 Aug →', kind: 'dark-sky-spots', date: '2026-08-12' },
     }),
     wireEntry({
-      id: 'spring-tide:2026-10-11:2026-10-12', type: 'spring-tide', family: 'coastal',
+      id: 'spring-tide:2026-10-11:2026-10-11', type: 'spring-tide', family: 'coastal',
       title: 'Spring tide run', metric: null, prose: null,
-      startDate: '2026-10-11', endDate: '2026-10-12',
+      startDate: '2026-10-11', endDate: '2026-10-11',
       action: { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' },
     }),
   ];
@@ -624,3 +624,85 @@ describe('WindowFirstComingUp — map doors follow the reader’s forecast dates
     expect(screen.getAllByTestId('coming-up-card').map((c) => c.tagName)).toEqual(['BUTTON', 'BUTTON']);
   });
 });
+
+describe('WindowFirstComingUp — a run’s day chips follow the reader’s forecast dates (plan §11.25)', () => {
+  const RUN_EVENTS = {
+    entries: [wireEntry({
+      id: 'spring-tide:2026-10-09:2026-10-14', type: 'spring-tide', family: 'coastal',
+      title: 'Spring tide run', metric: null, prose: null,
+      startDate: '2026-10-09', endDate: '2026-10-14',
+      action: { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' },
+    })],
+    counts: COUNTS,
+  };
+  const dayChip = (label) => screen.getByRole('button', { name: label });
+
+  it('enables the chips for held dates, dims the rest and opens the map on the chip’s date', () => {
+    const { onShowOnMap } = renderPane({
+      events: RUN_EVENTS, todayStr: '2026-10-07', forecastDates: ['2026-10-09', '2026-10-10'],
+    });
+    expect(screen.getAllByTestId('coming-up-day-chip')).toHaveLength(6);
+    expect(screen.getByTestId('coming-up-card').tagName).toBe('DIV');
+    expect(dayChip('Sun 11 Oct, peak day — no forecast yet')).toBeDisabled();
+    fireEvent.click(dayChip('Show coastal spots for Sat 10 Oct'));
+    expect(onShowOnMap).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-10-10' }),
+    );
+  });
+
+  it('leaves every chip live while the forecast dates are not known yet', () => {
+    renderPane({ events: RUN_EVENTS, todayStr: '2026-10-07' });
+    for (const chip of screen.getAllByTestId('coming-up-day-chip')) {
+      expect(chip).toBeEnabled();
+    }
+    expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
+  });
+
+  it('re-decides the chips when only the list changes under a mounted pane', () => {
+    const { rerender, onShowOnMap, onRetry, onGoToPlan } = renderPane({
+      events: RUN_EVENTS, todayStr: '2026-10-07', forecastDates: [],
+    });
+    for (const chip of screen.getAllByTestId('coming-up-day-chip')) {
+      expect(chip).toBeDisabled();
+    }
+    rerender(
+      <WindowFirstComingUp
+        id="window-first-panel-coming-up"
+        labelledBy="window-first-tab-coming-up"
+        status="ready"
+        events={RUN_EVENTS}
+        todayStr="2026-10-07"
+        onRetry={onRetry}
+        onGoToPlan={onGoToPlan}
+        onShowOnMap={onShowOnMap}
+        forecastDates={['2026-10-09', '2026-10-11']}
+      />,
+    );
+    expect(dayChip('Show coastal spots for Fri 9 Oct')).toBeEnabled();
+    expect(dayChip('Show coastal spots for Sun 11 Oct, peak day')).toBeEnabled();
+    expect(dayChip('Sat 10 Oct — no forecast yet')).toBeDisabled();
+  });
+
+  it('keeps an over-cap span on its single gated door — chips are for short runs only', () => {
+    // 9–19 Oct is eleven days: past the cap, so the entry keeps ONE door, and the gate still applies.
+    const overCap = {
+      entries: [wireEntry({
+        id: 'season:2026-10-09:2026-10-19', type: 'nlc', family: 'night-sky',
+        title: 'Long season', metric: null, prose: null,
+        startDate: '2026-10-09', endDate: '2026-10-19',
+        action: { label: 'Show dark-sky spots for 14 Oct →', kind: 'dark-sky-spots', date: '2026-10-14' },
+      })],
+      counts: COUNTS,
+    };
+    const { onShowOnMap } = renderPane({
+      events: overCap, todayStr: '2026-10-07', forecastDates: ['2026-10-08'],
+    });
+    expect(screen.queryByTestId('coming-up-day-chips')).toBeNull();
+    expect(screen.getByTestId('coming-up-action'))
+      .toHaveTextContent('Dark-sky spots: no forecast for 14 Oct');
+    expect(screen.queryByRole('button', { name: /Long season/ })).toBeNull();
+    fireEvent.click(screen.getByTestId('coming-up-card'));
+    expect(onShowOnMap).not.toHaveBeenCalled();
+  });
+});
+

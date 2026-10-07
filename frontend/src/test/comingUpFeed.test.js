@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildDateRail, chipCounts, buildEntryView, groupEntriesByMonth, buildChronology, footerCopy,
-  FILTER_CHIPS, formatArrivalDate,
+  FILTER_CHIPS, formatArrivalDate, MAX_CHIP_DAYS,
 } from '../utils/comingUpFeed.js';
 
 const TODAY = '2026-08-09';
@@ -153,24 +153,26 @@ describe('buildEntryView — a map door needs a colour forecast for its date', (
   // a map of unscored pins, so it is withheld and the card says why in place of the served label.
   const COASTAL = { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' };
   const DARK_SKY = { label: 'Show dark-sky spots for 11 Oct →', kind: 'dark-sky-spots', date: '2026-10-11' };
+  // A single-day entry: a multi-day one gets day chips instead of a single door (§11.25).
+  const single = (action) => entry({ startDate: action.date, endDate: action.date, action });
   const PLAN = { label: 'See the plan for 11 Oct →', kind: 'plan', date: '2026-10-11' };
 
   it('keeps a coastal door live, with no note, when its date is in the forecast dates', () => {
-    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, ['2026-10-10', '2026-10-11']);
+    const view = buildEntryView(single(COASTAL), TODAY, null, ['2026-10-10', '2026-10-11']);
     expect(view.interactive).toBe(true);
     expect(view.actionWithheld).toBe(false);
     expect(view.actionNote).toBeNull();
   });
 
   it('keeps a dark-sky door live, with no note, when its date is in the forecast dates', () => {
-    const view = buildEntryView(entry({ action: DARK_SKY }), TODAY, null, ['2026-10-11']);
+    const view = buildEntryView(single(DARK_SKY), TODAY, null, ['2026-10-11']);
     expect(view.interactive).toBe(true);
     expect(view.actionWithheld).toBe(false);
     expect(view.actionNote).toBeNull();
   });
 
   it('withholds a coastal door whose date has no forecast, and names the door and the date', () => {
-    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, ['2026-10-07', '2026-10-08']);
+    const view = buildEntryView(single(COASTAL), TODAY, null, ['2026-10-07', '2026-10-08']);
     expect(view.interactive).toBe(false);
     expect(view.actionWithheld).toBe(true);
     expect(view.actionNote).toBe('Coastal spots: no forecast for 11 Oct');
@@ -178,7 +180,7 @@ describe('buildEntryView — a map door needs a colour forecast for its date', (
 
   it('withholds a dark-sky door whose date has no forecast, naming its own door', () => {
     const view = buildEntryView(
-      entry({ action: { ...DARK_SKY, date: '2026-10-21' } }), TODAY, null, ['2026-10-07'],
+      single({ ...DARK_SKY, date: '2026-10-21' }), TODAY, null, ['2026-10-07'],
     );
     expect(view.interactive).toBe(false);
     expect(view.actionWithheld).toBe(true);
@@ -187,38 +189,38 @@ describe('buildEntryView — a map door needs a colour forecast for its date', (
 
   it('withholds on membership of the exact date — a gap in the list is not covered by its neighbours', () => {
     // Separates `includes(date)` from "some listed date is on or after it" and "from a range".
-    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, ['2026-10-10', '2026-10-12']);
+    const view = buildEntryView(single(COASTAL), TODAY, null, ['2026-10-10', '2026-10-12']);
     expect(view.interactive).toBe(false);
     expect(view.actionWithheld).toBe(true);
   });
 
   it('withholds when every listed date is later than the action date', () => {
-    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, ['2026-10-12']);
+    const view = buildEntryView(single(COASTAL), TODAY, null, ['2026-10-12']);
     expect(view.interactive).toBe(false);
     expect(view.actionWithheld).toBe(true);
   });
 
   it('still carries the served action untouched on a withheld view — the card prints the note, '
       + 'but nothing about the wire entry is rewritten', () => {
-    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, []);
+    const view = buildEntryView(single(COASTAL), TODAY, null, []);
     expect(view.action).toEqual(COASTAL);
   });
 
   it('treats an empty forecast-date list as KNOWN to be empty — every map door is withheld', () => {
-    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, []);
+    const view = buildEntryView(single(COASTAL), TODAY, null, []);
     expect(view.interactive).toBe(false);
     expect(view.actionWithheld).toBe(true);
   });
 
   it('leaves the door live when the forecast dates are undefined — not known yet is no claim', () => {
-    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, undefined);
+    const view = buildEntryView(single(COASTAL), TODAY, null, undefined);
     expect(view.interactive).toBe(true);
     expect(view.actionWithheld).toBe(false);
     expect(view.actionNote).toBeNull();
   });
 
   it('leaves the door live when the forecast dates are null — the forecast has not loaded', () => {
-    const view = buildEntryView(entry({ action: DARK_SKY }), TODAY, null, null);
+    const view = buildEntryView(single(DARK_SKY), TODAY, null, null);
     expect(view.interactive).toBe(true);
     expect(view.actionWithheld).toBe(false);
     expect(view.actionNote).toBeNull();
@@ -241,7 +243,7 @@ describe('buildEntryView — a map door needs a colour forecast for its date', (
 
   it('degrades to a date-less note, not "Invalid Date", when a map action carries no date', () => {
     const view = buildEntryView(
-      entry({ action: { label: 'Show coastal spots →', kind: 'coastal-spots', date: undefined } }),
+      entry({ startDate: '2026-10-11', endDate: '2026-10-11', action: { label: 'Show coastal spots →', kind: 'coastal-spots', date: undefined } }),
       TODAY, null, ['2026-10-11'],
     );
     expect(view.actionNote).toBe('Coastal spots: no forecast');
@@ -250,9 +252,195 @@ describe('buildEntryView — a map door needs a colour forecast for its date', (
   it('formats the note’s date in the house short form (a September date reads Sept, a single '
       + 'digit has no padding)', () => {
     const view = buildEntryView(
-      entry({ action: { ...COASTAL, date: '2026-09-03' } }), TODAY, null, [],
+      single({ ...COASTAL, date: '2026-09-03' }), TODAY, null, [],
     );
     expect(view.actionNote).toBe('Coastal spots: no forecast for 3 Sept');
+  });
+});
+
+describe('buildEntryView — a short run gets a door per day (plan §11.25)', () => {
+  const RUN_ACTION = { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' };
+  /** The tide run on the card: 9–14 Oct, peaking on the 11th. */
+  const run = (over = {}) => entry({
+    startDate: '2026-10-09', endDate: '2026-10-14', action: RUN_ACTION, ...over,
+  });
+  const chipsOf = (view) => view.dayChips;
+
+  it('builds one chip per day of the run, in order, with the weekday and bare day number', () => {
+    const chips = chipsOf(buildEntryView(run(), '2026-10-07', null, null));
+    expect(chips.map((c) => [c.date, c.dow, c.day]))
+      .toEqual([
+        ['2026-10-09', 'Fri', '9'], ['2026-10-10', 'Sat', '10'], ['2026-10-11', 'Sun', '11'],
+        ['2026-10-12', 'Mon', '12'], ['2026-10-13', 'Tue', '13'], ['2026-10-14', 'Wed', '14'],
+      ]);
+  });
+
+  it('flags the peak on the served action date and on no other chip', () => {
+    const chips = chipsOf(buildEntryView(run(), '2026-10-07', null, null));
+    expect(chips.filter((c) => c.peak).map((c) => c.date)).toEqual(['2026-10-11']);
+  });
+
+  it('flags today on the reader’s today when it falls inside the run, and nowhere otherwise', () => {
+    const underWay = chipsOf(buildEntryView(run(), '2026-10-09', null, null));
+    expect(underWay.filter((c) => c.today).map((c) => c.date)).toEqual(['2026-10-09']);
+    const before = chipsOf(buildEntryView(run(), '2026-10-07', null, null));
+    expect(before.some((c) => c.today)).toBe(false);
+  });
+
+  it('carries a month word only on the first chip of a new month, for a run that crosses one', () => {
+    const view = buildEntryView(
+      run({ startDate: '2026-09-30', endDate: '2026-10-03',
+        action: { ...RUN_ACTION, date: '2026-10-01' } }),
+      '2026-09-28', null, null,
+    );
+    expect(chipsOf(view).map((c) => [c.day, c.monthWord]))
+      .toEqual([['30', null], ['1', 'Oct'], ['2', null], ['3', null]]);
+  });
+
+  it('carries no month word on any chip of a run inside one month', () => {
+    const chips = chipsOf(buildEntryView(run(), '2026-10-07', null, null));
+    expect(chips.every((c) => c.monthWord === null)).toBe(true);
+  });
+
+  it('gives every chip a full date label, month included, for the accessible name', () => {
+    const chips = chipsOf(buildEntryView(run(), '2026-10-07', null, null));
+    expect(chips[0].dateLabel).toBe('Fri 9 Oct');
+    expect(chips[5].dateLabel).toBe('Wed 14 Oct');
+  });
+
+  it('makes every chip live while the forecast dates are not known yet (null or undefined)', () => {
+    for (const unknown of [null, undefined]) {
+      const chips = chipsOf(buildEntryView(run(), '2026-10-07', null, unknown));
+      expect(chips.map((c) => c.live)).toEqual([true, true, true, true, true, true]);
+    }
+  });
+
+  it('makes a chip live exactly when its own date is among the forecast dates', () => {
+    const chips = chipsOf(
+      buildEntryView(run(), '2026-10-07', null, ['2026-10-07', '2026-10-09', '2026-10-10']),
+    );
+    expect(chips.map((c) => [c.date, c.live])).toEqual([
+      ['2026-10-09', true], ['2026-10-10', true], ['2026-10-11', false],
+      ['2026-10-12', false], ['2026-10-13', false], ['2026-10-14', false],
+    ]);
+  });
+
+  it('makes every chip dimmed when the forecast dates are known to be empty', () => {
+    const chips = chipsOf(buildEntryView(run(), '2026-10-07', null, []));
+    expect(chips.some((c) => c.live)).toBe(false);
+  });
+
+  it('turns the card off as a control and withholds nothing — each chip carries its own state', () => {
+    const view = buildEntryView(run(), '2026-10-07', null, []);
+    expect(view.interactive).toBe(false);
+    expect(view.actionWithheld).toBe(false);
+    expect(view.actionNote).toBeNull();
+    expect(view.doorNoun).toBe('Coastal spots');
+  });
+
+  it('keys the rule on the door kind, never the family: a short dark-sky run gets chips too', () => {
+    const view = buildEntryView(entry({
+      family: 'night-sky',
+      startDate: '2026-10-20',
+      endDate: '2026-10-22',
+      action: { label: 'Show dark-sky spots →', kind: 'dark-sky-spots', date: '2026-10-21' },
+    }), '2026-10-07', null, null);
+    expect(chipsOf(view).map((c) => c.date)).toEqual(['2026-10-20', '2026-10-21', '2026-10-22']);
+    expect(view.doorNoun).toBe('Dark-sky spots');
+  });
+
+  it('gives a coastal-family entry with a plan action no chips — the kind decides, not the family', () => {
+    const view = buildEntryView(run({
+      action: { label: 'See the plan for 9 Oct →', kind: 'plan', date: '2026-10-09' },
+    }), '2026-10-07', null, null);
+    expect(view.dayChips).toBeNull();
+    expect(view.doorNoun).toBeNull();
+    expect(view.interactive).toBe(true);
+  });
+
+  it('gives a single-day map entry no chips, and leaves its single door to the withholding rule', () => {
+    const view = buildEntryView(
+      run({ startDate: '2026-10-11', endDate: '2026-10-11' }), '2026-10-07', null, [],
+    );
+    expect(view.dayChips).toBeNull();
+    expect(view.actionWithheld).toBe(true);
+  });
+
+  it('gives a run of exactly ten days chips, and of eleven days none — the cap is inclusive', () => {
+    // Tide runs can run past a week (the almanac source walks up to ten days each side), and a run
+    // over the cap would silently fall back to the single peak door — the defect chips fix.
+    expect(MAX_CHIP_DAYS).toBe(10);
+    const ten = buildEntryView(
+      run({ startDate: '2026-10-09', endDate: '2026-10-18' }), '2026-10-07', null, null,
+    );
+    expect(ten.dayChips).toHaveLength(10);
+    const eleven = buildEntryView(
+      run({ startDate: '2026-10-09', endDate: '2026-10-19' }), '2026-10-07', null, [],
+    );
+    expect(eleven.dayChips).toBeNull();
+    // Over the cap it is the single, gated door exactly as before: the NLC season's shape.
+    expect(eleven.actionWithheld).toBe(true);
+    expect(eleven.interactive).toBe(false);
+  });
+
+  it('gives a three-night supermoon chips — a short dark-sky entry is a run like any other', () => {
+    const view = buildEntryView(entry({
+      type: 'supermoon',
+      family: 'sun-moon',
+      startDate: '2026-11-23',
+      endDate: '2026-11-25',
+      action: { label: 'Show dark-sky spots for 24 Nov →', kind: 'dark-sky-spots', date: '2026-11-24' },
+    }), '2026-11-20', null, null);
+    expect(view.dayChips.map((c) => c.date)).toEqual(['2026-11-23', '2026-11-24', '2026-11-25']);
+    expect(view.dayChips.find((c) => c.peak).date).toBe('2026-11-24');
+    expect(view.doorNoun).toBe('Dark-sky spots');
+  });
+
+  it('gives no chips, and never an empty list, for a reversed span', () => {
+    const view = buildEntryView(
+      run({ startDate: '2026-10-14', endDate: '2026-10-09' }), '2026-10-07', null, null,
+    );
+    expect(view.dayChips).toBeNull();
+  });
+
+  it('gives no chips, and never an empty list, for an unparseable date', () => {
+    expect(buildEntryView(run({ startDate: 'garbage' }), '2026-10-07', null, null).dayChips).toBeNull();
+    expect(buildEntryView(run({ endDate: '2026-13-45' }), '2026-10-07', null, null).dayChips).toBeNull();
+  });
+
+  it('marks a day before today gone, and never live — even when the forecast dates list it', () => {
+    // The forecast window reaches two days back, so a passed day of a run under way is listed.
+    const chips = buildEntryView(
+      run(), '2026-10-11', null, ['2026-10-09', '2026-10-10', '2026-10-11', '2026-10-12'],
+    ).dayChips;
+    expect(chips.map((c) => [c.date, c.gone, c.live])).toEqual([
+      ['2026-10-09', true, false], ['2026-10-10', true, false], ['2026-10-11', false, true],
+      ['2026-10-12', false, true], ['2026-10-13', false, false], ['2026-10-14', false, false],
+    ]);
+  });
+
+  it('marks a gone day gone and not live when the forecast dates are not known yet', () => {
+    const chips = buildEntryView(run(), '2026-10-11', null, null).dayChips;
+    expect(chips.map((c) => [c.gone, c.live])).toEqual([
+      [true, false], [true, false], [false, true], [false, true], [false, true], [false, true],
+    ]);
+  });
+
+  it('leaves today itself neither gone nor dimmed by the clock', () => {
+    const today = buildEntryView(run(), '2026-10-09', null, null).dayChips[0];
+    expect(today.today).toBe(true);
+    expect(today.gone).toBe(false);
+    expect(today.live).toBe(true);
+  });
+
+  it('keeps a months-long dark-sky season on its single door', () => {
+    const view = buildEntryView(entry({
+      startDate: '2026-05-25',
+      endDate: '2026-08-10',
+      action: { label: 'Show dark-sky spots for 1 Jun →', kind: 'dark-sky-spots', date: '2026-06-01' },
+    }), '2026-05-20', null, ['2026-05-20']);
+    expect(view.dayChips).toBeNull();
+    expect(view.actionWithheld).toBe(true);
   });
 });
 
@@ -264,13 +452,16 @@ describe('buildEntryView', () => {
 
   it('marks a coastal-spots action interactive — the map channel now exists (P3b, D8) — once the '
       + 'reader holds a forecast for its date', () => {
-    const view = buildEntryView(entry(), TODAY, null, ['2026-08-16']);
+    const view = buildEntryView(entry({ endDate: '2026-08-16' }), TODAY, null, ['2026-08-16']);
     expect(view.interactive).toBe(true);
   });
 
   it('marks a dark-sky-spots action interactive for the same reason', () => {
     const view = buildEntryView(
-      entry({ action: { label: 'Show dark-sky spots →', kind: 'dark-sky-spots', date: '2026-08-16' } }),
+      entry({
+        endDate: '2026-08-16',
+        action: { label: 'Show dark-sky spots →', kind: 'dark-sky-spots', date: '2026-08-16' },
+      }),
       TODAY,
       null,
       ['2026-08-16'],
