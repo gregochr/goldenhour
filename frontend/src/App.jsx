@@ -681,7 +681,7 @@ function AppInner() {
         )}
       </div>
 
-      {/* On the Map tab: zero VERTICAL padding and `flex-1 min-h-0` so this element — the one link
+      {/* On the Map tab: top padding only (`pt-6`, below) and `flex-1 min-h-0` so this element — the one link
           in the chain between the flex root and `WindowFirstShell`'s own `.wf-shell`
           (`PlanErrorBoundary` returns `children` directly when healthy, and
           `WindowFirstBriefingProvider` is a bare context provider, so neither interposes a DOM
@@ -689,9 +689,18 @@ function AppInner() {
           its content. `flex flex-col` so ITS single child (`.wf-shell`) can do the same one level
           down. Every other tab keeps the usual `px-4 py-6` inset and ordinary block flow.
 
-          Zero vertical padding is unconditional (it would eat into the flex-distributed vertical
-          space `<main>` hands down, reopening page scroll, and O-17 is WIDTH ONLY — the height
-          chain is untouched). HORIZONTAL padding is `sm:px-4` — present at `sm` (640px) and up,
+          TOP padding matches every other tab's `py-6` (`pt-6`, unconditional — not `sm:pt-6`: the
+          phone residue below is about HORIZONTAL full-bleed only, and vertically the phone
+          masthead must not move either), so the masthead, band and tab row sit at the same height
+          on every tab and a tab switch does not make them jump by 24px. That padding costs the
+          map nothing it can lose to page scroll: Tailwind preflight makes every box `border-box`,
+          `<main>` is `flex-1 min-h-0` inside the root's `overflow-hidden` flex column, and its
+          child `.wf-shell` is itself `flex-1 min-h-0`, so the padding comes out of `<main>`'s OWN
+          flex-distributed height and the map pane simply shrinks by 24px — the same mechanism
+          `app-safe`'s padding on the root already relies on (see the root's comment above).
+          BOTTOM padding stays zero: the footer is suppressed on the Map tab, and the map frame
+          bleeds to the bottom edge of the screen, where a 24px dead band would be a regression.
+          HORIZONTAL padding is `sm:px-4` — present at `sm` (640px) and up,
           absent below it — and that split is load-bearing, not cosmetic:
 
           · At `sm` and up, `WindowFirstShell`'s own panel-region wrapper already caps the visible
@@ -710,7 +719,7 @@ function AppInner() {
             side, 32px total) on a Plan⇄Map switch on a phone. That is P12's existing, deliberate
             full-bleed phone treatment continuing to apply — not a gap this change introduces —
             and is called out here rather than left for a reader to rediscover. */}
-      <main className={isMapTabActive ? 'sm:px-4 flex-1 min-h-0 flex flex-col' : 'px-4 py-6'}>
+      <main className={isMapTabActive ? 'sm:px-4 pt-6 flex-1 min-h-0 flex flex-col' : 'px-4 py-6'}>
         {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog
             and Sign out, and greying the whole subtree would strand a user with no route out of a
             broken app. */}

@@ -2922,8 +2922,8 @@ WindowFirstShell.propTypes = {
   /**
    * The shell→App channel for the full-frame Map tab (map-tab-v2-plan.md §3 P7). Fired with the
    * effective tab id on mount and on every change — `App` cannot otherwise learn which tab is
-   * active (`effectiveTab` is shell-internal), and it needs to know in order to drop `<main>`'s
-   * own padding for the Map tab.
+   * active (`effectiveTab` is shell-internal), and it needs to know in order to recast `<main>`'s
+   * padding (no bottom padding, `sm:px-4`, the top padding kept) for the Map tab.
    */
   onTabChange: PropTypes.func,
   onOpenSettings: PropTypes.func.isRequired,
