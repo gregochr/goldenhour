@@ -8798,9 +8798,10 @@ button.wf-hc.also.on:hover {
 /* Dashed rather than solid marks a FORECAST entry that can still move — must always be paired
    with the legend above (design README §5: "without it the dashed border is undecodable"). */
 .wf-cu-card-fc { border-left-style: dashed; }
-/* The inert state (plan §11.5, D8's seam): a `coastal-spots`/`dark-sky-spots` action has nowhere
-   to go until P3b builds the map channel, so this card must not look clickable. No pointer, no
-   hover change — the two properties `.wf-cu-card`/`:hover` above set for a real button. */
+/* The inert state (plan §11.5, D8's seam): a card whose action has nowhere to go must not look
+   clickable — originally a map action before P3b built the map channel, and now also a map door
+   withheld for want of a forecast on its date (§11.24). No pointer, no hover change — the two
+   properties `.wf-cu-card`/`:hover` above set for a real button. */
 .wf-cu-card-inert {
   cursor: default;
   transition: none;
@@ -9079,6 +9080,15 @@ button.wf-hc.also.on:hover {
   font-size: 10.5px;
   color: var(--wf-cu-accent, var(--color-plex-text-secondary));
   margin-top: 8px;
+}
+/* A withheld map door (plan §11.24): the card prints why there is no door ("Coastal spots: no
+   forecast for 11 Oct") instead of the served label — the swap in the JSX is what removes the
+   arrow. Muted by COLOUR, never `opacity` — the P3a phase log's AA failures over the translucent
+   card are the reason the rule above exists. The plain secondary text token is the one
+   `.wf-cu-threshold` already measures with on this same ground. A statement, not a control, so no
+   topic accent. */
+.wf-cu-action.wf-cu-action-withheld {
+  color: var(--color-plex-text-secondary);
 }
 
 /* Loading, error and empty all share one line, because they are one slot: exactly one of them is

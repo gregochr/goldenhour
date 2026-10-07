@@ -33,6 +33,16 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  * silently fall through to a wrong destination just because {@code interactive} happened to already
  * be true for it.
  *
+ * <h2>A map door with no forecast behind it is withheld, and says why (plan §11.24)</h2>
+ *
+ * <p>The feed covers 90 days but the reader holds colour forecasts for only the next few, so a
+ * {@code coastal-spots}/{@code dark-sky-spots} action dated beyond them would open a map of unscored
+ * pins. (A {@code plan} action is never withheld: its destination is the tab, not a date.) {@code buildEntryView} decides that ({@code actionWithheld}, with the reason in
+ * {@code actionNote}); here it is only drawn: the card takes the inert {@code <div>} form above —
+ * never a disabled {@code <button>} — and the action line prints the note INSTEAD of the served
+ * label, because the label ("Show coastal spots for 11 Oct →") promises a door and printing it on a
+ * card that does nothing would be the dead pointer this section forbids.
+ *
  * <h2>No {@code aria-label} on the button — a corrected first attempt</h2>
  *
  * <p>An earlier draft set {@code aria-label={entry.action.label}} so a screen-reader user got the
@@ -283,7 +293,17 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
         </>
       )}
 
-      <span className="wf-cu-action" data-testid="coming-up-action">{entry.action.label}</span>
+      {entry.actionWithheld ? (
+        <span
+          className="wf-cu-action wf-cu-action-withheld"
+          data-testid="coming-up-action"
+          data-withheld="true"
+        >
+          {entry.actionNote}
+        </span>
+      ) : (
+        <span className="wf-cu-action" data-testid="coming-up-action">{entry.action.label}</span>
+      )}
     </>
   );
 
@@ -361,6 +381,8 @@ WindowComingUpEntry.propTypes = {
       date: PropTypes.string,
     }).isRequired,
     interactive: PropTypes.bool.isRequired,
+    actionWithheld: PropTypes.bool,
+    actionNote: PropTypes.string,
     tide: PropTypes.shape({
       range: PropTypes.number.isRequired,
       delta: PropTypes.number.isRequired,

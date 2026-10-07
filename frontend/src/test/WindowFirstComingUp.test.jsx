@@ -551,3 +551,76 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     expect(screen.queryByTestId('coming-up-provisional')).toBeNull();
   });
 });
+
+describe('WindowFirstComingUp — map doors follow the reader’s forecast dates (plan §11.24)', () => {
+  // Both fixture entries sit on 2026-08-12; give them different dates so one list can split them.
+  const SPLIT_ENTRIES = [
+    wireEntry({
+      id: 'meteor:2026-08-12:2026-08-12', startDate: '2026-08-12', endDate: '2026-08-12',
+      action: { label: 'Show dark-sky spots for 12 Aug →', kind: 'dark-sky-spots', date: '2026-08-12' },
+    }),
+    wireEntry({
+      id: 'spring-tide:2026-10-11:2026-10-12', type: 'spring-tide', family: 'coastal',
+      title: 'Spring tide run', metric: null, prose: null,
+      startDate: '2026-10-11', endDate: '2026-10-12',
+      action: { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' },
+    }),
+  ];
+  // One object held across every render below, so a `forecastDates` change is the ONLY thing that
+  // can make the chronology recompute — a fresh `events` literal would recompute it regardless.
+  const SPLIT_EVENTS = { entries: SPLIT_ENTRIES, counts: COUNTS };
+  const renderSplit = (props = {}) => renderPane({ events: SPLIT_EVENTS, ...props });
+
+  it('makes a button of the entry whose date is listed and a plain card of the one that is not', () => {
+    const { onShowOnMap } = renderSplit({ forecastDates: ['2026-08-12'] });
+    const perseids = screen.getByRole('button', { name: /Perseids/ });
+    expect(screen.queryByRole('button', { name: /Spring tide run/ })).toBeNull();
+
+    const spring = screen.getAllByTestId('coming-up-card')[1];
+    expect(spring.tagName).toBe('DIV');
+    expect(within(spring).getByTestId('coming-up-action'))
+      .toHaveTextContent('Coastal spots: no forecast for 11 Oct');
+
+    fireEvent.click(spring);
+    expect(onShowOnMap).not.toHaveBeenCalled();
+    fireEvent.click(perseids);
+    expect(onShowOnMap).toHaveBeenCalledWith(expect.objectContaining({ kind: 'coming-up', date: '2026-08-12' }));
+  });
+
+  it('withholds every map door when the list is known to be empty, and draws no button', () => {
+    renderSplit({ forecastDates: [] });
+    expect(screen.queryByRole('button', { name: /Perseids/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Spring tide run/ })).toBeNull();
+    for (const action of screen.getAllByTestId('coming-up-action')) {
+      expect(action).toHaveAttribute('data-withheld', 'true');
+    }
+  });
+
+  it('leaves every map door live while the forecast dates are not known yet (none passed)', () => {
+    renderSplit();
+    expect(screen.getByRole('button', { name: /Perseids/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Spring tide run/ })).toBeInTheDocument();
+    for (const action of screen.getAllByTestId('coming-up-action')) {
+      expect(action).not.toHaveAttribute('data-withheld');
+    }
+  });
+
+  it('re-decides the doors when only the list changes under a mounted pane', () => {
+    const { rerender, onShowOnMap, onRetry, onGoToPlan } = renderSplit({ forecastDates: [] });
+    expect(screen.getAllByTestId('coming-up-card').map((c) => c.tagName)).toEqual(['DIV', 'DIV']);
+    rerender(
+      <WindowFirstComingUp
+        id="window-first-panel-coming-up"
+        labelledBy="window-first-tab-coming-up"
+        status="ready"
+        events={SPLIT_EVENTS}
+        todayStr={TODAY}
+        onRetry={onRetry}
+        onGoToPlan={onGoToPlan}
+        onShowOnMap={onShowOnMap}
+        forecastDates={['2026-08-12', '2026-10-11']}
+      />,
+    );
+    expect(screen.getAllByTestId('coming-up-card').map((c) => c.tagName)).toEqual(['BUTTON', 'BUTTON']);
+  });
+});

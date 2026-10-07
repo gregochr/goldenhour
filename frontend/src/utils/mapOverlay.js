@@ -186,7 +186,9 @@ export function buildMapOverlay(trigger, ctx) {
   // The `date` IS carried into `selectedDate`/`MapView`, deliberately — unlike `location`/`region`/
   // `event`, this branch never calls `ratingFor`/`solarTimeFor` for it, so a Coming-up date past
   // Plan's four-day horizon cannot dress "no data" as "stand down": there is no rating-derived
-  // claim here to get wrong. Recorded in the P3b phase log.
+  // claim here to get wrong. Recorded in the P3b phase log. That is still true of this branch, but
+  // the Coming up card now withholds the door client-side when no forecast date covers it (plan
+  // §11.24, an owner decision), so the date carried here is one the map can draw.
   if (trigger.kind === 'coming-up') {
     const matches = trigger.darkSky
       ? enabled.filter((l) => l.bortleClass != null && l.bortleClass <= DARK_SKY_THRESHOLD)

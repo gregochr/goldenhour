@@ -192,6 +192,28 @@ function matchesFilter(entry, filterId) {
 const INTERACTIVE_ACTION_KINDS = ['plan', 'coastal-spots', 'dark-sky-spots'];
 
 /**
+ * The two kinds whose destination is the map overlay on {@code action.date} — the only ones that
+ * need a colour forecast for that date to open onto anything. `plan` is exempt, but not because
+ * its date is always covered (the backend emits a `plan` action at the event's own date anywhere
+ * in the 90-day feed): the shell's {@code goToPlan} discards the date and only switches tabs, so a
+ * Plan door never opens onto a date at all.
+ */
+const MAP_ACTION_KINDS = ['coastal-spots', 'dark-sky-spots'];
+
+/** What each withheld map door names, so the note keeps what the served label said. */
+const DOOR_NAMES = { 'coastal-spots': 'Coastal spots', 'dark-sky-spots': 'Dark-sky spots' };
+
+/**
+ * The reason a withheld map door prints in place of its served label — it names the door and the
+ * date: `Coastal spots: no forecast for 11 Oct`, `Dark-sky spots: no forecast for 21 Oct`. A
+ * missing date reads `Coastal spots: no forecast`.
+ */
+function withheldNote(kind, dateStr) {
+  const door = DOOR_NAMES[kind];
+  return dateStr ? `${door}: no forecast for ${formatArrivalDate(dateStr)}` : `${door}: no forecast`;
+}
+
+/**
  * Turns one wire entry into the view a card renders. Almost entirely a pass-through — P2 already
  * decided every fact, tag and label — plus three client-only additions: the date rail (needs the
  * reader's clock, which the server does not have), {@code isFeature} (the card's larger-title
@@ -211,14 +233,39 @@ const INTERACTIVE_ACTION_KINDS = ['plan', 'coastal-spots', 'dark-sky-spots'];
  * new {@code kind:'coming-up'} channel. {@code interactive} names all three — the P3a-era refusal
  * (the map channel did not exist yet) no longer applies.
  *
+ * <p>A map door ({@code coastal-spots}/{@code dark-sky-spots}) is also withheld when the reader holds
+ * no colour forecast for its date. The feed covers 90 days but the client holds colour forecasts for
+ * only the next few, so "Show coastal spots for 11 Oct" days ahead would open a map of unscored pins
+ * (an owner decision, 2026-10-07 — plan §11.24). That is a lookup of the action date in the client's
+ * forecast-date domain ({@code App}'s {@code allDates}, the one the Map tab windows on) — the
+ * already-licensed filter/map/select class CLAUDE.md's Backend-heavy bullet names, not a new client
+ * aggregation. It is a PROXY for "would the overlay draw anything scored": the list is the union over
+ * every visible location of dates with a sunrise or sunset row, so a date can be listed on one inland
+ * location's row while every seascape pin is unscored. It lives client-side because
+ * {@code GET /api/almanac} is day-cached and ETag-shared, while which dates carry a forecast changes
+ * every pipeline cycle. A withheld view carries {@code actionWithheld: true} and {@code actionNote},
+ * the reason the card prints in place of the served label; a live door carries {@code false} and
+ * null. {@code plan} actions are never withheld: their destination is the tab, not a date.
+ *
+ * <p>The list is three-valued. {@code null}/{@code undefined} means the forecast is not known yet,
+ * and no door is withheld — the card renders as it did before the gate, making no claim either way.
+ * An array means known: a map door is withheld when its date is not in it, so an empty array
+ * withholds every one.
+ *
  * @param {object}  entry        a {@code ComingUpEntry} as served
  * @param {string}  todayStr     the reader's today, `YYYY-MM-DD`
  * @param {?string} lastSeenDate the reader's stored `comingUpLastSeenDate`, or null/undefined
  *                               before it is known — passed to {@code isNewEntry} unchanged
+ * @param {?Array<string>} forecastDates the dates (`YYYY-MM-DD`) the reader holds a colour forecast
+ *                               for; null/undefined means not known yet and withholds nothing, an
+ *                               empty array means known-empty and withholds every map door
  * @returns {object} the view model
  */
-export function buildEntryView(entry, todayStr, lastSeenDate) {
+export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
   const action = entry.action ?? { label: '', kind: null, date: entry.startDate };
+  const actionWithheld = MAP_ACTION_KINDS.includes(action.kind)
+    && Array.isArray(forecastDates)
+    && !forecastDates.includes(action.date);
   return {
     id: entry.id,
     type: entry.type,
@@ -238,7 +285,9 @@ export function buildEntryView(entry, todayStr, lastSeenDate) {
     aside: entry.aside ?? null,
     threshold: entry.threshold ?? null,
     action,
-    interactive: INTERACTIVE_ACTION_KINDS.includes(action.kind),
+    interactive: INTERACTIVE_ACTION_KINDS.includes(action.kind) && !actionWithheld,
+    actionWithheld,
+    actionNote: actionWithheld ? withheldNote(action.kind, action.date) : null,
     // Tide entries only (P2); the sparkline (plan §6b) and the coincidence card (D10) are both
     // straight passthroughs — nothing here is derived, only placed.
     tide: entry.tide ?? null,
@@ -287,13 +336,15 @@ export function groupEntriesByMonth(views) {
  * @param {string}  todayStr     the reader's today, `YYYY-MM-DD`
  * @param {string}  filterId     the active chip's id, e.g. `'all'`
  * @param {?string} lastSeenDate the reader's stored `comingUpLastSeenDate`, or null/undefined
+ * @param {?Array<string>} forecastDates the dates the reader holds a colour forecast for (null:
+ *                               not known yet), handed to {@link buildEntryView} unchanged
  * @returns {Array} month groups, each holding its filtered, view-built entries
  */
-export function buildChronology(entries, todayStr, filterId, lastSeenDate) {
+export function buildChronology(entries, todayStr, filterId, lastSeenDate, forecastDates) {
   if (!Array.isArray(entries)) return [];
   const views = entries
     .filter((entry) => matchesFilter(entry, filterId))
-    .map((entry) => buildEntryView(entry, todayStr, lastSeenDate));
+    .map((entry) => buildEntryView(entry, todayStr, lastSeenDate, forecastDates));
   return groupEntriesByMonth(views);
 }
 
