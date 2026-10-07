@@ -33,9 +33,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.annotation.Profile;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -404,9 +401,12 @@ public class PipelineOrchestrator {
      * whose settle failed, or that was never settled, is already COMPLETED, FAILED or DEGRADED and so
      * is never resumed here, and this sweep is what settles it. Runs resumed above are still RUNNING
      * and are left to their own tail.
+     *
+     * <p>Deliberately NOT an event listener itself: {@code @Profile} is a {@code @Conditional}, which
+     * Spring evaluates only on bean definitions, never on an {@code @EventListener} method, so a
+     * profile guard on this method was a silent no-op. {@link PipelineOrchestratorStartup} listens for
+     * {@code ApplicationReadyEvent} and carries the profile guard at class level, where it works.
      */
-    @EventListener(ApplicationReadyEvent.class)
-    @Profile("!integration-test")
     public void resumeRunningCyclesOnStartup() {
         resumeRunning();
         sweepUnsettledLocationFailures();
