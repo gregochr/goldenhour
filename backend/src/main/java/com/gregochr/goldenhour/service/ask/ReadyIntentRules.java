@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -160,6 +161,27 @@ final class ReadyIntentRules {
             case RARE_EVENTS -> rareEvents(words);
             case SNOW_TOPS -> snowTops(words);
         };
+    }
+
+    /**
+     * Which events question, if any, a question is. The same words and the same rules that decide
+     * whether a typed question is a Ready one, so a typed "Any rare events coming up?" and the Ready
+     * question of that text are one question to the validator's "none while events were offered" test
+     * and to the Ready store. Deliberately the strict rules: a question with a time bound or any word
+     * the rules do not accept ("anything this weekend?") is not one, because there "nothing" can be a
+     * true answer about the day asked.
+     *
+     * @param words the sanitised question's words
+     * @return {@code RARE_EVENTS} or {@code SNOW_TOPS} when the words are that question, else empty
+     */
+    static Optional<ReadyQuestion> eventsQuestion(List<String> words) {
+        if (!couldMatchAny(words)) {
+            return Optional.empty();
+        }
+        if (rareEvents(words)) {
+            return Optional.of(ReadyQuestion.RARE_EVENTS);
+        }
+        return snowTops(words) ? Optional.of(ReadyQuestion.SNOW_TOPS) : Optional.empty();
     }
 
     // -- the rules ------------------------------------------------------------------------------

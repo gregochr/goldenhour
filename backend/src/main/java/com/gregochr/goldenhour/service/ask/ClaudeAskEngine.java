@@ -199,6 +199,8 @@ public class ClaudeAskEngine implements AskEngine {
         String system = promptBuilder.systemPrompt(snapshot.today(), scope, contextWindow,
                 user.hasUser());
         List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser());
+        ReadyQuestion eventsQuestion =
+                ReadyIntentRules.eventsQuestion(PhraseAskPreFilter.words(question.sanitised())).orElse(null);
         List<AskTools.ToolCall> trace = new ArrayList<>();
         List<Message> assistantTurns = new ArrayList<>();
         List<List<ContentBlockParam>> toolResults = new ArrayList<>();
@@ -269,7 +271,7 @@ public class ClaudeAskEngine implements AskEngine {
             List<ContentBlockParam> results = new ArrayList<>();
             for (ToolUseBlock block : toolUses) {
                 if (AskToolSchemas.SUBMIT_ANSWER.equals(block.name())) {
-                    return submit(block, snapshot, tools, scope, opts, turns, trace);
+                    return submit(block, snapshot, tools, scope, opts, eventsQuestion, turns, trace);
                 }
                 AskToolResult result = dispatch(block, tools, trace);
                 results.add(ContentBlockParam.ofToolResult(ToolResultBlockParam.builder()
@@ -405,7 +407,7 @@ public class ClaudeAskEngine implements AskEngine {
 
     /** Reads, parses and validates the model's {@code submit_answer}; ends the conversation. */
     private AskRun submit(ToolUseBlock block, AskSnapshot snapshot, AskTools tools, Set<String> scope,
-            AskRunOptions opts, int turns, List<AskTools.ToolCall> trace) {
+            AskRunOptions opts, ReadyQuestion eventsQuestion, int turns, List<AskTools.ToolCall> trace) {
         Parsed parsed = AskAnswerParser.parse(toNode(block._input()));
         trace.add(new AskTools.ToolCall(AskToolSchemas.SUBMIT_ANSWER, !parsed.ok(), 0));
         if (!parsed.ok()) {
@@ -413,7 +415,7 @@ public class ClaudeAskEngine implements AskEngine {
                     trace);
         }
         Result result = validator.validate(parsed.raw(), snapshot, tools.evidence(), scope,
-                opts.anchor());
+                opts.anchor(), eventsQuestion);
         if (!result.accepted()) {
             return failed("the answer was discarded: " + result.reason(), turns, tools.personal(),
                     trace);

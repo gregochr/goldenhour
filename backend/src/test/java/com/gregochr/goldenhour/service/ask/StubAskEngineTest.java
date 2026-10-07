@@ -491,19 +491,23 @@ class StubAskEngineTest {
 
         AskRun both = engine.run(question("rare events"), AskFixtures.snapshotOf(briefing, hugeEntries), USER,
                 AskRunOptions.none());
-        AskRun one = engine.run(question("rare events"), AskFixtures.snapshotOf(briefing), USER, AskRunOptions.none());
+        // The almanac lists the same eclipse, so get_coming_up does not repeat the oversized live topic
+        // and survives the one tool (get_hot_topics) that cannot carry it.
+        AskRun one = engine.run(question("rare events"), AskFixtures.snapshotOf(briefing, List.of(
+                AskSnapshotBuilderTest.almanacEntry("eclipse", "Eclipse", TODAY, TODAY, "d"))), USER,
+                AskRunOptions.none());
 
         assertThat(both.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
         assertThat(both.reason()).startsWith("both event tools returned an error");
         assertThat(one.outcome().status()).isEqualTo(AskOutcome.Status.OK);
-        assertThat(one.outcome().answer().events()).isEmpty();
+        assertThat(one.outcome().answer().events()).extracting(AskEvent::type).containsExactly("ECLIPSE");
     }
 
     @Test
     @DisplayName("an answer the validator discards is a FAILED run with the reason: the stub is not trusted either")
     void discardedAnswerFails() {
         AskAnswerValidator rejecting = mock(AskAnswerValidator.class);
-        when(rejecting.validate(any(), any(), any(), any(), any()))
+        when(rejecting.validate(any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AskAnswerValidator.Result(null, "no summary"));
         StubAskEngine strict = new StubAskEngine(rejecting, driveTimes, regions, new ObjectMapper());
 
@@ -518,7 +522,7 @@ class StubAskEngineTest {
     @DisplayName("a validated unanswerable reply is a CANT outcome (the stub's validator path, not its script)")
     void cantStatusIsReportedFromTheValidator() {
         AskAnswerValidator cant = mock(AskAnswerValidator.class);
-        when(cant.validate(any(), any(), any(), any(), any())).thenReturn(new AskAnswerValidator.Result(
+        when(cant.validate(any(), any(), any(), any(), any(), any())).thenReturn(new AskAnswerValidator.Result(
                 new AskAnswer(false, "Cannot tell.", List.of(), List.of(), "parking"), null));
         StubAskEngine stub = new StubAskEngine(cant, driveTimes, regions, new ObjectMapper());
 

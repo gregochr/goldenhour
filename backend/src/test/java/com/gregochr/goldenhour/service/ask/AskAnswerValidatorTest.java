@@ -56,7 +56,7 @@ class AskAnswerValidatorTest {
     }
 
     private Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence) {
-        return validator.validate(raw, snapshot, evidence, null, null);
+        return validator.validate(raw, snapshot, evidence, null, null, null);
     }
 
     // -- picks ------------------------------------------------------------------------------
@@ -464,7 +464,7 @@ class AskAnswerValidatorTest {
     @DisplayName("BEST_*: pick 1 on the BEST BET window is accepted, whichever location leads there")
     void bestAnchor_leadingWithTheBestWindowIsAccepted() {
         Result result = validator.validate(answer("Tonight.", rawPick(2L, "Brightest")),
-                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR);
+                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR, null);
 
         assertThat(result.accepted()).isTrue();
     }
@@ -474,7 +474,7 @@ class AskAnswerValidatorTest {
     void bestAnchor_leadingElsewhereIsDiscarded() {
         Result result = validator.validate(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x"), rawPick(1L, "y")),
-                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR);
+                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR, null);
 
         assertThat(result.accepted()).isFalse();
         assertThat(result.reason()).contains(SUNSET_TODAY);
@@ -483,7 +483,7 @@ class AskAnswerValidatorTest {
     @Test
     @DisplayName("BEST_*: an answer with no surviving pick at all is discarded when a BEST BET exists")
     void bestAnchor_noPickIsDiscarded() {
-        Result result = validator.validate(answer("Nothing."), twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR);
+        Result result = validator.validate(answer("Nothing."), twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR, null);
 
         assertThat(result.accepted()).isFalse();
     }
@@ -492,7 +492,7 @@ class AskAnswerValidatorTest {
     @DisplayName("BEST_*: unanswerable is not an escape from the anchor")
     void bestAnchor_unanswerableIsDiscarded() {
         Result result = validator.validate(new Raw(false, "No.", null, null, "data"),
-                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR);
+                twoWindowSnapshot(), BOTH_WINDOWS, null, ANCHOR, null);
 
         assertThat(result.accepted()).isFalse();
     }
@@ -504,7 +504,7 @@ class AskAnswerValidatorTest {
 
         Result result = validator.validate(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x")),
-                twoWindowSnapshot(), BOTH_WINDOWS, null, tomorrowOnly);
+                twoWindowSnapshot(), BOTH_WINDOWS, null, tomorrowOnly, null);
 
         assertThat(result.accepted()).isTrue();
     }
@@ -516,7 +516,7 @@ class AskAnswerValidatorTest {
 
         Result result = validator.validate(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x")),
-                twoWindowSnapshot(), BOTH_WINDOWS, Set.of("Hills"), otherScope);
+                twoWindowSnapshot(), BOTH_WINDOWS, Set.of("Hills"), otherScope, null);
 
         assertThat(result.accepted()).isTrue();
     }
@@ -531,7 +531,7 @@ class AskAnswerValidatorTest {
                 List.of()));
 
         Result result = validator.validate(answer("Nothing is worth it tonight."), snapshot,
-                new AskEvidence(Set.of(), Set.of(), 1), null, new BestAnchor(Set.of(SUNSET_TODAY)));
+                new AskEvidence(Set.of(), Set.of(), 1), null, new BestAnchor(Set.of(SUNSET_TODAY)), null);
 
         assertThat(result.accepted()).isTrue();
     }
@@ -552,9 +552,9 @@ class AskAnswerValidatorTest {
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
         Result noPicks = validator.validate(answer("Nothing is worth it in Coast tonight."),
-                snapshot, toolsCalled, Set.of("coast"), coastOnly);
+                snapshot, toolsCalled, Set.of("coast"), coastOnly, null);
         Result unanswerable = validator.validate(new Raw(false, "No.", null, null, "data"),
-                snapshot, toolsCalled, Set.of("coast"), coastOnly);
+                snapshot, toolsCalled, Set.of("coast"), coastOnly, null);
 
         assertThat(noPicks.accepted()).isTrue();
         assertThat(unanswerable.accepted()).isTrue();
@@ -567,7 +567,7 @@ class AskAnswerValidatorTest {
         BestAnchor everywhere = new BestAnchor(Set.of(SUNSET_TODAY));
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
-        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled, Set.of(), everywhere);
+        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled, Set.of(), everywhere, null);
 
         assertThat(noPicks.accepted()).isFalse();
     }
@@ -580,7 +580,7 @@ class AskAnswerValidatorTest {
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
         Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled,
-                Set.of("Coast", "HILLS"), hillsOnly);
+                Set.of("Coast", "HILLS"), hillsOnly, null);
 
         assertThat(noPicks.accepted()).isFalse();
     }
@@ -616,7 +616,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = evidenceOf(pair(1L), pair(5L));
         Raw raw = answer("Two.", rawPick(5L, "Hills"), rawPick(1L, "Coast"));
 
-        Result result = validator.validate(raw, snapshot, evidence, Set.of("coast"), null);
+        Result result = validator.validate(raw, snapshot, evidence, Set.of("coast"), null, null);
 
         assertThat(result.answer().picks()).singleElement().satisfies(p -> {
             assertThat(p.locationId()).isEqualTo(1L);
@@ -631,11 +631,11 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = evidenceOf(pair(1L), pair(5L));
         Raw raw = answer("Two.", rawPick(5L, "Hills"), rawPick(1L, "Coast"));
 
-        assertThat(validator.validate(raw, snapshot, evidence, Set.of(), null).answer().picks())
+        assertThat(validator.validate(raw, snapshot, evidence, Set.of(), null, null).answer().picks())
                 .hasSize(2);
-        assertThat(validator.validate(raw, snapshot, evidence, null, null).answer().picks())
+        assertThat(validator.validate(raw, snapshot, evidence, null, null, null).answer().picks())
                 .hasSize(2);
-        assertThat(validator.validate(raw, snapshot, evidence, Set.of("COAST", "hills"), null)
+        assertThat(validator.validate(raw, snapshot, evidence, Set.of("COAST", "hills"), null, null)
                 .answer().picks()).hasSize(2);
     }
 
@@ -645,7 +645,7 @@ class AskAnswerValidatorTest {
         AskSnapshot snapshot = twoRegionSnapshot();
 
         Result result = validator.validate(answer("Hills.", rawPick(5L, "Hills")), snapshot,
-                evidenceOf(pair(5L)), Set.of("Coast"), null);
+                evidenceOf(pair(5L)), Set.of("Coast"), null, null);
 
         assertThat(result.accepted()).isTrue();
         assertThat(result.answer().picks()).isEmpty();
@@ -683,7 +683,7 @@ class AskAnswerValidatorTest {
 
         Result result = validator.validate(answer("Two.", rawPick(2L, "a"),
                 new RawPick(2L, SUNRISE_TOMORROW, "b"), rawPick(1L, "c")),
-                twoWindowSnapshot(), evidence, null, null);
+                twoWindowSnapshot(), evidence, null, null, null);
 
         assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L, 1L);
         assertThat(result.answer().picks().getFirst().windowId()).isEqualTo(SUNSET_TODAY);
@@ -721,9 +721,142 @@ class AskAnswerValidatorTest {
 
         Result result = validator.validate(
                 answer("Top.", new RawPick(top.locationId(), top.windowId(), "Best")),
-                snapshot, tools.evidence(), null, null);
+                snapshot, tools.evidence(), null, null, null);
 
         assertThat(result.answer().picks()).singleElement()
                 .satisfies(p -> assertThat(p.locationId()).isEqualTo(top.locationId()));
+    }
+
+    // -- events questions answered "none" -----------------------------------------------------
+
+    private static AskSnapshot snapshotWithTopics(com.gregochr.goldenhour.model.HotTopic... topics) {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(topics)));
+    }
+
+    private Result validateEvents(Raw raw, AskSnapshot snapshot, ReadyQuestion question) {
+        return validator.validate(raw, snapshot, new AskEvidence(Set.of(), Set.of(), 2), null, null, question);
+    }
+
+    private static Raw none() {
+        return new Raw(true, "No rare events are forecast.", List.of(), List.of(), null);
+    }
+
+    @Test
+    @DisplayName("an events question answered with no event while the snapshot offers one is discarded, "
+            + "naming how many were offered, however the model came to say none")
+    void eventsQuestion_noneWhileOffered_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()),
+                AskFixtures.topic("KING_TIDE", "King tide", "d", TOMORROW, List.of("Coast")),
+                AskFixtures.topic("KING_TIDE", "King tide", "d", TOMORROW, List.of("Coast")));
+
+        Result result = validateEvents(none(), snapshot, ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).isEqualTo("events question answered \"none\" while 2 events were offered");
+    }
+
+    @Test
+    @DisplayName("an unanswerable reply to an events question is no better than 'none' while events are offered")
+    void eventsQuestion_cantWhileOffered_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
+
+        Result result = validateEvents(new Raw(false, "I can't tell.", null, null, "events data"), snapshot,
+                ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an events question answered with no event while the snapshot offers none is a true 'none': "
+            + "accepted")
+    void eventsQuestion_noneWithNothingOffered_isAccepted() {
+        Result result = validateEvents(none(), snapshotWithTopics(), ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an events question that carries an event is accepted, whatever else is on offer")
+    void eventsQuestion_withAnEvent_isAccepted() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()),
+                AskFixtures.topic("KING_TIDE", "King tide", "d", TOMORROW, List.of()));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("ECLIPSE", "Partial solar eclipse", TODAY.plusDays(4))), 1);
+        Raw raw = new Raw(true, "An eclipse.", List.of(), List.of(new RawEvent("eclipse", null, "Low sun")),
+                null);
+
+        Result result = validator.validate(raw, snapshot, evidence, null, null, ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events()).extracting(AskEvent::type).containsExactly("ECLIPSE");
+    }
+
+    @Test
+    @DisplayName("an event the model names that no tool returned is dropped, which leaves 'none' while events "
+            + "are offered: discarded")
+    void eventsQuestion_onlyAnUnreturnedEvent_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()));
+        Raw raw = new Raw(true, "An eclipse.", List.of(), List.of(new RawEvent("ECLIPSE", null, "x")), null);
+
+        Result result = validator.validate(raw, snapshot, new AskEvidence(Set.of(), Set.of(), 1), null, null,
+                ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a topic outside the question's scope, or of a type the question does not admit, is not on offer")
+    void eventsQuestion_offerRespectsScopeAndType() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of("Cornwall")),
+                AskFixtures.topic("KING_TIDE", "King tide", "d", TODAY, List.of("Coast")));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(), 1);
+
+        assertThat(validator.validate(none(), snapshot, evidence, Set.of("coast"), null,
+                ReadyQuestion.SNOW_TOPS).accepted())
+                .as("snow question: neither a king tide nor an aurora answers it").isTrue();
+        assertThat(validator.validate(none(), snapshot, evidence, Set.of("Hills"), null,
+                ReadyQuestion.RARE_EVENTS).accepted())
+                .as("every offered topic names another region").isTrue();
+        assertThat(validator.validate(none(), snapshot, evidence, Set.of("Coast"), null,
+                ReadyQuestion.RARE_EVENTS).accepted())
+                .as("the king tide is in scope").isFalse();
+    }
+
+    @Test
+    @DisplayName("a snow question answered 'none' while a snow topic is on offer is discarded")
+    void eventsQuestion_snowOffered_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("SNOW_TOPS", "Snow on the tops", "d", TODAY, List.of()));
+
+        assertThat(validateEvents(none(), snapshot, ReadyQuestion.SNOW_TOPS).accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an almanac entry within 90 days is on offer to a rare-events question; one beyond is not")
+    void eventsQuestion_almanacEntriesAreOffered() {
+        AskSnapshot within = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()),
+                List.of(AskSnapshotBuilderTest.almanacEntry("meteor", "Geminids", TODAY.plusDays(60),
+                        TODAY.plusDays(60), "d")));
+        AskSnapshot beyond = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()),
+                List.of(AskSnapshotBuilderTest.almanacEntry("meteor", "Geminids", TODAY.plusDays(120),
+                        TODAY.plusDays(120), "d")));
+
+        assertThat(validateEvents(none(), within, ReadyQuestion.RARE_EVENTS).accepted()).isFalse();
+        assertThat(validateEvents(none(), beyond, ReadyQuestion.RARE_EVENTS).accepted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a question that is not an events question is never held to the rule")
+    void notAnEventsQuestion_isUnaffected() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()));
+
+        assertThat(validateEvents(none(), snapshot, null).accepted()).isTrue();
     }
 }

@@ -136,10 +136,13 @@ public class AskAnswerValidator {
      *                 empty means every region. Enforced here, not left to the evidence being
      *                 scoped: a pick whose region is outside it is dropped
      * @param anchor   the Ready {@code BEST_*} rule, or null for every other question
+     * @param eventsQuestion which events question this is ({@link ReadyIntentRules#eventsQuestion}),
+     *                 or null when it is not one: an answer to it with no event is discarded while
+     *                 the snapshot offers an event the question admits, whatever the model concluded
      * @return the validated answer, or the reason it was discarded
      */
     public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
-            Collection<String> scope, BestAnchor anchor) {
+            Collection<String> scope, BestAnchor anchor, ReadyQuestion eventsQuestion) {
         String summary = clean(raw.summary(), SUMMARY_WORDS);
         if (summary == null || summary.isBlank()) {
             return discard("no summary");
@@ -147,6 +150,15 @@ public class AskAnswerValidator {
         String missing = clean(raw.missing(), MISSING_WORDS);
         if (missing != null && missing.isBlank()) {
             missing = null;
+        }
+        List<AskEvent> events = raw.answerable() ? validEvents(raw.events(), evidence) : List.of();
+        if (eventsQuestion != null && events.isEmpty()) {
+            long offered = offeredEvents(snapshot, scope, eventsQuestion);
+            if (offered > 0) {
+                LOG.warn("[ASK] Discarded an events answer with no event while {} were offered", offered);
+                return discard("events question answered \"none\" while " + offered
+                        + " events were offered");
+            }
         }
         if (!raw.answerable()) {
             if (anchor != null && anchoredWindow(snapshot, anchor, scope).isPresent()) {
@@ -156,7 +168,6 @@ public class AskAnswerValidator {
         }
 
         List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope);
-        List<AskEvent> events = validEvents(raw.events(), evidence);
         if (picks.isEmpty() && events.isEmpty() && !evidence.anyToolCalled()) {
             return discard("answerable with no pick, no event and no tool call");
         }
@@ -170,6 +181,29 @@ public class AskAnswerValidator {
             }
         }
         return new Result(new AskAnswer(true, summary, picks, events, null), null);
+    }
+
+    /**
+     * How many distinct events (type and date) the snapshot offers an events question: the in-scope
+     * live hot topics ({@code get_hot_topics}) and the {@code get_coming_up} timeline, of the types
+     * the question admits. Read from the snapshot, never from what the model's tool calls returned, so
+     * a model that filtered, limited or skipped a tool cannot make "none" true.
+     */
+    private static long offeredEvents(AskSnapshot snapshot, Collection<String> scope,
+            ReadyQuestion question) {
+        Set<String> scopeNames = scope == null ? Set.of() : Set.copyOf(scope);
+        Set<String> offered = new HashSet<>();
+        snapshot.hotTopics().stream()
+                .filter(t -> t.inScope(scopeNames) && question.admitsEvent(t.type()))
+                .forEach(t -> offered.add(offerKey(t.type(), t.date())));
+        AskTools.timeline(snapshot, scopeNames, AskTools.MAX_COMING_UP_DAYS).stream()
+                .filter(e -> question.admitsEvent(e.type()))
+                .forEach(e -> offered.add(offerKey(e.type(), e.startDate())));
+        return offered.size();
+    }
+
+    private static String offerKey(String type, LocalDate date) {
+        return type.strip().toUpperCase(Locale.ROOT).replace('-', '_') + "|" + date;
     }
 
     /**

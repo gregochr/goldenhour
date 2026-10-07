@@ -78,7 +78,7 @@ class AskReadModelTest {
                         new AskAnswerValidator.RawPick(1L, "2026-10-05_sunset", "x"),
                         new AskAnswerValidator.RawPick(2L, "2026-10-05_sunset", "y")), null, null),
                 snapshot, new AskEvidence(Set.of(new AskEvidence.Pair(1L, "2026-10-05_sunset"),
-                        new AskEvidence.Pair(2L, "2026-10-05_sunset")), Set.of(), 1), null, null);
+                        new AskEvidence.Pair(2L, "2026-10-05_sunset")), Set.of(), 1), null, null, null);
 
         assertThat(found).extracting(AskTools.SpotInfo::name).containsExactly("Good");
         assertThat(snapshot.candidate("2026-10-05_sunset", 1L)).isEmpty();

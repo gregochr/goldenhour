@@ -419,7 +419,13 @@ public class AskTools {
     }
 
     /**
-     * {@code get_coming_up}: the almanac entries that overlap the next {@code days} days.
+     * {@code get_coming_up}: every event on the next {@code days} days' timeline — the almanac
+     * entries that overlap them <em>and</em> the live hot topics dated within them, so the one tool
+     * answers "what is coming up" whole. The almanac is the long-range feed and holds nothing the
+     * forecast is flagging this week (a solar eclipse that is a live hot topic can be absent from
+     * it), so a conversation that consulted only this tool used to be told "nothing" while the
+     * forecast was flagging an eclipse. A hot topic that the almanac already lists (the same type,
+     * on a date inside the entry's span) is not repeated.
      *
      * @param args the optional window and limit
      * @return the entries, soonest first
@@ -428,17 +434,7 @@ public class AskTools {
         ComingUpArgs a = args == null ? new ComingUpArgs(null, null) : args;
         int days = clamp(a.days(), MAX_COMING_UP_DAYS, MAX_COMING_UP_DAYS);
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_EVENTS);
-        LocalDate from = snapshot.today();
-        // N days is N civil dates from today: AlmanacService.getFeed ends at today + N - 1.
-        LocalDate to = from.plusDays(days - 1L);
-        List<AskSnapshot.ComingUp> kept = snapshot.comingUp().stream()
-                .filter(e -> !e.endDate().isBefore(from) && !e.startDate().isAfter(to))
-                .sorted(Comparator.comparing(AskSnapshot.ComingUp::startDate)
-                        .thenComparing(AskSnapshot.ComingUp::title)
-                        .thenComparing(AskSnapshot.ComingUp::type)
-                        .thenComparing(AskSnapshot.ComingUp::endDate))
-                .limit(limit)
-                .toList();
+        List<AskSnapshot.ComingUp> kept = timeline(snapshot, scope, days).stream().limit(limit).toList();
         List<ComingUpInfo> infos = kept.stream()
                 .map(e -> new ComingUpInfo(e.type(), e.title(), iso(e.startDate()),
                         iso(e.endDate()), cap(e.detail(), DETAIL_CAP), e.safetyNote()))
@@ -449,6 +445,53 @@ public class AskTools {
                         e.safetyNote()));
             }
         });
+    }
+
+    /**
+     * The one definition of what {@code get_coming_up} can return, shared with the validator's
+     * "was anything offered" test so the two cannot disagree: the almanac entries overlapping the
+     * next {@code days} civil dates plus the in-scope hot topics dated inside them that the almanac
+     * does not already list, soonest first. A hot topic is stood in the timeline as a one-day entry
+     * titled with its label, carrying its served detail and safety note.
+     *
+     * @param snapshot the snapshot the conversation runs against
+     * @param scope    the question's region names, matched case-insensitively; empty means every region
+     * @param days     how many days ahead, from today
+     * @return the timeline, soonest first, unlimited
+     */
+    static List<AskSnapshot.ComingUp> timeline(AskSnapshot snapshot, Set<String> scope, int days) {
+        LocalDate from = snapshot.today();
+        // N days is N civil dates from today: AlmanacService.getFeed ends at today + N - 1.
+        LocalDate to = from.plusDays(days - 1L);
+        List<AskSnapshot.ComingUp> entries = new ArrayList<>(snapshot.comingUp().stream()
+                .filter(e -> !e.endDate().isBefore(from) && !e.startDate().isAfter(to))
+                .toList());
+        List<AskSnapshot.ComingUp> almanac = List.copyOf(entries);
+        snapshot.hotTopics().stream()
+                .filter(t -> t.date() != null && !t.date().isBefore(from) && !t.date().isAfter(to))
+                .filter(t -> t.inScope(scope))
+                .filter(t -> almanac.stream().noneMatch(e -> listedBy(e, t)))
+                .map(t -> new AskSnapshot.ComingUp(t.type(), t.label(), t.date(), t.date(), t.detail(),
+                        t.safetyNote()))
+                .forEach(entries::add);
+        entries.sort(Comparator.comparing(AskSnapshot.ComingUp::startDate)
+                .thenComparing(AskSnapshot.ComingUp::title)
+                .thenComparing(AskSnapshot.ComingUp::type)
+                .thenComparing(AskSnapshot.ComingUp::endDate));
+        return List.copyOf(entries);
+    }
+
+    /**
+     * Whether an almanac entry already lists a live topic: the same type (the almanac writes
+     * {@code lunar-eclipse} where a hot topic writes {@code LUNAR_ECLIPSE}) on a date inside its span.
+     */
+    private static boolean listedBy(AskSnapshot.ComingUp entry, AskSnapshot.Topic topic) {
+        return typeKey(entry.type()).equals(typeKey(topic.type()))
+                && !topic.date().isBefore(entry.startDate()) && !topic.date().isAfter(entry.endDate());
+    }
+
+    private static String typeKey(String type) {
+        return upper(type).replace('-', '_');
     }
 
     // -- conversation state -----------------------------------------------------------------

@@ -111,8 +111,8 @@ class AskToolSchemasTest {
     }
 
     @Test
-    @DisplayName("golden: the schemas are byte-for-byte what they were before the map helper was made "
-            + "bounds-safe (captured from the previous structure), with and without a drive limit")
+    @DisplayName("golden: the schemas are byte-for-byte the pinned text (the map helper's refactor, then the "
+            + "events tools' complementary descriptions), with and without a drive limit")
     void schemasAreUnchangedFromTheGolden() throws Exception {
         assertThat(AskToolSchemas.tools(true).toString()).isEqualTo(golden("tool-schemas-with-user.txt"));
         assertThat(AskToolSchemas.tools(false).toString()).isEqualTo(golden("tool-schemas-user-less.txt"));
@@ -158,5 +158,20 @@ class AskToolSchemasTest {
         java.util.ArrayList<String> names = new java.util.ArrayList<>();
         object.fieldNames().forEachRemaining(names::add);
         return names;
+    }
+
+    @Test
+    @DisplayName("the two events tools describe each other: the live 5-day topics and the almanac's "
+            + "longer range, each telling the model to call the other for any events question")
+    void eventsToolsAreSelfDescribingAndComplementary() {
+        List<Tool> tools = AskToolSchemas.tools(true);
+
+        String hot = tool(tools, AskToolSchemas.GET_HOT_TOPICS).description().orElseThrow();
+        String coming = tool(tools, AskToolSchemas.GET_COMING_UP).description().orElseThrow();
+
+        assertThat(hot).contains("live forecast").contains("next few days")
+                .contains(AskToolSchemas.GET_COMING_UP);
+        assertThat(coming).contains("almanac").contains("live forecast").contains("meteor showers")
+                .contains(AskToolSchemas.GET_HOT_TOPICS);
     }
 }

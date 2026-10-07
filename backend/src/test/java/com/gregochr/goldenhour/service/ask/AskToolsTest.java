@@ -973,4 +973,66 @@ class AskToolsTest {
             throw new IllegalStateException(e);
         }
     }
+
+    @Test
+    @DisplayName("get_coming_up also returns a live hot topic dated within its horizon, once, with its "
+            + "served safety note: the eclipse the almanac does not list is no longer 'nothing'")
+    void getComingUp_includesTheLiveHotTopics() {
+        String warning = EclipseHotTopicStrategy.SAFETY_NOTE;
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "Low in the south-west",
+                        TODAY.plusDays(4), List.of("Coast")).withSafety(warning))));
+        AskTools tools = tools(snapshot);
+
+        ComingUpResult result = (ComingUpResult) tools.getComingUp(new ComingUpArgs(90, 10)).payload();
+
+        assertThat(result.entries()).singleElement().satisfies(e -> {
+            assertThat(e.type()).isEqualTo("ECLIPSE");
+            assertThat(e.title()).isEqualTo("Partial solar eclipse");
+            assertThat(e.start()).isEqualTo(TODAY.plusDays(4).toString());
+            assertThat(e.end()).isEqualTo(TODAY.plusDays(4).toString());
+            assertThat(e.safetyNote()).isEqualTo(warning);
+        });
+        assertThat(tools.evidence().events()).containsExactly(new AskEvidence.EventFact("ECLIPSE",
+                "Partial solar eclipse", TODAY.plusDays(4), warning));
+    }
+
+    @Test
+    @DisplayName("a live topic the almanac already lists (same type, date inside the span; the almanac's "
+            + "lower-case hyphenated type is the hot topic's upper-case underscored one) appears once, not twice")
+    void getComingUp_doesNotRepeatWhatTheAlmanacLists() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()),
+                AskFixtures.topic("LUNAR_ECLIPSE", "Lunar eclipse", "d", TODAY.plusDays(5), List.of()),
+                AskFixtures.topic("ECLIPSE", "Another eclipse", "d", TODAY.plusDays(20), List.of()))),
+                List.of(AskSnapshotBuilderTest.almanacEntry("eclipse", "Partial solar eclipse",
+                                TODAY.plusDays(4), TODAY.plusDays(4), "d"),
+                        AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse",
+                                TODAY.plusDays(4), TODAY.plusDays(6), "d")));
+
+        ComingUpResult result = (ComingUpResult) tools(snapshot).getComingUp(null).payload();
+
+        assertThat(result.entries()).extracting(AskTools.ComingUpInfo::title).containsExactly(
+                "Partial solar eclipse", "Total lunar eclipse", "Another eclipse");
+    }
+
+    @Test
+    @DisplayName("get_coming_up leaves out a live topic dated before today, beyond the horizon, undated or "
+            + "naming only regions outside the question's scope")
+    void getComingUp_liveTopicsAreBoundedByHorizonAndScope() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("PAST", "Past", "d", TODAY.minusDays(1), List.of()),
+                AskFixtures.topic("TODAY", "Today", "d", TODAY, List.of()),
+                AskFixtures.topic("EDGE", "Edge", "d", TODAY.plusDays(6), List.of()),
+                AskFixtures.topic("BEYOND", "Beyond", "d", TODAY.plusDays(7), List.of()),
+                AskFixtures.topic("UNDATED", "Undated", "d", null, List.of()),
+                AskFixtures.topic("ELSEWHERE", "Elsewhere", "d", TODAY, List.of("Cornwall")),
+                AskFixtures.topic("HERE", "Here", "d", TODAY, List.of("Coast")))));
+
+        assertThat(comingUpTypes(snapshot, 7)).as("unscoped: every region")
+                .containsExactly("ELSEWHERE", "HERE", "TODAY", "EDGE");
+        assertThat(((ComingUpResult) tools(snapshot, USER, Set.of("Coast")).getComingUp(
+                new ComingUpArgs(7, 10)).payload()).entries()).extracting(AskTools.ComingUpInfo::type)
+                .containsExactly("HERE", "TODAY", "EDGE");
+    }
 }

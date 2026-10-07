@@ -46,6 +46,10 @@ public class AskPromptBuilder {
             - Add events only from get_hot_topics or get_coming_up results that bear on the \
             question, with the type exactly as returned. If a result carries a safetyNote for an \
             event you mention, say that warning in the summary.
+            - For any question about events, rarities, special things happening or what is coming \
+            up, call BOTH get_hot_topics (the live forecast's next few days) and get_coming_up (the \
+            almanac of months ahead) before you answer. Say there are no events only after both \
+            returned nothing that bears on the question.
             - For a general "best" question lead with the window list_windows marks bestBet, when \
             it is in scope. If your answer leads elsewhere, the summary says why.
             - Say the tide "suits" a spot only when tideAligned is true. tideState is the water at \

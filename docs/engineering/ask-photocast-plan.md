@@ -364,6 +364,31 @@ and to `AskAnswerValidator.validate`.
   `photocast.ask.stub` (default false) swaps the engine for `StubAskEngine`; how exactly one engine is
   chosen, and why `stub=true` fails startup under `prod`, is in §3 B2b's *As built*.
 
+*As built (post-Z, 2026-10-07) — the first real run of `AskPromptRegressionTest` found an events defect.* The rare-events case
+("Any rare events coming up?") answered OK in 2 turns with "no rare events are flagged for the next three months" while the
+fixture's snapshot held a solar eclipse, a king tide and an aurora as live hot topics. The trace: one `get_coming_up`
+(`{days: 90, limit: 10}`, result `{"entries":[]}` — the fixture has no almanac entries), no `get_hot_topics`, then `submit_answer`.
+The two tools split the events by horizon (hot topics are the briefing's live 5 days; the almanac is 90 days and need not list what
+the forecast is flagging this week), their descriptions did not say so, and the model reasonably took the 90-day tool as
+the complete one. Production has the same gap, and B3 would have skipped a `RARE_EVENTS` answer built on it (an events question
+that finds nothing is not stored). Fixed in three layers, none depending on the model choosing well:
+- **Data (the guarantee).** `get_coming_up` returns the almanac entries *and* the in-scope live hot topics dated within its
+  horizon (`AskTools.timeline`), as one-day entries carrying the topic's label, detail and safety note, deduped against any almanac
+  entry of the same type (compared upper-case, `-` as `_`) whose span holds the date. Whichever events tool the model reaches
+  for, the eclipse is there; the evidence the validator holds carries it exactly once.
+- **Words.** The two tool descriptions now say what each covers and tell the model to call the other for any events question;
+  the system prompt says to call BOTH for events, rarities or "what's coming up", and to say "no events" only after both
+  returned nothing that bears on the question (`AskToolSchemas`, `AskPromptBuilder`; the schema golden files were regenerated).
+- **Enforcement.** `AskAnswerValidator.validate` takes the events question (`ReadyIntentRules.eventsQuestion`: `RARE_EVENTS` or
+  `SNOW_TOPS`, by the Ready matcher's own strict rules, so a typed question and the Ready question of that text are one question
+  to the matcher, the store and this rule). An answer to it that carries no event (or says it cannot answer) while the snapshot
+  offers an event the question admits — in scope, hot topic or almanac entry within 90 days, read from the snapshot, never from what
+  the model's calls returned — is discarded: `events question answered "none" while N events were offered`. That is a FAILED run
+  (a refund for a typed question, a failed row and no store for Ready). **Deliberately narrow:** a time-bound or qualified phrasing
+  ("any rare events this weekend?") is not an events question here, because there "none" can be true; those rest on the data layer.
+Verified by the real regression class: all three cases pass, the rare-events trace is `get_hot_topics, get_coming_up, submit_answer`.
+`AskPromptRegressionTest.ask()` now also prints the tool trace (a helper line only; the assertions are untouched).
+
 ### 2.4 Ready answers (B3)
 
 | Id | Text | Available when | Tabs |

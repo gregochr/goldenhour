@@ -219,6 +219,8 @@ class AskPromptRegressionTest {
         System.out.println("[ask-regression] " + text + " -> " + run.outcome().status()
                 + " in " + run.outcome().turns() + " turn(s): "
                 + (run.outcome().answer() == null ? run.reason() : run.outcome().answer().summary()));
+        System.out.println("[ask-regression] trace: " + run.trace().stream()
+                .map(call -> call.tool() + (call.error() ? "(error)" : "")).collect(Collectors.joining(", ")));
         return run;
     }
 
