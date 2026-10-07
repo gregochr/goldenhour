@@ -859,4 +859,37 @@ class AskAnswerValidatorTest {
 
         assertThat(validateEvents(none(), snapshot, null).accepted()).isTrue();
     }
+
+    @Test
+    @DisplayName("a snow question answered only with an aurora card while snow is on offer is discarded: "
+            + "'none' means no event the question admits")
+    void eventsQuestion_onlyAnEventTheQuestionDoesNotAdmit_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("SNOW_TOPS", "Snow on the tops", "d", TODAY, List.of()),
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("AURORA", "Aurora", TODAY)), 1);
+        Raw raw = new Raw(true, "No snow, but an aurora.", List.of(),
+                List.of(new RawEvent("AURORA", null, "Kp 6")), null);
+
+        Result result = validator.validate(raw, snapshot, evidence, null, null, ReadyQuestion.SNOW_TOPS);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).isEqualTo("events question answered \"none\" while 1 events were offered");
+    }
+
+    @Test
+    @DisplayName("the mirror: a rare-events question admits the aurora card, so the same answer is accepted")
+    void eventsQuestion_anAdmittedEvent_isAccepted() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("AURORA", "Aurora", TODAY)), 1);
+        Raw raw = new Raw(true, "An aurora.", List.of(), List.of(new RawEvent("AURORA", null, "Kp 6")), null);
+
+        Result result = validator.validate(raw, snapshot, evidence, null, null, ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events()).extracting(AskEvent::type).containsExactly("AURORA");
+    }
 }

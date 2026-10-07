@@ -314,6 +314,24 @@ class ClaudeAskEngineTest {
     }
 
     @Test
+    @DisplayName("a snow question answered with only an aurora card while a snow topic is on offer is FAILED")
+    void eventsQuestion_snowQuestionAuroraOnly_isFailed() {
+        AskSnapshot snow = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(TODAY, null, northumberland())),
+                List.of(AskFixtures.topic("AURORA", "Aurora tonight", "Kp 6 forecast", TODAY, List.of()),
+                        AskFixtures.topic("SNOW_TOPS", "Snow on the tops", "Fresh snow", TODAY, List.of()))));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "get_hot_topics", Map.of())),
+                submit(Map.of("answerable", true, "summary", "No snow, but an aurora is forecast.",
+                        "events", List.of(Map.of("type", "AURORA", "why", "Kp 6.")))));
+
+        AskRun run = engine.run(question("Is there snow on the tops?"), snow, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.reason()).contains("events question answered \"none\"");
+    }
+
+    @Test
     @DisplayName("an events question with nothing on offer may honestly say none: OK, no events")
     void eventsQuestion_noneWithNothingOffered_isOk() {
         AskSnapshot nothingOffered = AskFixtures.snapshotOf(AskFixtures.briefing(

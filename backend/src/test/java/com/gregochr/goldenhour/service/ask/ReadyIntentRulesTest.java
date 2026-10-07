@@ -387,4 +387,18 @@ class ReadyIntentRulesTest {
     void eventsQuestion_emptyWords() {
         assertThat(ReadyIntentRules.eventsQuestion(List.of())).isEmpty();
     }
+
+    @ParameterizedTest(name = "an engine question \"{0}\" is {1}")
+    @CsvSource(delimiter = '|', value = {
+            "Any rare events coming up?|RARE_EVENTS",
+            "Is there snow on the tops?|SNOW_TOPS",
+            "Could you tell me, is there snow on the tops please?|SNOW_TOPS"})
+    @DisplayName("the engines' own Ready texts (and a politely padded one) are events questions: the sanitiser's "
+            + "filler words are dropped as the typed matcher drops them")
+    void eventsQuestion_ofAnEngineQuestion(String text, String expected) {
+        AskQuestion question = new AskQuestion(text, text.toLowerCase(java.util.Locale.ROOT), null, List.of(),
+                "plan");
+
+        assertThat(ReadyIntentRules.eventsQuestion(question)).contains(ReadyQuestion.valueOf(expected));
+    }
 }

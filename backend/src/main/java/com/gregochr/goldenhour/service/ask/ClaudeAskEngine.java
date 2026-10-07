@@ -200,7 +200,7 @@ public class ClaudeAskEngine implements AskEngine {
                 user.hasUser());
         List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser());
         ReadyQuestion eventsQuestion =
-                ReadyIntentRules.eventsQuestion(PhraseAskPreFilter.words(question.sanitised())).orElse(null);
+                ReadyIntentRules.eventsQuestion(question).orElse(null);
         List<AskTools.ToolCall> trace = new ArrayList<>();
         List<Message> assistantTurns = new ArrayList<>();
         List<List<ContentBlockParam>> toolResults = new ArrayList<>();

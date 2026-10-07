@@ -137,7 +137,7 @@ public class AskAnswerValidator {
      *                 scoped: a pick whose region is outside it is dropped
      * @param anchor   the Ready {@code BEST_*} rule, or null for every other question
      * @param eventsQuestion which events question this is ({@link ReadyIntentRules#eventsQuestion}),
-     *                 or null when it is not one: an answer to it with no event is discarded while
+     *                 or null when it is not one: an answer to it with no event it admits is discarded while
      *                 the snapshot offers an event the question admits, whatever the model concluded
      * @return the validated answer, or the reason it was discarded
      */
@@ -152,7 +152,8 @@ public class AskAnswerValidator {
             missing = null;
         }
         List<AskEvent> events = raw.answerable() ? validEvents(raw.events(), evidence) : List.of();
-        if (eventsQuestion != null && events.isEmpty()) {
+        // "None" means no event the question admits: a typed answer is never relevance-filtered afterwards.
+        if (eventsQuestion != null && events.stream().noneMatch(e -> eventsQuestion.admitsEvent(e.type()))) {
             long offered = offeredEvents(snapshot, scope, eventsQuestion);
             if (offered > 0) {
                 LOG.warn("[ASK] Discarded an events answer with no event while {} were offered", offered);

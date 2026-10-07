@@ -184,6 +184,21 @@ final class ReadyIntentRules {
         return snowTops(words) ? Optional.of(ReadyQuestion.SNOW_TOPS) : Optional.empty();
     }
 
+    /**
+     * {@link #eventsQuestion(List)} for a question as the engines receive it: its sanitised text split
+     * into words with the sanitiser's own filler words ({@link AskQuestionSanitiser#FILLER_WORDS}) taken
+     * out, exactly the words the typed matcher sees, so "Is there snow on the tops?" is the Ready
+     * question of that text although "the" is not one a rule accepts.
+     *
+     * @param question the question
+     * @return the events question it is, or empty
+     */
+    static Optional<ReadyQuestion> eventsQuestion(AskQuestion question) {
+        List<String> words = new ArrayList<>(PhraseAskPreFilter.words(question.sanitised()));
+        words.removeAll(AskQuestionSanitiser.FILLER_WORDS);
+        return eventsQuestion(words);
+    }
+
     // -- the rules ------------------------------------------------------------------------------
 
     private static boolean bestWeekend(List<String> words, AskReadyResponse.Question ready) {
