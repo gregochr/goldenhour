@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.23.5] - 2026-10-07
+
+### Fixed — the masthead no longer jumps 24px when switching to or from the Map tab
+
+On the Map tab `<main>` dropped all of its vertical padding, so the wordmark, the gradient band, the tick line and the tab row sat 24px higher there than on Plan and Coming up, and moved every time you switched. The Map tab now keeps the same 24px top padding as every other tab; the map pane gives up that 24px from its own flex-distributed height (the root is `overflow-hidden`, so page scroll is not reopened), and its bottom padding stays zero so the map still bleeds to the bottom edge.
+
+### Changed — Coming up shows a door for each day of a short run
+
+A multi-day Coming up card for a map door (a tide run, a multi-night supermoon) used to carry one door that named only the run's peak day, so on 7 Oct the Spring tide run read "Coastal spots: no forecast for 11 Oct" even though 9 and 10 Oct are inside the forecast window. The card now shows a row of small day boxes, one per day of a run of up to ten days, in the date rail's vocabulary: a day with a forecast is a button that opens the map on that date (coastal or dark-sky spots, as before), a day without one is dimmed and disabled, a day that has already gone reads "gone" and is disabled too, today reads "Today", the peak day wears a gold border, and a short caption ("dimmed · no forecast yet") appears while a future day is dimmed. Single-day entries, the months-long NLC season and the Plan links keep their single action line, and while the forecast is still loading every box is left live. The row wraps rather than overflowing a phone.
+
 ## [v2.23.4] - 2026-10-07
 
 ### Fixed — Coming up no longer opens the map on a date with no forecast
