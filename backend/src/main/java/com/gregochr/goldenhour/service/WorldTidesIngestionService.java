@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
@@ -23,6 +24,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Fetches tide extremes from the WorldTides vendor API and merges them into the
@@ -138,21 +140,45 @@ public class WorldTidesIngestionService {
     private final TideExtremeRepository tideExtremeRepository;
     private final WorldTidesProperties worldTidesProperties;
     private final JobRunService jobRunService;
+    private final Consumer<Long> onExtremesWritten;
 
     /**
-     * Constructs a {@code WorldTidesIngestionService}.
+     * Constructs a {@code WorldTidesIngestionService} that tells nobody when it writes.
+     *
+     * <p>The Spring-managed bean, which nothing injects — {@code TideService} builds its own
+     * instance with the callback below.
      *
      * @param restClient             shared RestClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      */
+    @Autowired
     public WorldTidesIngestionService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
             WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
+        this(restClient, tideExtremeRepository, worldTidesProperties, jobRunService, locationId -> { });
+    }
+
+    /**
+     * Constructs a {@code WorldTidesIngestionService} that reports every write to
+     * {@code tide_extreme}.
+     *
+     * @param restClient             shared RestClient for outbound HTTP calls
+     * @param tideExtremeRepository  repository for persisted tide extremes
+     * @param worldTidesProperties   WorldTides API configuration
+     * @param jobRunService          service for recording API call metrics
+     * @param onExtremesWritten      called with the location id after rows for it have been deleted
+     *                               or inserted, so caches derived from them can be dropped
+     *                               ({@code TideService.evictTideStats})
+     */
+    public WorldTidesIngestionService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
+            WorldTidesProperties worldTidesProperties, JobRunService jobRunService,
+            Consumer<Long> onExtremesWritten) {
         this.restClient = restClient;
         this.tideExtremeRepository = tideExtremeRepository;
         this.worldTidesProperties = worldTidesProperties;
         this.jobRunService = jobRunService;
+        this.onExtremesWritten = onExtremesWritten;
     }
 
     /**
@@ -268,6 +294,8 @@ public class WorldTidesIngestionService {
             tideExtremeRepository.deleteByLocationIdAndEventTimeBetween(
                     location.getId(), window.from(), window.to());
             tideExtremeRepository.saveAll(entities);
+            // The delete above is a write even when the batch saved nothing.
+            onExtremesWritten.accept(location.getId());
 
             checkTideIntegrity(location, window);
 
@@ -498,6 +526,7 @@ public class WorldTidesIngestionService {
                         .toList();
 
                 tideExtremeRepository.saveAll(entities);
+                onExtremesWritten.accept(location.getId());
                 chunksFetched++;
 
                 if (jobRun != null) {

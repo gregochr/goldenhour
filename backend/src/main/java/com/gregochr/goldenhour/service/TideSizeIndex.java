@@ -1,10 +1,10 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.TideExtremeEntity;
-import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.repository.TideHighWater;
+import com.gregochr.goldenhour.util.DayScopedMemo;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Which dates across a long window carry spring-sized or king-sized water, measured from the tide
@@ -72,16 +72,42 @@ public class TideSizeIndex {
     private final TideService tideService;
 
     /**
-     * Today's per-location thresholds, or null before the first build.
+     * Today's thresholds, one entry per location.
      *
      * <p>{@code TideService.getTideStats} is four queries per location and pulls that location's
      * whole stored height history, so over a sixty-location roster it is the expensive half of this
      * class by a wide margin. Its answer is a pure function of the day — the sample is bounded at
-     * the start of today UTC — so it is cached for exactly that long. The feed above it is cached
+     * the start of today UTC — so it is kept for exactly that long. The feed above it is cached
      * per day as well, but only for one requested length, so a client alternating {@code ?days=}
      * values would otherwise pay the full roster sweep on every request.
+     *
+     * <p>A {@link DayScopedMemo} rather than a whole-roster snapshot behind an {@code AtomicReference}:
+     * the snapshot's unconditional {@code set} at the end of a sweep could outlive an eviction that
+     * landed while the sweep was still running, so the next measurement combined post-write
+     * extremes with pre-write thresholds and kept the answer for the rest of the day. The memo
+     * discards a load that an eviction overlapped, per location, and a location added since the
+     * last sweep is simply a miss of its own rather than a reason to rebuild the roster.
      */
-    private final AtomicReference<CachedThresholds> thresholds = new AtomicReference<>();
+    private final DayScopedMemo<Long, Thresholds> thresholds = new DayScopedMemo<>();
+
+    /**
+     * Measured sizes for a (roster, window) already asked about today, so an identical question is
+     * answered once a day however many callers ask it.
+     *
+     * <p>A "Coming up" build asks the same three-year question for every spring and king run it
+     * scores, from two classes each, and the three-year scan is the most expensive read in the
+     * feed. The answer is a pure function of the stored extremes, the thresholds (both fixed for
+     * the UTC day) and the question, so it is kept for the day and dropped, together with the
+     * thresholds, whenever a tide write is reported by {@link TideService#onTideExtremesChanged}.
+     * Keyed on the roster's ids as a set, so the same roster in a different order shares an entry.
+     */
+    private final DayScopedMemo<MeasureKey, Sizes> measured = new DayScopedMemo<>();
+
+    /** Callers whose own caches are derived from this index's answers, dropped with them. */
+    private final List<Runnable> evictionListeners = new CopyOnWriteArrayList<>();
+
+    /** The question {@link #measured} answers. */
+    private record MeasureKey(Set<Long> ids, LocalDate from, LocalDate to) { }
 
     /**
      * Constructs a {@code TideSizeIndex}.
@@ -92,6 +118,9 @@ public class TideSizeIndex {
     public TideSizeIndex(TideExtremeRepository tideExtremeRepository, TideService tideService) {
         this.tideExtremeRepository = tideExtremeRepository;
         this.tideService = tideService;
+        // A backfill rewrites the heights both caches above were derived from; without this the
+        // thresholds would stay as they were until the UTC day rolled.
+        tideService.onTideExtremesChanged(this::evict);
     }
 
     /**
@@ -111,9 +140,6 @@ public class TideSizeIndex {
             return spring != null || king != null;
         }
     }
-
-    /** Today's thresholds for a set of locations. */
-    private record CachedThresholds(LocalDate builtFor, Map<Long, Thresholds> byLocation) { }
 
     /**
      * Which dates in a window carry spring-sized or king-sized water.
@@ -162,7 +188,8 @@ public class TideSizeIndex {
     /**
      * Measures every date in the window against the roster's stored heights.
      *
-     * <p>One query for the window's high waters, plus one cached threshold sweep. The window should
+     * <p>One query for the window's high waters, plus one cached threshold sweep, and the whole
+     * answer is kept for the UTC day once given (see {@link #measured}). The window should
      * already include whatever slack the caller's run-walk needs on each side: a run is grouped from
      * consecutive qualifying dates, so a date outside the window is indistinguishable here from one
      * that did not qualify, and a run clipped at the edge reports the wrong span and can lose the
@@ -183,7 +210,11 @@ public class TideSizeIndex {
         if (ids.isEmpty()) {
             return Sizes.UNMEASURED;
         }
+        return measured.get(LocalDate.now(ZoneOffset.UTC), new MeasureKey(Set.copyOf(ids), from, to),
+                () -> measureUncached(ids, from, to));
+    }
 
+    private Sizes measureUncached(List<Long> ids, LocalDate from, LocalDate to) {
         Map<Long, Thresholds> byLocation = thresholdsFor(ids);
         // Tested over the ids asked for, not over the cached map, which may hold a superset from an
         // earlier call with a longer roster. A borrowed "yes" here would turn "nothing could be
@@ -240,13 +271,12 @@ public class TideSizeIndex {
                 .withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
 
         Map<Long, Map<LocalDate, Double>> byLocation = new LinkedHashMap<>();
-        for (TideExtremeEntity extreme : tideExtremeRepository
-                .findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(
-                        ids, TideExtremeType.HIGH, windowStart, windowEnd)) {
-            if (extreme.getHeightMetres() == null || extreme.getEventTime() == null) {
+        for (TideHighWater extreme : tideExtremeRepository
+                .findHighWatersInWindow(ids, windowStart, windowEnd)) {
+            if (extreme.heightMetres() == null || extreme.eventTime() == null) {
                 continue;
             }
-            LocalDate localDate = extreme.getEventTime().atOffset(ZoneOffset.UTC)
+            LocalDate localDate = extreme.eventTime().atOffset(ZoneOffset.UTC)
                     .atZoneSameInstant(LONDON).toLocalDate();
             // The fetch window is a closed UTC interval ending at the local midnight that opens the
             // day after `to`, so an extreme landing exactly on it belongs to a day this call was
@@ -255,14 +285,14 @@ public class TideSizeIndex {
             if (localDate.isBefore(from) || localDate.isAfter(to)) {
                 continue;
             }
-            byLocation.computeIfAbsent(extreme.getLocationId(), k -> new HashMap<>())
-                    .merge(localDate, extreme.getHeightMetres().doubleValue(), Math::max);
+            byLocation.computeIfAbsent(extreme.locationId(), k -> new HashMap<>())
+                    .merge(localDate, extreme.heightMetres().doubleValue(), Math::max);
         }
         return byLocation;
     }
 
     /**
-     * Today's thresholds for the given locations, from cache when it already covers them all.
+     * Today's thresholds for the given locations, each from the memo when it holds one.
      *
      * <p>Rebuilt when the day has rolled or when the roster has grown — a location added through the
      * Admin UI mid-morning would otherwise be missing from the map until midnight, and a missing
@@ -270,34 +300,42 @@ public class TideSizeIndex {
      */
     private Map<Long, Thresholds> thresholdsFor(List<Long> ids) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        CachedThresholds cached = thresholds.get();
-        if (cached != null && cached.builtFor().isEqual(today)
-                && cached.byLocation().keySet().containsAll(ids)) {
-            return cached.byLocation();
-        }
-
         Map<Long, Thresholds> built = new LinkedHashMap<>();
         for (Long id : ids) {
-            TideStats stats = tideService.getTideStats(id).orElse(null);
-            // An entry either way. A location with no usable history must be *present* and empty,
-            // not missing — a missing key is what containsAll above tests, so recording its absence
-            // as an absence would rebuild the whole roster's thresholds on every request.
-            built.put(id, stats == null
-                    ? new Thresholds(null, null)
-                    : new Thresholds(stats.springTideThreshold(), stats.p95HighMetres()));
+            // An entry either way: a location with no usable history is present and empty, so the
+            // caller's "any usable threshold" test and the per-location loop below both see it.
+            built.put(id, thresholds.get(today, id, () -> loadThresholds(id)));
         }
-        Map<Long, Thresholds> snapshot = Map.copyOf(built);
-        thresholds.set(new CachedThresholds(today, snapshot));
-        return snapshot;
+        return Map.copyOf(built);
+    }
+
+    private Thresholds loadThresholds(Long id) {
+        TideStats stats = tideService.getTideStats(id).orElse(null);
+        return stats == null
+                ? new Thresholds(null, null)
+                : new Thresholds(stats.springTideThreshold(), stats.p95HighMetres());
     }
 
     /**
-     * Drops the cached thresholds so the next measurement recomputes them.
+     * Drops the cached thresholds and measured sizes so the next measurement recomputes them.
      *
-     * <p>Exists for tests and for an admin path that has just backfilled history; the cache
-     * otherwise turns over on its own at the date roll.
+     * <p>Called by {@link TideService} whenever stored tide extremes change, and by tests; the
+     * caches otherwise turn over on their own at the date roll.
      */
     public void evict() {
-        thresholds.set(null);
+        thresholds.evictAll();
+        measured.evictAll();
+        evictionListeners.forEach(Runnable::run);
+    }
+
+    /**
+     * Registers a callback to run whenever this index drops its caches, so a cache built over its
+     * answers ({@code TideRunPeakHistory}'s run peaks) is dropped with them rather than outliving
+     * the data it was derived from.
+     *
+     * @param listener drops the caller's derived state; must be cheap and must not throw
+     */
+    public void onEvicted(Runnable listener) {
+        evictionListeners.add(listener);
     }
 }

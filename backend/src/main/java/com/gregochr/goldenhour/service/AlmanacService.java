@@ -10,12 +10,17 @@ import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.Rewind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -36,9 +41,13 @@ import java.util.concurrent.atomic.AtomicReference;
  * or rebuilds the whole thing. There is no read-modify-write and therefore no way for half a
  * payload to survive into the next day.
  *
- * <p>Everything here is ephemeris arithmetic and DB reads, so a cold rebuild is cheap and a miss is
- * not worth defending against with a stampede lock — two concurrent requests on a new day both
- * build, both write, and the answers are identical because they are pure functions of the date.
+ * <p>Everything here is ephemeris arithmetic and DB reads, so a miss is not worth defending against
+ * with a stampede lock — two concurrent requests on a new day both build, both write, and the
+ * answers are identical because they are pure functions of the date and the stored data. A build is
+ * not free, though (the tide-magnitude history is a three-year scan), so the cache is also
+ * <b>warmed</b> rather than left to the first reader of the day: {@link #refresh()} rebuilds and
+ * swaps it in at the tail of every pipeline cycle (where fresh forecast data has just been written,
+ * which the feed's conditions strip reads) and once at startup (a restart drops the in-memory cache).
  *
  * <p><strong>Eligibility (plan §2 D1).</strong> An almanac event becomes a {@link ComingUpEntry}
  * only once it ends beyond Plan's four-day window ({@link PlanHorizon#lastPlanDate}) — an entry
@@ -70,9 +79,13 @@ public class AlmanacService {
     private final Clock clock;
     private final ComingUpAssembler assembler;
     private final ComingUpConditionsBuilder conditionsBuilder;
+    private final Executor warmExecutor;
 
     /** Today's fully-built feed, or null before the first build of the day. */
     private final AtomicReference<CachedFeed> cache = new AtomicReference<>();
+
+    /** Serialises {@link #refresh()} — see the note inside it. */
+    private final Object refreshLock = new Object();
 
     /**
      * One day's built feed, keyed by the day it was built for and the length asked for.
@@ -93,12 +106,29 @@ public class AlmanacService {
      *                          (plan §5 P2)
      * @param conditionsBuilder builds the standing-conditions strip (plan §7 P4)
      */
+    @Autowired
     public AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler,
             ComingUpConditionsBuilder conditionsBuilder) {
+        this(sources, clock, assembler, conditionsBuilder, Executors.newVirtualThreadPerTaskExecutor());
+    }
+
+    /**
+     * Constructs an {@code AlmanacService} with an explicit executor for the startup warm, so a test
+     * can run it inline.
+     *
+     * @param sources           every almanac source Spring can find
+     * @param clock             supplies "today"
+     * @param assembler         grows each eligible event to the full chronology entry shape
+     * @param conditionsBuilder builds the standing-conditions strip
+     * @param warmExecutor      where the startup warm runs — never the main thread
+     */
+    AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler,
+            ComingUpConditionsBuilder conditionsBuilder, Executor warmExecutor) {
         this.sources = List.copyOf(sources);
         this.clock = clock;
         this.assembler = assembler;
         this.conditionsBuilder = conditionsBuilder;
+        this.warmExecutor = warmExecutor;
     }
 
     /**
@@ -130,7 +160,7 @@ public class AlmanacService {
         // must neither read the day cache — built for the real today — nor write into it, or the
         // rewound feed would be served to everyone until the next real request happened to miss.
         if (Rewind.isActive()) {
-            return assemble(today, today.plusDays(clamped - 1L));
+            return assemble(today, today.plusDays(clamped - 1L)).response();
         }
 
         CachedFeed cached = cache.get();
@@ -138,9 +168,87 @@ public class AlmanacService {
             return cached.response();
         }
 
-        ComingUpResponse built = assemble(today, today.plusDays(clamped - 1L));
-        cache.set(new CachedFeed(today, clamped, built));
+        ComingUpResponse built = assemble(today, today.plusDays(clamped - 1L)).response();
+        // Fill the slot only if it is still the one this reader found wanting. A refresh() that
+        // landed while this build ran was built from newer data (the pipeline tail runs it after a
+        // cycle has written), so it must win; a plain set would put this older answer over it until
+        // the next cycle. A lost race still returns what was built — correct when it started.
+        cache.compareAndSet(cached, new CachedFeed(today, clamped, built));
         return built;
+    }
+
+    /**
+     * Rebuilds today's default-horizon feed and swaps it into the cache.
+     *
+     * <p><b>Build first, then replace.</b> The new response is fully assembled before the one
+     * {@code cache.set}, so a reader arriving during the build is served the previous answer rather
+     * than finding an empty slot and paying for a build of its own; contrast {@link #evict()}, which
+     * empties it. A failed build throws and leaves the previous cache exactly as it was.
+     *
+     * <p>Called after every pipeline cycle's run has finished (the standing conditions are read from
+     * the data the cycle has just written, and until now stayed as they were at the day's first
+     * request) and once at application start. Refuses to run on a thread with an admin rewind set —
+     * the same guard {@link #getFeed(int)} has, since a rewound clock would build the wrong day's
+     * feed and put it where everyone reads — although neither caller can have one.
+     *
+     * @return true when the cache was replaced; false when the warm was refused for a rewind, or when a
+     *         source failed and a complete feed for today was kept instead
+     */
+    public boolean refresh() {
+        if (Rewind.isActive()) {
+            LOG.warn("Almanac refresh skipped: an admin rewind is set on this thread");
+            return false;
+        }
+        // One refresh at a time. The startup warm and a pipeline tail, or two tails, can overlap
+        // on their virtual threads; built independently, whichever FINISHED last would publish,
+        // and a build that captured older data can finish last. Serialising them makes the one
+        // that STARTED last — on the newest data — also the one that publishes last. Readers never
+        // wait: getFeed() takes no lock, and a miss-build there compare-and-sets around this.
+        synchronized (refreshLock) {
+            LocalDate today = ForecastHorizon.today(clock);
+            long started = System.nanoTime();
+            Assembled assembled = assemble(today, today.plusDays(DEFAULT_DAYS - 1L));
+            CachedFeed current = cache.get();
+            // A source that failed leaves a hole build() papers over (a missing tide run beats an
+            // empty tab). On a cold cache that partial feed is still the best answer available —
+            // it is what a reader's own miss-build would have cached — but it must never REPLACE a
+            // complete feed already standing for today: the hole would then be served until the
+            // next refresh or midnight. The previous feed stays; the next cycle's refresh tries again.
+            if (assembled.failedSources() > 0 && current != null && current.builtFor().isEqual(today)) {
+                LOG.warn("Almanac refresh for {} kept the previous feed: {} source(s) failed and a complete "
+                        + "feed for today already stands", today, assembled.failedSources());
+                return false;
+            }
+            ComingUpResponse built = assembled.response();
+            cache.set(new CachedFeed(today, DEFAULT_DAYS, built));
+            LOG.info("Almanac feed refreshed for {} ({} days, {} entries, {} source(s) failed) in {} ms", today,
+                    DEFAULT_DAYS, built.entries().size(), assembled.failedSources(),
+                    (System.nanoTime() - started) / 1_000_000L);
+        }
+        return true;
+    }
+
+    /**
+     * Warms the cache once the application is up, off the main thread.
+     *
+     * <p>A restart drops the in-memory feed, so without this the first reader after every deploy pays
+     * for the whole build. A failure is logged and ignored: the feed then builds on first request
+     * exactly as it did before the warm existed.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmOnStartup() {
+        try {
+            warmExecutor.execute(() -> {
+                try {
+                    refresh();
+                } catch (RuntimeException e) {
+                    LOG.warn("Almanac startup warm failed — the feed will build on first request: {}",
+                            e.toString());
+                }
+            });
+        } catch (RuntimeException e) {
+            LOG.warn("Almanac startup warm could not be dispatched: {}", e.toString());
+        }
     }
 
     /**
@@ -152,7 +260,18 @@ public class AlmanacService {
      * @return every source's events, merged and sorted ascending — unfiltered
      */
     List<AlmanacEvent> build(LocalDate from, LocalDate to) {
+        return buildCounting(from, to).events();
+    }
+
+    /** The raw events plus how many sources failed to contribute to them. */
+    private record Built(List<AlmanacEvent> events, int failedSources) { }
+
+    /** What {@link #assemble} produced, with the same failure count carried alongside. */
+    private record Assembled(ComingUpResponse response, int failedSources) { }
+
+    private Built buildCounting(LocalDate from, LocalDate to) {
         List<AlmanacEvent> all = new ArrayList<>();
+        int failed = 0;
         for (AlmanacSource source : sources) {
             try {
                 all.addAll(source.events(from, to));
@@ -160,11 +279,12 @@ public class AlmanacService {
                 // One source failing must not blank the feed. A missing tide run is a smaller
                 // problem than an empty Coming-up tab, and the alternative — letting it propagate —
                 // would make the whole feed hostage to the one source that touches the database.
+                failed++;
                 LOG.warn("Almanac source {} failed for {}..{}: {}",
                         source.getClass().getSimpleName(), from, to, e.toString());
             }
         }
-        return all.stream().sorted().toList();
+        return new Built(all.stream().sorted().toList(), failed);
     }
 
     /**
@@ -177,15 +297,18 @@ public class AlmanacService {
      * @param to       last day, inclusive
      * @return the assembled response
      */
-    private ComingUpResponse assemble(LocalDate builtFor, LocalDate to) {
-        List<AlmanacEvent> all = build(builtFor, to);
+    private Assembled assemble(LocalDate builtFor, LocalDate to) {
+        Built built = buildCounting(builtFor, to);
+        List<AlmanacEvent> all = built.events();
         LocalDate cutoff = PlanHorizon.lastPlanDate(builtFor);
         List<AlmanacEvent> eligible = all.stream()
                 .filter(event -> event.endDate().isAfter(cutoff))
                 .toList();
         ComingUpResponse core = assembler.assemble(builtFor, eligible);
         List<ComingUpCondition> conditions = conditionsBuilder.build(builtFor, all, core.entries());
-        return new ComingUpResponse(core.builtFor(), core.bands(), core.counts(), conditions, core.entries());
+        return new Assembled(
+                new ComingUpResponse(core.builtFor(), core.bands(), core.counts(), conditions, core.entries()),
+                built.failedSources());
     }
 
     /**

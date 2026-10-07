@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.LocationFailureService;
@@ -123,6 +124,7 @@ public class PipelineOrchestrator {
     private final AdminAlertService adminAlertService;
     private final LocationFailureService locationFailureService;
     private final AskReadyService askReadyService;
+    private final AlmanacService almanacService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -146,6 +148,8 @@ public class PipelineOrchestrator {
      * @param locationFailureService          settles each cycle's per-place failure counting
      * @param askReadyService                 precomputes Ask PhotoCast's Ready answers once the
      *                                        cycle's run is finished
+     * @param almanacService                  rebuilds the "Coming up" feed's cache once the cycle's
+     *                                        run is finished
      */
     @Autowired
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -159,13 +163,14 @@ public class PipelineOrchestrator {
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
-            AskReadyService askReadyService) {
+            AskReadyService askReadyService,
+            AlmanacService almanacService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService,
-                adminAlertService, locationFailureService, askReadyService);
+                adminAlertService, locationFailureService, askReadyService, almanacService);
     }
 
     /**
@@ -243,6 +248,49 @@ public class PipelineOrchestrator {
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
             AskReadyService askReadyService) {
+        this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                forecastBatchRepository, clock, backgroundExecutor, pollInterval, safetyTimeout,
+                dynamicSchedulerService, pipelineRunPickService, batchRetryService,
+                adminAlertService, locationFailureService, askReadyService, null);
+    }
+
+    /**
+     * Full constructor with both post-run hand-overs: Ask PhotoCast's Ready precompute and the
+     * "Coming up" feed's cache refresh. The constructor above is this one with no feed refresh.
+     *
+     * @param pipelineRunService              pipeline run / phase persistence
+     * @param scheduledBatchEvaluationService forecast batch submitter (cycle-aware variant)
+     * @param briefingService                 briefing refresh entry point
+     * @param forecastBatchRepository         queried for cycle completion
+     * @param clock                           injectable clock
+     * @param backgroundExecutor              where to run the wait+briefing tail and both hand-overs
+     * @param pollInterval                    DB poll interval during FORECAST_BATCH_WAIT
+     * @param safetyTimeout                   safety backstop for the wait phase
+     * @param dynamicSchedulerService         scheduler the orchestrator registers itself with
+     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
+     * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
+     * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
+     * @param locationFailureService          settles each cycle's per-place failure counting
+     * @param askReadyService                 precomputes the Ready answers after the run is
+     *                                        finished; {@code null} skips it
+     * @param almanacService                  rebuilds the "Coming up" feed after the run is
+     *                                        finished; {@code null} skips it
+     */
+    public PipelineOrchestrator(PipelineRunService pipelineRunService,
+            ScheduledBatchEvaluationService scheduledBatchEvaluationService,
+            BriefingService briefingService,
+            ForecastBatchRepository forecastBatchRepository,
+            Clock clock,
+            Executor backgroundExecutor,
+            Duration pollInterval,
+            Duration safetyTimeout,
+            DynamicSchedulerService dynamicSchedulerService,
+            PipelineRunPickService pipelineRunPickService,
+            BatchRetryService batchRetryService,
+            AdminAlertService adminAlertService,
+            LocationFailureService locationFailureService,
+            AskReadyService askReadyService,
+            AlmanacService almanacService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -257,6 +305,7 @@ public class PipelineOrchestrator {
         this.batchRetryService = batchRetryService;
         this.locationFailureService = locationFailureService;
         this.askReadyService = askReadyService;
+        this.almanacService = almanacService;
     }
 
     /**
@@ -596,6 +645,7 @@ public class PipelineOrchestrator {
             }
 
             finishRun(runId);
+            dispatchAlmanacRefresh(runId);
             dispatchAskReady(runId);
         } catch (BatchSafetyTimeoutException e) {
             // Safety backstop fired — log loudly and mark the run failed so the
@@ -613,6 +663,39 @@ public class PipelineOrchestrator {
         } catch (RuntimeException e) {
             LOG.error("Pipeline run {}: wait/brief tail failed — {}", runId, e.getMessage(), e);
             pipelineRunService.failRun(runId, "Wait/brief tail failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Hands the "Coming up" feed's cache refresh to the background executor, <b>after</b>
+     * {@link #finishRun} for the same reasons {@link #dispatchAskReady} gives: the run is terminal
+     * first, the work is never on the run's thread, and nothing it does can reach the run.
+     *
+     * <p>Why here: the feed's standing conditions (dust, valley inversions) read the forecast data this
+     * cycle has just written, and the feed is cached for the whole UK day, so without a refresh they
+     * stayed as they were at the day's first request. The refresh builds the new feed completely
+     * before replacing the old one, so no reader sees an empty cache while it runs. This method must
+     * never throw, for the same reason as the Ask dispatch.
+     *
+     * @param runId the pipeline run that has just finished
+     */
+    private void dispatchAlmanacRefresh(Long runId) {
+        if (almanacService == null) {
+            return;
+        }
+        try {
+            backgroundExecutor.execute(() -> {
+                try {
+                    almanacService.refresh();
+                } catch (RuntimeException e) {
+                    LOG.warn("Pipeline run {}: the Coming up feed refresh raised an exception — "
+                            + "logged and ignored (the run is already finished; the cached feed is "
+                            + "unchanged): {}", runId, e.toString());
+                }
+            });
+        } catch (RuntimeException e) {
+            LOG.warn("Pipeline run {}: the Coming up feed refresh could not be dispatched — logged and "
+                    + "ignored (the run is already finished): {}", runId, e.toString());
         }
     }
 

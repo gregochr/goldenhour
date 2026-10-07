@@ -21,6 +21,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.repository.TideHighWater;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -339,9 +340,11 @@ class TideSurfaceAgreementTest {
     }
 
     private void extremes(TideExtremeEntity... rows) {
-        when(tideExtremeRepository.findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(
-                anyCollection(), eq(TideExtremeType.HIGH), any(), any()))
-                .thenReturn(List.of(rows));
+        when(tideExtremeRepository.findHighWatersInWindow(anyCollection(), any(), any()))
+                .thenReturn(java.util.Arrays.stream(rows)
+                        .map(row -> new TideHighWater(
+                                row.getLocationId(), row.getEventTime(), row.getHeightMetres()))
+                        .toList());
     }
 
     private static TideExtremeEntity highWater(LocalDateTime utc, BigDecimal metres) {
