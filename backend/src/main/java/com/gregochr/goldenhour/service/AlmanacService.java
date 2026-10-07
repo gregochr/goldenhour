@@ -10,12 +10,17 @@ import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.Rewind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -36,9 +41,13 @@ import java.util.concurrent.atomic.AtomicReference;
  * or rebuilds the whole thing. There is no read-modify-write and therefore no way for half a
  * payload to survive into the next day.
  *
- * <p>Everything here is ephemeris arithmetic and DB reads, so a cold rebuild is cheap and a miss is
- * not worth defending against with a stampede lock — two concurrent requests on a new day both
- * build, both write, and the answers are identical because they are pure functions of the date.
+ * <p>Everything here is ephemeris arithmetic and DB reads, so a miss is not worth defending against
+ * with a stampede lock — two concurrent requests on a new day both build, both write, and the
+ * answers are identical because they are pure functions of the date and the stored data. A build is
+ * not free, though (the tide-magnitude history is a three-year scan), so the cache is also
+ * <b>warmed</b> rather than left to the first reader of the day: {@link #refresh()} rebuilds and
+ * swaps it in at the tail of every pipeline cycle (where fresh forecast data has just been written,
+ * which the feed's conditions strip reads) and once at startup (a restart drops the in-memory cache).
  *
  * <p><strong>Eligibility (plan §2 D1).</strong> An almanac event becomes a {@link ComingUpEntry}
  * only once it ends beyond Plan's four-day window ({@link PlanHorizon#lastPlanDate}) — an entry
@@ -70,6 +79,7 @@ public class AlmanacService {
     private final Clock clock;
     private final ComingUpAssembler assembler;
     private final ComingUpConditionsBuilder conditionsBuilder;
+    private final Executor warmExecutor;
 
     /** Today's fully-built feed, or null before the first build of the day. */
     private final AtomicReference<CachedFeed> cache = new AtomicReference<>();
@@ -93,12 +103,29 @@ public class AlmanacService {
      *                          (plan §5 P2)
      * @param conditionsBuilder builds the standing-conditions strip (plan §7 P4)
      */
+    @Autowired
     public AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler,
             ComingUpConditionsBuilder conditionsBuilder) {
+        this(sources, clock, assembler, conditionsBuilder, Executors.newVirtualThreadPerTaskExecutor());
+    }
+
+    /**
+     * Constructs an {@code AlmanacService} with an explicit executor for the startup warm, so a test
+     * can run it inline.
+     *
+     * @param sources           every almanac source Spring can find
+     * @param clock             supplies "today"
+     * @param assembler         grows each eligible event to the full chronology entry shape
+     * @param conditionsBuilder builds the standing-conditions strip
+     * @param warmExecutor      where the startup warm runs — never the main thread
+     */
+    AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler,
+            ComingUpConditionsBuilder conditionsBuilder, Executor warmExecutor) {
         this.sources = List.copyOf(sources);
         this.clock = clock;
         this.assembler = assembler;
         this.conditionsBuilder = conditionsBuilder;
+        this.warmExecutor = warmExecutor;
     }
 
     /**
@@ -139,8 +166,65 @@ public class AlmanacService {
         }
 
         ComingUpResponse built = assemble(today, today.plusDays(clamped - 1L));
-        cache.set(new CachedFeed(today, clamped, built));
+        // Fill the slot only if it is still the one this reader found wanting. A refresh() that
+        // landed while this build ran was built from newer data (the pipeline tail runs it after a
+        // cycle has written), so it must win; a plain set would put this older answer over it until
+        // the next cycle. A lost race still returns what was built — correct when it started.
+        cache.compareAndSet(cached, new CachedFeed(today, clamped, built));
         return built;
+    }
+
+    /**
+     * Rebuilds today's default-horizon feed and swaps it into the cache.
+     *
+     * <p><b>Build first, then replace.</b> The new response is fully assembled before the one
+     * {@code cache.set}, so a reader arriving during the build is served the previous answer rather
+     * than finding an empty slot and paying for a build of its own; contrast {@link #evict()}, which
+     * empties it. A failed build throws and leaves the previous cache exactly as it was.
+     *
+     * <p>Called after every pipeline cycle's run has finished (the standing conditions are read from
+     * the data the cycle has just written, and until now stayed as they were at the day's first
+     * request) and once at application start. Refuses to run on a thread with an admin rewind set —
+     * the same guard {@link #getFeed(int)} has, since a rewound clock would build the wrong day's
+     * feed and put it where everyone reads — although neither caller can have one.
+     *
+     * @return true when the cache was replaced, false when the warm was refused for a rewind
+     */
+    public boolean refresh() {
+        if (Rewind.isActive()) {
+            LOG.warn("Almanac refresh skipped: an admin rewind is set on this thread");
+            return false;
+        }
+        LocalDate today = ForecastHorizon.today(clock);
+        long started = System.nanoTime();
+        ComingUpResponse built = assemble(today, today.plusDays(DEFAULT_DAYS - 1L));
+        cache.set(new CachedFeed(today, DEFAULT_DAYS, built));
+        LOG.info("Almanac feed refreshed for {} ({} days, {} entries) in {} ms", today, DEFAULT_DAYS,
+                built.entries().size(), (System.nanoTime() - started) / 1_000_000L);
+        return true;
+    }
+
+    /**
+     * Warms the cache once the application is up, off the main thread.
+     *
+     * <p>A restart drops the in-memory feed, so without this the first reader after every deploy pays
+     * for the whole build. A failure is logged and ignored: the feed then builds on first request
+     * exactly as it did before the warm existed.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmOnStartup() {
+        try {
+            warmExecutor.execute(() -> {
+                try {
+                    refresh();
+                } catch (RuntimeException e) {
+                    LOG.warn("Almanac startup warm failed — the feed will build on first request: {}",
+                            e.toString());
+                }
+            });
+        } catch (RuntimeException e) {
+            LOG.warn("Almanac startup warm could not be dispatched: {}", e.toString());
+        }
     }
 
     /**

@@ -1,10 +1,9 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.TideExtremeEntity;
-import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.repository.TideHighWater;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,11 +16,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -153,9 +152,7 @@ class TideSizeIndexTest {
 
         assertThat(index.measure(List.of(location(LOCATION_ID)), DAY, DAY))
                 .isEqualTo(TideSizeIndex.Sizes.UNMEASURED);
-        verify(tideExtremeRepository, times(0))
-                .findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(
-                        anyCollection(), any(), any(), any());
+        verify(tideExtremeRepository, times(0)).findHighWatersInWindow(anyCollection(), any(), any());
     }
 
     @Test
@@ -204,8 +201,10 @@ class TideSizeIndexTest {
         stats(LOCATION_ID, "4.00", "4.60");
         extremes(highWater(LOCATION_ID, DAY.atTime(6, 12), "4.20"));
 
+        // Two DIFFERENT questions, so the measured-sizes memo cannot answer the second and only the
+        // threshold cache stands between it and another sweep.
         index.measure(List.of(location(LOCATION_ID)), DAY, DAY);
-        index.measure(List.of(location(LOCATION_ID)), DAY, DAY);
+        index.measure(List.of(location(LOCATION_ID)), DAY.minusDays(1), DAY);
 
         // getTideStats is four queries and pulls the location's whole stored height history. Over a
         // sixty-location roster, paying that per request is the difference between a cheap feed and
@@ -243,6 +242,64 @@ class TideSizeIndexTest {
         verify(tideService, times(2)).getTideStats(LOCATION_ID);
     }
 
+    @Test
+    @DisplayName("the same question asked twice in a day reads the heights once")
+    void anIdenticalQuestionIsAnsweredOncePerDay() {
+        stats(LOCATION_ID, "4.00", "4.60");
+        extremes(highWater(LOCATION_ID, DAY.atTime(6, 12), "4.20"));
+
+        TideSizeIndex.Sizes first = index.measure(List.of(location(LOCATION_ID)), DAY, DAY);
+        TideSizeIndex.Sizes second = index.measure(List.of(location(LOCATION_ID)), DAY, DAY);
+
+        // The "Coming up" build asks the three-year question twice per tide run, from two classes.
+        assertThat(second).isSameAs(first);
+        verify(tideExtremeRepository, times(1)).findHighWatersInWindow(anyCollection(), any(), any());
+    }
+
+    @Test
+    @DisplayName("the same roster in a different order shares the memoised answer, a different "
+            + "window or roster does not")
+    void theMemoKeyIsTheRosterAsASetAndTheWindow() {
+        stats(LOCATION_ID, "4.00", "4.60");
+        stats(SECOND_LOCATION_ID, "6.00", "7.00");
+        extremes(highWater(LOCATION_ID, DAY.atTime(6, 12), "4.20"));
+
+        index.measure(List.of(location(LOCATION_ID), location(SECOND_LOCATION_ID)), DAY, DAY);
+        index.measure(List.of(location(SECOND_LOCATION_ID), location(LOCATION_ID)), DAY, DAY);
+        verify(tideExtremeRepository, times(1)).findHighWatersInWindow(anyCollection(), any(), any());
+
+        index.measure(List.of(location(LOCATION_ID)), DAY, DAY);
+        index.measure(List.of(location(LOCATION_ID), location(SECOND_LOCATION_ID)), DAY.minusDays(1), DAY);
+        verify(tideExtremeRepository, times(3)).findHighWatersInWindow(anyCollection(), any(), any());
+    }
+
+    @Test
+    @DisplayName("evict() drops the memoised answer so a backfill is read back, and tells the "
+            + "caches built over it")
+    void evictDropsTheMemoisedAnswerAndNotifiesDependents() {
+        stats(LOCATION_ID, "4.00", "4.60");
+        extremes(highWater(LOCATION_ID, DAY.atTime(6, 12), "4.20"));
+        AtomicInteger dependentEvictions = new AtomicInteger();
+        index.onEvicted(dependentEvictions::incrementAndGet);
+
+        TideSizeIndex.Sizes before = index.measure(List.of(location(LOCATION_ID)), DAY, DAY);
+        // A backfill lands: the same question now has a different answer.
+        extremes(highWater(LOCATION_ID, DAY.atTime(6, 12), "3.00"));
+        assertThat(index.measure(List.of(location(LOCATION_ID)), DAY, DAY)).isSameAs(before);
+
+        index.evict();
+
+        assertThat(index.measure(List.of(location(LOCATION_ID)), DAY, DAY).springOn(DAY)).isFalse();
+        assertThat(before.springOn(DAY)).isTrue();
+        assertThat(dependentEvictions).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("the index registers itself for tide-write notifications so a backfill drops it")
+    void registersForTideWrites() {
+        verify(tideService).onTideExtremesChanged(any(Runnable.class));
+    }
+
     /**
      * Stubs a location's stats. Either threshold may be null, which is the shape
      * {@code TideService} returns before a whole spring–neap cycle has been observed.
@@ -254,19 +311,13 @@ class TideSizeIndexTest {
                 springThreshold == null ? null : new BigDecimal(springThreshold), null, 0L)));
     }
 
-    private void extremes(TideExtremeEntity... rows) {
-        when(tideExtremeRepository.findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(
-                anyCollection(), eq(TideExtremeType.HIGH), any(), any()))
+    private void extremes(TideHighWater... rows) {
+        when(tideExtremeRepository.findHighWatersInWindow(anyCollection(), any(), any()))
                 .thenReturn(List.of(rows));
     }
 
-    private static TideExtremeEntity highWater(long locationId, LocalDateTime utc, String metres) {
-        TideExtremeEntity extreme = new TideExtremeEntity();
-        extreme.setLocationId(locationId);
-        extreme.setEventTime(utc);
-        extreme.setHeightMetres(new BigDecimal(metres));
-        extreme.setType(TideExtremeType.HIGH);
-        return extreme;
+    private static TideHighWater highWater(long locationId, LocalDateTime utc, String metres) {
+        return new TideHighWater(locationId, utc, new BigDecimal(metres));
     }
 
     private static LocationEntity location(long id) {

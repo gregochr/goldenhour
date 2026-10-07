@@ -10,10 +10,13 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.util.DayScopedMemo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
@@ -26,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Reads and classifies tide extremes for coastal locations from the {@code tide_extreme} table.
@@ -81,6 +85,26 @@ public class TideService {
     private final WorldTidesIngestionService ingestionService;
 
     /**
+     * Each location's {@link #getTideStats} answer for the current UTC day, keyed by location id.
+     *
+     * <p>The answer is a pure function of the stored extremes and of the day: the sample is bounded
+     * at the start of today UTC, so it can only change when a row is written to {@code tide_extreme}
+     * or when the day rolls. The memo turns over on the day by itself and is evicted by
+     * {@link #evictTideStats(Long)} on every write path, so a backfill cannot be served stale
+     * percentiles. Before it existed {@code getTideStats} was three queries per call, one of which
+     * pulls every stored high water for the location into Java, and one "Coming up" build asked for
+     * it hundreds of times.
+     */
+    private final DayScopedMemo<Long, Optional<TideStats>> statsMemo = new DayScopedMemo<>();
+
+    /**
+     * Callers whose own caches are derived from stored tide extremes and must be dropped when one
+     * changes. Registered by those caches themselves, because they depend on this service and not
+     * the other way round.
+     */
+    private final List<Runnable> writeListeners = new CopyOnWriteArrayList<>();
+
+    /**
      * Constructs a {@code TideService}.
      *
      * <p>Builds its own {@link WorldTidesIngestionService} from the same four dependencies
@@ -105,7 +129,54 @@ public class TideService {
             WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
         this.tideExtremeRepository = tideExtremeRepository;
         this.ingestionService = new WorldTidesIngestionService(
-                restClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+                restClient, tideExtremeRepository, worldTidesProperties, jobRunService,
+                this::evictTideStats);
+    }
+
+    /**
+     * Registers a callback to run whenever stored tide extremes change, after the change is
+     * committed (or immediately when there is no transaction).
+     *
+     * <p>For caches built over {@code tide_extreme} that sit above this service in the dependency
+     * graph, such as {@code TideSizeIndex}'s measured sizes and {@code TideRunPeakHistory}'s run
+     * peaks. They call this once from their constructors and are never deregistered: every one is a
+     * singleton that lives as long as this service.
+     *
+     * @param listener drops the caller's derived state; must be cheap and must not throw
+     */
+    public void onTideExtremesChanged(Runnable listener) {
+        writeListeners.add(listener);
+    }
+
+    /**
+     * Drops the cached statistics for one location and tells every registered derived cache that the
+     * stored extremes changed.
+     *
+     * <p>Called by every code path that inserts or deletes {@code tide_extreme} rows (the weekly
+     * forward refresh and the 12-month backfill, both through {@link WorldTidesIngestionService}).
+     * Inside a transaction the eviction waits for the transaction to <em>complete</em>, committed or
+     * rolled back: evicting at the write would let a concurrent reader re-cache the old rows before
+     * the commit lands, and a rollback must not leave an entry computed from rows that never
+     * existed. Outside a transaction it happens at once.
+     *
+     * @param locationId the location whose extremes changed
+     */
+    public void evictTideStats(Long locationId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    dropDerivedState(locationId);
+                }
+            });
+        } else {
+            dropDerivedState(locationId);
+        }
+    }
+
+    private void dropDerivedState(Long locationId) {
+        statsMemo.evict(locationId);
+        writeListeners.forEach(Runnable::run);
     }
 
     /**
@@ -376,11 +447,21 @@ public class TideService {
      * with a louder one: a location fetched forward-only reports two high waters on its second
      * day, and two neap samples put the spring threshold below almost every later high water.
      *
+     * <p><strong>Cached per location per UTC day.</strong> The answer cannot change within a day
+     * except by a write to {@code tide_extreme}, so it is memoised and evicted by
+     * {@link #evictTideStats(Long)} from every write path. A caller that needs the figures to
+     * reflect a write made by some other route must call that method after it commits.
+     *
      * @param locationId the location primary key
      * @return Optional containing TideStats if data is available, empty otherwise
      */
     public Optional<TideStats> getTideStats(Long locationId) {
-        LocalDateTime statsCutoff = LocalDate.now(ZoneOffset.UTC).atStartOfDay();
+        LocalDate cutoffDate = LocalDate.now(ZoneOffset.UTC);
+        return statsMemo.get(cutoffDate, locationId, () -> computeTideStats(locationId, cutoffDate));
+    }
+
+    private Optional<TideStats> computeTideStats(Long locationId, LocalDate cutoffDate) {
+        LocalDateTime statsCutoff = cutoffDate.atStartOfDay();
 
         Object[] highStats = tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
                 locationId, TideExtremeType.HIGH, statsCutoff);

@@ -1068,6 +1068,17 @@ verdict from the same `Point` rather than trimmed out of its text (which would m
 punctuation load-bearing), so it keeps the clock time and never carries the `peak range · ` prefix.
 ETag-revalidated; safe to share because it carries no per-user data.
 
+**The feed is cached per UK day and refreshed, not just filled.** `AlmanacService.refresh()` builds the default
+90-day feed and swaps it in whole (never evict-then-build), and runs from the pipeline's tail
+(`PipelineOrchestrator.dispatchAlmanacRefresh`, after `finishRun`, on the background executor, nothing it throws reaches the run)
+and once on `ApplicationReadyEvent`, so the conditions strip follows each cycle's data and a restart or a new day does not leave
+the first reader to pay for the build. There is no midnight job: the first reader after midnight still builds, which the memos
+below keep short. `TideService.getTideStats` is memoised per location per UTC cutoff day and `TideSizeIndex.measure` and
+`TideRunPeakHistory.peakRanges` per question per day (`DayScopedMemo`, whose in-flight loads are discarded if an eviction lands
+meanwhile); every write to `tide_extreme` through `WorldTidesIngestionService` (forward refresh, backfill) evicts all three
+through `TideService.evictTideStats`, after the transaction completes. A new writer of `tide_extreme` must call it too
+(`AskLocalFixtureSeeder`, local H2 only, does not).
+
 **The tab badge (plan `docs/engineering/coming-up-plan.md`, P5) is not on this payload at all —
 deliberately.** It counts rare arrivals into this feed's window since the reader last opened the
 tab, which needs a per-user `lastSeenAt` this ETag-shared endpoint must never carry (the same

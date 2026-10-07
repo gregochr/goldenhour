@@ -196,6 +196,168 @@ class AlmanacServiceTest {
         assertThat(source.calls.get()).isEqualTo(2);
     }
 
+    // ── refresh and the startup warm ────────────────────────────────────────
+
+    @Test
+    @DisplayName("refresh() fills an empty cache, so the first reader of the day pays for no build")
+    void refreshWarmsAnEmptyCache() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+
+        assertThat(service.refresh()).isTrue();
+        service.getFeed();
+
+        assertThat(source.calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("refresh() replaces a cache that is already warm with a rebuild from current data")
+    void refreshReplacesAWarmCache() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        List<AlmanacEvent> served = new java.util.ArrayList<>(List.of(event(beyond, beyond, "meteor")));
+        AlmanacSource source = (f, t) -> List.copyOf(served);
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
+                conditionsBuilder());
+        ComingUpResponse before = service.getFeed();
+
+        // The pipeline has written new data since the day's first request.
+        served.add(event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
+        service.refresh();
+        ComingUpResponse after = service.getFeed();
+
+        assertThat(after).isNotSameAs(before);
+        assertThat(after.entries()).hasSizeGreaterThan(before.entries().size());
+        // Served from the refreshed cache, not rebuilt a third time.
+        assertThat(service.getFeed()).isSameAs(after);
+    }
+
+    @Test
+    @DisplayName("a reader who arrives while refresh() is building is served the previous feed, "
+            + "never an empty slot — build first, then replace")
+    void aReaderDuringRefreshSeesThePreviousFeed() {
+        AtomicInteger calls = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<AlmanacService> holder =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<ComingUpResponse> seenMidBuild =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        AlmanacSource source = (f, t) -> {
+            // The second call is the refresh's build. A getFeed() from inside it stands in for a
+            // request that arrives while it runs: with evict-then-build it would find nothing and
+            // build recursively; with build-then-replace it is served what was cached before.
+            if (calls.incrementAndGet() == 2) {
+                seenMidBuild.set(holder.get().getFeed());
+            }
+            return List.of(event(DAY, DAY, "x"));
+        };
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        holder.set(service);
+        ComingUpResponse before = service.getFeed();
+
+        service.refresh();
+
+        assertThat(seenMidBuild.get()).isSameAs(before);
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a reader's miss-build that finishes after a refresh() does not overwrite the "
+            + "refreshed feed — the slot is only filled if it is still the one the reader found empty")
+    void aMissBuildThatOutlivesARefreshDoesNotOverwriteIt() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AtomicInteger calls = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<AlmanacService> holder =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        AlmanacSource source = (f, t) -> {
+            // Call 1 is the reader's build on a cold cache; a refresh() from inside it stands in for
+            // the pipeline tail landing while the reader's build is still running. The refresh's
+            // own build (call 2) sees one more event, so the two responses can be told apart.
+            if (calls.incrementAndGet() == 1) {
+                holder.get().refresh();
+                return List.of(event(beyond, beyond, "meteor"));
+            }
+            return List.of(event(beyond, beyond, "meteor"), event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
+        };
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
+                conditionsBuilder());
+        holder.set(service);
+
+        ComingUpResponse readersOwn = service.getFeed();
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(readersOwn.entries()).hasSize(1);
+        // The cache keeps the refresh's answer, built from the newer data, not the reader's older one.
+        assertThat(service.getFeed().entries()).hasSize(2);
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a refresh whose build fails leaves the previous feed in place and propagates")
+    void aFailedRefreshKeepsThePreviousFeed() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        ComingUpConditionsBuilder conditions = conditionsBuilder();
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditions);
+        ComingUpResponse before = service.getFeed();
+        org.mockito.Mockito.when(conditions.build(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("conditions broke"));
+
+        assertThatThrownBy(service::refresh).isInstanceOf(IllegalStateException.class);
+
+        assertThat(service.getFeed()).isSameAs(before);
+    }
+
+    @Test
+    @DisplayName("refresh() refuses to build while an admin rewind is set, and caches nothing")
+    void refreshIsRefusedUnderARewind() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        try {
+            com.gregochr.goldenhour.util.Rewind.set(CLOCK.instant().minusSeconds(3600));
+            assertThat(service.refresh()).isFalse();
+        } finally {
+            com.gregochr.goldenhour.util.Rewind.clear();
+        }
+
+        assertThat(source.calls.get()).isZero();
+        service.getFeed();
+        assertThat(source.calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("the startup warm is handed to the executor, not run on the calling thread, and "
+            + "fills the cache when it runs")
+    void startupWarmRunsOnTheExecutor() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder(),
+                queued::add);
+
+        service.warmOnStartup();
+
+        assertThat(queued).hasSize(1);
+        assertThat(source.calls.get()).isZero();
+        queued.getFirst().run();
+        service.getFeed();
+        assertThat(source.calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a startup warm that fails, or an executor that refuses it, is logged and ignored")
+    void startupWarmNeverThrows() {
+        ComingUpConditionsBuilder conditions = conditionsBuilder();
+        org.mockito.Mockito.when(conditions.build(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("conditions broke"));
+        AlmanacService failing = new AlmanacService(List.of(), CLOCK, assembler(), conditions, Runnable::run);
+        AlmanacService refused = new AlmanacService(List.of(), CLOCK, assembler(), conditionsBuilder(),
+                task -> {
+                    throw new java.util.concurrent.RejectedExecutionException("shut down");
+                });
+
+        org.assertj.core.api.Assertions.assertThatCode(failing::warmOnStartup).doesNotThrowAnyException();
+        org.assertj.core.api.Assertions.assertThatCode(refused::warmOnStartup).doesNotThrowAnyException();
+    }
+
     @Test
     @DisplayName("the default horizon is 90 days, matching what the tide fetch window is sized for")
     void defaultHorizonIsNinetyDays() {
