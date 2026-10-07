@@ -394,6 +394,137 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
     });
   });
 
+  it('sends an unfiltered handoff for a plan entry’s chip, and never goes to the Plan tab', () => {
+    // A plan entry's chips open the map with no subject filter (plan §11.26): neither flag set.
+    const { onShowOnMap, onGoToPlan } = renderEntry({
+      ...RUN,
+      title: 'Winter solstice',
+      action: { label: 'See the plan for 11 Oct →', kind: 'plan', date: '2026-10-11' },
+      doorNoun: 'All spots',
+    });
+    expect(screen.getByRole('group', { name: 'All spots by day' })).toBeInTheDocument();
+    expect(screen.queryByText(/See the plan/)).toBeNull();
+    fireEvent.click(chipNamed('Show all spots for Sat 10 Oct'));
+    expect(onShowOnMap).toHaveBeenCalledTimes(1);
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'coming-up', filterAction: null, darkSky: false,
+      label: 'Winter solstice · Sat 10 Oct', date: '2026-10-10',
+    });
+    expect(onGoToPlan).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('coming-up-card'));
+    expect(onGoToPlan).not.toHaveBeenCalled();
+  });
+
+  it('names a plan entry’s peak chip, live and dimmed', () => {
+    renderEntry({
+      ...RUN,
+      action: { label: 'See the plan for 11 Oct →', kind: 'plan', date: '2026-10-11' },
+      doorNoun: 'All spots',
+      dayChips: RUN_CHIPS.map((c, i) => (i === 2 ? { ...c, live: false } : c)),
+    });
+    expect(chipNamed('Sun 11 Oct, peak day — no forecast yet')).toBeDisabled();
+    expect(chipNamed('Show all spots for Fri 9 Oct')).toBeEnabled();
+  });
+
+  describe('a one-box row for a single-day entry (plan §11.26)', () => {
+    const ONE = {
+      title: 'Orionids',
+      action: { label: 'Show dark-sky spots for 21 Oct →', kind: 'dark-sky-spots', date: '2026-10-21' },
+      interactive: false,
+      actionWithheld: false,
+      actionNote: null,
+      doorNoun: 'Dark-sky spots',
+      dayChips: [chip('2026-10-21', 'Wed', '21', { peak: true })],
+    };
+
+    it('renders a div card with the bare door name as the lead and the group’s name', () => {
+      renderEntry(ONE);
+      expect(screen.getByTestId('coming-up-card').tagName).toBe('DIV');
+      expect(screen.getByRole('group', { name: 'Dark-sky spots' })).toBeInTheDocument();
+      expect(screen.getByTestId('coming-up-day-chips')).not.toHaveTextContent('by day');
+    });
+
+    it('draws the dimmed chip disabled with the singular caption', () => {
+      renderEntry(ONE);
+      expect(chipNamed('Wed 21 Oct, peak day — no forecast yet')).toBeDisabled();
+      expect(screen.getByTestId('coming-up-day-chips-note'))
+        .toHaveTextContent(/^no forecast for this day yet$/);
+    });
+
+    it('opens the map on the entry’s date from a live chip, and draws no caption', () => {
+      const { onShowOnMap } = renderEntry({
+        ...ONE, dayChips: [chip('2026-10-21', 'Wed', '21', { peak: true, live: true })],
+      });
+      expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
+      fireEvent.click(chipNamed('Show dark-sky spots for Wed 21 Oct, peak day'));
+      expect(onShowOnMap).toHaveBeenCalledWith({
+        kind: 'coming-up', filterAction: null, darkSky: true,
+        label: 'Orionids · Wed 21 Oct', date: '2026-10-21',
+      });
+    });
+
+    it('draws no caption for a gone day', () => {
+      renderEntry({ ...ONE, dayChips: [chip('2026-10-21', 'Wed', '21', { peak: true, gone: true })] });
+      expect(chipNamed('Wed 21 Oct, peak day — gone')).toBeDisabled();
+      expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
+    });
+
+    it('keeps the plural all-dimmed wording for a run with several future days', () => {
+      renderEntry({ ...RUN, dayChips: RUN_CHIPS.map((c) => ({ ...c, live: false })) });
+      expect(screen.getByTestId('coming-up-day-chips-note'))
+        .toHaveTextContent(/^no forecast for these days yet$/);
+    });
+
+    describe('a single-day plan entry (an eclipse)', () => {
+      const ECLIPSE = {
+        title: 'Partial eclipse',
+        action: { label: 'See the plan for 21 Oct →', kind: 'plan', date: '2026-10-21' },
+        interactive: false,
+        actionWithheld: false,
+        actionNote: null,
+        doorNoun: 'All spots',
+        dayChips: [chip('2026-10-21', 'Wed', '21', { peak: true, live: true })],
+      };
+
+      it('renders a div card with the group named All spots and no Plan line', () => {
+        renderEntry(ECLIPSE);
+        expect(screen.getByTestId('coming-up-card').tagName).toBe('DIV');
+        expect(screen.getByRole('group', { name: 'All spots' })).toBeInTheDocument();
+        expect(screen.queryByText(/See the plan/)).toBeNull();
+      });
+
+      it('sends the unfiltered handoff with the entry’s date and never goes to Plan', () => {
+        const { onShowOnMap, onGoToPlan } = renderEntry(ECLIPSE);
+        fireEvent.click(chipNamed('Show all spots for Wed 21 Oct, peak day'));
+        expect(onShowOnMap).toHaveBeenCalledTimes(1);
+        expect(onShowOnMap).toHaveBeenCalledWith({
+          kind: 'coming-up', filterAction: null, darkSky: false,
+          label: 'Partial eclipse · Wed 21 Oct', date: '2026-10-21',
+        });
+        fireEvent.click(screen.getByTestId('coming-up-card'));
+        expect(onGoToPlan).not.toHaveBeenCalled();
+      });
+
+      it('dims to a disabled chip with the singular caption when the day has no forecast', () => {
+        renderEntry({
+          ...ECLIPSE, dayChips: [chip('2026-10-21', 'Wed', '21', { peak: true })],
+        });
+        expect(chipNamed('Wed 21 Oct, peak day — no forecast yet')).toBeDisabled();
+        expect(screen.getByTestId('coming-up-day-chips-note'))
+          .toHaveTextContent(/^no forecast for this day yet$/);
+      });
+    });
+
+    it('uses the singular caption for the last day of a run whose other days have gone', () => {
+      renderEntry({
+        ...RUN,
+        dayChips: RUN_CHIPS.map((c, i) => (i < 5 ? { ...c, gone: true, live: false } : c)),
+      });
+      expect(screen.getByTestId('coming-up-day-chips-note'))
+        .toHaveTextContent(/^no forecast for this day yet$/);
+    });
+  });
+
   it('calls nothing when a dimmed chip is clicked', () => {
     const { onShowOnMap } = renderEntry(RUN);
     fireEvent.click(chipNamed('Mon 12 Oct — no forecast yet'));

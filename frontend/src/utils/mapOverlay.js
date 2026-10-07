@@ -180,9 +180,15 @@ export function buildMapOverlay(trigger, ctx) {
   // (`docs/engineering/coming-up-plan.md` D7) deleted that branch and its only producer
   // (`HotTopicStrip`) outright, so `coming-up` is now this file's only filter-and-fit trigger.
   //
-  // Two mutually exclusive filters, matching the card actions D8 names: `filterAction` (a
-  // `locationType`, e.g. `SEASCAPE` for coastal spots) or `darkSky` (the Bortle-class toggle,
-  // which has no `locationType` of its own — MapView's own manual toggle filters the same way).
+  // Three cases, decided by the card's door kind: `filterAction` (a `locationType`, e.g. `SEASCAPE`
+  // for coastal spots), `darkSky` (the Bortle-class toggle, which has no `locationType` of its own —
+  // MapView's own manual toggle filters the same way), or NEITHER — a plan chip, which filters
+  // nothing and shows every visible location (plan §11.26). The first two are mutually exclusive.
+  // ⚠️ The first two pass `focus.names`, which `MapView` turns into an exact-match override of its
+  // own filtered list (bypassing the overlay's rating floor, stand-down and drive filters) — right
+  // for a selection by subject. "Every spot" is NOT a selection, so the unfiltered arm passes
+  // `focus: { points, nonce }` with NO `names`, the shape the `event` all-regions arm uses below:
+  // the camera fits every enabled location and the overlay's own filters still decide what is drawn.
   // The `date` IS carried into `selectedDate`/`MapView`, deliberately — unlike `location`/`region`/
   // `event`, this branch never calls `ratingFor`/`solarTimeFor` for it, so a Coming-up date past
   // Plan's four-day horizon cannot dress "no data" as "stand down": there is no rating-derived
@@ -190,9 +196,15 @@ export function buildMapOverlay(trigger, ctx) {
   // the Coming up card now withholds the door client-side when no forecast date covers it (plan
   // §11.24, an owner decision), so the date carried here is one the map can draw.
   if (trigger.kind === 'coming-up') {
-    const matches = trigger.darkSky
-      ? enabled.filter((l) => l.bortleClass != null && l.bortleClass <= DARK_SKY_THRESHOLD)
-      : enabled.filter((l) => (l.locationType || []).includes(trigger.filterAction));
+    const unfiltered = !trigger.darkSky && !trigger.filterAction;
+    let matches;
+    if (trigger.darkSky) {
+      matches = enabled.filter((l) => l.bortleClass != null && l.bortleClass <= DARK_SKY_THRESHOLD);
+    } else if (trigger.filterAction) {
+      matches = enabled.filter((l) => (l.locationType || []).includes(trigger.filterAction));
+    } else {
+      matches = enabled;
+    }
     const points = matches.map((l) => [l.lat, l.lon]);
     const regions = new Set(matches.map((l) => l.regionName).filter(Boolean));
     return {
@@ -204,7 +216,9 @@ export function buildMapOverlay(trigger, ctx) {
       caption: matches.length > 0
         ? `◍ ${matches.length} ${matches.length === 1 ? 'location' : 'locations'} — tap a pin to open one`
         : null,
-      focus: points.length > 0 ? { points, names: matches.map((l) => l.name), nonce } : null,
+      focus: points.length > 0
+        ? { points, ...(unfiltered ? {} : { names: matches.map((l) => l.name) }), nonce }
+        : null,
       handoff: { filterAction: trigger.darkSky ? null : trigger.filterAction, darkSky: !!trigger.darkSky, date },
     };
   }

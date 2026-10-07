@@ -201,7 +201,19 @@ const INTERACTIVE_ACTION_KINDS = ['plan', 'coastal-spots', 'dark-sky-spots'];
 const MAP_ACTION_KINDS = ['coastal-spots', 'dark-sky-spots'];
 
 /** What each withheld map door names, so the note keeps what the served label said. */
-const DOOR_NAMES = { 'coastal-spots': 'Coastal spots', 'dark-sky-spots': 'Dark-sky spots' };
+const DOOR_NAMES = {
+  'coastal-spots': 'Coastal spots',
+  'dark-sky-spots': 'Dark-sky spots',
+  // A plan entry's chips open the map with no subject filter (plan §11.26).
+  plan: 'All spots',
+};
+
+/**
+ * Every kind whose entry gets the day-chip row when it has a date: the two map doors, which decide
+ * the subject filter, and {@code plan}, which filters nothing. The door kind only decides which spots
+ * the map shows (plan §11.26).
+ */
+const CHIP_ACTION_KINDS = [...MAP_ACTION_KINDS, 'plan'];
 
 /**
  * The reason a withheld map door prints in place of its served label — it names the door and the
@@ -228,11 +240,13 @@ function inclusiveSpanDays(startDate, endDate) {
 }
 
 /**
- * The per-day door chips for a short multi-day map-door entry, or null when the entry does not get
- * them. The rule is keyed on the door KIND, never on the family: a map door ({@code coastal-spots}
- * or {@code dark-sky-spots}) whose entry spans more than one day and at most {@link MAX_CHIP_DAYS}.
- * Single-day entries, {@code plan} entries and a months-long season are all null; so is a reversed
- * or unparseable span (never an empty list).
+ * The per-day door chips for a dated entry, or null when the entry does not get them. The rule is
+ * keyed on the door KIND, never on the family: any {@code coastal-spots}, {@code dark-sky-spots} or
+ * {@code plan} entry whose span is at most {@link MAX_CHIP_DAYS} days. A single-day entry (a meteor
+ * shower, a supermoon night, an eclipse) gets a one-chip row, so the same fact is not drawn two ways
+ * a few cards apart (owner decision 2026-10-07, plan §11.26); the kind decides only which spots the
+ * chip's map shows. A months-long season and a single-day entry whose action carries no date are
+ * null; so is a reversed or unparseable span (never an empty list).
  *
  * <p>Each chip is {@code {date, dow, day, monthWord, dateLabel, today, gone, peak, live}}:
  * {@code peak} is the served action date (the day the card's figures describe), {@code today} the
@@ -249,11 +263,13 @@ function inclusiveSpanDays(startDate, endDate) {
  * @returns {?Array<object>}
  */
 function buildDayChips(entry, action, todayStr, forecastDates) {
-  if (!MAP_ACTION_KINDS.includes(action.kind)) return null;
+  if (!CHIP_ACTION_KINDS.includes(action.kind)) return null;
   const { startDate, endDate } = entry;
-  if (!startDate || !endDate || startDate === endDate) return null;
+  if (!startDate || !endDate) return null;
   const span = inclusiveSpanDays(startDate, endDate);
-  if (!(span >= 2 && span <= MAX_CHIP_DAYS)) return null;
+  if (!(span >= 1 && span <= MAX_CHIP_DAYS)) return null;
+  // A dateless single-day action keeps its single line: there is no served day to call the peak.
+  if (span === 1 && !action.date) return null;
 
   const known = Array.isArray(forecastDates);
   const chips = [];
@@ -311,16 +327,20 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
  * {@code GET /api/almanac} is day-cached and ETag-shared, while which dates carry a forecast changes
  * every pipeline cycle. A withheld view carries {@code actionWithheld: true} and {@code actionNote},
  * the reason the card prints in place of the served label; a live door carries {@code false} and
- * null. {@code plan} actions are never withheld: their destination is the tab, not a date.
+ * null. {@code plan} actions are never withheld: their single-line destination is the tab, not a date.
  *
  * <p>The list is three-valued. {@code null}/{@code undefined} means the forecast is not known yet,
  * and no door is withheld — the card renders as it did before the gate, making no claim either way.
  * An array means known: a map door is withheld when its date is not in it, so an empty array
  * withholds every one.
  *
- * <p>A short multi-day map-door entry (a tide run) gets {@code dayChips} instead: one door per day of
- * the run, because its single door named only the peak day and left the reachable days of the run
- * with nowhere to go (plan §11.25, an exception to §6's one action link and D8's single card action).
+ * <p>Every dated entry of at most {@link MAX_CHIP_DAYS} days gets {@code dayChips} instead of that
+ * single door (plan §11.25, §11.26 — an exception to §6's one action link and D8's single card
+ * action): one door per day of a run, because its single door named only the peak day and left the
+ * reachable days with nowhere to go, and a one-box row for a single-day entry so the same fact is
+ * not drawn two ways. That includes {@code plan} entries, whose chips open the map unfiltered. So
+ * this single-door withholding now serves only a map entry over the cap (the months-long NLC
+ * season) or one with no served date.
  * With chips the card is no longer the control, so {@code interactive}, {@code actionWithheld} and
  * {@code actionNote} are all false/null — each chip carries its own state — and {@code doorNoun}
  * names the door for the row's lead word and group label.
@@ -337,7 +357,8 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
 export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
   const action = entry.action ?? { label: '', kind: null, date: entry.startDate };
   const dayChips = buildDayChips(entry, action, todayStr, forecastDates);
-  // With chips each day carries its own state, so the single-door gate does not apply.
+  // With chips each day carries its own state, so the single-door gate does not apply. It now
+  // serves only a map entry over the cap (the months-long NLC season) or one with no served date.
   const actionWithheld = dayChips === null
     && MAP_ACTION_KINDS.includes(action.kind)
     && Array.isArray(forecastDates)

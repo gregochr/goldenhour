@@ -11,18 +11,28 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  */
 function DayChips({ entry, onShowOnMap }) {
   const { dayChips, doorNoun, action } = entry;
+  // The kind decides only the subject filter: coastal sends the SEASCAPE type, dark-sky the Bortle
+  // toggle, and plan (every spot) neither.
   const coastal = action.kind === 'coastal-spots';
+  const darkSky = action.kind === 'dark-sky-spots';
   const noun = doorNoun.toLowerCase();
   const future = dayChips.filter((chip) => !chip.gone);
   const anyDimmed = future.some((chip) => !chip.live);
   const allDimmed = future.every((chip) => !chip.live);
+  // One chip is a one-day entry: "by day" would read oddly, so the lead is the bare door name.
+  const single = dayChips.length === 1;
+  const leadText = single ? doorNoun : `${doorNoun} by day`;
+  // Singular when exactly one future day is left and it is dimmed (a one-box row, or the last day
+  // of a run whose other days have gone).
+  const allDimmedNote = future.length === 1
+    ? 'no forecast for this day yet' : 'no forecast for these days yet';
   // A DOM id from an entry id like `spring-tide:2026-10-09:2026-10-14`.
   const leadId = `${entry.id.replace(/[^A-Za-z0-9_-]/g, '-')}-days-lead`;
 
   const open = (chip) => onShowOnMap({
     kind: 'coming-up',
     filterAction: coastal ? 'SEASCAPE' : null,
-    darkSky: !coastal,
+    darkSky,
     // Names the day picked, so the overlay's title says which day's map it is.
     label: `${entry.title} · ${chip.dateLabel}`,
     date: chip.date,
@@ -40,7 +50,7 @@ function DayChips({ entry, onShowOnMap }) {
 
   return (
     <div className="wf-cu-days" data-testid="coming-up-day-chips">
-      <span className="wf-cu-days-lead" id={leadId}>{doorNoun} by day</span>
+      <span className="wf-cu-days-lead" id={leadId}>{leadText}</span>
       {' '}
       <div role="group" aria-labelledby={leadId} className="wf-cu-days-group">
         {dayChips.map((chip) => {
@@ -71,7 +81,7 @@ function DayChips({ entry, onShowOnMap }) {
         <>
           {' '}
           <span className="wf-cu-days-note" data-testid="coming-up-day-chips-note">
-            {allDimmed ? 'no forecast for these days yet' : 'dimmed · no forecast yet'}
+            {allDimmed ? allDimmedNote : 'dimmed · no forecast yet'}
           </span>
         </>
       )}
@@ -144,8 +154,11 @@ DayChips.propTypes = {
  *
  * <h2>A short run is a row of per-day doors, and the card is not the control (plan §11.25)</h2>
  *
- * <p>A multi-day map-door entry of at most ten days (a tide run, or a multi-night supermoon) carries
- * {@code entry.dayChips}: its
+ * <p>A dated entry of at most ten days (a tide run, a multi-night supermoon, a solstice, or a
+ * single-day meteor shower, supermoon or eclipse, which gets a one-box row for consistency — plan
+ * §11.26) carries {@code entry.dayChips}, whatever its door kind: the kind only decides which spots
+ * the chip's map shows (coastal, dark-sky, or every spot for a {@code plan} entry, whose
+ * {@code onGoToPlan} line survives only for an entry over the cap). Its
  * single door named only the peak day, so most of the run had nowhere to go. The chip row replaces
  * the action line, each chip is its own real {@code <button>} (a live one sends the same
  * {@code kind:'coming-up'} handoff the single door does, with ITS date; a day with no forecast is
