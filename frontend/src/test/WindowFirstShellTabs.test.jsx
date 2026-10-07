@@ -1151,10 +1151,10 @@ describe('WindowFirstShell — the forecast dates reach the Coming up cards (pla
   const MAP_FEED = {
     ...FEED,
     entries: [{
-      id: 'spring-tide:2026-08-12:2026-08-13',
+      id: 'spring-tide:2026-08-12:2026-08-12',
       type: 'spring-tide',
       startDate: '2026-08-12',
-      endDate: '2026-08-13',
+      endDate: '2026-08-12',
       kind: 'ALMANAC',
       family: 'coastal',
       title: 'Spring tide run',
