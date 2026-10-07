@@ -339,6 +339,52 @@ class AlmanacServiceTest {
     }
 
     @Test
+    @DisplayName("a refresh during which a source fails keeps the complete feed already standing for "
+            + "today, rather than publishing a rebuild with that source's events missing")
+    void aRefreshWithAFailedSourceKeepsTheCompleteFeed() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AtomicInteger tideCalls = new AtomicInteger();
+        AlmanacSource meteors = (f, t) -> List.of(event(beyond, beyond, "meteor"));
+        AlmanacSource tides = (f, t) -> {
+            // Healthy for the day's first build, down for the refresh.
+            if (tideCalls.incrementAndGet() > 1) {
+                throw new IllegalStateException("db down");
+            }
+            return List.of(event(beyond.plusDays(1), beyond.plusDays(1), "spring-tide"));
+        };
+        AlmanacService service = new AlmanacService(List.of(meteors, tides), ELIGIBILITY_CLOCK, assembler(),
+                conditionsBuilder());
+        ComingUpResponse complete = service.getFeed();
+        assertThat(complete.entries()).hasSize(2);
+
+        assertThat(service.refresh()).isFalse();
+
+        // Served as before: the tide run is still there, not silently gone until midnight.
+        assertThat(service.getFeed()).isSameAs(complete);
+        assertThat(tideCalls.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("on a cold cache a refresh with a failed source still publishes the partial feed — the "
+            + "same answer a reader's own miss-build would have cached")
+    void aColdRefreshWithAFailedSourcePublishesWhatItHas() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AlmanacSource meteors = (f, t) -> List.of(event(beyond, beyond, "meteor"));
+        AlmanacSource broken = (f, t) -> {
+            throw new IllegalStateException("db down");
+        };
+        CountingSource counter = new CountingSource(List.of());
+        AlmanacService service = new AlmanacService(List.of(meteors, broken, counter), ELIGIBILITY_CLOCK,
+                assembler(), conditionsBuilder());
+
+        assertThat(service.refresh()).isTrue();
+
+        assertThat(service.getFeed().entries()).extracting(ComingUpEntry::type).containsExactly("meteor");
+        // Served from the cache the refresh filled, not rebuilt.
+        assertThat(counter.calls.get()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("a refresh whose build fails leaves the previous feed in place and propagates")
     void aFailedRefreshKeepsThePreviousFeed() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));

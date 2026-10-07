@@ -160,7 +160,7 @@ public class AlmanacService {
         // must neither read the day cache — built for the real today — nor write into it, or the
         // rewound feed would be served to everyone until the next real request happened to miss.
         if (Rewind.isActive()) {
-            return assemble(today, today.plusDays(clamped - 1L));
+            return assemble(today, today.plusDays(clamped - 1L)).response();
         }
 
         CachedFeed cached = cache.get();
@@ -168,7 +168,7 @@ public class AlmanacService {
             return cached.response();
         }
 
-        ComingUpResponse built = assemble(today, today.plusDays(clamped - 1L));
+        ComingUpResponse built = assemble(today, today.plusDays(clamped - 1L)).response();
         // Fill the slot only if it is still the one this reader found wanting. A refresh() that
         // landed while this build ran was built from newer data (the pipeline tail runs it after a
         // cycle has written), so it must win; a plain set would put this older answer over it until
@@ -191,7 +191,8 @@ public class AlmanacService {
      * the same guard {@link #getFeed(int)} has, since a rewound clock would build the wrong day's
      * feed and put it where everyone reads — although neither caller can have one.
      *
-     * @return true when the cache was replaced, false when the warm was refused for a rewind
+     * @return true when the cache was replaced; false when the warm was refused for a rewind, or when a
+     *         source failed and a complete feed for today was kept instead
      */
     public boolean refresh() {
         if (Rewind.isActive()) {
@@ -206,10 +207,23 @@ public class AlmanacService {
         synchronized (refreshLock) {
             LocalDate today = ForecastHorizon.today(clock);
             long started = System.nanoTime();
-            ComingUpResponse built = assemble(today, today.plusDays(DEFAULT_DAYS - 1L));
+            Assembled assembled = assemble(today, today.plusDays(DEFAULT_DAYS - 1L));
+            CachedFeed current = cache.get();
+            // A source that failed leaves a hole build() papers over (a missing tide run beats an
+            // empty tab). On a cold cache that partial feed is still the best answer available —
+            // it is what a reader's own miss-build would have cached — but it must never REPLACE a
+            // complete feed already standing for today: the hole would then be served until the
+            // next refresh or midnight. The previous feed stays; the next cycle's refresh tries again.
+            if (assembled.failedSources() > 0 && current != null && current.builtFor().isEqual(today)) {
+                LOG.warn("Almanac refresh for {} kept the previous feed: {} source(s) failed and a complete "
+                        + "feed for today already stands", today, assembled.failedSources());
+                return false;
+            }
+            ComingUpResponse built = assembled.response();
             cache.set(new CachedFeed(today, DEFAULT_DAYS, built));
-            LOG.info("Almanac feed refreshed for {} ({} days, {} entries) in {} ms", today, DEFAULT_DAYS,
-                    built.entries().size(), (System.nanoTime() - started) / 1_000_000L);
+            LOG.info("Almanac feed refreshed for {} ({} days, {} entries, {} source(s) failed) in {} ms", today,
+                    DEFAULT_DAYS, built.entries().size(), assembled.failedSources(),
+                    (System.nanoTime() - started) / 1_000_000L);
         }
         return true;
     }
@@ -246,7 +260,18 @@ public class AlmanacService {
      * @return every source's events, merged and sorted ascending — unfiltered
      */
     List<AlmanacEvent> build(LocalDate from, LocalDate to) {
+        return buildCounting(from, to).events();
+    }
+
+    /** The raw events plus how many sources failed to contribute to them. */
+    private record Built(List<AlmanacEvent> events, int failedSources) { }
+
+    /** What {@link #assemble} produced, with the same failure count carried alongside. */
+    private record Assembled(ComingUpResponse response, int failedSources) { }
+
+    private Built buildCounting(LocalDate from, LocalDate to) {
         List<AlmanacEvent> all = new ArrayList<>();
+        int failed = 0;
         for (AlmanacSource source : sources) {
             try {
                 all.addAll(source.events(from, to));
@@ -254,11 +279,12 @@ public class AlmanacService {
                 // One source failing must not blank the feed. A missing tide run is a smaller
                 // problem than an empty Coming-up tab, and the alternative — letting it propagate —
                 // would make the whole feed hostage to the one source that touches the database.
+                failed++;
                 LOG.warn("Almanac source {} failed for {}..{}: {}",
                         source.getClass().getSimpleName(), from, to, e.toString());
             }
         }
-        return all.stream().sorted().toList();
+        return new Built(all.stream().sorted().toList(), failed);
     }
 
     /**
@@ -271,15 +297,18 @@ public class AlmanacService {
      * @param to       last day, inclusive
      * @return the assembled response
      */
-    private ComingUpResponse assemble(LocalDate builtFor, LocalDate to) {
-        List<AlmanacEvent> all = build(builtFor, to);
+    private Assembled assemble(LocalDate builtFor, LocalDate to) {
+        Built built = buildCounting(builtFor, to);
+        List<AlmanacEvent> all = built.events();
         LocalDate cutoff = PlanHorizon.lastPlanDate(builtFor);
         List<AlmanacEvent> eligible = all.stream()
                 .filter(event -> event.endDate().isAfter(cutoff))
                 .toList();
         ComingUpResponse core = assembler.assemble(builtFor, eligible);
         List<ComingUpCondition> conditions = conditionsBuilder.build(builtFor, all, core.entries());
-        return new ComingUpResponse(core.builtFor(), core.bands(), core.counts(), conditions, core.entries());
+        return new Assembled(
+                new ComingUpResponse(core.builtFor(), core.bands(), core.counts(), conditions, core.entries()),
+                built.failedSources());
     }
 
     /**
