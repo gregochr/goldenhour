@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -94,9 +95,9 @@ class AuroraResultHandlerTest {
         assertThat(result.failureReason()).isEqualTo("overloaded_error");
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("au-MODERATE-2026-04-16"),
-                eq(false), eq("OVERLOADED_ERROR"),
+                eq(false),
                 eq("overloaded_error"), eq("busy"),
-                eq(null), eq(null), eq(null), eq(null));
+                eq(null), eq(null), eq(null), eq(null), eq(null), eq(null));
         verifyNoInteractions(weatherTriageService, claudeAuroraInterpreter, auroraStateCache);
     }
 
@@ -238,7 +239,56 @@ class AuroraResultHandlerTest {
         verifyNoInteractions(auroraStateCache);
     }
 
+    @Test
+    @DisplayName("processBatchResponse: the outcome's cache diagnostics reach the api_call_log row")
+    void processBatchResponse_logsTheOutcomesCacheDiagnostics() {
+        ClaudeBatchOutcome outcome = new ClaudeBatchOutcome(
+                "au-MODERATE-2026-04-16", false, "REFUSAL", "refusal", "refused", null,
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU,
+                CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+
+        handler.processBatchResponse(AlertLevel.MODERATE, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_x"), eq("au-MODERATE-2026-04-16"),
+                eq(false),
+                eq("refusal"), eq("refused"),
+                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
+                eq(null), eq(null), eq(null),
+                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
+    }
+
     // ── Sync path ────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("handleSyncResult: the outcome's cache diagnostics reach the api_call_log row")
+    void handleSyncResult_logsTheOutcomesCacheDiagnostics() {
+        LocationEntity viable = loc(1L, "X");
+        EvaluationTask.Aurora task = new EvaluationTask.Aurora(
+                AlertLevel.MODERATE, DATE, EvaluationModel.HAIKU,
+                List.of(viable), Map.of(viable, 30),
+                SPACE_WEATHER, TriggerType.REALTIME, null);
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
+                "[{\"name\":\"X\",\"stars\":4}]",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU, 8500, CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+        when(claudeAuroraInterpreter.parseBatchResponse(
+                eq(outcome.rawText()), eq(AlertLevel.MODERATE),
+                eq(List.of(viable)), eq(Map.of(viable, 30))))
+                .thenReturn(List.of(new AuroraForecastScore(
+                        viable, 4, AlertLevel.MODERATE, 30, "good", "")));
+
+        handler.handleSyncResult(task, outcome, ResultContext.forSync(99L, BatchTriggerSource.SCHEDULED));
+
+        verify(jobRunService).logAnthropicApiCall(
+                eq(99L), eq(8500L), eq(200),
+                eq(null), eq(true), eq(null),
+                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
+                eq(false),
+                eq(null), eq(null), eq(null),
+                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
+    }
 
     @Test
     @DisplayName("handleSyncResult: success → Scored + api_call_log; orchestrator owns updateScores")
@@ -273,7 +323,7 @@ class AuroraResultHandlerTest {
                 eq(null), eq(true), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(null), eq(null), eq(null));
+                eq(null), eq(null), eq(null), eq(null));
     }
 
     @Test
@@ -298,7 +348,7 @@ class AuroraResultHandlerTest {
                 eq("busy"), eq(false), eq("busy"),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(false),
-                eq(null), eq(null), eq("overloaded_error"));
+                eq(null), eq(null), eq("overloaded_error"), eq(null));
     }
 
     @Test

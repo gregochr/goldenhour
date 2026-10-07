@@ -904,11 +904,11 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         try {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), outcome.customId(),
-                    outcome.succeeded(), outcome.status(),
+                    outcome.succeeded(),
                     errorTypeOverride != null ? errorTypeOverride : outcome.errorType(),
                     outcome.errorMessage(),
                     model, outcome.tokenUsage(),
-                    targetDate, targetType, responseBody);
+                    targetDate, targetType, responseBody, outcome.cacheDiagnostics());
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
                     outcome.customId(), e.getMessage());
@@ -931,7 +931,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     task.model(), tokens,
                     false,
                     task.date(), task.targetType(),
-                    outcome.errorType());
+                    outcome.errorType(), outcome.cacheDiagnostics());
         } catch (Exception e) {
             LOG.warn("Forecast sync: failed to persist api_call_log for {}: {}",
                     task.taskKey(), e.getMessage());

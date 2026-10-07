@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -84,6 +85,24 @@ class MetricsLoggingDecoratorTest {
     }
 
     @Test
+    @DisplayName("evaluateWithDetails() logs the detail's cache diagnostics beside its token usage")
+    void evaluateWithDetails_logsCacheDiagnostics() {
+        EvaluationDetail withDiagnostics = new EvaluationDetail(
+                evaluationDetail.evaluation(), evaluationDetail.promptSent(), evaluationDetail.rawResponse(),
+                evaluationDetail.durationMs(), evaluationDetail.tokenUsage(),
+                CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+        when(delegate.evaluateWithDetails(atmosphericData)).thenReturn(withDiagnostics);
+
+        decorator.evaluateWithDetails(atmosphericData);
+
+        verify(jobRunService).logAnthropicApiCall(
+                eq(42L), eq(350L), eq(200), eq(null), eq(true), eq(null),
+                eq(EvaluationModel.SONNET), eq(withDiagnostics.tokenUsage()), eq(false),
+                eq(LocalDate.of(2026, 6, 21)), eq(TargetType.SUNSET), eq(null),
+                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
+    }
+
+    @Test
     @DisplayName("evaluateWithDetails() delegates to the wrapped strategy and returns the full detail")
     void evaluateWithDetails_delegatesAndReturnsDetail() {
         when(delegate.evaluateWithDetails(atmosphericData)).thenReturn(evaluationDetail);
@@ -117,7 +136,7 @@ class MetricsLoggingDecoratorTest {
                 eq(false),
                 eq(LocalDate.of(2026, 6, 21)),
                 eq(TargetType.SUNSET),
-                eq(null));
+                eq(null), eq(null));
 
         TokenUsage captured = tokenCaptor.getValue();
         assertThat(captured.inputTokens()).isEqualTo(500);
@@ -150,7 +169,7 @@ class MetricsLoggingDecoratorTest {
                 eq(false),
                 eq(LocalDate.of(2026, 6, 21)),
                 eq(TargetType.SUNSET),
-                eq("anthropic_429"));
+                eq("anthropic_429"), eq(null));
     }
 
     /** Runs a failing evaluation through the decorator and verifies the one failed row it wrote. */
@@ -162,7 +181,7 @@ class MetricsLoggingDecoratorTest {
         verify(jobRunService).logAnthropicApiCall(
                 eq(42L), eq(0L), eq(status), eq(message), eq(false), eq(message),
                 eq(EvaluationModel.SONNET), eq(TokenUsage.EMPTY), eq(false),
-                eq(LocalDate.of(2026, 6, 21)), eq(TargetType.SUNSET), eq(errorType));
+                eq(LocalDate.of(2026, 6, 21)), eq(TargetType.SUNSET), eq(errorType), eq(null));
     }
 
     @Test

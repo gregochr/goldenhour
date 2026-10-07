@@ -16,6 +16,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -83,6 +84,23 @@ class ClaudeEvaluationStrategyTest {
         assertThat(result.fierySkyPotential()).isEqualTo(70);
         assertThat(result.goldenHourPotential()).isEqualTo(75);
         assertThat(result.summary()).isEqualTo("Promising conditions.");
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() carries the response's cache diagnostics, EMPTY when it had none")
+    void evaluateWithDetails_carriesCacheDiagnostics() {
+        AtmosphericData data = buildAtmosphericData();
+        String json = "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75, \"summary\": \"Promising.\"}";
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(CacheDiagnosticsFixtures.message(
+                        Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED), json))
+                .thenReturn(CacheDiagnosticsFixtures.message(Optional.empty(), json));
+
+        assertThat(strategy.evaluateWithDetails(data).cacheDiagnostics())
+                .isEqualTo(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+        assertThat(strategy.evaluateWithDetails(data).cacheDiagnostics())
+                .isSameAs(com.gregochr.goldenhour.model.CacheDiagnostics.EMPTY);
     }
 
     @Test

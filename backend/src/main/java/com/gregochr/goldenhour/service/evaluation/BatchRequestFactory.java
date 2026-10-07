@@ -1,10 +1,13 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.models.messages.CacheControlEphemeral;
+import com.anthropic.models.messages.DiagnosticsParam;
 import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.batches.BatchCreateParams;
+import com.gregochr.goldenhour.config.BatchCachePrimerProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -34,23 +37,49 @@ public class BatchRequestFactory {
     private final CoastalPromptBuilder coastalBuilder;
     private final BluebellPromptBuilder bluebellBuilder;
     private final WoodlandPromptBuilder woodlandBuilder;
+    private final BatchCachePrimerProperties primerProperties;
+    private final PrimerMessageIds primerMessageIds;
 
     /**
-     * Constructs the factory.
+     * Constructs the factory with the primer's diagnostics opt-in switched off, so every request is
+     * exactly what it was before cache diagnostics existed.
      *
      * @param inlandBuilder    builder for inland (non-tidal) locations
      * @param coastalBuilder   builder for coastal (tidal) locations
      * @param bluebellBuilder  builder for the dedicated bluebell-conditions prompt
      * @param woodlandBuilder  builder for the year-round woodland-conditions prompt
      */
-    public BatchRequestFactory(@Qualifier("promptBuilder") PromptBuilder inlandBuilder,
+    public BatchRequestFactory(PromptBuilder inlandBuilder,
             CoastalPromptBuilder coastalBuilder,
             BluebellPromptBuilder bluebellBuilder,
             WoodlandPromptBuilder woodlandBuilder) {
+        this(inlandBuilder, coastalBuilder, bluebellBuilder, woodlandBuilder,
+                new BatchCachePrimerProperties(), new PrimerMessageIds());
+    }
+
+    /**
+     * Constructs the factory.
+     *
+     * @param inlandBuilder     builder for inland (non-tidal) locations
+     * @param coastalBuilder    builder for coastal (tidal) locations
+     * @param bluebellBuilder   builder for the dedicated bluebell-conditions prompt
+     * @param woodlandBuilder   builder for the year-round woodland-conditions prompt
+     * @param primerProperties  whether the primer and the requests it warms carry cache diagnostics
+     * @param primerMessageIds  the current cycle's primer message ids, by cache prefix
+     */
+    @Autowired
+    public BatchRequestFactory(@Qualifier("promptBuilder") PromptBuilder inlandBuilder,
+            CoastalPromptBuilder coastalBuilder,
+            BluebellPromptBuilder bluebellBuilder,
+            WoodlandPromptBuilder woodlandBuilder,
+            BatchCachePrimerProperties primerProperties,
+            PrimerMessageIds primerMessageIds) {
         this.inlandBuilder = inlandBuilder;
         this.coastalBuilder = coastalBuilder;
         this.bluebellBuilder = bluebellBuilder;
         this.woodlandBuilder = woodlandBuilder;
+        this.primerProperties = primerProperties;
+        this.primerMessageIds = primerMessageIds;
     }
 
     /**
@@ -102,7 +131,7 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens) {
-        return buildSkyRequest(customId, model, data, maxTokens, false).request();
+        return buildSkyRequest(customId, model, data, maxTokens, false, null).request();
     }
 
     /**
@@ -134,7 +163,7 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens) {
-        return buildSkyRequest(customId, model, data, maxTokens, false);
+        return buildSkyRequest(customId, model, data, maxTokens, false, null);
     }
 
     /**
@@ -142,7 +171,9 @@ public class BatchRequestFactory {
      * the system block carries the one-hour cache lifetime exactly when this request's cache prefix
      * ({@link #cachePrefixKey}) is in {@code warmedPrefixes} - that is, the scheduled cycle's primer
      * for that prefix ended with a succeeded request. For any other request the result is identical
-     * to the four-argument overload.
+     * to the four-argument overload. A warmed request also names its primer as the
+     * {@code diagnostics.previous_message_id} when the cache-primer {@code diagnostics} switch is on
+     * and the primer's message id was read back ({@link PrimerMessageIds}).
      *
      * @param customId        the Anthropic custom ID
      * @param model           the evaluation model to invoke
@@ -158,14 +189,34 @@ public class BatchRequestFactory {
             int maxTokens,
             Set<String> warmedPrefixes) {
         Objects.requireNonNull(warmedPrefixes, "warmedPrefixes");
-        boolean warmed = warmedPrefixes.contains(cachePrefixKey(model, data));
-        return buildSkyRequest(customId, model, data, maxTokens, warmed);
+        String prefixKey = cachePrefixKey(model, data);
+        boolean warmed = warmedPrefixes.contains(prefixKey);
+        return buildSkyRequest(customId, model, data, maxTokens, warmed,
+                warmed ? previousMessageDiagnostics(prefixKey) : null);
+    }
+
+    /**
+     * The {@code diagnostics} a warmed real request carries: the primer that warmed its prefix as
+     * the previous message to compare with. Null (no {@code diagnostics} at all, the request is
+     * byte-identical to one built before cache diagnostics existed) unless the switch is on and the
+     * primer's message id was read back this cycle.
+     */
+    private DiagnosticsParam previousMessageDiagnostics(String prefixKey) {
+        if (!primerProperties.isDiagnostics()) {
+            return null;
+        }
+        return primerMessageIds.forPrefix(prefixKey)
+                .map(id -> DiagnosticsParam.builder().previousMessageId(id).build())
+                .orElse(null);
     }
 
     /**
      * Builds the cache-primer request: identical to the request the five-argument {@link
      * #buildForecastRequestAndPrompt} builds for a warmed prefix (same builder, system block,
-     * one-hour lifetime and output config), under a distinct custom id.
+     * one-hour lifetime and output config), under a distinct custom id. When the cache-primer
+     * {@code diagnostics} switch is on it additionally opts in to the API's cache diagnostics
+     * ({@code previous_message_id: null}) so its fingerprint is stored for the requests it warms to
+     * compare against; with the switch off it is byte-identical to the warmed real request.
      *
      * @param customId  the primer custom id (see {@link CustomIdFactory#forCachePrimer})
      * @param model     the evaluation model to invoke
@@ -178,7 +229,9 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens) {
-        return buildSkyRequest(customId, model, data, maxTokens, true).request();
+        DiagnosticsParam optIn = primerProperties.isDiagnostics()
+                ? DiagnosticsParam.builder().previousMessageId((String) null).build() : null;
+        return buildSkyRequest(customId, model, data, maxTokens, true, optIn).request();
     }
 
     /**
@@ -210,7 +263,8 @@ public class BatchRequestFactory {
             EvaluationModel model,
             AtmosphericData data,
             int maxTokens,
-            boolean longLivedCache) {
+            boolean longLivedCache,
+            DiagnosticsParam diagnostics) {
         Objects.requireNonNull(customId, "customId");
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(data, "data");
@@ -218,20 +272,23 @@ public class BatchRequestFactory {
         PromptBuilder builder = selectBuilder(data);
         String userMessage = buildUserMessage(builder, data);
 
+        BatchCreateParams.Request.Params.Builder params = BatchCreateParams.Request.Params.builder()
+                .model(model.getModelId())
+                .maxTokens(maxTokens)
+                .systemOfTextBlockParams(List.of(
+                        TextBlockParam.builder()
+                                .text(builder.getSystemPrompt())
+                                .cacheControl(skyCacheControl(longLivedCache))
+                                .build()))
+                .outputConfig(ModelRequestSupport.withEffort(
+                        builder.buildOutputConfig(), model))
+                .addUserMessage(userMessage);
+        if (diagnostics != null) {
+            params.diagnostics(diagnostics);
+        }
         BatchCreateParams.Request request = BatchCreateParams.Request.builder()
                 .customId(customId)
-                .params(BatchCreateParams.Request.Params.builder()
-                        .model(model.getModelId())
-                        .maxTokens(maxTokens)
-                        .systemOfTextBlockParams(List.of(
-                                TextBlockParam.builder()
-                                        .text(builder.getSystemPrompt())
-                                        .cacheControl(skyCacheControl(longLivedCache))
-                                        .build()))
-                        .outputConfig(ModelRequestSupport.withEffort(
-                                builder.buildOutputConfig(), model))
-                        .addUserMessage(userMessage)
-                        .build())
+                .params(params.build())
                 .build();
         return new ForecastRequest(request, userMessage);
     }

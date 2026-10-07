@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
@@ -7,6 +8,8 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -30,6 +33,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -64,7 +68,7 @@ class JobRunServiceTest {
     void setUp() {
         jobRunService = new JobRunService(
                 jobRunRepository, apiCallLogRepository, forecastBatchRepository,
-                costCalculator, exchangeRateService, "v2.8.19");
+                costCalculator, exchangeRateService, new ObjectMapper(), "v2.8.19");
     }
 
     @Nested
@@ -522,6 +526,100 @@ class JobRunServiceTest {
     }
 
     @Nested
+    @DisplayName("cache diagnostics column")
+    class CacheDiagnosticsTests {
+
+        private static final String MISS_JSON =
+                "{\"status\":\"MISS\",\"reason\":\"messages_changed\",\"missedInputTokens\":1234}";
+
+        private ArgumentCaptor<ApiCallLogEntity> captureSaves() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            return captor;
+        }
+
+        @Test
+        @DisplayName("logAnthropicApiCall stores the diagnostics as compact JSON")
+        void logAnthropicApiCall_storesDiagnostics() {
+            ArgumentCaptor<ApiCallLogEntity> captor = captureSaves();
+            when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.SONNET),
+                    any(TokenUsage.class), eq(false))).thenReturn(0L);
+
+            jobRunService.logAnthropicApiCall(1L, 250L, 200, null, true, null, EvaluationModel.SONNET,
+                    new TokenUsage(400, 80, 200, 100), false, LocalDate.of(2026, 3, 2), TargetType.SUNSET,
+                    null, CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+
+            assertThat(captor.getValue().getCacheDiagnostics()).isEqualTo(MISS_JSON);
+        }
+
+        @Test
+        @DisplayName("logBatchResult stores the diagnostics as compact JSON")
+        void logBatchResult_storesDiagnostics() {
+            ArgumentCaptor<ApiCallLogEntity> captor = captureSaves();
+            when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.HAIKU),
+                    any(TokenUsage.class), eq(true))).thenReturn(0L);
+
+            jobRunService.logBatchResult(1L, "msgbatch_1", "fc-42-2026-03-02-SUNSET", true, null,
+                    null, EvaluationModel.HAIKU, new TokenUsage(400, 80, 200, 100), LocalDate.of(2026, 3, 2),
+                    TargetType.SUNSET, null, CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+
+            assertThat(captor.getValue().getCacheDiagnostics()).isEqualTo(MISS_JSON);
+            assertThat(captor.getValue().getIsBatch()).isTrue();
+        }
+
+        @Test
+        @DisplayName("logApiCall (the cost-aware overload) stores the diagnostics as compact JSON")
+        void logApiCall_storesDiagnostics() {
+            ArgumentCaptor<ApiCallLogEntity> captor = captureSaves();
+            when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.HAIKU),
+                    any(TokenUsage.class), eq(false))).thenReturn(0L);
+
+            jobRunService.logApiCall(9L, ServiceName.ANTHROPIC, "POST", "briefing-gloss", null, 40L, 200,
+                    "ok", true, null, EvaluationModel.HAIKU, new TokenUsage(400, 80, 0, 0),
+                    CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+
+            assertThat(captor.getValue().getCacheDiagnostics()).isEqualTo(MISS_JSON);
+        }
+
+        @Test
+        @DisplayName("a pending comparison is stored as {\"status\":\"PENDING\"}")
+        void pendingComparisonIsStored() {
+            ArgumentCaptor<ApiCallLogEntity> captor = captureSaves();
+            when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.HAIKU),
+                    any(TokenUsage.class), eq(true))).thenReturn(0L);
+
+            jobRunService.logBatchResult(1L, "msgbatch_1", "fc-42-2026-03-02-SUNSET", true, null,
+                    null, EvaluationModel.HAIKU, TokenUsage.EMPTY, null, null, null,
+                    new CacheDiagnostics(CacheDiagnostics.Status.PENDING, null, null));
+
+            assertThat(captor.getValue().getCacheDiagnostics()).isEqualTo("{\"status\":\"PENDING\"}");
+        }
+
+        @Test
+        @DisplayName("a call that carries none (null, EMPTY, a failed call, the legacy overloads) writes null")
+        void callsWithoutDiagnosticsWriteNull() {
+            ArgumentCaptor<ApiCallLogEntity> captor = captureSaves();
+            when(costCalculator.calculateCostMicroDollars(any(), any(TokenUsage.class), anyBoolean()))
+                    .thenReturn(0L);
+
+            jobRunService.logAnthropicApiCall(1L, 0L, 500, "boom", false, "boom", EvaluationModel.SONNET,
+                    TokenUsage.EMPTY, false, null, null, "anthropic_500", null);
+            jobRunService.logAnthropicApiCall(1L, 0L, 200, null, true, null, EvaluationModel.SONNET,
+                    TokenUsage.EMPTY, false, null, null, null, CacheDiagnostics.EMPTY);
+            jobRunService.logAnthropicApiCall(1L, 0L, 200, null, true, null, EvaluationModel.SONNET,
+                    TokenUsage.EMPTY, false, null, null);
+            jobRunService.logBatchResult(1L, "b", "c", false, "e", "m", null, null, null, null);
+            jobRunService.logApiCall(9L, ServiceName.ANTHROPIC, "POST", "briefing-gloss", null, 40L, null,
+                    null, false, "boom", EvaluationModel.HAIKU, null);
+            jobRunService.logApiCall(1L, ServiceName.WORLD_TIDES, "GET", "https://x", null, 1L, 200, null,
+                    true, null);
+
+            assertThat(captor.getAllValues()).hasSize(6)
+                    .allSatisfy(row -> assertThat(row.getCacheDiagnostics()).isNull());
+        }
+    }
+
+    @Nested
     @DisplayName("getRecentRuns()")
     class GetRecentRunsTests {
 
@@ -938,7 +1036,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     42L, "msgbatch_abc", "loc1_2026-04-20_SUNRISE",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.HAIKU, usage,
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE);
@@ -970,7 +1068,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     10L, "msgbatch_err", "loc2_2026-04-21_SUNSET",
-                    false, "ERRORED",
+                    false,
                     "overloaded_error", "The server is overloaded",
                     EvaluationModel.SONNET, null,
                     LocalDate.of(2026, 4, 21), TargetType.SUNSET);
@@ -991,7 +1089,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     42L, "msgbatch_ok", "fc-1-2026-04-20-SUNRISE",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.HAIKU, new TokenUsage(1, 1, 0, 0),
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE);
@@ -1008,7 +1106,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     42L, "msgbatch_fb", "fc-42-2026-04-20-SUNRISE",
-                    true, "SUCCESS",
+                    true,
                     "regex_fallback", null,
                     EvaluationModel.HAIKU, new TokenUsage(1, 1, 0, 0),
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE, raw);
@@ -1027,14 +1125,14 @@ class JobRunServiceTest {
 
             String atCap = "x".repeat(16000);
             jobRunService.logBatchResult(
-                    1L, "b", "fc-1-2026-04-20-SUNRISE", true, "SUCCESS",
+                    1L, "b", "fc-1-2026-04-20-SUNRISE", true,
                     "regex_fallback", null, EvaluationModel.HAIKU, null,
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE, atCap);
             assertThat(captor.getValue().getResponseBody()).isEqualTo(atCap);
 
             String overCap = "y".repeat(16001);
             jobRunService.logBatchResult(
-                    1L, "b", "fc-1-2026-04-20-SUNRISE", true, "SUCCESS",
+                    1L, "b", "fc-1-2026-04-20-SUNRISE", true,
                     "regex_fallback", null, EvaluationModel.HAIKU, null,
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE, overCap);
             String stored = captor.getValue().getResponseBody();
@@ -1050,7 +1148,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     5L, "msgbatch_x", "loc3_2026-04-22_SUNRISE",
-                    false, "EXPIRED",
+                    false,
                     null, null,
                     EvaluationModel.OPUS, null,
                     LocalDate.of(2026, 4, 22), TargetType.SUNRISE);
@@ -1070,7 +1168,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     5L, "msgbatch_y", "loc4",
-                    false, "CANCELED",
+                    false,
                     null, null,
                     EvaluationModel.HAIKU, null,
                     null, null);
@@ -1087,7 +1185,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     1L, "msgbatch_trunc", "loc5",
-                    false, "ERRORED",
+                    false,
                     "server_error", longError,
                     null, null,
                     null, null);
@@ -1104,7 +1202,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     1L, "msgbatch_exact", "loc6",
-                    false, "ERRORED",
+                    false,
                     "server_error", exactError,
                     null, null,
                     null, null);
@@ -1123,7 +1221,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     7L, "msgbatch_null_model", "loc7",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     null, usage,
                     LocalDate.of(2026, 4, 23), TargetType.SUNSET);
@@ -1144,7 +1242,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     3L, "msgbatch_batch_flag", "loc8",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.OPUS, usage,
                     null, null);
@@ -1161,7 +1259,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     1L, "msgbatch_time", "loc9",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.HAIKU, null,
                     null, null);
@@ -1181,7 +1279,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     1L, "msgbatch_null_target", "loc10",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.HAIKU, null,
                     null, null);

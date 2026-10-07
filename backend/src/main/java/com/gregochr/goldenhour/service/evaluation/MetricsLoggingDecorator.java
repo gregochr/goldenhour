@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -72,7 +73,8 @@ public class MetricsLoggingDecorator implements EvaluationStrategy {
                     detail.evaluation().goldenHourPotential(), detail.durationMs(),
                     detail.tokenUsage().totalTokens());
 
-            logApiCall(detail.durationMs(), 200, null, null, true, detail.tokenUsage(), data);
+            logApiCall(detail.durationMs(), 200, null, null, true, detail.tokenUsage(), data,
+                    detail.cacheDiagnostics());
             return detail;
         } catch (WeatherDataFetchException e) {
             LOG.error("Skipping Anthropic evaluation — weather data unavailable: {}",
@@ -111,19 +113,21 @@ public class MetricsLoggingDecorator implements EvaluationStrategy {
 
         LOG.error("Anthropic evaluation failed: {}", e.getMessage(), e);
         logApiCall(0, statusCode, EvaluationFailure.errorTypeOf(e), errorMessage, false,
-                TokenUsage.EMPTY, data);
+                TokenUsage.EMPTY, data, null);
     }
 
     /**
      * Records an API call to the metrics store.
      */
     private void logApiCall(long durationMs, Integer statusCode, String errorType, String errorMessage,
-            boolean succeeded, TokenUsage tokenUsage, AtmosphericData data) {
+            boolean succeeded, TokenUsage tokenUsage, AtmosphericData data,
+            CacheDiagnostics cacheDiagnostics) {
         if (jobRun != null && jobRunService != null) {
             jobRunService.logAnthropicApiCall(jobRun.getId(),
                     durationMs, statusCode, errorMessage, succeeded, errorMessage,
                     getEvaluationModel(), tokenUsage, false,
-                    data.solarEventTime().toLocalDate(), data.targetType(), errorType);
+                    data.solarEventTime().toLocalDate(), data.targetType(), errorType,
+                    cacheDiagnostics);
         }
     }
 }

@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
@@ -35,6 +36,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -188,6 +190,22 @@ class ClaudeAskEngineTest {
         assertThat(run.reason()).isNull();
         verify(client, times(1)).createAskMessage(any(), any(), any());
         verify(jobRuns).recordQuestion(RUN_ID, true);
+    }
+
+    @Test
+    @DisplayName("a turn's cache diagnostics ride the recorded turn beside its token usage")
+    void turnCarriesCacheDiagnostics() {
+        Message reply = submit(Map.of("answerable", false, "summary", "I can't tell from the forecast.",
+                "missing", "parking information"))
+                .toBuilder()
+                .diagnostics(Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED))
+                .build();
+
+        run(USER, reply);
+
+        ArgumentCaptor<AskJobRunService.Turn> turn = ArgumentCaptor.forClass(AskJobRunService.Turn.class);
+        verify(jobRuns).recordTurn(turn.capture());
+        assertThat(turn.getValue().cacheDiagnostics()).isEqualTo(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
     }
 
     @Test

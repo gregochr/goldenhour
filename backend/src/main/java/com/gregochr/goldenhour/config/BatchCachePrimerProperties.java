@@ -24,6 +24,17 @@ public class BatchCachePrimerProperties {
     @Setter
     private boolean enabled = true;
 
+    /**
+     * Whether the primer's request opts in to the API's cache diagnostics and each warmed real
+     * request names its primer as the previous message to compare with, so its response says where
+     * it diverged. Off by default: it adds a {@code diagnostics} object to those batch requests,
+     * which has not been exercised against the live Batch API. Everything that READS diagnostics
+     * (the {@code api_call_log.cache_diagnostics} column, the admin badge, the primer's INFO line)
+     * works whatever this is set to.
+     */
+    @Setter
+    private boolean diagnostics = false;
+
     /** The most the cycle waits for all primers together, in seconds. 0 means do not prime at all. */
     private int waitSeconds = 180;
 

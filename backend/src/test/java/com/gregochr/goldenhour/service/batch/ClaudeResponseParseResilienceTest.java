@@ -291,10 +291,10 @@ class ClaudeResponseParseResilienceTest {
         // (iii) the disposition lands on the api_call_log row, joinable to the slot it was for.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
-                eq(testCase.loggedSucceeded()), any(String.class),
+                eq(testCase.loggedSucceeded()),
                 eq(testCase.loggedErrorType()), any(),
                 any(), any(),
-                eq(DATE), eq(SUNSET), any());
+                eq(DATE), eq(SUNSET), any(), eq(null));
     }
 
     // ── The gap assertion (iii) cannot make ──────────────────────────────────
@@ -323,10 +323,10 @@ class ClaudeResponseParseResilienceTest {
         // joined back to the slot it was for.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
-                eq(false), eq("PARSE_FAILED"),
+                eq(false),
                 eq("parse_error"), contains("Failed to parse evaluation response"),
                 eq((EvaluationModel) null), eq((TokenUsage) null),
-                eq(DATE), eq(SUNSET), eq((String) null));
+                eq(DATE), eq(SUNSET), eq((String) null), eq(null));
     }
 
     @Test
@@ -371,10 +371,10 @@ class ClaudeResponseParseResilienceTest {
         // And the log row is a clean success, indistinguishable from a scored slot.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
-                eq(true), eq("SUCCESS"),
+                eq(true),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNSET), any(String.class));
+                eq(DATE), eq(SUNSET), any(String.class), eq(null));
     }
 
     @Test
@@ -409,10 +409,10 @@ class ClaudeResponseParseResilienceTest {
         // response stays diagnosable in api_call_log.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
-                eq(true), eq("SUCCESS"),
+                eq(true),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNSET), any(String.class));
+                eq(DATE), eq(SUNSET), any(String.class), eq(null));
     }
 
     // ── f55ed200: an unknown custom-id prefix discards a perfectly good answer ──
@@ -457,10 +457,10 @@ class ClaudeResponseParseResilienceTest {
         // slots they were for.
         verify(batchJobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq("xyz-42-2026-07-26-SUNSET"),
-                eq(false), eq("MALFORMED_ID"),
+                eq(false),
                 eq("parse_error"), eq("malformed customId"),
                 eq((EvaluationModel) null), eq((TokenUsage) null),
-                eq((LocalDate) null), eq((TargetType) null));
+                eq((LocalDate) null), eq((TargetType) null), eq(null), eq(null));
 
         ArgumentCaptor<ForecastBatchEntity> saved =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);

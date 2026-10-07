@@ -5,6 +5,10 @@ import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost'
 import DispositionBreakdown from './DispositionBreakdown.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
 import { modelLabel } from '../utils/modelLabels.js';
+import { cacheBadge, parseCacheDiagnostics, tallyCacheDiagnostics } from '../utils/cacheDiagnostics.js';
+
+/** Most diagnosed calls listed individually; the tally above them counts every one. */
+const MAX_DIAGNOSED_ROWS = 25;
 
 /**
  * Expandable detail view for a job run showing all API calls.
@@ -104,6 +108,9 @@ const JobRunDetail = ({ jobRun }) => {
   // The raw response is captured into api_call_log.response_body and marked error_type=regex_fallback,
   // even when the call otherwise succeeded. Admin-only screen, so no extra role gating here.
   const fallbackCalls = apiCalls.filter((c) => c.errorType === 'regex_fallback');
+
+  // Diagnostic: calls whose response carried Anthropic prompt-cache diagnostics (V168).
+  const diagnosedCalls = apiCalls.filter((c) => parseCacheDiagnostics(c.cacheDiagnostics) !== null);
 
   // Group API calls by service
   const serviceStats = apiCalls.reduce((acc, call) => {
@@ -424,6 +431,50 @@ const JobRunDetail = ({ jobRun }) => {
               );
             })}
           </ul>
+        </div>
+      )}
+
+      {/* Prompt-cache diagnostics (diagnostic, admin-only screen). Hidden when no call carries any. */}
+      {diagnosedCalls.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-plex-border" data-testid="cache-diagnostics">
+          <h4 className="font-semibold text-plex-text text-sm">
+            Prompt-cache diagnostics: {diagnosedCalls.length}
+          </h4>
+          <p className="text-xs text-plex-text-muted mt-1">
+            Where each call&apos;s prompt diverged from the previous message it was compared with.
+            {' '}messages_changed alone means the cached system prompt matched.
+          </p>
+          <div className="flex flex-wrap gap-1 mt-2" data-testid="cache-diagnostics-tally">
+            {tallyCacheDiagnostics(diagnosedCalls).map(({ label, count }) => (
+              <span
+                key={label}
+                className="text-xs text-plex-text bg-plex-surface border border-plex-border rounded px-2 py-0.5"
+              >
+                {label} &times;{count}
+              </span>
+            ))}
+          </div>
+          <ul className="mt-2 space-y-1">
+            {diagnosedCalls.slice(0, MAX_DIAGNOSED_ROWS).map((call) => (
+              <li
+                key={call.id ?? call.customId}
+                data-testid="cache-diagnostics-row"
+                className="bg-plex-surface rounded border border-plex-border px-2 py-1 flex justify-between items-center gap-2"
+              >
+                <span className="text-xs text-plex-text font-mono">
+                  {call.customId ?? `${call.targetDate ?? ''} ${call.targetType ?? ''}`.trim()}
+                </span>
+                <span className="text-xs text-plex-text-muted" data-testid="cache-badge">
+                  {cacheBadge(call)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {diagnosedCalls.length > MAX_DIAGNOSED_ROWS && (
+            <div className="text-xs text-plex-text-muted mt-1" data-testid="cache-diagnostics-more">
+              +{diagnosedCalls.length - MAX_DIAGNOSED_ROWS} more
+            </div>
+          )}
         </div>
       )}
 

@@ -1,11 +1,15 @@
 package com.gregochr.goldenhour.service.batch;
 
+import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
 import com.gregochr.goldenhour.config.BatchCachePrimerProperties;
 import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.service.evaluation.PrimerMessageIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,7 +56,13 @@ import java.util.Set;
  * AnthropicBatchClient#createPrimerBatch}, never through {@code BatchSubmissionService}, so no
  * {@code forecast_batch}, {@code job_run}, {@code api_call_log} or disposition row exists for it;
  * the pollers, result processor, retry service and {@code LocationFailureService} never learn of
- * it and its result is never read. Consequently its own cost (one full request per prefix per
+ * it. Its result IS read, once, by this class alone and only to be logged: after a primer ends,
+ * {@link #readPrimerMessages} reads its one response and puts what it wrote to the cache (total
+ * and one-hour tokens), what it read, its Anthropic message id and the API's cache diagnostics on the
+ * cycle's INFO line, which is how "did the primer's one-hour write land" is answered from the logs.
+ * The message ids are also published to {@link PrimerMessageIds} for the requests the primer warmed
+ * to name as their previous message (only when {@code diagnostics} is on). A failed read changes
+ * nothing else: fail-open, like everything here. Consequently its own cost (one full request per prefix per
  * cycle, with a one-hour cache write) is not recorded anywhere. Its custom id ({@code pw-n}) is
  * rejected by {@link CustomIdFactory#parse}.
  */
@@ -113,29 +123,38 @@ public class BatchCachePrimer {
     private final BatchCachePrimerProperties properties;
     private final Clock clock;
     private final Sleeper sleeper;
+    private final PrimerMessageIds primerMessageIds;
 
     /**
      * Constructs the primer with a real-time sleeper.
      *
-     * @param requestFactory builds the primer request through the real requests' own path
-     * @param batchClient    creates and retrieves the primer batches
-     * @param properties     the {@code photocast.batch.cache-primer} settings
-     * @param clock          measures the wait
+     * @param requestFactory   builds the primer request through the real requests' own path
+     * @param batchClient      creates and retrieves the primer batches
+     * @param properties       the {@code photocast.batch.cache-primer} settings
+     * @param clock            measures the wait
+     * @param primerMessageIds receives the message ids of the primers' responses
      */
     @Autowired
     public BatchCachePrimer(BatchRequestFactory requestFactory, AnthropicBatchClient batchClient,
-            BatchCachePrimerProperties properties, Clock clock) {
+            BatchCachePrimerProperties properties, Clock clock, PrimerMessageIds primerMessageIds) {
         this(requestFactory, batchClient, properties, clock,
-                duration -> Thread.sleep(duration.toMillis()));
+                duration -> Thread.sleep(duration.toMillis()), primerMessageIds);
     }
 
     BatchCachePrimer(BatchRequestFactory requestFactory, AnthropicBatchClient batchClient,
             BatchCachePrimerProperties properties, Clock clock, Sleeper sleeper) {
+        this(requestFactory, batchClient, properties, clock, sleeper, new PrimerMessageIds());
+    }
+
+    BatchCachePrimer(BatchRequestFactory requestFactory, AnthropicBatchClient batchClient,
+            BatchCachePrimerProperties properties, Clock clock, Sleeper sleeper,
+            PrimerMessageIds primerMessageIds) {
         this.requestFactory = requestFactory;
         this.batchClient = batchClient;
         this.properties = properties;
         this.clock = clock;
         this.sleeper = sleeper;
+        this.primerMessageIds = primerMessageIds;
     }
 
     /**
@@ -180,6 +199,7 @@ public class BatchCachePrimer {
         Instant deadline = start.plusSeconds(properties.getWaitSeconds());
         Map<String, Outcome> outcomes = new LinkedHashMap<>();
         Map<String, String> pending = new LinkedHashMap<>();
+        Map<String, String> batchIds = new LinkedHashMap<>();
         int ordinal = 0;
         for (Map.Entry<String, EvaluationTask.Forecast> entry : representatives.entrySet()) {
             String prefix = entry.getKey();
@@ -197,7 +217,9 @@ public class BatchCachePrimer {
                                 CustomIdFactory.forCachePrimer(ordinal++), task.model(), task.data(),
                                 task.model().getMaxTokens()))
                         .build();
-                pending.put(prefix, batchClient.createPrimerBatch(params, callTimeout).id());
+                String batchId = batchClient.createPrimerBatch(params, callTimeout).id();
+                pending.put(prefix, batchId);
+                batchIds.put(prefix, batchId);
             } catch (RuntimeException e) {
                 LOG.warn("[BATCH PRIMER] Primer for cache prefix {} could not be submitted - its "
                         + "bucket(s) will write the cache as before: {}", prefix, e.toString());
@@ -220,14 +242,53 @@ public class BatchCachePrimer {
                 }
             });
         }
+        Map<String, String> primerResults = interrupted ? Map.of()
+                : readPrimerMessages(deadline, warmed, batchIds);
         LOG.info("[BATCH PRIMER] Primed {} cache prefix(es) in {} ms, {} warmed, {} unreadable status "
-                + "read(s): {}", representatives.size(),
+                + "read(s): {}; cache results: {}", representatives.size(),
                 Duration.between(start, Instant.now(clock)).toMillis(), warmed.size(), unreadable[0],
-                outcomes);
+                outcomes, primerResults.isEmpty() ? "none read" : primerResults);
         if (interrupted) {
             Thread.currentThread().interrupt();
         }
         return new PrimeResult(Set.copyOf(warmed), outcomes, unreadable[0]);
+    }
+
+    /**
+     * Reads each warmed primer's one response, publishes the message ids to {@link PrimerMessageIds}
+     * (replacing the last cycle's, even when none could be read) and returns a log line per prefix:
+     * message id, cache write (and its one-hour part) and read tokens, and the API's cache
+     * diagnostics. Fail-open: a read that errors or finds no message is skipped, the deadline is
+     * honoured, and nothing here can change which prefixes are warmed.
+     */
+    private Map<String, String> readPrimerMessages(Instant deadline, Set<String> warmed,
+            Map<String, String> batchIds) {
+        Map<String, String> ids = new LinkedHashMap<>();
+        Map<String, String> lines = new LinkedHashMap<>();
+        for (String prefix : warmed) {
+            Duration callTimeout = callTimeout(deadline);
+            if (callTimeout == null) {
+                break;
+            }
+            try {
+                Message message = batchClient.readFirstSucceededMessage(batchIds.get(prefix), callTimeout)
+                        .orElse(null);
+                if (message == null) {
+                    continue;
+                }
+                ids.put(prefix, message.id());
+                TokenUsage usage = TokenUsage.from(message.usage());
+                lines.put(prefix, message.id() + " wrote " + usage.cacheCreationInputTokens()
+                        + " tokens (" + usage.cacheCreationOneHourTokens() + " at 1h), read "
+                        + usage.cacheReadInputTokens() + ", diagnostics "
+                        + CacheDiagnostics.from(message).summary());
+            } catch (RuntimeException e) {
+                LOG.debug("[BATCH PRIMER] Could not read the result of primer batch {} for cache prefix {}: "
+                        + "{}", batchIds.get(prefix), prefix, e.toString());
+            }
+        }
+        primerMessageIds.replace(ids);
+        return lines;
     }
 
     /** The timeout for a call made now: {@link #CALL_TIMEOUT} or the time left, or null if none. */

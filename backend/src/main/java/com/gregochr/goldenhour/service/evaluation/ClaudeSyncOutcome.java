@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.EvaluationFailure;
 
@@ -23,6 +24,8 @@ import com.gregochr.goldenhour.service.EvaluationFailure;
  * @param tokenUsage    token counts on success, else {@code null}
  * @param model         {@link EvaluationModel} this call was issued against
  * @param durationMs    wall-clock time in milliseconds for the Anthropic call
+ * @param cacheDiagnostics the prompt-cache diagnostics the response carried, else {@code null} or
+ *                      {@link CacheDiagnostics#EMPTY}; kept beside the token counts, never in them
  */
 public record ClaudeSyncOutcome(
         boolean succeeded,
@@ -32,8 +35,27 @@ public record ClaudeSyncOutcome(
         String rawText,
         TokenUsage tokenUsage,
         EvaluationModel model,
-        long durationMs
+        long durationMs,
+        CacheDiagnostics cacheDiagnostics
 ) {
+
+    /**
+     * Constructs an outcome whose response carried no cache diagnostics.
+     *
+     * @param succeeded    true when Claude returned a parseable response
+     * @param errorType    short Anthropic error type on failure, else {@code null}
+     * @param statusCode   HTTP status on an Anthropic service error, else {@code null}
+     * @param errorMessage human-readable error detail on failure, else {@code null}
+     * @param rawText      raw Claude text on success, else {@code null}
+     * @param tokenUsage   token counts on success, else {@code null}
+     * @param model        the model this call was issued against
+     * @param durationMs   wall-clock time in milliseconds for the Anthropic call
+     */
+    public ClaudeSyncOutcome(boolean succeeded, String errorType, Integer statusCode,
+            String errorMessage, String rawText, TokenUsage tokenUsage, EvaluationModel model,
+            long durationMs) {
+        this(succeeded, errorType, statusCode, errorMessage, rawText, tokenUsage, model, durationMs, null);
+    }
 
     /** The HTTP status a successful call is logged with. */
     private static final int HTTP_OK = 200;
@@ -57,6 +79,15 @@ public record ClaudeSyncOutcome(
     public static ClaudeSyncOutcome success(String rawText, TokenUsage tokenUsage,
             EvaluationModel model, long durationMs) {
         return new ClaudeSyncOutcome(true, null, null, null, rawText, tokenUsage, model, durationMs);
+    }
+
+    /**
+     * Builds a success outcome carrying the response's prompt-cache diagnostics.
+     */
+    public static ClaudeSyncOutcome success(String rawText, TokenUsage tokenUsage,
+            EvaluationModel model, long durationMs, CacheDiagnostics cacheDiagnostics) {
+        return new ClaudeSyncOutcome(true, null, null, null, rawText, tokenUsage, model, durationMs,
+                cacheDiagnostics);
     }
 
     /**

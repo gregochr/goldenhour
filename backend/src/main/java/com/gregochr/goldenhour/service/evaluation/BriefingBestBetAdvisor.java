@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.RollupResult;
@@ -252,7 +253,7 @@ public class BriefingBestBetAdvisor {
                 jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                         "POST", "briefing-best-bet", rollup.json(),
                         durationMs, 200, raw, false, rejection,
-                        model, tokenUsage);
+                        model, tokenUsage, CacheDiagnostics.from(response));
                 logResponseDisposition(stopReason, 0, raw.length(), jobRunId);
                 return BestBetResult.failed();
             }
@@ -263,7 +264,7 @@ public class BriefingBestBetAdvisor {
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-best-bet", rollup.json(),
                     durationMs, 200, raw, true, null,
-                    model, tokenUsage);
+                    model, tokenUsage, CacheDiagnostics.from(response));
 
             BestBetResult parsed = classifyAndParse(raw);
             logResponseDisposition(stopReason, parsed.picks().size(), raw.length(), jobRunId);

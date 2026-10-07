@@ -213,10 +213,10 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
         try {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), outcome.customId(),
-                    outcome.succeeded(), outcome.status(),
+                    outcome.succeeded(),
                     outcome.errorType(), outcome.errorMessage(),
                     model, outcome.tokenUsage(),
-                    null, null);
+                    null, null, null, outcome.cacheDiagnostics());
         } catch (Exception e) {
             LOG.warn("Aurora batch: failed to persist api_call_log for customId={}: {}",
                     outcome.customId(), e.getMessage());
@@ -239,7 +239,7 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
                     task.model(), tokens,
                     false,
                     null, null,
-                    outcome.errorType());
+                    outcome.errorType(), outcome.cacheDiagnostics());
         } catch (Exception e) {
             LOG.warn("Aurora sync: failed to persist api_call_log for {}: {}",
                     task.taskKey(), e.getMessage());

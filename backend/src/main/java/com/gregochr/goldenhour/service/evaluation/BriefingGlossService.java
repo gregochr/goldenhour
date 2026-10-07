@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.service.BriefingRatingStats;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingGatingPolicy;
@@ -238,7 +239,8 @@ public class BriefingGlossService {
             // Pass the token usage so the successful gloss call records its real cost, not £0.
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-gloss", null,
-                    durationMs, 200, raw, true, null, model, tokenUsage);
+                    durationMs, 200, raw, true, null, model, tokenUsage,
+                    CacheDiagnostics.from(response));
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStart;
             LOG.warn("Gloss failed for {} {} {}: {}",

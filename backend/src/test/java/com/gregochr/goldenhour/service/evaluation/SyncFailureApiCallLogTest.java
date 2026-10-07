@@ -190,7 +190,7 @@ class SyncFailureApiCallLogTest {
                 eq(message), eq(false), eq(message),
                 eq(EvaluationModel.HAIKU), eq(TokenUsage.EMPTY),
                 eq(false),
-                eq(DATE), eq(TargetType.SUNRISE), eq(errorType));
+                eq(DATE), eq(TargetType.SUNRISE), eq(errorType), eq(null));
         assertThat(duration.getValue()).isNotNegative();
     }
 
@@ -268,7 +268,7 @@ class SyncFailureApiCallLogTest {
                 eq("invalid x-api-key"), eq(false), eq("invalid x-api-key"),
                 eq(EvaluationModel.HAIKU), eq(TokenUsage.EMPTY),
                 eq(false),
-                eq(null), eq(null), eq("anthropic_401"));
+                eq(null), eq(null), eq("anthropic_401"), eq(null));
     }
 
     @Test
@@ -286,6 +286,6 @@ class SyncFailureApiCallLogTest {
                 eq("timed out"), eq(false), eq("timed out"),
                 eq(EvaluationModel.HAIKU), eq(TokenUsage.EMPTY),
                 eq(false),
-                eq(null), eq(null), eq("AnthropicIoException"));
+                eq(null), eq(null), eq("AnthropicIoException"), eq(null));
     }
 }

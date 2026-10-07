@@ -16,6 +16,8 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
@@ -290,7 +292,25 @@ class BriefingGlossServiceTest {
                 eq(true),
                 isNull(),
                 eq(EvaluationModel.HAIKU),
-                eq(STUB_USAGE));
+                eq(STUB_USAGE), eq(CacheDiagnostics.EMPTY));
+    }
+
+    @Test
+    @DisplayName("Successful API call logs the response's cache diagnostics beside its token usage")
+    void apiCallLogged_cacheDiagnostics() {
+        stubModelSelection();
+        Message response = mockResponse("Good colour potential");
+        when(response.diagnostics()).thenReturn(java.util.Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED));
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        glossService.generateGlosses(List.of(dayWith(region("Northumberland", Verdict.GO))), 42L);
+
+        verify(jobRunService).logApiCall(
+                eq(42L), eq(ServiceName.ANTHROPIC), eq("POST"), eq("briefing-gloss"), isNull(),
+                anyLong(), eq(200), eq("Good colour potential"), eq(true), isNull(),
+                eq(EvaluationModel.HAIKU), eq(STUB_USAGE),
+                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
     }
 
     @Test

@@ -276,6 +276,11 @@ photocast:
       wait-seconds: 180      # the most the cycle waits for all primers together (0..600); 0 = do not
                              # prime. Adds up to this long to the submit phase.
       poll-seconds: 10       # how often the primers are polled while waiting (1..60)
+      diagnostics: false     # true = the primer's request opts in to the API's cache diagnostics and each
+                             # warmed real request names its primer as the previous message to compare
+                             # with, so api_call_log.cache_diagnostics says where it diverged. Adds a
+                             # `diagnostics` object to those batch requests (not yet exercised against the
+                             # live Batch API); reading diagnostics works whatever this is.
   briefing:
     min-coverage-ratio: 0.5  # API read-path honesty: a region whose Claude-scored fraction
                              # (scoredLocationCount / roster size) is positive but below this
