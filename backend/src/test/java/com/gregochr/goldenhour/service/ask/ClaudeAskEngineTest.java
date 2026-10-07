@@ -279,6 +279,75 @@ class ClaudeAskEngineTest {
     }
 
     @Test
+    @DisplayName("an events question whose model consulted only get_coming_up still sees the live topic "
+            + "there, and an answer naming it is OK (the 2026-10-07 defect: the almanac alone said 'none')")
+    void eventsQuestion_comingUpAloneSeesTheLiveTopic() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "get_coming_up", Map.of("days", 90, "limit", 10))),
+                submit(Map.of("answerable", true, "summary", "An aurora is forecast tonight.",
+                        "events", List.of(Map.of("type", "AURORA", "why", "Kp 6.")))));
+
+        AskRun run = engine.run(question("Any rare events coming up?"), snapshot(null), USER,
+                AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().answer().events()).extracting(AskEvent::type).containsExactly("AURORA");
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool)
+                .containsExactly("get_coming_up", "submit_answer");
+    }
+
+    @Test
+    @DisplayName("an events question answered 'none' while a live topic is on offer is FAILED with the reason, "
+            + "whichever tools the model called; the typed question is counted failed (a refund)")
+    void eventsQuestion_noneWhileTopicsAreOffered_isFailed() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "get_coming_up", Map.of())),
+                submit(Map.of("answerable", true, "summary", "No rare events are forecast.")));
+
+        AskRun run = engine.run(question("Any rare events coming up?"), snapshot(null), USER,
+                AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.reason()).isEqualTo(
+                "the answer was discarded: events question answered \"none\" while 1 events were offered");
+        verify(jobRuns).recordQuestion(RUN_ID, false);
+    }
+
+    @Test
+    @DisplayName("a snow question answered with only an aurora card while a snow topic is on offer is FAILED")
+    void eventsQuestion_snowQuestionAuroraOnly_isFailed() {
+        AskSnapshot snow = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(TODAY, null, northumberland())),
+                List.of(AskFixtures.topic("AURORA", "Aurora tonight", "Kp 6 forecast", TODAY, List.of()),
+                        AskFixtures.topic("SNOW_TOPS", "Snow on the tops", "Fresh snow", TODAY, List.of()))));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "get_hot_topics", Map.of())),
+                submit(Map.of("answerable", true, "summary", "No snow, but an aurora is forecast.",
+                        "events", List.of(Map.of("type", "AURORA", "why", "Kp 6.")))));
+
+        AskRun run = engine.run(question("Is there snow on the tops?"), snow, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.reason()).contains("events question answered \"none\"");
+    }
+
+    @Test
+    @DisplayName("an events question with nothing on offer may honestly say none: OK, no events")
+    void eventsQuestion_noneWithNothingOffered_isOk() {
+        AskSnapshot nothingOffered = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(TODAY, null, northumberland())), List.of()));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "get_hot_topics", Map.of()), tool("t2", "get_coming_up", Map.of())),
+                submit(Map.of("answerable", true, "summary", "No rare events are forecast.")));
+
+        AskRun run = engine.run(question("Any rare events coming up?"), nothingOffered, USER,
+                AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().answer().events()).isEmpty();
+    }
+
+    @Test
     @DisplayName("submit_answer on the last allowed turn succeeds; one tool-only turn more is a FAILED outcome "
             + "(max-turns 4: at the limit, and over it)")
     void turnLimitBoundary() {
@@ -434,7 +503,7 @@ class ClaudeAskEngineTest {
             + "the question counted failed: nothing escapes the engine")
     void unexpectedErrorIsFailed() {
         AskAnswerValidator broken = mock(AskAnswerValidator.class);
-        when(broken.validate(any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
+        when(broken.validate(any(), any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
         engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, regions, broken,
                 new AskPromptBuilder(), new ObjectMapper(), clock);
         when(client.createAskMessage(any(), any(), any())).thenReturn(

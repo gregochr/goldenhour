@@ -82,8 +82,9 @@ public final class AskToolSchemas {
         props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_EVENTS,
                 "description", "How many topics, at most " + AskTools.MAX_EVENTS + "."));
         return tool(GET_HOT_TOPICS,
-                "The sky and weather events the forecast is flagging now: aurora, eclipses, king "
-                        + "tides, inversions, snow and more.",
+                "The events flagged on the live forecast for the next few days: aurora, eclipses, king "
+                        + "tides, inversions, snow and more. For any question about events or what is "
+                        + "coming up, call get_coming_up as well: it covers the longer range.",
                 props, List.of());
     }
 
@@ -95,8 +96,10 @@ public final class AskToolSchemas {
         props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_EVENTS,
                 "description", "How many entries, at most " + AskTools.MAX_EVENTS + "."));
         return tool(GET_COMING_UP,
-                "Rare events in the next weeks and months: eclipses, meteor showers, supermoons, "
-                        + "equinoxes and big tides.",
+                "The timeline of future events over the next weeks and months: meteor showers, "
+                        + "supermoons, eclipses, equinoxes and big tides from the almanac, plus the "
+                        + "events the live forecast is flagging. For any question about events or what "
+                        + "is coming up, call get_hot_topics as well.",
                 props, List.of());
     }
 

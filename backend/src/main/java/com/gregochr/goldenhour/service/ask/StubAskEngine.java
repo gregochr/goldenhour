@@ -138,7 +138,8 @@ public class StubAskEngine implements AskEngine {
         }
         List<AskTools.ToolCall> trace = new ArrayList<>(tools.trace());
         trace.add(new AskTools.ToolCall(AskToolSchemas.SUBMIT_ANSWER, false, 0));
-        Result result = validator.validate(raw, snapshot, tools.evidence(), scope.get(), opts.anchor());
+        Result result = validator.validate(raw, snapshot, tools.evidence(), scope.get(), opts.anchor(),
+                ReadyIntentRules.eventsQuestion(question).orElse(null));
         if (!result.accepted()) {
             return new AskRun(new AskOutcome(AskOutcome.Status.FAILED, null, tools.personal(), 1),
                     trace, "the answer was discarded: " + result.reason());

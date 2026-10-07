@@ -66,4 +66,16 @@ class AskPromptBuilderTest {
                 .doesNotContain("maxDriveMinutes");
         assertThat(typed).contains("maxDriveMinutes").doesNotContain("never mention home");
     }
+
+    @Test
+    @DisplayName("an events question must consult BOTH events tools, and 'no events' is allowed only after both "
+            + "returned nothing")
+    void eventsQuestionsRequireBothTools() {
+        String prompt = builder.systemPrompt(MONDAY, Set.of(), Optional.empty(), true)
+                .replaceAll("\\s+", " ");
+
+        assertThat(prompt).contains("call BOTH get_hot_topics")
+                .contains("and get_coming_up")
+                .contains("Say there are no events only after both returned nothing");
+    }
 }

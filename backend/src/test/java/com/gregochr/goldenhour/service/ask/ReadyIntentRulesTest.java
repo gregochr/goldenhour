@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDate;
@@ -359,5 +360,45 @@ class ReadyIntentRulesTest {
             case RARE_EVENTS -> "Any rare events coming up?";
             case SNOW_TOPS -> "Is there snow on the tops?";
         };
+    }
+
+    @ParameterizedTest(name = "eventsQuestion(\"{0}\") is {1}")
+    @CsvSource(delimiter = '|', value = {
+            "Any rare events coming up?|RARE_EVENTS",
+            "Anything special happening?|RARE_EVENTS",
+            "Is there snow on the tops?|SNOW_TOPS",
+            "Snow on the fells?|SNOW_TOPS"})
+    @DisplayName("the events questions a typed question can be, by the Ready matcher's own rules")
+    void eventsQuestion_isTheReadyQuestion(String typed, String expected) {
+        assertThat(ReadyIntentRules.eventsQuestion(words(typed))).contains(ReadyQuestion.valueOf(expected));
+    }
+
+    @ParameterizedTest(name = "eventsQuestion(\"{0}\") is empty")
+    @ValueSource(strings = {"Best spot tonight?", "Any rare events this weekend?",
+            "Any rare events within an hour of home?", "What's the pollen count?"})
+    @DisplayName("a pick question, a time-bound or qualified events question and a stranger are not events "
+            + "questions: there 'nothing' can be a true answer")
+    void eventsQuestion_isEmptyOtherwise(String typed) {
+        assertThat(ReadyIntentRules.eventsQuestion(PhraseAskPreFilter.words(typed))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an empty question is not an events question")
+    void eventsQuestion_emptyWords() {
+        assertThat(ReadyIntentRules.eventsQuestion(List.of())).isEmpty();
+    }
+
+    @ParameterizedTest(name = "an engine question \"{0}\" is {1}")
+    @CsvSource(delimiter = '|', value = {
+            "Any rare events coming up?|RARE_EVENTS",
+            "Is there snow on the tops?|SNOW_TOPS",
+            "Could you tell me, is there snow on the tops please?|SNOW_TOPS"})
+    @DisplayName("the engines' own Ready texts (and a politely padded one) are events questions: the sanitiser's "
+            + "filler words are dropped as the typed matcher drops them")
+    void eventsQuestion_ofAnEngineQuestion(String text, String expected) {
+        AskQuestion question = new AskQuestion(text, text.toLowerCase(java.util.Locale.ROOT), null, List.of(),
+                "plan");
+
+        assertThat(ReadyIntentRules.eventsQuestion(question)).contains(ReadyQuestion.valueOf(expected));
     }
 }
