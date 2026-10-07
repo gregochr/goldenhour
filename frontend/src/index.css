@@ -795,10 +795,11 @@
    this file names the four elements that answer for the insets — but the second half of the
    original objection is what survives, and it is the half that keeps the band out of that list:
    this is not the element that touches the top of the document. `App.jsx` wraps the Plan in
-   `<main className="px-4 py-6">`, so the band already starts 24px down, and the app root's own
-   `.app-safe` padding sits above even that. An inset term HERE would therefore be added to both:
-   on a notched phone it would push the wordmark to 24 + 59 + 14 = 97px and leave the notch strip
-   painted in page colour rather than in the band. The root carries it instead — which is why the
+   `<main className="px-4 py-6">` (the Map tab keeps the same 24px top padding, `pt-6`), so the
+   band already starts 24px down, and the app root's own `.app-safe` padding sits above even that.
+   An inset term HERE would therefore be added to both: on a notched phone it would push the
+   wordmark to 24 + 59 + 14 = 97px and leave the notch strip painted in page colour rather than in
+   the band. The root carries it instead — which is why the
    notch strip is page colour by design, continuous with the 24px of page colour already below it —
    and it is deliberately not repeated here, nor faked here.
 

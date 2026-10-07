@@ -1162,13 +1162,14 @@ describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-p
   // out. Comparing tokens is the fix.
   const classTokens = (el) => el.className.split(/\s+/).filter(Boolean);
 
-  it('drops <main>\'s VERTICAL padding unconditionally, keeps horizontal padding at sm+ (adversarial review), and gives it flex:1/min-height:0/flex-column — only on the Map tab', async () => {
+  it('keeps <main>\'s TOP padding on the Map tab so the masthead does not jump, drops only its bottom padding, keeps horizontal padding at sm+ (adversarial review), and gives it flex:1/min-height:0/flex-column — only on the Map tab', async () => {
     renderApp();
     // <main> has no accessible name of its own to query by name; its implicit ARIA role finds it.
     const main = screen.getByRole('main');
     expect(classTokens(main)).toContain('px-4');
     expect(classTokens(main)).not.toContain('sm:px-4');
     expect(classTokens(main)).toContain('py-6');
+    expect(classTokens(main)).not.toContain('pt-6');
     expect(classTokens(main)).not.toContain('flex-1');
 
     const mapTab = await screen.findByRole('tab', { name: 'Map' });
@@ -1178,11 +1179,16 @@ describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-p
     // O-17 (bundle rev 2, 2026-09-03): the Map tab keeps a horizontal inset at `sm` and up — it
     // is what makes the masthead's column line up with every other tab's in that range, since
     // `WindowFirstShell`'s own panel-region wrapper caps the visible width to the SAME 1080px
-    // column from `sm` up too. Only VERTICAL padding is dropped unconditionally (it would eat
-    // into the flex-distributed height and reopen page scroll).
+    // column from `sm` up too. Vertically, the Map tab keeps the SAME top padding as every other
+    // tab (`pt-6`, unconditional) so the masthead sits at the same height and does not jump 24px
+    // on a tab switch; the padding comes out of <main>'s own flex-distributed height (border-box),
+    // so the map pane shrinks and page scroll is not reopened. Only BOTTOM padding is dropped —
+    // the footer is suppressed on Map and the map bleeds to the bottom edge.
     expect(classTokens(main)).not.toContain('px-4');
     expect(classTokens(main)).toContain('sm:px-4');
+    expect(classTokens(main)).toContain('pt-6');
     expect(classTokens(main)).not.toContain('py-6');
+    expect(classTokens(main)).not.toContain('pb-6');
     expect(classTokens(main)).toContain('flex-1');
     expect(classTokens(main)).toContain('min-h-0');
     expect(classTokens(main)).toContain('flex-col');
@@ -1193,6 +1199,7 @@ describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-p
     expect(classTokens(main)).toContain('px-4');
     expect(classTokens(main)).not.toContain('sm:px-4');
     expect(classTokens(main)).toContain('py-6');
+    expect(classTokens(main)).not.toContain('pt-6');
     expect(classTokens(main)).not.toContain('flex-1');
   });
 
