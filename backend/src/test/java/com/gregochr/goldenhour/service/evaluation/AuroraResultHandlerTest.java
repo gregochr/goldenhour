@@ -95,7 +95,7 @@ class AuroraResultHandlerTest {
         assertThat(result.failureReason()).isEqualTo("overloaded_error");
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("au-MODERATE-2026-04-16"),
-                eq(false), eq("OVERLOADED_ERROR"),
+                eq(false),
                 eq("overloaded_error"), eq("busy"),
                 eq(null), eq(null), eq(null), eq(null), eq(null), eq(null));
         verifyNoInteractions(weatherTriageService, claudeAuroraInterpreter, auroraStateCache);
@@ -252,7 +252,7 @@ class AuroraResultHandlerTest {
 
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("au-MODERATE-2026-04-16"),
-                eq(false), eq("REFUSAL"),
+                eq(false),
                 eq("refusal"), eq("refused"),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(null), eq(null), eq(null),

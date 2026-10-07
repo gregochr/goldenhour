@@ -200,8 +200,7 @@ public class BatchResultProcessor {
                     }
                     errorTypeCounts.merge(detail[0], 1, Integer::sum);
                     errored++;
-                    inlineFailureLog(context, customId,
-                            detail[0].toUpperCase(), detail[0], detail[1], null, null);
+                    inlineFailureLog(context, customId, detail[0], detail[1], null, null);
                     continue;
                 }
 
@@ -209,7 +208,7 @@ public class BatchResultProcessor {
                 if (message == null) {
                     LOG.warn("Forecast batch: no message for '{}'", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "NO_MESSAGE",
+                    inlineFailureLog(context, customId,
                             "extraction_error", "succeeded but no message", null, null);
                     continue;
                 }
@@ -248,7 +247,7 @@ public class BatchResultProcessor {
                 if (StopReason.MAX_TOKENS.equals(message.stopReason().orElse(null))) {
                     LOG.warn("Forecast batch: response truncated at max_tokens for '{}'", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "MAX_TOKENS",
+                    inlineFailureLog(context, customId,
                             "truncation_error",
                             "Claude's response was truncated at the max_tokens limit "
                                     + "(stop_reason=max_tokens)", null, null,
@@ -262,7 +261,7 @@ public class BatchResultProcessor {
                 if (StopReason.REFUSAL.equals(message.stopReason().orElse(null))) {
                     LOG.warn("Forecast batch: Claude refused '{}'", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "REFUSAL",
+                    inlineFailureLog(context, customId,
                             EvaluationFailure.TYPE_REFUSAL,
                             "Claude refused to evaluate this forecast (stop_reason=refusal)",
                             null, null, responseModel, responseUsage, CacheDiagnostics.from(message));
@@ -273,7 +272,7 @@ public class BatchResultProcessor {
                 if (text == null) {
                     LOG.warn("Forecast batch: no text content for '{}'", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "NO_TEXT",
+                    inlineFailureLog(context, customId,
                             "extraction_error", "no text content blocks", null, null);
                     continue;
                 }
@@ -284,7 +283,7 @@ public class BatchResultProcessor {
                 } catch (IllegalArgumentException e) {
                     LOG.warn("Forecast batch: malformed customId '{}', skipping", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "MALFORMED_ID",
+                    inlineFailureLog(context, customId,
                             "parse_error", "malformed customId", null, null);
                     continue;
                 }
@@ -321,7 +320,7 @@ public class BatchResultProcessor {
                         LOG.warn("Forecast batch: aurora customId '{}' in forecast batch, "
                                 + "skipping", customId);
                         errored++;
-                        inlineFailureLog(context, customId, "MALFORMED_ID",
+                        inlineFailureLog(context, customId,
                                 "parse_error", "aurora customId in forecast batch",
                                 null, null);
                         continue;
@@ -336,7 +335,7 @@ public class BatchResultProcessor {
                     LOG.warn("Forecast batch: location {} not found for customId '{}', skipping",
                             identity.locationId(), customId);
                     errored++;
-                    inlineFailureLog(context, customId, "LOCATION_NOT_FOUND",
+                    inlineFailureLog(context, customId,
                             "lookup_error",
                             "location " + identity.locationId() + " not found",
                             identity.date(), identity.targetType());
@@ -630,10 +629,10 @@ public class BatchResultProcessor {
      * problems (no message / no text), malformed custom ids, location lookup misses, and
      * cross-type custom ids.
      */
-    private void inlineFailureLog(ResultContext context, String customId, String status,
+    private void inlineFailureLog(ResultContext context, String customId,
             String errorType, String errorMessage,
             LocalDate targetDate, TargetType targetType) {
-        inlineFailureLog(context, customId, status, errorType, errorMessage,
+        inlineFailureLog(context, customId, errorType, errorMessage,
                 targetDate, targetType, null, null, null);
     }
 
@@ -641,7 +640,7 @@ public class BatchResultProcessor {
      * As above, for a response that was billed but rejected (refusal, truncation): the row
      * carries the model and the response's real token usage so the failed call is costed.
      */
-    private void inlineFailureLog(ResultContext context, String customId, String status,
+    private void inlineFailureLog(ResultContext context, String customId,
             String errorType, String errorMessage,
             LocalDate targetDate, TargetType targetType,
             EvaluationModel model, TokenUsage tokenUsage, CacheDiagnostics cacheDiagnostics) {
@@ -651,7 +650,7 @@ public class BatchResultProcessor {
         try {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), customId,
-                    false, status, errorType, errorMessage,
+                    false, errorType, errorMessage,
                     model, tokenUsage, targetDate, targetType, null, cacheDiagnostics);
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
@@ -898,7 +897,7 @@ public class BatchResultProcessor {
         if (batch.getJobRunId() != null) {
             try {
                 jobRunService.logBatchResult(batch.getJobRunId(), batch.getAnthropicBatchId(),
-                        customId, false, refusal ? "REFUSAL" : "MAX_TOKENS", errorType, reason,
+                        customId, false, errorType, reason,
                         resolveEvaluationModel(message.model().asString()),
                         TokenUsage.from(message.usage()), null, null, null,
                         CacheDiagnostics.from(message));

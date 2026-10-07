@@ -213,7 +213,7 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
         try {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), outcome.customId(),
-                    outcome.succeeded(), outcome.status(),
+                    outcome.succeeded(),
                     outcome.errorType(), outcome.errorMessage(),
                     model, outcome.tokenUsage(),
                     null, null, null, outcome.cacheDiagnostics());

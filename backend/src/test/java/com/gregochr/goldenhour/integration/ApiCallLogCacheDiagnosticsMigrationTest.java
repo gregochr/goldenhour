@@ -55,10 +55,10 @@ class ApiCallLogCacheDiagnosticsMigrationTest extends IntegrationTestBase {
     void diagnosticsAreWrittenAndQueryable() {
         JobRunEntity run = jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.HAIKU);
         TokenUsage usage = new TokenUsage(1_000, 100, 0, 4_726);
-        jobRunService.logBatchResult(run.getId(), "msgbatch_v168", "fc-1-2026-10-08-SUNRISE", true, "SUCCESS",
+        jobRunService.logBatchResult(run.getId(), "msgbatch_v168", "fc-1-2026-10-08-SUNRISE", true,
                 null, null, EvaluationModel.HAIKU, usage, LocalDate.of(2026, 10, 8), TargetType.SUNRISE, null,
                 new CacheDiagnostics(CacheDiagnostics.Status.MISS, "messages_changed", 1234L));
-        jobRunService.logBatchResult(run.getId(), "msgbatch_v168", "fc-2-2026-10-08-SUNRISE", true, "SUCCESS",
+        jobRunService.logBatchResult(run.getId(), "msgbatch_v168", "fc-2-2026-10-08-SUNRISE", true,
                 null, null, EvaluationModel.HAIKU, usage, LocalDate.of(2026, 10, 8), TargetType.SUNRISE, null,
                 CacheDiagnostics.EMPTY);
 

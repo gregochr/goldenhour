@@ -379,7 +379,7 @@ class BatchResultProcessorTest {
                 any(), any(), any(), any());
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
-                eq(false), eq("OVERLOADED_ERROR"),
+                eq(false),
                 eq("overloaded_error"), eq("busy"),
                 any(), any(), any(), any(), eq(null), eq(null));
     }
@@ -408,7 +408,7 @@ class BatchResultProcessorTest {
         verify(forecastResultHandler, never()).mergeCacheKey(any(), any());
         verify(jobRunService).logBatchResult(
                 eq(55L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
-                eq(false), eq("MAX_TOKENS"),
+                eq(false),
                 eq("truncation_error"),
                 eq("Claude's response was truncated at the max_tokens limit "
                         + "(stop_reason=max_tokens)"),
@@ -445,7 +445,7 @@ class BatchResultProcessorTest {
         verify(forecastResultHandler, never()).mergeCacheKey(any(), any());
         verify(jobRunService).logBatchResult(
                 eq(56L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
-                eq(false), eq("REFUSAL"),
+                eq(false),
                 eq(EvaluationFailure.TYPE_REFUSAL),
                 eq("Claude refused to evaluate this forecast (stop_reason=refusal)"),
                 eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
@@ -510,7 +510,7 @@ class BatchResultProcessorTest {
                 any(), any(), any(), any());
         verify(jobRunService).logBatchResult(
                 eq(77L), eq("msgbatch_fail"), eq("fc-99-2026-04-07-SUNRISE"),
-                eq(false), eq("LOCATION_NOT_FOUND"),
+                eq(false),
                 eq("lookup_error"), any(),
                 any(), any(), any(), any(), eq(null), eq(null));
     }
@@ -534,7 +534,7 @@ class BatchResultProcessorTest {
                 any(), any(), any(), any());
         verify(jobRunService).logBatchResult(
                 eq(88L), eq("msgbatch_fail"), eq("garbage-prefix-123"),
-                eq(false), eq("MALFORMED_ID"),
+                eq(false),
                 eq("parse_error"), any(),
                 any(), any(), any(), any(), eq(null), eq(null));
     }
@@ -558,7 +558,7 @@ class BatchResultProcessorTest {
                 any(), any(), any(), any());
         verify(jobRunService).logBatchResult(
                 eq(33L), eq("msgbatch_fail"), eq("au-MODERATE-2026-04-07"),
-                eq(false), eq("MALFORMED_ID"),
+                eq(false),
                 eq("parse_error"),
                 eq("aurora customId in forecast batch"),
                 any(), any(), any(), any(), eq(null), eq(null));
@@ -708,7 +708,7 @@ class BatchResultProcessorTest {
         verify(auroraResultHandler, never()).processBatchResponse(any(), any(), any());
         verify(jobRunService).logBatchResult(
                 eq(61L), eq("msgbatch_fail"), eq("au-MODERATE-2026-04-07"),
-                eq(false), eq("REFUSAL"), eq(EvaluationFailure.TYPE_REFUSAL),
+                eq(false), eq(EvaluationFailure.TYPE_REFUSAL),
                 eq("Claude refused to interpret the aurora conditions (stop_reason=refusal)"),
                 eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
                 isNull(), isNull(), eq(null), eq(CacheDiagnostics.EMPTY));
@@ -743,7 +743,7 @@ class BatchResultProcessorTest {
         verify(auroraResultHandler, never()).processBatchResponse(any(), any(), any());
         verify(jobRunService).logBatchResult(
                 eq(62L), eq("msgbatch_fail"), eq("au-MODERATE-2026-04-07"),
-                eq(false), eq("MAX_TOKENS"), eq("truncation_error"),
+                eq(false), eq("truncation_error"),
                 eq("Claude's aurora response was truncated at the max_tokens limit "
                         + "(stop_reason=max_tokens)"),
                 eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
@@ -1270,7 +1270,7 @@ class BatchResultProcessorTest {
 
         verify(jobRunService).logBatchResult(
                 eq(55L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
-                eq(false), eq("REFUSAL"), eq(EvaluationFailure.TYPE_REFUSAL), any(),
+                eq(false), eq(EvaluationFailure.TYPE_REFUSAL), any(),
                 eq(EvaluationModel.SONNET_55), any(TokenUsage.class),
                 isNull(), isNull(), eq(null), eq(EXPECTED_DIAGNOSTICS));
     }
@@ -1316,7 +1316,7 @@ class BatchResultProcessorTest {
 
         verify(jobRunService).logBatchResult(
                 eq(61L), eq("msgbatch_fail"), eq("au-MODERATE-2026-04-07"),
-                eq(false), eq("REFUSAL"), eq(EvaluationFailure.TYPE_REFUSAL), any(),
+                eq(false), eq(EvaluationFailure.TYPE_REFUSAL), any(),
                 eq(EvaluationModel.SONNET_55), any(TokenUsage.class),
                 isNull(), isNull(), eq(null), eq(EXPECTED_DIAGNOSTICS));
     }

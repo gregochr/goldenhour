@@ -559,7 +559,7 @@ class JobRunServiceTest {
             when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.HAIKU),
                     any(TokenUsage.class), eq(true))).thenReturn(0L);
 
-            jobRunService.logBatchResult(1L, "msgbatch_1", "fc-42-2026-03-02-SUNSET", true, "SUCCESS", null,
+            jobRunService.logBatchResult(1L, "msgbatch_1", "fc-42-2026-03-02-SUNSET", true, null,
                     null, EvaluationModel.HAIKU, new TokenUsage(400, 80, 200, 100), LocalDate.of(2026, 3, 2),
                     TargetType.SUNSET, null, CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
 
@@ -588,7 +588,7 @@ class JobRunServiceTest {
             when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.HAIKU),
                     any(TokenUsage.class), eq(true))).thenReturn(0L);
 
-            jobRunService.logBatchResult(1L, "msgbatch_1", "fc-42-2026-03-02-SUNSET", true, "SUCCESS", null,
+            jobRunService.logBatchResult(1L, "msgbatch_1", "fc-42-2026-03-02-SUNSET", true, null,
                     null, EvaluationModel.HAIKU, TokenUsage.EMPTY, null, null, null,
                     new CacheDiagnostics(CacheDiagnostics.Status.PENDING, null, null));
 
@@ -608,7 +608,7 @@ class JobRunServiceTest {
                     TokenUsage.EMPTY, false, null, null, null, CacheDiagnostics.EMPTY);
             jobRunService.logAnthropicApiCall(1L, 0L, 200, null, true, null, EvaluationModel.SONNET,
                     TokenUsage.EMPTY, false, null, null);
-            jobRunService.logBatchResult(1L, "b", "c", false, "ERRORED", "e", "m", null, null, null, null);
+            jobRunService.logBatchResult(1L, "b", "c", false, "e", "m", null, null, null, null);
             jobRunService.logApiCall(9L, ServiceName.ANTHROPIC, "POST", "briefing-gloss", null, 40L, null,
                     null, false, "boom", EvaluationModel.HAIKU, null);
             jobRunService.logApiCall(1L, ServiceName.WORLD_TIDES, "GET", "https://x", null, 1L, 200, null,
@@ -1036,7 +1036,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     42L, "msgbatch_abc", "loc1_2026-04-20_SUNRISE",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.HAIKU, usage,
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE);
@@ -1068,7 +1068,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     10L, "msgbatch_err", "loc2_2026-04-21_SUNSET",
-                    false, "ERRORED",
+                    false,
                     "overloaded_error", "The server is overloaded",
                     EvaluationModel.SONNET, null,
                     LocalDate.of(2026, 4, 21), TargetType.SUNSET);
@@ -1089,7 +1089,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     42L, "msgbatch_ok", "fc-1-2026-04-20-SUNRISE",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.HAIKU, new TokenUsage(1, 1, 0, 0),
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE);
@@ -1106,7 +1106,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     42L, "msgbatch_fb", "fc-42-2026-04-20-SUNRISE",
-                    true, "SUCCESS",
+                    true,
                     "regex_fallback", null,
                     EvaluationModel.HAIKU, new TokenUsage(1, 1, 0, 0),
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE, raw);
@@ -1125,14 +1125,14 @@ class JobRunServiceTest {
 
             String atCap = "x".repeat(16000);
             jobRunService.logBatchResult(
-                    1L, "b", "fc-1-2026-04-20-SUNRISE", true, "SUCCESS",
+                    1L, "b", "fc-1-2026-04-20-SUNRISE", true,
                     "regex_fallback", null, EvaluationModel.HAIKU, null,
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE, atCap);
             assertThat(captor.getValue().getResponseBody()).isEqualTo(atCap);
 
             String overCap = "y".repeat(16001);
             jobRunService.logBatchResult(
-                    1L, "b", "fc-1-2026-04-20-SUNRISE", true, "SUCCESS",
+                    1L, "b", "fc-1-2026-04-20-SUNRISE", true,
                     "regex_fallback", null, EvaluationModel.HAIKU, null,
                     LocalDate.of(2026, 4, 20), TargetType.SUNRISE, overCap);
             String stored = captor.getValue().getResponseBody();
@@ -1148,7 +1148,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     5L, "msgbatch_x", "loc3_2026-04-22_SUNRISE",
-                    false, "EXPIRED",
+                    false,
                     null, null,
                     EvaluationModel.OPUS, null,
                     LocalDate.of(2026, 4, 22), TargetType.SUNRISE);
@@ -1168,7 +1168,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     5L, "msgbatch_y", "loc4",
-                    false, "CANCELED",
+                    false,
                     null, null,
                     EvaluationModel.HAIKU, null,
                     null, null);
@@ -1185,7 +1185,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     1L, "msgbatch_trunc", "loc5",
-                    false, "ERRORED",
+                    false,
                     "server_error", longError,
                     null, null,
                     null, null);
@@ -1202,7 +1202,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     1L, "msgbatch_exact", "loc6",
-                    false, "ERRORED",
+                    false,
                     "server_error", exactError,
                     null, null,
                     null, null);
@@ -1221,7 +1221,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     7L, "msgbatch_null_model", "loc7",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     null, usage,
                     LocalDate.of(2026, 4, 23), TargetType.SUNSET);
@@ -1242,7 +1242,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     3L, "msgbatch_batch_flag", "loc8",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.OPUS, usage,
                     null, null);
@@ -1259,7 +1259,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     1L, "msgbatch_time", "loc9",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.HAIKU, null,
                     null, null);
@@ -1279,7 +1279,7 @@ class JobRunServiceTest {
 
             jobRunService.logBatchResult(
                     1L, "msgbatch_null_target", "loc10",
-                    true, "SUCCESS",
+                    true,
                     null, null,
                     EvaluationModel.HAIKU, null,
                     null, null);

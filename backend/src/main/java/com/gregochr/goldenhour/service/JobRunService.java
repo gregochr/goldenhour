@@ -251,7 +251,6 @@ public class JobRunService {
      * @param batchId       the Anthropic batch ID (e.g. {@code "msgbatch_01..."})
      * @param customId      the per-request custom ID (e.g. {@code "fc-42-2026-04-16-SUNRISE"})
      * @param succeeded     true if the request succeeded, false otherwise
-     * @param status        result status string (e.g. "SUCCESS", "ERRORED", "EXPIRED", "CANCELED")
      * @param errorType     Anthropic error type (e.g. "overloaded_error"), or null on success
      * @param errorMessage  Anthropic error message, or null on success
      * @param model         evaluation model, or null if unknown
@@ -260,11 +259,11 @@ public class JobRunService {
      * @param targetType    target type decoded from customId, or null
      */
     public void logBatchResult(Long jobRunId, String batchId, String customId,
-            boolean succeeded, String status,
+            boolean succeeded,
             String errorType, String errorMessage,
             EvaluationModel model, TokenUsage tokenUsage,
             LocalDate targetDate, TargetType targetType) {
-        logBatchResult(jobRunId, batchId, customId, succeeded, status, errorType, errorMessage,
+        logBatchResult(jobRunId, batchId, customId, succeeded, errorType, errorMessage,
                 model, tokenUsage, targetDate, targetType, null);
     }
 
@@ -281,7 +280,6 @@ public class JobRunService {
      * @param batchId       the Anthropic batch ID
      * @param customId      the per-request custom ID
      * @param succeeded     true if the request succeeded
-     * @param status        result status string
      * @param errorType     error type / diagnostic marker, or null
      * @param errorMessage  error message, or null
      * @param model         evaluation model, or null if unknown
@@ -291,11 +289,11 @@ public class JobRunService {
      * @param responseBody  raw response text to persist for diagnosis, or null to store nothing
      */
     public void logBatchResult(Long jobRunId, String batchId, String customId,
-            boolean succeeded, String status,
+            boolean succeeded,
             String errorType, String errorMessage,
             EvaluationModel model, TokenUsage tokenUsage,
             LocalDate targetDate, TargetType targetType, String responseBody) {
-        logBatchResult(jobRunId, batchId, customId, succeeded, status, errorType, errorMessage,
+        logBatchResult(jobRunId, batchId, customId, succeeded, errorType, errorMessage,
                 model, tokenUsage, targetDate, targetType, responseBody, CacheDiagnostics.EMPTY);
     }
 
@@ -307,7 +305,6 @@ public class JobRunService {
      * @param batchId          the Anthropic batch ID
      * @param customId         the per-request custom ID
      * @param succeeded        true if the request succeeded
-     * @param status           result status string
      * @param errorType        error type / diagnostic marker, or null
      * @param errorMessage     error message, or null
      * @param model            evaluation model, or null if unknown
@@ -318,7 +315,7 @@ public class JobRunService {
      * @param cacheDiagnostics the message's cache diagnostics; null or empty stores nothing
      */
     public void logBatchResult(Long jobRunId, String batchId, String customId,
-            boolean succeeded, String status,
+            boolean succeeded,
             String errorType, String errorMessage,
             EvaluationModel model, TokenUsage tokenUsage,
             LocalDate targetDate, TargetType targetType, String responseBody,

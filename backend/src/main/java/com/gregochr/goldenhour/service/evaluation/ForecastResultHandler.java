@@ -904,7 +904,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         try {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), outcome.customId(),
-                    outcome.succeeded(), outcome.status(),
+                    outcome.succeeded(),
                     errorTypeOverride != null ? errorTypeOverride : outcome.errorType(),
                     outcome.errorMessage(),
                     model, outcome.tokenUsage(),

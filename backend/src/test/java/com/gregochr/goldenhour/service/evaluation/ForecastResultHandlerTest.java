@@ -147,7 +147,7 @@ class ForecastResultHandlerTest {
         // leave a record of what Claude returned, or a bad score cannot be diagnosed afterwards.
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE"),
-                eq(true), eq("SUCCESS"),
+                eq(true),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(DATE), eq(SUNRISE), eq(outcome.rawText()), eq(null));
@@ -175,7 +175,7 @@ class ForecastResultHandlerTest {
 
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE"),
-                eq(true), eq("SUCCESS"),
+                eq(true),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(DATE), eq(SUNRISE), eq(outcome.rawText()),
@@ -761,7 +761,7 @@ class ForecastResultHandlerTest {
         // succeeded stays TRUE (the marker, not the flag, makes it findable); raw + marker stored.
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE"),
-                eq(true), eq("SUCCESS"),
+                eq(true),
                 eq(ForecastResultHandler.REGEX_FALLBACK_MARKER), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(DATE), eq(SUNRISE), eq(rawText), eq(null));
@@ -784,7 +784,7 @@ class ForecastResultHandlerTest {
         assertThat(result).isEmpty();
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE"),
-                eq(false), eq("OVERLOADED_ERROR"),
+                eq(false),
                 eq("overloaded_error"), eq("busy"),
                 eq(null), eq(null),
                 eq(DATE), eq(SUNRISE), eq(null), eq(null));
@@ -808,14 +808,12 @@ class ForecastResultHandlerTest {
                 location, identity, outcome, context);
 
         assertThat(result).isEmpty();
-        ArgumentCaptor<String> statusCaptor = ArgumentCaptor.forClass(String.class);
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE"),
-                eq(false), statusCaptor.capture(),
+                eq(false),
                 eq("parse_error"), eq("bad json"),
                 eq(null), eq(null),
                 eq(DATE), eq(SUNRISE), eq(null), eq(null));
-        assertThat(statusCaptor.getValue()).isEqualTo("PARSE_FAILED");
     }
 
     @Test
@@ -966,7 +964,7 @@ class ForecastResultHandlerTest {
         // though this response's rating reaches no sink.
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE-r777"),
-                eq(true), eq("SUCCESS"), eq(null), eq(null),
+                eq(true), eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(DATE), eq(SUNRISE), eq(outcome.rawText()), eq(null));
     }
@@ -1079,8 +1077,8 @@ class ForecastResultHandlerTest {
                         new SunsetEvaluation(4, 70, 65, "X"), false));
         org.mockito.Mockito.doThrow(new RuntimeException("DB down"))
                 .when(jobRunService).logBatchResult(
-                        any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(),
-                        any(), any(), any(), any(), any(), any(), any(), any(), eq(null));
+                        any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(),
+                        any(), any(), any(), any(), eq(null));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
                 location, identity, outcome, ResultContext.forBatch(
