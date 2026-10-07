@@ -20,7 +20,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Which dates across a long window carry spring-sized or king-sized water, measured from the tide
@@ -73,16 +72,23 @@ public class TideSizeIndex {
     private final TideService tideService;
 
     /**
-     * Today's per-location thresholds, or null before the first build.
+     * Today's thresholds, one entry per location.
      *
      * <p>{@code TideService.getTideStats} is four queries per location and pulls that location's
      * whole stored height history, so over a sixty-location roster it is the expensive half of this
      * class by a wide margin. Its answer is a pure function of the day — the sample is bounded at
-     * the start of today UTC — so it is cached for exactly that long. The feed above it is cached
+     * the start of today UTC — so it is kept for exactly that long. The feed above it is cached
      * per day as well, but only for one requested length, so a client alternating {@code ?days=}
      * values would otherwise pay the full roster sweep on every request.
+     *
+     * <p>A {@link DayScopedMemo} rather than a whole-roster snapshot behind an {@code AtomicReference}:
+     * the snapshot's unconditional {@code set} at the end of a sweep could outlive an eviction that
+     * landed while the sweep was still running, so the next measurement combined post-write
+     * extremes with pre-write thresholds and kept the answer for the rest of the day. The memo
+     * discards a load that an eviction overlapped, per location, and a location added since the
+     * last sweep is simply a miss of its own rather than a reason to rebuild the roster.
      */
-    private final AtomicReference<CachedThresholds> thresholds = new AtomicReference<>();
+    private final DayScopedMemo<Long, Thresholds> thresholds = new DayScopedMemo<>();
 
     /**
      * Measured sizes for a (roster, window) already asked about today, so an identical question is
@@ -134,9 +140,6 @@ public class TideSizeIndex {
             return spring != null || king != null;
         }
     }
-
-    /** Today's thresholds for a set of locations. */
-    private record CachedThresholds(LocalDate builtFor, Map<Long, Thresholds> byLocation) { }
 
     /**
      * Which dates in a window carry spring-sized or king-sized water.
@@ -289,7 +292,7 @@ public class TideSizeIndex {
     }
 
     /**
-     * Today's thresholds for the given locations, from cache when it already covers them all.
+     * Today's thresholds for the given locations, each from the memo when it holds one.
      *
      * <p>Rebuilt when the day has rolled or when the roster has grown — a location added through the
      * Admin UI mid-morning would otherwise be missing from the map until midnight, and a missing
@@ -297,25 +300,20 @@ public class TideSizeIndex {
      */
     private Map<Long, Thresholds> thresholdsFor(List<Long> ids) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        CachedThresholds cached = thresholds.get();
-        if (cached != null && cached.builtFor().isEqual(today)
-                && cached.byLocation().keySet().containsAll(ids)) {
-            return cached.byLocation();
-        }
-
         Map<Long, Thresholds> built = new LinkedHashMap<>();
         for (Long id : ids) {
-            TideStats stats = tideService.getTideStats(id).orElse(null);
-            // An entry either way. A location with no usable history must be *present* and empty,
-            // not missing — a missing key is what containsAll above tests, so recording its absence
-            // as an absence would rebuild the whole roster's thresholds on every request.
-            built.put(id, stats == null
-                    ? new Thresholds(null, null)
-                    : new Thresholds(stats.springTideThreshold(), stats.p95HighMetres()));
+            // An entry either way: a location with no usable history is present and empty, so the
+            // caller's "any usable threshold" test and the per-location loop below both see it.
+            built.put(id, thresholds.get(today, id, () -> loadThresholds(id)));
         }
-        Map<Long, Thresholds> snapshot = Map.copyOf(built);
-        thresholds.set(new CachedThresholds(today, snapshot));
-        return snapshot;
+        return Map.copyOf(built);
+    }
+
+    private Thresholds loadThresholds(Long id) {
+        TideStats stats = tideService.getTideStats(id).orElse(null);
+        return stats == null
+                ? new Thresholds(null, null)
+                : new Thresholds(stats.springTideThreshold(), stats.p95HighMetres());
     }
 
     /**
@@ -325,7 +323,7 @@ public class TideSizeIndex {
      * caches otherwise turn over on their own at the date roll.
      */
     public void evict() {
-        thresholds.set(null);
+        thresholds.evictAll();
         measured.evictAll();
         evictionListeners.forEach(Runnable::run);
     }

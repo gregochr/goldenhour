@@ -230,6 +230,28 @@ class TideSizeIndexTest {
     }
 
     @Test
+    @DisplayName("an eviction that lands while the threshold sweep is still running is not undone "
+            + "by the sweep finishing — the next measurement re-reads the thresholds")
+    void anEvictionDuringTheSweepIsNotOverwrittenByIt() {
+        // The write path: a backfill commits and evicts while getTideStats is mid-sweep. The stats
+        // this sweep returns were read BEFORE the write.
+        when(tideService.getTideStats(LOCATION_ID)).thenAnswer(invocation -> {
+            index.evict();
+            return Optional.of(new TideStats(
+                    null, null, null, null, 900L, null, null, null, new BigDecimal("4.60"), 0L, null,
+                    new BigDecimal("4.00"), null, 0L));
+        });
+        extremes(highWater(LOCATION_ID, DAY.atTime(6, 12), "4.20"));
+
+        index.measure(List.of(location(LOCATION_ID)), DAY, DAY);
+        // A whole-roster snapshot set at the end of the sweep would have outlived the eviction and
+        // answered this from pre-write thresholds for the rest of the day.
+        index.measure(List.of(location(LOCATION_ID)), DAY.minusDays(1), DAY);
+
+        verify(tideService, times(2)).getTideStats(LOCATION_ID);
+    }
+
+    @Test
     @DisplayName("evict() drops the cached thresholds")
     void evictForcesARefetch() {
         stats(LOCATION_ID, "4.00", "4.60");

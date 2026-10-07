@@ -291,6 +291,54 @@ class AlmanacServiceTest {
     }
 
     @Test
+    @DisplayName("two overlapping refreshes run one at a time, so the one that started last — on "
+            + "the newer data — is the one that publishes last")
+    void overlappingRefreshesAreSerialised() throws Exception {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AtomicInteger calls = new AtomicInteger();
+        java.util.concurrent.CountDownLatch firstStarted = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        AlmanacSource source = (f, t) -> {
+            // Call 1 is the first refresh's build, captured BEFORE the data changed; it is held
+            // until the second refresh has been asked for. Call 2 is the second refresh's build,
+            // which sees one more event. Unserialised, the second would finish first and the
+            // first would then publish its older answer over it.
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                try {
+                    release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return List.of(event(beyond, beyond, "meteor"));
+            }
+            return List.of(event(beyond, beyond, "meteor"), event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
+        };
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
+                conditionsBuilder());
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Future<Boolean> first = pool.submit(service::refresh);
+            assertThat(firstStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            java.util.concurrent.Future<Boolean> second = pool.submit(service::refresh);
+            // Serialised, the second cannot finish while the first is held: this wait times out
+            // deterministically. Unserialised, the second completes within milliseconds and this
+            // assertion is what fails — before the first's older answer gets to overwrite it.
+            assertThatThrownBy(() -> second.get(500, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            assertThat(calls.get()).isEqualTo(1);
+            release.countDown();
+            assertThat(first.get(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(second.get(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(service.getFeed().entries()).hasSize(2);
+    }
+
+    @Test
     @DisplayName("a refresh whose build fails leaves the previous feed in place and propagates")
     void aFailedRefreshKeepsThePreviousFeed() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));

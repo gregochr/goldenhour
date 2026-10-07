@@ -84,6 +84,9 @@ public class AlmanacService {
     /** Today's fully-built feed, or null before the first build of the day. */
     private final AtomicReference<CachedFeed> cache = new AtomicReference<>();
 
+    /** Serialises {@link #refresh()} — see the note inside it. */
+    private final Object refreshLock = new Object();
+
     /**
      * One day's built feed, keyed by the day it was built for and the length asked for.
      *
@@ -195,12 +198,19 @@ public class AlmanacService {
             LOG.warn("Almanac refresh skipped: an admin rewind is set on this thread");
             return false;
         }
-        LocalDate today = ForecastHorizon.today(clock);
-        long started = System.nanoTime();
-        ComingUpResponse built = assemble(today, today.plusDays(DEFAULT_DAYS - 1L));
-        cache.set(new CachedFeed(today, DEFAULT_DAYS, built));
-        LOG.info("Almanac feed refreshed for {} ({} days, {} entries) in {} ms", today, DEFAULT_DAYS,
-                built.entries().size(), (System.nanoTime() - started) / 1_000_000L);
+        // One refresh at a time. The startup warm and a pipeline tail, or two tails, can overlap
+        // on their virtual threads; built independently, whichever FINISHED last would publish,
+        // and a build that captured older data can finish last. Serialising them makes the one
+        // that STARTED last — on the newest data — also the one that publishes last. Readers never
+        // wait: getFeed() takes no lock, and a miss-build there compare-and-sets around this.
+        synchronized (refreshLock) {
+            LocalDate today = ForecastHorizon.today(clock);
+            long started = System.nanoTime();
+            ComingUpResponse built = assemble(today, today.plusDays(DEFAULT_DAYS - 1L));
+            cache.set(new CachedFeed(today, DEFAULT_DAYS, built));
+            LOG.info("Almanac feed refreshed for {} ({} days, {} entries) in {} ms", today, DEFAULT_DAYS,
+                    built.entries().size(), (System.nanoTime() - started) / 1_000_000L);
+        }
         return true;
     }
 
