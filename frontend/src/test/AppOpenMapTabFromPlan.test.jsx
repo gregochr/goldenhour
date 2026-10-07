@@ -294,3 +294,42 @@ describe('App — returnToPlan (the breadcrumb\'s ← Plan, doors D2)', () => {
     expect(second).not.toBe(first);
   });
 });
+
+describe('App — the forecast dates handed to the shell (plan §11.24)', () => {
+  it('passes the dates the reader holds a colour forecast for, so Coming up can withhold a door '
+      + 'onto any other date', async () => {
+    renderApp();
+    await screen.findByTestId('stub-map-pane');
+    expect(ShellStub.lastProps.forecastDates).toEqual([TOMORROW]);
+  });
+
+  it('passes null until the forecast lands and the dates after — unknown is not an empty list', async () => {
+    let resolveForecasts;
+    fetchForecasts.mockReset().mockReturnValue(new Promise((resolve) => { resolveForecasts = resolve; }));
+    renderApp();
+    await screen.findByTestId('stub-shell');
+    // The fetch is outstanding, so `allDates` is empty and the doors must not read that as "none".
+    expect(ShellStub.lastProps.forecastDates).toBeNull();
+
+    await act(async () => { resolveForecasts(FORECASTS); });
+    // The Map pane only mounts once forecast dates exist: it is the post-forecast signal.
+    await screen.findByTestId('stub-map-pane');
+    expect(ShellStub.lastProps.forecastDates).toEqual([TOMORROW]);
+  });
+
+  it('passes null after a failed forecast fetch with nothing on screen — a failure is not an absence', async () => {
+    fetchForecasts.mockReset().mockRejectedValue(new Error('502 from /api/forecast'));
+    renderApp();
+    await screen.findByTestId('stub-shell');
+    await act(async () => {});
+    expect(ShellStub.lastProps.forecastDates).toBeNull();
+  });
+
+  it('passes an empty array, not null, once a forecast has landed with no dates in it', async () => {
+    fetchForecasts.mockResolvedValue([]);
+    renderApp();
+    await screen.findByTestId('stub-shell');
+    await act(async () => {});
+    expect(ShellStub.lastProps.forecastDates).toEqual([]);
+  });
+});

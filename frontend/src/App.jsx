@@ -194,7 +194,9 @@ function AppInner() {
    */
   const [activePlanTab, setActivePlanTab] = useState('plan');
   const isMapTabActive = activePlanTab === 'map';
-  const { locations, refresh } = useForecasts();
+  const {
+    locations, loading: forecastsLoading, error: forecastsError, refresh,
+  } = useForecasts();
   // Defer the two long-lived SSE streams until after first paint so they don't compete with the
   // critical forecast/briefing fetches during boot.
   const streamsReady = useAfterFirstPaint();
@@ -746,6 +748,15 @@ function AppInner() {
               onOpenSettings={() => setShowSettings(true)}
               settingsOpen={settingsOpen}
               onSignOut={logout}
+              // The dates the reader holds a colour forecast for — the Coming up tab withholds a
+              // map door whose date is not among them (a 90-day feed, a few forecast days).
+              // ⚠️ Three-valued: `null` means "not known yet" and leaves the doors as they were —
+              // while the first fetch is outstanding, or when it failed with nothing on screen (a
+              // failed request is not knowledge of an absence); only a settled list can withhold
+              // one, and locations left by a cache hydrate or an earlier fetch keep theirs real.
+              forecastDates={
+                forecastsLoading || (forecastsError && visibleLocations.length === 0) ? null : allDates
+              }
               light={todaysLight}
               // The Map pane's own home marker source, reused so the Plan surfaces' home marker and
               // reach rings can never name a different point (field-geography plan §2.1).

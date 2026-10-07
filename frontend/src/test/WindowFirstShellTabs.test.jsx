@@ -1146,3 +1146,52 @@ describe('WindowFirstShell — the Coming up handoff row (plan P1/D14)', () => {
     expect(tab('Plan')).toHaveFocus();
   });
 });
+
+describe('WindowFirstShell — the forecast dates reach the Coming up cards (plan §11.24)', () => {
+  const MAP_FEED = {
+    ...FEED,
+    entries: [{
+      id: 'spring-tide:2026-08-12:2026-08-13',
+      type: 'spring-tide',
+      startDate: '2026-08-12',
+      endDate: '2026-08-13',
+      kind: 'ALMANAC',
+      family: 'coastal',
+      title: 'Spring tide run',
+      kindTag: 'Almanac',
+      facts: [],
+      action: { label: 'Show coastal spots for 12 Aug →', kind: 'coastal-spots', date: '2026-08-12' },
+    }],
+  };
+
+  it('draws a live map door when the shell is handed the entry’s date', async () => {
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell({}, { forecastDates: ['2026-08-08', '2026-08-12'] });
+    await openComingUp();
+    expect(screen.getByRole('button', { name: /Show coastal spots/ })).toBeInTheDocument();
+  });
+
+  it('withholds it, with the reason, when the date is not among the forecast dates', async () => {
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell({}, { forecastDates: ['2026-08-08', '2026-08-09'] });
+    await openComingUp();
+    expect(screen.queryByRole('button', { name: /Spring tide run|Coastal spots/ })).toBeNull();
+    expect(screen.getByTestId('coming-up-card').tagName).toBe('DIV');
+    expect(screen.getByTestId('coming-up-action'))
+      .toHaveTextContent('Coastal spots: no forecast for 12 Aug');
+  });
+
+  it('withholds it when the forecast dates are known to be empty', async () => {
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell({}, { forecastDates: [] });
+    await openComingUp();
+    expect(screen.queryByRole('button', { name: /Spring tide run|Coastal spots/ })).toBeNull();
+  });
+
+  it('leaves it live when no forecast dates are passed — not known yet is no claim', async () => {
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell();
+    await openComingUp();
+    expect(screen.getByRole('button', { name: /Show coastal spots/ })).toBeInTheDocument();
+  });
+});

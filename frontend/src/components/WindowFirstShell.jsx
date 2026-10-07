@@ -356,6 +356,10 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        and name→type joins; the drill-down needs the same name→type join for its type control.
  *        Not fetched by this arm's provider: {@code App} already holds them, and a second request
  *        for a list the page has would be waste.
+ * @param {?Array<string>} [props.forecastDates] the dates (`YYYY-MM-DD`) the reader holds a colour
+ *        forecast for — {@code App}'s {@code allDates}. Forwarded untouched to the Coming up tab,
+ *        which withholds a map door whose date is not in it. Three-valued: null (the default) is
+ *        "not known yet" and withholds nothing; an array, even empty, is known.
  * @param {boolean}  [props.contentDisabled] greys the pane when the backend is DOWN.
  *
  *        <p><b>The pane, never the chrome.</b> The masthead is inside the shell, so gating the
@@ -380,6 +384,7 @@ export default function WindowFirstShell({
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
   locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false, initialTab = null,
+  forecastDates = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -2328,6 +2333,7 @@ export default function WindowFirstShell({
         onGoToPlan={goToPlan}
         onShowOnMap={onShowOnMap}
         comingUpLastSeenDate={comingUpLastSeenDate}
+        forecastDates={forecastDates}
         onMarkSeen={markSeen}
       />
 
@@ -2905,6 +2911,12 @@ export default function WindowFirstShell({
 }
 
 WindowFirstShell.propTypes = {
+  /**
+   * The dates the reader holds a colour forecast for (`App`'s `allDates`), handed to the Coming up
+   * tab so it can withhold a map door onto a date with nothing to draw. Null or absent means the
+   * forecast is not known yet and nothing is withheld; an empty array is known-empty.
+   */
+  forecastDates: PropTypes.arrayOf(PropTypes.string),
   /** The active scoreRamp mode, forwarded to the heat strip as its paint-repaint key. */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
   /**

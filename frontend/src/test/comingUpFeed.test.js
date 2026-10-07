@@ -148,14 +148,123 @@ describe('chipCounts', () => {
   });
 });
 
+describe('buildEntryView — a map door needs a colour forecast for its date', () => {
+  // The feed is 90 days and the reader holds a few days of forecast. A door dated beyond them opened
+  // a map of unscored pins, so it is withheld and the card says why in place of the served label.
+  const COASTAL = { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' };
+  const DARK_SKY = { label: 'Show dark-sky spots for 11 Oct →', kind: 'dark-sky-spots', date: '2026-10-11' };
+  const PLAN = { label: 'See the plan for 11 Oct →', kind: 'plan', date: '2026-10-11' };
+
+  it('keeps a coastal door live, with no note, when its date is in the forecast dates', () => {
+    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, ['2026-10-10', '2026-10-11']);
+    expect(view.interactive).toBe(true);
+    expect(view.actionWithheld).toBe(false);
+    expect(view.actionNote).toBeNull();
+  });
+
+  it('keeps a dark-sky door live, with no note, when its date is in the forecast dates', () => {
+    const view = buildEntryView(entry({ action: DARK_SKY }), TODAY, null, ['2026-10-11']);
+    expect(view.interactive).toBe(true);
+    expect(view.actionWithheld).toBe(false);
+    expect(view.actionNote).toBeNull();
+  });
+
+  it('withholds a coastal door whose date has no forecast, and names the door and the date', () => {
+    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, ['2026-10-07', '2026-10-08']);
+    expect(view.interactive).toBe(false);
+    expect(view.actionWithheld).toBe(true);
+    expect(view.actionNote).toBe('Coastal spots: no forecast for 11 Oct');
+  });
+
+  it('withholds a dark-sky door whose date has no forecast, naming its own door', () => {
+    const view = buildEntryView(
+      entry({ action: { ...DARK_SKY, date: '2026-10-21' } }), TODAY, null, ['2026-10-07'],
+    );
+    expect(view.interactive).toBe(false);
+    expect(view.actionWithheld).toBe(true);
+    expect(view.actionNote).toBe('Dark-sky spots: no forecast for 21 Oct');
+  });
+
+  it('withholds on membership of the exact date — a gap in the list is not covered by its neighbours', () => {
+    // Separates `includes(date)` from "some listed date is on or after it" and "from a range".
+    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, ['2026-10-10', '2026-10-12']);
+    expect(view.interactive).toBe(false);
+    expect(view.actionWithheld).toBe(true);
+  });
+
+  it('withholds when every listed date is later than the action date', () => {
+    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, ['2026-10-12']);
+    expect(view.interactive).toBe(false);
+    expect(view.actionWithheld).toBe(true);
+  });
+
+  it('still carries the served action untouched on a withheld view — the card prints the note, '
+      + 'but nothing about the wire entry is rewritten', () => {
+    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, []);
+    expect(view.action).toEqual(COASTAL);
+  });
+
+  it('treats an empty forecast-date list as KNOWN to be empty — every map door is withheld', () => {
+    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, []);
+    expect(view.interactive).toBe(false);
+    expect(view.actionWithheld).toBe(true);
+  });
+
+  it('leaves the door live when the forecast dates are undefined — not known yet is no claim', () => {
+    const view = buildEntryView(entry({ action: COASTAL }), TODAY, null, undefined);
+    expect(view.interactive).toBe(true);
+    expect(view.actionWithheld).toBe(false);
+    expect(view.actionNote).toBeNull();
+  });
+
+  it('leaves the door live when the forecast dates are null — the forecast has not loaded', () => {
+    const view = buildEntryView(entry({ action: DARK_SKY }), TODAY, null, null);
+    expect(view.interactive).toBe(true);
+    expect(view.actionWithheld).toBe(false);
+    expect(view.actionNote).toBeNull();
+  });
+
+  it('never withholds a plan door, whatever the list holds — its destination is the tab, not a date', () => {
+    const view = buildEntryView(entry({ action: PLAN }), TODAY, null, []);
+    expect(view.interactive).toBe(true);
+    expect(view.actionWithheld).toBe(false);
+    expect(view.actionNote).toBeNull();
+  });
+
+  it('does not make a kind-less action live just because its date has a forecast', () => {
+    const view = buildEntryView(
+      entry({ action: { label: 'nowhere', kind: null, date: '2026-10-11' } }), TODAY, null, ['2026-10-11'],
+    );
+    expect(view.interactive).toBe(false);
+    expect(view.actionWithheld).toBe(false);
+  });
+
+  it('degrades to a date-less note, not "Invalid Date", when a map action carries no date', () => {
+    const view = buildEntryView(
+      entry({ action: { label: 'Show coastal spots →', kind: 'coastal-spots', date: undefined } }),
+      TODAY, null, ['2026-10-11'],
+    );
+    expect(view.actionNote).toBe('Coastal spots: no forecast');
+  });
+
+  it('formats the note’s date in the house short form (a September date reads Sept, a single '
+      + 'digit has no padding)', () => {
+    const view = buildEntryView(
+      entry({ action: { ...COASTAL, date: '2026-09-03' } }), TODAY, null, [],
+    );
+    expect(view.actionNote).toBe('Coastal spots: no forecast for 3 Sept');
+  });
+});
+
 describe('buildEntryView', () => {
   it('marks a plan-action entry interactive', () => {
     const view = buildEntryView(entry({ action: { label: 'See the plan for 16 Aug →', kind: 'plan', date: '2026-08-16' } }), TODAY);
     expect(view.interactive).toBe(true);
   });
 
-  it('marks a coastal-spots action interactive — the map channel now exists (P3b, D8)', () => {
-    const view = buildEntryView(entry(), TODAY);
+  it('marks a coastal-spots action interactive — the map channel now exists (P3b, D8) — once the '
+      + 'reader holds a forecast for its date', () => {
+    const view = buildEntryView(entry(), TODAY, null, ['2026-08-16']);
     expect(view.interactive).toBe(true);
   });
 
@@ -163,6 +272,8 @@ describe('buildEntryView', () => {
     const view = buildEntryView(
       entry({ action: { label: 'Show dark-sky spots →', kind: 'dark-sky-spots', date: '2026-08-16' } }),
       TODAY,
+      null,
+      ['2026-08-16'],
     );
     expect(view.interactive).toBe(true);
   });
@@ -291,6 +402,33 @@ describe('groupEntriesByMonth', () => {
 
   it('returns nothing for an empty list', () => {
     expect(groupEntriesByMonth([])).toEqual([]);
+  });
+});
+
+describe('buildChronology — the forecast dates reach every entry view', () => {
+  const MAP_ENTRIES = [
+    entry({ id: 'a', startDate: '2026-10-08', endDate: '2026-10-08',
+      action: { label: 'x', kind: 'coastal-spots', date: '2026-10-08' } }),
+    entry({ id: 'b', startDate: '2026-10-20', endDate: '2026-10-20',
+      action: { label: 'y', kind: 'coastal-spots', date: '2026-10-20' } }),
+  ];
+  const views = (groups) => groups.flatMap((g) => g.entries);
+
+  it('withholds only the entry whose date is missing from the list it was handed', () => {
+    const [near, far] = views(buildChronology(MAP_ENTRIES, '2026-10-07', 'all', null, ['2026-10-08']));
+    expect(near.interactive).toBe(true);
+    expect(far.interactive).toBe(false);
+    expect(far.actionNote).toBe('Coastal spots: no forecast for 20 Oct');
+  });
+
+  it('withholds every map door when the list handed through is empty', () => {
+    expect(views(buildChronology(MAP_ENTRIES, '2026-10-07', 'all', null, [])).map((v) => v.interactive))
+      .toEqual([false, false]);
+  });
+
+  it('leaves every map door live when no list is handed through — not known yet', () => {
+    expect(views(buildChronology(MAP_ENTRIES, '2026-10-07', 'all')).map((v) => v.interactive))
+      .toEqual([true, true]);
   });
 });
 

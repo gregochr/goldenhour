@@ -82,11 +82,16 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * @param {(string|null)} [props.comingUpLastSeenDate] the reader's stored `comingUpLastSeenDate`
  *                                     (D3), or null/undefined before it is known — drives NEW flags,
  *                                     the fresh box-shadow, and the since-line (plan §6/P5)
+ * @param {?Array<string>} [props.forecastDates] the dates (`YYYY-MM-DD`) the reader holds a colour
+ *                                     forecast for — a `coastal-spots`/`dark-sky-spots` door onto
+ *                                     any other date is withheld, with its reason printed (plan
+ *                                     §11.24). Three-valued: null/absent is "not known yet" and
+ *                                     withholds nothing; an array, even empty, is known
  * @param {function} props.onMarkSeen  clears the badge and every NEW flag (plan §6/P5)
  */
 export default function WindowFirstComingUp({
   id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan, onShowOnMap,
-  comingUpLastSeenDate, onMarkSeen,
+  comingUpLastSeenDate, onMarkSeen, forecastDates = null,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
 
@@ -96,8 +101,10 @@ export default function WindowFirstComingUp({
   const chips = useMemo(() => chipCounts(counts), [counts]);
   const activeChipLabel = chips.find((chip) => chip.id === activeFilter)?.label ?? 'active';
   const monthGroups = useMemo(
-    () => buildChronology(events?.entries, todayStr, activeFilter, comingUpLastSeenDate),
-    [events, todayStr, activeFilter, comingUpLastSeenDate],
+    () => buildChronology(
+      events?.entries, todayStr, activeFilter, comingUpLastSeenDate, forecastDates,
+    ),
+    [events, todayStr, activeFilter, comingUpLastSeenDate, forecastDates],
   );
   // The since-line's own two derivations (plan D3/D12) — read straight off the UNFILTERED served
   // entries/bands, never the active chip's filtered subset: the badge and the since-line describe
@@ -371,5 +378,6 @@ WindowFirstComingUp.propTypes = {
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,
   comingUpLastSeenDate: PropTypes.string,
+  forecastDates: PropTypes.arrayOf(PropTypes.string),
   onMarkSeen: PropTypes.func.isRequired,
 };

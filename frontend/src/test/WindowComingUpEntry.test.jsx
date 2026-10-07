@@ -167,6 +167,94 @@ describe('WindowComingUpEntry — the card', () => {
   });
 });
 
+describe('WindowComingUpEntry — a map door withheld for want of a forecast (plan §11.24)', () => {
+  const WITHHELD = {
+    title: 'Spring tide run',
+    action: { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' },
+    interactive: false,
+    actionWithheld: true,
+    actionNote: 'Coastal spots: no forecast for 11 Oct',
+  };
+
+  it('renders as a plain card, not a button — a disabled button would still be a control', () => {
+    renderEntry(WITHHELD);
+    expect(screen.queryByRole('button')).toBeNull();
+    const card = screen.getByTestId('coming-up-card');
+    expect(card.tagName).toBe('DIV');
+    expect(card).toHaveClass('wf-cu-card-inert');
+  });
+
+  it('prints the reason in place of the served label, never both', () => {
+    renderEntry(WITHHELD);
+    const action = screen.getByTestId('coming-up-action');
+    expect(action).toHaveTextContent('Coastal spots: no forecast for 11 Oct');
+    expect(action).not.toHaveTextContent('Show coastal spots');
+    expect(screen.queryByText(/Show coastal spots/)).toBeNull();
+  });
+
+  it('marks the action line withheld, for the stylesheet and for a reader of the DOM', () => {
+    renderEntry(WITHHELD);
+    const action = screen.getByTestId('coming-up-action');
+    expect(action).toHaveAttribute('data-withheld', 'true');
+    expect(action).toHaveClass('wf-cu-action', 'wf-cu-action-withheld');
+  });
+
+  it('dispatches nothing on a click — neither to the map nor to Plan', () => {
+    const { onShowOnMap, onGoToPlan } = renderEntry(WITHHELD);
+    fireEvent.click(screen.getByTestId('coming-up-card'));
+    fireEvent.click(screen.getByTestId('coming-up-action'));
+    expect(onShowOnMap).not.toHaveBeenCalled();
+    expect(onGoToPlan).not.toHaveBeenCalled();
+  });
+
+  it('withholds a dark-sky door the same way', () => {
+    renderEntry({
+      ...WITHHELD,
+      action: { label: 'Show dark-sky spots for 11 Oct →', kind: 'dark-sky-spots', date: '2026-10-11' },
+      actionNote: 'Dark-sky spots: no forecast for 11 Oct',
+    });
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByTestId('coming-up-action')).toHaveTextContent('Dark-sky spots: no forecast for 11 Oct');
+  });
+
+  it('leaves a live door exactly as it was: a button, the served label, no withheld marker', () => {
+    renderEntry({ actionWithheld: false, actionNote: null });
+    expect(screen.getByRole('button')).toBeInTheDocument();
+    const action = screen.getByTestId('coming-up-action');
+    expect(action).toHaveTextContent('Show coastal spots for 16 Aug →');
+    expect(action).not.toHaveAttribute('data-withheld');
+    expect(action).not.toHaveClass('wf-cu-action-withheld');
+  });
+
+  it('prints the served label on a card that is inert but not withheld — only actionWithheld swaps '
+      + 'the label, never interactive alone', () => {
+    renderEntry({
+      action: { label: 'Something served', kind: 'a-future-kind', date: '2026-08-16' },
+      interactive: false,
+      actionWithheld: false,
+      actionNote: null,
+    });
+    expect(screen.queryByRole('button')).toBeNull();
+    const action = screen.getByTestId('coming-up-action');
+    expect(action).toHaveTextContent('Something served');
+    expect(action).not.toHaveAttribute('data-withheld');
+  });
+
+  it('prints the served label on a kind-less inert card too', () => {
+    renderEntry({
+      action: { label: 'Nowhere to go', kind: null, date: '2026-08-16' },
+      interactive: false,
+    });
+    expect(screen.getByTestId('coming-up-action')).toHaveTextContent('Nowhere to go');
+  });
+
+  it('prints the served label when a view carries no withheld fields at all (a legacy view shape)', () => {
+    renderEntry();
+    expect(screen.getByTestId('coming-up-action')).toHaveTextContent('Show coastal spots for 16 Aug →');
+    expect(screen.getByTestId('coming-up-action')).not.toHaveAttribute('data-withheld');
+  });
+});
+
 describe('WindowComingUpEntry — the dashed rule', () => {
   it('marks a forecast entry\'s card as dashed', () => {
     renderEntry({ isForecast: true, action: { label: 'See the plan for 2 Sept →', kind: 'plan', date: '2026-09-02' }, interactive: true });
