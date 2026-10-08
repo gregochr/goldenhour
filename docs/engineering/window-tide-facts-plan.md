@@ -1,254 +1,338 @@
 # Window tide facts: serving per-location tide separately from slots
 
-Status: **plan, not built.** Owner decision 2026-10-08 (option 3 of three offered). Draft 1.
+Status: **plan, not built.** Owner decision 2026-10-08 (option 3 of three, "build it correctly", with the
+adjacent technical debt paid down in the same series). Draft 2, after an adversarial review (four lenses,
+three refutation passes); §10 records what the review changed.
 
 ## 1. The defect
 
 On 2026-10-08 the Map tab showed no tide strip for Sunday sunrise (2026-10-11), and the map held only
-three wildlife hides ("3 of 263 shown · 0 rated"). The tide facts existed: the persisted briefing
-cache carried 225 Sunday-sunrise slots, 59 of them with a `tideState`, and every coastal location in
+three wildlife hides ("3 of 263 shown · 0 rated"). The tide facts existed: the persisted briefing cache
+carried 225 Sunday-sunrise slots, 59 of them with a `tideState`, and every coastal location in
 Northumberland & Tyneside and North York Moors & Coast had four stored extremes for that day.
 
-`GET /api/briefing` served **zero** slots for that window. Measured in the browser the same morning:
+`GET /api/briefing` served **zero** slots for that window. Measured in the owner's browser that morning:
 
 | Window | Slots served | With `tideState` |
 |---|---|---|
 | Thu 8 sunrise, sunset (travel day) | 0 | 0 |
-| Fri 9 sunrise | 225 | 59 |
-| Fri 9 sunset | 182 | 27 |
-| Sat 10 sunrise | 29 | 16 |
-| Sat 10 sunset | 82 | 27 |
+| Fri 9 sunrise / sunset | 225 / 182 | 59 / 27 |
+| Sat 10 sunrise / sunset | 29 / 82 | 16 / 27 |
 | Sun 11 and Mon 12, both windows | 0 | 0 |
 
-**Cause.** `BriefingHonestyFilter.fullRewrite` (`service/BriefingHonestyFilter.java`) runs on the API
-read path and, for any region with zero Claude coverage on a window, replaces the region's slot list
-with `List.of()`. The filter was written as failure-defence (a failed batch), but zero coverage is
-also the *designed* state of every window Gate 4 does not score (T+3 except SETTLED, all of T+4, and
-every travel day, whose batch is skipped). Emptying the slots deletes the per-location tide facts with
-them, although those facts come from stored tide tables and have nothing to do with Claude.
+**Cause.** `BriefingHonestyFilter` (`service/BriefingHonestyFilter.java`) runs on the API read path.
+`rewriteRegionByCoverage` sends a region to `fullRewrite`, which replaces its slot list with `List.of()`,
+when the region has at least one slot that could carry a rating (`BriefingSlot.couldCarryRating`) and
+`scoredLocationCount == 0`. All-canopy and all-gated regions keep their slots, and `unregioned` slots are
+never touched. The filter was written as failure-defence (a failed batch), but zero coverage is also the
+*designed* state of every window Gate 4 does not score (T+3 except SETTLED, all of T+4) and of every travel
+day (its batch is skipped, `BriefingCandidateCollector`). Emptying the slots deletes the per-location tide
+facts with them, although those facts come from stored tide tables and have nothing to do with Claude.
 
-Downstream on the Map tab: `buildTideAlignmentIndex` finds no slot, so `getTideOnLightForLocation`
-returns null for every coastal location; the rating stage's tide exemption (`MapView.jsx`,
-`visibleLocations`) never fires; the 3★ floor removes every coastal location; `stripModel` finds no
-coastal spot in view and hides the strip. Only pure-wildlife hides survive, because they bypass the
-floor.
-
-The same blindness affects every per-location tide reader on the API path (§3).
+Downstream on the Map tab: `buildTideAlignmentIndex` (`utils/locationSheet.js`) finds no slot, so
+`MapView.getTideOnLightForLocation` returns null for every coastal location; the rating stage's tide
+exemption (`MapView.jsx`, `visibleLocations`) never fires; the 3★ floor removes every coastal location;
+`stripModel` finds no coastal spot in view and hides the strip. Pure-wildlife hides bypass the floor, so
+only they survive. The window-level tide (`BriefingWindow.tide`) is present (Sunday's representative is
+St. Mary's Lighthouse), so the strip has a curve; it lacks a coastal spot.
 
 ## 2. The design
 
-**Tide facts are a property of (location, window), computed deterministically from stored tides. They
-must not live inside a structure whose visibility depends on Claude coverage.**
+**Tide facts are a property of (location, window), computed deterministically from stored tides. They must
+not live inside a structure whose visibility depends on Claude coverage.**
 
 ### 2.1 What is served
 
-A new nullable component on `BriefingEventSummary`:
+A new nullable component on **`BriefingWindow`** (`model/BriefingWindow.java`), the serve-time,
+never-persisted, per-window object that already carries the window's tide rollup (`tide`):
 
 ```java
 @JsonInclude(JsonInclude.Include.NON_NULL) List<LocationTideFact> tideFacts
 ```
 
-One entry per location **with a served `tideState`** in that window (the same population
-`buildTideAlignmentIndex` admits today; an inland or no-extremes location has no entry, which the
-client already reads as "not a coastal slot with a served tide state").
+One entry per location **with a non-null `tideState`** in that window, the same population
+`buildTideAlignmentIndex` admits today. A window with no coastal slot carries `null`, omitted on the wire
+(never an empty array). One entry per location per window; if two slots name the same location (they
+cannot today), the first in region order wins and a test pins it.
 
-`LocationTideFact` (new record, `model/LocationTideFact.java`) carries the identity join keys and the
-tide fields the API readers use, **copied verbatim** from the slot's `TideInfo`, never re-derived:
+`LocationTideFact` (new record, `model/LocationTideFact.java`). **Every field has a named reader**; a field
+without one is not carried:
 
-| Field | From | Note |
+| Field | Type | Readers |
 |---|---|---|
-| `locationId` | slot | NON_NULL; legacy slots may lack it |
-| `locationName` | slot | the name-fallback join key `lookupForWindow` already uses |
-| `tideState` | `TideInfo` | never null in this list by construction |
-| `tideAligned` | `TideInfo` | preference axis |
-| `tideAlignmentQuality` | `TideInfo` | NON_NULL |
-| `tideOnTheLight` | `TideInfo` | NON_NULL; type-blind axis, kept separate (two-tide-axes rule) |
-| `nearestSolarOffsetMinutes`, `nearestExtremeKind`, `nearestSolarOffsetPhrase` | `TideInfo` | NON_NULL |
-| `tideLevel`, `tideDirection`, `tideHeight`, `tideShortfall`, `tideFitPhrase` | `TideInfo` | NON_NULL |
+| `locationId` | `Long`, NON_NULL | every join (id first) |
+| `locationName` | `String` | the name fallback `lookupForWindow` already uses (legacy slots lack an id) |
+| `tideState` | `String`, never null here | index `state`, spots, Ask |
+| `tideAligned` | `boolean` | index `aligned`, spots, `HeatmapGrid`, `computeCellTier`, `slotSortKey`, Ask |
+| `tideAlignmentQuality` | `Double`, NON_NULL | spots (`tideFit.meanQuality`) |
+| `tideOnTheLight` | `Boolean`, NON_NULL | index `onTheLight` |
+| `nearestSolarOffsetPhrase` | `String`, NON_NULL | index `phrase` |
+| `tideLevel`, `tideDirection`, `tideHeight`, `tideShortfall` | as on `TideInfo`, NON_NULL | index `level`/`direction`/`height`/`shortfall` |
+| `tideFitPhrase` | `String`, NON_NULL | index `fitPhrase`, Ask |
 
-Deliberately **not** carried: the size and lunar fields (`heightAboveP95`, `heightAboveSpringThreshold`,
-`lunarTideType`, `lunarPhase`, `moonAtPerigee`, `nearestHighTide*`), because no API-path per-location
-reader uses them (hot topics read the raw cache; see §3). Add one only with a reader. Also not
-carried: `skyRating`, `claudeRating`, `evaluationGate`. Those are evaluation outputs, not tide facts,
-and the honesty filter is right to withhold them on an unscored window.
+Not carried, deliberately: the size and lunar fields (`heightAboveP95`, `heightAboveSpringThreshold`,
+`lunarTideType`, `lunarPhase`, `moonAtPerigee`, `nearestHighTide*`; their only API-path reader is the
+callerless `CloseToHomeService`, which reads the unstripped `getServedBriefing`, see §3.3),
+`nearestSolarOffsetMinutes` and `nearestExtremeKind` (no API reader), and the evaluation outputs
+`skyRating`, `claudeRating` and `evaluationGate` (the honesty filter is right to withhold those on an
+unscored window).
 
-### 2.2 Where it is computed: serve time, from the persisted slot facts, before any filter
+The **only** construction path is a static factory `LocationTideFact.from(BriefingSlot slot)` (returns null
+for a slot whose `tide()` is null or whose `tideState` is null). A reflection test asserts every
+`LocationTideFact` component other than the two identity fields maps to a same-named `TideInfo` accessor, so
+the two records cannot drift.
 
-A new package-private `WindowTideFactProjector` in `service/`, applied as the **first** step of
-`ServedBriefingAssembler.assembleWithoutPlan`, before `reEnrichVerdicts`, the best-bet fallback and the
-honesty filter:
+### 2.2 Where it is computed
+
+A new package-private `WindowTideFactProjector` in `service/`, a static utility like `PlanWindowProjector`:
+
+```java
+static Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> project(List<BriefingDay> days)
+```
+
+It walks each summary's regioned and unregioned slots (in that order) and builds the map with
+`LocationTideFact.from`. It reads no repository and no clock, and it never mutates its input.
+
+`ServedBriefingAssembler.assembleForPlan` calls it on the **raw cached `snapshot.days()`**, the only point
+where slots are still unfiltered (`assembleWithoutPlan` empties them inside, and returns only the filtered
+result). Slot tide is never touched by re-enrichment or the fallback, so the snapshot's tide is the served
+tide. The pipeline becomes:
 
 ```
-honesty(fallback(reEnrich(attachTideFacts(snapshot))))
+snapshot ─► WindowTideFactProjector.project(snapshot.days())  ──────────────┐ tideFacts map
+        └─► assembleWithoutPlan (re-enrich, fallback, honesty filter)       │
+             └─► attachMovement ─► PlanWindowProjector.apply(filtered, now, tides, tideFacts)
 ```
 
-It walks each event summary's regioned and unregioned slots and builds the list from each slot's
-`TideInfo`. It reads no repository and no clock.
+`PlanWindowProjector.apply` gains the `tideFacts` argument beside `tides`; `Draft.toWindow` sets it. The
+projector stays pure (the map is an argument, exactly as `tides` is), and `apply` already attaches a window
+to **every** summary of every day: blanked, travel-day, past and unrendered windows included
+(`PlanWindowProjector` pass 1 drafts every summary; only picks and the day peak are scoped to rendered
+events). `PlanWindowProjector.WindowKey` is the key, as its javadoc requires of any second producer of
+per-window data.
 
-Why serve time, not build time:
+`assembleWithoutPlan` / `getServedBriefing` (Close-to-home only) gets no facts and needs none.
 
-- **One source of truth stays one.** `BriefingSlotBuilder.calculateTideData` remains the only writer of
-  tide facts. The projector is a reshape, so the two can never disagree.
-- **No persisted-shape change, no legacy window.** A cache built before deploy serves facts on the
-  first request; nothing waits for the next briefing build.
-- **No carrier rule applies.** CLAUDE.md's "build-time enrichment must ride a carrier" rule is about
-  hot topics recomputed live; tide facts are already persisted in the slots.
-- **Cost:** one pass over about 2,000 slots per serve, no I/O, the same order as the existing
-  `reEnrichVerdicts` walk. Measured in a test if it is to be claimed.
+**Why serve time, from slots.** `BriefingSlotBuilder.calculateTideData` stays the only writer of tide facts;
+the projector is a reshape, so the two cannot disagree. Windows are never persisted, so there is no
+cache-shape change and no legacy window. **Accepted ceiling:** facts exist only where a slot exists, that is
+enabled colour locations whose weather fetch succeeded at the last build, inside the briefing's five dates.
+A coastal location with no slot gets no fact and degrades exactly as an inland one does (tested).
 
-Build-time readers (best-bet rollup, gloss, verdict evaluator, hot-topic strategies, force-eval
-selector) keep reading `slot.tide()` from the raw or cached briefing and are untouched.
+### 2.3 Contract
 
-### 2.3 Surviving the rebuilds
+- JSON: `window.tideFacts`, an array of flat objects; NON_NULL omission on the window and on optional entry
+  fields. Not personal data, so it may ride the ETag'd `GET /api/briefing` (CLAUDE.md "Panel data
+  contracts"). `GET /api/briefing/digest` does not expose it (it copies scalars off the window).
+- **Wire test (Jackson 3):** a full-context test extending `AbstractControllerTest` (no Docker; H2 test
+  profile), modelled on `JsonDateFormatContractTest.getBriefing_pinsEclipseSightDateFormat`. It stubs
+  `BriefingService.getCachedBriefingForApi` and asserts via `jsonPath` the field names, NON_NULL omission,
+  and that a window with no facts has no `tideFacts` key. `DailyBriefingResponseJsonTest` is Jackson 2 (the
+  cache shape) and does not prove the wire.
+- **Stale clients:** a payload from before deploy has no `tideFacts`. The client treats absence as "no tide
+  facts" (null-safe) and draws as it does for an unscored window until the first revalidation replaces
+  state and cache. **No slot fallback** (it would be two sources and would hide a missing-facts bug in
+  tests) and no SWR key bump: the ETag is body-derived (`HttpCachingConfig`), so a pre-deploy ETag can never
+  revalidate into a pre-deploy body. The stale window is the first paint after deploy, up to the SWR cache's
+  12 hours only if the fetch fails.
 
-Every pass that rebuilds a summary must carry `tideFacts` through:
+## 3. Readers, and the single source
 
-- `BriefingEventSummary`: add the component to the canonical constructor (with an immutable copy that
-  tolerates null), keep the 3-arg convenience constructor defaulting it to null, and make
-  `withRegions`, `withUnregioned` and `withWindow` copy it. Add `withTideFacts`.
-- Audit every `new BriefingEventSummary(` call site in `src/main` (hierarchy builder, honesty filter,
-  simulated eclipse overlay, projector, Ask fixtures) and confirm none drops it. A test pins the
-  honesty filter's `rewriteEvent` path specifically, because that is the pass the facts exist to
-  survive.
-
-### 2.4 Contract
-
-- JSON name `tideFacts`, an array of flat objects, NON_NULL omission on the summary and on optional
-  entry fields. Pinned in `DailyBriefingResponseJsonTest` next to the existing flat-slot test.
-- Not personal data: identical for every reader, so it may ride the ETag'd `GET /api/briefing`
-  (CLAUDE.md "Panel data contracts"). It changes the body hash once at deploy, which is expected.
-- `GET /api/briefing/digest` is unaffected (it reads `window` only).
-
-## 3. Readers to move, and what each gains
-
-Every per-location tide reader on the API path moves to `tideFacts`. Readers of the raw or cached
-briefing do not move.
+The series ends with **one source of per-location tide on the wire**: `window.tideFacts`. API slots stop
+carrying tide (P5). Every API-path reader therefore moves first.
 
 ### 3.1 Frontend (all read `briefing.days` from `GET /api/briefing`)
 
-| Reader | Today | After |
-|---|---|---|
-| `utils/locationSheet.js` `buildTideAlignmentIndex` | walks slots; skips null `tideState` | walks `summary.tideFacts`; same entry shape |
-| `skyRating` and `gated` on that index's entries | read off the same slot | joined from the slot when one exists, else null (they are evaluation outputs) |
-| Map tab: `MapView` chip, rating-stage exemption, `stripModel`, drilldown rows, `MapCallout`/`TideFitBlock`, `nextAlignedRow` | via the index | unchanged code; fed by the new index |
-| `LocationFourDaySheet` (both hosts) | via the index (`sheetTideAlignmentIndex`) | unchanged code |
-| `utils/askModel.js` pick cards | via the index | unchanged code |
-| `utils/windowFirstSpots.js` `buildWindowSpots` | copies `tideState`, `tideAligned`, `tideAlignmentQuality` off each slot | joins them from a facts index by location; spots still come from slots |
-| `utils/windowFirstCards.js` `tideFit`, `bestReach.tideAligned`; `windowFirstTideRun.js`; `WindowFirstHeatStrip`; `WindowSheetDialog` | read the spot fields above | unchanged code |
-| `HeatmapGrid.jsx:505`, `tierUtils.js:47`, `briefingDisplay.js:60` | read `slot.tideAligned` | read through a shared facts lookup |
+| Reader | Today | After | Phase |
+|---|---|---|---|
+| `utils/locationSheet.js` `buildTideAlignmentIndex` | walks slots | walks `summary.window?.tideFacts`; entry shape unchanged | P2 |
+| …its `skyRating` and `gated` entry fields | read off the slot | joined from that window's slot by `locationId`, then name; `skyRating` null and `gated` false when no slot exists | P2 |
+| Map tab (`MapView` chip and rating-stage exemption, `stripModel`, `mapDrilldown`, `MapCallout`/`TideFitBlock`, `nextAlignedRow`), `LocationFourDaySheet` (both hosts), `askModel` pick cards | through the index | unchanged code | P2 |
+| `utils/windowFirstSpots.js` `buildWindowSpots` | copies `tideState`, `tideAligned`, `tideAlignmentQuality` off each slot | copies them from the window's facts by location; the spot population still comes from slots (`windowFirstSpots.js:244–248`'s one-population rule is kept) | P3 |
+| `windowFirstCards` `tideFit`/`bestReach`, `windowFirstTideRun`, `WindowFirstHeatStrip`, `WindowSheetDialog` | spot fields | unchanged code | P3 |
+| `HeatmapGrid.jsx` `alignedCount` (:505), `computeCellTier` (`tierUtils.js:47`, called at `HeatmapGrid.jsx:842/846`), `slotSortKey` / `sortedSlotsByTidePriority` (`briefingDisplay.js:60–62`, used at `HeatmapGrid.jsx:145`) | `slot.tideAligned` | read through the tide index; `HeatmapGrid` receives it as a prop built once by `WindowFirstRegionalPanel` (whose `getSubCellData` hands a bare region today) | P3 |
 
-`buildEvaluationGateIndex` and `buildSlotIndex` stay on slots: they are evaluation and timing facts.
+`buildEvaluationGateIndex`, `buildSlotIndex` and `buildEclipseIndex` stay on slots (evaluation, timing and
+eclipse facts).
 
 ### 3.2 Backend API-path readers
 
-| Reader | Path | After |
+| Reader | After | Phase |
 |---|---|---|
-| `AskSnapshotBuilder.toSlot` (feeds `AskTools`, `ReadyQuestion`, `StubAskEngine`) | API-filtered | joins `tideState`, `tideAligned`, `tideFitPhrase` from `tideFacts` |
-| `CloseToHomeService.tideLabel` | served (filtered) | reads `heightAboveP95`/`heightAboveSpringThreshold`, which §2.1 deliberately excludes. **Left on slots**; the endpoint has no caller (CLAUDE.md, v1 retirement §8.3). Recorded, not moved. |
+| `AskSnapshotBuilder.toSlot` (feeds `AskTools`, `ReadyQuestion`, `StubAskEngine`) | joins `tideState`, `tideAligned`, `tideFitPhrase` from the summary's `window.tideFacts`. Must land before P5: `toSlot` is null-safe, so a strip without it silently makes every Ask slot non-coastal | P4 |
+| `BriefingDigestService` | reads `window` scalars only; unaffected | — |
 
-### 3.3 Not moved (read the raw or cached briefing, unaffected by the filter)
+### 3.3 Not moved
 
-`KingTideHotTopicStrategy`, `SpringTideHotTopicStrategy`, `CoastalTideFactsBuilder`,
-`BriefingRollupBuilder`, `BriefingGlossService`, `BriefingVerdictEvaluator`,
-`ForceEvalHeadlineSelector`, `BriefingModelTestService`.
+Readers of the raw or cached briefing, unaffected by the filter and the strip: `KingTideHotTopicStrategy`,
+`SpringTideHotTopicStrategy`, `CoastalTideFactsBuilder`, `BriefingRollupBuilder`, `BriefingGlossService`,
+`BriefingVerdictEvaluator`, `ForceEvalHeadlineSelector`, `BriefingModelTestService`, `ForecastTaskCollector`.
+`CloseToHomeService.tideLabel` reads the size fields from `getServedBriefing`, which is not stripped: a
+deliberate, documented asymmetry while the endpoint has no caller.
 
 ## 4. Behaviour this changes, deliberately
 
 1. **Map tab, any window the filter blanks** (unscored T+3/T+4, travel days, a failed batch): coastal
-   locations with a tide fact pass the rating stage again, the strip finds them and shows, chips carry
-   their tide glyph and tier, and the callout and four-day sheet show their tide block. This is the
-   owner's defect.
-2. **Plan card tide chip on a blanked window**: still absent. The card's pool comes from slots, and a
-   blanked region contributes none, so `tideFit` has no coastal spots to count. Making the chip count
-   coastal locations with no slot is a separate product decision (the chip's population is the
-   reach-gated *spot* pool by the licensed-derivation rule, `tide-plan-card-plan.md`). **Open
-   question Q1.**
-3. **Ask**: `rank_spots` with a tide filter and the pick cards read facts that survive the filter. Picks
-   still need a rating, so a blanked window still yields no picks; only tide wording on otherwise
-   eligible picks is affected (none today on blanked windows). No prompt change; the tool output keeps
-   its field names. Prompt-regression fixtures are not touched.
-4. **Payload**: about 60 entries per window of about 12 short fields, roughly 10 windows, so on the
-   order of 60–90 KB uncompressed on a payload the SWR comment puts at about 1.3 MB. Measured in P1,
-   with the number recorded in the PR.
+   locations with a tide fact pass the rating stage, the strip finds them and shows, chips carry their tide
+   tier, and the callout and four-day sheet show their tide block. On such a window the map is a coast-only,
+   unrated set (tide cues, no stars), strictly better than today's hides-only map; the footer still reads
+   "N of M shown · 0 rated".
+2. **Honest heading on an unassessed miss.** `TideFitBlock` and `mapTideFit.tideTierHeading` (which also
+   feeds the chip tooltip and `tideAccessibleClause`) say "Wrong water, not wrong light" only when the window
+   was assessed (`fact.skyRating != null || combinedRating != null`). Otherwise a miss reads "Tide misses the
+   light here". A match is unchanged. A recorded deviation from `tide-window-plan.md` §4 #8's verbatim
+   headings; it also makes a weather-triaged slot with no sky rating honest.
+3. **Plan card "N on tide" chip on a blanked window:** still absent (no slots, so no spots). **Q1.**
+4. **Phone, Auto tide mode:** still no tide cues on a window with no served verdict tier (`mapPeek.tideVisible`
+   requires WORTH_IT or MAYBE). Accepted, owner decision 2026-10-08. Always mode gains the cues.
+5. **Payload.** About 400–450 bytes an entry; about 86 entries a day (59 per sunrise, 27 per sunset
+   measured), so ~150–270 KB raw over five days and ~20–35 KB gzipped, on a payload the SWR comment puts at
+   ~1.3 MB. P5 removes the slot copy, which is larger, so the series ends smaller than today. The SWR cost
+   (UTF-16 in `localStorage`, ~5 MB iOS ceiling) matters more than the wire.
 
-## 5. Out of scope, recorded
+## 5. Technical debt paid down in this series
 
-- **The honesty filter's wording on by-design-unscored windows.** It labels a T+4 or travel-day window
-  "Too unsettled to forecast", which is false: nothing was attempted. A separate defect; owner
-  decision Q2.
-- **Removing tide fields from API slots** (the duplicate copy). Correct in the long run, but the API
-  (Jackson 3) and the cache (Jackson 2) share these records and the shared annotation package, so a
-  naive `@JsonIgnore` would also stop persisting the facts the projector reads. Needs its own design
-  (a Jackson 3 mix-in, or a DTO). Owner decision Q3, after P2–P4 have moved every reader.
-- **Unscored-window empty states on the Plan tab** beyond the tide chip.
+| Item | Phase |
+|---|---|
+| **Record-copy guard.** One reflection test over `DailyBriefingResponse`, `BriefingRegion`, `BriefingEventSummary` and `BriefingWindow`: fill every component with a sentinel, call each `with*`, assert every other component survives. Convert the three positional rebuilds of `DailyBriefingResponse` that silently drop `renderedEvents`/`previousGeneratedAt`/`bestBetsWithdrawn` (`BriefingHonestyFilter`, `ServedBriefingAssembler.applyBestBetFallback`, `BriefingService.getCachedBriefing`) to withers. | P0 |
+| **`LocationTideFact.from` + drift test** (§2.1). | P1 |
+| **Stale comments:** `BriefingHonestyFilter` class javadoc ("policy-driven zero-coverage cases are rare" is false for T+4 and travel days; name them), `BriefingHonestyFilter` `rewriteRegionByCoverage` and `locationSheet.js` "today the tide gate" (the tide gate was lifted 2026-09-18). | P1, P2 |
+| **One window walk and one key on the client.** In `utils/locationSheet.js`: a `windowsOf(days)` iterator yielding `{date, summary, tail}` and an `indexByWindow(days, make)` builder; `buildSlotIndex`, `buildEvaluationGateIndex`, `buildTideAlignmentIndex` and `buildEclipseIndex` become one-liners over it. One exported window-key function replaces `mapEvents.solarWindowKey` and `heatSpots.windowKey` (identical, both exported) and the private copies `locationSheet.tailOf` and `solarEventTimes.keyFor`. The remaining inline `date:targetType` literals elsewhere are a later sweep. | P2 |
+| **API slots stop duplicating tide** (P5). | P5 |
+
+Separate PRs, not in this series (recorded so they are not lost): the duplicated `tide_extreme` queries on
+the build path (`BriefingSlotBuilder.curveFacts` re-reads what `TideFactDeriver` just read, several times per
+coastal slot); a coverage-reason model for the honesty filter so "not attempted" and "failed" stop sharing
+one rewrite and its "Too unsettled to forecast" wording (**Q2**); removing the always-null `evaluationGate`
+chain (owner decision: it is a deliberately kept seam); deleting the callerless Close-to-home stack (owner
+decision).
+
+Rejected, recorded so it is not re-proposed: **keeping slots in `fullRewrite` with the evaluation fields
+stripped** (option 1 of three). Plan pools, spread denominators and `bestReach` all treat slots as the scored
+population, so that change would alter every Plan surface.
 
 ## 6. Phases
 
-Each phase is one PR, reviewed under CLAUDE.md's UI cadence where it touches the UI, and mergeable on
-its own. Order matters: the backend must serve before any client reads.
+One PR per phase, each mergeable alone, built by a Sonnet subagent, under CLAUDE.md's review cadence (build,
+tests, adversarial review with read-only reviewers, fix, re-verify, commit). Backend and frontend deploy
+together from one repo; P1 alone changes nothing a reader can see. Each PR adds a `changelog.d/` entry.
 
-### P1 — serve `tideFacts` (backend only, additive)
+**Local gates, gated on the exit code:**
+- backend: `cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false` and `./mvnw checkstyle:check` (no JDK 25 on this Mac: run on JDK 23 with `-Djava.version=23`; CI proves JDK 25);
+- frontend: `npm run lint && npm test && npm audit --audit-level=high && npm run build`.
+- JaCoCo is 80% per class (cover the new record and projector with real assertions), and every new public
+  type, method and constructor needs Javadoc.
 
-- `LocationTideFact` record, `BriefingEventSummary.tideFacts` with constructors and withers (§2.3).
-- `WindowTideFactProjector` and its wiring first in `assembleWithoutPlan`.
+### P0 — record-copy hygiene (backend, no behaviour change)
+
+The reflection guard and the three wither conversions (§5). Mutants: drop one component in each `with*`.
+
+### P1 — serve `window.tideFacts` (backend, additive)
+
+- `LocationTideFact` with `from` and the drift test; `BriefingWindow.tideFacts` (keep a constructor overload so
+  the ~15 existing `new BriefingWindow(` sites compile unchanged); `WindowTideFactProjector`; the
+  `assembleForPlan` and `PlanWindowProjector.apply` wiring (§2.2).
 - Tests:
-  - projector unit tests: regioned + unregioned slots; inland and no-`tideState` slots excluded;
-    canopy (woodland, `TideInfo.NONE`) excluded; every field copied verbatim; a legacy slot with no
-    `locationId`;
-  - **the defect, end to end:** a briefing whose region has zero Claude coverage on a window still
-    serves that window's `tideFacts` after `BriefingHonestyFilter` (through `BriefingServiceTest` or an
-    assembler-level test, since `ServedBriefingAssembler` has none of its own);
-  - every `BriefingEventSummary` rebuild path keeps `tideFacts` (`withRegions`, `withUnregioned`,
-    `withWindow`, the filter's `rewriteEvent`, the eclipse overlay);
-  - JSON contract in `DailyBriefingResponseJsonTest`: the name, the flat entry shape, NON_NULL
-    omission, and a legacy payload with no `tideFacts` deserialising to null;
-  - a payload-size measurement recorded in the PR.
-- Mutation check: drop the projector call; place it after the filter; skip unregioned slots; drop
-  `tideFacts` in `withRegions`.
-- Docs: a CLAUDE.md sentence under the Map tab and Plan bullets naming `tideFacts` as the per-location
-  tide source on the API path, and why it sits outside slots.
+  - `WindowTideFactProjectorTest`: regioned and unregioned slots; inland, `tideState`-null and canopy
+    (`TideInfo.NONE`) slots excluded; fields copied verbatim (fixture with a deliberately inconsistent
+    `tideAligned`, to catch re-derivation); a legacy slot with no `locationId`; duplicate location; input not
+    mutated; a summary with no coastal slot maps to no key.
+  - **New `ServedBriefingAssemblerTest`** (it has none today): the real `assembleForPlan` with the real
+    `BriefingHonestyFilter`, a stubbed score enricher and tide-rollup builder. Fixture: a region with coastal
+    slots and zero Claude coverage. Assert, on the same summary: `regions[0].slots()` is empty after the
+    filter, `window` is non-null, `window.tideFacts` has the expected entries verbatim. Assert the cached
+    snapshot is unchanged afterwards.
+  - The Jackson 3 wire test (§2.3) and a Jackson 2 round-trip asserting the cache JSON is byte-identical
+    (windows are not persisted).
+  - `PlanWindowProjectorTest`: facts reach every window, including a past and an unrendered one.
+- Mutants: build the map from `filtered.days()` instead of `snapshot.days()`; skip unregioned slots; drop
+  `tideFacts` in `toWindow`; include a `tideState`-null slot; emit `[]` instead of null; swap the id and name.
+- **Acceptance**, measured on a production-shaped synthetic briefing (about 225 slots a sunrise, 182 a
+  sunset, 59/27 coastal, five days) through the real Jackson 3 mapper and recorded in the PR: raw growth at
+  most 300 KB and 25%; gzip growth at most 40 KB; the projector pass under 20 ms. If exceeded, drop
+  `tideOnTheLight` and `nearestSolarOffsetPhrase` before shipping.
+- Docs: CLAUDE.md, a sentence in the Map tab (v2) bullet naming `window.tideFacts` as the per-location tide
+  source on the API path and why it sits outside slots.
 
-### P2 — the frontend tide index reads `tideFacts`
+### P2 — the tide index reads `window.tideFacts`; client walk/key cleanup; honest heading
 
-- `buildTideAlignmentIndex` walks `summary.tideFacts`; `skyRating` and `gated` joined from the slot
-  when present.
-- Update `locationSheet.test.js`'s index tests, and keep the entry shape identical so every consumer is
-  unchanged.
-- **The defect, end to end in the client:** extend `MapViewFillerTideStrip.test.jsx` (or a sibling)
-  with a briefing whose window has `tideFacts` but **empty `regions[].slots`**, exactly the production
-  shape. Assert a coastal location passes the 3★ floor through its tide fact, appears on the map,
-  carries its chip tier, and the strip shows with a dimmed count.
-- Mutation check: read slots instead of facts; drop the name fallback; drop the `skyRating` join.
+- `buildTideAlignmentIndex` over `windowsOf` / `indexByWindow`, reading `summary.window?.tideFacts`;
+  `skyRating`/`gated` joined from the window's slot (§3.1). The other three index builders and the key helpers
+  consolidated (§5).
+- The honest heading (§4.2) in `TideFitBlock`, `tideTierHeading` and `tideAccessibleClause`; update the
+  assertions in `TideFitBlock.test.jsx`, `MapCallout.test.jsx`, `LocationFourDaySheet.test.jsx` only where
+  their fixtures are unassessed, and add an unassessed-miss case for the block, the tooltip and the
+  accessible name.
+- **The defect end to end:** extend `MapViewFillerTideStrip.test.jsx` (real `MapView`, real `MapTideStrip`)
+  with the production shape: a rendered window with `row.tide` present, `window.tideFacts` present, and
+  every region's `slots` empty. Assert a coastal location passes the 3★ floor through its fact, the counts
+  footer reads "1 of N shown · 0 rated", its chip carries a tier, the strip shows with a dimmed count, and a
+  location in `locations` with no fact gets no tide.
+- `buildTideAlignmentIndex` on a payload with no `tideFacts` returns an empty index and does not throw.
+- Mutants: read slots instead of facts; drop the name fallback; drop the `skyRating` join; heading ignores
+  `assessed`.
+- **Browser check** (owner signs in; a session cannot): a local fixture reproducing "facts present, slots
+  empty" on the Map tab. State what was seen versus what was tested.
 
 ### P3 — the Plan pool and grid read facts
 
-- `buildWindowSpots`, `HeatmapGrid`, `tierUtils`, `briefingDisplay` read tide through a facts lookup.
-  Unchanged visible behaviour on scored windows; pinned by the existing suites.
-- Depends on Q1 only if the owner chooses to widen the chip's population.
+- `buildWindowSpots` copies tide from the window's facts (population unchanged). `HeatmapGrid` takes the tide
+  index as a prop from `WindowFirstRegionalPanel`; `alignedCount`, `computeCellTier` and `slotSortKey` /
+  `sortedSlotsByTidePriority` take a tide lookup instead of reading `slot.tideAligned`.
+- Update `test/askFixtures.js` and the other slot-tide fixtures to carry facts.
+- No visible change on scored windows, pinned by the existing suites (§7).
+- Mutants: spot copies from the slot; `alignedCount` reads the slot; a missing fact counted as aligned.
 
 ### P4 — Ask reads facts
 
-- `AskSnapshotBuilder.toSlot` joins tide from `tideFacts`. `AskSnapshotBuilderTest`, `AskToolsTest` and
-  `ReadyQuestionTest` must pass unchanged; add one test where the slot's own tide fields are absent and
-  the facts supply them.
+- `AskSnapshotBuilder.toSlot` joins tide from `window.tideFacts`. `AskSnapshotBuilderTest`, `AskToolsTest`,
+  `ReadyQuestionTest` pass unchanged; add a case where the slot's `tide` is null and the facts supply it, and
+  one where both exist and agree.
 
-### P5 (decision Q3) — stop duplicating tide on API slots
+### P5 — API slots stop carrying tide
 
-Only after P2–P4. Not planned in detail here.
+- At the tail of `assembleForPlan`, after `PlanWindowProjector.apply`, set each slot's `tide` to **null**
+  (never an empty `TideInfo`: its primitive booleans would serialise `tideAligned:false` on every slot). The
+  persisted cache and every raw/cached reader are untouched; `getServedBriefing` is not stripped.
+- Contract tests: a stripped slot carries none of the unwrapped tide keys (Jackson 3, `@JsonUnwrapped` with a
+  null value), `window.tideFacts` still present; the payload-size delta recorded.
+- Before merging: confirm no other API client reads slot tide (the frontend is the only one today; check for
+  a native widget client of `/api/briefing`).
 
 ## 7. Tests that must keep passing unchanged
 
 `BriefingHonestyFilterTest`, `TideSurfaceAgreementTest`, `BriefingSlotBuilderTest`,
 `KingTideHotTopicStrategyTest`, `SpringTideHotTopicStrategyTest`, `CoastalTideFactsBuilderTest`,
-`WindowTideRollupBuilderTest`, `PlanWindowProjectorTest`, `HttpCachingConfigTest`, and the frontend
-tide suites (`mapTideFit`, `MapTideStrip`, `MapPeekTideSection`, `TideFitBlock`, `MapCallout`,
-`LocationFourDaySheet`, `WindowFirstHeatStrip`, `windowFirstCards`, `windowFirstSpots`,
-`windowFirstTideRun`, `askModel`, `askPlan`, `MapViewFillerTideStrip`).
+`WindowTideRollupBuilderTest`, `HttpCachingConfigTest`, `CloseToHomeServiceTest`,
+`BriefingDigestServiceTest`, and the frontend tide suites (`mapTideFit`, `MapTideStrip`, `MapPeekTideSection`,
+`MapCallout`, `LocationFourDaySheet`, `WindowFirstHeatStrip`, `windowFirstCards`, `windowFirstSpots`,
+`windowFirstTideRun`, `HeatmapGrid`, `tierUtils`, `briefingDisplay`, `askModel`, `askPlan`,
+`MapViewFillerTideStrip`). Fixture-only edits are allowed where a fixture builds slot tide that the reader no
+longer reads; an assertion changes only where §4 says the behaviour changes.
 
 ## 8. Open questions for the owner
 
-- **Q1.** On a blanked window, should the Plan card's "N on tide" chip count coastal locations within
-  reach that have a tide fact but no slot? Default: no (unchanged).
-- **Q2.** Should the honesty filter stop saying "Too unsettled to forecast" on windows that are unscored
-  by design? Default: separate work.
-- **Q3.** After P2–P4, remove the duplicated tide fields from API slots? Default: decide then.
+- **Q1.** On a blanked window, should the Plan card's "N on tide" chip count coastal locations within reach
+  that have a fact but no slot? Default: no.
+- **Q2.** A coverage-reason model so the honesty filter stops calling a T+4 or travel-day window "Too
+  unsettled to forecast"? Default: a separate PR.
+
+## 9. Not verifiable locally
+
+No Docker (integration tests run in CI only), no JDK 25, no production data. The payload figures are
+estimates until measured on the synthetic briefing (P1) and on production after deploy. The browser checks
+need the owner to sign in.
+
+## 10. What the review changed (draft 1 → draft 2)
+
+- Facts moved from `BriefingEventSummary` to `BriefingWindow` (no persisted shape, no 190-site constructor
+  change, no rebuild trap; the existing `tides` pattern).
+- The map is built from the raw snapshot in `assembleForPlan`, not inside `assembleWithoutPlan`.
+- Field list cut to fields with a reader; `LocationTideFact.from` plus a drift test.
+- P5 became a planned phase (serve-time null strip, not a Jackson mix-in), which makes P3 and P4 necessary;
+  `computeCellTier` is live (not dead) and moves in P3.
+- Wire contract pinned with a Jackson 3 full-context test; Jackson 2 test kept for the cache.
+- No client slot fallback, with the reason.
+- Added: the honest heading, the phone-Auto gap, the coast-only note, payload acceptance thresholds, a focused
+  `ServedBriefingAssemblerTest`, P0 record hygiene, the client walk/key consolidation, and corrected trigger
+  wording for the filter.
