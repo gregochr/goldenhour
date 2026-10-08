@@ -189,10 +189,17 @@ function usableRating(rating) {
   return rating != null && rating >= MIN_RATING && rating <= MAX_RATING;
 }
 
+/** The window's served tide fact for a slot's location: by id first, then by name. */
+function tideFactOf(slot, factsById, factsByName) {
+  return (slot.locationId != null ? factsById.get(slot.locationId) : undefined)
+    ?? (slot.locationName ? factsByName.get(slot.locationName) : undefined);
+}
+
 /**
  * Builds the ordered spot descriptors for one window.
  *
- * @param {?object} eventSummary the window's event summary, carrying `regions[].slots[]`
+ * @param {?object} eventSummary the window's event summary, carrying `regions[].slots[]` (the spot
+ *        population) and `window.tideFacts` (each spot's tide)
  * @param {?Map<number, {driveMinutes: ?number, distanceMiles: ?number}>} reachById per-user reach,
  *        keyed by location id. Empty until the reach request resolves, and empty forever for a user
  *        with no home postcode — in both cases every card simply renders without its reach line.
@@ -213,11 +220,22 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null)
   // same fog that scores the wood well, so a rated-keyed test would hand that window to the wood.
   const canopyCounts = regioned.every(({ slot }) => slot.canopy);
 
+  // This window's served per-location tide facts, by id and by name (a legacy slot has no id).
+  // First entry wins, as the server's one-per-location rule and `buildTideAlignmentIndex` both say.
+  const factsById = new Map();
+  const factsByName = new Map();
+  const facts = eventSummary?.window?.tideFacts;
+  for (const fact of Array.isArray(facts) ? facts : []) {
+    if (fact?.locationId != null && !factsById.has(fact.locationId)) factsById.set(fact.locationId, fact);
+    if (fact?.locationName && !factsByName.has(fact.locationName)) factsByName.set(fact.locationName, fact);
+  }
+
   return regioned
     .filter(({ slot }) => canopyCounts || !slot.canopy)
     .map(({ slot, regionName }) => {
       const reach = slot.locationId == null ? null : reachById?.get(slot.locationId);
       const driveMinutes = reach?.driveMinutes ?? null;
+      const fact = tideFactOf(slot, factsById, factsByName);
       return {
         key: String(slot.locationId ?? slot.locationName),
         locationId: slot.locationId ?? null,
@@ -242,23 +260,23 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null)
         distanceMiles: reach?.distanceMiles ?? null,
         far: isFarSpot(driveMinutes, farOverMinutes),
         // The three tide facts `windowFirstCards.js#buildWindowCards` derives `tideFit` from, and
-        // `windowFirstTideRun.js` ranks the run on — copied flat off `BriefingSlot.TideInfo` (C0,
-        // `@JsonUnwrapped` onto the slot) rather than looked up a second time, so the pool itself is
-        // the one population every reader of tide on this card counts (plan §2/§5 #2).
+        // `windowFirstTideRun.js` ranks the run on — copied flat from THIS WINDOW'S served tide facts
+        // (`window.tideFacts`, joined by location id then name), never off the slot
+        // (docs/engineering/window-tide-facts-plan.md): tide is computed from stored tide tables and
+        // has nothing to do with Claude coverage, so it is served beside the slots rather than on
+        // them. The spot POPULATION still comes from slots, so the pool itself remains the one
+        // population every reader of tide on this card counts (plan §2/§5 #2) — a coastal location
+        // with a fact and no slot is not a spot, and a slot with no fact is a spot with no tide.
         //
         // Coastal is `tideState != null` — the server's own "coastal with a derivable answer"
-        // predicate (tide-plan-card-plan.md §1 #1, §4 #8, §5 #5), the same test
-        // `buildTideAlignmentIndex` uses. `tideAligned` is therefore keyed off `tideState` rather
-        // than read on its own: `TideInfo.tideAligned` is a `boolean` primitive, always `false` when
-        // absent (`TideInfo.NONE` and the legacy constructors both default it, never null), so an
-        // inland slot would otherwise read `false` — a claim about a mismatch nobody has a want for
-        // — rather than "no fit answer at all". `tideQuality` needs no such guard: C0 already leaves
-        // it null except on an aligned slot (`@JsonInclude(NON_NULL)`), and C0's own phase-log
-        // records that a payload cached before C0's build still reads `tideAligned=true` with a
-        // null quality — `meanQuality` below already treats a matched spot's quality as optional.
-        tideState: slot.tideState ?? null,
-        tideAligned: slot.tideState != null ? Boolean(slot.tideAligned) : null,
-        tideQuality: slot.tideAlignmentQuality ?? null,
+        // predicate (tide-plan-card-plan.md §1 #1, §4 #8, §5 #5), and the only locations that have a
+        // fact at all. `tideAligned` is keyed off `tideState` so an inland spot reads `null` ("no fit
+        // answer"), never `false` ("a mismatch nobody has a want for"). `tideQuality` is null except
+        // on an aligned fact (`@JsonInclude(NON_NULL)`), and `meanQuality` below already treats a
+        // matched spot's quality as optional.
+        tideState: fact?.tideState ?? null,
+        tideAligned: fact?.tideState != null ? Boolean(fact.tideAligned) : null,
+        tideQuality: fact?.tideAlignmentQuality ?? null,
       };
     })
     .sort(compareSpots);

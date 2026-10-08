@@ -48,8 +48,11 @@ describe('briefingDisplay', () => {
       { locationName: 'Embleton', verdict: 'MARGINAL', tideAligned: true },
     ];
 
+    // The tide lookup is the caller's (window.tideFacts); these fixtures keep their marker on the slot.
+    const alignedOf = (slot) => slot.tideAligned === true;
+
     it('puts king tide first, then tide-aligned, within each verdict', () => {
-      expect(sortedSlotsByTidePriority(slots).map((s) => s.locationName)).toEqual([
+      expect(sortedSlotsByTidePriority(slots, alignedOf).map((s) => s.locationName)).toEqual([
         'Dunstanburgh', // GO + king
         'Craster', // GO + tide-aligned
         'Bamburgh', // GO plain
@@ -60,17 +63,25 @@ describe('briefingDisplay', () => {
 
     it('does not mutate its input', () => {
       const copy = [...slots];
-      sortedSlotsByTidePriority(slots);
+      sortedSlotsByTidePriority(slots, alignedOf);
       expect(slots).toEqual(copy);
     });
 
+    it('slotSortKey and the sort take alignment from the argument, never the slot', () => {
+      expect(slotSortKey({ verdict: 'GO', tideAligned: true }, false)).toBe(2);
+      expect(slotSortKey({ verdict: 'MARGINAL', tideAligned: true }, false)).toBe(4);
+      const bare = [{ locationName: 'Alnmouth', verdict: 'GO' }, { locationName: 'Craster', verdict: 'GO' }];
+      expect(sortedSlotsByTidePriority(bare, (s) => s.locationName === 'Craster').map((s) => s.locationName))
+        .toEqual(['Craster', 'Alnmouth']);
+    });
+
     it('slotSortKey ranks king detection case-insensitively from flags', () => {
-      expect(slotSortKey({ verdict: 'GO', flags: ['KING TIDE'] })).toBe(0);
-      expect(slotSortKey({ verdict: 'GO', tideAligned: true })).toBe(1);
-      expect(slotSortKey({ verdict: 'GO' })).toBe(2);
-      expect(slotSortKey({ verdict: 'MARGINAL', tideAligned: true })).toBe(3);
-      expect(slotSortKey({ verdict: 'MARGINAL' })).toBe(4);
-      expect(slotSortKey({ verdict: 'STANDDOWN' })).toBe(5);
+      expect(slotSortKey({ verdict: 'GO', flags: ['KING TIDE'] }, false)).toBe(0);
+      expect(slotSortKey({ verdict: 'GO' }, true)).toBe(1);
+      expect(slotSortKey({ verdict: 'GO' }, false)).toBe(2);
+      expect(slotSortKey({ verdict: 'MARGINAL' }, true)).toBe(3);
+      expect(slotSortKey({ verdict: 'MARGINAL' }, false)).toBe(4);
+      expect(slotSortKey({ verdict: 'STANDDOWN' }, false)).toBe(5);
     });
   });
 

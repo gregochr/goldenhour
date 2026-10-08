@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { computeCellTier, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatTideHighlight } from '../utils/conversions.js';
+import { buildTideAlignmentIndex, lookupForWindow } from '../utils/locationSheet.js';
 import {
   locationTypeIcons, isPoorSlot, slotSortKey, sortedSlotsByTidePriority, weatherCodeToIcon,
   msToMph, formatDriveDuration, formatTime, isEventPast,
@@ -110,12 +111,12 @@ function TideChip({ label, muted = false }) {
   );
 }
 
-function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false, date = null, targetType = null, onShowOnMap = null }) {
+function LocationSlotList({ slots, alignedOf, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false, date = null, targetType = null, onShowOnMap = null }) {
   // Rows are collapsed by default — the reasoning sentence is one tap away.
   const [expandedRows, setExpandedRows] = useState(new Set());
-  const visible = sortedSlotsByTidePriority((slots || []).filter((s) => !isPoorSlot(s)));
+  const visible = sortedSlotsByTidePriority((slots || []).filter((s) => !isPoorSlot(s)), alignedOf);
   const standdownSlots = showAllLocations
-    ? sortedSlotsByTidePriority((slots || []).filter(isPoorSlot))
+    ? sortedSlotsByTidePriority((slots || []).filter(isPoorSlot), alignedOf)
     : [];
 
   const hasHiddenStanddowns = !showAllLocations && (slots || []).some(isPoorSlot);
@@ -142,7 +143,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
       const ra = sa?.rating ?? 0;
       const rb = sb?.rating ?? 0;
       if (ra !== rb) return rb - ra; // higher score first
-      const diff = slotSortKey(a) - slotSortKey(b);
+      const diff = slotSortKey(a, alignedOf(a)) - slotSortKey(b, alignedOf(b));
       return diff !== 0 ? diff : a.locationName.localeCompare(b.locationName);
     })
     : visible;
@@ -291,7 +292,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
 
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
-function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap, evaluationScores = new Map(), isPro = false, showAllLocations = false, onShowAllLocationsChange = null }) {
+function HeatmapDrillDown({ date, regionName, targetType, briefingDays, alignedOf, driveMap, typeMap, onClose, onShowOnMap, evaluationScores = new Map(), isPro = false, showAllLocations = false, onShowAllLocationsChange = null }) {
   const day = briefingDays.find((d) => d.date === date);
 
   const events = [];
@@ -426,6 +427,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
               {tappable && (
                 <LocationSlotList
                   slots={region.slots}
+                  alignedOf={(slot) => alignedOf(slot, date, es.targetType)}
                   driveMap={driveMap}
                   typeMap={typeMap}
                   scores={slotScores}
@@ -471,7 +473,7 @@ function computeCellTipPlacement(rect) {
   return { style, alignRight };
 }
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, isActive, onToggle, showAllLocations = false, todayStr = null, noHoverTip = false }) {
+function HeatmapCell({ date, regionName, targetType, briefingDays, alignedOf, isActive, onToggle, showAllLocations = false, todayStr = null, noHoverTip = false }) {
   const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Hover tooltip placement, portalled to <body> so the plan card's overflow:hidden can't clip
@@ -502,7 +504,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, isActive, onT
   const tideHighlight = (region.tideHighlights || []).find((h) =>
     h.toLowerCase().includes('king') || h.toLowerCase().includes('spring') || h.toLowerCase().includes('extra'));
   const tideLabel = tideHighlight ? formatTideHighlight(tideHighlight) : null;
-  const alignedCount = (region.slots || []).filter((s) => s.tideAligned).length;
+  const alignedCount = (region.slots || []).filter((s) => alignedOf(s, date, targetType)).length;
 
   const eventLabel = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
   const verdictLabel = displaySignal === 'STAND_DOWN' ? 'Poor'
@@ -735,6 +737,16 @@ export default function HeatmapGrid({
   // than any mobile breakpoint and still has no hover. One call here rather than one per cell:
   // there are 24+ cells on screen and each would otherwise register its own matchMedia listener.
   const noHoverTip = useIsCoarsePointer();
+  // Whether a slot's tide suits its spot is a served per-window fact (window.tideFacts), not a slot
+  // field: built once per briefing and asked per (slot, window). A window or location with no fact
+  // is not aligned, never "unknown but counted".
+  const tideIndex = useMemo(() => buildTideAlignmentIndex(briefingDays), [briefingDays]);
+  const alignedOf = useMemo(
+    () => (slot, date, targetType) => lookupForWindow(
+      tideIndex, slot?.locationId, slot?.locationName, date, targetType,
+    )?.aligned === true,
+    [tideIndex],
+  );
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
   const [showPoorRegions, setShowPoorRegions] = useState(false); // A3a: reveal the pooled poor-only rows
   const [prevPoolPoor, setPrevPoolPoor] = useState(false); // tracks poolPoor to reset the reveal (F4)
@@ -839,11 +851,11 @@ export default function HeatmapGrid({
       const cdA = getSubCellData(date, a, targetType, briefingDays);
       const cdB = getSubCellData(date, b, targetType, briefingDays);
       if (cdA && !cdA.past) {
-        const t = computeCellTier(cdA.region);
+        const t = computeCellTier(cdA.region, (s) => alignedOf(s, date, targetType));
         if (t < bestA) bestA = t;
       }
       if (cdB && !cdB.past) {
-        const t = computeCellTier(cdB.region);
+        const t = computeCellTier(cdB.region, (s) => alignedOf(s, date, targetType));
         if (t < bestB) bestB = t;
       }
     }
@@ -940,6 +952,7 @@ export default function HeatmapGrid({
               regionName={regionName}
               targetType={targetType}
               briefingDays={briefingDays}
+              alignedOf={alignedOf}
               isActive={isActive}
               onToggle={toggleDrillDown}
               showAllLocations={showAllLocations}
@@ -959,6 +972,7 @@ export default function HeatmapGrid({
             regionName={regionName}
             targetType={drillDown.targetType}
             briefingDays={briefingDays}
+            alignedOf={alignedOf}
             driveMap={driveMap}
             typeMap={typeMap}
             onClose={() => setDrillDown(null)}
