@@ -683,20 +683,7 @@ public class PipelineOrchestrator {
         if (almanacService == null) {
             return;
         }
-        try {
-            backgroundExecutor.execute(() -> {
-                try {
-                    almanacService.refresh();
-                } catch (RuntimeException e) {
-                    LOG.warn("Pipeline run {}: the Coming up feed refresh raised an exception — "
-                            + "logged and ignored (the run is already finished; the cached feed is "
-                            + "unchanged): {}", runId, e.toString());
-                }
-            });
-        } catch (RuntimeException e) {
-            LOG.warn("Pipeline run {}: the Coming up feed refresh could not be dispatched — logged and "
-                    + "ignored (the run is already finished): {}", runId, e.toString());
-        }
+        dispatchAfterRun(runId, "the Coming up feed refresh", almanacService::refresh);
     }
 
     /**
@@ -717,19 +704,32 @@ public class PipelineOrchestrator {
         if (askReadyService == null) {
             return;
         }
+        dispatchAfterRun(runId, "the Ask Ready precompute", () -> askReadyService.precompute(runId));
+    }
+
+    /**
+     * Queues one piece of after-the-run work on the background executor. Both catches are the
+     * invariant: this must never throw, because it runs inside {@link #waitAndBriefPhase}'s try, whose
+     * catch would otherwise mark an already-finished run FAILED. A failure to queue the work and an
+     * exception inside it are each logged and stop there.
+     *
+     * @param runId the pipeline run that has just finished
+     * @param what  what the work is, for the log line
+     * @param work  the work to run off the run's thread
+     */
+    private void dispatchAfterRun(Long runId, String what, Runnable work) {
         try {
             backgroundExecutor.execute(() -> {
                 try {
-                    askReadyService.precompute(runId);
+                    work.run();
                 } catch (RuntimeException e) {
-                    LOG.warn("Pipeline run {}: the Ask Ready precompute raised an exception — "
-                            + "logged and ignored (the run is already finished): {}", runId,
-                            e.toString());
+                    LOG.warn("Pipeline run {}: {} raised an exception — logged and ignored "
+                            + "(the run is already finished): {}", runId, what, e.toString());
                 }
             });
         } catch (RuntimeException e) {
-            LOG.warn("Pipeline run {}: the Ask Ready precompute could not be dispatched — logged and "
-                    + "ignored (the run is already finished): {}", runId, e.toString());
+            LOG.warn("Pipeline run {}: {} could not be dispatched — logged and ignored "
+                    + "(the run is already finished): {}", runId, what, e.toString());
         }
     }
 

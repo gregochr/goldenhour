@@ -30,6 +30,7 @@
  */
 
 import { isSkyPromptCandidate } from './locationTypes.js';
+import { windowKey } from './windowKeys.js';
 
 /** Ratings are 1–5; the backend's {@code RatingValidator} bounds them and so does this. */
 const MIN_RATING = 1;
@@ -48,11 +49,6 @@ const MAX_RATING = 5;
  * here does not exist at the call site.
  */
 export const POINT_SCORE_INDEX = 0;
-
-/** The key both this module and the shell address a window by ({@code card.key}'s format). */
-export function windowKey(date, targetType) {
-  return `${date}:${targetType}`;
-}
 
 /** A rating this join will paint: an integer in [1, 5]. Anything else is "not scored". */
 function validRating(rating) {

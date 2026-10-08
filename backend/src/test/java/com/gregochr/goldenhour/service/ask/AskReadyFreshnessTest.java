@@ -307,6 +307,8 @@ class AskReadyFreshnessTest {
         assertThat(underscoredAgainstAlmanac.answer().events().getFirst().label())
                 .isEqualTo("Total lunar eclipse (live)");
         assertThat(dashedAgainstTopic.fresh()).isTrue();
+        // An answer stored before the card type was folded still carries the dash; it is served folded.
+        assertThat(dashedAgainstTopic.answer().events().getFirst().type()).isEqualTo("LUNAR_ECLIPSE");
         assertThat(dashedAgainstTopic.answer().events().getFirst().label()).isEqualTo("Lunar eclipse (live)");
     }
 

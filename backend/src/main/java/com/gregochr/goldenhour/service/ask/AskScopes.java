@@ -27,7 +27,35 @@ public final class AskScopes {
     /** The most region ids a question may name; the roster is a handful, so more is a mistake. */
     public static final int MAX_REGION_IDS = 20;
 
+    /** The one sentence for a region list that does not resolve, on every Ask surface that takes one. */
+    public static final String INVALID_REGIONS = "Unknown, disabled or too many regions.";
+
+    /** The {@code scope} parameter's value for every region. */
+    private static final String ALL_PARAMETER = "all";
+
     private AskScopes() {
+    }
+
+    /**
+     * The scope a {@code scope} query parameter names: {@code all} (any case, surrounding whitespace
+     * ignored) or the id of one enabled region.
+     *
+     * @param regionRepository resolves the id to a region
+     * @param parameter        the parameter's text
+     * @return the scope, or empty for anything else: not a number, an unknown id, a disabled region
+     */
+    public static Optional<AskScope> fromParameter(RegionRepository regionRepository, String parameter) {
+        String wanted = parameter.strip();
+        if (wanted.equalsIgnoreCase(ALL_PARAMETER)) {
+            return Optional.of(AskScope.ALL);
+        }
+        long id;
+        try {
+            id = Long.parseLong(wanted);
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+        return resolve(regionRepository, List.of(id));
     }
 
     /**

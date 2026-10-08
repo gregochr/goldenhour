@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import WindowTopicRows from '../components/WindowTopicRows.jsx';
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
-import { windowKey } from '../utils/heatSpots.js';
+import { windowKey } from '../utils/windowKeys.js';
 
 /**
  * The popup's topic rows.

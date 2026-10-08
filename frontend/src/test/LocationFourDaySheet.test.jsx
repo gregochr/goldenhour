@@ -9,6 +9,7 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
+import { withTideFacts } from './tideFactsFixture.js';
 
 /**
  * The four-day location sheet, rendered (plan D10, P8).
@@ -993,7 +994,7 @@ describe('LocationFourDaySheet — the tide-fit block (T5)', () => {
     id: 7, name: 'Bamburgh', locationType: ['SEASCAPE'], bortleClass: 3, tideType: ['HIGH'],
   };
 
-  const TIDE_DAYS = [
+  const TIDE_DAYS = withTideFacts([
     {
       date: '2026-08-14',
       eventSummaries: [{
@@ -1053,7 +1054,7 @@ describe('LocationFourDaySheet — the tide-fit block (T5)', () => {
         }],
       }],
     },
-  ];
+  ]);
   const TIDE_INDEX = buildTideAlignmentIndex(TIDE_DAYS);
 
   it('renders a block per solar row that carries a served tide fact — match, miss, and match again', () => {

@@ -10,9 +10,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isNightOffered, nightLabel, nightPreviewDates, EVENT_KIND,
-  solarHorizonDates, solarRowPredicate, solarWindowKey,
+  solarHorizonDates, solarRowPredicate,
 } from '../utils/mapEvents.js';
 import { ukDateStr, ukDateStrOffset, resolveMapDate } from '../utils/mapDates.js';
+import { windowKey } from '../utils/windowKeys.js';
 
 const TODAY = '2026-09-02';
 const TOMORROW = '2026-09-03';
@@ -289,7 +290,7 @@ describe('buildMapEvents — tide forwarding (tide-window-plan.md T3)', () => {
       ...baseArgs(),
       solarWindows: [solarWindow(TODAY, 'SUNSET')],
       forecastDates: [TODAY, FAR],
-      tideByWindow: new Map([[solarWindowKey(FAR, 'SUNRISE'), {
+      tideByWindow: new Map([[windowKey(FAR, 'SUNRISE'), {
         tide, eventTime: `${FAR}T05:44:00`, time: '05:44',
       }]]),
     });
@@ -309,7 +310,7 @@ describe('buildMapEvents — tide forwarding (tide-window-plan.md T3)', () => {
     const events = buildMapEvents({
       ...baseArgs(),
       forecastDates: [FAR],
-      tideByWindow: new Map([[solarWindowKey(FAR, 'SUNRISE'), {
+      tideByWindow: new Map([[windowKey(FAR, 'SUNRISE'), {
         tide: { locationName: 'B' }, eventTime: null, time: null,
       }]]),
     });
@@ -324,7 +325,7 @@ describe('buildMapEvents — tide forwarding (tide-window-plan.md T3)', () => {
     const args = {
       ...baseArgs(),
       forecastDates: [FAR],
-      tideByWindow: new Map([[solarWindowKey(FAR, 'SUNRISE'), entry]]),
+      tideByWindow: new Map([[windowKey(FAR, 'SUNRISE'), entry]]),
     };
     const asked = [];
     const past = buildMapEvents({ ...args, isEventTimePast: (t) => { asked.push(t); return true; } })
@@ -342,7 +343,7 @@ describe('buildMapEvents — tide forwarding (tide-window-plan.md T3)', () => {
       ...baseArgs(),
       solarWindows: [solarWindow(TODAY, 'SUNSET')],
       forecastDates: [TODAY],
-      tideByWindow: new Map([[solarWindowKey(TODAY, 'SUNSET'), {
+      tideByWindow: new Map([[windowKey(TODAY, 'SUNSET'), {
         tide: { locationName: 'Lent' }, eventTime: null, time: '16:12',
       }]]),
     });
@@ -355,7 +356,7 @@ describe('buildMapEvents — tide forwarding (tide-window-plan.md T3)', () => {
       ...baseArgs(),
       solarWindows: [solarWindow(TODAY, 'SUNSET', { tide: own })],
       forecastDates: [TODAY],
-      tideByWindow: new Map([[solarWindowKey(TODAY, 'SUNSET'), {
+      tideByWindow: new Map([[windowKey(TODAY, 'SUNSET'), {
         tide: { locationName: 'Other' }, eventTime: null, time: null,
       }]]),
     });

@@ -3800,6 +3800,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const labelSpots = useMemo(() => {
     const spotOf = (loc) => {
       const tide = getTideOnLightForLocation(loc);
+      const rating = getRatingForLocation(loc);
       return {
         // ⚠️ Load-bearing for `mapTideFit.nextAlignedRow`'s id-first lookup (tide-window-plan.md
         // T3, `docs/engineering/tide-window-plan.md`) — without this, every strip next-fit scan
@@ -3812,7 +3813,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         lat: loc.lat,
         lng: loc.lon,
         rid: loc.regionName || '',
-        rating: getRatingForLocation(loc),
+        rating,
         bortleClass: loc.bortleClass ?? null,
         driveMinutes: driveMinutesFor(loc.id),
         // `PinsLayer`'s own stand-down/no-data distinction (adversarial review C8) — a triaged
@@ -3846,6 +3847,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // glyph's own letter reads this, never a level or threshold computed here.
         tideState: tide?.state ?? null,
         tideGated: Boolean(tide?.gated),
+        // Whether the light was ASSESSED for this location in this window (window-tide-facts-plan
+        // §4.2): a sky rating or a combined rating exists. Only then may a tide miss be headed
+        // "wrong water, not wrong light"; on a window nothing scored (T+3/T+4, a travel day) the
+        // heading makes no claim about the light.
+        tideAssessed: tide?.skyRating != null || rating != null,
         // The block body T4's tooltip reads for BOTH tiers (tide-window-plan.md §3 T4 item 4) —
         // carried here rather than left for that phase to add, since it is the same `tide` object
         // this function already has in hand and the plan's own goal for this phase is that every

@@ -1,25 +1,8 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.UserRole;
-import com.gregochr.goldenhour.repository.RegionRepository;
-import com.gregochr.goldenhour.service.DriveTimeResolver;
-import com.gregochr.goldenhour.service.UserSettingsService;
-import com.gregochr.goldenhour.service.ask.AskAnswer;
-import com.gregochr.goldenhour.service.ask.AskEngine;
+import com.gregochr.goldenhour.service.ask.AskDryRunService;
 import com.gregochr.goldenhour.service.ask.AskMetricsService;
-import com.gregochr.goldenhour.service.ask.AskOutcome;
-import com.gregochr.goldenhour.service.ask.AskProperties;
-import com.gregochr.goldenhour.service.ask.AskQuestion;
-import com.gregochr.goldenhour.service.ask.AskQuestionSanitiser;
 import com.gregochr.goldenhour.service.ask.AskReadyService;
-import com.gregochr.goldenhour.service.ask.AskRun;
-import com.gregochr.goldenhour.service.ask.AskRunOptions;
-import com.gregochr.goldenhour.service.ask.AskScope;
-import com.gregochr.goldenhour.service.ask.AskScopes;
-import com.gregochr.goldenhour.service.ask.AskSnapshot;
-import com.gregochr.goldenhour.service.ask.AskSnapshotBuilder;
-import com.gregochr.goldenhour.service.ask.AskTools;
-import com.gregochr.goldenhour.service.ask.AskUserContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -31,127 +14,60 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Admin-only Ask PhotoCast endpoints (plan §2.9): the dry-run, the Ready precompute and the metrics.
+ * Parses and delegates: the dry-run's rules live in {@link AskDryRunService}.
  *
- * <p>Every endpoint answers 404 while {@code photocast.ask.enabled} is false, so a switched-off
- * feature has no surface (the role check still comes first: a non-admin is 403 and an anonymous
- * caller 401 whatever the flag says).
+ * <p>Every endpoint answers 404 while {@code photocast.ask.enabled} is false, from
+ * {@code AskFlagInterceptor} before the request reaches this class, so a switched-off feature has no
+ * surface. The role check still comes first: a non-admin is 403 and an anonymous caller 401 whatever
+ * the flag says (the interceptor stands down for a caller without {@code ROLE_ADMIN}, so
+ * {@code @PreAuthorize} answers them).
  */
 @RestController
 @RequestMapping("/api/admin/ask")
 @PreAuthorize("hasRole('ADMIN')")
 public class AskAdminController {
 
-    private final AskProperties properties;
-    private final AskEngine engine;
-    private final AskSnapshotBuilder snapshotBuilder;
-    private final RegionRepository regionRepository;
-    private final UserSettingsService settingsService;
-    private final DriveTimeResolver driveTimeResolver;
+    private final AskDryRunService dryRunService;
     private final AskReadyService readyService;
     private final AskMetricsService metricsService;
 
     /**
      * Constructs the controller.
      *
-     * @param properties        the Ask settings (the {@code enabled} flag)
-     * @param engine            the one active engine: the stub or Claude
-     * @param snapshotBuilder   builds the snapshot the engine reads
-     * @param regionRepository  validates the question's region ids
-     * @param settingsService   resolves the calling admin's user id
-     * @param driveTimeResolver whether the calling admin has stored drive times
-     * @param readyService      the Ready precompute
-     * @param metricsService    the question-log metrics
+     * @param dryRunService  runs the dry-run
+     * @param readyService   the Ready precompute
+     * @param metricsService the question-log metrics
      */
-    public AskAdminController(AskProperties properties, AskEngine engine,
-            AskSnapshotBuilder snapshotBuilder, RegionRepository regionRepository,
-            UserSettingsService settingsService, DriveTimeResolver driveTimeResolver,
-            AskReadyService readyService, AskMetricsService metricsService) {
-        this.properties = properties;
-        this.engine = engine;
-        this.snapshotBuilder = snapshotBuilder;
-        this.regionRepository = regionRepository;
-        this.settingsService = settingsService;
-        this.driveTimeResolver = driveTimeResolver;
+    public AskAdminController(AskDryRunService dryRunService, AskReadyService readyService,
+            AskMetricsService metricsService) {
+        this.dryRunService = dryRunService;
         this.readyService = readyService;
         this.metricsService = metricsService;
-    }
-
-    /**
-     * The dry-run request.
-     *
-     * @param question  the question text
-     * @param regionIds the regions asked about; null or empty means every region
-     * @param windowId  the context window ({@code yyyy-MM-dd_sunrise|sunset}), optional; one that
-     *                  is not in the window set is ignored
-     */
-    public record DryRunRequest(String question, List<Long> regionIds, String windowId) {
-    }
-
-    /**
-     * The dry-run response.
-     *
-     * @param engine   {@code stub} or {@code claude}: which engine answered
-     * @param status   OK, CANT or FAILED
-     * @param answer   the validated answer, or null when FAILED
-     * @param personal whether the conversation used the asker's own drive times
-     * @param turns    how many model turns it took
-     * @param reason   why a FAILED run failed, or null
-     * @param trace    every tool call the conversation made, in order, errors included
-     */
-    public record DryRunResponse(String engine, AskOutcome.Status status, AskAnswer answer,
-            boolean personal, int turns, String reason, List<AskTools.ToolCall> trace) {
     }
 
     /**
      * Runs one question through whichever engine is active, as the calling admin, and returns the
      * outcome with the tool trace, so an admin can see what the engine did and why.
      *
-     * <p>⚠️ <b>With the Claude engine this spends real money.</b> It is a real conversation: the
-     * model turns are logged to {@code api_call_log} under the day's {@code ASK} job run and count
-     * toward today's typed spend, exactly as a reader's question does (the spend cap applies to the
-     * typed endpoint, not to this one — an admin is trusted to know what they are pressing). With
-     * {@code photocast.ask.stub=true} it spends nothing and writes nothing. The question is
-     * minimally cleaned ({@link AskQuestionSanitiser}); the full typed-endpoint guards (rate limit,
-     * allowance, pre-filter, cache) are B4 and B5 and are deliberately absent here.
+     * <p>⚠️ <b>With the Claude engine this spends real money</b>; see {@link AskDryRunService}.
      *
      * @param request the question, regions and optional context window
      * @param auth    the calling admin; their user context lets a drive-time question work
-     * @return 200 with the outcome and trace; 400 for a bad question or region; 404 when Ask is
-     *         off; 409 when no briefing has been built yet
+     * @return 200 with the outcome and trace; 400 for a bad question or region; 409 when no briefing
+     *         has been built yet
      */
     @PostMapping("/dry-run")
-    public ResponseEntity<?> dryRun(@RequestBody DryRunRequest request, Authentication auth) {
-        if (!properties.isEnabled()) {
-            return ResponseEntity.notFound().build();
+    public ResponseEntity<?> dryRun(@RequestBody AskDryRunService.Request request, Authentication auth) {
+        AskDryRunService.Result result = dryRunService.dryRun(request, auth);
+        if (result.response() != null) {
+            return ResponseEntity.ok(result.response());
         }
-        if (request == null) {
-            return badRequest("A request body is required.");
-        }
-        AskQuestionSanitiser.Result cleaned = AskQuestionSanitiser.sanitise(request.question());
-        if (!cleaned.ok()) {
-            return badRequest(cleaned.error());
-        }
-        Optional<AskScope> scope = AskScopes.resolve(regionRepository, request.regionIds());
-        if (scope.isEmpty()) {
-            return badRequest("Unknown, disabled or too many region ids.");
-        }
-        Optional<AskSnapshot> snapshot = snapshotBuilder.current();
-        if (snapshot.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("error", "No briefing has been built yet."));
-        }
-        AskQuestion question = AskQuestion.of(cleaned, request.windowId(), scope.get(), "plan");
-        AskRun run = engine.run(question, snapshot.get(), adminContext(auth), AskRunOptions.none());
-        AskOutcome outcome = run.outcome();
-        return ResponseEntity.ok(new DryRunResponse(
-                properties.isStub() ? "stub" : "claude", outcome.status(),
-                outcome.answer(), outcome.personal(), outcome.turns(), run.reason(), run.trace()));
+        HttpStatus status = result.noBriefing() ? HttpStatus.CONFLICT : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status).body(Map.of("error", result.error()));
     }
 
     /**
@@ -176,15 +92,12 @@ public class AskAdminController {
      * <p>⚠️ With the Claude engine this spends real money (one run per scope and question, billed to
      * an {@code ASK_READY} job run); with {@code photocast.ask.stub=true} it spends nothing.
      *
-     * @return 200 with {@code {written, skipped, failed}}; 404 when Ask is off; 409 with
+     * @return 200 with {@code {written, skipped, failed}}; 409 with
      *         {@code {error}} when the precompute was refused as a whole (no fresh briefing, a
      *         simulation is active, or another precompute is running)
      */
     @PostMapping("/ready/precompute")
     public ResponseEntity<?> precompute() {
-        if (!properties.isEnabled()) {
-            return ResponseEntity.notFound().build();
-        }
         AskReadyService.Result result = readyService.precomputeOnDemand();
         if (result.wasRefused()) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", result.refusal()));
@@ -201,13 +114,10 @@ public class AskAdminController {
      *
      * @param days the window as text; a whole number, clamped to 1..90 rather than refused (so an
      *             absurdly large or negative one is a valid request), default 7
-     * @return 200 with the metrics; 400 when {@code days} is not a whole number; 404 when Ask is off
+     * @return 200 with the metrics; 400 when {@code days} is not a whole number
      */
     @GetMapping("/metrics")
     public ResponseEntity<?> metrics(@RequestParam(name = "days", required = false) String days) {
-        if (!properties.isEnabled()) {
-            return ResponseEntity.notFound().build();
-        }
         int window = AskMetricsService.DEFAULT_DAYS;
         if (days != null && !days.isBlank()) {
             try {
@@ -217,12 +127,6 @@ public class AskAdminController {
             }
         }
         return ResponseEntity.ok(metricsService.metrics(window));
-    }
-
-    /** The calling admin as a conversation's asker: their id, and whether they have drive times. */
-    private AskUserContext adminContext(Authentication auth) {
-        Long userId = settingsService.getHomeLocation(auth).userId();
-        return new AskUserContext(userId, UserRole.ADMIN, driveTimeResolver.hasDriveTimes(userId));
     }
 
     private static ResponseEntity<Map<String, String>> badRequest(String message) {

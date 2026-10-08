@@ -512,6 +512,28 @@ describe('PinsLayer — the tide-fit dot (tide-window-plan.md §3 T4 item 5)', (
     expect(tideLine).not.toHaveClass('wf-maplab-tip-t');
   });
 
+  it('heads an UNASSESSED miss "Tide misses the light here" — no claim that the light was fine', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: null,
+        tideTier: 'miss',
+        tideAssessed: false,
+        tideFitPhrase: 'wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+      }],
+    });
+    fireEvent.pointerEnter(document.querySelector('[data-testid="map-pin"]'), MOUSE);
+    const tideLine = document.querySelector('[data-testid="map-pin-tip-tide"]');
+    expect(tideLine).toHaveTextContent(
+      'Tide misses the light here — wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+    );
+    expect(tideLine).not.toHaveTextContent('Wrong water');
+  });
+
   it('adds no tide line when there is no served tide fact at all', async () => {
     currentMap = makeFullMap({ zoom: 9 });
     await mount({

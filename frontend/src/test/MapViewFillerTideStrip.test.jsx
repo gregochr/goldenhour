@@ -77,8 +77,8 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
-import { solarWindowKey } from '../utils/mapEvents.js';
-import { buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import { windowKey } from '../utils/windowKeys.js';
+import { tideIndexOf } from './tideFactsFixture.js';
 import { setRewind } from '../utils/rewind.js';
 
 const TODAY = '2026-01-15';
@@ -112,11 +112,11 @@ function heatProp(overrides = {}) {
     hasHome: false,
     spots: [SPOT],
     areaSpots: [SPOT],
-    pointsByKey: new Map([[solarWindowKey(TODAY, 'SUNSET'), [{
+    pointsByKey: new Map([[windowKey(TODAY, 'SUNSET'), [{
       id: SPOT.id, name: SPOT.name, lat: SPOT.lat, lng: SPOT.lng, rid: SPOT.rid, r: [5],
     }]]]),
     windows: [{
-      key: solarWindowKey(TODAY, 'SUNSET'),
+      key: windowKey(TODAY, 'SUNSET'),
       date: TODAY,
       targetType: 'SUNSET',
       label: 'Tonight sunset',
@@ -126,7 +126,7 @@ function heatProp(overrides = {}) {
     }],
     areaBounds: [[54.3, -3.4], [55.7, -1.3]],
     catalogueBounds: [[54.3, -3.4], [55.7, -1.3]],
-    tideByWindow: new Map([[solarWindowKey(X, 'SUNRISE'), {
+    tideByWindow: new Map([[windowKey(X, 'SUNRISE'), {
       tide: TIDE, eventTime: X_EVENT_TIME, time: LENT_TIME,
     }]]),
     ...overrides,
@@ -152,7 +152,7 @@ function makeLocation() {
 
 /** The per-spot served fact for X — the briefing's slots cover its unrendered windows too. */
 function alignmentIndex() {
-  return buildTideAlignmentIndex([{
+  return tideIndexOf([{
     date: X,
     eventSummaries: [{
       targetType: 'SUNRISE',
@@ -211,14 +211,14 @@ afterEach(() => {
 
 describe('MapView — the next-fit line names the EARLIEST fit, jumping only if the strip can show it', () => {
   const Y = '2026-01-17'; // the day after X; its windows are NOT in heat.windows
-  const lentFor = (date, type) => [solarWindowKey(date, type), {
+  const lentFor = (date, type) => [windowKey(date, type), {
     tide: TIDE, eventTime: `${date}T08:00:00`, time: '08:00',
   }];
 
   it('a later window that fits but has NO window tide is named as plain text — no button, no ›, no "beyond"', async () => {
     // X is dimmed (LOW water, wants HIGH). Y sunrise is aligned to HIGH by a real slot fact, but the
     // briefing served Y no window tide (absent from tideByWindow), so the strip cannot show it.
-    const index = buildTideAlignmentIndex([
+    const index = tideIndexOf([
       slotDay(X, 'SUNRISE', 'LOW', false),
       slotDay(Y, 'SUNRISE', 'HIGH', true),
     ]);
@@ -236,7 +236,7 @@ describe('MapView — the next-fit line names the EARLIEST fit, jumping only if 
   it('tideless EARLIER fit, tide-bearing LATER fit: names the earlier one as plain text, no jump', async () => {
     // Y sunrise fits but is tideless; Y sunset fits AND carries a lent tide. The earliest is Y
     // sunrise, as the callout would say, so the strip must not skip to the sunset.
-    const index = buildTideAlignmentIndex([
+    const index = tideIndexOf([
       slotDay(X, 'SUNRISE', 'LOW', false),
       slotDay(Y, 'SUNRISE', 'HIGH', true),
       slotDay(Y, 'SUNSET', 'HIGH', true),
@@ -253,7 +253,7 @@ describe('MapView — the next-fit line names the EARLIEST fit, jumping only if 
   });
 
   it('when the earliest fit carries a tide it is a real jump button', async () => {
-    const index = buildTideAlignmentIndex([
+    const index = tideIndexOf([
       slotDay(X, 'SUNRISE', 'LOW', false),
       slotDay(Y, 'SUNSET', 'HIGH', true),
     ]);
@@ -307,7 +307,7 @@ describe('MapView — a filler window borrows the briefing\'s served tide', () =
     rated.forecastsByDate.set(X, {
       sunrise: { rating: 4, solarEventTime: X_EVENT_TIME, fierySkyPotential: 70, goldenHourPotential: 60 },
     });
-    await renderMap({ locations: [rated], tideAlignmentIndex: buildTideAlignmentIndex([]) });
+    await renderMap({ locations: [rated], tideAlignmentIndex: tideIndexOf([]) });
 
     const footer = screen.getByTestId('wf-tide-strip-footer');
     expect(footer).toHaveTextContent('No per-spot tide fit for this window');
@@ -319,7 +319,7 @@ describe('MapView — a filler window borrows the briefing\'s served tide', () =
     // Documents gate (c), which this change deliberately leaves alone: the strip needs a coastal
     // spot IN VIEW after the reader's filters. Without a fact (or a rating) the 3★ floor removes
     // the spot, so the lent tide alone does not bring the strip back.
-    await renderMap({ tideAlignmentIndex: buildTideAlignmentIndex([]) });
+    await renderMap({ tideAlignmentIndex: tideIndexOf([]) });
     expect(screen.getByTestId('wf-map-counts-footer')).toHaveTextContent('0 of 1 shown');
     expect(screen.queryByTestId('wf-tide-strip')).toBeNull();
   });

@@ -5,7 +5,7 @@ import {
 import { tideAccessibleClause, tierOf } from './mapTideFit.js';
 import { formatDriveDuration } from './briefingDisplay.js';
 import { formatEventTimeUk } from './conversions.js';
-import { windowKey } from './heatSpots.js';
+import { windowKey } from './windowKeys.js';
 
 /**
  * Ask PhotoCast's client model — pure, no React, no clock.

@@ -17,10 +17,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime, tideAccessibleClause,
+  tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime, tideAccessibleClause, tideTierHeading,
   coastalInView, buildWindowTideIndex,
 } from '../utils/mapTideFit.js';
-import { solarWindowKey } from '../utils/mapEvents.js';
+import { windowKey } from '../utils/windowKeys.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
 const DATE_1 = '2026-09-10';
@@ -393,11 +393,11 @@ describe('buildWindowTideIndex', () => {
       { date: '2026-10-11', eventSummaries: [{ targetType: 'SUNRISE', window: { tide: tide('C') } }] },
     ];
     const index = buildWindowTideIndex(days, (iso) => `fmt(${iso})`);
-    expect(index.get(solarWindowKey('2026-10-10', 'SUNRISE'))).toEqual({
+    expect(index.get(windowKey('2026-10-10', 'SUNRISE'))).toEqual({
       tide: tide('A'), eventTime: '2026-10-10T05:44:00', time: 'fmt(2026-10-10T05:44:00)',
     });
     // No served eventTime: null, never a synthesised time, and the formatter is not even asked.
-    expect(index.get(solarWindowKey('2026-10-10', 'SUNSET'))).toEqual({
+    expect(index.get(windowKey('2026-10-10', 'SUNSET'))).toEqual({
       tide: tide('B'), eventTime: null, time: null,
     });
     expect(index.size).toBe(3);
@@ -725,5 +725,25 @@ describe('tideAccessibleClause — the match state clause (tide-window-plan.md �
 
   it('returns null when there is no served tide fact at all, regardless of state', () => {
     expect(tideAccessibleClause(null, null, 'HIGH')).toBeNull();
+  });
+});
+
+describe('tideTierHeading — the honest miss heading (window-tide-facts-plan §4.2)', () => {
+  it('a match is unchanged, assessed or not', () => {
+    expect(tideTierHeading('match')).toBe('Tide lands on the light');
+    expect(tideTierHeading('match', false)).toBe('Tide lands on the light');
+  });
+
+  it('an assessed miss keeps "Wrong water, not wrong light"; that is also the default', () => {
+    expect(tideTierHeading('miss', true)).toBe('Wrong water, not wrong light');
+    expect(tideTierHeading('miss')).toBe('Wrong water, not wrong light');
+  });
+
+  it('an unassessed miss makes no claim about the light', () => {
+    expect(tideTierHeading('miss', false)).toBe('Tide misses the light here');
+  });
+
+  it('no tier, no heading', () => {
+    expect(tideTierHeading(null, false)).toBeNull();
   });
 });

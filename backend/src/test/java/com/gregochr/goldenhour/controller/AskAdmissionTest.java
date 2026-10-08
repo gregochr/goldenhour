@@ -2,15 +2,20 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.config.AskAdmissionInterceptor;
 import com.gregochr.goldenhour.config.AskBodyLimitFilter;
+import com.gregochr.goldenhour.config.AskFlagInterceptor;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
+import com.gregochr.goldenhour.service.ask.AskAnswerCache;
 import com.gregochr.goldenhour.service.ask.AskDenialCounter;
 import com.gregochr.goldenhour.service.ask.AskEngine;
+import com.gregochr.goldenhour.service.ask.AskIntentMatcher;
 import com.gregochr.goldenhour.service.ask.AskJobRunService;
+import com.gregochr.goldenhour.service.ask.AskLog;
+import com.gregochr.goldenhour.service.ask.AskPreFilter;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskRateLimiter;
 import com.gregochr.goldenhour.service.ask.AskReadyService;
@@ -18,10 +23,6 @@ import com.gregochr.goldenhour.service.ask.AskService;
 import com.gregochr.goldenhour.service.ask.AskSnapshotBuilder;
 import com.gregochr.goldenhour.service.ask.AskSpendGuard;
 import com.gregochr.goldenhour.service.ask.AskUsageStore;
-import com.gregochr.goldenhour.service.ask.NoOpAskAnswerCache;
-import com.gregochr.goldenhour.service.ask.NoOpAskIntentMatcher;
-import com.gregochr.goldenhour.service.ask.NoOpAskLog;
-import com.gregochr.goldenhour.service.ask.NoOpAskPreFilter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -81,14 +82,15 @@ class AskAdmissionTest {
         AskService service = new AskService(properties, new AskRateLimiter(properties, clock), users,
                 mock(RegionRepository.class), snapshotBuilder, engine, usageStore,
                 new AskSpendGuard(properties, jobRuns, mock(AdminAlertService.class), clock),
-                mock(AskReadyService.class), mock(DriveTimeResolver.class), new NoOpAskPreFilter(),
-                new NoOpAskIntentMatcher(), new NoOpAskAnswerCache(), new NoOpAskLog(),
+                mock(AskReadyService.class), mock(DriveTimeResolver.class), mock(AskPreFilter.class),
+                mock(AskIntentMatcher.class), mock(AskAnswerCache.class), mock(AskLog.class),
                 new AskDenialCounter(clock), clock);
-        AskController controller = new AskController(properties, mock(AskReadyService.class),
+        AskController controller = new AskController(mock(AskReadyService.class),
                 mock(RegionRepository.class), service);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
-                .addMappedInterceptors(new String[] {URL}, new AskAdmissionInterceptor(properties, service))
+                .addMappedInterceptors(new String[] {URL}, new AskFlagInterceptor(properties, false),
+                        new AskAdmissionInterceptor(service))
                 .addFilters(new AskBodyLimitFilter())
                 .build();
         auth = new TestingAuthenticationToken("reader", "n/a", "ROLE_LITE_USER");
@@ -188,7 +190,7 @@ class AskAdmissionTest {
                 "key", "anonymousUser", java.util.List.of(
                         new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ANONYMOUS")));
         SecurityContextHolder.getContext().setAuthentication(anonymous);
-        AskAdmissionInterceptor interceptor = new AskAdmissionInterceptor(properties, mock(AskService.class));
+        AskAdmissionInterceptor interceptor = new AskAdmissionInterceptor(mock(AskService.class));
         org.springframework.mock.web.MockHttpServletRequest request =
                 new org.springframework.mock.web.MockHttpServletRequest("POST", URL);
 
@@ -202,7 +204,7 @@ class AskAdmissionTest {
     @DisplayName("only POST is admitted: a GET to the same path is not counted")
     void getIsNotCounted() throws Exception {
         AskService askService = mock(AskService.class);
-        AskAdmissionInterceptor interceptor = new AskAdmissionInterceptor(properties, askService);
+        AskAdmissionInterceptor interceptor = new AskAdmissionInterceptor(askService);
         org.springframework.mock.web.MockHttpServletRequest request =
                 new org.springframework.mock.web.MockHttpServletRequest("GET", URL);
 

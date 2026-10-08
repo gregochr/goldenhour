@@ -1,4 +1,4 @@
-import { windowKey } from './heatSpots.js';
+import { windowKey } from './windowKeys.js';
 
 /**
  * The window ↔ hot-topic join, and the one filter the client is allowed to apply to it.

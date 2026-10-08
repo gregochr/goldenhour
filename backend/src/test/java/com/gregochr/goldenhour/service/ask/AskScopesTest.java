@@ -123,4 +123,21 @@ class AskScopesTest {
         assertThat(AskScopes.resolve(regions, List.of(1L, 99L))).isEmpty();
         assertThat(AskScopes.resolve(regions, List.of(1L, 8L))).isEmpty();
     }
+
+    @Test
+    @DisplayName("the scope parameter: 'all' in any case with whitespace is the open scope and asks nothing; a "
+            + "number is an enabled region; anything else is empty")
+    void fromParameter() {
+        when(regions.findAllById(Set.of(3L))).thenReturn(List.of(region(3L, "Northumberland")));
+        when(regions.findAllById(Set.of(4L))).thenReturn(List.of(
+                RegionEntity.builder().id(4L).name("Retired").enabled(false).build()));
+
+        assertThat(AskScopes.fromParameter(regions, " ALL ")).contains(AskScope.ALL);
+        verifyNoInteractions(regions);
+        assertThat(AskScopes.fromParameter(regions, "3")).isPresent();
+        assertThat(AskScopes.fromParameter(regions, " 3 ")).isPresent();
+        assertThat(AskScopes.fromParameter(regions, "4")).isEmpty();
+        assertThat(AskScopes.fromParameter(regions, "northumberland")).isEmpty();
+        assertThat(AskScopes.fromParameter(regions, "")).isEmpty();
+    }
 }

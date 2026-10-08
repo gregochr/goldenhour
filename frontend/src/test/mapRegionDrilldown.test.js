@@ -9,7 +9,8 @@ import { describe, it, expect } from 'vitest';
 import {
   buildRegionLocationRows, regionStatSegments, REGION_PANEL_LOCATIONS,
 } from '../utils/mapDrilldown.js';
-import { buildScoreIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex } from '../utils/locationSheet.js';
+import { tideIndexOf } from './tideFactsFixture.js';
 
 const DATE = '2026-01-15';
 
@@ -107,7 +108,7 @@ const SCORE_INDEX = buildScoreIndex([
     goldenHourEnd: `${DATE}T16:21:00`,
   },
 ]);
-const TIDE_INDEX = buildTideAlignmentIndex(DAYS);
+const TIDE_INDEX = tideIndexOf(DAYS);
 
 const POINTS = [
   { id: 1, name: 'Ashness Bridge', rid: 'The Lakes', r: [5] },

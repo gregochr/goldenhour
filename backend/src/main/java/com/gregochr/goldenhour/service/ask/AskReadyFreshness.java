@@ -145,7 +145,7 @@ final class AskReadyFreshness {
                 return Verdict.stale("the " + event.type() + " event on " + event.date()
                         + " is no longer live");
             }
-            events.add(new AskEvent(event.type(), topic.get().label(), event.date(), event.why(),
+            events.add(new AskEvent(AskEventType.key(event.type()), topic.get().label(), event.date(), event.why(),
                     topic.get().safetyNote()));
         }
         return new Verdict(new AskAnswer(answer.answerable(), answer.summary(), picks, events,

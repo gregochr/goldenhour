@@ -3,7 +3,7 @@ import {
   buildPickCards, eventKicker, meridiemOf, newestRunLabel, questionsForView, readyBusyLine,
   resolveSuggestions, shortWindow,
 } from '../utils/askModel.js';
-import { windowKey } from '../utils/heatSpots.js';
+import { windowKey } from '../utils/windowKeys.js';
 import {
   briefing, pick, readyResponse, ROSEBERRY, SALTBURN, slot, WHITBY,
 } from './askFixtures.js';
