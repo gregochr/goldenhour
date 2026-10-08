@@ -86,6 +86,19 @@ final class ReadyFixtures {
         return day(date, true, true, null, regions);
     }
 
+    /** Friday noon: Saturday's sunset carries the BEST BET at Bamburgh; both regions in every window. */
+    static AskSnapshot fridaySnapshot() {
+        BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "Bamburgh", 1L);
+        List<HotTopic> topics = List.of(
+                AskFixtures.topic("AURORA", "Aurora tonight", "Kp 6", oct(12), List.of()),
+                AskFixtures.topic("SNOW_TOPS", "Snow on the Cheviot", "Fresh snow", oct(12), List.of()));
+        return at(FRIDAY_NOON,
+                List.of(day(oct(9), false, true, null, northumberland(), teesdale()),
+                        day(oct(10), true, true, best, northumberland(), teesdale()),
+                        both(oct(11), northumberland(), teesdale())),
+                topics);
+    }
+
     /** The snapshot at {@code now} of a briefing of these days and topics. */
     static AskSnapshot at(LocalDateTime now, List<BriefingDay> days, List<HotTopic> topics) {
         return AskFixtures.snapshotAt(now, AskFixtures.briefing(days, topics), List.of());

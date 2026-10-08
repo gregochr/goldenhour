@@ -93,7 +93,7 @@ final class AskReadyFreshness {
                 return Verdict.stale("the BEST BET is now on " + lead.get().id());
             }
         }
-        Optional<String> violation = question.violation(decorated, offer.get(), live, scope);
+        Optional<String> violation = ReadyRelevance.violation(question, decorated, offer.get(), live, scope);
         if (violation.isPresent()) {
             return Verdict.stale(violation.get());
         }

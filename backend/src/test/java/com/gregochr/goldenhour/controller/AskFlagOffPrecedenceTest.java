@@ -4,7 +4,8 @@ import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ask.AskEngine;
 import com.gregochr.goldenhour.service.ask.AskMetricsService;
 import com.gregochr.goldenhour.service.ask.AskProperties;
-import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
+import com.gregochr.goldenhour.service.ask.AskReadyServing;
 import com.gregochr.goldenhour.service.ask.AskSettingsResponse;
 import com.gregochr.goldenhour.service.ask.AskSnapshotBuilder;
 import org.junit.jupiter.api.AfterEach;
@@ -52,7 +53,9 @@ class AskFlagOffPrecedenceTest extends AbstractControllerTest {
     @MockitoBean
     private RegionRepository regionRepository;
     @MockitoBean
-    private AskReadyService readyService;
+    private AskReadyServing readyServing;
+    @MockitoBean
+    private AskReadyPrecompute readyPrecompute;
     @MockitoBean
     private AskMetricsService metricsService;
 
@@ -92,7 +95,7 @@ class AskFlagOffPrecedenceTest extends AbstractControllerTest {
     @DisplayName("401 first: an anonymous caller is 401 on every Ask route with the flag off")
     void anonymousIs401(String method, String path) throws Exception {
         assertThat(statusOf(method, path, null)).isEqualTo(401);
-        verifyNoInteractions(engine, snapshotBuilder, readyService, metricsService, askService);
+        verifyNoInteractions(engine, snapshotBuilder, readyServing, readyPrecompute, metricsService, askService);
     }
 
     @ParameterizedTest(name = "{0} {1}")
@@ -107,7 +110,7 @@ class AskFlagOffPrecedenceTest extends AbstractControllerTest {
             + "admin routes, which the interceptor leaves to the role check")
     void liteCallerSeesTheRoleCheckBeforeTheFlag(String method, String path, int expected) throws Exception {
         assertThat(statusOf(method, path, as("LITE_USER"))).isEqualTo(expected);
-        verifyNoInteractions(engine, snapshotBuilder, readyService, metricsService);
+        verifyNoInteractions(engine, snapshotBuilder, readyServing, readyPrecompute, metricsService);
     }
 
     @ParameterizedTest(name = "{0} {1}")
@@ -115,7 +118,7 @@ class AskFlagOffPrecedenceTest extends AbstractControllerTest {
     @DisplayName("then 404: an ADMIN caller with the flag off is 404 on every Ask route and nothing runs")
     void adminSeesTheFlag(String method, String path) throws Exception {
         assertThat(statusOf(method, path, as("ADMIN"))).isEqualTo(404);
-        verifyNoInteractions(engine, snapshotBuilder, readyService, metricsService, askService);
+        verifyNoInteractions(engine, snapshotBuilder, readyServing, readyPrecompute, metricsService, askService);
     }
 
     @ParameterizedTest(name = "{0} {1}")

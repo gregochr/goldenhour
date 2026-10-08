@@ -283,16 +283,6 @@ class AskSnapshotBuilderTest {
     }
 
     @Test
-    @DisplayName("runLabel is the build time in London: 05:02 UTC is 06:02 BST, 06:02 UTC is 06:02 GMT")
-    void runLabel_isLondonLocal() {
-        assertThat(AskSnapshotBuilder.runLabel(LocalDateTime.of(2026, 10, 5, 5, 2, 11)))
-                .isEqualTo("06:02");
-        assertThat(AskSnapshotBuilder.runLabel(LocalDateTime.of(2026, 12, 5, 6, 2, 11)))
-                .isEqualTo("06:02");
-        assertThat(AskSnapshotBuilder.runLabel(null)).isNull();
-    }
-
-    @Test
     @DisplayName("the snapshot carries the label, build time and the UK civil date")
     void build_carriesLabelsAndToday() {
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));

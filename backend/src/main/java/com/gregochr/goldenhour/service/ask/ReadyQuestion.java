@@ -1,13 +1,12 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.util.DayLabels;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -22,6 +21,9 @@ import java.util.Set;
  * from the snapshot's UK civil date and stored with the answer: it is fixed at precompute time,
  * and a serve offers the question again against live data and withholds the answer when the text
  * no longer matches (so a "tomorrow" stored on Sunday is never shown on Monday).
+ *
+ * <p>What a question may <em>carry</em> (which events and picks it admits, and the reduction of an answer
+ * to them) is {@link ReadyRelevance}, one code path for store and serve.
  *
  * <p>The predicates use only {@link AskSnapshot#candidates(AskSnapshot.Window, AskScope)} — the
  * one definition of a pick-eligible slot in scope that {@code rank_spots} and the validator also
@@ -76,17 +78,12 @@ public enum ReadyQuestion {
         Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             List<String> ids = new ArrayList<>();
             for (AskSnapshot.Window w : snapshot.windows()) {
-                if (snapshot.candidates(w, scope).stream().anyMatch(c -> isHighWater(c.slot()))) {
+                if (snapshot.candidates(w, scope).stream().anyMatch(c -> ReadyRelevance.isHighWater(c.slot()))) {
                     ids.add(w.id());
                 }
             }
             return ids.isEmpty() ? Optional.empty()
                     : Optional.of(new Offer("Best coastal spot at high tide?", ids, null));
-        }
-
-        @Override
-        boolean admitsSlot(AskSnapshot.Slot slot) {
-            return isHighWater(slot);
         }
     },
 
@@ -130,8 +127,6 @@ public enum ReadyQuestion {
             return Optional.of(new Offer("Is there snow on the tops?", List.of(), null));
         }
     };
-
-    private static final String HIGH = "HIGH";
 
     /**
      * The event types a question keeps. A holder class because an enum constant's arguments cannot
@@ -231,124 +226,16 @@ public enum ReadyQuestion {
     }
 
     /**
-     * Whether an event of this type is relevant to this question: the one event predicate, applied
-     * when an answer is stored and again when it is served. A pick question keeps no event card (its
-     * cards are picks); {@code RARE_EVENTS} keeps any; {@code SNOW_TOPS} keeps only the snow topic
-     * types ({@code SNOW_TOPS}, {@code SNOW_FRESH}, {@code SNOW_MIST}).
+     * The event types this question keeps; null means "any". Read by {@link ReadyRelevance}, which owns
+     * what a question may carry.
      *
-     * @param type the event's served type, any case or spelling ({@link AskEventType#key})
-     * @return true when the question may carry an event of this type
+     * @return the kept event types (upper-case keys), empty for a pick question, or null for any
      */
-    public boolean admitsEvent(String type) {
-        if (eventTypes == null) {
-            return true;
-        }
-        return type != null && eventTypes.contains(AskEventType.key(type));
-    }
-
-    /**
-     * Whether a pick's live slot is of the kind this question asks for, beyond being pick-eligible in
-     * scope: {@code COASTAL_HIGH} wants a coastal slot at high water, every other question any slot.
-     *
-     * @param slot the pick's live slot
-     * @return true when the slot suits the question
-     */
-    boolean admitsSlot(AskSnapshot.Slot slot) {
-        return true;
-    }
-
-    /**
-     * Whether a pick is relevant to this question: the one pick predicate, applied when an answer is
-     * stored and again when it is served. An events question admits no pick. A pick question admits
-     * one only if it is on one of the question's own windows ({@code BEST_WEEKEND}: the Saturday and
-     * Sunday windows; {@code BEST_SOON}: the windows with a pick; {@code BEST_NEXT}: the next window
-     * alone; {@code COASTAL_HIGH}: the windows with a coastal slot at high water; {@code AM_OR_PM}:
-     * that date's two windows), its live slot is pick-eligible within the question's scope, and the
-     * slot suits the question ({@link #admitsSlot}).
-     *
-     * @param pick     the pick
-     * @param offer    what the question is asked under
-     * @param snapshot the snapshot to read the live slot from
-     * @param scope    the question's scope
-     * @return true when the question may carry the pick
-     */
-    boolean admitsPick(AskPick pick, Offer offer, AskSnapshot snapshot, AskScope scope) {
-        if (!picks || !offer.windowIds().contains(pick.windowId())) {
-            return false;
-        }
-        Optional<AskSnapshot.Candidate> candidate = snapshot.candidate(pick.windowId(), pick.locationId());
-        return candidate.isPresent()
-                && scope.contains(candidate.get().region().name())
-                && admitsSlot(candidate.get().slot());
-    }
-
-    /**
-     * An answer reduced to what this question may carry: an events question loses any pick and any
-     * event it does not admit; a pick question loses every event. The picks of a pick question are
-     * never dropped here (dropping one would renumber the ranks and could remove the BEST BET lead): a
-     * wrong pick fails {@link #violation} instead.
-     *
-     * @param answer the validated answer
-     * @return the answer with the irrelevant events and picks removed
-     */
-    AskAnswer relevantPart(AskAnswer answer) {
-        List<AskEvent> events = answer.events().stream().filter(e -> admitsEvent(e.type())).toList();
-        return new AskAnswer(answer.answerable(), answer.summary(), picks ? answer.picks() : List.of(),
-                events, answer.missing());
-    }
-
-    /**
-     * Whether {@link #relevantPart} would remove an event that carries a safety warning. Such an
-     * answer cannot be stored: the summary may name the event, and dropping its card would drop the
-     * warning the card must show.
-     *
-     * @param answer the validated answer
-     * @return true when an event with a safety note would be dropped
-     */
-    boolean dropsWarning(AskAnswer answer) {
-        return answer.events().stream().anyMatch(e -> !admitsEvent(e.type()) && e.safetyNote() != null);
-    }
-
-    /**
-     * Whether an answer is what this question wants and carries nothing it may not: a pick question
-     * needs a pick and carries no event, an events question needs an event and carries no pick, every
-     * event is of an admitted type ({@link #admitsEvent}) and every pick is admitted
-     * ({@link #admitsPick}). Run on the reduced answer when it is stored and on the stored answer when
-     * it is served, so a row written under an older, looser rule is withheld rather than served.
-     *
-     * @param answer   the answer
-     * @param offer    what the question is asked under
-     * @param snapshot the snapshot to read live slots from
-     * @param scope    the question's scope
-     * @return why the answer must not be stored or served, or empty when it may be
-     */
-    Optional<String> violation(AskAnswer answer, Offer offer, AskSnapshot snapshot,
-            AskScope scope) {
-        if (picks && answer.picks().isEmpty()) {
-            return Optional.of("a pick question with no pick");
-        }
-        if (!picks && answer.events().isEmpty()) {
-            return Optional.of("an events question with no event");
-        }
-        for (AskEvent event : answer.events()) {
-            if (!admitsEvent(event.type())) {
-                return Optional.of("a " + event.type() + " event is not relevant to " + name());
-            }
-        }
-        for (AskPick pick : answer.picks()) {
-            if (!admitsPick(pick, offer, snapshot, scope)) {
-                return Optional.of("pick " + pick.rank() + " is not relevant to " + name() + " ("
-                        + pick.windowId() + ")");
-            }
-        }
-        return Optional.empty();
+    Set<String> eventTypes() {
+        return eventTypes;
     }
 
     // -- shared helpers -----------------------------------------------------------------------
-
-    private static boolean isHighWater(AskSnapshot.Slot slot) {
-        return HIGH.equals(slot.tideState());
-    }
 
     /** The ids of the windows that pass {@code filter} and have a pick-eligible slot in scope. */
     private static List<String> windowsWithCandidates(AskSnapshot snapshot, AskScope scope,
@@ -369,13 +256,8 @@ public enum ReadyQuestion {
 
     /** {@code today}, {@code tomorrow} or {@code on Saturday}, from the UK civil date. */
     static String dayWords(LocalDate date, LocalDate today) {
-        if (date.equals(today)) {
-            return "today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
-        }
-        return "on " + date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
+        String relative = DayLabels.relative(date, today);
+        return date.equals(today) || date.equals(today.plusDays(1)) ? relative : "on " + relative;
     }
 
     /** {@code tonight}, {@code this morning}, {@code tomorrow morning}, {@code on Saturday evening}. */

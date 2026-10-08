@@ -4,7 +4,7 @@ import com.gregochr.goldenhour.config.AskAdmissionInterceptor;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ask.AskErrorCode;
-import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskReadyServing;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import com.gregochr.goldenhour.service.ask.AskRequest;
 import com.gregochr.goldenhour.service.ask.AskScope;
@@ -45,20 +45,20 @@ public class AskController {
 
     private static final Logger LOG = LoggerFactory.getLogger(AskController.class);
 
-    private final AskReadyService readyService;
+    private final AskReadyServing readyServing;
     private final RegionRepository regionRepository;
     private final AskService askService;
 
     /**
      * Constructs the controller.
      *
-     * @param readyService     serves the Ready answers
+     * @param readyServing     serves the Ready answers
      * @param regionRepository validates a region scope
      * @param askService       answers typed questions
      */
-    public AskController(AskReadyService readyService, RegionRepository regionRepository,
+    public AskController(AskReadyServing readyServing, RegionRepository regionRepository,
             AskService askService) {
-        this.readyService = readyService;
+        this.readyServing = readyServing;
         this.regionRepository = regionRepository;
         this.askService = askService;
     }
@@ -123,6 +123,6 @@ public class AskController {
             return ResponseEntity.badRequest().body(Map.of("error",
                     "The scope must be 'all' or the id of an enabled region."));
         }
-        return ResponseEntity.ok(readyService.serve(resolved.get()));
+        return ResponseEntity.ok(readyServing.serve(resolved.get()));
     }
 }

@@ -19,18 +19,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Ready answers (plan §2.4): precomputes one user-less answer per scope and {@link ReadyQuestion},
- * and serves them.
+ * The Ready precompute (plan §2.4): one user-less answer per scope and {@link ReadyQuestion}, written
+ * to {@code ask_ready_answer}. {@link AskReadyServing} reads them back; the two share only the store
+ * and the snapshot builder, and split from the single {@code AskReadyService} for that reason.
  *
- * <h2>Precompute</h2>
- * Dispatched by {@code PipelineOrchestrator} <b>after</b> a cycle's run is finished (never inside
+ * <p>Dispatched by {@code PipelineOrchestrator} <b>after</b> a cycle's run is finished (never inside
  * it: a run held RUNNING forces every later tail settle to {@code RESETS_ONLY}) and by the admin
  * endpoint on demand. Scopes are every enabled region and {@code ALL}; questions are the
  * catalogue's available ones; each is one engine run, one at a time, with no user, billed to one
@@ -38,7 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <ul>
  *   <li><b>Refused as a whole</b> when Ask is off, a simulation is active (hot topic or aurora),
  *       another precompute is running, the briefing is missing, last-known-good or has no build
- *       time, or — for a scheduled run only — {@code photocast.ask.ready.max-cycles-per-day}
+ *       time, or &mdash; for a scheduled run only &mdash; {@code photocast.ask.ready.max-cycles-per-day}
  *       scheduled {@code ASK_READY} runs have already started since UK midnight. That count is a
  *       query on {@code job_run}, so it is durable across a restart and needs no table of its own.
  *       An admin's on-demand run is a person's decision, as the dry-run is: it is not counted
@@ -56,21 +54,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>Nothing the model returns is stored unless it is the kind of answer the question wants
  *       ({@link ReadyQuestion#violation}).</li>
  * </ul>
- *
- * <h2>Serve</h2>
- * {@link #serve} returns the stored answers that are still true against live data, whole or not at
- * all ({@link AskReadyFreshness}), re-decorated from the live snapshot.
  */
 @Service
-public class AskReadyService {
+public class AskReadyPrecompute {
 
-    private static final Logger LOG = LoggerFactory.getLogger(AskReadyService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AskReadyPrecompute.class);
 
     /** The longest a precompute may run before it stops between questions. */
     public static final Duration PRECOMPUTE_DEADLINE = Duration.ofMinutes(5);
-
-    /** How many other questions an answer suggests. */
-    private static final int TRY_COUNT = 2;
 
     private final AskProperties properties;
     private final AskSnapshotBuilder snapshotBuilder;
@@ -91,7 +82,7 @@ public class AskReadyService {
      * Creates the service.
      *
      * @param properties         the Ask settings (the flag, the per-day cycle ceiling, the model)
-     * @param snapshotBuilder    builds the snapshot answers are written and checked against
+     * @param snapshotBuilder    builds the snapshot answers are written against
      * @param engine             the one active engine: the stub or Claude
      * @param regionRepository   the enabled regions, which are the scopes
      * @param store              the {@code ask_ready_answer} table
@@ -102,7 +93,7 @@ public class AskReadyService {
      * @param clock              the application clock: the UK day, the deadline
      */
     @Autowired
-    public AskReadyService(AskProperties properties, AskSnapshotBuilder snapshotBuilder,
+    public AskReadyPrecompute(AskProperties properties, AskSnapshotBuilder snapshotBuilder,
             AskEngine engine, RegionRepository regionRepository, AskReadyStore store,
             JobRunService jobRunService, JobRunRepository jobRunRepository,
             HotTopicSimulationService hotTopicSimulation, AuroraStateCache auroraStateCache,
@@ -127,7 +118,7 @@ public class AskReadyService {
      * @param clock              the clock
      * @param deadline           how long a precompute may run
      */
-    AskReadyService(AskProperties properties, AskSnapshotBuilder snapshotBuilder, AskEngine engine,
+    AskReadyPrecompute(AskProperties properties, AskSnapshotBuilder snapshotBuilder, AskEngine engine,
             RegionRepository regionRepository, AskReadyStore store, JobRunService jobRunService,
             JobRunRepository jobRunRepository, HotTopicSimulationService hotTopicSimulation,
             AuroraStateCache auroraStateCache, Clock clock, Duration deadline) {
@@ -330,14 +321,14 @@ public class AskReadyService {
             counts.failed++;
             return true;
         }
-        if (task.question().dropsWarning(outcome.answer())) {
+        if (ReadyRelevance.dropsWarning(task.question(), outcome.answer())) {
             LOG.warn("[ASK] Ready {} discarded: it carries a warned event the question would drop", label);
             counts.failed++;
             return true;
         }
         // The model is not trusted to keep to its question: events and picks the question does not
         // admit are removed before anything is judged or stored (the same predicate the serve re-applies).
-        AskAnswer answer = task.question().relevantPart(outcome.answer());
+        AskAnswer answer = ReadyRelevance.relevantPart(task.question(), outcome.answer());
         if (answer.events().size() < outcome.answer().events().size()
                 || answer.picks().size() < outcome.answer().picks().size()) {
             LOG.info("[ASK] Ready {} had events or picks it may not carry; they were removed", label);
@@ -352,7 +343,7 @@ public class AskReadyService {
             counts.skipped++;
             return true;
         }
-        Optional<String> violation = task.question().violation(answer, task.offer(), snapshot,
+        Optional<String> violation = ReadyRelevance.violation(task.question(), answer, task.offer(), snapshot,
                 task.scope());
         if (violation.isPresent()) {
             LOG.warn("[ASK] Ready {} discarded: {}", label, violation.get());
@@ -397,103 +388,5 @@ public class AskReadyService {
 
     private boolean simulationActive() {
         return AskSimulation.active(hotTopicSimulation, auroraStateCache);
-    }
-
-    // -- serve ------------------------------------------------------------------------------
-
-    /**
-     * The Ready questions of a scope that are still true, in catalogue order.
-     *
-     * @param scope {@link AskScope#ALL} or one region
-     * @return the fresh questions; empty when there is no briefing or none is fresh
-     */
-    public AskReadyResponse serve(AskScope scope) {
-        String echo = scope.isEverywhere() ? "all" : scope.key();
-        Optional<AskSnapshot> live = snapshotBuilder.current();
-        if (live.isEmpty()) {
-            return new AskReadyResponse(echo, List.of());
-        }
-        return new AskReadyResponse(echo, freshAnswers(scope, live.get()));
-    }
-
-    /**
-     * The Ready questions of a scope that are still true against a snapshot the caller already holds,
-     * each decorated exactly as {@link #serve} serves it. The typed question's intent match uses this,
-     * so a Ready answer given to a typed question is the very object, with the very freshness test,
-     * a tap on the same question would have got.
-     *
-     * @param scope {@link AskScope#ALL} or one region
-     * @param live  the live snapshot the freshness check is made against
-     * @return the fresh questions in catalogue order; empty when none is fresh
-     */
-    public List<AskReadyResponse.Question> freshAnswers(AskScope scope, AskSnapshot live) {
-        List<Fresh> fresh = freshQuestions(scope, live);
-        List<AskReadyResponse.Question> questions = new ArrayList<>();
-        for (int i = 0; i < fresh.size(); i++) {
-            questions.add(toQuestion(fresh, i));
-        }
-        return questions;
-    }
-
-    /**
-     * Up to {@code limit} Ready questions of a scope that are fresh against the given snapshot, in
-     * catalogue order: the {@code try} suggestions of a typed answer that could not answer (plan
-     * §2.9). The same freshness test {@link #serve} applies, so a suggestion is always one the client
-     * will find in its Ready list.
-     *
-     * @param scope {@link AskScope#ALL} or one region
-     * @param live  the live snapshot the freshness check is made against
-     * @param limit the most suggestions to return
-     * @return the suggestions; empty when none is fresh
-     */
-    public List<AskReadyResponse.Suggestion> suggestions(AskScope scope, AskSnapshot live, int limit) {
-        return freshQuestions(scope, live).stream().limit(Math.max(0, limit))
-                .map(f -> new AskReadyResponse.Suggestion(f.question().name(), f.stored().questionText()))
-                .toList();
-    }
-
-    /** The stored questions of a scope that are still true against {@code live}, in catalogue order. */
-    private List<Fresh> freshQuestions(AskScope scope, AskSnapshot live) {
-        Map<String, AskReadyStore.Stored> byId = new LinkedHashMap<>();
-        store.findScope(scope.key()).forEach(s -> byId.put(s.questionId(), s));
-
-        List<Fresh> fresh = new ArrayList<>();
-        for (ReadyQuestion question : ReadyQuestion.values()) {
-            AskReadyStore.Stored stored = byId.get(question.name());
-            if (stored == null) {
-                continue;
-            }
-            AskReadyFreshness.Verdict verdict =
-                    AskReadyFreshness.check(question, stored, live, scope);
-            if (verdict.fresh()) {
-                fresh.add(new Fresh(question, stored, verdict.answer()));
-            } else {
-                LOG.debug("[ASK] Ready {}/{} withheld: {}", scope.key(), question, verdict.reason());
-            }
-        }
-        return fresh;
-    }
-
-    private record Fresh(ReadyQuestion question, AskReadyStore.Stored stored, AskAnswer answer) {
-    }
-
-    /** Builds the wire question at {@code index}; its suggestions are the next fresh others, wrapping. */
-    private static AskReadyResponse.Question toQuestion(List<Fresh> fresh, int index) {
-        Fresh self = fresh.get(index);
-        List<AskReadyResponse.Suggestion> suggestions = new ArrayList<>();
-        for (int step = 1; step < fresh.size() && suggestions.size() < TRY_COUNT; step++) {
-            Fresh other = fresh.get((index + step) % fresh.size());
-            suggestions.add(new AskReadyResponse.Suggestion(other.question().name(),
-                    other.stored().questionText()));
-        }
-        AskAnswer answer = self.answer();
-        AskReadyResponse.Answer wire = new AskReadyResponse.Answer(true, "ready", answer.summary(),
-                answer.picks().stream().map(AskReadyResponse.Pick::of).toList(), answer.events(),
-                null, suggestions);
-        // Each question carries its own build time and label: rows of one scope can come from
-        // different precomputes (a question whose run failed keeps its earlier answer).
-        return new AskReadyResponse.Question(self.question().name(), self.stored().questionText(),
-                self.question().tabs(), self.stored().briefingGeneratedAt(),
-                AskSnapshotBuilder.runLabel(self.stored().briefingGeneratedAt()), wire);
     }
 }

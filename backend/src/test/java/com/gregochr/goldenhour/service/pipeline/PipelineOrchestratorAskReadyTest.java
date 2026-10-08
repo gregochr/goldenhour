@@ -8,7 +8,7 @@ import com.gregochr.goldenhour.entity.PipelineRunPhaseEntity;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.LocationFailureService;
-import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
 import com.gregochr.goldenhour.service.batch.BatchRetryService;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.ForecastBatchSubmissionOutcome;
@@ -80,7 +80,7 @@ class PipelineOrchestratorAskReadyTest {
     @Mock
     private LocationFailureService locationFailureService;
     @Mock
-    private AskReadyService askReadyService;
+    private AskReadyPrecompute askReadyPrecompute;
 
     @BeforeEach
     void setUp() {
@@ -101,7 +101,7 @@ class PipelineOrchestratorAskReadyTest {
         return run;
     }
 
-    private PipelineOrchestrator orchestrator(Executor executor, AskReadyService ask) {
+    private PipelineOrchestrator orchestrator(Executor executor, AskReadyPrecompute ask) {
         return new PipelineOrchestrator(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC), executor, Duration.ofMillis(1),
                 Duration.ofSeconds(10), null, pipelineRunPickService, batchRetryService, adminAlertService,
@@ -111,12 +111,12 @@ class PipelineOrchestratorAskReadyTest {
     @Test
     @DisplayName("the run is COMPLETED before the precompute starts, and the precompute is handed this run's id")
     void completedBeforePrecomputeStarts() {
-        orchestrator(Runnable::run, askReadyService).runNightlyCycle();
+        orchestrator(Runnable::run, askReadyPrecompute).runNightlyCycle();
 
-        InOrder order = inOrder(pipelineRunService, askReadyService);
+        InOrder order = inOrder(pipelineRunService, askReadyPrecompute);
         order.verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.BRIEFING), any());
         order.verify(pipelineRunService).completeRun(RUN_ID);
-        order.verify(askReadyService).precompute(RUN_ID);
+        order.verify(askReadyPrecompute).precompute(RUN_ID);
     }
 
     @Test
@@ -128,21 +128,21 @@ class PipelineOrchestratorAskReadyTest {
         when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT))
                 .thenReturn(Optional.of(failed));
 
-        orchestrator(Runnable::run, askReadyService).runNightlyCycle();
+        orchestrator(Runnable::run, askReadyPrecompute).runNightlyCycle();
 
-        InOrder order = inOrder(pipelineRunService, askReadyService);
+        InOrder order = inOrder(pipelineRunService, askReadyPrecompute);
         order.verify(pipelineRunService).degradeRun(RUN_ID, "one bucket failed");
-        order.verify(askReadyService).precompute(RUN_ID);
+        order.verify(askReadyPrecompute).precompute(RUN_ID);
     }
 
     @Test
     @DisplayName("a precompute that throws cannot reach the run: it stays COMPLETED and is never failed")
     void precomputeThrowingLeavesTheRunCompleted() {
-        when(askReadyService.precompute(RUN_ID)).thenThrow(new IllegalStateException("precompute broke"));
+        when(askReadyPrecompute.precompute(RUN_ID)).thenThrow(new IllegalStateException("precompute broke"));
 
-        orchestrator(Runnable::run, askReadyService).runNightlyCycle();
+        orchestrator(Runnable::run, askReadyPrecompute).runNightlyCycle();
 
-        verify(askReadyService).precompute(RUN_ID);
+        verify(askReadyPrecompute).precompute(RUN_ID);
         verify(pipelineRunService).completeRun(RUN_ID);
         verify(pipelineRunService, never()).failRun(any(), any());
         verify(pipelineRunService, never()).degradeRun(any(), any());
@@ -165,11 +165,11 @@ class PipelineOrchestratorAskReadyTest {
             }
         };
 
-        orchestrator(refusesAfterTheTail, askReadyService).runNightlyCycle();
+        orchestrator(refusesAfterTheTail, askReadyPrecompute).runNightlyCycle();
 
         verify(pipelineRunService).completeRun(RUN_ID);
         verify(pipelineRunService, never()).failRun(any(), any());
-        verifyNoInteractions(askReadyService);
+        verifyNoInteractions(askReadyPrecompute);
     }
 
     @Test
@@ -183,11 +183,11 @@ class PipelineOrchestratorAskReadyTest {
             started.countDown();
             release.await(30, TimeUnit.SECONDS);
             finished.set(true);
-            return new AskReadyService.Result(0, 0, 0, null);
-        }).when(askReadyService).precompute(RUN_ID);
+            return new AskReadyPrecompute.Result(0, 0, 0, null);
+        }).when(askReadyPrecompute).precompute(RUN_ID);
         var executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
-            orchestrator(executor, askReadyService).runNightlyCycle();
+            orchestrator(executor, askReadyPrecompute).runNightlyCycle();
 
             assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
             verify(pipelineRunService, timeout(10_000)).completeRun(RUN_ID);
@@ -206,11 +206,11 @@ class PipelineOrchestratorAskReadyTest {
     void failedRunDispatchesNothing() {
         doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing();
 
-        orchestrator(Runnable::run, askReadyService).runNightlyCycle();
+        orchestrator(Runnable::run, askReadyPrecompute).runNightlyCycle();
 
         verify(pipelineRunService).failRun(eq(RUN_ID), any());
         verify(pipelineRunService, never()).completeRun(RUN_ID);
-        verifyNoInteractions(askReadyService);
+        verifyNoInteractions(askReadyPrecompute);
     }
 
     @Test

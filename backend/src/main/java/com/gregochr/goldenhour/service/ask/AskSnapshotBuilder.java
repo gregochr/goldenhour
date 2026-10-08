@@ -28,9 +28,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -68,8 +65,6 @@ public class AskSnapshotBuilder {
     /** How long {@link #current()} reuses a snapshot. */
     static final int MEMO_SECONDS = 30;
 
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
-    private static final DateTimeFormatter RUN_LABEL = DateTimeFormatter.ofPattern("HH:mm");
     private static final Comparator<AskSnapshot.Window> CHRONOLOGICAL =
             Comparator.comparing(AskSnapshot.Window::date)
                     .thenComparing(AskSnapshot.Window::targetType);
@@ -164,21 +159,8 @@ public class AskSnapshotBuilder {
         }
         windows.sort(CHRONOLOGICAL);
         LocalDateTime generatedAt = briefing.generatedAt();
-        return Optional.of(new AskSnapshot(generatedAt, runLabel(generatedAt),
+        return Optional.of(new AskSnapshot(generatedAt, AskClock.londonHHmm(generatedAt),
                 ForecastHorizon.today(clock), windows, topics(briefing), comingUp(), briefing.stale()));
-    }
-
-    /**
-     * The {@code HH:mm} Europe/London label of a briefing build time.
-     *
-     * @param generatedAt the build time (UTC), or null
-     * @return the label, or null for a null time
-     */
-    static String runLabel(LocalDateTime generatedAt) {
-        if (generatedAt == null) {
-            return null;
-        }
-        return generatedAt.atZone(ZoneOffset.UTC).withZoneSameInstant(LONDON).format(RUN_LABEL);
     }
 
     private AskSnapshot.Window toWindow(LocalDate date, BriefingEventSummary summary,

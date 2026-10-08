@@ -17,7 +17,7 @@ import java.util.Set;
  * a reason to decline, not to match); it must not contain the name of any location or region in the
  * snapshot (a place whose name is made of ordinary words — a "Best Spot Cafe" — would otherwise slip
  * through the word rules); and the Ready answer must be <b>available and fresh right now</b>:
- * {@link AskReadyService#freshAnswers} is the very test a tap on the same question gets (stored for
+ * {@link AskReadyServing#freshAnswers} is the very test a tap on the same question gets (stored for
  * the scope, every pick still eligible with the same rating and verdict, every event still live, the
  * text not gone stale, the BEST BET still the lead), judged against the live snapshot the request
  * already holds. A Ready id that is unavailable or stale is a miss, and the question goes on to the
@@ -36,15 +36,15 @@ public class KeywordAskIntentMatcher implements AskIntentMatcher {
     /** More words than this is not a Ready question; also bounds the work done on a long question. */
     static final int MAX_WORDS = 14;
 
-    private final AskReadyService readyService;
+    private final AskReadyServing readyServing;
 
     /**
      * Creates the matcher.
      *
-     * @param readyService serves the fresh Ready questions of a scope
+     * @param readyServing serves the fresh Ready questions of a scope
      */
-    public KeywordAskIntentMatcher(AskReadyService readyService) {
-        this.readyService = readyService;
+    public KeywordAskIntentMatcher(AskReadyServing readyServing) {
+        this.readyServing = readyServing;
     }
 
     @Override
@@ -58,7 +58,7 @@ public class KeywordAskIntentMatcher implements AskIntentMatcher {
             return Optional.empty();
         }
         // Only now a read: the question is made of nothing but words a Ready question uses.
-        for (AskReadyResponse.Question ready : readyService.freshAnswers(question.scope().readyScope(), snapshot)) {
+        for (AskReadyResponse.Question ready : readyServing.freshAnswers(question.scope().readyScope(), snapshot)) {
             // The id is a ReadyQuestion name by construction (freshAnswers walks the catalogue).
             if (ReadyIntentRules.matches(ReadyQuestion.valueOf(ready.id()), words, ready)) {
                 return Optional.of(ready);
