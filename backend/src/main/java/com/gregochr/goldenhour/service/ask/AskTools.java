@@ -54,9 +54,6 @@ public class AskTools {
     /** The default for any {@code limit} the model leaves out. */
     public static final int DEFAULT_LIMIT = 5;
 
-    /** The furthest ahead {@code get_coming_up} looks, in days. */
-    public static final int MAX_COMING_UP_DAYS = 90;
-
     /** The longest headline returned for a spot. */
     static final int HEADLINE_CAP = 120;
 
@@ -140,7 +137,7 @@ public class AskTools {
     /**
      * Arguments of {@code get_coming_up}; every field is optional.
      *
-     * @param days  how many days ahead, at most {@value AskTools#MAX_COMING_UP_DAYS}
+     * @param days  how many days ahead, at most {@value AskSnapshot#MAX_COMING_UP_DAYS}
      * @param limit how many entries, at most {@value AskTools#MAX_EVENTS}
      */
     public record ComingUpArgs(Integer days, Integer limit) {
@@ -283,7 +280,7 @@ public class AskTools {
      *
      * @return the windows
      */
-    public AskToolResult listWindows() {
+    public AskToolResult<ListWindowsResult> listWindows() {
         List<WindowInfo> windows = snapshot.windows().stream().map(this::windowInfo).toList();
         return finish("list_windows", new ListWindowsResult(windows), () -> { });
     }
@@ -295,7 +292,7 @@ public class AskTools {
      * @param args the optional filters
      * @return the spots, or an error result for a bad argument
      */
-    public AskToolResult rankSpots(RankSpotsArgs args) {
+    public AskToolResult<RankSpotsResult> rankSpots(RankSpotsArgs args) {
         RankSpotsArgs a = args == null ? new RankSpotsArgs(null, null, null, null, null, null)
                 : args;
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_SPOTS);
@@ -396,12 +393,12 @@ public class AskTools {
      * @param args the optional filters
      * @return the topics
      */
-    public AskToolResult getHotTopics(HotTopicsArgs args) {
+    public AskToolResult<HotTopicsResult> getHotTopics(HotTopicsArgs args) {
         HotTopicsArgs a = args == null ? new HotTopicsArgs(null, null) : args;
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_EVENTS);
-        Set<String> types = upperCased(a.types());
+        Set<String> types = typeKeys(a.types());
         List<AskSnapshot.Topic> kept = snapshot.hotTopics().stream()
-                .filter(t -> types.isEmpty() || types.contains(upper(t.type())))
+                .filter(t -> types.isEmpty() || types.contains(AskEventType.key(t.type())))
                 .filter(t -> t.inScope(scope))
                 .limit(limit)
                 .toList();
@@ -411,7 +408,7 @@ public class AskTools {
                 .toList();
         return finish("get_hot_topics", new HotTopicsResult(infos), () -> {
             for (AskSnapshot.Topic t : kept) {
-                events.add(new AskEvidence.EventFact(upper(t.type()), t.label(), t.date(),
+                events.add(new AskEvidence.EventFact(AskEventType.served(t.type()), t.label(), t.date(),
                         t.safetyNote()));
             }
         });
@@ -429,76 +426,21 @@ public class AskTools {
      * @param args the optional window and limit
      * @return the entries, soonest first
      */
-    public AskToolResult getComingUp(ComingUpArgs args) {
+    public AskToolResult<ComingUpResult> getComingUp(ComingUpArgs args) {
         ComingUpArgs a = args == null ? new ComingUpArgs(null, null) : args;
-        int days = clamp(a.days(), MAX_COMING_UP_DAYS, MAX_COMING_UP_DAYS);
+        int days = clamp(a.days(), AskSnapshot.MAX_COMING_UP_DAYS, AskSnapshot.MAX_COMING_UP_DAYS);
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_EVENTS);
-        List<AskSnapshot.ComingUp> kept = timeline(snapshot, scope, days).stream().limit(limit).toList();
+        List<AskSnapshot.ComingUp> kept = snapshot.timeline(scope, days).stream().limit(limit).toList();
         List<ComingUpInfo> infos = kept.stream()
                 .map(e -> new ComingUpInfo(e.type(), e.title(), iso(e.startDate()),
                         iso(e.endDate()), cap(e.detail(), DETAIL_CAP), e.safetyNote()))
                 .toList();
         return finish("get_coming_up", new ComingUpResult(infos), () -> {
             for (AskSnapshot.ComingUp e : kept) {
-                events.add(new AskEvidence.EventFact(upper(e.type()), e.title(), e.startDate(),
+                events.add(new AskEvidence.EventFact(AskEventType.served(e.type()), e.title(), e.startDate(),
                         e.safetyNote()));
             }
         });
-    }
-
-    /**
-     * The one definition of what {@code get_coming_up} can return, shared with the validator's
-     * "was anything offered" test so the two cannot disagree: the almanac entries overlapping the
-     * next {@code days} civil dates plus the in-scope hot topics dated inside them that the almanac
-     * does not already list, soonest first. A hot topic is stood in the timeline as a one-day entry
-     * titled with its label, carrying its served detail and safety note.
-     *
-     * <p>"Dated inside them" reads the dates a topic COVERS ({@link AskSnapshot.Topic#coversAnyOf}),
-     * not its date alone: a {@code NIGHT} topic dated yesterday — the aurora alert for the night
-     * still running before dawn — reaches this morning's sunrise, so it is listed. ⚠️ It stands on
-     * its OWN date, yesterday, even so: {@code AskReadyFreshness.liveEvent} re-finds an event by the
-     * live topic's {@code date}, and {@code get_hot_topics} reports the same topic on that date, so
-     * moving the entry onto today would make an answer built from it read as no longer live on
-     * the very next serve (a Codex review of #1056). The night is named by its dusk date everywhere.
-     *
-     * @param snapshot the snapshot the conversation runs against
-     * @param scope    the regions the question is about
-     * @param days     how many days ahead, from today
-     * @return the timeline, soonest first, unlimited
-     */
-    static List<AskSnapshot.ComingUp> timeline(AskSnapshot snapshot, AskScope scope, int days) {
-        LocalDate from = snapshot.today();
-        // N days is N civil dates from today: AlmanacService.getFeed ends at today + N - 1.
-        LocalDate to = from.plusDays(days - 1L);
-        List<AskSnapshot.ComingUp> entries = new ArrayList<>(snapshot.comingUp().stream()
-                .filter(e -> !e.endDate().isBefore(from) && !e.startDate().isAfter(to))
-                .toList());
-        List<AskSnapshot.ComingUp> almanac = List.copyOf(entries);
-        snapshot.hotTopics().stream()
-                .filter(t -> t.coversAnyOf(from, to))
-                .filter(t -> t.inScope(scope))
-                .filter(t -> almanac.stream().noneMatch(e -> listedBy(e, t)))
-                .map(t -> new AskSnapshot.ComingUp(t.type(), t.label(), t.date(), t.date(), t.detail(),
-                        t.safetyNote()))
-                .forEach(entries::add);
-        entries.sort(Comparator.comparing(AskSnapshot.ComingUp::startDate)
-                .thenComparing(AskSnapshot.ComingUp::title)
-                .thenComparing(AskSnapshot.ComingUp::type)
-                .thenComparing(AskSnapshot.ComingUp::endDate));
-        return List.copyOf(entries);
-    }
-
-    /**
-     * Whether an almanac entry already lists a live topic: the same type (the almanac writes
-     * {@code lunar-eclipse} where a hot topic writes {@code LUNAR_ECLIPSE}) on a date inside its span.
-     */
-    private static boolean listedBy(AskSnapshot.ComingUp entry, AskSnapshot.Topic topic) {
-        return typeKey(entry.type()).equals(typeKey(topic.type()))
-                && !topic.date().isBefore(entry.startDate()) && !topic.date().isAfter(entry.endDate());
-    }
-
-    private static String typeKey(String type) {
-        return upper(type).replace('-', '_');
     }
 
     // -- conversation state -----------------------------------------------------------------
@@ -636,7 +578,7 @@ public class AskTools {
                 .orElse(null);
     }
 
-    private AskToolResult fail(String tool, String message) {
+    private <T> AskToolResult<T> fail(String tool, String message) {
         trace.add(new ToolCall(tool, true, 0));
         return AskToolResult.error(message);
     }
@@ -645,7 +587,7 @@ public class AskTools {
      * Serialises a payload, applies the conversation's character cap, and on success records the
      * call and runs {@code accepted}. A result the cap refuses records nothing as returned.
      */
-    private AskToolResult finish(String tool, Object payload, Runnable accepted) {
+    private <T> AskToolResult<T> finish(String tool, T payload, Runnable accepted) {
         String json;
         try {
             json = mapper.writeValueAsString(payload);
@@ -658,7 +600,7 @@ public class AskTools {
         charsUsed += json.length();
         trace.add(new ToolCall(tool, false, json.length()));
         accepted.run();
-        return new AskToolResult(false, json, payload);
+        return new AskToolResult<>(false, json, payload);
     }
 
     private static int clamp(Integer requested, int fallback, int max) {
@@ -666,17 +608,13 @@ public class AskTools {
         return Math.clamp(value, 1, max);
     }
 
-    private static Set<String> upperCased(List<String> values) {
+    private static Set<String> typeKeys(List<String> values) {
         Set<String> out = new HashSet<>();
         if (values != null) {
             values.stream().filter(v -> v != null && !v.isBlank())
-                    .forEach(v -> out.add(upper(v)));
+                    .forEach(v -> out.add(AskEventType.key(v)));
         }
         return out;
-    }
-
-    private static String upper(String value) {
-        return value == null ? null : value.strip().toUpperCase(Locale.ROOT);
     }
 
     private static String iso(LocalDate date) {

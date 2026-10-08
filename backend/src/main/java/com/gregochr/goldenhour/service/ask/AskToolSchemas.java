@@ -91,8 +91,8 @@ public final class AskToolSchemas {
     private static Tool getComingUp() {
         Map<String, Object> props = new LinkedHashMap<>();
         props.put("days", m("type", "integer", "minimum", 1,
-                "maximum", AskTools.MAX_COMING_UP_DAYS,
-                "description", "How many days ahead, at most " + AskTools.MAX_COMING_UP_DAYS + "."));
+                "maximum", AskSnapshot.MAX_COMING_UP_DAYS,
+                "description", "How many days ahead, at most " + AskSnapshot.MAX_COMING_UP_DAYS + "."));
         props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_EVENTS,
                 "description", "How many entries, at most " + AskTools.MAX_EVENTS + "."));
         return tool(GET_COMING_UP,

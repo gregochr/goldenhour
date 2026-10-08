@@ -52,6 +52,8 @@ class ReadyRelevanceTest {
         "SNOW_TOPS, SNOW_FRESH, true",
         "SNOW_TOPS, SNOW_MIST, true",
         "SNOW_TOPS, snow_fresh, true",
+        "SNOW_TOPS, snow-tops, true",
+        "SNOW_TOPS, 'SNOW-MIST ', true",
         "SNOW_TOPS, AURORA, false",
         "SNOW_TOPS, ECLIPSE, false",
         "SNOW_TOPS, SNOW, false",

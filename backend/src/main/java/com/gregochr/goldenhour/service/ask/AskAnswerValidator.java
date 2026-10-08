@@ -2,8 +2,6 @@ package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.service.evaluation.PromptUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -11,14 +9,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
  * Holds a model's submitted answer to what the tools actually returned (plan §2.3 <em>Validation</em>).
- * Pure: no I/O, no clock.
+ * Pure: no I/O, no clock, and no logging. Why a typed answer was discarded is the {@code reason}
+ * it returns, which the caller logs once (see {@code AskService}).
  *
  * <p>The model supplies only a location id, a window id and a reason per pick, and a type and a
  * reason per event. Everything a card shows — name, region, date, event, rating, verdict, label —
@@ -29,8 +27,6 @@ import java.util.regex.Pattern;
  */
 @Component
 public class AskAnswerValidator {
-
-    private static final Logger LOG = LoggerFactory.getLogger(AskAnswerValidator.class);
 
     /** The most picks an answer may carry. */
     public static final int MAX_PICKS = 3;
@@ -154,7 +150,6 @@ public class AskAnswerValidator {
         if (eventsQuestion != null && events.stream().noneMatch(e -> eventsQuestion.admitsEvent(e.type()))) {
             long offered = offeredEvents(snapshot, scope, eventsQuestion);
             if (offered > 0) {
-                LOG.warn("[ASK] Discarded an events answer with no event while {} were offered", offered);
                 return discard("events question answered \"none\" while " + offered
                         + " events were offered");
             }
@@ -174,8 +169,6 @@ public class AskAnswerValidator {
             Optional<AskSnapshot.Window> lead = anchoredWindow(snapshot, anchor, scope);
             if (lead.isPresent()
                     && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
-                LOG.warn("[ASK] Discarded a BEST answer that does not lead with the BEST BET window {}",
-                        lead.get().id());
                 return discard("pick 1 is not on the BEST BET window " + lead.get().id());
             }
         }
@@ -192,15 +185,11 @@ public class AskAnswerValidator {
         Set<String> offered = new HashSet<>();
         snapshot.hotTopics().stream()
                 .filter(t -> t.inScope(scope) && question.admitsEvent(t.type()))
-                .forEach(t -> offered.add(offerKey(t.type(), t.date())));
-        AskTools.timeline(snapshot, scope, AskTools.MAX_COMING_UP_DAYS).stream()
+                .forEach(t -> offered.add(AskEventType.offerKey(t.type(), t.date())));
+        snapshot.timeline(scope, AskSnapshot.MAX_COMING_UP_DAYS).stream()
                 .filter(e -> question.admitsEvent(e.type()))
-                .forEach(e -> offered.add(offerKey(e.type(), e.startDate())));
+                .forEach(e -> offered.add(AskEventType.offerKey(e.type(), e.startDate())));
         return offered.size();
-    }
-
-    private static String offerKey(String type, LocalDate date) {
-        return type.strip().toUpperCase(Locale.ROOT).replace('-', '_') + "|" + date;
     }
 
     /**
@@ -260,15 +249,14 @@ public class AskAnswerValidator {
         List<AskEvent> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (RawEvent event : raw) {
-            String type = event.type() == null ? "" : event.type().strip().toUpperCase(Locale.ROOT);
             Optional<AskEvidence.EventFact> fact = evidence.events().stream()
-                    .filter(f -> f.type().equals(type))
+                    .filter(f -> AskEventType.same(f.type(), event.type()))
                     .filter(f -> event.date() == null || event.date().equals(f.date()))
                     .min(Comparator.comparing(AskEvidence.EventFact::date,
                             Comparator.nullsLast(Comparator.naturalOrder()))
                             // Of otherwise equal facts the one carrying a warning wins: never lose it.
                             .thenComparing(f -> f.safetyNote() == null));
-            if (fact.isEmpty() || !seen.add(fact.get().type() + "|" + fact.get().date())) {
+            if (fact.isEmpty() || !seen.add(AskEventType.offerKey(fact.get().type(), fact.get().date()))) {
                 continue;
             }
             String why = clean(event.why(), WHY_WORDS);

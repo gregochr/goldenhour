@@ -373,7 +373,7 @@ the forecast is flagging this week), their descriptions did not say so, and the 
 the complete one. Production has the same gap, and B3 would have skipped a `RARE_EVENTS` answer built on it (an events question
 that finds nothing is not stored). Fixed in three layers, none depending on the model choosing well:
 - **Data (the guarantee).** `get_coming_up` returns the almanac entries *and* the in-scope live hot topics dated within its
-  horizon (`AskTools.timeline`), as one-day entries carrying the topic's label, detail and safety note, deduped against any almanac
+  horizon (`AskSnapshot.timeline`), as one-day entries carrying the topic's label, detail and safety note, deduped against any almanac
   entry of the same type (compared upper-case, `-` as `_`) whose span holds the date. Whichever events tool the model reaches
   for, the eclipse is there; the evidence the validator holds carries it exactly once.
 - **Words.** The two tool descriptions now say what each covers and tell the model to call the other for any events question;
@@ -720,6 +720,38 @@ normalised form comes from `AskQuestionSanitiser` for every producer (`AskQuesti
 had each lower-cased the text themselves, but nothing reads `normalised` on either path (it is read only by the Ready intent
 matcher, the typed cache and `ask_log`, all typed-only) and `ask_ready_answer` stores the offer's text, never the normalised
 form, so no stored key moved. Nothing on the wire moved.
+
+*As built (refactor, 2026-10-08) — the engines share one conversation frame, one event-type key, and the validator stops
+logging.* **`AskConversation`** (package-private, a collaborator both engines hold, not a base class) owns what is not an
+engine's own: `open(question, snapshot, user, options, deps)` checks the options against the kind of conversation first
+(`requireConsistentWith`, loud — the stub's contract test depends on it coming before the blank-question test), refuses a
+blank question as a FAILED run before any tool exists, then builds the one `AskTools` and finds which events question this
+is; it returns a sealed `Opening` (`Open` or `Refused`). `submit(Raw, turns, trace)` adds the synthetic `submit_answer` trace
+entry, holds the answer to the validator and returns OK, CANT or FAILED; `rejectSubmission` is the same for an unreadable
+`submit_answer` (an errored entry); `fail` reports `tools.personal()`. `ClaudeAskEngine.converse` is now the SDK loop and the
+cost guards only; `StubAskEngine.run` is its keyword script plus `submit`. `AskRun.failed(...)` is the one place a FAILED
+outcome is built (the engine's catch-all and `AskService`'s "the engine threw" stand-in use it too). **The one observable
+change:** a stub FAILED run (a `rank_spots`/event-tool error) used to report `personal=false, turns=0` regardless; it now reads
+`tools.personal()` like Claude's. Unobservable in practice — the stub never asks for a drive limit, so the tools never go
+personal — and pinned in `AskConversationTest.everyFailureReportsThePersonalFlag`; it would show only in the admin dry-run's
+`personal`. **`AskEventType`** replaces five spellings of "is this the same event type": `key` (strip, upper-case, `-` read as
+`_`), `same`, `offerKey(type, date)`, used by the timeline's dedupe, the validator's evidence match and offered-events
+count, `AskReadyFreshness.liveEvent`, `ReadyQuestion.admitsEvent`, `get_hot_topics`' type filter and the stub's de-duplication.
+The latent divergence it closes: the dedupe read `lunar-eclipse` and `LUNAR_ECLIPSE` as one while the validator (a model
+naming `LUNAR_ECLIPSE` against evidence the almanac served as `LUNAR-ECLIPSE`), the freshness re-find and `admitsEvent` did
+not. **`AskEventType.served` is not an identity and was deliberately left unfolded:** the type an event card carries on the
+wire and in `ask_ready_answer` is still the served type upper-cased (`LUNAR-ECLIPSE` for an almanac entry), because folding it
+would change what the client receives (`eventKicker`/`badgeChannel` read underscores, so the almanac-sourced lunar card's
+kicker and colour channel are a pre-existing client mismatch — an owner call, not part of a behaviour-preserving pass).
+Stored answers keep matching because every compare folds both sides. **`AskSnapshot.timeline(scope, days)`** and
+`AskSnapshot.MAX_COMING_UP_DAYS` are where the timeline now lives (it reads only the snapshot, like `candidates(window,
+scope)`); `get_coming_up` delegates, and the validator and the freshness check no longer import `AskTools`.
+**`AskService.runEngine` logs a FAILED run's reason once, at INFO** (`[ASK]`, user id, turns, reason), which was the only
+unlogged outcome of a typed question: the validator's two WARNs (two of its six discard reasons) are gone and it is pure; the
+latch, deadline, stop-reason and tool-call failures now leave a trace. The reason is the engine's own text (fixed sentences,
+a window id, a count, an exception class and message), never the question, and goes through `LogSanitizer`'s allow-list
+(`java/log-injection`). **`AskToolResult<T>`** carries the tool's typed result, so the stub's casts are gone. Nothing on the
+wire moved; the prompt text and tool-schema goldens are untouched.
 
 ---
 
