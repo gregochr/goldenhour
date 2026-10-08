@@ -194,7 +194,7 @@ export function elsewherePicks({ events, rows }) {
  * briefing serves up to ten solar windows in {@code briefing.days} but renders only
  * {@code PlanRenderLimits.MAX_VISIBLE_EVENTS} of them, and {@code buildRegionVerdictIndex} folds
  * the DAYS — so about four windows carry a served verdict while appearing in the EV list as
- * unrendered D-13 fillers with no time and no star. Ungated, this line could offer a destination
+ * unrendered D-13 fillers with no star (and, unless a tide was lent, no time). Ungated, this line could offer a destination
  * the card would have refused to show as a row and the Plan tab does not draw at all. It also made
  * the model's {@code afterIndex} a live rather than an equivalent mutant: with a non-served window
  * BETWEEN the two rows, measuring from the first row instead of the last returns something earlier

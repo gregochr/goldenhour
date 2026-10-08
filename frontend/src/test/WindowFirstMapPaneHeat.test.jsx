@@ -33,6 +33,8 @@ vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
 }));
 
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
+import { solarWindowKey } from '../utils/mapEvents.js';
+import { formatTime } from '../utils/briefingDisplay.js';
 
 const TODAY = '2026-08-11';
 
@@ -210,6 +212,69 @@ describe('WindowFirstMapPane — the heat prop', () => {
 
     expect(MapStub.lastProps.heat.windows[0].tide).toBe(TIDE);
     expect(MapStub.lastProps.heat.windows[1].tide).toBeNull();
+  });
+
+  it('hands the map the briefing\'s tide for EVERY window it carries, including ones the strip does not render', () => {
+    // ⚠️ The same join once more, and the one the Sunday-sunrise defect lived in: the tide strip
+    // read only `heat.windows` (the rendered six), so a window the briefing HAD a tide for but the
+    // Plan tab did not draw became a tide-less D-13 filler. The index is built from
+    // `briefing.days`, not from the cards, so it must reach the map even for an unrendered event.
+    const unrenderedTide = { locationName: 'Bamburgh', state: 'LOW' };
+    renderPane(context({
+      briefing: {
+        days: [{
+          date: '2026-08-14',
+          eventSummaries: [{ targetType: 'SUNRISE', window: { tide: unrenderedTide } }],
+        }],
+      },
+    }));
+
+    const entry = MapStub.lastProps.heat.tideByWindow.get(solarWindowKey('2026-08-14', 'SUNRISE'));
+    expect(entry.tide).toBe(unrenderedTide);
+    // No served eventTime: no time is invented for it.
+    expect(entry.eventTime).toBeNull();
+    expect(entry.time).toBeNull();
+  });
+
+  it('formats the lent clock time with the formatter served rows use, from the window\'s eventTime', () => {
+    renderPane(context({
+      briefing: {
+        days: [{
+          date: '2026-08-14',
+          eventSummaries: [{
+            targetType: 'SUNRISE',
+            window: { tide: { locationName: 'B' }, eventTime: '2026-08-14T04:31:00' },
+          }],
+        }],
+      },
+    }));
+    const entry = MapStub.lastProps.heat.tideByWindow.get(solarWindowKey('2026-08-14', 'SUNRISE'));
+    expect(entry.eventTime).toBe('2026-08-14T04:31:00');
+    expect(entry.time).toBe(formatTime('2026-08-14T04:31:00'));
+    // 04:31 UTC is 05:31 in BST: the formatter converts, the pane does no time maths of its own.
+    expect(entry.time).toBe('05:31');
+    expect(entry.time).toBeTruthy();
+  });
+
+  it('rebuilds the tide index when the briefing\'s days change', () => {
+    const day = (name) => [{
+      date: '2026-08-14',
+      eventSummaries: [{ targetType: 'SUNRISE', window: { tide: { locationName: name } } }],
+    }];
+    const { rerender } = renderPane(context({ briefing: { days: day('First') } }));
+    const key = solarWindowKey('2026-08-14', 'SUNRISE');
+    expect(MapStub.lastProps.heat.tideByWindow.get(key).tide.locationName).toBe('First');
+
+    briefingValue = context({ briefing: { days: day('Second') } });
+    rerender(
+      <WindowFirstMapPane
+        locations={[]}
+        dates={[TODAY]}
+        selectedDate={TODAY}
+        onSelectDate={vi.fn()}
+      />,
+    );
+    expect(MapStub.lastProps.heat.tideByWindow.get(key).tide.locationName).toBe('Second');
   });
 
   it('forwards each window\'s TRAVEL flag — the landing card needs it and the fold dropped it', () => {

@@ -220,8 +220,24 @@ function isUndatedEventPast(dateStr, targetType) {
 export function isEventPast(es, dateStr = null) {
   const t = getEventTime(es);
   if (!t) return isUndatedEventPast(dateStr, es?.targetType);
-  // The app clock, not `Date.now()`: under an admin's rewind (`utils/rewind.js`) this is the
-  // instant the page is rendering as of, so a sunrise the server kept because it had not yet
-  // happened THEN is not retired here because it has happened NOW.
-  return new Date(t + 'Z').getTime() + AFTERGLOW_MS < appNow().getTime();
+  return isEventTimePast(t);
+}
+
+/**
+ * The elapsed test on a bare event instant: true only when a KNOWN UTC-naive time is more than the
+ * afterglow behind the app clock. Mirrors {@code PlanWindowProjector.hasPassed} exactly — the same
+ * 30-minute allowance, strictly-before comparison, and a null time reading as CURRENT, never past
+ * (unlike {@link isEventPast}, which falls back to a day-and-hour guess for an undated summary; this
+ * one is for callers holding the server's own {@code BriefingWindow.eventTime}).
+ *
+ * <p>The app clock, not {@code Date.now()}: under an admin's rewind ({@code utils/rewind.js}) this is
+ * the instant the page is rendering as of, so a sunrise the server kept because it had not yet
+ * happened THEN is not retired here because it has happened NOW.
+ *
+ * @param {?string} eventTime an ISO UTC-naive instant (no zone suffix), or null
+ * @returns {boolean}
+ */
+export function isEventTimePast(eventTime) {
+  if (!eventTime) return false;
+  return new Date(eventTime + 'Z').getTime() + AFTERGLOW_MS < appNow().getTime();
 }

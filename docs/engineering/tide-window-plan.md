@@ -462,22 +462,32 @@ already exist, and the client's four licensed derivations (§1 #12) live in one 
 2. **`spotOf`** (`MapView.jsx:3080–3102`) copies `tideTypes: loc.tideType ?? []`, `coastal:
    isCoastalTidalLocation(loc)`, `tideTier` (`'match' | 'miss' | null`), `tideShortfall`,
    `tideGated` onto `labelSpots`; the same fields reach the Pins pool.
-3. **`mapEvents.solarRow`** (`utils/mapEvents.js:172–255`) forwards `tide: served.tide ?? null` on the
-   served branch, `null` on the filler branch. `findEvIndex` and the interleave are untouched.
+3. **`mapEvents.solarRow`** forwards `tide: served.tide ?? null` on the
+   served branch. The filler branch (a window the pane's rendered six do not list) borrows the
+   briefing's own served rollup for that window where one exists (`buildWindowTideIndex` over
+   `briefing.days`, lent as `tideByWindow`, only while the window has not elapsed), and `null`
+   where none was served; it also borrows the window's served clock time, never a synthesised one.
+   `findEvIndex` and the interleave are untouched.
 4. **`utils/mapTideFit.js`** (new, pure, no React): `tierOf(fact)`; `nextAlignedRow(evRows, index,
-   locationKey, fromIndex)` (first later `kind === 'solar'` row whose slot for this location is
-   `aligned`; −1 when none); `stripModel({row, spots, bounds})` returning `{visible, representative,
-   namedCoastal, dimmed, matched, dominantWant, nextFitRow}` where `visible = row.kind === 'solar' &&
-   row.tide != null && coastalInView.length > 0`, in-view uses `bounds.pad(0.12)`, counts are over the
-   **chip pool** (named coastal spots), `dominantWant` tallies every `TideType` in each dimmed spot's
-   set and takes the mode (ties: HIGH > LOW > MID, stated), and `nextFitRow` is the first later solar
-   row in which **any currently-dimmed spot wanting `dominantWant`** is served aligned — a lookup, not
-   a formula (§5 #7). `MapView` memoises the per-window part on `[evIndex, index]` and the viewport
+   locationKey, fromIndex, want, requireTide)` (first later `kind === 'solar'` row whose slot for
+   this location is `aligned`; −1 when none; with `requireTide`, rows carrying no served window tide
+   are skipped); `stripModel({row, spots, bounds, evRows, evIndex, idx})` returning `{visible,
+   fitKnown, unserved, representative, namedCoastal, dimmed, matched, dominantWant, nextFitRow,
+   nextFitAny}` (`fitKnown`: some in-view spot has a served tier; `unserved`: the row is a D-13
+   filler; `nextFitRow` scans with `requireTide = true`, so the strip never jumps to a window it
+   would refuse to show; `nextFitAny` is the same scan without it, i.e. the EARLIEST fit overall,
+   which is what the footer names — a jump only when it equals `nextFitRow`, plain text otherwise)
+   where `visible = row.kind === 'solar' && row.tide != null && coastalInView.length > 0`, in-view
+   uses `bounds.pad(0.12)`, counts are over the **chip pool** (named coastal spots), `dominantWant`
+   tallies every `TideType` in each dimmed spot's set and takes the mode (ties: HIGH > LOW > MID,
+   stated), and `nextFitRow` is the first later solar row, among those carrying a window tide, in
+   which **any currently-dimmed spot wanting `dominantWant`** is served aligned — a lookup, not a
+   formula (§5 #7). `MapView` memoises the per-window part on `[evIndex, index]` and the viewport
    part on `mapBounds` (the design's §5 split).
 5. **Tests.** `mapTideFit.test.js` — every branch, both tie-break directions, `pad` proven with a spot
    just outside the raw bounds; `locationSheet.test.js` — the index carries a miss whose
    `tideOnTheLight` is null (the case the old skip dropped); `mapEvents.test.js` — `tide` forwarded on
-   served, null on filler, and the D-13 interleave unchanged.
+   served, lent-or-null on filler, and the D-13 interleave unchanged.
 
 ### T4 — The chip: dimmed, not dropped — L
 
@@ -577,10 +587,14 @@ dimmed and jumps to the next fit.
    `left: windowPosition, top: TY(windowLevel)` with `heightAtWindow` above it clamped 9–91%, hour axis
    `00 06 12 18 24`. `TY(l) = (26 − l·20) / 32 · 100`. The whole chart `aria-hidden`; the header
    phrase, the height and the footer sentence carry the meaning.
-4. **Footer** (design §2 copy, exact): `13 of 16 coastal spots are dimmed — 9 of them want high
+4. **Footer** (design §2 copy, exact, plus the sentences added later and marked as such): `13 of 16 coastal spots are dimmed — 9 of them want high
    water` (collapsing to `they want high water` when every miss shares the want) / `6 of 16 coastal
-   spots have the water they want` / `No coastal spot here has its water on this light`; right-aligned
+   spots have the water they want` / `No coastal spot here has its water on this light` / (added, not in
+   the design: an unserved window with no tier on any in-view spot only) `No per-spot tide fit for this
+   window`; right-aligned
    `Next <want> on the light · <dayLabel> <sunrise|sunset> ›` calling `selectEvRow(nextFitRow)`, or
+   (added) plain text without `›` or a button, `Next <want> on the light · <dayLabel> <sunrise|sunset>`,
+   when the only fitting window is one the strip cannot show (`nextFitAny` set, `nextFitRow` not), or
    `Next <want> on a <sunrise|sunset> is beyond these four days`. Counts are the **named coastal
    spots in the padded viewport** and update on `moveend` (the `BoundsTracker` state already exists).
 5. **Collapsed row**: `Tide · <state phrase> · <height> at <time> · <n> dimmed · Open ▴`. Collapse is
@@ -596,7 +610,7 @@ dimmed and jumps to the next fit.
    `.wf-body--map` — do not hard-code `.42`).
 8. **Tests.** `MapTideStrip.test.jsx` — visibility both ways for each of the three conditions; the
    dot's `top` equals `TY(windowLevel)` (jsdom reads the style string); night rect widths from the
-   positions; footer copy for all three count cases and both next-fit outcomes with exact strings;
+   positions; footer copy for all four count cases and the three next-fit outcomes (jump, plain text, beyond) with exact strings;
    `aria-hidden` on the svg and the state phrase present as text; collapse toggles and survives an
    `evIndex` change; `--tsh` written and removed. `mapChromeZLadderCascade.test.jsx` gains the strip's
    `z-index` and the footer's lifted `bottom`.

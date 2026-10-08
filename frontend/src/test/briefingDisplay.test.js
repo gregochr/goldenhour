@@ -10,6 +10,7 @@ import {
   formatDriveDuration,
   getEventTime,
   isEventPast,
+  isEventTimePast,
   AFTERGLOW_MS,
 } from '../utils/briefingDisplay.js';
 import { setRewind } from '../utils/rewind.js';
@@ -155,6 +156,36 @@ describe('briefingDisplay', () => {
         setRewind(null);
       }
       expect(isEventPast(sunrise, '2026-07-16')).toBe(true);
+    });
+
+    it('pins the afterglow to the backend\'s literal', () => {
+      // PlanWindowProjector.AFTERGLOW_MINUTES = 30. A drift on either side makes the Map tab and the
+      // briefing disagree about when a window has gone; change both or neither.
+      expect(AFTERGLOW_MS).toBe(30 * 60 * 1000);
+    });
+
+    it('isEventTimePast mirrors PlanWindowProjector.hasPassed: 30 minutes of afterglow, strictly after, null is current', () => {
+      const eventMs = new Date('2026-07-16T05:20:00Z').getTime();
+      vi.useFakeTimers();
+      vi.setSystemTime(eventMs + AFTERGLOW_MS);
+      // Exactly at the boundary: `plusMinutes(30).isBefore(now)` is false, and so is this.
+      expect(isEventTimePast('2026-07-16T05:20:00')).toBe(false);
+      vi.setSystemTime(eventMs + AFTERGLOW_MS + 1);
+      expect(isEventTimePast('2026-07-16T05:20:00')).toBe(true);
+      expect(isEventTimePast(null)).toBe(false);
+      expect(isEventTimePast(undefined)).toBe(false);
+    });
+
+    it('isEventTimePast reads the admin rewind', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-16T09:30:00Z'));
+      expect(isEventTimePast('2026-07-16T05:20:00')).toBe(true);
+      try {
+        setRewind('2026-07-16T04:20:00Z');
+        expect(isEventTimePast('2026-07-16T05:20:00')).toBe(false);
+      } finally {
+        setRewind(null);
+      }
     });
 
     it('getEventTime falls back to the summary time when every slot was withdrawn', () => {

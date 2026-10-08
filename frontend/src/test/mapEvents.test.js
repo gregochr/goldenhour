@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isNightOffered, nightLabel, nightPreviewDates, EVENT_KIND,
-  solarHorizonDates, solarRowPredicate,
+  solarHorizonDates, solarRowPredicate, solarWindowKey,
 } from '../utils/mapEvents.js';
 import { ukDateStr, ukDateStrOffset, resolveMapDate } from '../utils/mapDates.js';
 
@@ -280,6 +280,86 @@ describe('buildMapEvents — tide forwarding (tide-window-plan.md T3)', () => {
       forecastDates: [TODAY],
     });
     expect(events.find((e) => e.eventType === 'SUNSET').tide).toBeNull();
+  });
+
+  it('lends a D-13 filler row the briefing\'s served tide and clock time for that window, and leaves it unscored', () => {
+    const FAR = '2026-09-06';
+    const tide = { locationName: 'Bamburgh', state: 'HIGH' };
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET')],
+      forecastDates: [TODAY, FAR],
+      tideByWindow: new Map([[solarWindowKey(FAR, 'SUNRISE'), {
+        tide, eventTime: `${FAR}T05:44:00`, time: '05:44',
+      }]]),
+    });
+    const sunrise = events.find((e) => e.date === FAR && e.eventType === 'SUNRISE');
+    expect(sunrise.tide).toBe(tide);
+    expect(sunrise.time).toBe('05:44');
+    expect(sunrise.served).toBe(false);
+    expect(sunrise.scored).toBe(false);
+    // Keyed per window: the sibling sunset got nothing, and no tide or time is invented for it.
+    const sunset = events.find((e) => e.date === FAR && e.eventType === 'SUNSET');
+    expect(sunset.tide).toBeNull();
+    expect(sunset.time).toBe('');
+  });
+
+  it('never synthesises a time: a lent window with no formatted time leaves the filler\'s blank', () => {
+    const FAR = '2026-09-06';
+    const events = buildMapEvents({
+      ...baseArgs(),
+      forecastDates: [FAR],
+      tideByWindow: new Map([[solarWindowKey(FAR, 'SUNRISE'), {
+        tide: { locationName: 'B' }, eventTime: null, time: null,
+      }]]),
+    });
+    const sunrise = events.find((e) => e.date === FAR && e.eventType === 'SUNRISE');
+    expect(sunrise.tide).toEqual({ locationName: 'B' });
+    expect(sunrise.time).toBe('');
+  });
+
+  it('lends nothing to a filler whose window has elapsed (asked of the injected elapsed test)', () => {
+    const FAR = '2026-09-06';
+    const entry = { tide: { locationName: 'B' }, eventTime: `${FAR}T05:44:00`, time: '05:44' };
+    const args = {
+      ...baseArgs(),
+      forecastDates: [FAR],
+      tideByWindow: new Map([[solarWindowKey(FAR, 'SUNRISE'), entry]]),
+    };
+    const asked = [];
+    const past = buildMapEvents({ ...args, isEventTimePast: (t) => { asked.push(t); return true; } })
+      .find((e) => e.date === FAR && e.eventType === 'SUNRISE');
+    expect(asked).toContain(entry.eventTime);
+    expect(past.tide).toBeNull();
+    expect(past.time).toBe('');
+    const current = buildMapEvents({ ...args, isEventTimePast: () => false })
+      .find((e) => e.date === FAR && e.eventType === 'SUNRISE');
+    expect(current.tide).toBe(entry.tide);
+  });
+
+  it('a served window with no tide stays null even when the index holds an entry for its key', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET')],
+      forecastDates: [TODAY],
+      tideByWindow: new Map([[solarWindowKey(TODAY, 'SUNSET'), {
+        tide: { locationName: 'Lent' }, eventTime: null, time: '16:12',
+      }]]),
+    });
+    expect(events.find((e) => e.eventType === 'SUNSET').tide).toBeNull();
+  });
+
+  it('does not let the lent tide override a served window\'s own', () => {
+    const own = { locationName: 'Own' };
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET', { tide: own })],
+      forecastDates: [TODAY],
+      tideByWindow: new Map([[solarWindowKey(TODAY, 'SUNSET'), {
+        tide: { locationName: 'Other' }, eventTime: null, time: null,
+      }]]),
+    });
+    expect(events.find((e) => e.eventType === 'SUNSET').tide).toBe(own);
   });
 
   it('reads null on a D-13 filler row — the briefing served no window at all for that date', () => {

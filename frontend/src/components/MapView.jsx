@@ -49,6 +49,7 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
 import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
+import { isEventTimePast } from '../utils/briefingDisplay.js';
 import { tierOf, stripModel, siblingEventTime, coastalInView } from '../utils/mapTideFit.js';
 import MapTideStrip from './map/MapTideStrip.jsx';
 import MapLandingCard from './map/MapLandingCard.jsx';
@@ -3484,6 +3485,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const mapEvents = overlayMode ? [] : buildMapEvents({
     solarWindows: heat?.windows || [],
+    tideByWindow: heat?.tideByWindow,
+    isEventTimePast,
     forecastDates,
     todayStr: mapTodayStr,
     tomorrowStr: ukDateStrOffset(1),
@@ -6930,6 +6933,7 @@ MapView.propTypes = {
     spots: PropTypes.array,
     areaSpots: PropTypes.array,
     pointsByKey: PropTypes.instanceOf(Map),
+    tideByWindow: PropTypes.instanceOf(Map),
     windows: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string,
       date: PropTypes.string,
