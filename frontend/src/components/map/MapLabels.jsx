@@ -854,7 +854,7 @@ export default function MapLabels({
           className={`wf-maplab-tip-s${hover.tideTier === 'match' ? ' wf-maplab-tip-t' : ''}`}
           data-testid="map-label-tip-tide"
         >
-          {`${tideTierHeading(hover.tideTier)} — ${hover.tideFitPhrase}`}
+          {`${tideTierHeading(hover.tideTier, hover.tideAssessed)} — ${hover.tideFitPhrase}`}
         </div>
       )}
     </div>,
@@ -903,6 +903,9 @@ MapLabels.propTypes = {
     /** The formatted fit phrase for EITHER tier — the tooltip's third line reads this alongside
      * `tideTier`, never `nearestSolarOffsetPhrase`. */
     tideFitPhrase: PropTypes.string,
+    /** Whether the light was assessed for this window (a sky or combined rating exists) — decides
+     * the miss heading's wording; see {@code tideTierHeading}. */
+    tideAssessed: PropTypes.bool,
     /** Ask PhotoCast's pick (F3) — the answer's own facts for the pick's window, which the chip
      * draws instead of the window on screen's. Absent for every ordinary spot. */
     askPick: PropTypes.shape({

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildEclipseIndex, buildEvaluationGateIndex, buildLocationSheet, buildScoreIndex, buildSlotIndex,
   buildTideAlignmentIndex, lookupForWindow,
-  sheetSpotOf,
+  sheetSpotOf, indexByWindow, windowsOf,
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 
@@ -181,24 +181,33 @@ describe('buildSlotIndex', () => {
  * tests reuse that suite's fixture idiom rather than a new one.
  */
 describe('buildTideAlignmentIndex', () => {
-  const daysWithTide = (slotOverrides) => [{
-    date: '2026-08-14',
-    eventSummaries: [{
-      targetType: 'SUNSET',
-      regions: [{
-        regionName: 'Northumberland',
-        slots: [{ locationId: 7, locationName: 'Bamburgh', ...slotOverrides }],
+  /**
+   * One SUNSET window carrying Bamburgh's tide as `window.tideFacts` (what the index reads since
+   * window-tide-facts-plan P2). The two evaluation-side fields stay on the slot, where the index
+   * joins them from; every other override is a fact field.
+   */
+  const SLOT_SIDE = ['skyRating', 'evaluationGate'];
+  const daysWithTide = (overrides) => {
+    const slotSide = Object.fromEntries(Object.entries(overrides).filter(([k]) => SLOT_SIDE.includes(k)));
+    const factSide = Object.fromEntries(Object.entries(overrides).filter(([k]) => !SLOT_SIDE.includes(k)));
+    return [{
+      date: '2026-08-14',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{ locationId: 7, locationName: 'Bamburgh', ...slotSide }],
+        }],
+        window: { tideFacts: [{ locationId: 7, locationName: 'Bamburgh', ...factSide }] },
       }],
-    }],
-  }];
+    }];
+  };
 
   /** A fully-formed T1 tide-fit fixture — every field the index now reads off a slot. */
   const MATCH_SLOT = {
     tideState: 'HIGH',
     tideAligned: true,
     tideOnTheLight: true,
-    nearestSolarOffsetMinutes: 36,
-    nearestExtremeKind: 'HW',
     nearestSolarOffsetPhrase: 'HW 19:52 · 36m before sunset',
     tideLevel: 0.94,
     tideDirection: 'FALLING',
@@ -207,7 +216,7 @@ describe('buildTideAlignmentIndex', () => {
     tideFitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
   };
 
-  it('reads every tide-fit field off a slot, id-first — offsetMinutes/kind have no reader and are not indexed', () => {
+  it('reads every tide-fit field off the window\'s fact, id-first — offsetMinutes/kind are not served and not indexed', () => {
     const idx = buildTideAlignmentIndex(daysWithTide(MATCH_SLOT));
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toEqual({
       aligned: true,
@@ -310,15 +319,19 @@ describe('buildTideAlignmentIndex', () => {
       date: '2026-08-14',
       eventSummaries: [{
         targetType: 'SUNSET',
-        unregioned: [{
-          locationName: 'Bamburgh', tideState: 'LOW', tideAligned: true, tideOnTheLight: true,
-          nearestExtremeKind: 'LW', nearestSolarOffsetMinutes: -12,
-          nearestSolarOffsetPhrase: 'LW 19:40 · 12m before sunset',
-        }],
+        window: {
+          tideFacts: [{
+            locationName: 'Bamburgh', tideState: 'LOW', tideAligned: true, tideOnTheLight: true,
+            nearestSolarOffsetPhrase: 'LW 19:40 · 12m before sunset',
+          }],
+        },
       }],
     }]);
     expect(lookupForWindow(idx, null, 'Bamburgh', '2026-08-14', 'SUNSET').phrase)
       .toBe('LW 19:40 · 12m before sunset');
+    // A fact with no id is reachable by name only.
+    expect(idx.byId.size).toBe(0);
+    expect(idx.byName.size).toBe(1);
   });
 
   it('skips a day with no date and a summary with no event type, rather than keying on undefined', () => {
@@ -327,9 +340,141 @@ describe('buildTideAlignmentIndex', () => {
       .toBe(0);
     const noType = buildTideAlignmentIndex([{
       date: '2026-08-14',
-      eventSummaries: [{ regions: [{ slots: [{ locationId: 7, tideState: 'HIGH', tideAligned: true }] }] }],
+      eventSummaries: [{ window: { tideFacts: [{ locationId: 7, tideState: 'HIGH', tideAligned: true }] } }],
     }]);
     expect(noType.byId.size).toBe(0);
+  });
+
+  describe('window.tideFacts is the only source (window-tide-facts-plan P2)', () => {
+    const FACT = { locationId: 7, locationName: 'Bamburgh', tideState: 'HIGH', tideAligned: true };
+
+    it('indexes a fact on a window whose regions carry NO slots — the honesty-filtered shape', () => {
+      const idx = buildTideAlignmentIndex([{
+        date: '2026-10-11',
+        eventSummaries: [{
+          targetType: 'SUNRISE',
+          regions: [{ regionName: 'Northumberland', slots: [] }],
+          window: { tideFacts: [FACT] },
+        }],
+      }]);
+      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-10-11', 'SUNRISE'))
+        .toMatchObject({ aligned: true, state: 'HIGH', gated: false, skyRating: null });
+    });
+
+    it('reads NOTHING from slots: slot tide with no tideFacts gives an empty index and does not throw', () => {
+      const idx = buildTideAlignmentIndex([{
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ slots: [{ locationId: 7, locationName: 'Bamburgh', tideState: 'HIGH', tideAligned: true }] }],
+          window: { tide: { state: 'HIGH' } },
+        }, {
+          targetType: 'SUNRISE',
+          regions: [{ slots: [] }],
+        }],
+      }]);
+      expect(idx.byId.size).toBe(0);
+      expect(idx.byName.size).toBe(0);
+    });
+
+    it('tolerates tideFacts that are null or not an array, and a fact with no tideState', () => {
+      const idx = buildTideAlignmentIndex([{
+        date: '2026-08-14',
+        eventSummaries: [
+          { targetType: 'SUNSET', window: { tideFacts: null } },
+          { targetType: 'SUNRISE', window: { tideFacts: 'x' } },
+          { targetType: 'SUNRISE', window: { tideFacts: [{ locationId: 9, tideAligned: true }, null] } },
+        ],
+      }]);
+      expect(idx.byId.size).toBe(0);
+    });
+
+    it('joins skyRating and gated from the same window\'s slot by id', () => {
+      const idx = buildTideAlignmentIndex([{
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ slots: [{ locationId: 7, locationName: 'Renamed', skyRating: 4, evaluationGate: 'gate' }] }],
+          window: { tideFacts: [FACT] },
+        }],
+      }]);
+      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
+        .toMatchObject({ skyRating: 4, gated: true });
+    });
+
+    it('joins skyRating from the slot by NAME when the fact or slot has no id', () => {
+      const idx = buildTideAlignmentIndex([{
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          unregioned: [{ locationName: 'Bamburgh', skyRating: 3 }],
+          window: { tideFacts: [{ ...FACT, locationId: null }] },
+        }],
+      }]);
+      expect(lookupForWindow(idx, null, 'Bamburgh', '2026-08-14', 'SUNSET').skyRating).toBe(3);
+    });
+
+    it('does not join a slot of ANOTHER window or another location', () => {
+      const idx = buildTideAlignmentIndex([{
+        date: '2026-08-14',
+        eventSummaries: [
+          { targetType: 'SUNRISE', regions: [{ slots: [{ locationId: 7, skyRating: 5 }] }] },
+          {
+            targetType: 'SUNSET',
+            regions: [{ slots: [{ locationId: 8, locationName: 'Other', skyRating: 2 }] }],
+            window: { tideFacts: [FACT] },
+          },
+        ],
+      }]);
+      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
+        .toMatchObject({ skyRating: null, gated: false });
+    });
+
+    it('keeps the FIRST fact on a repeated location', () => {
+      const idx = buildTideAlignmentIndex([{
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          window: { tideFacts: [FACT, { ...FACT, tideState: 'LOW', tideAligned: false }] },
+        }],
+      }]);
+      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
+        .toMatchObject({ state: 'HIGH', aligned: true });
+    });
+  });
+});
+
+describe('windowsOf and indexByWindow', () => {
+  const DAYS_TWO = [
+    { date: '2026-08-14', eventSummaries: [{ targetType: 'SUNSET', tag: 'a' }, { tag: 'no-type' }] },
+    { eventSummaries: [{ targetType: 'SUNRISE' }] },
+    { date: '2026-08-15', eventSummaries: [{ targetType: 'SUNRISE', tag: 'b' }] },
+  ];
+
+  it('walks every dated summary with a type, yielding the pipe-form tail', () => {
+    expect(windowsOf(DAYS_TWO).map((w) => [w.date, w.summary.tag, w.tail])).toEqual([
+      ['2026-08-14', 'a', '2026-08-14|SUNSET'],
+      ['2026-08-15', 'b', '2026-08-15|SUNRISE'],
+    ]);
+    expect(windowsOf(null)).toEqual([]);
+  });
+
+  it('keys by id and by name under the tail, FIRST entry winning in each map', () => {
+    const idx = indexByWindow(DAYS_TWO, ({ summary }) => (summary.tag === 'a'
+      ? [
+        { locationId: 7, locationName: 'Bamburgh', value: 'first' },
+        { locationId: 7, locationName: 'Bamburgh', value: 'second' },
+        { locationId: null, locationName: null, value: 'unkeyed' },
+      ]
+      : []));
+    expect(idx.byId.get('7|2026-08-14|SUNSET')).toBe('first');
+    expect(idx.byName.get('Bamburgh|2026-08-14|SUNSET')).toBe('first');
+    expect(idx.byId.size).toBe(1);
+    expect(idx.byName.size).toBe(1);
+  });
+
+  it('tolerates an entriesOf that returns nothing', () => {
+    expect(indexByWindow(DAYS_TWO, () => undefined).byId.size).toBe(0);
   });
 });
 

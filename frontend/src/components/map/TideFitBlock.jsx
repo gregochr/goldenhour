@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import TideWave from './TideWave.jsx';
-import { tierOf, wantPhrase } from '../../utils/mapTideFit.js';
+import { tideTierHeading, tierOf, wantPhrase } from '../../utils/mapTideFit.js';
 import { eventWord } from '../../utils/windowFirstCards.js';
 
 /**
@@ -124,7 +124,7 @@ export default function TideFitBlock({
       />
       <span className="wf-tide-fit-text">
         <b>
-          {tier === 'match' ? 'Tide lands on the light' : 'Wrong water, not wrong light'}
+          {tideTierHeading(tier, fact.skyRating != null || combinedRating != null)}
         </b>
         {fact.fitPhrase}
         {showSky && (

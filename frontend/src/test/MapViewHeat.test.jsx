@@ -145,7 +145,8 @@ import { markerLabelAndColour } from '../components/markerUtils.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
-import { buildScoreIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex } from '../utils/locationSheet.js';
+import { tideIndexOf } from './tideFactsFixture.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 
 const TODAY = '2026-01-15';
@@ -825,7 +826,7 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
   }
 
   it('an aligned slot\'s onTheLight/phrase arrive on the Bamburgh entry in labelSpots', async () => {
-    const tideAlignmentIndex = buildTideAlignmentIndex(briefingWithTide(true).days);
+    const tideAlignmentIndex = tideIndexOf(briefingWithTide(true).days);
     await renderMap({ heat: heatProp(), tideAlignmentIndex });
 
     const spot = bamburghSpot();
@@ -834,7 +835,7 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
   });
 
   it('a not-aligned slot reaches labelSpots too, as onTheLight: false with no phrase', async () => {
-    const tideAlignmentIndex = buildTideAlignmentIndex(briefingWithTide(false).days);
+    const tideAlignmentIndex = tideIndexOf(briefingWithTide(false).days);
     await renderMap({ heat: heatProp(), tideAlignmentIndex });
 
     const spot = bamburghSpot();
@@ -960,7 +961,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
     // suffix (that exists solely for `makeMarkerIcon`'s module-level cache, which this test does
     // not exercise). The tide index's join is ID-first regardless (`locationId: 7`), so the name
     // only has to match what `labelSpots` will actually print.
-    const tideAlignmentIndex = buildTideAlignmentIndex(
+    const tideAlignmentIndex = tideIndexOf(
       tideBriefing(7, 'Gated Coastal', false, '≈ Tide not right at sunset').days,
     );
     await renderMap({
@@ -980,7 +981,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
     // tide-gated location must not make that toggle read as though a GENUINELY unrated location
     // were present, since enabling it would change nothing about a location already on screen.
     role = 'ADMIN';
-    const tideAlignmentIndex = buildTideAlignmentIndex(
+    const tideAlignmentIndex = tideIndexOf(
       tideBriefing(7, 'Gated Coastal', false, '≈ Tide not right at sunset').days,
     );
     await renderMap({
@@ -1030,7 +1031,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
         }]]),
       };
     }
-    const tideAlignmentIndex = buildTideAlignmentIndex(
+    const tideAlignmentIndex = tideIndexOf(
       tideBriefing(9, 'Rated Coastal Miss', false).days,
     );
     await renderMap({
@@ -1049,8 +1050,8 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
   });
 
   it('§7 check 2 — nothing is dropped: the pool handed to MapLabels/PinsLayer is the same size whether EVERY coastal slot matches or misses', async () => {
-    const allAligned = buildTideAlignmentIndex(allTideBriefing(true).days);
-    const allMissed = buildTideAlignmentIndex(allTideBriefing(false).days);
+    const allAligned = tideIndexOf(allTideBriefing(true).days);
+    const allMissed = tideIndexOf(allTideBriefing(false).days);
 
     await renderMap({ heat: heatProp(), tideAlignmentIndex: allAligned });
     const alignedCount = labelSpotsProps.last.spots.length;
@@ -1069,7 +1070,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
 
   it('§7 check 1 — tide never moves the heat: the field\'s own points are unaffected by tide alignment, across HIGH/MID/LOW', async () => {
     const heat = heatProp();
-    const forState = (state, tideAligned) => buildTideAlignmentIndex(
+    const forState = (state, tideAligned) => tideIndexOf(
       tideBriefing(1, 'Bamburgh-0', tideAligned, null, state).days,
     );
 
@@ -2530,7 +2531,7 @@ describe('the region panel — one region, into the sheet that already exists', 
     { locationId: 1, date: TODAY, targetType: 'SUNSET', rating: 5, goldenHourEnd: `${TODAY}T16:10:00` },
   ]);
 
-  const TIDE_INDEX = buildTideAlignmentIndex([{
+  const TIDE_INDEX = tideIndexOf([{
     date: TODAY,
     eventSummaries: [{
       targetType: 'SUNSET',

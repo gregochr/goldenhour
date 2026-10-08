@@ -72,7 +72,7 @@ describe('TideFitBlock — the match tier', () => {
 
 describe('TideFitBlock — the miss tier: the jump', () => {
   it('renders the exact heading, the served fitPhrase, and a jump naming the resolved row', () => {
-    render(<TideFitBlock fact={MISS} want={['LOW']} nextFitRow={NEXT_FIT_ROW} />);
+    render(<TideFitBlock fact={MISS} want={['LOW']} nextFitRow={NEXT_FIT_ROW} combinedRating={3} />);
     const block = screen.getByTestId('tide-fit-block');
     expect(block).toHaveAttribute('data-tier', 'miss');
     expect(block.querySelector('b')).toHaveTextContent('Wrong water, not wrong light');
@@ -129,12 +129,35 @@ describe('TideFitBlock — the miss tier: the denial', () => {
   });
 
   it('omits the whole jump/denial line when want resolves to nothing — a truthful claim needs something to name', () => {
-    render(<TideFitBlock fact={MISS} want={[]} nextFitRow={NEXT_FIT_ROW} />);
+    render(<TideFitBlock fact={MISS} want={[]} nextFitRow={NEXT_FIT_ROW} combinedRating={3} />);
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByTestId('tide-fit-denial')).toBeNull();
     // The heading and body still render — they come from `fact` alone.
     const block = screen.getByTestId('tide-fit-block');
     expect(block).toHaveTextContent('Wrong water, not wrong light');
+  });
+});
+
+describe('TideFitBlock — the honest miss heading (window-tide-facts-plan §4.2)', () => {
+  it('an UNASSESSED miss (no sky rating, no combined star) does not claim the light was fine', () => {
+    render(<TideFitBlock fact={MISS} want={['LOW']} nextFitRow={NEXT_FIT_ROW} />);
+    const heading = screen.getByTestId('tide-fit-block').querySelector('b');
+    expect(heading).toHaveTextContent('Tide misses the light here');
+    expect(heading).not.toHaveTextContent('Wrong water, not wrong light');
+  });
+
+  it('a miss is assessed by a combined star alone, or by a sky rating alone', () => {
+    const { unmount } = render(<TideFitBlock fact={MISS} want={['LOW']} combinedRating={2} />);
+    expect(screen.getByTestId('tide-fit-block')).toHaveTextContent('Wrong water, not wrong light');
+    unmount();
+    render(<TideFitBlock fact={{ ...MISS, skyRating: 4 }} want={['LOW']} />);
+    expect(screen.getByTestId('tide-fit-block')).toHaveTextContent('Wrong water, not wrong light');
+  });
+
+  it('a MATCH reads the same whether or not the window was assessed', () => {
+    render(<TideFitBlock fact={MATCH} want={['HIGH']} />);
+    expect(screen.getByTestId('tide-fit-block').querySelector('b'))
+      .toHaveTextContent('Tide lands on the light');
   });
 });
 

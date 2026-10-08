@@ -568,7 +568,8 @@ describe('MapCallout — the gate row and the tide-fit block together (T5, §5 #
     const block = screen.getByTestId('tide-fit-block');
     expect(gate).toHaveTextContent(GATE);
     expect(block).toHaveAttribute('data-tier', 'miss');
-    expect(block).toHaveTextContent('Wrong water, not wrong light');
+    // Unassessed (no rating, no sky rating): window-tide-facts-plan §4.2 drops the claim about the light.
+    expect(block).toHaveTextContent('Tide misses the light here');
 
     const cardText = screen.getByTestId('map-callout').textContent;
     const occurrences = cardText.split(OFFSET_CLAUSE).length - 1;

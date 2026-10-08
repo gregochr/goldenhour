@@ -33,7 +33,7 @@ vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
 }));
 
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
-import { solarWindowKey } from '../utils/mapEvents.js';
+import { windowKey } from '../utils/windowKeys.js';
 import { formatTime } from '../utils/briefingDisplay.js';
 
 const TODAY = '2026-08-11';
@@ -229,7 +229,7 @@ describe('WindowFirstMapPane — the heat prop', () => {
       },
     }));
 
-    const entry = MapStub.lastProps.heat.tideByWindow.get(solarWindowKey('2026-08-14', 'SUNRISE'));
+    const entry = MapStub.lastProps.heat.tideByWindow.get(windowKey('2026-08-14', 'SUNRISE'));
     expect(entry.tide).toBe(unrenderedTide);
     // No served eventTime: no time is invented for it.
     expect(entry.eventTime).toBeNull();
@@ -248,7 +248,7 @@ describe('WindowFirstMapPane — the heat prop', () => {
         }],
       },
     }));
-    const entry = MapStub.lastProps.heat.tideByWindow.get(solarWindowKey('2026-08-14', 'SUNRISE'));
+    const entry = MapStub.lastProps.heat.tideByWindow.get(windowKey('2026-08-14', 'SUNRISE'));
     expect(entry.eventTime).toBe('2026-08-14T04:31:00');
     expect(entry.time).toBe(formatTime('2026-08-14T04:31:00'));
     // 04:31 UTC is 05:31 in BST: the formatter converts, the pane does no time maths of its own.
@@ -262,7 +262,7 @@ describe('WindowFirstMapPane — the heat prop', () => {
       eventSummaries: [{ targetType: 'SUNRISE', window: { tide: { locationName: name } } }],
     }];
     const { rerender } = renderPane(context({ briefing: { days: day('First') } }));
-    const key = solarWindowKey('2026-08-14', 'SUNRISE');
+    const key = windowKey('2026-08-14', 'SUNRISE');
     expect(MapStub.lastProps.heat.tideByWindow.get(key).tide.locationName).toBe('First');
 
     briefingValue = context({ briefing: { days: day('Second') } });

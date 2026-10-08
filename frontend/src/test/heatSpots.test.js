@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, heatPointsFor, windowKey,
+  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, heatPointsFor,
 } from '../utils/heatSpots.js';
+import { windowKey } from '../utils/windowKeys.js';
 
 /**
  * The heat field's catalogue join (plan P1, §4.2).

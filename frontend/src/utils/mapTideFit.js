@@ -1,5 +1,6 @@
 import { lookupForWindow } from './locationSheet.js';
-import { EVENT_KIND, solarWindowKey } from './mapEvents.js';
+import { EVENT_KIND } from './mapEvents.js';
+import { windowKey } from './windowKeys.js';
 import { STATE_WORD } from './windowFirstRows.js';
 
 /**
@@ -58,7 +59,7 @@ export function coastalInView(spots, bounds) {
  *   the briefing's days
  * @param {(iso: string) => ?string} [formatTime] formats the window's event instant to the clock
  *   string a served row shows (`briefingDisplay.formatTime`); the client does no time maths itself
- * @returns {Map<string, {tide: object, eventTime: ?string, time: ?string}>} per {@link solarWindowKey};
+ * @returns {Map<string, {tide: object, eventTime: ?string, time: ?string}>} per {@link windowKey};
  *   a window the server could not draw a tide for (no coastal representative, no high and low
  *   water that day) has no entry
  */
@@ -70,7 +71,7 @@ export function buildWindowTideIndex(days, formatTime = () => '') {
       const tide = summary?.window?.tide;
       if (!summary?.targetType || !tide) continue;
       const eventTime = summary.window.eventTime ?? null;
-      index.set(solarWindowKey(day.date, summary.targetType), {
+      index.set(windowKey(day.date, summary.targetType), {
         tide,
         // The window's own served instant (UTC-naive) — what the elapsed test reads — and its
         // clock time formatted by the caller with the formatter served rows use. Null stays null.
@@ -123,12 +124,19 @@ export function tierOf(fact) {
  * reason). If a future phase decides the tooltip should instead name the specific want, that is a
  * product call for the copy owner, not a client-side formatting fix.
  *
+ * <p>⚠️ The miss heading is honest about what was assessed (window-tide-facts-plan §4.2): "Wrong
+ * water, not wrong light" claims the LIGHT was fine, which is only known when the window was scored
+ * for this location. On a window nothing scored (T+3/T+4, a travel day) a miss reads "Tide misses
+ * the light here". A match is unchanged. {@code assessed} defaults to true so a caller that does not
+ * know keeps the pre-existing wording.
+ *
  * @param {?('match'|'miss')} tier
+ * @param {boolean} [assessed=true] whether a sky or combined rating exists for this window
  * @returns {?string} null when there is no tier to head (no served tide fact at all)
  */
-export function tideTierHeading(tier) {
+export function tideTierHeading(tier, assessed = true) {
   if (tier === 'match') return 'Tide lands on the light';
-  if (tier === 'miss') return 'Wrong water, not wrong light';
+  if (tier === 'miss') return assessed ? 'Wrong water, not wrong light' : 'Tide misses the light here';
   return null;
 }
 

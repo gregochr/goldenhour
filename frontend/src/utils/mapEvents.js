@@ -1,6 +1,7 @@
 import { dayLabelFor, eventWord } from './windowFirstCards.js';
 import { resolveConfidence, daysOut } from './confidenceUtils.js';
 import { isNightOver } from './mapDates.js';
+import { windowKey } from './windowKeys.js';
 
 /**
  * The Map tab's single chronological event list ("EV") — map-tab-v2-plan.md §3 P6.
@@ -153,18 +154,6 @@ function beyondBriefingLabel(date, targetType, todayStr, tomorrowStr) {
 function dayOnly(label) {
   const stripped = String(label).replace(/\s*\b(sunrise|sunset)\b\s*$/i, '').trim();
   return stripped || label;
-}
-
-/**
- * The key a solar window goes by in {@code buildWindowTideIndex}'s result and in
- * {@link buildMapEvents}' {@code tideByWindow}: one definition for the builder and its consumer.
- *
- * @param {string} date ISO date
- * @param {string} targetType 'SUNRISE' | 'SUNSET'
- * @returns {string}
- */
-export function solarWindowKey(date, targetType) {
-  return `${date}:${targetType}`;
 }
 
 /**
@@ -554,7 +543,7 @@ export function isNightOffered(eventType, date, { todayStr, currentNightDate = n
  * @param {boolean} [args.isLite] true for a LITE account — aurora rows are omitted outright
  * @param {?Map<string, {tide: object, eventTime: ?string, time: ?string}>} [args.tideByWindow]
  *   the briefing's served tide (with the window's event instant and its formatted clock time) per
- *   {@link solarWindowKey}, lent to a D-13 filler row — a window the briefing carries but the
+ *   {@link windowKey}, lent to a D-13 filler row — a window the briefing carries but the
  *   pane's rendered-six list does not. Omitted, a filler has no tide
  * @param {(eventTime: ?string) => boolean} [args.isEventTimePast] the elapsed test (the app clock's,
  *   `briefingDisplay.isEventTimePast`), injected so this module reads no clock. A filler whose lent
@@ -584,7 +573,7 @@ export function buildMapEvents({
   const forecastDateSet = new Set(forecastDates);
   const tides = tideByWindow instanceof Map ? tideByWindow : new Map();
   const lendFor = (date, type) => {
-    const entry = tides.get(solarWindowKey(date, type));
+    const entry = tides.get(windowKey(date, type));
     return entry && !isEventTimePast(entry.eventTime) ? entry : null;
   };
   const solarByDate = new Map();
