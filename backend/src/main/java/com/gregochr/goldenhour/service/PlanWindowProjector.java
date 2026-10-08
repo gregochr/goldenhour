@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import java.time.LocalDate;
@@ -143,10 +144,15 @@ public final class PlanWindowProjector {
      * @param now      the request instant, used to refuse a pick on an elapsed window
      * @param tides    the tide rollup per window; empty when none could be derived, and missing
      *                 individual keys for any window whose date has no drawable tide
+     * @param tideFacts the per-location tide facts per window, built from the unfiltered slots by
+     *                 {@code WindowTideFactProjector}; a window with no entry gets a null
+     *                 {@code tideFacts}, never an empty list. Attached to every window, past and
+     *                 unrendered ones included, because they are facts about stored tide tables
      * @return the same response with windows projected, or null when given null
      */
     public static DailyBriefingResponse apply(DailyBriefingResponse response, LocalDateTime now,
-            Map<WindowKey, BriefingWindowTide> tides) {
+            Map<WindowKey, BriefingWindowTide> tides,
+            Map<WindowKey, List<LocationTideFact>> tideFacts) {
         if (response == null) {
             return null;
         }
@@ -177,7 +183,8 @@ public final class PlanWindowProjector {
             for (BriefingEventSummary summary : day.eventSummaries()) {
                 Draft dr = drafts.get(cursor++);
                 summaries.add(summary.withWindow(
-                        dr.toWindow(picks.get(dr.key()), tides.get(dr.key()))));
+                        dr.toWindow(picks.get(dr.key()), tides.get(dr.key()),
+                                tideFacts.get(dr.key()))));
             }
             projected.add(new BriefingDay(day.date(), summaries)
                     .withPeak(dayPeak(day.date(), summaries, rendered)));
@@ -772,9 +779,10 @@ public final class PlanWindowProjector {
             List<BriefingWindow.Badge> badges,
             Integer topRarityRank) {
 
-        BriefingWindow toWindow(BriefingWindow.Pick awarded, BriefingWindowTide tide) {
+        BriefingWindow toWindow(BriefingWindow.Pick awarded, BriefingWindowTide tide,
+                List<LocationTideFact> tideFacts) {
             return new BriefingWindow(eventTime, verdict, bestRating, confidence,
-                    awarded, badges, topRarityRank, tide);
+                    awarded, badges, topRarityRank, tide, tideFacts);
         }
     }
 

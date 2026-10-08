@@ -113,7 +113,7 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
           ))}
         </Figure>
         <Figure label="Tide" testId="ask-plan-tide" tier={figures.tide?.tier} emptyWords="No tide data">
-          {figures.tide && <PickTide tide={figures.tide} />}
+          {figures.tide && <PickTide tide={figures.tide} labelled={false} />}
         </Figure>
       </dl>
       {showNudge && (

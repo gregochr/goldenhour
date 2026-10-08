@@ -85,7 +85,7 @@ export default function AskPickCard({
             <>
               <span className="wf-ask-sep" aria-hidden="true" />
               <span className="wf-ask-tide" data-tier={card.tide.tier} data-testid={`ask-pick-tide-${card.rank}`}>
-                <PickTide tide={card.tide} label="Tide" />
+                <PickTide tide={card.tide} />
               </span>
             </>
           )}

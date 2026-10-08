@@ -59,6 +59,77 @@ describe('useAskAllowance', () => {
     expect(getAskSettings).toHaveBeenCalledTimes(2);
   });
 
+  describe('a read started before a served answer, and the answer itself', () => {
+    /** The hook loaded with {@code 3 of 3}, and a hand-held read in flight. */
+    const loadedWithReadInFlight = async () => {
+      getAskSettings.mockResolvedValueOnce(settings({ used: 0, left: 3 }));
+      const { result } = renderHook(() => useAskAllowance());
+      await waitFor(() => expect(result.current.left).toBe(3));
+      const read = deferred();
+      getAskSettings.mockReturnValueOnce(read.promise);
+      act(() => result.current.refetch());
+      await waitFor(() => expect(getAskSettings).toHaveBeenCalledTimes(2));
+      return { result, read };
+    };
+
+    it('keeps the served figure when an OLDER read resolves after it', async () => {
+      const { result, read } = await loadedWithReadInFlight();
+
+      act(() => result.current.applyServed({ left: 1, limit: 3 }));
+      await act(async () => { read.resolve(settings({ used: 0, left: 3 })); });
+
+      expect(result.current).toMatchObject({ left: 1, used: 2, limit: 3 });
+    });
+
+    it('ignores an older read that FAILS after a served figure, which stays ready', async () => {
+      const { result, read } = await loadedWithReadInFlight();
+
+      act(() => result.current.applyServed({ left: 1, limit: 3 }));
+      await act(async () => { read.reject(new Error('offline')); });
+
+      expect(result.current).toMatchObject({ status: 'ready', left: 1 });
+    });
+
+    it('applies a read started AFTER the served figure', async () => {
+      const { result, read } = await loadedWithReadInFlight();
+      act(() => result.current.applyServed({ left: 1, limit: 3 }));
+      await act(async () => { read.resolve(settings({ used: 0, left: 3 })); });
+      getAskSettings.mockResolvedValueOnce(settings({ used: 3, left: 0 }));
+
+      act(() => result.current.refetch());
+
+      await waitFor(() => expect(result.current.left).toBe(0));
+      expect(getAskSettings).toHaveBeenCalledTimes(3);
+    });
+
+    it('is not invalidated by a served figure that is not a count', async () => {
+      const { result, read } = await loadedWithReadInFlight();
+
+      act(() => result.current.applyServed({ left: -1, limit: 3 }));
+      await act(async () => { read.resolve(settings({ used: 1, left: 2 })); });
+
+      expect(result.current.left).toBe(2);
+    });
+
+    it('ignores the first of two reads when it resolves last', async () => {
+      getAskSettings.mockResolvedValueOnce(settings({ used: 0, left: 3 }));
+      const { result } = renderHook(() => useAskAllowance());
+      await waitFor(() => expect(result.current.left).toBe(3));
+      const first = deferred();
+      const second = deferred();
+      getAskSettings.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+      act(() => result.current.refetch());
+      await waitFor(() => expect(getAskSettings).toHaveBeenCalledTimes(2));
+      act(() => result.current.refetch());
+      await waitFor(() => expect(getAskSettings).toHaveBeenCalledTimes(3));
+
+      await act(async () => { second.resolve(settings({ used: 2, left: 1 })); });
+      await act(async () => { first.resolve(settings({ used: 0, left: 3 })); });
+
+      expect(result.current.left).toBe(1);
+    });
+  });
+
   it('applies the figures a POST response carries, deriving used from them', async () => {
     getAskSettings.mockResolvedValue(settings());
     const { result } = renderHook(() => useAskAllowance());

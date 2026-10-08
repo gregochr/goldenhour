@@ -383,7 +383,8 @@ public class AskService {
 
     // -- responses ----------------------------------------------------------------------------
 
-    private AskResponse own(AskAnswer answer, AskSnapshot snapshot, int left, int limit, boolean charged) {
+    private AskResponse own(AskAnswer answer, AskSnapshot snapshot, Integer left, int limit,
+            boolean charged) {
         return new AskResponse(true, AskResponse.KIND_OWN, answer.summary(),
                 answer.picks().stream().map(AskReadyResponse.Pick::of).toList(), answer.events(),
                 null, List.of(), left, limit, charged, snapshot.generatedAt(), snapshot.runLabel());
@@ -409,15 +410,20 @@ public class AskService {
         return response;
     }
 
-    /** {@code limit - used} for today; never throws and never negative. */
-    private int left(long userId, LocalDate day, int limit) {
+    /**
+     * {@code limit - used} for today; never throws and never negative, and {@code null} when the read
+     * fails. A null is NOT a count of zero: the client applies a served figure as the server's word and
+     * does not re-read after it, but treats a missing one as "unknown" and re-reads the settings, so a
+     * transient database failure cannot turn off typed questions.
+     */
+    private Integer left(long userId, LocalDate day, int limit) {
         try {
             return Math.max(0, limit - usageStore.read(userId, day).used());
         } catch (RuntimeException e) {
-            // The answer is already paid for; do not lose it over a count. The next settings read
-            // shows the true figure.
+            // The answer is already paid for; do not lose it over a count. The response carries no
+            // figure and the client re-reads the settings, which show the true one.
             LOG.warn("[ASK] Could not read user {}'s usage for the response: {}", userId, e.toString());
-            return 0;
+            return null;
         }
     }
 
