@@ -2023,6 +2023,13 @@ migration — and the Codex review, and updates §0 at merge.
 
 ## §9 Local verification recipe
 
+> **Where the seeder lives (2026-10-08).** `AskLocalFixtureSeeder` (and `LocalH2EnumWidener`, §10) live under
+> `backend/src/local/java` and their tests under `backend/src/local-test/java`; both roots are compiled only by the
+> `local-dev` Maven profile (build-helper `add-source` / `add-test-source`), so neither class is in the production jar
+> and no CI gate prices them. The recipe below therefore needs `-Plocal-dev` on the `spring-boot:run` line. The IDE needs
+> the `local-dev` profile active to index these sources. Their tests run with
+> `./mvnw -Plocal-dev test -Dtest='AskLocalFixtureSeeder*,LocalH2EnumWidener*,LocalH2EnumOldSchema*' -DfailIfNoSpecifiedTests=false`.
+
 1. `application-local.yml` carries `photocast.ask.enabled: true` and `stub: true` (spend-free, safe as
    committed defaults). `seed-local-fixture` is **false** there and is turned on for one run on the command
    line (step 2): the seeder writes into the developer's own H2 file and triggers a briefing build, which
@@ -2073,7 +2080,7 @@ type fixed when the table is created, and `ddl-auto: update` does not alter it �
 `backend/data/goldenhour.mv.db` refuses an `ASK` row. B2a read this from the DDL; **B2b reproduced it**
 (`LocalH2EnumOldSchemaReproductionTest`: a file database with the fifteen pre-Ask `RunType` values, the real
 Hibernate with `update`, and `saveAndFlush(ASK)` fails with *Value not permitted for column … "ASK"*) **and
-fixed it**: `LocalH2EnumWidener` (local profile, H2 only, a `SmartInitializingSingleton`) widens each
+fixed it**: `LocalH2EnumWidener` (local profile, H2 only, under `backend/src/local/java` and compiled only by `-Plocal-dev`, a `SmartInitializingSingleton`) widens each
 registered column to its current values plus the Java enum's with one `ALTER TABLE … SET DATA TYPE ENUM(…)`
 (H2 keeps stored values and `NOT NULL`; checked), idempotent and never failing startup. Its registry
 (`TARGETS`) has one line, `job_run.run_type`; **add a line when a change adds a value to an enum whose column

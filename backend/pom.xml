@@ -103,6 +103,15 @@
             "Cannot load driver class: org.h2.Driver" and there was no way to reach the app in a
             browser at all. This profile re-adds it at runtime scope for local dev only. Nothing
             activates it by default, so `./mvnw package`, CI and the Docker build are unchanged.
+
+            It also adds the two LOCAL-ONLY source roots (build-helper add-source / add-test-source
+            below): src/local/java holds the tooling that only the `local` Spring profile ever
+            uses (AskLocalFixtureSeeder, LocalH2EnumWidener) and src/local-test/java holds its
+            tests. Outside this profile neither root is compiled, tested, put on the classpath or
+            packaged into the production jar, and none of the quality gates price them. The
+            classes keep their own runtime guards (@Profile, @ConditionalOnProperty, refusals);
+            the source root is defence in depth, not a replacement. The IDE must have this
+            profile active to index the two roots.
         -->
         <profile>
             <id>local-dev</id>
@@ -113,6 +122,41 @@
                     <scope>runtime</scope>
                 </dependency>
             </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.1</version>
+                        <executions>
+                            <execution>
+                                <id>add-local-source</id>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/local/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>add-local-test-source</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/local-test/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 
