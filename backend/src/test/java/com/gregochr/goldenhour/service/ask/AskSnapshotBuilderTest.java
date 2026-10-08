@@ -6,9 +6,11 @@ import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
@@ -251,6 +253,121 @@ class AskSnapshotBuilderTest {
         assertThat(whitby.coastal()).isTrue();
         assertThat(joined.slots().get(1).coastal()).isFalse();
         assertThat(joined.slots().get(2).canopy()).isTrue();
+    }
+
+    @Test
+    @DisplayName("tide comes from the window's facts when the slot carries none")
+    void build_tideComesFromWindowFactsWhenSlotTideIsNull() {
+        BriefingWindow window = AskFixtures.withFacts(
+                AskFixtures.window(NOW.plusHours(6), DisplayVerdict.WORTH_IT, 4, null),
+                AskFixtures.fact(7L, "Whitby", "HIGH", true, "Tide suits this spot"));
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.withoutTide(AskFixtures.slot(7L, "Whitby", 4)),
+                AskFixtures.withoutTide(AskFixtures.slot(8L, "Inland", 3)));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY,
+                AskFixtures.summary(TargetType.SUNSET, window, region))), List.of()));
+
+        List<AskSnapshot.Slot> slots = builder.build().orElseThrow().windows().getFirst()
+                .regions().getFirst().slots();
+
+        assertThat(slots.getFirst().tideState()).isEqualTo("HIGH");
+        assertThat(slots.getFirst().tideAligned()).isTrue();
+        assertThat(slots.getFirst().tideFitPhrase()).isEqualTo("Tide suits this spot");
+        assertThat(slots.getFirst().coastal()).isTrue();
+        assertThat(slots.get(1).tideState()).isNull();
+        assertThat(slots.get(1).tideAligned()).isFalse();
+        assertThat(slots.get(1).tideFitPhrase()).isNull();
+        assertThat(slots.get(1).coastal()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the window's fact is what is read, even where the slot's own tide disagrees")
+    void build_windowFactWinsOverSlotTide() {
+        BriefingWindow window = AskFixtures.withFacts(
+                AskFixtures.window(NOW.plusHours(6), DisplayVerdict.WORTH_IT, 4, null),
+                AskFixtures.fact(7L, "Whitby", "LOW", true, "from the fact"));
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.coastal(7L, "Whitby", 4, "HIGH", false));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY,
+                AskFixtures.summary(TargetType.SUNSET, window, region))), List.of()));
+
+        AskSnapshot.Slot slot = builder.build().orElseThrow().windows().getFirst()
+                .regions().getFirst().slots().getFirst();
+
+        assertThat(slot.tideState()).isEqualTo("LOW");
+        assertThat(slot.tideAligned()).isTrue();
+        assertThat(slot.tideFitPhrase()).isEqualTo("from the fact");
+    }
+
+    @Test
+    @DisplayName("slot tide and window facts that agree give the same slot as before the move")
+    void build_agreeingSlotTideAndFactsGiveTheSameSlot() {
+        BriefingSlot coastal = AskFixtures.coastal(7L, "Whitby", 4, "HIGH", true);
+        BriefingWindow window = AskFixtures.window(NOW.plusHours(6), DisplayVerdict.WORTH_IT, 4, null);
+        BriefingWindow withFacts = AskFixtures.withFacts(window, LocationTideFact.from(coastal));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET,
+                withFacts, AskFixtures.region("Coast", true, coastal)))), List.of()));
+
+        AskSnapshot.Slot slot = builder.build().orElseThrow().windows().getFirst()
+                .regions().getFirst().slots().getFirst();
+
+        assertThat(slot.tideState()).isEqualTo(coastal.tide().tideState());
+        assertThat(slot.tideAligned()).isEqualTo(coastal.tide().tideAligned());
+        assertThat(slot.tideFitPhrase()).isEqualTo(coastal.tide().tideFitPhrase());
+    }
+
+    @Test
+    @DisplayName("a fact with no slot offers no pick and does not crash")
+    void build_factWithoutSlotIsHarmless() {
+        BriefingWindow window = AskFixtures.withFacts(
+                AskFixtures.window(NOW.plusHours(6), DisplayVerdict.WORTH_IT, 4, null),
+                AskFixtures.fact(99L, "Gone", "HIGH", true, "x"));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET,
+                window, AskFixtures.region("Coast", true)))), List.of()));
+
+        AskSnapshot snapshot = builder.build().orElseThrow();
+
+        assertThat(snapshot.windows()).hasSize(1);
+        assertThat(snapshot.windows().getFirst().regions().getFirst().slots()).isEmpty();
+        assertThat(snapshot.candidates()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a window with no tideFacts leaves every slot non-coastal, whatever the slot carries")
+    void build_windowWithoutFactsHasNoTide() {
+        BriefingWindow window = AskFixtures.window(NOW.plusHours(6), DisplayVerdict.WORTH_IT, 4, null);
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.coastal(7L, "Whitby", 4, "HIGH", true));
+        BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(region),
+                List.of(), null, window);
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY, summary)), List.of()));
+
+        AskSnapshot.Slot slot = builder.build().orElseThrow().windows().getFirst()
+                .regions().getFirst().slots().getFirst();
+
+        assertThat(slot.tideState()).isNull();
+        assertThat(slot.tideAligned()).isFalse();
+        assertThat(slot.tideFitPhrase()).isNull();
+    }
+
+    @Test
+    @DisplayName("a fact for a slot with no id is joined by name; a slot with an id joins by id")
+    void build_factJoinedByNameWhenIdIsAbsent() {
+        BriefingWindow window = AskFixtures.withFacts(
+                AskFixtures.window(NOW.plusHours(6), DisplayVerdict.WORTH_IT, 4, null),
+                AskFixtures.fact(null, "Legacy", "MID", true, "by name"),
+                AskFixtures.fact(8L, "Whitby", "LOW", false, "by id"));
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.withoutTide(AskFixtures.slot(null, "Legacy", 4)),
+                AskFixtures.withoutTide(AskFixtures.slot(8L, "Whitby", 4)));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY,
+                AskFixtures.summary(TargetType.SUNSET, window, region))), List.of()));
+
+        List<AskSnapshot.Slot> slots = builder.build().orElseThrow().windows().getFirst()
+                .regions().getFirst().slots();
+
+        assertThat(slots.get(0).tideFitPhrase()).isEqualTo("by name");
+        assertThat(slots.get(1).tideFitPhrase()).isEqualTo("by id");
     }
 
     @Test

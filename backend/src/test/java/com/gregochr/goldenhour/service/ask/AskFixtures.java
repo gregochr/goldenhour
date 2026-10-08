@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
@@ -69,6 +70,28 @@ final class AskFixtures {
         return slotWith(id, name, rating, false, tide, null);
     }
 
+    /** The slot as served after the tide strip: the same slot with no tide of its own. */
+    static BriefingSlot withoutTide(BriefingSlot base) {
+        return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
+                base.verdict(), base.weather(), null, base.flags(), base.standdownReason(),
+                base.claudeRating(), base.skyRating(), null, null, null, base.displayVerdict(),
+                base.claudeHeadline(), base.canopy(), null);
+    }
+
+    /** A served tide fact, as the projector would publish it. */
+    static LocationTideFact fact(Long id, String name, String tideState, boolean aligned,
+            String fitPhrase) {
+        return new LocationTideFact(id, name, tideState, aligned, null, null, null, null, null, null,
+                null, fitPhrase);
+    }
+
+    /** The window with exactly these tide facts, replacing any it carried. */
+    static BriefingWindow withFacts(BriefingWindow window, LocationTideFact... facts) {
+        return new BriefingWindow(window.eventTime(), window.verdict(), window.bestRating(),
+                window.confidence(), window.pick(), window.badges(), window.topRarityRank(),
+                window.tide(), List.of(facts));
+    }
+
     static BriefingSlot withHeadline(BriefingSlot base, String headline) {
         return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
                 base.verdict(), base.weather(), base.tide(), base.flags(), base.standdownReason(),
@@ -104,7 +127,30 @@ final class AskFixtures {
     /** An event summary with a window attached. */
     static BriefingEventSummary summary(TargetType type, BriefingWindow window,
             BriefingRegion... regions) {
-        return new BriefingEventSummary(type, List.of(regions), List.of(), null, window);
+        return new BriefingEventSummary(type, List.of(regions), List.of(), null,
+                withDerivedTideFacts(window, regions));
+    }
+
+    /**
+     * The window with the tide facts its regions' slots carry, as the served projection would attach
+     * them (Ask reads tide from the window, never from a slot). A window that already carries facts
+     * is returned unchanged.
+     */
+    private static BriefingWindow withDerivedTideFacts(BriefingWindow window, BriefingRegion... regions) {
+        if (window == null || window.tideFacts() != null) {
+            return window;
+        }
+        List<LocationTideFact> facts = java.util.Arrays.stream(regions)
+                .flatMap(r -> r.slots().stream())
+                .map(LocationTideFact::from)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (facts.isEmpty()) {
+            return window;
+        }
+        return new BriefingWindow(window.eventTime(), window.verdict(), window.bestRating(),
+                window.confidence(), window.pick(), window.badges(), window.topRarityRank(),
+                window.tide(), facts);
     }
 
     /** An event summary with no window: events past the Plan tab's six carry none. */
