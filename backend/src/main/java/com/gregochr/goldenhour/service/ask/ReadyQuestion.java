@@ -236,14 +236,14 @@ public enum ReadyQuestion {
      * cards are picks); {@code RARE_EVENTS} keeps any; {@code SNOW_TOPS} keeps only the snow topic
      * types ({@code SNOW_TOPS}, {@code SNOW_FRESH}, {@code SNOW_MIST}).
      *
-     * @param type the event's served type, any case
+     * @param type the event's served type, any case or spelling ({@link AskEventType#key})
      * @return true when the question may carry an event of this type
      */
     public boolean admitsEvent(String type) {
         if (eventTypes == null) {
             return true;
         }
-        return type != null && eventTypes.contains(type.strip().toUpperCase(Locale.ROOT));
+        return type != null && eventTypes.contains(AskEventType.key(type));
     }
 
     /**

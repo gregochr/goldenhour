@@ -56,9 +56,9 @@ class AskToolsTest {
                 List.of(AskFixtures.sunsetDay(TODAY, null, regions)), List.of()));
     }
 
-    private static List<SpotInfo> spots(AskToolResult result) {
+    private static List<SpotInfo> spots(AskToolResult<RankSpotsResult> result) {
         assertThat(result.error()).as(result.content()).isFalse();
-        return ((RankSpotsResult) result.payload()).spots();
+        return result.payload().spots();
     }
 
     private static RankSpotsArgs rank(Integer limit) {
@@ -571,6 +571,40 @@ class AskToolsTest {
     }
 
     @Test
+    @DisplayName("get_hot_topics reads a type the way every other site does: 'lunar-eclipse' asks for "
+            + "LUNAR_ECLIPSE, and the card still carries the served type")
+    void getHotTopics_typeFilterFoldsDashes() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("LUNAR_ECLIPSE", "Lunar eclipse", "d", TOMORROW, List.of()),
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()))));
+        AskTools tools = tools(snapshot);
+
+        HotTopicsResult result = tools.getHotTopics(new HotTopicsArgs(List.of(" lunar-eclipse "), 5)).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::type).containsExactly("LUNAR_ECLIPSE");
+        assertThat(tools.evidence().events()).containsExactly(
+                new AskEvidence.EventFact("LUNAR_ECLIPSE", "Lunar eclipse", TOMORROW));
+    }
+
+    @Test
+    @DisplayName("get_coming_up is the snapshot's timeline cut to the limit, nothing more and nothing less")
+    void getComingUp_isTheSnapshotsTimeline() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()))),
+                List.of(AskSnapshotBuilderTest.almanacEntry("SUPERMOON", "Supermoon", TODAY.plusDays(3),
+                        TODAY.plusDays(3), "d")));
+        AskScope scope = TestScopes.of();
+
+        List<AskTools.ComingUpInfo> served = tools(snapshot).getComingUp(new ComingUpArgs(30, 10))
+                .payload().entries();
+
+        assertThat(served).extracting(AskTools.ComingUpInfo::title)
+                .containsExactlyElementsOf(snapshot.timeline(scope, 30).stream()
+                        .map(AskSnapshot.ComingUp::title).toList());
+        assertThat(served).hasSize(2);
+    }
+
+    @Test
     @DisplayName("a solar eclipse topic's safety note is on the tool row, whole, and in the evidence")
     void getHotTopics_carriesTheSafetyNote() {
         String warning = "Certified solar filter on the lens — not only over your eye. " + "x".repeat(250);
@@ -767,17 +801,6 @@ class AskToolsTest {
     }
 
     @Test
-    @DisplayName("get_coming_up: N days is N civil dates from today; day N-1 is in, day N is out")
-    void getComingUp_rangeIsNCivilDates() {
-        AskSnapshot snapshot = almanacSnapshot(0, 6, 7, 8);
-
-        // Seven days: today and the six after it. Offset 6 is the seventh date.
-        assertThat(comingUpTypes(snapshot, 7)).containsExactly("E0", "E6");
-        assertThat(comingUpTypes(snapshot, 8)).containsExactly("E0", "E6", "E7");
-        assertThat(comingUpTypes(snapshot, 1)).as("one day is today only").containsExactly("E0");
-    }
-
-    @Test
     @DisplayName("get_coming_up: at the 90-day cap day 89 is in and day 90 is out, whatever days is asked")
     void getComingUp_ninetyDayCap() {
         AskSnapshot snapshot = almanacSnapshot(89, 90);
@@ -824,23 +847,6 @@ class AskToolsTest {
                 .entries()).hasSize(1);
         assertThat(((ComingUpResult) tools(snapshot).getComingUp(new ComingUpArgs(30, 11)).payload())
                 .entries()).hasSize(10);
-    }
-
-    @Test
-    @DisplayName("get_coming_up: entries equal on date and title still sort the same way every time")
-    void getComingUp_sortIsTotal() {
-        ComingUpEntry b = AskSnapshotBuilderTest.almanacEntry("B", "Same", TODAY.plusDays(2),
-                TODAY.plusDays(2), "d");
-        ComingUpEntry a = AskSnapshotBuilderTest.almanacEntry("A", "Same", TODAY.plusDays(2),
-                TODAY.plusDays(2), "d");
-
-        List<String> forward = comingUpTypes(AskFixtures.snapshotOf(
-                AskFixtures.briefing(List.of(), List.of()), List.of(b, a)), 30);
-        List<String> reverse = comingUpTypes(AskFixtures.snapshotOf(
-                AskFixtures.briefing(List.of(), List.of()), List.of(a, b)), 30);
-
-        assertThat(forward).containsExactly("A", "B");
-        assertThat(reverse).isEqualTo(forward);
     }
 
     @Test
@@ -994,62 +1000,5 @@ class AskToolsTest {
         });
         assertThat(tools.evidence().events()).containsExactly(new AskEvidence.EventFact("ECLIPSE",
                 "Partial solar eclipse", TODAY.plusDays(4), warning));
-    }
-
-    @Test
-    @DisplayName("a live topic the almanac already lists (same type, date inside the span; the almanac's "
-            + "lower-case hyphenated type is the hot topic's upper-case underscored one) appears once, not twice")
-    void getComingUp_doesNotRepeatWhatTheAlmanacLists() {
-        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
-                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()),
-                AskFixtures.topic("LUNAR_ECLIPSE", "Lunar eclipse", "d", TODAY.plusDays(5), List.of()),
-                AskFixtures.topic("ECLIPSE", "Another eclipse", "d", TODAY.plusDays(20), List.of()))),
-                List.of(AskSnapshotBuilderTest.almanacEntry("eclipse", "Partial solar eclipse",
-                                TODAY.plusDays(4), TODAY.plusDays(4), "d"),
-                        AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse",
-                                TODAY.plusDays(4), TODAY.plusDays(6), "d")));
-
-        ComingUpResult result = (ComingUpResult) tools(snapshot).getComingUp(null).payload();
-
-        assertThat(result.entries()).extracting(AskTools.ComingUpInfo::title).containsExactly(
-                "Partial solar eclipse", "Total lunar eclipse", "Another eclipse");
-    }
-
-    @Test
-    @DisplayName("get_coming_up keeps a NIGHT topic dated yesterday — the aurora alert for the night still "
-            + "running before dawn, whose morning half is today's sunrise — on its own date, the one "
-            + "get_hot_topics and the freshness check know it by")
-    void getComingUp_runningNightTopicDatedYesterdayKeepsItsDate() {
-        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
-                AskFixtures.topic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
-                        TODAY.minusDays(1), List.of()).withEvent("NIGHT", "18:30"),
-                AskFixtures.topic("DUST", "Saharan dust", "d", TODAY.minusDays(1), List.of())
-                        .withEvent("SUNSET", "18:00"))));
-
-        ComingUpResult result = (ComingUpResult) tools(snapshot).getComingUp(null).payload();
-
-        assertThat(result.entries()).extracting(AskTools.ComingUpInfo::type).containsExactly("AURORA");
-        assertThat(result.entries().get(0).start()).isEqualTo(TODAY.minusDays(1).toString());
-        assertThat(result.entries().get(0).end()).isEqualTo(TODAY.minusDays(1).toString());
-    }
-
-    @Test
-    @DisplayName("get_coming_up leaves out a live topic dated before today, beyond the horizon, undated or "
-            + "naming only regions outside the question's scope")
-    void getComingUp_liveTopicsAreBoundedByHorizonAndScope() {
-        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
-                AskFixtures.topic("PAST", "Past", "d", TODAY.minusDays(1), List.of()),
-                AskFixtures.topic("TODAY", "Today", "d", TODAY, List.of()),
-                AskFixtures.topic("EDGE", "Edge", "d", TODAY.plusDays(6), List.of()),
-                AskFixtures.topic("BEYOND", "Beyond", "d", TODAY.plusDays(7), List.of()),
-                AskFixtures.topic("UNDATED", "Undated", "d", null, List.of()),
-                AskFixtures.topic("ELSEWHERE", "Elsewhere", "d", TODAY, List.of("Cornwall")),
-                AskFixtures.topic("HERE", "Here", "d", TODAY, List.of("Coast")))));
-
-        assertThat(comingUpTypes(snapshot, 7)).as("unscoped: every region")
-                .containsExactly("ELSEWHERE", "HERE", "TODAY", "EDGE");
-        assertThat(((ComingUpResult) tools(snapshot, USER, TestScopes.of("Coast")).getComingUp(
-                new ComingUpArgs(7, 10)).payload()).entries()).extracting(AskTools.ComingUpInfo::type)
-                .containsExactly("HERE", "TODAY", "EDGE");
     }
 }

@@ -8,6 +8,8 @@ import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,6 +43,9 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
 
     /** The least served rating a slot may carry and still be offered as a pick. */
     public static final int MIN_PICK_RATING = 3;
+
+    /** The furthest ahead the {@link #timeline} (and so {@code get_coming_up}) looks, in days. */
+    public static final int MAX_COMING_UP_DAYS = 90;
 
     /** Canonical constructor: takes immutable copies; a null list reads as empty. */
     public AskSnapshot {
@@ -313,6 +318,57 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         return candidates(window).stream()
                 .filter(c -> scope.contains(c.region().name()))
                 .toList();
+    }
+
+    /**
+     * The one definition of what {@code get_coming_up} can return, shared with the validator's
+     * "was anything offered" test so the two cannot disagree: the almanac entries overlapping the
+     * next {@code days} civil dates plus the in-scope hot topics dated inside them that the almanac
+     * does not already list, soonest first. A hot topic is stood in the timeline as a one-day entry
+     * titled with its label, carrying its served detail and safety note.
+     *
+     * <p>"Dated inside them" reads the dates a topic COVERS ({@link Topic#coversAnyOf}), not its
+     * date alone: a {@code NIGHT} topic dated yesterday — the aurora alert for the night still
+     * running before dawn — reaches this morning's sunrise, so it is listed. ⚠️ It stands on its
+     * OWN date, yesterday, even so: {@code AskReadyFreshness.liveEvent} re-finds an event by the
+     * live topic's {@code date}, and {@code get_hot_topics} reports the same topic on that date, so
+     * moving the entry onto today would make an answer built from it read as no longer live on
+     * the very next serve (a Codex review of #1056). The night is named by its dusk date everywhere.
+     *
+     * @param scope the regions the question is about
+     * @param days  how many days ahead, from today
+     * @return the timeline, soonest first, unlimited
+     */
+    public List<ComingUp> timeline(AskScope scope, int days) {
+        LocalDate from = today;
+        // N days is N civil dates from today: AlmanacService.getFeed ends at today + N - 1.
+        LocalDate to = from.plusDays(days - 1L);
+        List<ComingUp> entries = new ArrayList<>(comingUp.stream()
+                .filter(e -> !e.endDate().isBefore(from) && !e.startDate().isAfter(to))
+                .toList());
+        List<ComingUp> almanac = List.copyOf(entries);
+        hotTopics.stream()
+                .filter(t -> t.coversAnyOf(from, to))
+                .filter(t -> t.inScope(scope))
+                .filter(t -> almanac.stream().noneMatch(e -> listedBy(e, t)))
+                .map(t -> new ComingUp(t.type(), t.label(), t.date(), t.date(), t.detail(),
+                        t.safetyNote()))
+                .forEach(entries::add);
+        entries.sort(Comparator.comparing(ComingUp::startDate)
+                .thenComparing(ComingUp::title)
+                .thenComparing(ComingUp::type)
+                .thenComparing(ComingUp::endDate));
+        return List.copyOf(entries);
+    }
+
+    /**
+     * Whether an almanac entry already lists a live topic: the same type ({@link AskEventType#same},
+     * which reads the almanac's {@code lunar-eclipse} and a hot topic's {@code LUNAR_ECLIPSE} as one)
+     * on a date inside its span.
+     */
+    private static boolean listedBy(ComingUp entry, Topic topic) {
+        return AskEventType.same(entry.type(), topic.type())
+                && !topic.date().isBefore(entry.startDate()) && !topic.date().isAfter(entry.endDate());
     }
 
     /**

@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service.ask;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserRole;
@@ -17,6 +20,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -725,6 +729,75 @@ class AskServiceTest {
         assertThat(codeOf(request("Best spot tonight?"))).isEqualTo(AskErrorCode.ENGINE_FAILED);
 
         assertThat(usage()).isEqualTo(new AskUsageStore.Usage(0, 1));
+    }
+
+    /** Runs {@code action} with an appender on {@link AskService}'s logger and returns what it logged. */
+    private static List<ILoggingEvent> logged(Runnable action) {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(AskService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            action.run();
+        } finally {
+            logger.detachAppender(appender);
+        }
+        return List.copyOf(appender.list);
+    }
+
+    @Test
+    @DisplayName("a failed typed run is logged once at INFO with [ASK], the user, the turns and the reason "
+            + "the engine gave: the only trace of why it failed")
+    void failedRunReasonIsLogged() {
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv ->
+                AskRun.failed("the answer was discarded: pick 1 is not on the BEST BET window "
+                        + "2026-10-05_sunset", 3, false, List.of()));
+
+        List<ILoggingEvent> events = logged(() ->
+                assertThat(codeOf(request("Best spot tonight?"))).isEqualTo(AskErrorCode.ENGINE_FAILED));
+
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.INFO).singleElement().satisfies(e -> {
+            assertThat(e.getFormattedMessage()).startsWith("[ASK]").contains("user 41").contains("3 turn(s)")
+                    .contains("the answer was discarded: pick 1 is not on the BEST BET window 2026-10-05_sunset");
+            assertThat(e.getFormattedMessage()).as("never the question").doesNotContain("Best spot tonight");
+        });
+    }
+
+    @Test
+    @DisplayName("the reason is flattened to one line before it is logged, whatever the engine put in it")
+    void failedRunReasonIsOneLine() {
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv ->
+                failedRun("the model call failed: boom\n2026-10-05 [ASK] second line\r end"));
+
+        List<ILoggingEvent> events = logged(() -> codeOf(request("Best spot tonight?")));
+
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.INFO).singleElement().satisfies(e ->
+                assertThat(e.getFormattedMessage()).doesNotContain("\n").doesNotContain("\r")
+                        .doesNotContain(" ").contains("second line"));
+    }
+
+    @Test
+    @DisplayName("an engine that throws is logged with its class name as the reason")
+    void thrownEngineReasonIsLogged() {
+        when(engine.run(any(), any(), any(), any())).thenThrow(new IllegalArgumentException("bug"));
+
+        List<ILoggingEvent> events = logged(() -> codeOf(request("Best spot tonight?")));
+
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.INFO).singleElement().satisfies(e ->
+                assertThat(e.getFormattedMessage()).contains("the engine threw: IllegalArgumentException")
+                        .contains("0 turn(s)"));
+    }
+
+    @Test
+    @DisplayName("an answered question, and an honest 'not in the forecast', log no failure line")
+    void answeredRunsLogNoFailure() {
+        List<ILoggingEvent> ok = logged(() -> ask("Best spot tonight?"));
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
+        List<ILoggingEvent> cant = logged(() -> ask("Is parking busy tonight?"));
+
+        assertThat(ok).filteredOn(e -> e.getLevel() == Level.INFO).isEmpty();
+        assertThat(cant).filteredOn(e -> e.getLevel() == Level.INFO).isEmpty();
     }
 
     @Test

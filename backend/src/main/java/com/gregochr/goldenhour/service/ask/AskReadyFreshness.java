@@ -4,7 +4,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -165,17 +164,16 @@ final class AskReadyFreshness {
      */
     private static Optional<LiveEvent> liveEvent(AskEvent event, AskSnapshot live,
             AskScope scope) {
-        String type = event.type() == null ? "" : event.type().strip().toUpperCase(Locale.ROOT);
-        LocalDate lastDay = live.today().plusDays(AskTools.MAX_COMING_UP_DAYS - 1L);
+        LocalDate lastDay = live.today().plusDays(AskSnapshot.MAX_COMING_UP_DAYS - 1L);
         List<LiveEvent> matches = new ArrayList<>();
         for (AskSnapshot.Topic topic : live.hotTopics()) {
-            if (topic.type() != null && topic.type().strip().toUpperCase(Locale.ROOT).equals(type)
+            if (AskEventType.same(topic.type(), event.type())
                     && Objects.equals(topic.date(), event.date()) && topic.inScope(scope)) {
                 matches.add(new LiveEvent(topic.label(), topic.safetyNote()));
             }
         }
         for (AskSnapshot.ComingUp entry : live.comingUp()) {
-            if (entry.type() != null && entry.type().strip().toUpperCase(Locale.ROOT).equals(type)
+            if (AskEventType.same(entry.type(), event.type())
                     && Objects.equals(entry.startDate(), event.date())
                     && !entry.endDate().isBefore(live.today()) && !entry.startDate().isAfter(lastDay)) {
                 matches.add(new LiveEvent(entry.title(), entry.safetyNote()));
