@@ -19,13 +19,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -71,9 +68,6 @@ public class AskReadyService {
 
     /** The longest a precompute may run before it stops between questions. */
     public static final Duration PRECOMPUTE_DEADLINE = Duration.ofMinutes(5);
-
-    /** The scope key of every region. */
-    public static final String ALL = "ALL";
 
     /** How many other questions an answer suggests. */
     private static final int TRY_COUNT = 2;
@@ -259,19 +253,15 @@ public class AskReadyService {
         private int failed;
     }
 
-    /** One scope: its key, its region ids for the engine and its names for the predicates. */
-    private record Scope(String key, List<Long> regionIds, Set<String> names) {
-    }
-
     /** One (scope, question) to run. */
-    private record Task(Scope scope, ReadyQuestion question, ReadyQuestion.Offer offer) {
+    private record Task(AskScope scope, ReadyQuestion question, ReadyQuestion.Offer offer) {
     }
 
     private void work(AskSnapshot snapshot, long jobRunId, Long pipelineRunId, Counts counts) {
         List<Task> tasks = new ArrayList<>();
-        for (Scope scope : scopes()) {
+        for (AskScope scope : scopes()) {
             for (ReadyQuestion question : ReadyQuestion.values()) {
-                Optional<ReadyQuestion.Offer> offer = question.offer(snapshot, scope.names());
+                Optional<ReadyQuestion.Offer> offer = question.offer(snapshot, scope);
                 if (offer.isPresent()) {
                     tasks.add(new Task(scope, question, offer.get()));
                 } else {
@@ -317,9 +307,8 @@ public class AskReadyService {
     private boolean runOne(Task task, AskSnapshot snapshot, long jobRunId, Long pipelineRunId,
             Counts counts) {
         String label = task.scope().key() + "/" + task.question();
-        AskQuestion question = new AskQuestion(task.offer().text(),
-                task.offer().text().toLowerCase(Locale.ROOT), task.offer().contextWindowId(),
-                task.scope().regionIds(), "plan");
+        AskQuestion question = AskQuestion.of(task.offer().text(), task.offer().contextWindowId(),
+                task.scope(), "plan");
         AskRun run;
         try {
             run = engine.run(question, snapshot, AskUserContext.userLess(),
@@ -364,7 +353,7 @@ public class AskReadyService {
             return true;
         }
         Optional<String> violation = task.question().violation(answer, task.offer(), snapshot,
-                task.scope().names());
+                task.scope());
         if (violation.isPresent()) {
             LOG.warn("[ASK] Ready {} discarded: {}", label, violation.get());
             counts.failed++;
@@ -386,12 +375,12 @@ public class AskReadyService {
         return true;
     }
 
-    private List<Scope> scopes() {
-        List<Scope> scopes = new ArrayList<>();
-        scopes.add(new Scope(ALL, List.of(), Set.of()));
+    /** Every region, then each enabled region alone: built from the entities already read. */
+    private List<AskScope> scopes() {
+        List<AskScope> scopes = new ArrayList<>();
+        scopes.add(AskScope.ALL);
         for (RegionEntity region : regionRepository.findAllByEnabledTrueOrderByNameAsc()) {
-            scopes.add(new Scope(String.valueOf(region.getId()), List.of(region.getId()),
-                    Set.of(region.getName())));
+            scopes.add(AskScope.of(List.of(region.getId()), List.of(region.getName())));
         }
         return scopes;
     }
@@ -415,17 +404,16 @@ public class AskReadyService {
     /**
      * The Ready questions of a scope that are still true, in catalogue order.
      *
-     * @param scopeKey   {@link #ALL} or a region id as text
-     * @param scopeNames the scope's region names; empty for every region
+     * @param scope {@link AskScope#ALL} or one region
      * @return the fresh questions; empty when there is no briefing or none is fresh
      */
-    public AskReadyResponse serve(String scopeKey, Collection<String> scopeNames) {
-        String echo = ALL.equals(scopeKey) ? "all" : scopeKey;
+    public AskReadyResponse serve(AskScope scope) {
+        String echo = scope.isEverywhere() ? "all" : scope.key();
         Optional<AskSnapshot> live = snapshotBuilder.current();
         if (live.isEmpty()) {
             return new AskReadyResponse(echo, List.of());
         }
-        return new AskReadyResponse(echo, freshAnswers(scopeKey, scopeNames, live.get()));
+        return new AskReadyResponse(echo, freshAnswers(scope, live.get()));
     }
 
     /**
@@ -434,14 +422,12 @@ public class AskReadyService {
      * so a Ready answer given to a typed question is the very object, with the very freshness test,
      * a tap on the same question would have got.
      *
-     * @param scopeKey   {@link #ALL} or a region id as text
-     * @param scopeNames the scope's region names; empty for every region
-     * @param live       the live snapshot the freshness check is made against
+     * @param scope {@link AskScope#ALL} or one region
+     * @param live  the live snapshot the freshness check is made against
      * @return the fresh questions in catalogue order; empty when none is fresh
      */
-    public List<AskReadyResponse.Question> freshAnswers(String scopeKey, Collection<String> scopeNames,
-            AskSnapshot live) {
-        List<Fresh> fresh = freshQuestions(scopeKey, scopeNames, live);
+    public List<AskReadyResponse.Question> freshAnswers(AskScope scope, AskSnapshot live) {
+        List<Fresh> fresh = freshQuestions(scope, live);
         List<AskReadyResponse.Question> questions = new ArrayList<>();
         for (int i = 0; i < fresh.size(); i++) {
             questions.add(toQuestion(fresh, i));
@@ -455,23 +441,21 @@ public class AskReadyService {
      * §2.9). The same freshness test {@link #serve} applies, so a suggestion is always one the client
      * will find in its Ready list.
      *
-     * @param scopeKey   {@link #ALL} or a region id as text
-     * @param scopeNames the scope's region names; empty for every region
-     * @param live       the live snapshot the freshness check is made against
-     * @param limit      the most suggestions to return
+     * @param scope {@link AskScope#ALL} or one region
+     * @param live  the live snapshot the freshness check is made against
+     * @param limit the most suggestions to return
      * @return the suggestions; empty when none is fresh
      */
-    public List<AskReadyResponse.Suggestion> suggestions(String scopeKey, Collection<String> scopeNames,
-            AskSnapshot live, int limit) {
-        return freshQuestions(scopeKey, scopeNames, live).stream().limit(Math.max(0, limit))
+    public List<AskReadyResponse.Suggestion> suggestions(AskScope scope, AskSnapshot live, int limit) {
+        return freshQuestions(scope, live).stream().limit(Math.max(0, limit))
                 .map(f -> new AskReadyResponse.Suggestion(f.question().name(), f.stored().questionText()))
                 .toList();
     }
 
     /** The stored questions of a scope that are still true against {@code live}, in catalogue order. */
-    private List<Fresh> freshQuestions(String scopeKey, Collection<String> scopeNames, AskSnapshot live) {
+    private List<Fresh> freshQuestions(AskScope scope, AskSnapshot live) {
         Map<String, AskReadyStore.Stored> byId = new LinkedHashMap<>();
-        store.findScope(scopeKey).forEach(s -> byId.put(s.questionId(), s));
+        store.findScope(scope.key()).forEach(s -> byId.put(s.questionId(), s));
 
         List<Fresh> fresh = new ArrayList<>();
         for (ReadyQuestion question : ReadyQuestion.values()) {
@@ -480,11 +464,11 @@ public class AskReadyService {
                 continue;
             }
             AskReadyFreshness.Verdict verdict =
-                    AskReadyFreshness.check(question, stored, live, scopeNames);
+                    AskReadyFreshness.check(question, stored, live, scope);
             if (verdict.fresh()) {
                 fresh.add(new Fresh(question, stored, verdict.answer()));
             } else {
-                LOG.debug("[ASK] Ready {}/{} withheld: {}", scopeKey, question, verdict.reason());
+                LOG.debug("[ASK] Ready {}/{} withheld: {}", scope.key(), question, verdict.reason());
             }
         }
         return fresh;

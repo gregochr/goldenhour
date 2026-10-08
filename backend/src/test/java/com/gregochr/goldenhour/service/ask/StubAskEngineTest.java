@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -12,7 +11,6 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
@@ -42,11 +40,10 @@ class StubAskEngineTest {
     private static final String TOMORROW_SUNRISE = "2026-10-06_sunrise";
     private static final AskUserContext USER = new AskUserContext(7L, UserRole.PRO_USER, true);
 
-    private final RegionRepository regions = mock(RegionRepository.class);
     private final DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
     private final AskAnswerValidator validator = new AskAnswerValidator();
     private final StubAskEngine engine =
-            new StubAskEngine(validator, driveTimes, regions, new ObjectMapper());
+            new StubAskEngine(validator, driveTimes, new ObjectMapper());
 
     // -- fixtures ---------------------------------------------------------------------------
 
@@ -81,7 +78,7 @@ class StubAskEngineTest {
     }
 
     private static AskQuestion question(String text) {
-        return new AskQuestion(text, text.toLowerCase(), null, List.of(), "plan");
+        return new AskQuestion(text, text.toLowerCase(), null, AskScope.ALL, "plan");
     }
 
     private AskRun run(String text) {
@@ -134,8 +131,8 @@ class StubAskEngineTest {
     @Test
     @DisplayName("scope: a question about one region is answered from that region only")
     void scopeNarrowsThePicks() {
-        when(regions.findAllById(Set.of(2L))).thenReturn(List.of(region(2L, "Hills")));
-        AskQuestion scoped = new AskQuestion("best spot", "best spot", null, List.of(2L), "map");
+        AskQuestion scoped = new AskQuestion("best spot", "best spot", null,
+                AskScope.of(List.of(2L), Set.of("Hills")), "map");
 
         AskRun run = engine.run(scoped, snapshot(null), USER, AskRunOptions.none());
 
@@ -145,23 +142,10 @@ class StubAskEngineTest {
     }
 
     @Test
-    @DisplayName("an unknown region id fails the run before any tool call: scope is a boundary, not a hint")
-    void unknownRegionFails() {
-        when(regions.findAllById(Set.of(99L))).thenReturn(List.of());
-        AskQuestion scoped = new AskQuestion("best spot", "best spot", null, List.of(99L), "map");
-
-        AskRun run = engine.run(scoped, snapshot(null), USER, AskRunOptions.none());
-
-        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
-        assertThat(run.reason()).contains("region id");
-        assertThat(run.trace()).isEmpty();
-    }
-
-    @Test
     @DisplayName("a context window restricts the ranking to that window; one not in the set is ignored")
     void contextWindow() {
-        AskQuestion inWindow = new AskQuestion("best spot", "best spot", TOMORROW_SUNRISE, List.of(), "map");
-        AskQuestion unknown = new AskQuestion("best spot", "best spot", "2031-01-01_sunrise", List.of(), "map");
+        AskQuestion inWindow = new AskQuestion("best spot", "best spot", TOMORROW_SUNRISE, AskScope.ALL, "map");
+        AskQuestion unknown = new AskQuestion("best spot", "best spot", "2031-01-01_sunrise", AskScope.ALL, "map");
 
         AskRun only = engine.run(inWindow, snapshot(null), USER, AskRunOptions.none());
         AskRun ignored = engine.run(unknown, snapshot(null), USER, AskRunOptions.none());
@@ -509,7 +493,7 @@ class StubAskEngineTest {
         AskAnswerValidator rejecting = mock(AskAnswerValidator.class);
         when(rejecting.validate(any(), any(), any(), any(), any(), any()))
                 .thenReturn(new AskAnswerValidator.Result(null, "no summary"));
-        StubAskEngine strict = new StubAskEngine(rejecting, driveTimes, regions, new ObjectMapper());
+        StubAskEngine strict = new StubAskEngine(rejecting, driveTimes, new ObjectMapper());
 
         AskRun run = strict.run(question("best spot"), snapshot(null), USER, AskRunOptions.none());
 
@@ -524,16 +508,13 @@ class StubAskEngineTest {
         AskAnswerValidator cant = mock(AskAnswerValidator.class);
         when(cant.validate(any(), any(), any(), any(), any(), any())).thenReturn(new AskAnswerValidator.Result(
                 new AskAnswer(false, "Cannot tell.", List.of(), List.of(), "parking"), null));
-        StubAskEngine stub = new StubAskEngine(cant, driveTimes, regions, new ObjectMapper());
+        StubAskEngine stub = new StubAskEngine(cant, driveTimes, new ObjectMapper());
 
         AskRun run = stub.run(question("best spot"), snapshot(null), USER, AskRunOptions.none());
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
     }
 
-    private static RegionEntity region(long id, String name) {
-        return RegionEntity.builder().id(id).name(name).enabled(true).build();
-    }
 
     @SuppressWarnings("unused")
     private static LocalDate unused() {

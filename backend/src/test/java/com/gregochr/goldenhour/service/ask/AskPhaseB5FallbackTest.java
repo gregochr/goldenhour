@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.time.Clock;
-import java.util.Collection;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -132,8 +131,7 @@ class AskPhaseB5FallbackTest {
     /** A stand-in for B5's matcher. */
     private static final class RealMatcher implements AskIntentMatcher {
         @Override
-        public Optional<AskReadyResponse.Question> match(AskQuestion question, AskSnapshot snapshot,
-                String scopeKey, Collection<String> scopeNames) {
+        public Optional<AskReadyResponse.Question> match(AskQuestion question, AskSnapshot snapshot) {
             return Optional.empty();
         }
     }

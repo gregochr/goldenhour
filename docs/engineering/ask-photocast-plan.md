@@ -695,6 +695,32 @@ region ids; 409 when no briefing has been built. A FAILED run is a 200 carrying 
 `reason`, since the admin is there to see why. `POST /api/admin/ask/ready/precompute` → `{written,
 skipped, failed}`. `GET /api/admin/ask/metrics?days=`.
 
+*As built (refactor, 2026-10-08) — a question's region scope is resolved once, as an `AskScope` value.* Scope had been a
+bare `Collection<String>` of region names re-normalised at seven sites with four spellings of "is this region in scope",
+a `(scopeKey, scopeNames)` pair carried as two parameters, and the region ids read from the database up to four times per
+typed question (`validRegionIds`, `resolve`, again inside the engine, again in the cache's `store`). Now
+`AskScopes.resolve(RegionRepository, Collection<Long>)` is the one merged method and `AskScope` the value it returns
+(`key`, `regionIds`, `names`, `contains`, `isEverywhere`, `readyScope`, and the one `AskScope.ALL`/`ALL_KEY`). **The rules
+that survive unchanged:** an unknown or disabled id fails rather than widens (`Optional.empty()`, which `AskService.validate`
+and the admin dry-run turn into the same 400 `INVALID` as before); empty ids mean every region; more than 20 ids or a null
+id is refused before the repository is asked. **The one-resolution rule:** `AskService.validate` resolves the ids once and
+the `AskQuestion` carries the scope (`question.regionIds()` still answers, delegating); `ClaudeAskEngine`, `StubAskEngine`,
+`CaffeineAskAnswerCache.store` and the Ready precompute read `question.scope()` and hold no `RegionRepository` for it (the
+precompute builds each region's scope from the entities it already read). Repository reads per typed question with a region
+scope: 2 before (`validRegionIds` + `resolve`) plus 1 in the real engine plus 1 in the cache's `store`, so 4; 1 now
+(`AskServiceTest.regionIdsAreReadOnce`, `AskScopesTest.idsResolveToAScope`). **`AskScope` is a final class, not a record, on
+purpose:** a record's canonical constructor is as public as the record, and scope is a safety boundary that must not be
+constructible from an id that did not resolve. **Two keys, not one:** `key()` is the typed cache's (sorted ids joined, or
+`ALL`); a question about several regions is answered from, and logged under, the whole catalogue's Ready scope
+(`readyScope()`, itself for one region, `ALL` otherwise), exactly as `AskService` had routed it. `names()` stays as stored and
+sorted because the system prompt prints them (the golden prompt tests would move if they were lower-cased); the single
+case-insensitive comparison lives in `contains`. `AskIntentMatcher.match` and `AskReadyService.serve/freshAnswers/suggestions`
+take the scope instead of a `(key, names)` pair, and `AskReadyService.ALL`/`CaffeineAskAnswerCache.ALL` are gone. The
+normalised form comes from `AskQuestionSanitiser` for every producer (`AskQuestion.of`): the dry-run and the Ready precompute
+had each lower-cased the text themselves, but nothing reads `normalised` on either path (it is read only by the Ready intent
+matcher, the typed cache and `ask_log`, all typed-only) and `ask_ready_answer` stores the offer's text, never the normalised
+form, so no stored key moved. Nothing on the wire moved.
+
 ---
 
 ## §3 Phases

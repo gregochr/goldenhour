@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawEvent;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawPick;
@@ -52,9 +51,9 @@ import java.util.regex.Pattern;
  * {@link AskAnswerValidator#validate} exactly as the Claude engine's does: the stub only ever names
  * a pair or an event a tool returned, but it is not <em>trusted</em> to, so a stub bug that named
  * something else would be discarded and shown as a FAILED run rather than passed through. It
- * honours the question's scope (the tools and the validator share the one name set,
- * {@link AskScopes}) and a Ready {@code BEST_*} anchor: pick 1 is on the anchored window, taken
- * from the shared {@link AskAnswerValidator#anchoredWindow}, never a second definition of it.
+ * honours the question's scope (the tools and the validator share the one {@link AskScope}) and a
+ * Ready {@code BEST_*} anchor: pick 1 is on the anchored window, taken from the shared
+ * {@link AskAnswerValidator#anchoredWindow}, never a second definition of it.
  *
  * <p>It writes nothing: no job run, no {@code api_call_log} row, no cost, no question count (the
  * daily {@code ASK} run's counters are display-only and Operations should show Claude's spend, not
@@ -88,7 +87,6 @@ public class StubAskEngine implements AskEngine {
 
     private final AskAnswerValidator validator;
     private final DriveTimeResolver driveTimes;
-    private final RegionRepository regionRepository;
     private final ObjectMapper mapper;
 
     /**
@@ -96,14 +94,12 @@ public class StubAskEngine implements AskEngine {
      *
      * @param validator        holds the answer to what the tools returned
      * @param driveTimes       the asker's drive times, for the tools' (unused here) drive filter
-     * @param regionRepository resolves the question's region ids to names
      * @param mapper           serialises tool results
      */
     public StubAskEngine(AskAnswerValidator validator, DriveTimeResolver driveTimes,
-            RegionRepository regionRepository, ObjectMapper mapper) {
+            ObjectMapper mapper) {
         this.validator = validator;
         this.driveTimes = driveTimes;
-        this.regionRepository = regionRepository;
         this.mapper = mapper;
     }
 
@@ -121,24 +117,21 @@ public class StubAskEngine implements AskEngine {
         if (question.sanitised() == null || question.sanitised().isBlank()) {
             return failed("the question is empty", List.of());
         }
-        Optional<Set<String>> scope = AskScopes.resolve(regionRepository, question);
-        if (scope.isEmpty()) {
-            return failed("a region id in the question's scope does not exist", List.of());
-        }
-        AskTools tools = new AskTools(snapshot, user, scope.get(), driveTimes, mapper);
+        AskScope scope = question.scope();
+        AskTools tools = new AskTools(snapshot, user, scope, driveTimes, mapper);
         String text = question.sanitised().toLowerCase(Locale.ROOT);
 
         AskAnswerValidator.Raw raw;
         try {
             raw = EVENT_WORDS.matcher(text).find()
                     ? eventsAnswer(text, tools)
-                    : spotsAnswer(text, question, snapshot, tools, scope.get(), opts);
+                    : spotsAnswer(text, question, snapshot, tools, scope, opts);
         } catch (StubFailure e) {
             return failed(e.getMessage(), tools.trace());
         }
         List<AskTools.ToolCall> trace = new ArrayList<>(tools.trace());
         trace.add(new AskTools.ToolCall(AskToolSchemas.SUBMIT_ANSWER, false, 0));
-        Result result = validator.validate(raw, snapshot, tools.evidence(), scope.get(), opts.anchor(),
+        Result result = validator.validate(raw, snapshot, tools.evidence(), scope, opts.anchor(),
                 ReadyIntentRules.eventsQuestion(question).orElse(null));
         if (!result.accepted()) {
             return new AskRun(new AskOutcome(AskOutcome.Status.FAILED, null, tools.personal(), 1),
@@ -152,7 +145,7 @@ public class StubAskEngine implements AskEngine {
     // -- where and when -----------------------------------------------------------------------
 
     private AskAnswerValidator.Raw spotsAnswer(String text, AskQuestion question,
-            AskSnapshot snapshot, AskTools tools, Set<String> scope, AskRunOptions opts)
+            AskSnapshot snapshot, AskTools tools, AskScope scope, AskRunOptions opts)
             throws StubFailure {
         // A context window not in the window set is ignored, as it is everywhere else. With none, a
         // Ready anchor names the windows the question is about, and failing that a day word in the

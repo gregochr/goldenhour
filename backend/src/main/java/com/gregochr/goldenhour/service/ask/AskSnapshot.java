@@ -8,7 +8,6 @@ import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -220,13 +219,11 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
          * one of them is, and a topic naming none always is. The one definition: {@code
          * get_hot_topics} filters with it and the Ready serve-time freshness check asks it.
          *
-         * @param scope the region names, matched case-insensitively; null or empty means every
-         *              region
+         * @param scope the question's scope
          * @return true when the topic is in scope
          */
-        public boolean inScope(Collection<String> scope) {
-            return scope == null || scope.isEmpty() || regions.isEmpty()
-                    || regions.stream().anyMatch(r -> regionInScope(scope, r));
+        public boolean inScope(AskScope scope) {
+            return scope.isEverywhere() || regions.isEmpty() || regions.stream().anyMatch(scope::contains);
         }
     }
 
@@ -309,27 +306,13 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * disagree.
      *
      * @param window a window of this snapshot
-     * @param scope  the region names the question is about, matched case-insensitively; null or
-     *               empty means every region
+     * @param scope  the regions the question is about
      * @return its in-scope candidates; never null
      */
-    public List<Candidate> candidates(Window window, Collection<String> scope) {
+    public List<Candidate> candidates(Window window, AskScope scope) {
         return candidates(window).stream()
-                .filter(c -> regionInScope(scope, c.region().name()))
+                .filter(c -> scope.contains(c.region().name()))
                 .toList();
-    }
-
-    /**
-     * Whether a region is within a question's scope: the one comparison every scope check uses.
-     *
-     * @param scope      the region names, matched case-insensitively; null or empty means every
-     *                   region
-     * @param regionName the region to test
-     * @return true when the scope is open or names the region
-     */
-    public static boolean regionInScope(Collection<String> scope, String regionName) {
-        return scope == null || scope.isEmpty()
-                || scope.stream().anyMatch(s -> s != null && s.equalsIgnoreCase(regionName));
     }
 
     /**

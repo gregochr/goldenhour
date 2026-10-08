@@ -57,18 +57,20 @@ class CaffeineAskAnswerCacheTest {
     }
 
     private CaffeineAskAnswerCache newCache() {
-        return new CaffeineAskAnswerCache(properties, regions, hotTopicSimulation, auroraStateCache, clock);
+        return new CaffeineAskAnswerCache(properties, hotTopicSimulation, auroraStateCache, clock);
     }
 
     private static RegionEntity region(long id, String name) {
         return RegionEntity.builder().id(id).name(name).enabled(true).build();
     }
 
-    private static AskQuestion question(String normalised, String windowId, Long... regionIds) {
-        return new AskQuestion(normalised, normalised, windowId, List.of(regionIds), "map");
+    /** A question whose scope is built the way the service builds it: through {@link AskScopes#resolve}. */
+    private AskQuestion question(String normalised, String windowId, Long... regionIds) {
+        AskScope scope = AskScopes.resolve(regions, List.of(regionIds)).orElseThrow();
+        return new AskQuestion(normalised, normalised, windowId, scope, "map");
     }
 
-    private static AskQuestion question(String normalised) {
+    private AskQuestion question(String normalised) {
         return question(normalised, null);
     }
 
@@ -239,9 +241,8 @@ class CaffeineAskAnswerCacheTest {
 
         cache.store(question("q", null, 2L, 1L), live(), ALICE, ok(false));
         assertThat(cache.lookup(question("q", null, 1L, 2L), live(), BOB)).isPresent();
-        assertThat(CaffeineAskAnswerCache.scopeOf(List.of(2L, 1L, 2L))).isEqualTo("1,2");
-        assertThat(CaffeineAskAnswerCache.scopeOf(List.of())).isEqualTo("ALL");
-        assertThat(CaffeineAskAnswerCache.scopeOf(null)).isEqualTo("ALL");
+        assertThat(question("q", null, 2L, 1L, 2L).scope().key()).isEqualTo("1,2");
+        assertThat(question("q").scope().key()).isEqualTo("ALL");
     }
 
     @Test
@@ -358,14 +359,6 @@ class CaffeineAskAnswerCacheTest {
         cache.store(question("e"), live(), ALICE, new AskOutcome(AskOutcome.Status.OK,
                 new AskAnswer(false, "x", List.of(bamburgh()), List.of(), null), false, 1));
         cache.store(question("f"), live(), ALICE, null);
-
-        assertThat(cache.size()).isZero();
-    }
-
-    @Test
-    @DisplayName("an answer for a scope that no longer resolves is not stored")
-    void unresolvableScopeIsNotStored() {
-        cache.store(question("q", null, 99L), live(), ALICE, ok(false));
 
         assertThat(cache.size()).isZero();
     }
