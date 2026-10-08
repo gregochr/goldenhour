@@ -3,7 +3,6 @@ package com.gregochr.goldenhour.service.ask;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.util.ForecastHorizon;
@@ -16,12 +15,9 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * The typed-answer cache (plan §2.5 step 6, §1 #16, D-6): an answer already paid for is served again
@@ -32,8 +28,9 @@ import java.util.stream.Collectors;
  * {@code (sorted region ids | ALL, UK civil date, briefing generatedAt, normalised question,
  * windowId | none, userId | shared)}, exactly §2.5 step 6:
  * <ul>
- *   <li><b>Scope</b>: the question's region ids, de-duplicated and sorted ({@code 3,7}, never
- *       {@code 7,3}); none means {@code ALL}. Two scopes never share an answer.</li>
+ *   <li><b>Scope</b>: {@link AskScope#key}, the question's region ids de-duplicated and sorted
+ *       ({@code 3,7}, never {@code 7,3}); none means {@code ALL}. Two scopes never share an
+ *       answer.</li>
  *   <li><b>UK civil date</b> ({@link ForecastHorizon#today}, the injected clock): at 00:30 BST on
  *       6 October, which is still 5 October in UTC, the key says 6 October. A day word in the question
  *       ("tomorrow") means something different the next day, so the date is part of the key.</li>
@@ -78,13 +75,10 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
 
     private static final Logger LOG = LoggerFactory.getLogger(CaffeineAskAnswerCache.class);
 
-    /** The scope part of a key for a question about every region. */
-    static final String ALL = "ALL";
-
     /**
      * The cache key (plan §2.5 step 6).
      *
-     * @param scope       sorted region ids joined with commas, or {@code ALL}
+     * @param scope       {@link AskScope#key}: sorted region ids joined with commas, or {@code ALL}
      * @param date        the UK civil date
      * @param generatedAt the briefing build the answer was made from, or null
      * @param question    the normalised question
@@ -98,15 +92,13 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
     /**
      * A stored answer with the scope it was made for.
      *
-     * @param answer     the validated answer, picks carrying their rating and verdict at answer time
-     * @param scopeNames the question's region names (empty for every region), kept so the freshness
-     *                   test needs no database read
+     * @param answer the validated answer, picks carrying their rating and verdict at answer time
+     * @param scope  the question's scope, kept so the freshness test needs no database read
      */
-    private record Stored(AskAnswer answer, Set<String> scopeNames) {
+    private record Stored(AskAnswer answer, AskScope scope) {
     }
 
     private final Cache<Key, Stored> entries;
-    private final RegionRepository regionRepository;
     private final HotTopicSimulationService hotTopicSimulation;
     private final AuroraStateCache auroraStateCache;
     private final Clock clock;
@@ -115,14 +107,12 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
      * Creates the cache.
      *
      * @param properties         the Ask settings ({@code cache.max-entries}, {@code cache.ttl-minutes})
-     * @param regionRepository   resolves a question's region ids to the names its picks are matched on
      * @param hotTopicSimulation the hot-topic simulation switch
      * @param auroraStateCache   the aurora state, whose simulated data marks an aurora simulation
      * @param clock              the application clock: the key's UK date and the entries' time
      */
-    public CaffeineAskAnswerCache(AskProperties properties, RegionRepository regionRepository,
-            HotTopicSimulationService hotTopicSimulation, AuroraStateCache auroraStateCache, Clock clock) {
-        this.regionRepository = regionRepository;
+    public CaffeineAskAnswerCache(AskProperties properties, HotTopicSimulationService hotTopicSimulation,
+            AuroraStateCache auroraStateCache, Clock clock) {
         this.hotTopicSimulation = hotTopicSimulation;
         this.auroraStateCache = auroraStateCache;
         this.clock = clock;
@@ -148,7 +138,7 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
                 continue;
             }
             AskReadyFreshness.Verdict verdict = AskReadyFreshness.recheck(stored.answer(), snapshot,
-                    stored.scopeNames());
+                    stored.scope());
             if (verdict.fresh()) {
                 return Optional.of(verdict.answer());
             }
@@ -182,12 +172,7 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
         if (AskSimulation.active(hotTopicSimulation, auroraStateCache)) {
             return;
         }
-        Optional<Set<String>> names = AskScopes.resolve(regionRepository, question);
-        if (names.isEmpty()) {
-            return;
-        }
-        entries.put(key(question, snapshot, owner),
-                new Stored(answer, Set.copyOf(names.get())));
+        entries.put(key(question, snapshot, owner), new Stored(answer, question.scope()));
     }
 
     /**
@@ -201,16 +186,7 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
     }
 
     private Key key(AskQuestion question, AskSnapshot snapshot, Long userId) {
-        return new Key(scopeOf(question.regionIds()), ForecastHorizon.today(clock),
+        return new Key(question.scope().key(), ForecastHorizon.today(clock),
                 snapshot.generatedAt(), question.normalised(), question.windowId(), userId);
-    }
-
-    /** The sorted, de-duplicated region ids as text, or {@code ALL} for none. */
-    static String scopeOf(Collection<Long> regionIds) {
-        if (regionIds == null || regionIds.isEmpty()) {
-            return ALL;
-        }
-        return regionIds.stream().distinct().sorted().map(String::valueOf)
-                .collect(Collectors.joining(","));
     }
 }

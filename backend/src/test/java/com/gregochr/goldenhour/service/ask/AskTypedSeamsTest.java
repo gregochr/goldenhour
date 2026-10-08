@@ -135,7 +135,7 @@ class AskTypedSeamsTest {
 
     private void rebuild() {
         AskSpendGuard guard = new AskSpendGuard(properties, jobRuns, mock(AdminAlertService.class), clock);
-        AskAnswerCache cache = new CaffeineAskAnswerCache(properties, regions,
+        AskAnswerCache cache = new CaffeineAskAnswerCache(properties,
                 mock(HotTopicSimulationService.class), mock(AuroraStateCache.class), clock);
         AskDenialCounter counter = new AskDenialCounter(clock, report -> denied.add(report.userId() + ":"
                 + report.counts()));

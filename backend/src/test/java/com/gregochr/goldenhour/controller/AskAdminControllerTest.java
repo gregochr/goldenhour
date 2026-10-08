@@ -225,7 +225,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
         ArgumentCaptor<AskRunOptions> options = ArgumentCaptor.forClass(AskRunOptions.class);
         verify(engine).run(question.capture(), any(AskSnapshot.class), user.capture(), options.capture());
         assertThat(question.getValue().sanitised()).isEqualTo("Best spot tonight?");
-        assertThat(question.getValue().normalised()).isEqualTo("best spot tonight?");
+        assertThat(question.getValue().normalised()).isEqualTo("best spot tonight");
         assertThat(question.getValue().regionIds()).containsExactly(3L, 2L);
         assertThat(question.getValue().windowId()).isEqualTo("2026-10-05_sunset");
         assertThat(user.getValue()).isEqualTo(new AskUserContext(7L, UserRole.ADMIN, true));

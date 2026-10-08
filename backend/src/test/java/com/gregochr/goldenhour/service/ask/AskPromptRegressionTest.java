@@ -14,7 +14,6 @@ import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.junit.jupiter.api.AfterAll;
@@ -104,7 +103,7 @@ class AskPromptRegressionTest {
         when(jobRuns.dailyRunId()).thenReturn(DAILY_RUN_ID);
         when(jobRuns.accountingAvailable()).thenReturn(true);
         engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(), jobRuns,
-                mock(DriveTimeResolver.class), mock(RegionRepository.class), new AskAnswerValidator(),
+                mock(DriveTimeResolver.class), new AskAnswerValidator(),
                 new AskPromptBuilder(), mapper, Clock.systemUTC());
     }
 
@@ -214,7 +213,7 @@ class AskPromptRegressionTest {
     // -- helpers ----------------------------------------------------------------------------
 
     private static AskRun ask(String text) {
-        AskQuestion question = new AskQuestion(text, text.toLowerCase(Locale.ROOT), null, List.of(), "plan");
+        AskQuestion question = new AskQuestion(text, text.toLowerCase(Locale.ROOT), null, AskScope.ALL, "plan");
         AskRun run = engine.run(question, snapshot, ASKER, AskRunOptions.none());
         System.out.println("[ask-regression] " + text + " -> " + run.outcome().status()
                 + " in " + run.outcome().turns() + " turn(s): "

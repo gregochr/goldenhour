@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.ask;
 
-import java.util.Collection;
 import java.util.Optional;
 
 /**
@@ -15,12 +14,9 @@ public interface AskIntentMatcher {
     /**
      * Looks for a Ready question that answers this one.
      *
-     * @param question   the sanitised question
-     * @param snapshot   the live snapshot freshness is judged against
-     * @param scopeKey   {@code ALL} or the single region's id as text
-     * @param scopeNames the scope's region names; empty for every region
+     * @param question the sanitised question, carrying its scope
+     * @param snapshot the live snapshot freshness is judged against
      * @return the fresh Ready question to serve, or empty
      */
-    Optional<AskReadyResponse.Question> match(AskQuestion question, AskSnapshot snapshot,
-            String scopeKey, Collection<String> scopeNames);
+    Optional<AskReadyResponse.Question> match(AskQuestion question, AskSnapshot snapshot);
 }

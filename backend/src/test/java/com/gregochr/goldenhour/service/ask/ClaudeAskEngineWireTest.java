@@ -9,7 +9,6 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.integration.WireMockAnthropicClientTestConfiguration;
 import com.gregochr.goldenhour.model.TokenUsage;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.junit.jupiter.api.AfterEach;
@@ -65,7 +64,7 @@ class ClaudeAskEngineWireTest {
         AnthropicClient client = new WireMockAnthropicClientTestConfiguration()
                 .wireMockAnthropicClient("http://localhost:" + WIRE_MOCK.getPort());
         engine = new ClaudeAskEngine(new AnthropicApiClient(client), properties, jobRuns,
-                mock(DriveTimeResolver.class), mock(RegionRepository.class), new AskAnswerValidator(),
+                mock(DriveTimeResolver.class), new AskAnswerValidator(),
                 new AskPromptBuilder(), new ObjectMapper(), Clock.systemUTC());
         when(jobRuns.dailyRunId()).thenReturn(5L);
         when(jobRuns.accountingAvailable()).thenReturn(true);
@@ -106,7 +105,7 @@ class ClaudeAskEngineWireTest {
                                 + "\"summary\":\"Bamburgh is best tonight.\",\"picks\":[{\"locationId\":1,"
                                 + "\"windowId\":\"" + WINDOW + "\",\"why\":\"Clear and high water.\"}]}}]"))));
 
-        AskRun run = engine.run(new AskQuestion("Best spot tonight?", "best spot tonight", null, List.of(), "plan"),
+        AskRun run = engine.run(new AskQuestion("Best spot tonight?", "best spot tonight", null, AskScope.ALL, "plan"),
                 snapshot(), new AskUserContext(7L, UserRole.PRO_USER, true), AskRunOptions.none());
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
@@ -169,7 +168,7 @@ class ClaudeAskEngineWireTest {
                         + "\"name\":\"submit_answer\",\"input\":{\"answerable\":false,"
                         + "\"summary\":\"Can't tell.\"}}]"))));
 
-        AskRun run = engine.run(new AskQuestion("Best spot tonight?", "best spot tonight", null, List.of(), "plan"),
+        AskRun run = engine.run(new AskQuestion("Best spot tonight?", "best spot tonight", null, AskScope.ALL, "plan"),
                 snapshot(), AskUserContext.userLess(), AskRunOptions.ready(9L, null));
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
@@ -184,7 +183,7 @@ class ClaudeAskEngineWireTest {
                 .withHeader("Content-Type", "application/json")
                 .withBody(reply("refusal", "[]"))));
 
-        AskRun run = engine.run(new AskQuestion("Best spot tonight?", "best spot tonight", null, List.of(), "plan"),
+        AskRun run = engine.run(new AskQuestion("Best spot tonight?", "best spot tonight", null, AskScope.ALL, "plan"),
                 snapshot(), new AskUserContext(7L, UserRole.PRO_USER, true), AskRunOptions.none());
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
@@ -201,7 +200,7 @@ class ClaudeAskEngineWireTest {
                 .withBody(reply("end_turn", "[]"))));
 
         long started = System.nanoTime();
-        AskRun run = engine.run(new AskQuestion("Best spot tonight?", "best spot tonight", null, List.of(), "plan"),
+        AskRun run = engine.run(new AskQuestion("Best spot tonight?", "best spot tonight", null, AskScope.ALL, "plan"),
                 snapshot(), new AskUserContext(7L, UserRole.PRO_USER, true), AskRunOptions.none());
         long elapsedMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
 

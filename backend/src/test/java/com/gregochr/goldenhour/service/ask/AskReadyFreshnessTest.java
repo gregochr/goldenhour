@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.at;
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.both;
@@ -60,7 +59,7 @@ class AskReadyFreshnessTest {
     }
 
     private static AskReadyFreshness.Verdict check(AskReadyStore.Stored stored, AskSnapshot live) {
-        return AskReadyFreshness.check(ReadyQuestion.valueOf(stored.questionId()), stored, live, Set.of());
+        return AskReadyFreshness.check(ReadyQuestion.valueOf(stored.questionId()), stored, live, TestScopes.of());
     }
 
     private static AskSnapshot withEvents(AskSnapshot base, List<AskSnapshot.Topic> topics,
@@ -212,10 +211,10 @@ class AskReadyFreshnessTest {
                 List.of())).fresh()).isFalse();
         assertThat(AskReadyFreshness.check(ReadyQuestion.RARE_EVENTS, stored,
                 withEvents(base, List.of(auroraTopic("Aurora", oct(12), List.of("Teesdale"), null)), List.of()),
-                Set.of("Northumberland")).fresh()).isFalse();
+                TestScopes.of("Northumberland")).fresh()).isFalse();
         assertThat(AskReadyFreshness.check(ReadyQuestion.RARE_EVENTS, stored,
                 withEvents(base, List.of(auroraTopic("Aurora", oct(12), List.of("Teesdale"), null)), List.of()),
-                Set.of("teesdale")).fresh()).isTrue();
+                TestScopes.of("teesdale")).fresh()).isTrue();
     }
 
     @Test
@@ -284,6 +283,31 @@ class AskReadyFreshnessTest {
         assertThat(verdict.fresh()).isTrue();
         assertThat(verdict.answer().events().getFirst().safetyNote())
                 .isEqualTo("Certified solar filter on the lens");
+    }
+
+    @Test
+    @DisplayName("an event is re-found whichever spelling stored and live use: lunar-eclipse and "
+            + "LUNAR_ECLIPSE are one type, as the timeline's dedupe already reads them")
+    void eventIsRefoundAcrossTheTwoSpellingsOfItsType() {
+        AskSnapshot base = at(ReadyFixtures.FRIDAY_NOON, both(oct(10), northumberland()));
+        AskEvent storedDashed = new AskEvent("LUNAR-ECLIPSE", "Total lunar eclipse", oct(14), "Visible.", null);
+        AskEvent storedUnderscored = new AskEvent("LUNAR_ECLIPSE", "Lunar eclipse", oct(14), "Visible.", null);
+        AskSnapshot liveAlmanac = withEvents(base, List.of(), List.of(
+                new AskSnapshot.ComingUp("lunar-eclipse", "Total lunar eclipse (live)", oct(14), oct(14), "d", null)));
+        AskSnapshot liveTopic = withEvents(base, List.of(
+                new AskSnapshot.Topic("LUNAR_ECLIPSE", "Lunar eclipse (live)", "d", oct(14), List.of())),
+                List.of());
+
+        AskReadyFreshness.Verdict underscoredAgainstAlmanac = check(
+                events("RARE_EVENTS", "Any rare events coming up?", storedUnderscored), liveAlmanac);
+        AskReadyFreshness.Verdict dashedAgainstTopic = check(
+                events("RARE_EVENTS", "Any rare events coming up?", storedDashed), liveTopic);
+
+        assertThat(underscoredAgainstAlmanac.fresh()).isTrue();
+        assertThat(underscoredAgainstAlmanac.answer().events().getFirst().label())
+                .isEqualTo("Total lunar eclipse (live)");
+        assertThat(dashedAgainstTopic.fresh()).isTrue();
+        assertThat(dashedAgainstTopic.answer().events().getFirst().label()).isEqualTo("Lunar eclipse (live)");
     }
 
     // -- the rest of what an answer claims --------------------------------------------------

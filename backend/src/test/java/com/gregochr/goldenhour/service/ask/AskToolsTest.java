@@ -26,7 +26,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,10 +44,10 @@ class AskToolsTest {
     private final DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
 
     private AskTools tools(AskSnapshot snapshot) {
-        return new AskTools(snapshot, AskUserContext.userLess(), Set.of(), driveTimes, mapper);
+        return new AskTools(snapshot, AskUserContext.userLess(), TestScopes.of(), driveTimes, mapper);
     }
 
-    private AskTools tools(AskSnapshot snapshot, AskUserContext user, Set<String> scope) {
+    private AskTools tools(AskSnapshot snapshot, AskUserContext user, AskScope scope) {
         return new AskTools(snapshot, user, scope, driveTimes, mapper);
     }
 
@@ -57,9 +56,9 @@ class AskToolsTest {
                 List.of(AskFixtures.sunsetDay(TODAY, null, regions)), List.of()));
     }
 
-    private static List<SpotInfo> spots(AskToolResult result) {
+    private static List<SpotInfo> spots(AskToolResult<RankSpotsResult> result) {
         assertThat(result.error()).as(result.content()).isFalse();
-        return ((RankSpotsResult) result.payload()).spots();
+        return result.payload().spots();
     }
 
     private static RankSpotsArgs rank(Integer limit) {
@@ -299,7 +298,7 @@ class AskToolsTest {
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
                 List.of(AskFixtures.sunsetDay(saturday, best, coast)), List.of()));
 
-        AskTools.WindowInfo info = ((ListWindowsResult) tools(snapshot, USER, Set.of("coast"))
+        AskTools.WindowInfo info = ((ListWindowsResult) tools(snapshot, USER, TestScopes.of("coast"))
                 .listWindows().payload()).windows().getFirst();
 
         assertThat(info.day()).isEqualTo("Saturday");
@@ -361,7 +360,7 @@ class AskToolsTest {
 
         AskToolResult unknown = tools(snapshot).rankSpots(
                 new RankSpotsArgs(null, List.of("Atlantis"), null, null, null, 5));
-        AskToolResult outside = tools(snapshot, USER, Set.of("Coast")).rankSpots(
+        AskToolResult outside = tools(snapshot, USER, TestScopes.of("Coast")).rankSpots(
                 new RankSpotsArgs(null, List.of("hills"), null, null, null, 5));
         AskToolResult badTide = tools(snapshot).rankSpots(
                 new RankSpotsArgs(null, null, null, "FLOOD", null, 5));
@@ -384,7 +383,7 @@ class AskToolsTest {
         assertThat(spots(tools(snapshot).rankSpots(
                 new RankSpotsArgs(null, List.of("COAST"), null, null, null, 5))))
                 .extracting(SpotInfo::name).containsExactly("A");
-        assertThat(spots(tools(snapshot, USER, Set.of("coast")).rankSpots(rank(5))))
+        assertThat(spots(tools(snapshot, USER, TestScopes.of("coast")).rankSpots(rank(5))))
                 .extracting(SpotInfo::name).containsExactly("A");
     }
 
@@ -438,7 +437,7 @@ class AskToolsTest {
                 AskFixtures.slot(1L, "Near", 4), AskFixtures.slot(2L, "Far", 5),
                 AskFixtures.slot(3L, "Unknown", 5), AskFixtures.slot(4L, "Edge", 3));
         when(driveTimes.getAllMinutes(7L)).thenReturn(Map.of(1L, 30, 2L, 90, 4L, 60));
-        AskTools tools = tools(snapshotOfRegions(region), USER, Set.of());
+        AskTools tools = tools(snapshotOfRegions(region), USER, TestScopes.of());
 
         List<SpotInfo> found = spots(tools.rankSpots(
                 new RankSpotsArgs(null, null, null, null, 60, 5)));
@@ -452,7 +451,7 @@ class AskToolsTest {
     @DisplayName("without maxDriveMinutes no drive time is returned and the answer is not personal")
     void rankSpots_noDriveLimit_noDriveFieldAndNotPersonal() {
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
-        AskTools tools = tools(snapshotOfRegions(region), USER, Set.of());
+        AskTools tools = tools(snapshotOfRegions(region), USER, TestScopes.of());
 
         AskToolResult result = tools.rankSpots(rank(5));
 
@@ -466,7 +465,7 @@ class AskToolsTest {
     void rankSpots_askerWithNoDriveTimes() {
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
         AskUserContext noTimes = new AskUserContext(9L, UserRole.LITE_USER, false);
-        AskTools tools = tools(snapshotOfRegions(region), noTimes, Set.of());
+        AskTools tools = tools(snapshotOfRegions(region), noTimes, TestScopes.of());
 
         RankSpotsResult payload = (RankSpotsResult) tools.rankSpots(
                 new RankSpotsArgs(null, null, null, null, 60, 5)).payload();
@@ -481,7 +480,7 @@ class AskToolsTest {
     void rankSpots_driveLimitBelowOne() {
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
 
-        AskToolResult result = tools(snapshotOfRegions(region), USER, Set.of()).rankSpots(
+        AskToolResult result = tools(snapshotOfRegions(region), USER, TestScopes.of()).rankSpots(
                 new RankSpotsArgs(null, null, null, null, 0, 5));
 
         assertThat(result.error()).isTrue();
@@ -572,6 +571,40 @@ class AskToolsTest {
     }
 
     @Test
+    @DisplayName("get_hot_topics reads a type the way every other site does: 'lunar-eclipse' asks for "
+            + "LUNAR_ECLIPSE, and the card still carries the served type")
+    void getHotTopics_typeFilterFoldsDashes() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("LUNAR_ECLIPSE", "Lunar eclipse", "d", TOMORROW, List.of()),
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()))));
+        AskTools tools = tools(snapshot);
+
+        HotTopicsResult result = tools.getHotTopics(new HotTopicsArgs(List.of(" lunar-eclipse "), 5)).payload();
+
+        assertThat(result.topics()).extracting(AskTools.TopicInfo::type).containsExactly("LUNAR_ECLIPSE");
+        assertThat(tools.evidence().events()).containsExactly(
+                new AskEvidence.EventFact("LUNAR_ECLIPSE", "Lunar eclipse", TOMORROW));
+    }
+
+    @Test
+    @DisplayName("get_coming_up is the snapshot's timeline cut to the limit, nothing more and nothing less")
+    void getComingUp_isTheSnapshotsTimeline() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()))),
+                List.of(AskSnapshotBuilderTest.almanacEntry("SUPERMOON", "Supermoon", TODAY.plusDays(3),
+                        TODAY.plusDays(3), "d")));
+        AskScope scope = TestScopes.of();
+
+        List<AskTools.ComingUpInfo> served = tools(snapshot).getComingUp(new ComingUpArgs(30, 10))
+                .payload().entries();
+
+        assertThat(served).extracting(AskTools.ComingUpInfo::title)
+                .containsExactlyElementsOf(snapshot.timeline(scope, 30).stream()
+                        .map(AskSnapshot.ComingUp::title).toList());
+        assertThat(served).hasSize(2);
+    }
+
+    @Test
     @DisplayName("a solar eclipse topic's safety note is on the tool row, whole, and in the evidence")
     void getHotTopics_carriesTheSafetyNote() {
         String warning = "Certified solar filter on the lens — not only over your eye. " + "x".repeat(250);
@@ -628,7 +661,7 @@ class AskToolsTest {
                 AskFixtures.topic("AURORA", "Aurora", "Kp 6", TODAY, List.of()),
                 AskFixtures.topic("SNOW", "Snow", "Tops", TODAY, List.of("Hills", "Coast")))));
 
-        HotTopicsResult result = (HotTopicsResult) tools(snapshot, USER, Set.of("coast"))
+        HotTopicsResult result = (HotTopicsResult) tools(snapshot, USER, TestScopes.of("coast"))
                 .getHotTopics(null).payload();
 
         assertThat(result.topics()).extracting(AskTools.TopicInfo::type)
@@ -768,17 +801,6 @@ class AskToolsTest {
     }
 
     @Test
-    @DisplayName("get_coming_up: N days is N civil dates from today; day N-1 is in, day N is out")
-    void getComingUp_rangeIsNCivilDates() {
-        AskSnapshot snapshot = almanacSnapshot(0, 6, 7, 8);
-
-        // Seven days: today and the six after it. Offset 6 is the seventh date.
-        assertThat(comingUpTypes(snapshot, 7)).containsExactly("E0", "E6");
-        assertThat(comingUpTypes(snapshot, 8)).containsExactly("E0", "E6", "E7");
-        assertThat(comingUpTypes(snapshot, 1)).as("one day is today only").containsExactly("E0");
-    }
-
-    @Test
     @DisplayName("get_coming_up: at the 90-day cap day 89 is in and day 90 is out, whatever days is asked")
     void getComingUp_ninetyDayCap() {
         AskSnapshot snapshot = almanacSnapshot(89, 90);
@@ -828,23 +850,6 @@ class AskToolsTest {
     }
 
     @Test
-    @DisplayName("get_coming_up: entries equal on date and title still sort the same way every time")
-    void getComingUp_sortIsTotal() {
-        ComingUpEntry b = AskSnapshotBuilderTest.almanacEntry("B", "Same", TODAY.plusDays(2),
-                TODAY.plusDays(2), "d");
-        ComingUpEntry a = AskSnapshotBuilderTest.almanacEntry("A", "Same", TODAY.plusDays(2),
-                TODAY.plusDays(2), "d");
-
-        List<String> forward = comingUpTypes(AskFixtures.snapshotOf(
-                AskFixtures.briefing(List.of(), List.of()), List.of(b, a)), 30);
-        List<String> reverse = comingUpTypes(AskFixtures.snapshotOf(
-                AskFixtures.briefing(List.of(), List.of()), List.of(a, b)), 30);
-
-        assertThat(forward).containsExactly("A", "B");
-        assertThat(reverse).isEqualTo(forward);
-    }
-
-    @Test
     @DisplayName("get_hot_topics: limit is null -> 5, 0 or negative -> 1; the limit applies after the scope filter")
     void getHotTopics_limitEdgesAndOrderOfFilters() {
         List<com.gregochr.goldenhour.model.HotTopic> topics = new ArrayList<>();
@@ -856,7 +861,7 @@ class AskToolsTest {
         }
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), topics));
 
-        List<AskTools.TopicInfo> scoped = ((HotTopicsResult) tools(snapshot, USER, Set.of("Coast"))
+        List<AskTools.TopicInfo> scoped = ((HotTopicsResult) tools(snapshot, USER, TestScopes.of("Coast"))
                 .getHotTopics(new HotTopicsArgs(null, 3)).payload()).topics();
 
         assertThat(scoped).extracting(AskTools.TopicInfo::type).containsExactly("IN0", "IN1", "IN2");
@@ -891,7 +896,7 @@ class AskToolsTest {
                 AskFixtures.slot(1L, "Sixty", 4), AskFixtures.slot(2L, "SixtyOne", 4));
         when(driveTimes.getAllMinutes(7L)).thenReturn(Map.of(1L, 60, 2L, 61));
 
-        List<SpotInfo> found = spots(tools(snapshotOfRegions(region), USER, Set.of()).rankSpots(
+        List<SpotInfo> found = spots(tools(snapshotOfRegions(region), USER, TestScopes.of()).rankSpots(
                 new RankSpotsArgs(null, null, null, null, 60, 5)));
 
         assertThat(found).extracting(SpotInfo::name).containsExactly("Sixty");
@@ -995,62 +1000,5 @@ class AskToolsTest {
         });
         assertThat(tools.evidence().events()).containsExactly(new AskEvidence.EventFact("ECLIPSE",
                 "Partial solar eclipse", TODAY.plusDays(4), warning));
-    }
-
-    @Test
-    @DisplayName("a live topic the almanac already lists (same type, date inside the span; the almanac's "
-            + "lower-case hyphenated type is the hot topic's upper-case underscored one) appears once, not twice")
-    void getComingUp_doesNotRepeatWhatTheAlmanacLists() {
-        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
-                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()),
-                AskFixtures.topic("LUNAR_ECLIPSE", "Lunar eclipse", "d", TODAY.plusDays(5), List.of()),
-                AskFixtures.topic("ECLIPSE", "Another eclipse", "d", TODAY.plusDays(20), List.of()))),
-                List.of(AskSnapshotBuilderTest.almanacEntry("eclipse", "Partial solar eclipse",
-                                TODAY.plusDays(4), TODAY.plusDays(4), "d"),
-                        AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse",
-                                TODAY.plusDays(4), TODAY.plusDays(6), "d")));
-
-        ComingUpResult result = (ComingUpResult) tools(snapshot).getComingUp(null).payload();
-
-        assertThat(result.entries()).extracting(AskTools.ComingUpInfo::title).containsExactly(
-                "Partial solar eclipse", "Total lunar eclipse", "Another eclipse");
-    }
-
-    @Test
-    @DisplayName("get_coming_up keeps a NIGHT topic dated yesterday — the aurora alert for the night still "
-            + "running before dawn, whose morning half is today's sunrise — on its own date, the one "
-            + "get_hot_topics and the freshness check know it by")
-    void getComingUp_runningNightTopicDatedYesterdayKeepsItsDate() {
-        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
-                AskFixtures.topic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
-                        TODAY.minusDays(1), List.of()).withEvent("NIGHT", "18:30"),
-                AskFixtures.topic("DUST", "Saharan dust", "d", TODAY.minusDays(1), List.of())
-                        .withEvent("SUNSET", "18:00"))));
-
-        ComingUpResult result = (ComingUpResult) tools(snapshot).getComingUp(null).payload();
-
-        assertThat(result.entries()).extracting(AskTools.ComingUpInfo::type).containsExactly("AURORA");
-        assertThat(result.entries().get(0).start()).isEqualTo(TODAY.minusDays(1).toString());
-        assertThat(result.entries().get(0).end()).isEqualTo(TODAY.minusDays(1).toString());
-    }
-
-    @Test
-    @DisplayName("get_coming_up leaves out a live topic dated before today, beyond the horizon, undated or "
-            + "naming only regions outside the question's scope")
-    void getComingUp_liveTopicsAreBoundedByHorizonAndScope() {
-        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
-                AskFixtures.topic("PAST", "Past", "d", TODAY.minusDays(1), List.of()),
-                AskFixtures.topic("TODAY", "Today", "d", TODAY, List.of()),
-                AskFixtures.topic("EDGE", "Edge", "d", TODAY.plusDays(6), List.of()),
-                AskFixtures.topic("BEYOND", "Beyond", "d", TODAY.plusDays(7), List.of()),
-                AskFixtures.topic("UNDATED", "Undated", "d", null, List.of()),
-                AskFixtures.topic("ELSEWHERE", "Elsewhere", "d", TODAY, List.of("Cornwall")),
-                AskFixtures.topic("HERE", "Here", "d", TODAY, List.of("Coast")))));
-
-        assertThat(comingUpTypes(snapshot, 7)).as("unscoped: every region")
-                .containsExactly("ELSEWHERE", "HERE", "TODAY", "EDGE");
-        assertThat(((ComingUpResult) tools(snapshot, USER, Set.of("Coast")).getComingUp(
-                new ComingUpArgs(7, 10)).payload()).entries()).extracting(AskTools.ComingUpInfo::type)
-                .containsExactly("HERE", "TODAY", "EDGE");
     }
 }

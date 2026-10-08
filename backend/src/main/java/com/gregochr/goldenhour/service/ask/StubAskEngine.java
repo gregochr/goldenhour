@@ -1,11 +1,10 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawEvent;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawPick;
-import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Result;
 import com.gregochr.goldenhour.service.ask.AskTools.ComingUpArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.ComingUpInfo;
 import com.gregochr.goldenhour.service.ask.AskTools.ComingUpResult;
@@ -52,9 +51,9 @@ import java.util.regex.Pattern;
  * {@link AskAnswerValidator#validate} exactly as the Claude engine's does: the stub only ever names
  * a pair or an event a tool returned, but it is not <em>trusted</em> to, so a stub bug that named
  * something else would be discarded and shown as a FAILED run rather than passed through. It
- * honours the question's scope (the tools and the validator share the one name set,
- * {@link AskScopes}) and a Ready {@code BEST_*} anchor: pick 1 is on the anchored window, taken
- * from the shared {@link AskAnswerValidator#anchoredWindow}, never a second definition of it.
+ * honours the question's scope (the tools and the validator share the one {@link AskScope}) and a
+ * Ready {@code BEST_*} anchor: pick 1 is on the anchored window, taken from the shared
+ * {@link AskAnswerValidator#anchoredWindow}, never a second definition of it.
  *
  * <p>It writes nothing: no job run, no {@code api_call_log} row, no cost, no question count (the
  * daily {@code ASK} run's counters are display-only and Operations should show Claude's spend, not
@@ -86,25 +85,18 @@ public class StubAskEngine implements AskEngine {
     /** The topical keywords an events question may carry, in the order they are looked for. */
     private static final List<String> TOPICS = List.of("aurora", "snow", "eclipse", "meteor");
 
-    private final AskAnswerValidator validator;
-    private final DriveTimeResolver driveTimes;
-    private final RegionRepository regionRepository;
-    private final ObjectMapper mapper;
+    private final AskConversation.Deps frame;
 
     /**
      * Creates the stub engine.
      *
      * @param validator        holds the answer to what the tools returned
      * @param driveTimes       the asker's drive times, for the tools' (unused here) drive filter
-     * @param regionRepository resolves the question's region ids to names
      * @param mapper           serialises tool results
      */
     public StubAskEngine(AskAnswerValidator validator, DriveTimeResolver driveTimes,
-            RegionRepository regionRepository, ObjectMapper mapper) {
-        this.validator = validator;
-        this.driveTimes = driveTimes;
-        this.regionRepository = regionRepository;
-        this.mapper = mapper;
+            ObjectMapper mapper) {
+        this.frame = new AskConversation.Deps(validator, driveTimes, mapper);
     }
 
     /**
@@ -116,44 +108,34 @@ public class StubAskEngine implements AskEngine {
     @Override
     public AskRun run(AskQuestion question, AskSnapshot snapshot, AskUserContext user,
             AskRunOptions options) {
-        AskRunOptions opts = options == null ? AskRunOptions.none() : options;
-        opts.requireConsistentWith(user);
-        if (question.sanitised() == null || question.sanitised().isBlank()) {
-            return failed("the question is empty", List.of());
-        }
-        Optional<Set<String>> scope = AskScopes.resolve(regionRepository, question);
-        if (scope.isEmpty()) {
-            return failed("a region id in the question's scope does not exist", List.of());
-        }
-        AskTools tools = new AskTools(snapshot, user, scope.get(), driveTimes, mapper);
+        return switch (AskConversation.open(question, snapshot, user, options, frame)) {
+            case AskConversation.Opening.Refused refused -> refused.run();
+            case AskConversation.Opening.Open open -> script(open.conversation(), question, snapshot);
+        };
+    }
+
+    /** The stub's one turn: pick the script by keyword, then submit what it found. */
+    private AskRun script(AskConversation conversation, AskQuestion question, AskSnapshot snapshot) {
+        AskTools tools = conversation.tools();
         String text = question.sanitised().toLowerCase(Locale.ROOT);
 
         AskAnswerValidator.Raw raw;
         try {
             raw = EVENT_WORDS.matcher(text).find()
                     ? eventsAnswer(text, tools)
-                    : spotsAnswer(text, question, snapshot, tools, scope.get(), opts);
+                    : spotsAnswer(text, question, snapshot, conversation);
         } catch (StubFailure e) {
-            return failed(e.getMessage(), tools.trace());
+            return conversation.fail(e.getMessage(), 0, tools.trace());
         }
-        List<AskTools.ToolCall> trace = new ArrayList<>(tools.trace());
-        trace.add(new AskTools.ToolCall(AskToolSchemas.SUBMIT_ANSWER, false, 0));
-        Result result = validator.validate(raw, snapshot, tools.evidence(), scope.get(), opts.anchor(),
-                ReadyIntentRules.eventsQuestion(question).orElse(null));
-        if (!result.accepted()) {
-            return new AskRun(new AskOutcome(AskOutcome.Status.FAILED, null, tools.personal(), 1),
-                    trace, "the answer was discarded: " + result.reason());
-        }
-        AskOutcome.Status status = result.answer().answerable() ? AskOutcome.Status.OK
-                : AskOutcome.Status.CANT;
-        return new AskRun(new AskOutcome(status, result.answer(), tools.personal(), 1), trace, null);
+        return conversation.submit(raw, 1, tools.trace());
     }
 
     // -- where and when -----------------------------------------------------------------------
 
     private AskAnswerValidator.Raw spotsAnswer(String text, AskQuestion question,
-            AskSnapshot snapshot, AskTools tools, Set<String> scope, AskRunOptions opts)
-            throws StubFailure {
+            AskSnapshot snapshot, AskConversation conversation) throws StubFailure {
+        AskTools tools = conversation.tools();
+        BestAnchor anchor = conversation.anchor();
         // A context window not in the window set is ignored, as it is everywhere else. With none, a
         // Ready anchor names the windows the question is about, and failing that a day word in the
         // question ("tonight", "tomorrow", "on Saturday", "this weekend") narrows them, so the
@@ -161,17 +143,17 @@ public class StubAskEngine implements AskEngine {
         List<String> windowIds = question.windowId() != null
                 && snapshot.window(question.windowId()).isPresent()
                 ? List.of(question.windowId())
-                : opts.anchor() != null && !opts.anchor().windowIds().isEmpty()
-                ? opts.anchor().windowIds().stream().sorted().toList()
+                : anchor != null && !anchor.windowIds().isEmpty()
+                ? anchor.windowIds().stream().sorted().toList()
                 : dayWindows(text, snapshot);
         Boolean coastal = COASTAL_WORDS.matcher(text).find() ? Boolean.TRUE : null;
         String tide = HIGH_TIDE.matcher(text).find() ? "HIGH"
                 : LOW_TIDE.matcher(text).find() ? "LOW" : null;
 
         List<SpotInfo> lead = new ArrayList<>();
-        if (opts.anchor() != null) {
+        if (anchor != null) {
             Optional<AskSnapshot.Window> leadWindow =
-                    AskAnswerValidator.anchoredWindow(snapshot, opts.anchor(), scope);
+                    AskAnswerValidator.anchoredWindow(snapshot, anchor, conversation.scope());
             if (leadWindow.isPresent()) {
                 // The forecast's own BEST BET leads when it is the window's pick; the validator only
                 // requires the window, but the Plan tab names a location and so does the stub.
@@ -271,17 +253,17 @@ public class StubAskEngine implements AskEngine {
 
     private AskAnswerValidator.Raw eventsAnswer(String text, AskTools tools) throws StubFailure {
         String topic = TOPICS.stream().filter(text::contains).findFirst().orElse(null);
-        AskToolResult hot = tools.getHotTopics(new HotTopicsArgs(null, AskTools.MAX_EVENTS));
-        AskToolResult coming = tools.getComingUp(
-                new ComingUpArgs(AskTools.MAX_COMING_UP_DAYS, AskTools.MAX_EVENTS));
+        AskToolResult<HotTopicsResult> hot = tools.getHotTopics(new HotTopicsArgs(null, AskTools.MAX_EVENTS));
+        AskToolResult<ComingUpResult> coming = tools.getComingUp(
+                new ComingUpArgs(AskSnapshot.MAX_COMING_UP_DAYS, AskTools.MAX_EVENTS));
         List<Found> found = new ArrayList<>();
         if (!hot.error()) {
-            for (TopicInfo t : ((HotTopicsResult) hot.payload()).topics()) {
+            for (TopicInfo t : hot.payload().topics()) {
                 found.add(new Found(t.type(), t.label(), t.detail(), parse(t.date())));
             }
         }
         if (!coming.error()) {
-            for (ComingUpInfo e : ((ComingUpResult) coming.payload()).entries()) {
+            for (ComingUpInfo e : coming.payload().entries()) {
                 found.add(new Found(e.type(), e.title(), e.detail(), parse(e.start())));
             }
         }
@@ -294,7 +276,7 @@ public class StubAskEngine implements AskEngine {
         List<RawEvent> events = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (Found f : matching) {
-            if (events.size() < EVENTS && seen.add(f.type().toUpperCase(Locale.ROOT) + "|" + f.date())) {
+            if (events.size() < EVENTS && seen.add(AskEventType.offerKey(f.type(), f.date()))) {
                 events.add(new RawEvent(f.type(), f.date(), why(f)));
             }
         }
@@ -345,21 +327,17 @@ public class StubAskEngine implements AskEngine {
     // -- helpers ------------------------------------------------------------------------------
 
     /** The spots of a {@code rank_spots} result; a tool error stops the stub, loudly. */
-    private static List<SpotInfo> spots(AskToolResult result) throws StubFailure {
+    private static List<SpotInfo> spots(AskToolResult<RankSpotsResult> result) throws StubFailure {
         if (result.error()) {
             throw new StubFailure("rank_spots returned an error: " + result.content());
         }
-        return ((RankSpotsResult) result.payload()).spots();
+        return result.payload().spots();
     }
 
     private static List<SpotInfo> concat(List<SpotInfo> first, List<SpotInfo> second) {
         List<SpotInfo> all = new ArrayList<>(first);
         all.addAll(second);
         return all;
-    }
-
-    private static AskRun failed(String reason, List<AskTools.ToolCall> trace) {
-        return new AskRun(new AskOutcome(AskOutcome.Status.FAILED, null, false, 0), trace, reason);
     }
 
     /** A tool returned an error the stub's fixed script cannot recover from. */

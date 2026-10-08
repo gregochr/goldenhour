@@ -2,10 +2,8 @@ package com.gregochr.goldenhour.service.ask;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -65,11 +63,11 @@ final class AskReadyFreshness {
      * @param question the Ready question
      * @param stored   the stored row
      * @param live     the live snapshot
-     * @param scope    the row's scope as region names; empty for every region
+     * @param scope    the row's scope
      * @return the re-decorated answer, or the reason it is withheld
      */
     static Verdict check(ReadyQuestion question, AskReadyStore.Stored stored, AskSnapshot live,
-            Collection<String> scope) {
+            AskScope scope) {
         if (!stored.windowIds().isEmpty()
                 && stored.windowIds().stream().noneMatch(id -> live.window(id).isPresent())) {
             return Verdict.stale("every window the question names has passed");
@@ -112,10 +110,10 @@ final class AskReadyFreshness {
      *
      * @param answer the stored answer
      * @param live   the live snapshot
-     * @param scope  the answer's scope as region names; empty for every region
+     * @param scope  the answer's scope
      * @return the re-decorated answer, or the reason it is withheld
      */
-    static Verdict recheck(AskAnswer answer, AskSnapshot live, Collection<String> scope) {
+    static Verdict recheck(AskAnswer answer, AskSnapshot live, AskScope scope) {
         List<AskPick> picks = new ArrayList<>();
         for (AskPick pick : answer.picks()) {
             Optional<AskSnapshot.Window> window = live.window(pick.windowId());
@@ -125,7 +123,7 @@ final class AskReadyFreshness {
             Optional<AskSnapshot.Candidate> candidate =
                     live.candidate(pick.windowId(), pick.locationId());
             if (candidate.isEmpty()
-                    || !AskSnapshot.regionInScope(scope, candidate.get().region().name())) {
+                    || !scope.contains(candidate.get().region().name())) {
                 return Verdict.stale("pick " + pick.rank() + " is no longer pick-eligible");
             }
             AskSnapshot.Slot slot = candidate.get().slot();
@@ -165,18 +163,17 @@ final class AskReadyFreshness {
      * not ended. Of two matches the one carrying a safety note wins, so a warning is never lost.
      */
     private static Optional<LiveEvent> liveEvent(AskEvent event, AskSnapshot live,
-            Collection<String> scope) {
-        String type = event.type() == null ? "" : event.type().strip().toUpperCase(Locale.ROOT);
-        LocalDate lastDay = live.today().plusDays(AskTools.MAX_COMING_UP_DAYS - 1L);
+            AskScope scope) {
+        LocalDate lastDay = live.today().plusDays(AskSnapshot.MAX_COMING_UP_DAYS - 1L);
         List<LiveEvent> matches = new ArrayList<>();
         for (AskSnapshot.Topic topic : live.hotTopics()) {
-            if (topic.type() != null && topic.type().strip().toUpperCase(Locale.ROOT).equals(type)
+            if (AskEventType.same(topic.type(), event.type())
                     && Objects.equals(topic.date(), event.date()) && topic.inScope(scope)) {
                 matches.add(new LiveEvent(topic.label(), topic.safetyNote()));
             }
         }
         for (AskSnapshot.ComingUp entry : live.comingUp()) {
-            if (entry.type() != null && entry.type().strip().toUpperCase(Locale.ROOT).equals(type)
+            if (AskEventType.same(entry.type(), event.type())
                     && Objects.equals(entry.startDate(), event.date())
                     && !entry.endDate().isBefore(live.today()) && !entry.startDate().isAfter(lastDay)) {
                 matches.add(new LiveEvent(entry.title(), entry.safetyNote()));

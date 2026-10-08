@@ -101,7 +101,7 @@ class AskToolSchemasTest {
         assertThat(property(tool(tools, AskToolSchemas.GET_HOT_TOPICS), "limit").get("maximum").intValue())
                 .isEqualTo(AskTools.MAX_EVENTS);
         assertThat(property(tool(tools, AskToolSchemas.GET_COMING_UP), "days").get("maximum").intValue())
-                .isEqualTo(AskTools.MAX_COMING_UP_DAYS);
+                .isEqualTo(AskSnapshot.MAX_COMING_UP_DAYS);
     }
 
     @Test

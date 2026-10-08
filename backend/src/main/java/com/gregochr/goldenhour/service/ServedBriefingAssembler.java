@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -134,6 +135,14 @@ class ServedBriefingAssembler {
         //
         // Before the projector, deliberately: the projector is the outermost step and rebuilds the
         // response through withPlan, which carries previousGeneratedAt and every region untouched.
+        //
+        // Per-location tide facts are projected from the RAW snapshot, before the honesty filter:
+        // the filter empties a zero-coverage region's slots (the designed state of every window
+        // Gate 4 does not score and of every travel day), and the tide facts come from stored
+        // tide tables, not from Claude. Slot tide is never touched by re-enrichment or the
+        // fallback, so the snapshot's tide is the served tide. Read-only on the snapshot.
+        Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> tideFacts = snapshot == null
+                ? Map.of() : WindowTideFactProjector.project(snapshot.days());
         DailyBriefingResponse filtered = attachMovement(assembleWithoutPlan(snapshot, minCoverageRatio));
         // The tide rollup is derived here rather than inside the projector so the projector stays a
         // pure function of the response: it needs three repositories, and the projector has none.
@@ -150,7 +159,8 @@ class ServedBriefingAssembler {
                 filtered,
                 LocalDateTime.now(clock.withZone(ZoneOffset.UTC)),
                 filtered == null ? Map.of()
-                        : windowTideRollupBuilder.build(filtered.days()));
+                        : windowTideRollupBuilder.build(filtered.days()),
+                tideFacts);
     }
 
     /**
@@ -301,14 +311,9 @@ class ServedBriefingAssembler {
         if (fallback.isEmpty()) {
             return response;
         }
-        return new DailyBriefingResponse(
-                response.generatedAt(), response.headline(), response.days(),
-                fallback, response.auroraTonight(), response.auroraTomorrow(),
-                response.stale(), response.partialFailure(), response.failedLocationCount(),
-                response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
-                // Carried, not cleared: this now runs BEFORE the honesty filter, so there is no
-                // withdrawal yet to describe — the filter sets the flag afterwards, against
-                // whichever list it ends up seeing, including this one.
-                response.bestBetStatus(), response.bestBetsWithdrawn());
+        // The withdrawal flag is carried, not cleared: this now runs BEFORE the honesty filter, so
+        // there is no withdrawal yet to describe — the filter sets the flag afterwards, against
+        // whichever list it ends up seeing, including this one.
+        return response.withBestBets(fallback, response.bestBetsWithdrawn());
     }
 }

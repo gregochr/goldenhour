@@ -72,6 +72,10 @@ import java.util.List;
  * @param badges        hot topics landing on this window; never null, often empty
  * @param topRarityRank the rarest badge's rarity rank, or null
  * @param tide          the window's tide rollup at one named coastal location, or null
+ * @param tideFacts     per-location tide for every coastal location with a slot in this window, or
+ *                      null when the window has none (never an empty list); sits outside the slots
+ *                      because the honesty filter empties those on any window Claude did not score,
+ *                      see {@link LocationTideFact}
  */
 public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime eventTime,
@@ -81,14 +85,36 @@ public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) Pick pick,
         List<Badge> badges,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer topRarityRank,
-        @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<LocationTideFact> tideFacts) {
 
     /**
      * Canonical constructor: takes an immutable copy of {@code badges}, and reads a null list as
-     * empty so the client can rely on "never null, often empty".
+     * empty so the client can rely on "never null, often empty". {@code tideFacts} stays null when
+     * null (absence is the statement) and is otherwise copied.
      */
     public BriefingWindow {
         badges = badges == null ? List.of() : List.copyOf(badges);
+        tideFacts = tideFacts == null ? null : List.copyOf(tideFacts);
+    }
+
+    /**
+     * Convenience constructor for a window carrying no per-location tide facts: {@code tideFacts}
+     * defaults to null.
+     *
+     * @param eventTime     the window's single header time, or null
+     * @param verdict       the window's verdict
+     * @param bestRating    the highest rating in the window, or null
+     * @param confidence    the top region's confidence, or null
+     * @param pick          this window's forecast-wide pick, or null
+     * @param badges        hot topics landing on this window
+     * @param topRarityRank the rarest badge's rarity rank, or null
+     * @param tide          the window's tide rollup, or null
+     */
+    public BriefingWindow(LocalDateTime eventTime, DisplayVerdict verdict, Integer bestRating,
+            Confidence confidence, Pick pick, List<Badge> badges, Integer topRarityRank,
+            BriefingWindowTide tide) {
+        this(eventTime, verdict, bestRating, confidence, pick, badges, topRarityRank, tide, null);
     }
 
     /** Which of the forecast's two picks this is. */

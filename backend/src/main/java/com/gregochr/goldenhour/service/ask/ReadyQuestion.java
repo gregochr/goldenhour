@@ -6,7 +6,6 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -24,7 +23,7 @@ import java.util.Set;
  * and a serve offers the question again against live data and withholds the answer when the text
  * no longer matches (so a "tomorrow" stored on Sunday is never shown on Monday).
  *
- * <p>The predicates use only {@link AskSnapshot#candidates(AskSnapshot.Window, Collection)} — the
+ * <p>The predicates use only {@link AskSnapshot#candidates(AskSnapshot.Window, AskScope)} — the
  * one definition of a pick-eligible slot in scope that {@code rank_spots} and the validator also
  * use — so a question is offered exactly when the tools could return something for it.
  */
@@ -33,7 +32,7 @@ public enum ReadyQuestion {
     /** Best spot this weekend: a Saturday or Sunday window in the window set has a pick. */
     BEST_WEEKEND(true, true, Events.NONE, "plan", "map") {
         @Override
-        Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
+        Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             List<String> ids = windowsWithCandidates(snapshot, scope, w ->
                     w.date().getDayOfWeek() == DayOfWeek.SATURDAY
                             || w.date().getDayOfWeek() == DayOfWeek.SUNDAY);
@@ -45,7 +44,7 @@ public enum ReadyQuestion {
     /** Best spot in the next few days: no weekend to ask about, and at least two windows to compare. */
     BEST_SOON(true, true, Events.NONE, "plan", "map") {
         @Override
-        Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
+        Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             if (BEST_WEEKEND.offer(snapshot, scope).isPresent()) {
                 return Optional.empty();
             }
@@ -58,7 +57,7 @@ public enum ReadyQuestion {
     /** Best spot at the next window: tonight, this morning, tomorrow morning and so on. */
     BEST_NEXT(true, true, Events.NONE, "plan", "map") {
         @Override
-        Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
+        Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             if (snapshot.windows().isEmpty()) {
                 return Optional.empty();
             }
@@ -74,7 +73,7 @@ public enum ReadyQuestion {
     /** Best coastal spot at high tide: some pick-eligible coastal slot has high water at its event. */
     COASTAL_HIGH(true, false, Events.NONE, "map") {
         @Override
-        Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
+        Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             List<String> ids = new ArrayList<>();
             for (AskSnapshot.Window w : snapshot.windows()) {
                 if (snapshot.candidates(w, scope).stream().anyMatch(c -> isHighWater(c.slot()))) {
@@ -97,7 +96,7 @@ public enum ReadyQuestion {
      */
     AM_OR_PM(true, false, Events.NONE, "plan") {
         @Override
-        Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
+        Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             List<AskSnapshot.Window> withCandidates = snapshot.windows().stream()
                     .filter(w -> !snapshot.candidates(w, scope).isEmpty())
                     .toList();
@@ -119,7 +118,7 @@ public enum ReadyQuestion {
     /** Rare events coming up. Always asked; the answer is stored only when it finds something. */
     RARE_EVENTS(false, false, Events.ANY, "coming-up", "map") {
         @Override
-        Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
+        Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             return Optional.of(new Offer("Any rare events coming up?", List.of(), null));
         }
     },
@@ -127,7 +126,7 @@ public enum ReadyQuestion {
     /** Snow on the tops. Always asked; the answer is stored only when it finds something. */
     SNOW_TOPS(false, false, Events.SNOW, "coming-up") {
         @Override
-        Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope) {
+        Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
             return Optional.of(new Offer("Is there snow on the tops?", List.of(), null));
         }
     };
@@ -188,10 +187,10 @@ public enum ReadyQuestion {
      * Whether the question can be asked now, and under what text and windows.
      *
      * @param snapshot the snapshot
-     * @param scope    the region names the question is about; null or empty means every region
+     * @param scope    the regions the question is about
      * @return the offer, or empty when the question is not available
      */
-    abstract Optional<Offer> offer(AskSnapshot snapshot, Collection<String> scope);
+    abstract Optional<Offer> offer(AskSnapshot snapshot, AskScope scope);
 
     /**
      * Whether this question is answered with picks (a where-or-when question) rather than with
@@ -237,14 +236,14 @@ public enum ReadyQuestion {
      * cards are picks); {@code RARE_EVENTS} keeps any; {@code SNOW_TOPS} keeps only the snow topic
      * types ({@code SNOW_TOPS}, {@code SNOW_FRESH}, {@code SNOW_MIST}).
      *
-     * @param type the event's served type, any case
+     * @param type the event's served type, any case or spelling ({@link AskEventType#key})
      * @return true when the question may carry an event of this type
      */
     public boolean admitsEvent(String type) {
         if (eventTypes == null) {
             return true;
         }
-        return type != null && eventTypes.contains(type.strip().toUpperCase(Locale.ROOT));
+        return type != null && eventTypes.contains(AskEventType.key(type));
     }
 
     /**
@@ -273,13 +272,13 @@ public enum ReadyQuestion {
      * @param scope    the question's scope
      * @return true when the question may carry the pick
      */
-    boolean admitsPick(AskPick pick, Offer offer, AskSnapshot snapshot, Collection<String> scope) {
+    boolean admitsPick(AskPick pick, Offer offer, AskSnapshot snapshot, AskScope scope) {
         if (!picks || !offer.windowIds().contains(pick.windowId())) {
             return false;
         }
         Optional<AskSnapshot.Candidate> candidate = snapshot.candidate(pick.windowId(), pick.locationId());
         return candidate.isPresent()
-                && AskSnapshot.regionInScope(scope, candidate.get().region().name())
+                && scope.contains(candidate.get().region().name())
                 && admitsSlot(candidate.get().slot());
     }
 
@@ -324,7 +323,7 @@ public enum ReadyQuestion {
      * @return why the answer must not be stored or served, or empty when it may be
      */
     Optional<String> violation(AskAnswer answer, Offer offer, AskSnapshot snapshot,
-            Collection<String> scope) {
+            AskScope scope) {
         if (picks && answer.picks().isEmpty()) {
             return Optional.of("a pick question with no pick");
         }
@@ -352,7 +351,7 @@ public enum ReadyQuestion {
     }
 
     /** The ids of the windows that pass {@code filter} and have a pick-eligible slot in scope. */
-    private static List<String> windowsWithCandidates(AskSnapshot snapshot, Collection<String> scope,
+    private static List<String> windowsWithCandidates(AskSnapshot snapshot, AskScope scope,
             java.util.function.Predicate<AskSnapshot.Window> filter) {
         return snapshot.windows().stream()
                 .filter(filter)

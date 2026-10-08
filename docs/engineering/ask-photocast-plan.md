@@ -373,7 +373,7 @@ the forecast is flagging this week), their descriptions did not say so, and the 
 the complete one. Production has the same gap, and B3 would have skipped a `RARE_EVENTS` answer built on it (an events question
 that finds nothing is not stored). Fixed in three layers, none depending on the model choosing well:
 - **Data (the guarantee).** `get_coming_up` returns the almanac entries *and* the in-scope live hot topics dated within its
-  horizon (`AskTools.timeline`), as one-day entries carrying the topic's label, detail and safety note, deduped against any almanac
+  horizon (`AskSnapshot.timeline`), as one-day entries carrying the topic's label, detail and safety note, deduped against any almanac
   entry of the same type (compared upper-case, `-` as `_`) whose span holds the date. Whichever events tool the model reaches
   for, the eclipse is there; the evidence the validator holds carries it exactly once.
 - **Words.** The two tool descriptions now say what each covers and tell the model to call the other for any events question;
@@ -750,6 +750,64 @@ the role check); 400 for a blank or over-200-character question or an unknown, d
 region ids; 409 when no briefing has been built. A FAILED run is a 200 carrying `status: FAILED` and the
 `reason`, since the admin is there to see why. `POST /api/admin/ask/ready/precompute` → `{written,
 skipped, failed}`. `GET /api/admin/ask/metrics?days=`.
+
+*As built (refactor, 2026-10-08) — a question's region scope is resolved once, as an `AskScope` value.* Scope had been a
+bare `Collection<String>` of region names re-normalised at seven sites with four spellings of "is this region in scope",
+a `(scopeKey, scopeNames)` pair carried as two parameters, and the region ids read from the database up to four times per
+typed question (`validRegionIds`, `resolve`, again inside the engine, again in the cache's `store`). Now
+`AskScopes.resolve(RegionRepository, Collection<Long>)` is the one merged method and `AskScope` the value it returns
+(`key`, `regionIds`, `names`, `contains`, `isEverywhere`, `readyScope`, and the one `AskScope.ALL`/`ALL_KEY`). **The rules
+that survive unchanged:** an unknown or disabled id fails rather than widens (`Optional.empty()`, which `AskService.validate`
+and the admin dry-run turn into the same 400 `INVALID` as before); empty ids mean every region; more than 20 ids or a null
+id is refused before the repository is asked. **The one-resolution rule:** `AskService.validate` resolves the ids once and
+the `AskQuestion` carries the scope (`question.regionIds()` still answers, delegating); `ClaudeAskEngine`, `StubAskEngine`,
+`CaffeineAskAnswerCache.store` and the Ready precompute read `question.scope()` and hold no `RegionRepository` for it (the
+precompute builds each region's scope from the entities it already read). Repository reads per typed question with a region
+scope: 2 before (`validRegionIds` + `resolve`) plus 1 in the real engine plus 1 in the cache's `store`, so 4; 1 now
+(`AskServiceTest.regionIdsAreReadOnce`, `AskScopesTest.idsResolveToAScope`). **`AskScope` is a final class, not a record, on
+purpose:** a record's canonical constructor is as public as the record, and scope is a safety boundary that must not be
+constructible from an id that did not resolve. **Two keys, not one:** `key()` is the typed cache's (sorted ids joined, or
+`ALL`); a question about several regions is answered from, and logged under, the whole catalogue's Ready scope
+(`readyScope()`, itself for one region, `ALL` otherwise), exactly as `AskService` had routed it. `names()` stays as stored and
+sorted because the system prompt prints them (the golden prompt tests would move if they were lower-cased); the single
+case-insensitive comparison lives in `contains`. `AskIntentMatcher.match` and `AskReadyService.serve/freshAnswers/suggestions`
+take the scope instead of a `(key, names)` pair, and `AskReadyService.ALL`/`CaffeineAskAnswerCache.ALL` are gone. The
+normalised form comes from `AskQuestionSanitiser` for every producer (`AskQuestion.of`): the dry-run and the Ready precompute
+had each lower-cased the text themselves, but nothing reads `normalised` on either path (it is read only by the Ready intent
+matcher, the typed cache and `ask_log`, all typed-only) and `ask_ready_answer` stores the offer's text, never the normalised
+form, so no stored key moved. Nothing on the wire moved.
+
+*As built (refactor, 2026-10-08) — the engines share one conversation frame, one event-type key, and the validator stops
+logging.* **`AskConversation`** (package-private, a collaborator both engines hold, not a base class) owns what is not an
+engine's own: `open(question, snapshot, user, options, deps)` checks the options against the kind of conversation first
+(`requireConsistentWith`, loud — the stub's contract test depends on it coming before the blank-question test), refuses a
+blank question as a FAILED run before any tool exists, then builds the one `AskTools` and finds which events question this
+is; it returns a sealed `Opening` (`Open` or `Refused`). `submit(Raw, turns, trace)` adds the synthetic `submit_answer` trace
+entry, holds the answer to the validator and returns OK, CANT or FAILED; `rejectSubmission` is the same for an unreadable
+`submit_answer` (an errored entry); `fail` reports `tools.personal()`. `ClaudeAskEngine.converse` is now the SDK loop and the
+cost guards only; `StubAskEngine.run` is its keyword script plus `submit`. `AskRun.failed(...)` is the one place a FAILED
+outcome is built (the engine's catch-all and `AskService`'s "the engine threw" stand-in use it too). **The one observable
+change:** a stub FAILED run (a `rank_spots`/event-tool error) used to report `personal=false, turns=0` regardless; it now reads
+`tools.personal()` like Claude's. Unobservable in practice — the stub never asks for a drive limit, so the tools never go
+personal — and pinned in `AskConversationTest.everyFailureReportsThePersonalFlag`; it would show only in the admin dry-run's
+`personal`. **`AskEventType`** replaces five spellings of "is this the same event type": `key` (strip, upper-case, `-` read as
+`_`), `same`, `offerKey(type, date)`, used by the timeline's dedupe, the validator's evidence match and offered-events
+count, `AskReadyFreshness.liveEvent`, `ReadyQuestion.admitsEvent`, `get_hot_topics`' type filter and the stub's de-duplication.
+The latent divergence it closes: the dedupe read `lunar-eclipse` and `LUNAR_ECLIPSE` as one while the validator (a model
+naming `LUNAR_ECLIPSE` against evidence the almanac served as `LUNAR-ECLIPSE`), the freshness re-find and `admitsEvent` did
+not. **`AskEventType.served` is not an identity and was deliberately left unfolded:** the type an event card carries on the
+wire and in `ask_ready_answer` is still the served type upper-cased (`LUNAR-ECLIPSE` for an almanac entry), because folding it
+would change what the client receives (`eventKicker`/`badgeChannel` read underscores, so the almanac-sourced lunar card's
+kicker and colour channel are a pre-existing client mismatch — an owner call, not part of a behaviour-preserving pass).
+Stored answers keep matching because every compare folds both sides. **`AskSnapshot.timeline(scope, days)`** and
+`AskSnapshot.MAX_COMING_UP_DAYS` are where the timeline now lives (it reads only the snapshot, like `candidates(window,
+scope)`); `get_coming_up` delegates, and the validator and the freshness check no longer import `AskTools`.
+**`AskService.runEngine` logs a FAILED run's reason once, at INFO** (`[ASK]`, user id, turns, reason), which was the only
+unlogged outcome of a typed question: the validator's two WARNs (two of its six discard reasons) are gone and it is pure; the
+latch, deadline, stop-reason and tool-call failures now leave a trace. The reason is the engine's own text (fixed sentences,
+a window id, a count, an exception class and message), never the question, and goes through `LogSanitizer`'s allow-list
+(`java/log-injection`). **`AskToolResult<T>`** carries the tool's typed result, so the stub's casts are gone. Nothing on the
+wire moved; the prompt text and tool-schema goldens are untouched.
 
 ---
 

@@ -20,10 +20,8 @@ import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ask.AskAnswerParser.Parsed;
-import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Result;
 import com.gregochr.goldenhour.service.ask.AskToolArguments.BadArguments;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import com.gregochr.goldenhour.service.evaluation.ModelRequestSupport;
@@ -39,7 +37,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -80,10 +77,15 @@ import java.util.concurrent.TimeoutException;
  *       the spend figure counts them in. The question itself is counted on the day it started.</li>
  * </ul>
  *
- * <p><b>Scope.</b> The question's region ids are resolved to names once; that one set is given to
- * {@link AskTools} and to {@link AskAnswerValidator#validate}, so the tools, the validator and the
- * {@code BEST_*} anchor cannot disagree. An id that does not resolve fails the run: scope is a
- * safety boundary, and an empty set would silently widen it to every region.
+ * <p><b>The frame.</b> What is not this loop's own (the options check, the blank-question refusal, the
+ * tools, and validating and closing the submitted answer) is {@link AskConversation}, shared with the
+ * stub engine. This class is the SDK loop and the cost guards around it.
+ *
+ * <p><b>Scope.</b> The question carries its region scope, resolved once ({@link AskScope}); that one
+ * value is given to {@link AskTools} and to {@link AskAnswerValidator#validate}, so the tools, the
+ * validator and the {@code BEST_*} anchor cannot disagree. An id that does not resolve fails the
+ * request before the engine runs: scope is a safety boundary, and an empty set would silently widen
+ * it to every region.
  *
  * <p>The question reaches Claude only as the user message. It is not in the system prompt, in any
  * tool result, or in {@code api_call_log} (the request body is not stored).
@@ -99,11 +101,8 @@ public class ClaudeAskEngine implements AskEngine {
     private final AnthropicApiClient client;
     private final AskProperties properties;
     private final AskJobRunService jobRuns;
-    private final DriveTimeResolver driveTimes;
-    private final RegionRepository regionRepository;
-    private final AskAnswerValidator validator;
+    private final AskConversation.Deps frame;
     private final AskPromptBuilder promptBuilder;
-    private final ObjectMapper mapper;
     private final Clock clock;
 
     /** Runs each model call so the engine can stop waiting at its deadline. One virtual thread a call. */
@@ -116,7 +115,6 @@ public class ClaudeAskEngine implements AskEngine {
      * @param properties       the Ask settings
      * @param jobRuns          the per-day run, the turn log and the unrecorded-cost latch
      * @param driveTimes       the asker's own drive times, for {@code maxDriveMinutes}
-     * @param regionRepository resolves the question's region ids to names
      * @param validator        holds an answer to what the tools returned
      * @param promptBuilder    builds the system prompt
      * @param mapper           serialises tool results for the model
@@ -124,16 +122,13 @@ public class ClaudeAskEngine implements AskEngine {
      */
     public ClaudeAskEngine(AnthropicApiClient client, AskProperties properties,
             AskJobRunService jobRuns, DriveTimeResolver driveTimes,
-            RegionRepository regionRepository, AskAnswerValidator validator,
+            AskAnswerValidator validator,
             AskPromptBuilder promptBuilder, ObjectMapper mapper, Clock clock) {
         this.client = client;
         this.properties = properties;
         this.jobRuns = jobRuns;
-        this.driveTimes = driveTimes;
-        this.regionRepository = regionRepository;
-        this.validator = validator;
+        this.frame = new AskConversation.Deps(validator, driveTimes, mapper);
         this.promptBuilder = promptBuilder;
-        this.mapper = mapper;
         this.clock = clock;
     }
 
@@ -153,34 +148,34 @@ public class ClaudeAskEngine implements AskEngine {
     @Override
     public AskRun run(AskQuestion question, AskSnapshot snapshot, AskUserContext user,
             AskRunOptions options) {
-        AskRunOptions opts = options == null ? AskRunOptions.none() : options;
+        return switch (AskConversation.open(question, snapshot, user, options, frame)) {
+            case AskConversation.Opening.Refused refused -> refused.run();
+            case AskConversation.Opening.Open open -> run(open.conversation(), question, snapshot, user);
+        };
+    }
+
+    /** The cost guards around one opened conversation: the latch, then the run the spend is booked to. */
+    private AskRun run(AskConversation conversation, AskQuestion question, AskSnapshot snapshot,
+            AskUserContext user) {
         boolean ready = !user.hasUser();
-        opts.requireConsistentWith(user);
-        if (question.sanitised() == null || question.sanitised().isBlank()) {
-            return failed("the question is empty", 0, false, List.of());
-        }
-        Optional<Set<String>> scope = resolveScope(question);
-        if (scope.isEmpty()) {
-            return failed("a region id in the question's scope does not exist", 0, false, List.of());
-        }
         if (!accountingOpen()) {
-            return failed(AskRun.ACCOUNTING_UNAVAILABLE, 0, false, List.of());
+            return conversation.fail(AskRun.ACCOUNTING_UNAVAILABLE, 0, List.of());
         }
         long runId;
         try {
-            runId = ready ? opts.readyJobRunId() : jobRuns.dailyRunId();
+            runId = ready ? conversation.options().readyJobRunId() : jobRuns.dailyRunId();
         } catch (RuntimeException e) {
             // Fail closed: if the spend cannot be booked, nothing is spent.
             LOG.error("[ASK] Could not open the job run; no model call was made: {}", e.getMessage());
-            return failed("the job run could not be opened: " + describe(e), 0, false, List.of());
+            return conversation.fail("the job run could not be opened: " + describe(e), 0, List.of());
         }
 
         AskRun run;
         try {
-            run = converse(question, snapshot, user, opts, scope.get(), runId, ready);
+            run = converse(conversation, question, snapshot, user, runId, ready);
         } catch (RuntimeException e) {
             LOG.warn("[ASK] Conversation failed unexpectedly: {}", e.toString());
-            run = failed("unexpected error: " + describe(e), 0, false, List.of());
+            run = AskRun.failed("unexpected error: " + describe(e), 0, false, List.of());
         }
         if (!ready) {
             jobRuns.recordQuestion(runId, run.outcome().status() != AskOutcome.Status.FAILED);
@@ -190,17 +185,15 @@ public class ClaudeAskEngine implements AskEngine {
 
     // -- the loop ---------------------------------------------------------------------------
 
-    private AskRun converse(AskQuestion question, AskSnapshot snapshot, AskUserContext user,
-            AskRunOptions opts, Set<String> scope, long startRunId, boolean ready) {
+    private AskRun converse(AskConversation conversation, AskQuestion question, AskSnapshot snapshot,
+            AskUserContext user, long startRunId, boolean ready) {
         EvaluationModel model = properties.getModel();
-        AskTools tools = new AskTools(snapshot, user, scope, driveTimes, mapper);
+        AskTools tools = conversation.tools();
         Optional<AskSnapshot.Window> contextWindow = question.windowId() == null
                 ? Optional.empty() : snapshot.window(question.windowId());
-        String system = promptBuilder.systemPrompt(snapshot.today(), scope, contextWindow,
+        String system = promptBuilder.systemPrompt(snapshot.today(), conversation.scope(), contextWindow,
                 user.hasUser());
         List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser());
-        ReadyQuestion eventsQuestion =
-                ReadyIntentRules.eventsQuestion(question).orElse(null);
         List<AskTools.ToolCall> trace = new ArrayList<>();
         List<Message> assistantTurns = new ArrayList<>();
         List<List<ContentBlockParam>> toolResults = new ArrayList<>();
@@ -212,7 +205,7 @@ public class ClaudeAskEngine implements AskEngine {
             // further turn would be more spend that cannot be recorded, so stop here (the answer a
             // previous turn carried, if any, has already been returned).
             if (turn > 1 && !accountingOpen()) {
-                return failed(AskRun.ACCOUNTING_UNAVAILABLE, turns, tools.personal(), trace);
+                return conversation.fail(AskRun.ACCOUNTING_UNAVAILABLE, turns, trace);
             }
             // The run this turn is billed to: for a typed turn, the daily run as of NOW, so a
             // conversation that crosses UK midnight books its later turns to the new day (the day the
@@ -222,12 +215,11 @@ public class ClaudeAskEngine implements AskEngine {
                 runId = ready ? startRunId : jobRuns.dailyRunId();
             } catch (RuntimeException e) {
                 LOG.error("[ASK] Could not resolve the job run before turn {}: {}", turn, e.getMessage());
-                return failed("the job run could not be opened: " + describe(e), turns, tools.personal(),
-                        trace);
+                return conversation.fail("the job run could not be opened: " + describe(e), turns, trace);
             }
             Duration remaining = Duration.between(clock.instant(), deadline);
             if (remaining.isZero() || remaining.isNegative()) {
-                return failed("the deadline passed before turn " + turn, turns, tools.personal(), trace);
+                return conversation.fail("the deadline passed before turn " + turn, turns, trace);
             }
             Duration callTimeout = min(Duration.ofSeconds(properties.getCallTimeoutSeconds()), remaining);
             MessageCreateParams params = buildParams(model, system, toolDefinitions, question,
@@ -241,39 +233,39 @@ public class ClaudeAskEngine implements AskEngine {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logTurn(runId, ready, model, started, null, false, "interrupted", null, null);
-                return failed("interrupted", turns, tools.personal(), trace);
+                return conversation.fail("interrupted", turns, trace);
             } catch (AnthropicApiClient.CallRefusedException e) {
                 // The gate refused the attempt, so no request was made for this turn (a retry's
                 // refused second attempt follows a first that returned no usage): nothing to log,
                 // and this turn did not happen.
-                return failed(AskRun.ACCOUNTING_UNAVAILABLE, turn - 1, tools.personal(), trace);
+                return conversation.fail(AskRun.ACCOUNTING_UNAVAILABLE, turn - 1, trace);
             } catch (Exception e) {
                 Integer status = e instanceof AnthropicServiceException s ? s.statusCode() : null;
                 logTurn(runId, ready, model, started, status, false, describe(e), null, null);
-                return failed("the model call failed: " + describe(e), turns, tools.personal(), trace);
+                return conversation.fail("the model call failed: " + describe(e), turns, trace);
             }
 
             TokenUsage usage = response.usage() == null ? null : TokenUsage.from(response.usage());
             String stopProblem = stopProblem(response);
             if (stopProblem != null) {
                 logTurn(runId, ready, model, started, HTTP_OK, false, stopProblem, usage, response);
-                return failed(stopProblem, turns, tools.personal(), trace);
+                return conversation.fail(stopProblem, turns, trace);
             }
             List<ToolUseBlock> toolUses = response.content().stream()
                     .filter(ContentBlock::isToolUse).map(ContentBlock::asToolUse).toList();
             if (toolUses.isEmpty()) {
                 String reason = "the turn asked for a tool but carried no tool call";
                 logTurn(runId, ready, model, started, HTTP_OK, false, reason, usage, response);
-                return failed(reason, turns, tools.personal(), trace);
+                return conversation.fail(reason, turns, trace);
             }
             logTurn(runId, ready, model, started, HTTP_OK, true, null, usage, response);
 
             List<ContentBlockParam> results = new ArrayList<>();
             for (ToolUseBlock block : toolUses) {
                 if (AskToolSchemas.SUBMIT_ANSWER.equals(block.name())) {
-                    return submit(block, snapshot, tools, scope, opts, eventsQuestion, turns, trace);
+                    return submit(block, conversation, turns, trace);
                 }
-                AskToolResult result = dispatch(block, tools, trace);
+                AskToolResult<?> result = dispatch(block, tools, trace);
                 results.add(ContentBlockParam.ofToolResult(ToolResultBlockParam.builder()
                         .toolUseId(block.id()).content(result.content()).isError(result.error())
                         .build()));
@@ -281,8 +273,8 @@ public class ClaudeAskEngine implements AskEngine {
             assistantTurns.add(response);
             toolResults.add(results);
         }
-        return failed("no submit_answer within " + properties.getMaxTurns() + " turns", turns,
-                tools.personal(), trace);
+        return conversation.fail("no submit_answer within " + properties.getMaxTurns() + " turns", turns,
+                trace);
     }
 
     /** The params of one turn: the rules, the tools, the question, then every earlier turn. */
@@ -374,10 +366,10 @@ public class ClaudeAskEngine implements AskEngine {
     // -- tools ------------------------------------------------------------------------------
 
     /** Runs one non-terminal tool call; an unknown tool or unreadable arguments is an error result. */
-    private AskToolResult dispatch(ToolUseBlock block, AskTools tools, List<AskTools.ToolCall> trace) {
+    private AskToolResult<?> dispatch(ToolUseBlock block, AskTools tools, List<AskTools.ToolCall> trace) {
         String name = block.name();
         int before = tools.trace().size();
-        AskToolResult result;
+        AskToolResult<?> result;
         try {
             JsonNode input = toNode(block._input());
             result = switch (name) {
@@ -406,23 +398,13 @@ public class ClaudeAskEngine implements AskEngine {
     }
 
     /** Reads, parses and validates the model's {@code submit_answer}; ends the conversation. */
-    private AskRun submit(ToolUseBlock block, AskSnapshot snapshot, AskTools tools, Set<String> scope,
-            AskRunOptions opts, ReadyQuestion eventsQuestion, int turns, List<AskTools.ToolCall> trace) {
+    private AskRun submit(ToolUseBlock block, AskConversation conversation, int turns,
+            List<AskTools.ToolCall> trace) {
         Parsed parsed = AskAnswerParser.parse(toNode(block._input()));
-        trace.add(new AskTools.ToolCall(AskToolSchemas.SUBMIT_ANSWER, !parsed.ok(), 0));
         if (!parsed.ok()) {
-            return failed("submit_answer was malformed: " + parsed.error(), turns, tools.personal(),
-                    trace);
+            return conversation.rejectSubmission(parsed.error(), turns, trace);
         }
-        Result result = validator.validate(parsed.raw(), snapshot, tools.evidence(), scope,
-                opts.anchor(), eventsQuestion);
-        if (!result.accepted()) {
-            return failed("the answer was discarded: " + result.reason(), turns, tools.personal(),
-                    trace);
-        }
-        AskOutcome.Status status = result.answer().answerable() ? AskOutcome.Status.OK
-                : AskOutcome.Status.CANT;
-        return new AskRun(new AskOutcome(status, result.answer(), tools.personal(), turns), trace, null);
+        return conversation.submit(parsed.raw(), turns, trace);
     }
 
     /** A tool input as a JSON tree; null when it cannot be read as JSON, which no tool accepts. */
@@ -438,11 +420,6 @@ public class ClaudeAskEngine implements AskEngine {
     }
 
     // -- scope and cost ---------------------------------------------------------------------
-
-    /** The question's region names, or empty when an id does not resolve. */
-    private Optional<Set<String>> resolveScope(AskQuestion question) {
-        return AskScopes.resolve(regionRepository, question);
-    }
 
     /**
      * Hands one model turn, failed or not, to {@link AskJobRunService#recordTurn}, which never throws:
@@ -463,11 +440,6 @@ public class ClaudeAskEngine implements AskEngine {
      */
     private boolean accountingOpen() {
         return jobRuns.accountingAvailable();
-    }
-
-    private static AskRun failed(String reason, int turns, boolean personal,
-            List<AskTools.ToolCall> trace) {
-        return new AskRun(new AskOutcome(AskOutcome.Status.FAILED, null, personal, turns), trace, reason);
     }
 
     private static Duration min(Duration a, Duration b) {

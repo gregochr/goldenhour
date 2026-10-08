@@ -9,7 +9,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import java.util.List;
-import java.util.Set;
 
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.at;
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.both;
@@ -26,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ReadyRelevanceTest {
 
-    private static final Set<String> ALL = Set.of();
+    private static final AskScope ALL = AskScope.ALL;
     private static final DisplayVerdict WORTH_IT = DisplayVerdict.resolve(5, Verdict.GO);
 
     private static AskEvent event(String type, String safetyNote) {
@@ -53,6 +52,8 @@ class ReadyRelevanceTest {
         "SNOW_TOPS, SNOW_FRESH, true",
         "SNOW_TOPS, SNOW_MIST, true",
         "SNOW_TOPS, snow_fresh, true",
+        "SNOW_TOPS, snow-tops, true",
+        "SNOW_TOPS, 'SNOW-MIST ', true",
         "SNOW_TOPS, AURORA, false",
         "SNOW_TOPS, ECLIPSE, false",
         "SNOW_TOPS, SNOW, false",
@@ -137,7 +138,7 @@ class ReadyRelevanceTest {
 
     // -- picks ------------------------------------------------------------------------------
 
-    private static boolean admits(ReadyQuestion question, AskSnapshot snapshot, Set<String> scope, AskPick pick) {
+    private static boolean admits(ReadyQuestion question, AskSnapshot snapshot, AskScope scope, AskPick pick) {
         ReadyQuestion.Offer offer = question.offer(snapshot, scope).orElseThrow();
         return question.admitsPick(pick, offer, snapshot, scope);
     }
@@ -231,10 +232,10 @@ class ReadyRelevanceTest {
         AskPick noSuchSlot = pick(1, 99L, "Nowhere", "Northumberland", "2026-10-05_sunset", 4);
 
         assertThat(admits(ReadyQuestion.BEST_NEXT, snapshot, ALL, teesdalePick)).isTrue();
-        ReadyQuestion.Offer northOffer = ReadyQuestion.BEST_NEXT.offer(snapshot, Set.of("Northumberland"))
+        ReadyQuestion.Offer northOffer = ReadyQuestion.BEST_NEXT.offer(snapshot, TestScopes.of("Northumberland"))
                 .orElseThrow();
         assertThat(ReadyQuestion.BEST_NEXT.admitsPick(teesdalePick, northOffer, snapshot,
-                Set.of("Northumberland"))).isFalse();
+                TestScopes.of("Northumberland"))).isFalse();
         assertThat(admits(ReadyQuestion.BEST_NEXT, snapshot, ALL, noSuchSlot)).isFalse();
         ReadyQuestion.Offer none = new ReadyQuestion.Offer("Any rare events coming up?", List.of(), null);
         assertThat(ReadyQuestion.RARE_EVENTS.admitsPick(teesdalePick, none, snapshot, ALL)).isFalse();

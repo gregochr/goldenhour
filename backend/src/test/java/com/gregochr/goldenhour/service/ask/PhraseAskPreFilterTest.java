@@ -21,7 +21,7 @@ class PhraseAskPreFilterTest {
 
     private static AskQuestion asked(String text) {
         AskQuestionSanitiser.Result cleaned = AskQuestionSanitiser.sanitiseTyped(text);
-        return new AskQuestion(cleaned.sanitised(), cleaned.normalised(), null, List.of(), "plan");
+        return new AskQuestion(cleaned.sanitised(), cleaned.normalised(), null, AskScope.ALL, "plan");
     }
 
     private Optional<AskAnswer> refuse(String text) {
@@ -145,7 +145,7 @@ class PhraseAskPreFilterTest {
     @DisplayName("a null question or a null sanitised text passes: the filter never throws")
     void nullIsTolerated() {
         assertThat(filter.refuse(null)).isEmpty();
-        assertThat(filter.refuse(new AskQuestion(null, null, null, List.of(), "plan"))).isEmpty();
+        assertThat(filter.refuse(new AskQuestion(null, null, null, AskScope.ALL, "plan"))).isEmpty();
     }
 
     @Test

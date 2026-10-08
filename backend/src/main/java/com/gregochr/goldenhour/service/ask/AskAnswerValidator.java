@@ -2,24 +2,21 @@ package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.service.evaluation.PromptUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
  * Holds a model's submitted answer to what the tools actually returned (plan §2.3 <em>Validation</em>).
- * Pure: no I/O, no clock.
+ * Pure: no I/O, no clock, and no logging. Why a typed answer was discarded is the {@code reason}
+ * it returns, which the caller logs once (see {@code AskService}).
  *
  * <p>The model supplies only a location id, a window id and a reason per pick, and a type and a
  * reason per event. Everything a card shows — name, region, date, event, rating, verdict, label —
@@ -30,8 +27,6 @@ import java.util.regex.Pattern;
  */
 @Component
 public class AskAnswerValidator {
-
-    private static final Logger LOG = LoggerFactory.getLogger(AskAnswerValidator.class);
 
     /** The most picks an answer may carry. */
     public static final int MAX_PICKS = 3;
@@ -132,9 +127,8 @@ public class AskAnswerValidator {
      * @param raw      the model's submitted answer
      * @param snapshot the snapshot the conversation ran against
      * @param evidence what the conversation's tools returned
-     * @param scope    the region names the question is about, matched case-insensitively; null or
-     *                 empty means every region. Enforced here, not left to the evidence being
-     *                 scoped: a pick whose region is outside it is dropped
+     * @param scope    the regions the question is about. Enforced here, not left to the evidence
+     *                 being scoped: a pick whose region is outside it is dropped
      * @param anchor   the Ready {@code BEST_*} rule, or null for every other question
      * @param eventsQuestion which events question this is ({@link ReadyIntentRules#eventsQuestion}),
      *                 or null when it is not one: an answer to it with no event it admits is discarded while
@@ -142,7 +136,7 @@ public class AskAnswerValidator {
      * @return the validated answer, or the reason it was discarded
      */
     public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
-            Collection<String> scope, BestAnchor anchor, ReadyQuestion eventsQuestion) {
+            AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion) {
         String summary = clean(raw.summary(), SUMMARY_WORDS);
         if (summary == null || summary.isBlank()) {
             return discard("no summary");
@@ -156,7 +150,6 @@ public class AskAnswerValidator {
         if (eventsQuestion != null && events.stream().noneMatch(e -> eventsQuestion.admitsEvent(e.type()))) {
             long offered = offeredEvents(snapshot, scope, eventsQuestion);
             if (offered > 0) {
-                LOG.warn("[ASK] Discarded an events answer with no event while {} were offered", offered);
                 return discard("events question answered \"none\" while " + offered
                         + " events were offered");
             }
@@ -176,8 +169,6 @@ public class AskAnswerValidator {
             Optional<AskSnapshot.Window> lead = anchoredWindow(snapshot, anchor, scope);
             if (lead.isPresent()
                     && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
-                LOG.warn("[ASK] Discarded a BEST answer that does not lead with the BEST BET window {}",
-                        lead.get().id());
                 return discard("pick 1 is not on the BEST BET window " + lead.get().id());
             }
         }
@@ -190,43 +181,37 @@ public class AskAnswerValidator {
      * the question admits. Read from the snapshot, never from what the model's tool calls returned, so
      * a model that filtered, limited or skipped a tool cannot make "none" true.
      */
-    private static long offeredEvents(AskSnapshot snapshot, Collection<String> scope,
-            ReadyQuestion question) {
-        Set<String> scopeNames = scope == null ? Set.of() : Set.copyOf(scope);
+    private static long offeredEvents(AskSnapshot snapshot, AskScope scope, ReadyQuestion question) {
         Set<String> offered = new HashSet<>();
         snapshot.hotTopics().stream()
-                .filter(t -> t.inScope(scopeNames) && question.admitsEvent(t.type()))
-                .forEach(t -> offered.add(offerKey(t.type(), t.date())));
-        AskTools.timeline(snapshot, scopeNames, AskTools.MAX_COMING_UP_DAYS).stream()
+                .filter(t -> t.inScope(scope) && question.admitsEvent(t.type()))
+                .forEach(t -> offered.add(AskEventType.offerKey(t.type(), t.date())));
+        snapshot.timeline(scope, AskSnapshot.MAX_COMING_UP_DAYS).stream()
                 .filter(e -> question.admitsEvent(e.type()))
-                .forEach(e -> offered.add(offerKey(e.type(), e.startDate())));
+                .forEach(e -> offered.add(AskEventType.offerKey(e.type(), e.startDate())));
         return offered.size();
-    }
-
-    private static String offerKey(String type, LocalDate date) {
-        return type.strip().toUpperCase(Locale.ROOT).replace('-', '_') + "|" + date;
     }
 
     /**
      * The window a BEST question's pick 1 must be on: a covered window carrying the forecast's BEST
      * pick, in scope, that has at least one pick-eligible slot to lead with <em>within the
-     * question's scope</em> ({@link AskSnapshot#candidates(AskSnapshot.Window, java.util.Collection)},
+     * question's scope</em> ({@link AskSnapshot#candidates(AskSnapshot.Window, AskScope)},
      * the same set {@code rank_spots} draws from). Without that last clause a BEST BET whose own
      * location is under 3★, or whose only eligible neighbours sit in a region the question did not
      * ask about, would make every answer unsatisfiable.
      */
     static Optional<AskSnapshot.Window> anchoredWindow(AskSnapshot snapshot,
-            BestAnchor anchor, Collection<String> scope) {
+            BestAnchor anchor, AskScope scope) {
         return snapshot.windows().stream()
                 .filter(w -> anchor.windowIds().contains(w.id()))
                 .filter(w -> w.pick() != null && w.pick().kind() == BriefingWindow.PickKind.BEST)
-                .filter(w -> AskSnapshot.regionInScope(scope, w.pick().regionName()))
+                .filter(w -> scope.contains(w.pick().regionName()))
                 .filter(w -> !snapshot.candidates(w, scope).isEmpty())
                 .findFirst();
     }
 
     private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence,
-            Collection<String> scope) {
+            AskScope scope) {
         List<AskPick> out = new ArrayList<>();
         Set<Long> seen = new HashSet<>();
         for (RawPick pick : raw) {
@@ -239,8 +224,7 @@ public class AskAnswerValidator {
             }
             Optional<AskSnapshot.Candidate> candidate =
                     snapshot.candidate(pick.windowId(), pick.locationId());
-            if (candidate.isEmpty()
-                    || !AskSnapshot.regionInScope(scope, candidate.get().region().name())) {
+            if (candidate.isEmpty() || !scope.contains(candidate.get().region().name())) {
                 continue;
             }
             seen.add(pick.locationId());
@@ -265,15 +249,14 @@ public class AskAnswerValidator {
         List<AskEvent> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (RawEvent event : raw) {
-            String type = event.type() == null ? "" : event.type().strip().toUpperCase(Locale.ROOT);
             Optional<AskEvidence.EventFact> fact = evidence.events().stream()
-                    .filter(f -> f.type().equals(type))
+                    .filter(f -> AskEventType.same(f.type(), event.type()))
                     .filter(f -> event.date() == null || event.date().equals(f.date()))
                     .min(Comparator.comparing(AskEvidence.EventFact::date,
                             Comparator.nullsLast(Comparator.naturalOrder()))
                             // Of otherwise equal facts the one carrying a warning wins: never lose it.
                             .thenComparing(f -> f.safetyNote() == null));
-            if (fact.isEmpty() || !seen.add(fact.get().type() + "|" + fact.get().date())) {
+            if (fact.isEmpty() || !seen.add(AskEventType.offerKey(fact.get().type(), fact.get().date()))) {
                 continue;
             }
             String why = clean(event.why(), WHY_WORDS);

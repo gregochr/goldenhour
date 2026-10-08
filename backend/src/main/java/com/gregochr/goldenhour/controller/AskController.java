@@ -2,13 +2,14 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.config.AskAdmissionInterceptor;
 import com.gregochr.goldenhour.entity.AppUserEntity;
-import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ask.AskErrorCode;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskReadyService;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import com.gregochr.goldenhour.service.ask.AskRequest;
+import com.gregochr.goldenhour.service.ask.AskScope;
+import com.gregochr.goldenhour.service.ask.AskScopes;
 import com.gregochr.goldenhour.service.ask.AskService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -24,10 +25,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Ask PhotoCast's reader-facing endpoints (plan §2.9): {@code GET /api/ask/ready} (B3) and the typed
@@ -134,25 +135,24 @@ public class AskController {
         }
         String wanted = scope.strip();
         if (wanted.toLowerCase(Locale.ROOT).equals("all")) {
-            return ResponseEntity.ok(readyService.serve(AskReadyService.ALL, Set.of()));
+            return ResponseEntity.ok(readyService.serve(AskScope.ALL));
         }
-        Optional<RegionEntity> region = regionById(wanted);
+        Optional<AskScope> region = regionById(wanted);
         if (region.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error",
                     "The scope must be 'all' or the id of an enabled region."));
         }
-        return ResponseEntity.ok(readyService.serve(String.valueOf(region.get().getId()),
-                Set.of(region.get().getName())));
+        return ResponseEntity.ok(readyService.serve(region.get()));
     }
 
-    /** The enabled region with this id, or empty for a non-number, an unknown id or a disabled one. */
-    private Optional<RegionEntity> regionById(String text) {
+    /** The scope of the enabled region with this id, or empty for a non-number, an unknown id or a disabled one. */
+    private Optional<AskScope> regionById(String text) {
         long id;
         try {
             id = Long.parseLong(text);
         } catch (NumberFormatException e) {
             return Optional.empty();
         }
-        return regionRepository.findById(id).filter(RegionEntity::isEnabled);
+        return AskScopes.resolve(regionRepository, List.of(id));
     }
 }

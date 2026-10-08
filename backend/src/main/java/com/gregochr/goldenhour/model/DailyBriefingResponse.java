@@ -329,4 +329,48 @@ public record DailyBriefingResponse(
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 newRenderedEvents, previousGeneratedAt);
     }
+
+    /**
+     * Returns a copy carrying a replacement best-bet list and its withdrawal flag.
+     *
+     * <p>One method rather than two withers, for {@link #withPlan}'s reason: the two are one
+     * answer. {@code bestBetsWithdrawn} says whether the honesty filter removed a pick from the
+     * list it accompanies, so publishing a new list without stating the flag would let a caller
+     * leave the flag describing a list that is no longer there. Every other component, including
+     * {@code renderedEvents} and {@code previousGeneratedAt}, is preserved.
+     *
+     * @param newBestBets          the replacement picks
+     * @param newBestBetsWithdrawn {@code true} when a pick was withdrawn at serve time, otherwise
+     *                             null; pass {@code bestBetsWithdrawn()} to keep the existing flag
+     * @return a copy carrying both
+     */
+    public DailyBriefingResponse withBestBets(List<BestBet> newBestBets,
+            Boolean newBestBetsWithdrawn) {
+        return new DailyBriefingResponse(generatedAt, headline, days, newBestBets,
+                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, newBestBetsWithdrawn,
+                renderedEvents, previousGeneratedAt);
+    }
+
+    /**
+     * Returns a copy carrying the live serve-time overlays: tonight's and tomorrow night's aurora
+     * summaries and the hot topics.
+     *
+     * <p>One method rather than three withers because the three are recomputed together on every
+     * serve, from the same live state. Every other component is preserved, {@code bestBetStatus}
+     * in particular: this is an overlay, not a new verdict on the best-bet advisor, and dropping
+     * the status would silently disable the fallback and the "from an earlier forecast" chip.
+     *
+     * @param newAuroraTonight  tonight's aurora summary, or null
+     * @param newAuroraTomorrow tomorrow night's aurora summary, or null
+     * @param newHotTopics      the live hot topics
+     * @return a copy carrying all three
+     */
+    public DailyBriefingResponse withLiveOverlays(AuroraTonightSummary newAuroraTonight,
+            AuroraTomorrowSummary newAuroraTomorrow, List<HotTopic> newHotTopics) {
+        return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
+                newAuroraTonight, newAuroraTomorrow, stale, partialFailure, failedLocationCount,
+                bestBetModel, newHotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                renderedEvents, previousGeneratedAt);
+    }
 }

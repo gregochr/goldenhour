@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -68,7 +69,7 @@ class AskReadModelTest {
                 AskFixtures.slot(2L, "Six", 6), AskFixtures.slot(3L, "Good", 5));
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
                 List.of(AskFixtures.sunsetDay(TODAY, null, region)), List.of()));
-        AskTools tools = new AskTools(snapshot, AskUserContext.userLess(), Set.of(), null,
+        AskTools tools = new AskTools(snapshot, AskUserContext.userLess(), TestScopes.of(), null,
                 new com.fasterxml.jackson.databind.ObjectMapper());
 
         List<AskTools.SpotInfo> found = ((AskTools.RankSpotsResult) tools.rankSpots(null).payload())
@@ -136,7 +137,8 @@ class AskReadModelTest {
         assertThat(new AskAnswer(true, "s", null, null, null).picks()).isEmpty();
         assertThat(new AskAnswer(true, "s", null, null, null).events()).isEmpty();
         assertThat(new AskQuestion("q", "q", null, null, "map").regionIds()).isEmpty();
-        assertThat(new AskQuestion("q", "q", null, List.of(3L), "map").regionIds())
+        assertThat(new AskQuestion("q", "q", null, null, "map").scope()).isSameAs(AskScope.ALL);
+        assertThat(new AskQuestion("q", "q", null, AskScope.of(List.of(3L), Set.of("Coast")), "map").regionIds())
                 .containsExactly(3L);
         AskEvidence evidence = new AskEvidence(null, null, 0);
         assertThat(evidence.pairs()).isEmpty();
@@ -156,11 +158,115 @@ class AskReadModelTest {
     @Test
     @DisplayName("a tool error result carries the message and no payload")
     void toolResult_error() {
-        AskToolResult error = AskToolResult.error("nope");
+        AskToolResult<AskTools.RankSpotsResult> error = AskToolResult.error("nope");
 
         assertThat(error.error()).isTrue();
         assertThat(error.content()).isEqualTo("nope");
         assertThat(error.payload()).isNull();
+    }
+
+    // -- the timeline: the one definition of what get_coming_up can return -------------------
+
+    private static AskSnapshot almanacSnapshot(int... dayOffsets) {
+        List<ComingUpEntry> entries = new ArrayList<>();
+        for (int offset : dayOffsets) {
+            entries.add(AskSnapshotBuilderTest.almanacEntry("E" + offset, "Entry " + offset,
+                    TODAY.plusDays(offset), TODAY.plusDays(offset), "d"));
+        }
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()), entries);
+    }
+
+    private static List<String> timelineTypes(AskSnapshot snapshot, AskScope scope, int days) {
+        return snapshot.timeline(scope, days).stream().map(AskSnapshot.ComingUp::type).toList();
+    }
+
+    @Test
+    @DisplayName("the timeline's horizon is 90 days, the one constant the tool schema and the freshness check read")
+    void timeline_horizonConstant() {
+        assertThat(AskSnapshot.MAX_COMING_UP_DAYS).isEqualTo(90);
+    }
+
+    @Test
+    @DisplayName("timeline: N days is N civil dates from today; day N-1 is in, day N is out")
+    void timeline_rangeIsNCivilDates() {
+        AskSnapshot snapshot = almanacSnapshot(0, 6, 7, 8);
+
+        assertThat(timelineTypes(snapshot, TestScopes.of(), 7)).containsExactly("E0", "E6");
+        assertThat(timelineTypes(snapshot, TestScopes.of(), 8)).containsExactly("E0", "E6", "E7");
+        assertThat(timelineTypes(snapshot, TestScopes.of(), 1)).as("one day is today only")
+                .containsExactly("E0");
+    }
+
+    @Test
+    @DisplayName("timeline: entries equal on date and title still sort the same way every time")
+    void timeline_sortIsTotal() {
+        ComingUpEntry b = AskSnapshotBuilderTest.almanacEntry("B", "Same", TODAY.plusDays(2),
+                TODAY.plusDays(2), "d");
+        ComingUpEntry a = AskSnapshotBuilderTest.almanacEntry("A", "Same", TODAY.plusDays(2),
+                TODAY.plusDays(2), "d");
+
+        List<String> forward = timelineTypes(AskFixtures.snapshotOf(
+                AskFixtures.briefing(List.of(), List.of()), List.of(b, a)), TestScopes.of(), 30);
+        List<String> reverse = timelineTypes(AskFixtures.snapshotOf(
+                AskFixtures.briefing(List.of(), List.of()), List.of(a, b)), TestScopes.of(), 30);
+
+        assertThat(forward).containsExactly("A", "B");
+        assertThat(reverse).isEqualTo(forward);
+    }
+
+    @Test
+    @DisplayName("timeline: a live topic the almanac already lists (same type, date inside the span; the "
+            + "almanac's lower-case hyphenated type is the hot topic's upper-case underscored one) "
+            + "appears once, not twice")
+    void timeline_doesNotRepeatWhatTheAlmanacLists() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()),
+                AskFixtures.topic("LUNAR_ECLIPSE", "Lunar eclipse", "d", TODAY.plusDays(5), List.of()),
+                AskFixtures.topic("ECLIPSE", "Another eclipse", "d", TODAY.plusDays(20), List.of()))),
+                List.of(AskSnapshotBuilderTest.almanacEntry("eclipse", "Partial solar eclipse",
+                                TODAY.plusDays(4), TODAY.plusDays(4), "d"),
+                        AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse",
+                                TODAY.plusDays(4), TODAY.plusDays(6), "d")));
+
+        assertThat(snapshot.timeline(TestScopes.of(), 90)).extracting(AskSnapshot.ComingUp::title)
+                .containsExactly("Partial solar eclipse", "Total lunar eclipse", "Another eclipse");
+    }
+
+    @Test
+    @DisplayName("timeline keeps a NIGHT topic dated yesterday — the aurora alert for the night still "
+            + "running before dawn, whose morning half is today's sunrise — on its own date, the one "
+            + "get_hot_topics and the freshness check know it by")
+    void timeline_runningNightTopicDatedYesterdayKeepsItsDate() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
+                        TODAY.minusDays(1), List.of()).withEvent("NIGHT", "18:30"),
+                AskFixtures.topic("DUST", "Saharan dust", "d", TODAY.minusDays(1), List.of())
+                        .withEvent("SUNSET", "18:00"))));
+
+        List<AskSnapshot.ComingUp> timeline = snapshot.timeline(TestScopes.of(), 90);
+
+        assertThat(timeline).extracting(AskSnapshot.ComingUp::type).containsExactly("AURORA");
+        assertThat(timeline.getFirst().startDate()).isEqualTo(TODAY.minusDays(1));
+        assertThat(timeline.getFirst().endDate()).isEqualTo(TODAY.minusDays(1));
+    }
+
+    @Test
+    @DisplayName("timeline leaves out a live topic dated before today, beyond the horizon, undated or "
+            + "naming only regions outside the question's scope")
+    void timeline_liveTopicsAreBoundedByHorizonAndScope() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("PAST", "Past", "d", TODAY.minusDays(1), List.of()),
+                AskFixtures.topic("TODAY", "Today", "d", TODAY, List.of()),
+                AskFixtures.topic("EDGE", "Edge", "d", TODAY.plusDays(6), List.of()),
+                AskFixtures.topic("BEYOND", "Beyond", "d", TODAY.plusDays(7), List.of()),
+                AskFixtures.topic("UNDATED", "Undated", "d", null, List.of()),
+                AskFixtures.topic("ELSEWHERE", "Elsewhere", "d", TODAY, List.of("Cornwall")),
+                AskFixtures.topic("HERE", "Here", "d", TODAY, List.of("Coast")))));
+
+        assertThat(timelineTypes(snapshot, TestScopes.of(), 7)).as("unscoped: every region")
+                .containsExactly("ELSEWHERE", "HERE", "TODAY", "EDGE");
+        assertThat(timelineTypes(snapshot, TestScopes.of("Coast"), 7))
+                .containsExactly("HERE", "TODAY", "EDGE");
     }
 
     @Test
