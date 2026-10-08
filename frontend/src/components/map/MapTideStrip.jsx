@@ -81,16 +81,27 @@ const WANT_WORD = STATE_WORD;
 /**
  * The footer's leading count clause, split into a bold count and its plain-text tail so the JSX can
  * bold only the figures — design §2's `<b>13 of 16</b> coastal spots are…` — without a second place
- * stating the sentence. Exported so the exact three copy cases (§7, T6 #8) can be asserted without
- * rendering.
+ * stating the sentence. Exported so the exact copy cases (now four, §7 T6 #8 plus the unserved,
+ * no-tier sentence) can be asserted without rendering. {@code unserved && !fitKnown} gives the
+ * no-per-spot-fit sentence; a served window with no tier keeps the "No coastal spot here…" wording.
  *
  * @param {{namedCoastal: Array, dimmed: Array, matched: Array, dominantWant: ?string,
- *   dominantWantCount: number}} model `mapTideFit.stripModel`'s result
+ *   dominantWantCount: number, fitKnown?: boolean, unserved?: boolean}} model
+ *   `mapTideFit.stripModel`'s result
  * @returns {{countText: ?string, restText: string}}
  */
 export function footerModel({
-  namedCoastal, dimmed, matched, dominantWant, dominantWantCount,
+  namedCoastal, dimmed, matched, dominantWant, dominantWantCount, fitKnown = true,
+  unserved = false,
 }) {
+  // A window the pane's list does not carry (a D-13 filler) and for which no in-view coastal spot
+  // has a served tier: the water above is real, but no per-spot fit exists for it (a standing gap —
+  // no stored extremes for those spots — not a pending one). Only when the
+  // row is unserved — a SERVED window whose spots have no tier (no stored extremes near them) falls
+  // through to the existing branches exactly as before, because "yet" would be false there.
+  if (unserved && !fitKnown) {
+    return { countText: null, restText: 'No per-spot tide fit for this window' };
+  }
   if (dimmed.length > 0) {
     const want = WANT_WORD[dominantWant] ?? '';
     const clause = dominantWantCount === dimmed.length
@@ -113,23 +124,38 @@ export function footerModel({
 /**
  * The footer's right-aligned jump — the next window that gives the dominant want, or the honest
  * denial when none is in the served horizon (§4 #7, §7 check 6). {@code null} when there is nothing
- * dimmed to jump away from.
+ * dimmed to jump away from. A third, plain-text kind ({@code 'noStrip'}) names a fitting window the
+ * strip itself cannot show (it has no tide there), so the footer never denies a window the callout
+ * and the four-day sheet would name.
  *
  * @param {object} model `stripModel`'s result
  * @param {?{eventType: string}} activeRow the window on screen — its OWN kind decides the "beyond"
  *   sentence's sunrise/sunset word (the design prototype's own {@code e.am?'sunrise':'sunset'}), not
  *   the dimmed spots' want
- * @returns {?{kind: 'jump'|'beyond', text: string, row: ?object}}
+ * @returns {?{kind: 'jump'|'noStrip'|'beyond', text: string, row: ?object}}
  */
 export function nextFitCopy(model, activeRow) {
-  const { dimmed, dominantWant, nextFitRow } = model;
-  if (dimmed.length === 0 || !dominantWant) return null;
+  const { dimmed, dominantWant, nextFitRow, nextFitAny } = model;
+  // `fitKnown === false` is defensive and unreachable from `stripModel` (no tier means nothing is
+  // dimmed); kept so a hand-built model cannot print a jump for a fit nobody knows.
+  if (model.fitKnown === false || dimmed.length === 0 || !dominantWant) return null;
   const want = WANT_WORD[dominantWant] ?? '';
-  if (nextFitRow && nextFitRow !== -1) {
+  const hasRow = nextFitRow && nextFitRow !== -1;
+  // The EARLIEST fit overall, as the callout names it; a model with no `nextFitAny` (hand-built)
+  // falls back to the tide-bearing one.
+  const earliest = nextFitAny && nextFitAny !== -1 ? nextFitAny : (hasRow ? nextFitRow : null);
+  if (earliest && hasRow && earliest === nextFitRow) {
     return {
       kind: 'jump',
       text: `Next ${want} on the light · ${nextFitRow.dayLabel} ${eventWord(nextFitRow.eventType)} ›`,
       row: nextFitRow,
+    };
+  }
+  if (earliest) {
+    return {
+      kind: 'noStrip',
+      text: `Next ${want} on the light · ${earliest.dayLabel} ${eventWord(earliest.eventType)}`,
+      row: null,
     };
   }
   return {
@@ -426,6 +452,11 @@ export function TideStripFooter({
           {nextFit.text}
         </span>
       )}
+      {nextFit && nextFit.kind === 'noStrip' && (
+        <span className="wf-tide-strip-beyond" data-testid="wf-tide-strip-nostrip">
+          {nextFit.text}
+        </span>
+      )}
     </div>
   );
 }
@@ -438,6 +469,9 @@ TideStripFooter.propTypes = {
     dominantWant: PropTypes.string,
     dominantWantCount: PropTypes.number,
     nextFitRow: PropTypes.oneOfType([PropTypes.object, PropTypes.number]),
+    nextFitAny: PropTypes.oneOfType([PropTypes.object, PropTypes.number]),
+    fitKnown: PropTypes.bool,
+    unserved: PropTypes.bool,
   }).isRequired,
   activeRow: PropTypes.object,
   onSelectEv: PropTypes.func,
@@ -560,6 +594,9 @@ MapTideStrip.propTypes = {
     dominantWant: PropTypes.string,
     dominantWantCount: PropTypes.number,
     nextFitRow: PropTypes.oneOfType([PropTypes.object, PropTypes.number]),
+    nextFitAny: PropTypes.oneOfType([PropTypes.object, PropTypes.number]),
+    fitKnown: PropTypes.bool,
+    unserved: PropTypes.bool,
   }),
   tide: PropTypes.object,
   activeRow: PropTypes.object,

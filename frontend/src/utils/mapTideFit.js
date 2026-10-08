@@ -1,5 +1,5 @@
 import { lookupForWindow } from './locationSheet.js';
-import { EVENT_KIND } from './mapEvents.js';
+import { EVENT_KIND, solarWindowKey } from './mapEvents.js';
 import { STATE_WORD } from './windowFirstRows.js';
 
 /**
@@ -40,6 +40,46 @@ export function coastalInView(spots, bounds) {
   if (!bounds || typeof bounds.pad !== 'function') return [];
   const padded = bounds.pad(0.12);
   return (Array.isArray(spots) ? spots : []).filter((s) => s.coastal && padded.contains([s.lat, s.lng]));
+}
+
+/**
+ * Every served window's {@code BriefingWindowTide}, keyed {@code "date:TARGETTYPE"} — over ALL of
+ * the briefing's event summaries, not just the six the Plan tab renders.
+ *
+ * <p>Why this exists: {@code PlanWindowProjector} attaches a tide rollup to every event summary of
+ * the briefing's four owned days (eight events), but the Map tab's window list is built from the
+ * <em>rendered</em> six ({@code heat.windows}). The remaining events were turned into D-13 filler
+ * rows with {@code tide: null}, so the strip vanished for them — the Sunday sunrise, seen from
+ * Thursday morning, is the seventh event. Tides are deterministic and the rollup was already on the
+ * wire; this just stops the fold discarding it. A lookup over served data, never a derivation —
+ * nothing here reads a height, an offset or a level.
+ *
+ * @param {?Array<{date: string, eventSummaries: ?Array<{targetType: string, window: ?object}>}>} days
+ *   the briefing's days
+ * @param {(iso: string) => ?string} [formatTime] formats the window's event instant to the clock
+ *   string a served row shows (`briefingDisplay.formatTime`); the client does no time maths itself
+ * @returns {Map<string, {tide: object, eventTime: ?string, time: ?string}>} per {@link solarWindowKey};
+ *   a window the server could not draw a tide for (no coastal representative, no high and low
+ *   water that day) has no entry
+ */
+export function buildWindowTideIndex(days, formatTime = () => '') {
+  const index = new Map();
+  for (const day of Array.isArray(days) ? days : []) {
+    if (!day?.date) continue;
+    for (const summary of day.eventSummaries ?? []) {
+      const tide = summary?.window?.tide;
+      if (!summary?.targetType || !tide) continue;
+      const eventTime = summary.window.eventTime ?? null;
+      index.set(solarWindowKey(day.date, summary.targetType), {
+        tide,
+        // The window's own served instant (UTC-naive) — what the elapsed test reads — and its
+        // clock time formatted by the caller with the formatter served rows use. Null stays null.
+        eventTime,
+        time: eventTime ? (formatTime(eventTime) || null) : null,
+      });
+    }
+  }
+  return index;
 }
 
 /**
@@ -190,13 +230,21 @@ export function wantPhrase(tideTypes) {
  *   whose sentence names one water. A spot wanting {@code {HIGH, LOW}} is {@code aligned} in a LOW
  *   window too, so "Next high water on the light" scanned on the bare flag jumped to low water
  *   (a Codex P1 on #878). Null or omitted keeps the any-want reading.
+ * @param {boolean} [requireTide] when true, rows carrying no served window tide are skipped. The
+ *   strip passes it: a jump to a row the strip would refuse to show unmounts the strip and drops
+ *   focus to {@code <body>}. Off by default because the callout and the location sheet are about ONE
+ *   location's fit and legitimately jump to a window with no rollup (the sheet's adapter rows carry
+ *   no {@code tide} field at all)
  * @returns {object|-1} the row object of the first match, or {@code -1} when none exists
  */
-export function nextAlignedRow(evRows, idx, locationKey, fromIndex, want = null) {
+export function nextAlignedRow(
+  evRows, idx, locationKey, fromIndex, want = null, requireTide = false,
+) {
   if (!Array.isArray(evRows)) return -1;
   for (let i = fromIndex + 1; i < evRows.length; i += 1) {
     const row = evRows[i];
     if (row?.kind !== EVENT_KIND.SOLAR) continue;
+    if (requireTide && row.tide == null) continue;
     const fact = lookupForWindow(
       idx, locationKey?.id ?? null, locationKey?.name ?? null, row.date, row.eventType,
     );
@@ -290,8 +338,17 @@ function dominantWantOf(dimmedSpots) {
  *   {@link nextAlignedRow} scan's {@code fromIndex}
  * @param {?{byId: Map, byName: Map}} [args.idx] `locationSheet.buildTideAlignmentIndex`'s
  *   result, for the scan
- * @returns {{visible: boolean, representative: ?string, namedCoastal: Array, dimmed: Array,
- *   matched: Array, dominantWant: ?string, dominantWantCount: number, nextFitRow: (object|-1)}}
+ * @returns {{visible: boolean, fitKnown: boolean, unserved: boolean, representative: ?string,
+ *   namedCoastal: Array, dimmed: Array, matched: Array, dominantWant: ?string,
+ *   dominantWantCount: number, nextFitRow: (object|-1), nextFitAny: (object|-1)}}
+ *   {@code fitKnown}: at least one in-view coastal spot carries a served tier ('match'/'miss') for
+ *   this window. {@code unserved}: the row is a D-13 filler (the pane's rendered list carries no
+ *   window for it), which decides only the footer's wording when {@code fitKnown} is false.
+ *   {@code nextFitRow}: the earliest later row, among rows that carry a tide, where a dimmed spot
+ *   wanting the dominant water fits — the only kind of row the strip can jump to.
+ *   {@code nextFitAny}: the same scan over every solar row, so it is the EARLIEST fit overall. It
+ *   equals {@code nextFitRow} when that earliest fit carries a tide, and is earlier than it (or set
+ *   when {@code nextFitRow} is -1) when the earliest fit is a window the strip cannot show
  */
 export function stripModel({
   row, spots = [], bounds = null, evRows = [], evIndex = -1, idx = null,
@@ -301,6 +358,8 @@ export function stripModel({
   if (!visible) {
     return {
       visible: false,
+      fitKnown: false,
+      unserved: false,
       representative: null,
       namedCoastal: [],
       dimmed: [],
@@ -308,12 +367,20 @@ export function stripModel({
       dominantWant: null,
       dominantWantCount: 0,
       nextFitRow: -1,
+      nextFitAny: -1,
     };
   }
 
   const namedCoastal = inView;
   const dimmed = namedCoastal.filter((s) => s.tideTier === 'miss');
   const matched = namedCoastal.filter((s) => s.tideTier === 'match');
+  // `fitKnown` has ONE meaning: at least one in-view coastal spot carries a served tier for this
+  // window. Whether the ROW was served is a different question (the briefing's slots, and so every
+  // spot's `tideTier`, cover its unrendered windows too), carried separately as `unserved` so the
+  // footer can say "No per-spot tide fit for this window" (a standing gap — those spots have no
+  // stored extremes — not a pending one) only for an unserved window with no tier. A served window
+  // with no tier keeps the footer's older wording.
+  const fitKnown = dimmed.length + matched.length > 0;
   const dominantWant = dominantWantOf(dimmed);
   // The scan must fit the DOMINANT want, not any of the spot's wants: the footer's sentence
   // names one water, and a {HIGH, LOW} spot aligned via LOW is not "next high water". Computed
@@ -324,24 +391,36 @@ export function stripModel({
     ? dimmed.filter((s) => (s.tideTypes ?? []).includes(dominantWant))
     : [];
 
-  let nextFitRow = -1;
-  let nextFitRowIdx = Infinity;
-  if (wanting.length > 0 && Array.isArray(evRows) && evIndex >= 0) {
+  // Earliest later row where any wanting spot fits the dominant want. `requireTide` restricts the
+  // scan to rows the strip itself could show (a jump to any other unmounts the strip).
+  const earliestFit = (requireTide) => {
+    let found = -1;
+    let foundIdx = Infinity;
+    if (wanting.length === 0 || !Array.isArray(evRows) || evIndex < 0) return found;
     for (const spot of wanting) {
       const candidate = nextAlignedRow(
-        evRows, idx, { id: spot.id ?? null, name: spot.name }, evIndex, dominantWant,
+        evRows, idx, { id: spot.id ?? null, name: spot.name }, evIndex, dominantWant, requireTide,
       );
       if (candidate === -1) continue;
       const candidateIdx = evRows.indexOf(candidate);
-      if (candidateIdx !== -1 && candidateIdx < nextFitRowIdx) {
-        nextFitRowIdx = candidateIdx;
-        nextFitRow = candidate;
+      if (candidateIdx !== -1 && candidateIdx < foundIdx) {
+        foundIdx = candidateIdx;
+        found = candidate;
       }
     }
-  }
+    return found;
+  };
+  const nextFitRow = earliestFit(true);
+  // The same scan without `requireTide`, ALWAYS run independently: the EARLIEST fitting window,
+  // whether or not the strip can show it. The callout and the four-day sheet name that one, so the
+  // footer must too — it jumps only when the earliest fit is also tide-bearing (`nextFitAny ===
+  // nextFitRow`), names it as plain text when it is not, and says "beyond" only when it is -1.
+  const nextFitAny = earliestFit(false);
 
   return {
     visible: true,
+    fitKnown,
+    unserved: row.served === false,
     representative: row.tide?.locationName ?? null,
     namedCoastal,
     dimmed,
@@ -349,6 +428,7 @@ export function stripModel({
     dominantWant,
     dominantWantCount: wanting.length,
     nextFitRow,
+    nextFitAny,
   };
 }
 
@@ -367,7 +447,8 @@ export function stripModel({
  *   and sunset drawn on the strip belong to the WINDOW on screen, not to the tide's own location
  * @param {'SUNRISE'|'SUNSET'} eventType
  * @returns {?string} the served clock time (e.g. {@code "05:44"}), or null when no served row
- *   carries one for this date/type (a D-13 filler row, whose {@code time} is {@code ''})
+ *   carries one for this date/type (a D-13 filler row with nothing lent, whose {@code time} is
+ *   {@code ''}; a filler that borrowed the briefing's tide also borrowed its clock time)
  */
 export function siblingEventTime(evRows, date, eventType) {
   if (!Array.isArray(evRows) || date == null) return null;

@@ -1227,6 +1227,43 @@ class PlanWindowProjectorTest {
         }
 
         @Test
+        @DisplayName("a window past the rendered six still carries its own tide rollup")
+        void anUnrenderedWindowStillCarriesItsTide() {
+            // The Map tab's tide strip reads a tide for every day the briefing carries, including
+            // the events the Plan tab does not draw (the 7th and 8th here). The client relies on
+            // the projector attaching the rollup to EVERY event summary, not only the rendered
+            // ones: cap the tide at the render horizon and the strip vanishes for exactly those
+            // windows, which is how the Sunday sunrise lost it. Each window must also carry its OWN
+            // rollup, not a neighbour's.
+            Map<PlanWindowProjector.WindowKey, BriefingWindowTide> tides = new java.util.HashMap<>();
+            for (int d = 0; d < 4; d++) {
+                for (TargetType type : TargetType.values()) {
+                    if (type == TargetType.SUNRISE || type == TargetType.SUNSET) {
+                        tides.put(new PlanWindowProjector.WindowKey(TODAY.plusDays(d), type),
+                                windowTide("HW", "0" + d + ":00", type.name() + " d" + d));
+                    }
+                }
+            }
+
+            DailyBriefingResponse out = projectWithTides(List.of(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3))),
+                    List.of(), tides);
+
+            PlanRenderedEvent lastDayRising = new PlanRenderedEvent(
+                    TODAY.plusDays(3), TargetType.SUNRISE);
+            assertThat(out.renderedEvents()).doesNotContain(lastDayRising);
+            BriefingEventSummary unrendered = out.days().get(3).eventSummaries().get(0);
+            assertThat(unrendered.targetType()).isEqualTo(TargetType.SUNRISE);
+            assertThat(unrendered.window().tide()).isNotNull();
+            assertThat(unrendered.window().tide().nearestOffset()).isEqualTo("SUNRISE d3");
+            assertThat(out.days().get(3).eventSummaries().get(1).window().tide().nearestOffset())
+                    .isEqualTo("SUNSET d3");
+        }
+
+        @Test
         @DisplayName("one elapsed event spends no slot, so the horizon reaches one event further")
         void anElapsedEventDoesNotSpendASlot() {
             // Eight events, served at 12:00 — after the 05:00 sunrise plus its 30-minute afterglow

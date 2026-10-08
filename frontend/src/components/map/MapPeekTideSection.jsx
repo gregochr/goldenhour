@@ -40,9 +40,10 @@ import {
  *
  * <p>⚠️ <b>`model.visible` is checked BEFORE `TideStripFooter` renders, and this section is the
  * one caller of it that must</b> (found in M5's adversarial review). On the desktop strip
- * `footerModel`'s own "no coastal spot here has its water on this light" fallback (its third
- * branch, `namedCoastal`/`dimmed`/`matched` all empty) can only mean "spots are in view but none
- * carry a served alignment fact", because the desktop strip's own mount is gated on
+ * `footerModel`'s own "no coastal spot here has its water on this light" fallback (its last
+ * branch, `namedCoastal`/`dimmed`/`matched` all empty, reached for a SERVED window; an unserved one
+ * with no tier gets the "No per-spot tide fit for this window" sentence first) can only mean
+ * "spots are in view but none carry a served alignment fact", because the desktop strip's own mount is gated on
  * `stripModel.visible` — reaching that fallback with an EMPTY viewport was structurally
  * impossible there. Always mode (§3 M5 task 1) breaks that structural guarantee on purpose — it
  * ignores the coast-in-view test so a served tide still shows on a panned-away Poor window — so
@@ -103,6 +104,9 @@ MapPeekTideSection.propTypes = {
     dominantWant: PropTypes.string,
     dominantWantCount: PropTypes.number,
     nextFitRow: PropTypes.oneOfType([PropTypes.object, PropTypes.number]),
+    nextFitAny: PropTypes.oneOfType([PropTypes.object, PropTypes.number]),
+    fitKnown: PropTypes.bool,
+    unserved: PropTypes.bool,
   }).isRequired,
   onSelectEv: PropTypes.func,
   /** The Tide peek button — the section's own "stable focus target" (§3 M3 task 3), focused before

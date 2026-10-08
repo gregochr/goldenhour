@@ -13,7 +13,9 @@ import { useState } from 'react';
 import {
   describe, it, expect, vi,
 } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import {
+  render, screen, fireEvent, within,
+} from '@testing-library/react';
 import MapPeekTideSection from '../components/map/MapPeekTideSection.jsx';
 
 function tideFixture(overrides = {}) {
@@ -201,6 +203,50 @@ describe('MapPeekTideSection — every line from one fixture', () => {
     );
     expect(() => fireEvent.click(screen.getByTestId('wf-tide-strip-next'))).not.toThrow();
     expect(onSelectEv).toHaveBeenCalledWith(nextRow);
+  });
+});
+
+describe('MapPeekTideSection — an unserved window with no tier on any in-view spot', () => {
+  it('states there is no per-spot fit, with no "beyond" denial and no jump', () => {
+    render(
+      <MapPeekTideSection
+        tide={tideFixture()}
+        activeRow={activeRow}
+        model={baseModel({
+          visible: true,
+          unserved: true,
+          fitKnown: false,
+          namedCoastal: [{ name: 'Spot0' }],
+          dimmed: [],
+          matched: [],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('wf-tide-strip-footer'))
+      .toHaveTextContent('No per-spot tide fit for this window');
+    expect(screen.queryByTestId('wf-tide-strip-beyond')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-tide-strip-next')).not.toBeInTheDocument();
+  });
+
+  it('names a fitting window the strip cannot show as plain text, with no button and no denial', () => {
+    const anyRow = { dayLabel: 'Sunday', eventType: 'SUNRISE', time: '' };
+    render(
+      <MapPeekTideSection
+        tide={tideFixture()}
+        activeRow={activeRow}
+        model={baseModel({
+          dimmed: [{ name: 'X' }], dominantWant: 'HIGH', nextFitRow: -1, nextFitAny: anyRow,
+        })}
+      />,
+    );
+    expect(screen.getByTestId('wf-tide-strip-nostrip'))
+      .toHaveTextContent('Next high water on the light · Sunday sunrise');
+    expect(screen.queryByTestId('wf-tide-strip-next')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-tide-strip-beyond')).not.toBeInTheDocument();
+    // Plain text: no button of any kind in the footer, and no jump chevron.
+    const footer = screen.getByTestId('wf-tide-strip-footer');
+    expect(within(footer).queryByRole('button')).toBeNull();
+    expect(footer.textContent).not.toContain('›');
   });
 });
 

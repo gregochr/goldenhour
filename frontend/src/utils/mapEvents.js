@@ -156,9 +156,23 @@ function dayOnly(label) {
 }
 
 /**
+ * The key a solar window goes by in {@code buildWindowTideIndex}'s result and in
+ * {@link buildMapEvents}' {@code tideByWindow}: one definition for the builder and its consumer.
+ *
+ * @param {string} date ISO date
+ * @param {string} targetType 'SUNRISE' | 'SUNSET'
+ * @returns {string}
+ */
+export function solarWindowKey(date, targetType) {
+  return `${date}:${targetType}`;
+}
+
+/**
  * Builds one solar EV row from a served window (the shape {@code WindowFirstMapPane} builds
  * {@code heat.windows} in, enriched with {@code confidenceTier} and {@code badges}) or synthesises
- * an unscored D-13 row when none was served for this date/type.
+ * an unscored D-13 row when the pane's rendered list carried none for this date/type. A filler may
+ * still borrow the briefing's own served tide and clock time for the window ({@code lent}): the
+ * briefing rolls those up for every event of its owned days, rendered or not.
  *
  * <p><b>The menu-best population (plan §4.14, stated in code as that section requires):</b>
  * {@code served.bestRating} is the served {@code BriefingWindow.bestRating} figure verbatim,
@@ -169,7 +183,9 @@ function dayOnly(label) {
  * doc comment states why the night rows are held to the identical, unfiltered rule rather than
  * independently scope-filtered.
  */
-function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDomain) {
+function solarRow(
+  date, targetType, served, todayStr, tomorrowStr, inForecastDomain, lent = null,
+) {
   const eventType = targetType;
   if (served) {
     const label = served.label;
@@ -232,18 +248,20 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     date,
     label,
     dayLabel: dayOnly(label),
-    time: '',
+    // The served clock time lent with the tide, when there is one — never synthesised here.
+    time: lent?.time || '',
     confidence: resolveConfidence(null, daysOut(date, todayStr)),
     bestRating: null,
     scored: false,
-    // A D-13 filler: the briefing served no window for this date, so nothing here has been through
-    // the elapsed test. See the served branch above.
+    // A D-13 filler: the pane's rendered list carried no window for this date and event, so nothing
+    // here has been through the elapsed test (the briefing may still have served one — see `tide`).
+    // See the served branch above.
     served: false,
-    // A filler row is a date the briefing carried no window for at all, so it carries no away
+    // A filler row is a date the pane's rendered list carried no window for, so it carries no away
     // state either — the travel ranges the pane knows about never reach this list.
     away: false,
     badges: [],
-    // A D-13 filler row is a date the briefing carried no window for, so there is no pick. Null
+    // A D-13 filler row has no rendered window, so there is no pick. Null
     // rather than absent, so every solar row has one shape.
     //
     // ⚠️ A filler row is NOT pastness-filtered the way a served one is. The briefing withdraws an
@@ -251,16 +269,21 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     // after this morning's sunrise a filler SUNRISE row is emitted for a window hours in the past
     // — the `date >= todayStr` gate above only excludes YESTERDAY. A caller wanting "the next N
     // windows" must therefore gate on `served`, never on list position alone
-    // (map-landing-plan.md §3 L4 step 2).
+    // (map-landing-plan.md §3 L4 step 2). The one thing that IS pastness-filtered is the lent tide
+    // and time: `lendFor` withholds both once the window has elapsed (`isEventTimePast`).
     pickKind: null,
     // Null rather than absent, with `pickKind` — the invariant the comment above states is that
     // every solar row has ONE shape, and L6 added this field to the served branch alone. A
     // completeness sweep caught the omission; it is harmless today only because every reader
     // short-circuits on the kind first.
     pickRegion: null,
-    // A D-13 filler is a date the briefing carried no window for at all, so there is no served
-    // `BriefingWindowTide` either — null, matching `pickKind`/`pickRegion` above.
-    tide: null,
+    // A D-13 filler has no window in the pane's list, but the briefing may still have served one:
+    // it rolls a tide up for every event of its four owned days while the pane lists only the six
+    // it renders. `lent.tide` is that served rollup, forwarded verbatim; null where the briefing
+    // carried none (past its owned days, or no drawable tide), and the tide is then never
+    // synthesised. The row stays unscored and `served: false` — the tide and its clock time are all
+    // a filler borrows; per-spot fit comes from the slots' own served tide facts, as for any row.
+    tide: lent?.tide ?? null,
     inForecastDomain,
   };
 }
@@ -529,6 +552,14 @@ export function isNightOffered(eventType, date, { todayStr, currentNightDate = n
  * @param {string[]} [args.auroraAvailableDates] dates with stored aurora forecast results
  * @param {Map<string, Array>} [args.auroraResultsByDate] date → that night's aurora result rows
  * @param {boolean} [args.isLite] true for a LITE account — aurora rows are omitted outright
+ * @param {?Map<string, {tide: object, eventTime: ?string, time: ?string}>} [args.tideByWindow]
+ *   the briefing's served tide (with the window's event instant and its formatted clock time) per
+ *   {@link solarWindowKey}, lent to a D-13 filler row — a window the briefing carries but the
+ *   pane's rendered-six list does not. Omitted, a filler has no tide
+ * @param {(eventTime: ?string) => boolean} [args.isEventTimePast] the elapsed test (the app clock's,
+ *   `briefingDisplay.isEventTimePast`), injected so this module reads no clock. A filler whose lent
+ *   window has elapsed borrows nothing: the briefing withdraws an elapsed window and so must this.
+ *   Defaults to never past
  * @param {(v: ?string) => ?string} [args.formatTimeUk] UTC-naive → UK 'HH:MM' formatter, injected
  *   so this module makes no `Intl`/timezone assumption of its own (defaults to a passthrough that
  *   renders no clock time, which is a safe empty state rather than a wrong one)
@@ -547,8 +578,15 @@ export function buildMapEvents({
   auroraResultsByDate = new Map(),
   isLite = false,
   formatTimeUk = () => null,
+  tideByWindow = new Map(),
+  isEventTimePast = () => false,
 }) {
   const forecastDateSet = new Set(forecastDates);
+  const tides = tideByWindow instanceof Map ? tideByWindow : new Map();
+  const lendFor = (date, type) => {
+    const entry = tides.get(solarWindowKey(date, type));
+    return entry && !isEventTimePast(entry.eventTime) ? entry : null;
+  };
   const solarByDate = new Map();
   for (const w of solarWindows) {
     if (!w?.date || !w?.targetType) continue;
@@ -602,11 +640,17 @@ export function buildMapEvents({
     // present is already evidence the date belongs on screen regardless of this check.
     if (hasSolarRow(served.SUNRISE, inForecastDomain, date, todayStr)) {
       const sunriseInDomain = inForecastDomain || Boolean(served.SUNRISE);
-      rows.push(solarRow(date, 'SUNRISE', served.SUNRISE, todayStr, tomorrowStr, sunriseInDomain));
+      rows.push(solarRow(
+        date, 'SUNRISE', served.SUNRISE, todayStr, tomorrowStr, sunriseInDomain,
+        lendFor(date, 'SUNRISE'),
+      ));
     }
     if (hasSolarRow(served.SUNSET, inForecastDomain, date, todayStr)) {
       const sunsetInDomain = inForecastDomain || Boolean(served.SUNSET);
-      rows.push(solarRow(date, 'SUNSET', served.SUNSET, todayStr, tomorrowStr, sunsetInDomain));
+      rows.push(solarRow(
+        date, 'SUNSET', served.SUNSET, todayStr, tomorrowStr, sunsetInDomain,
+        lendFor(date, 'SUNSET'),
+      ));
     }
 
     // Night — after that day's sunset (README "The window control").

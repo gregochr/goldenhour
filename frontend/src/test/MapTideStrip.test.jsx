@@ -9,7 +9,7 @@
  * light dot's placement against `TY(windowLevel)` and the fixture's own curve/windowLevel agreement
  * (mirroring `TideSurfaceAgreementTest`'s server-side intent — see the note on {@link tideFixture}
  * below for why the two are derived independently rather than one from the other); footer copy for
- * all three count cases and both next-fit outcomes with exact strings, both as pure functions and
+ * all four count cases and the three next-fit outcomes (jump, plain text, beyond) with exact strings, both as pure functions and
  * through a real render; the `aria-hidden` chart (the WHOLE overlay, not only the svg) and the state
  * phrase as real text; the landmark role/label and the collapse toggle's accessible name (excluding
  * its decorative glyph); focus moving to the strip after the next-fit jump; collapse toggling;
@@ -18,7 +18,9 @@
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import {
+  render, screen, fireEvent, within,
+} from '@testing-library/react';
 import MapTideStrip, { TY, footerModel, nextFitCopy } from '../components/map/MapTideStrip.jsx';
 
 /**
@@ -402,6 +404,35 @@ describe('MapTideStrip — the chart mapping (plan §7 check 5)', () => {
   });
 });
 
+describe('MapTideStrip — the plain-text next-fit line, rendered', () => {
+  let restoreRO;
+  beforeEach(() => { restoreRO = installResizeObserver(); });
+  afterEach(() => { restoreRO(); });
+
+  it('renders the noStrip kind as plain text: no button, no ›, no "beyond"', () => {
+    const ref = mapPane();
+    render(
+      <MapTideStrip
+        model={baseModel({
+          dimmed: [{ name: 'X' }],
+          dominantWant: 'HIGH',
+          nextFitRow: -1,
+          nextFitAny: { dayLabel: 'Saturday', eventType: 'SUNRISE' },
+        })}
+        tide={tideFixture()}
+        activeRow={activeRow}
+        mapPaneRef={ref}
+      />,
+    );
+    const footer = screen.getByTestId('wf-tide-strip-footer');
+    const plain = within(footer).getByTestId('wf-tide-strip-nostrip');
+    expect(plain).toHaveTextContent('Next high water on the light · Saturday sunrise');
+    expect(plain.textContent).not.toContain('›');
+    expect(within(footer).queryByRole('button')).toBeNull();
+    expect(within(footer).queryByTestId('wf-tide-strip-beyond')).toBeNull();
+  });
+});
+
 describe('MapTideStrip — accessibility (adversarial review)', () => {
   let restoreRO;
 
@@ -452,7 +483,7 @@ describe('MapTideStrip — accessibility (adversarial review)', () => {
   });
 });
 
-describe('footerModel — exact copy, all three count cases (plan §7, T6 #8)', () => {
+describe('footerModel — exact copy, all four count cases (plan §7, T6 #8)', () => {
   it('some miss, every dimmed spot sharing one want', () => {
     const model = baseModel({
       namedCoastal: new Array(16).fill(0),
@@ -488,10 +519,65 @@ describe('footerModel — exact copy, all three count cases (plan §7, T6 #8)', 
     expect(countText).toBeNull();
     expect(restText).toBe('No coastal spot here has its water on this light');
   });
+
+  it('an unserved window with no tier states that the fit is unknown, never "no coastal spot has its water"', () => {
+    const model = baseModel({
+      namedCoastal: new Array(16).fill(0), fitKnown: false, unserved: true,
+    });
+    const { countText, restText } = footerModel(model);
+    expect(countText).toBeNull();
+    expect(restText).toBe('No per-spot tide fit for this window');
+  });
+
+  it('a SERVED window with no tier keeps the original wording — "yet" would be false there', () => {
+    const model = baseModel({
+      namedCoastal: new Array(16).fill(0), fitKnown: false, unserved: false,
+    });
+    const { countText, restText } = footerModel(model);
+    expect(countText).toBeNull();
+    expect(restText).toBe('No coastal spot here has its water on this light');
+  });
+
+  it('a model that predates the flags reads as a served window with a known fit', () => {
+    const model = baseModel({ namedCoastal: new Array(16).fill(0) });
+    expect(footerModel(model).restText).toBe('No coastal spot here has its water on this light');
+  });
 });
 
-describe('nextFitCopy — both outcomes (plan §7 check 6, T6 #8)', () => {
+describe('nextFitCopy — the three outcomes: jump, plain text, beyond (plan §7 check 6, T6 #8)', () => {
   const dimmedModel = (extra = {}) => baseModel({ dimmed: [{ name: 'X' }], dominantWant: 'HIGH', ...extra });
+
+  it('names a fitting window the strip cannot show as plain text — never the "beyond" denial', () => {
+    const anyRow = { dayLabel: 'Sunday', eventType: 'SUNRISE' };
+    const copy = nextFitCopy(dimmedModel({ nextFitRow: -1, nextFitAny: anyRow }), activeRow);
+    expect(copy.kind).toBe('noStrip');
+    expect(copy.text).toBe('Next high water on the light · Sunday sunrise');
+    expect(copy.text).not.toContain('›');
+    expect(copy.row).toBeNull();
+  });
+
+  it('a tideless EARLIER fit and a tide-bearing LATER one: plain text naming the earlier, no jump', () => {
+    const earlier = { dayLabel: 'Saturday', eventType: 'SUNRISE' };
+    const later = { dayLabel: 'Sunday', eventType: 'SUNSET' };
+    const copy = nextFitCopy(dimmedModel({ nextFitRow: later, nextFitAny: earlier }), activeRow);
+    expect(copy.kind).toBe('noStrip');
+    expect(copy.text).toBe('Next high water on the light · Saturday sunrise');
+    expect(copy.row).toBeNull();
+  });
+
+  it('prefers the jump when the strip can show the window', () => {
+    const row = { dayLabel: 'Sunday', eventType: 'SUNRISE' };
+    expect(nextFitCopy(dimmedModel({ nextFitRow: row, nextFitAny: row }), activeRow).kind).toBe('jump');
+  });
+
+  it('still says "beyond" when nothing fits anywhere', () => {
+    expect(nextFitCopy(dimmedModel({ nextFitRow: -1, nextFitAny: -1 }), activeRow).kind).toBe('beyond');
+    expect(nextFitCopy(dimmedModel({ nextFitRow: -1 }), activeRow).kind).toBe('beyond');
+  });
+
+  it('is null when the fit is unknown, even if a caller passes a dimmed list and a want', () => {
+    expect(nextFitCopy(dimmedModel({ fitKnown: false }), activeRow)).toBeNull();
+  });
 
   it('is null when nothing is dimmed, whatever nextFitRow says', () => {
     expect(nextFitCopy(baseModel({ dimmed: [] }), activeRow)).toBeNull();

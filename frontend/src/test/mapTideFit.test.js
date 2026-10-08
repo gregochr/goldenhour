@@ -18,8 +18,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime, tideAccessibleClause,
-  coastalInView,
+  coastalInView, buildWindowTideIndex,
 } from '../utils/mapTideFit.js';
+import { solarWindowKey } from '../utils/mapEvents.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
 const DATE_1 = '2026-09-10';
@@ -49,8 +50,12 @@ function tideIndex(entries) {
 }
 
 /** A map-tab label spot, in the shape `MapView.spotOf` builds since T3. */
-function spot(name, { lat, lng, coastal = true, tideTier = null, tideTypes = [] } = {}) {
-  return { name, lat, lng, coastal, tideTier, tideTypes };
+function spot(name, {
+  lat, lng, id = undefined, coastal = true, tideTier = null, tideTypes = [],
+} = {}) {
+  return {
+    name, lat, lng, coastal, tideTier, tideTypes, ...(id === undefined ? {} : { id }),
+  };
 }
 
 /**
@@ -118,6 +123,32 @@ describe('tierOf', () => {
   it('reads null for no fact — not a coastal slot with a served tide state, never a guessed miss', () => {
     expect(tierOf(null)).toBeNull();
     expect(tierOf(undefined)).toBeNull();
+  });
+});
+
+describe('nextAlignedRow — requireTide (opt-in)', () => {
+  const idx = tideIndex([
+    { id: 1, name: 'A', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true },
+    { id: 1, name: 'A', date: DATE_2, eventType: 'SUNSET', state: 'HIGH', aligned: true },
+  ]);
+  const tideless = solarRow(DATE_2, 'SUNRISE', null);
+  const withTide = solarRow(DATE_2, 'SUNSET', { locationName: 'B' });
+
+  it('by default (the callout and the location sheet) a tideless row is a legitimate answer', () => {
+    expect(nextAlignedRow([solarRow(DATE_1, 'SUNSET'), tideless, withTide], idx, { id: 1, name: 'A' }, 0))
+      .toBe(tideless);
+  });
+
+  it('with requireTide it skips rows the strip would refuse to show', () => {
+    expect(nextAlignedRow(
+      [solarRow(DATE_1, 'SUNSET'), tideless, withTide], idx, { id: 1, name: 'A' }, 0, null, true,
+    )).toBe(withTide);
+  });
+
+  it('with requireTide and nothing but tideless rows it answers -1', () => {
+    expect(nextAlignedRow(
+      [solarRow(DATE_1, 'SUNSET'), tideless], idx, { id: 1, name: 'A' }, 0, null, true,
+    )).toBe(-1);
   });
 });
 
@@ -216,6 +247,8 @@ describe('stripModel — visibility', () => {
     const row = solarRow(DATE_1, 'SUNSET', null);
     expect(stripModel({ row, spots, bounds })).toEqual({
       visible: false,
+      fitKnown: false,
+      unserved: false,
       representative: null,
       namedCoastal: [],
       dimmed: [],
@@ -223,7 +256,165 @@ describe('stripModel — visibility', () => {
       dominantWant: null,
       dominantWantCount: 0,
       nextFitRow: -1,
+      nextFitAny: -1,
     });
+  });
+});
+
+describe('stripModel — fitKnown (D-13 filler rows and unscored windows)', () => {
+  const bounds = rectBounds(0, 0, 1, 1);
+  const tide = { locationName: 'Bamburgh' };
+  const filler = { ...solarRow(DATE_1, 'SUNRISE', tide), served: false };
+
+  it('is visible on a filler row that borrowed a served tide, with the fit unknown when no spot has a tier', () => {
+    const spots = [spot('Bamburgh', { lat: 0.5, lng: 0.5, tideTier: null, tideTypes: ['HIGH'] })];
+    const model = stripModel({ row: filler, spots, bounds });
+    expect(model.visible).toBe(true);
+    expect(model.fitKnown).toBe(false);
+    expect(model.representative).toBe('Bamburgh');
+  });
+
+  it('a served:false row with a miss spot reports it dimmed and the fit known (unrendered windows have real slot facts)', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const model = stripModel({ row: filler, spots, bounds });
+    expect(model.fitKnown).toBe(true);
+    expect(model.dimmed.map((s) => s.name)).toEqual(['Miss']);
+    expect(model.dominantWant).toBe('HIGH');
+  });
+
+  it('a match spot alone also makes the fit known', () => {
+    const spots = [spot('Match', { lat: 0.5, lng: 0.5, tideTier: 'match', tideTypes: ['HIGH'] })];
+    const model = stripModel({ row: filler, spots, bounds });
+    expect(model.fitKnown).toBe(true);
+    expect(model.matched).toHaveLength(1);
+  });
+
+  it('keeps the next-fit jump on an unrendered window', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const later = { ...solarRow(DATE_2, 'SUNRISE', tide), served: true };
+    const idx = tideIndex([{ id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true }]);
+    const model = stripModel({
+      row: filler, spots, bounds, evRows: [filler, later], evIndex: 0, idx,
+    });
+    expect(model.nextFitRow).toBe(later);
+  });
+
+  it('an unserved row with a tiered spot is not flagged unserved-and-unknown', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const model = stripModel({ row: filler, spots, bounds });
+    expect(model.unserved).toBe(true);
+    expect(model.fitKnown).toBe(true);
+  });
+
+  it('a SERVED row with no tiered spot reports fitKnown false but unserved false (HEAD wording)', () => {
+    const served = { ...solarRow(DATE_1, 'SUNRISE', tide), served: true };
+    const spots = [spot('Untiered', { lat: 0.5, lng: 0.5, tideTier: null })];
+    const model = stripModel({ row: served, spots, bounds });
+    expect(model.fitKnown).toBe(false);
+    expect(model.unserved).toBe(false);
+  });
+
+  it('skips a later row with no tide when the strip scans, so it never offers a jump it would refuse', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const tideless = solarRow(DATE_2, 'SUNRISE', null);
+    const withTide = solarRow(DATE_2, 'SUNSET', tide);
+    const idx = tideIndex([
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true },
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNSET', state: 'HIGH', aligned: true },
+    ]);
+    const model = stripModel({
+      row: filler, spots, bounds, evRows: [filler, tideless, withTide], evIndex: 0, idx,
+    });
+    expect(model.nextFitRow).toBe(withTide);
+  });
+
+  it('a fitting later row with NO tide is reported as nextFitAny, not nextFitRow (no false denial)', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const tideless = { ...solarRow(DATE_2, 'SUNRISE', null), served: true };
+    const idx = tideIndex([
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true },
+    ]);
+    const model = stripModel({
+      row: filler, spots, bounds, evRows: [filler, tideless], evIndex: 0, idx,
+    });
+    expect(model.nextFitRow).toBe(-1);
+    expect(model.nextFitAny).toBe(tideless);
+  });
+
+  it('a tideless EARLIER fit and a tide-bearing LATER one: nextFitAny is the earlier, nextFitRow the later', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const earlier = { ...solarRow(DATE_2, 'SUNRISE', null), served: false };
+    const later = solarRow(DATE_2, 'SUNSET', tide);
+    const idx = tideIndex([
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true },
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNSET', state: 'HIGH', aligned: true },
+    ]);
+    const model = stripModel({
+      row: filler, spots, bounds, evRows: [filler, earlier, later], evIndex: 0, idx,
+    });
+    expect(model.nextFitRow).toBe(later);
+    expect(model.nextFitAny).toBe(earlier);
+  });
+
+  it('nextFitAny equals nextFitRow when the earliest fit has a tide, and is -1 when nothing fits', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const withTide = solarRow(DATE_2, 'SUNSET', tide);
+    const idx = tideIndex([
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNSET', state: 'HIGH', aligned: true },
+    ]);
+    const shown = stripModel({
+      row: filler, spots, bounds, evRows: [filler, withTide], evIndex: 0, idx,
+    });
+    expect(shown.nextFitRow).toBe(withTide);
+    expect(shown.nextFitAny).toBe(withTide);
+    const none = stripModel({
+      row: filler, spots, bounds, evRows: [filler, withTide], evIndex: 0, idx: tideIndex([]),
+    });
+    expect(none.nextFitRow).toBe(-1);
+    expect(none.nextFitAny).toBe(-1);
+  });
+
+  it('stays hidden when the filler row found no tide — nothing is synthesised', () => {
+    const none = { ...solarRow(DATE_1, 'SUNRISE', null), served: false };
+    const spots = [spot('Bamburgh', { lat: 0.5, lng: 0.5 })];
+    expect(stripModel({ row: none, spots, bounds }).visible).toBe(false);
+  });
+});
+
+describe('buildWindowTideIndex', () => {
+  const tide = (name) => ({ locationName: name });
+
+  it('keys every event summary that carries a tide, rendered or not, with its event time', () => {
+    const days = [
+      { date: '2026-10-10', eventSummaries: [
+        { targetType: 'SUNRISE', window: { tide: tide('A'), eventTime: '2026-10-10T05:44:00' } },
+        { targetType: 'SUNSET', window: { tide: tide('B') } },
+      ] },
+      { date: '2026-10-11', eventSummaries: [{ targetType: 'SUNRISE', window: { tide: tide('C') } }] },
+    ];
+    const index = buildWindowTideIndex(days, (iso) => `fmt(${iso})`);
+    expect(index.get(solarWindowKey('2026-10-10', 'SUNRISE'))).toEqual({
+      tide: tide('A'), eventTime: '2026-10-10T05:44:00', time: 'fmt(2026-10-10T05:44:00)',
+    });
+    // No served eventTime: null, never a synthesised time, and the formatter is not even asked.
+    expect(index.get(solarWindowKey('2026-10-10', 'SUNSET'))).toEqual({
+      tide: tide('B'), eventTime: null, time: null,
+    });
+    expect(index.size).toBe(3);
+  });
+
+  it('has no entry for a window without a tide, and tolerates missing or malformed days', () => {
+    const days = [
+      { date: '2026-10-10', eventSummaries: [
+        { targetType: 'SUNRISE', window: {} },
+        { targetType: 'SUNSET' },
+        { window: { tide: tide('X') } },
+      ] },
+      { eventSummaries: [] },
+      null,
+    ];
+    expect(buildWindowTideIndex(days).size).toBe(0);
+    expect(buildWindowTideIndex(undefined).size).toBe(0);
   });
 });
 
@@ -368,14 +559,16 @@ describe('stripModel — dominant want tie-break', () => {
 
 describe('stripModel — nextFitRow', () => {
   const bounds = rectBounds(0, 0, 1, 1);
+  // The strip only scans rows it could itself show, so later rows carry a served tide.
+  const tided = (d, t) => solarRow(d, t, { locationName: 'Bamburgh' });
 
   it('is the earliest later row where ANY currently-dimmed spot wanting the dominant want is aligned', () => {
     const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
     const evRows = [
       row,
-      solarRow(DATE_2, 'SUNRISE'),
-      solarRow(DATE_2, 'SUNSET'),
-      solarRow(DATE_3, 'SUNRISE'),
+      tided(DATE_2, 'SUNRISE'),
+      tided(DATE_2, 'SUNSET'),
+      tided(DATE_3, 'SUNRISE'),
     ];
     const spots = [
       spot('First', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),
@@ -393,7 +586,7 @@ describe('stripModel — nextFitRow', () => {
 
   it('is -1 when no currently-dimmed spot wanting the dominant want ever fits again', () => {
     const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
-    const evRows = [row, solarRow(DATE_2, 'SUNRISE')];
+    const evRows = [row, tided(DATE_2, 'SUNRISE')];
     const spots = [spot('First', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] })];
     const idx = tideIndex([{ name: 'First', date: DATE_2, eventType: 'SUNRISE', aligned: false }]);
     const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
@@ -408,7 +601,7 @@ describe('stripModel — nextFitRow', () => {
 
   it('a {HIGH, LOW} spot aligned via LOW does not answer "next high water" — the scan fits the dominant want itself', () => {
     const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
-    const evRows = [row, solarRow(DATE_2, 'SUNRISE'), solarRow(DATE_2, 'SUNSET')];
+    const evRows = [row, tided(DATE_2, 'SUNRISE'), tided(DATE_2, 'SUNSET')];
     // Two HIGH-only wanters make HIGH dominant; the two-value spot enters the scan because it
     // wants HIGH too — but its sooner alignment is to LOW water, and must not surface.
     const spots = [
@@ -427,7 +620,7 @@ describe('stripModel — nextFitRow', () => {
 
   it('a spot NOT wanting the dominant want is never consulted for the scan', () => {
     const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
-    const evRows = [row, solarRow(DATE_2, 'SUNRISE')];
+    const evRows = [row, tided(DATE_2, 'SUNRISE')];
     // Two HIGH wanters make HIGH dominant; the one LOW wanter's own (sooner!) fit must not surface.
     const spots = [
       spot('HighOne', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),

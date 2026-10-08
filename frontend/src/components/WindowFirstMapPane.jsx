@@ -21,6 +21,8 @@ import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
+import { buildWindowTideIndex } from '../utils/mapTideFit.js';
+import { formatTime } from '../utils/briefingDisplay.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -438,6 +440,11 @@ export default function WindowFirstMapPane({
     () => buildEvaluationGateIndex(briefing?.days), [briefing?.days],
   );
 
+  // The briefing's served tide for every window it carries (rendered or not), with its event time.
+  const tideByWindow = useMemo(
+    () => buildWindowTideIndex(briefing?.days, formatTime), [briefing?.days],
+  );
+
   /**
    * The heat field's opt-in, built here and nowhere else.
    *
@@ -474,6 +481,9 @@ export default function WindowFirstMapPane({
       spots: heatSpots,
       areaSpots: framed,
       pointsByKey: heatPointSets,
+      // The briefing's served tide for EVERY window it carries, rendered or not — lent to the
+      // Map tab's D-13 filler rows (`mapEvents.solarRow`), which would otherwise lose the strip.
+      tideByWindow,
       // Every rendered window, away days included, so the selector's six are the strip's six — one
       // shape of the week. An away window simply has no points and paints nothing, which is the
       // same answer the Plan tab's thumbnail gives it.
@@ -580,7 +590,7 @@ export default function WindowFirstMapPane({
        */
       beyondRegionNames: origin ? [] : beyondRegions(heatSpots, reachById),
     };
-  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
+  }, [heatSpots, heatPointSets, heatStripCards, tideByWindow, reachById, homePlace, todayStr,
     origin, effectiveReachById]);
 
   useEffect(() => {
