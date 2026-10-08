@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.service.AlmanacService;
@@ -194,25 +195,68 @@ public class AskSnapshotBuilder {
         if (travel.computeIfAbsent(date, travelDayService::isTravelDay)) {
             return null;
         }
-        List<AskSnapshot.Region> regions = summary.regions().stream().map(this::toRegion).toList();
+        Map<String, LocationTideFact> facts = tideFactsByLocation(window);
+        List<AskSnapshot.Region> regions = summary.regions().stream()
+                .map(region -> toRegion(region, facts)).toList();
         return new AskSnapshot.Window(AskWindowId.format(date, summary.targetType()), date,
                 summary.targetType(), window.eventTime(), window.verdict(), window.bestRating(),
                 window.pick(), regions);
     }
 
-    private AskSnapshot.Region toRegion(BriefingRegion region) {
-        return new AskSnapshot.Region(region.regionName(), region.displayVerdict(),
-                region.meanRating(), region.verdictEligible(),
-                region.slots().stream().map(AskSnapshotBuilder::toSlot).toList());
+    /** Key prefix for a fact joined by location id. */
+    private static final String ID_KEY = "id:";
+
+    /** Key prefix for a fact joined by location name. */
+    private static final String NAME_KEY = "name:";
+
+    /**
+     * The window's tide facts keyed for the slot join, built once per window: by location id and, for
+     * a legacy fact written without one, by name. The first fact for a key wins, as in the served
+     * projection. A window with no {@code tideFacts} yields an empty map.
+     */
+    static Map<String, LocationTideFact> tideFactsByLocation(BriefingWindow window) {
+        Map<String, LocationTideFact> facts = new HashMap<>();
+        if (window == null || window.tideFacts() == null) {
+            return facts;
+        }
+        for (LocationTideFact fact : window.tideFacts()) {
+            if (fact == null) {
+                continue;
+            }
+            if (fact.locationId() != null) {
+                facts.putIfAbsent(ID_KEY + fact.locationId(), fact);
+            }
+            if (fact.locationName() != null) {
+                facts.putIfAbsent(NAME_KEY + fact.locationName(), fact);
+            }
+        }
+        return facts;
     }
 
-    private static AskSnapshot.Slot toSlot(BriefingSlot slot) {
-        BriefingSlot.TideInfo tide = slot.tide();
+    private static AskSnapshot.Region toRegion(BriefingRegion region, Map<String, LocationTideFact> facts) {
+        return new AskSnapshot.Region(region.regionName(), region.displayVerdict(),
+                region.meanRating(), region.verdictEligible(),
+                region.slots().stream().map(slot -> toSlot(slot, facts)).toList());
+    }
+
+    /**
+     * Joins a slot to its window's tide fact: by location id first, then by name. The slot's own
+     * {@code tide()} is deliberately never read, because the served slot no longer carries one
+     * (window-tide-facts plan §3.2); a slot with no fact has the tide fields of an inland location.
+     */
+    private static AskSnapshot.Slot toSlot(BriefingSlot slot, Map<String, LocationTideFact> facts) {
+        LocationTideFact fact = null;
+        if (slot.locationId() != null) {
+            fact = facts.get(ID_KEY + slot.locationId());
+        }
+        if (fact == null && slot.locationName() != null) {
+            fact = facts.get(NAME_KEY + slot.locationName());
+        }
         return new AskSnapshot.Slot(slot.locationId(), slot.locationName(), slot.claudeRating(),
                 slot.displayVerdict(), slot.claudeHeadline(), slot.canopy(),
-                tide == null ? null : tide.tideState(),
-                tide != null && tide.tideAligned(),
-                tide == null ? null : tide.tideFitPhrase());
+                fact == null ? null : fact.tideState(),
+                fact != null && fact.tideAligned(),
+                fact == null ? null : fact.tideFitPhrase());
     }
 
     /** A rendered event's identity: its date and target type. */
