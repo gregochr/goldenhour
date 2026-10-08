@@ -9,10 +9,10 @@ import { STATE_WORD } from '../../utils/windowFirstRows.js';
  * a join over the card {@code buildPickCards} built from served data; nothing here is computed.
  *
  * <p>The two hosts differ only in the wrapper they draw around a fact (the card's score pill and the
- * plan view's carry different test-ids and one extra class) and in the visible copy of the tide's
- * spoken clause — "Tide: …" on the card, bare on the plan view, where the cell's own label already says
- * Tide. That difference is kept as it was (an owner decision to unify it, or not, is open), so the
- * clause's label is a prop and neither host's text moved.
+ * plan view's carry different test-ids and one extra class). The tide's spoken clause reads
+ * "Tide: …" on both: the plan view's cell already says Tide visibly, but a screen reader meets the
+ * clause on its own inside the cell's value, and the two hosts said it differently only by history
+ * (owner decision, 2026-10-08: "Tide:" everywhere).
  */
 
 /**
@@ -72,10 +72,8 @@ PickScore.propTypes = {
  *
  * @param {object} props
  * @param {{tier: string, state: ?string, shortfall: ?string, clause: ?string}} props.tide
- * @param {string} [props.label] a word to lead the spoken clause with ("Tide" reads "Tide: …"); none
- *        reads the clause bare
  */
-export function PickTide({ tide, label = undefined }) {
+export function PickTide({ tide }) {
   return (
     <>
       <TideWave
@@ -87,7 +85,7 @@ export function PickTide({ tide, label = undefined }) {
         <span aria-hidden="true">{` ${STATE_WORD[tide.state]}`}</span>
       )}
       {tide.clause && (
-        <span className="sr-only">{label ? `${label}: ${tide.clause}` : tide.clause}</span>
+        <span className="sr-only">{`Tide: ${tide.clause}`}</span>
       )}
     </>
   );
@@ -100,5 +98,4 @@ PickTide.propTypes = {
     shortfall: PropTypes.string,
     clause: PropTypes.string,
   }).isRequired,
-  label: PropTypes.string,
 };

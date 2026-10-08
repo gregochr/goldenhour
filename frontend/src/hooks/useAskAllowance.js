@@ -10,10 +10,14 @@ import { ukDateStr } from '../utils/mapDates.js';
  * <p><b>Only the server's figures are ever shown.</b> The hook holds what the endpoint said, or what
  * a typed answer said ({@link applyServed}, fed the POST response's own {@code allowanceLeft} and
  * {@code allowanceLimit}); nothing here counts a question down. It is refetched on demand
- * ({@code refetch}) — the provider calls it after every POST that could have moved the figure — and
- * never cached: this endpoint sits under the personal-data prefix `HttpCachingConfig` never filters,
- * and the state lives in the component, not in `utils/swrCache.js`, so a logout cannot carry one
- * reader's allowance to the next.
+ * ({@code refetch}): the provider calls it after a POST that could have moved the figure and carried
+ * none (an answer without its figures, a lost connection, a failed engine, a refusal that used a
+ * question, a response a newer ask overtook), and NOT after an answer that states its figures, which
+ * is the server's word and is applied as it stands. (That leaves {@code typedAvailable}, which a POST
+ * answer does not carry, as the last read had it until the next read — owner decision, 2026-10-08.)
+ * It is never cached: this endpoint sits under the personal-data prefix `HttpCachingConfig` never
+ * filters, and the state lives in the component, not in `utils/swrCache.js`, so a logout cannot carry
+ * one reader's allowance to the next.
  *
  * <p><b>The UK day turning over refetches it.</b> The allowance resets at UK midnight, and a tab left
  * open overnight (an installed PWA is the ordinary case) would otherwise go on saying "No own

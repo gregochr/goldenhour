@@ -6,8 +6,7 @@ import { starsWord } from '../utils/askModel.js';
 /**
  * The facts the pick card and the "Plan this" view share (`components/ask/AskPickFacts.jsx`). The hosts'
  * own tests pin that each one mounts them; THIS file is the one place that pins what the spoken text
- * says, for both tide labels, so the card and the plan view cannot drift apart in how a screen reader
- * hears a pick.
+ * says, so the card and the plan view cannot drift apart in how a screen reader hears a pick.
  */
 
 const card = (over = {}) => ({
@@ -65,26 +64,26 @@ describe('PickScore', () => {
 });
 
 describe('PickTide', () => {
-  it('leads the spoken clause with the label it is given — the card’s "Tide: …"', () => {
-    const { container } = render(<PickTide tide={MISS} label="Tide" />);
+  it('leads the spoken clause with "Tide: " — on the card and on the plan view alike', () => {
+    const { container } = render(<PickTide tide={MISS} />);
 
     expect(container.querySelector('.sr-only')).toHaveTextContent(/^Tide: wants the water lower$/);
   });
 
-  it('reads the clause bare with no label — the plan view’s, under its own "Tide" cell label', () => {
+  it('leads a matched tide’s clause the same way', () => {
     const { container } = render(<PickTide tide={MATCH} />);
 
-    expect(container.querySelector('.sr-only')).toHaveTextContent(/^high water, right here$/);
+    expect(container.querySelector('.sr-only')).toHaveTextContent(/^Tide: high water, right here$/);
   });
 
   it('hides the visible state word from assistive technology, so the fact is said once', () => {
-    render(<PickTide tide={MATCH} label="Tide" />);
+    render(<PickTide tide={MATCH} />);
 
     expect(screen.getByText('high water')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('draws no spoken clause when the fact carries none, and no word for a state it does not know', () => {
-    const { container } = render(<PickTide tide={{ tier: 'match', state: null, clause: null }} label="Tide" />);
+    const { container } = render(<PickTide tide={{ tier: 'match', state: null, clause: null }} />);
 
     expect(container.querySelector('.sr-only')).toBeNull();
     expect(screen.queryByText(/water|tide/i)).toBeNull();

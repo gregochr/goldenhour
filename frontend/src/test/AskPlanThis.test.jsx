@@ -398,7 +398,7 @@ describe('the four figures and the note, as the view prints them', () => {
     expect(screen.getByTestId('ask-plan-light')).toHaveTextContent('golden 17:50–18:41');
     expect(screen.getByTestId('ask-plan-light')).toHaveTextContent('blue 18:41–19:15');
     expect(screen.getByTestId('ask-plan-tide')).toHaveTextContent('high water');
-    expect(screen.getByTestId('ask-plan-tide')).toHaveTextContent('high water, right here');
+    expect(screen.getByTestId('ask-plan-tide')).toHaveTextContent('Tide: high water, right here');
   });
 
   it('the header names the spot, the event, the UK time and the served verdict in its tier', async () => {
@@ -439,7 +439,7 @@ describe('the four figures and the note, as the view prints them', () => {
 
     const tide = screen.getByTestId('ask-plan-tide');
     expect(screen.getByTestId('ask-plan-tide-value')).toHaveAttribute('data-tier', 'miss');
-    expect(tide).toHaveTextContent('wants the water lower');
+    expect(tide).toHaveTextContent('Tide: wants the water lower');
     // The glyph is the map chip's own: a miss draws the wave WITH the arrow (a second path) and no letter.
     const glyph = tide.querySelector('svg');
     expect(glyph.querySelectorAll('path')).toHaveLength(2);

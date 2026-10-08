@@ -1,18 +1,18 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../../context/WindowFirstBriefingContext.jsx';
 import useAskReady from '../../hooks/useAskReady.js';
 import useAskRequestContext from '../../hooks/useAskRequestContext.js';
-import ProPill from '../shared/ProPill.jsx';
 import AskContextChips from './AskContextChips.jsx';
-import AskEventCard from './AskEventCard.jsx';
-import AskPickCard from './AskPickCard.jsx';
+import AskAnswer from './AskAnswer.jsx';
+import AskCantAnswer from './AskCantAnswer.jsx';
+import AskEmptyState from './AskEmptyState.jsx';
+import AskErrorState from './AskErrorState.jsx';
 import AskPlanThis from './AskPlanThis.jsx';
 import { planActionsShape } from './askShapes.js';
 import {
-  KIND, newestRunLabel, PRO_DAILY_LIMIT, questionsForView, readyBusyLine, resolveSuggestions,
-  TYPED_BUSY_LINE,
+  KIND, newestRunLabel, questionsForView, readyBusyLine, TYPED_BUSY_LINE,
 } from '../../utils/askModel.js';
 
 /** One shared empty list, so a Ready answer opened over the whole catalogue records the same array every time. */
@@ -175,10 +175,10 @@ export default function AskConversation({
   };
   const body = (
     <>
-      {phase === 'answer' && <Answer ask={ask} pickActions={pickActions} onPlan={openPlan} />}
-      {phase === 'cant' && <CantAnswer ask={ask} questions={ready.questions} onOpen={openReady} />}
+      {phase === 'answer' && <AskAnswer ask={ask} pickActions={pickActions} onPlan={openPlan} />}
+      {phase === 'cant' && <AskCantAnswer ask={ask} questions={ready.questions} onOpen={openReady} />}
       {phase === 'error' && (
-        <ErrorState
+        <AskErrorState
           ask={ask}
           onRetry={() => {
             keepFocus();
@@ -220,7 +220,7 @@ export default function AskConversation({
         </div>
       )}
       {phase === 'empty' && (
-        <EmptyState questions={offered} runLabel={newestRunLabel(offered)} ask={ask} onOpen={openReady} />
+        <AskEmptyState questions={offered} runLabel={newestRunLabel(offered)} ask={ask} onOpen={openReady} />
       )}
       {planCard && (
         // Outside the live region on purpose: the whole view is not news, its name is (focus lands on it).
@@ -244,224 +244,4 @@ AskConversation.propTypes = {
   viewLabel: PropTypes.string.isRequired,
   pickActions: PropTypes.func,
   planActions: planActionsShape,
-};
-
-/** The Ready tag and its question — one tappable row. */
-function Suggestion({ question, onOpen }) {
-  return (
-    <button
-      type="button"
-      className="wf-ask-sug"
-      data-testid={`ask-ready-${question.id}`}
-      onClick={() => onOpen(question)}
-    >
-      <span>{question.text}</span>
-      <span className="wf-ask-rd">Ready</span>
-    </button>
-  );
-}
-
-Suggestion.propTypes = {
-  question: PropTypes.shape({ id: PropTypes.string, text: PropTypes.string }).isRequired,
-  onOpen: PropTypes.func.isRequired,
-};
-
-/** State 1 — the suggestions, then the allowance. */
-function EmptyState({ questions, runLabel, ask, onOpen }) {
-  const headingId = useId();
-  return (
-    <>
-      {questions.length > 0 && (
-        <div role="group" aria-labelledby={headingId} data-testid="ask-ready-list">
-          <p className="wf-ask-k wf-ask-ready-h" id={headingId}>
-            {runLabel ? `Ready from the ${runLabel} run · free` : 'Ready questions · free'}
-          </p>
-          <div className="wf-ask-sugs">
-            {questions.map((q) => (
-              <Suggestion key={q.id} question={q} onOpen={onOpen} />
-            ))}
-          </div>
-        </div>
-      )}
-      <AllowanceLine ask={ask} />
-      {ask.allowance.enabled && ask.allowance.typedAvailable === false && (
-        // Without this a reader sees "3 of 3 left" beside a disabled field and no reason.
-        <p className="wf-ask-usage" data-testid="ask-typed-off">
-          Typed questions are unavailable right now. Ready questions still work.
-        </p>
-      )}
-    </>
-  );
-}
-
-EmptyState.propTypes = {
-  questions: PropTypes.arrayOf(PropTypes.object).isRequired,
-  runLabel: PropTypes.string,
-  ask: PropTypes.object.isRequired,
-  onOpen: PropTypes.func.isRequired,
-};
-
-/**
- * "N of M own questions left today · Pro: 30 a day" (a free reader) or "N of M left today" (PRO and
- * ADMIN) — the server's figures, or nothing at all before they are known.
- */
-function AllowanceLine({ ask }) {
-  const { allowance, isPro } = ask;
-  if (!allowance.loaded || allowance.enabled === false) return null;
-  const { left, limit } = allowance;
-  if (isPro) {
-    return (
-      <p className="wf-ask-usage" data-testid="ask-allowance">{`${left} of ${limit} left today`}</p>
-    );
-  }
-  return (
-    <p className="wf-ask-usage" data-testid="ask-allowance">
-      {left > 0 ? `${left} of ${limit} own questions left today` : 'No own questions left today'}
-      {' · '}
-      <ProPill />
-      <span className="sr-only">:</span>
-      {` ${PRO_DAILY_LIMIT} a day`}
-    </p>
-  );
-}
-
-AllowanceLine.propTypes = { ask: PropTypes.object.isRequired };
-
-/** The answer's footer: which run it came from, and what it cost the reader. */
-function footerFor(answer) {
-  const run = answer.runLabel ? ` from the ${answer.runLabel} run` : '';
-  if (answer.kind === KIND.CANT) return 'No question used';
-  if (answer.kind === KIND.READY) return `Ready answer${run} · no question used`;
-  if (!answer.charged) return `Answered${run} · no question used`;
-  if (answer.allowanceLeft !== null && answer.allowanceLimit !== null) {
-    return `Answered${run} · ${answer.allowanceLeft} of ${answer.allowanceLimit} left today`;
-  }
-  return `Answered${run}`;
-}
-
-/** State 3 — the summary, the events, the picks and the footer. */
-function Answer({ ask, pickActions, onPlan }) {
-  const { answer, pickCards, selectedPick } = ask;
-  return (
-    <>
-      <p className="wf-ask-sum" data-testid="ask-summary">{answer.summary}</p>
-      {answer.events.length > 0 && (
-        <div className="wf-ask-cards" data-testid="ask-events">
-          {answer.events.map((event) => (
-            <AskEventCard key={`${event.type}|${event.date}|${event.label}`} event={event} />
-          ))}
-        </div>
-      )}
-      {pickCards.length > 0 && (
-        // `list-style: none` makes Safari drop the list role; the explicit role keeps the picks a
-        // list there, which is why the redundancy rule is waived on this one line.
-        // eslint-disable-next-line jsx-a11y/no-redundant-roles
-        <ol className="wf-ask-picks" role="list" aria-label="Picks" data-testid="ask-picks">
-          {pickCards.map((card) => (
-            <AskPickCard
-              key={card.rank}
-              card={card}
-              selected={selectedPick === card.rank}
-              onSelect={ask.selectPick}
-              actions={(
-                <>
-                  {pickActions ? pickActions(card) : null}
-                  <PlanThisButton card={card} onPlan={onPlan} />
-                </>
-              )}
-            />
-          ))}
-        </ol>
-      )}
-      <p className="wf-ask-foot" data-testid="ask-footer">{footerFor(answer)}</p>
-    </>
-  );
-}
-
-Answer.propTypes = {
-  ask: PropTypes.object.isRequired,
-  pickActions: PropTypes.func,
-  onPlan: PropTypes.func.isRequired,
-};
-
-/**
- * "Plan this ›" — a control in a pick card's own row (`.pk .act button`), on every surface. Every card has
- * a slot to plan: {@code buildPickCards} drops a pick that has none, so there is nothing to guard here.
- */
-function PlanThisButton({ card, onPlan }) {
-  return (
-    <button
-      type="button"
-      className="wf-ask-act wf-ask-act-plan"
-      data-ask-plan-this=""
-      data-testid={`ask-plan-this-${card.rank}`}
-      // The visible words lead the name (WCAG 2.5.3) and the place follows, so a list of these is not
-      // N identical "Plan this"s.
-      aria-label={`Plan this — ${card.name}`}
-      onClick={() => onPlan(card.rank)}
-    >
-      Plan this
-      <span aria-hidden="true"> ›</span>
-    </button>
-  );
-}
-
-PlanThisButton.propTypes = {
-  card: PropTypes.shape({ rank: PropTypes.number, name: PropTypes.string }).isRequired,
-  onPlan: PropTypes.func.isRequired,
-};
-
-/** State 5 — "Not in the forecast". */
-function CantAnswer({ ask, questions, onOpen }) {
-  const { answer } = ask;
-  const headingId = useId();
-  const tries = resolveSuggestions(answer.try, questions);
-  return (
-    <>
-      <div className="wf-ask-cant" data-testid="ask-cant">
-        <span className="wf-ask-cant-k">Not in the forecast</span>
-        <span className="wf-ask-cant-t" data-testid="ask-summary">{answer.summary}</span>
-        {answer.missing && (
-          <span className="wf-ask-cant-m" data-testid="ask-missing">
-            {`PhotoCast doesn’t have: ${answer.missing}`}
-          </span>
-        )}
-      </div>
-      {tries.length > 0 && (
-        <div role="group" aria-labelledby={headingId} data-testid="ask-try">
-          <p className="wf-ask-k wf-ask-ready-h" id={headingId}>Try asking</p>
-          <div className="wf-ask-sugs">
-            {tries.map((q) => (
-              <Suggestion key={q.id} question={q} onOpen={onOpen} />
-            ))}
-          </div>
-        </div>
-      )}
-      <p className="wf-ask-foot" data-testid="ask-footer">{footerFor(answer)}</p>
-    </>
-  );
-}
-
-CantAnswer.propTypes = {
-  ask: PropTypes.object.isRequired,
-  questions: PropTypes.arrayOf(PropTypes.object).isRequired,
-  onOpen: PropTypes.func.isRequired,
-};
-
-/** The failure state — the reason in the server's words, and a way to try again. */
-function ErrorState({ ask, onRetry }) {
-  const { error } = ask;
-  return (
-    <div className="wf-ask-error" data-testid="ask-error">
-      <p className="wf-ask-error-t" data-testid="ask-error-text">{error.message}</p>
-      <button type="button" className="wf-ask-retry" data-testid="ask-retry" onClick={onRetry}>
-        Try again
-      </button>
-    </div>
-  );
-}
-
-ErrorState.propTypes = {
-  ask: PropTypes.object.isRequired,
-  onRetry: PropTypes.func.isRequired,
 };
