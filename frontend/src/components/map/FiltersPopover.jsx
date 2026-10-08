@@ -1,6 +1,6 @@
-import { useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
-import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
+import { MAP_PANE_SELECTOR, foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { STAND_DOWN_COLOUR } from '../markerUtils.js';
@@ -59,7 +59,48 @@ export default function FiltersPopover({
   chipHidden = false, restoreFallback = null,
 }) {
   const rootRef = useRef(null);
+  const panelRef = useRef(null);
   const isMobile = useIsMobile();
+
+  // ⚠️ The desktop/tablet panel must fit the map frame it opens in. It drops from the bottom of
+  // the top-right cluster (Regions, Heat/Pins, the ramp key, then this chip), so on a short frame
+  // a fixed `max-height: 420px` ran past the frame's bottom edge, where the frame clips it — the
+  // Sky and Scope rows were cut off with nothing to scroll (owner report, 2026-10-08, a ~1000px
+  // window). The room between the panel's own top and the bottom of the FRAME (the box
+  // `.wf-map-chrome-tr` is positioned against, or the viewport's bottom if that comes first) is
+  // measured here and written as `--wf-filters-room`, which the stylesheet's `max-height` reads
+  // beside `overflow-y: auto`, so every row is reachable by scrolling, by wheel and by Tab.
+  // A MEASUREMENT write, the same escape hatch `MapTideStrip`'s `--tsh` uses: the room depends on
+  // laid-out geometry no class can know. Re-measured on a window resize and whenever the frame or
+  // the cluster above the panel changes size (the ramp key's line moves the panel's top; the
+  // breadcrumb above the frame gains or loses a line as these very filters change).
+  //
+  // No floor: a panel given more than the room runs past the frame and is clipped again, which is
+  // the bug itself — a short strip that scrolls still reaches every row.
+  useLayoutEffect(() => {
+    if (!open || isMobile) return undefined;
+    const panel = panelRef.current;
+    const chrome = rootRef.current?.parentElement;
+    const pane = rootRef.current?.closest(MAP_PANE_SELECTOR);
+    if (!panel || !chrome || !pane) return undefined;
+    // `offsetParent` is the positioned frame the chrome hangs in (`map-container`); the pane is
+    // the fallback where there is none to read (jsdom, which has no layout).
+    const frame = chrome.offsetParent ?? pane;
+    const fit = () => {
+      const bottom = Math.min(frame.getBoundingClientRect().bottom, window.innerHeight);
+      const room = Math.floor(bottom - panel.getBoundingClientRect().top - FRAME_GAP_PX);
+      panel.style.setProperty('--wf-filters-room', `${Math.max(room, 0)}px`);
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    observer?.observe(frame);
+    observer?.observe(chrome);
+    return () => {
+      window.removeEventListener('resize', fit);
+      observer?.disconnect();
+    };
+  }, [open, isMobile]);
 
   // Desktop/tablet only — see the class doc's phone section. `BottomSheet`'s own backdrop is the
   // phone's dismiss surface, and its content is portalled OUTSIDE `rootRef`, so this listener would
@@ -306,7 +347,7 @@ export default function FiltersPopover({
         </BottomSheet>
       ) : (
         open && (
-          <div id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-panel" role="dialog" aria-label="Map filters">
+          <div ref={panelRef} id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-panel" role="dialog" aria-label="Map filters">
             {panelBody}
           </div>
         )
@@ -314,6 +355,9 @@ export default function FiltersPopover({
     </div>
   );
 }
+
+/** The gap kept between the panel's bottom edge and the frame's — the chrome's own 8px inset. */
+const FRAME_GAP_PX = 8;
 
 /**
  * The design's three named drive-time tiers (README §4) — 45 min / 1h 30 / 2h 30 — replacing the
