@@ -5,6 +5,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.24.2] - 2026-10-08
+
+### Added — ten more northern bluebell woods
+
+Migration V169 adds the rest of the spring list that V84 started: Newton Wood (at the foot of
+Roseberry Topping, a row of its own), Nidd Gorge, Letah Wood, Irthing Gorge, Jesmond Dene Woods,
+Denton Dene, Ragpath Wood, Lands Wood, Washingwell Wood and Dorothy Farrer's Spring Wood. Each is
+an enclosed wood typed BLUEBELL + WOODLAND with a WOODLAND exposure, like V84's woods after
+V132/V134, so they join the woodland product now and the bluebell lane from next April. The four
+Lancashire / Greater Manchester sites on the same list are left out by owner decision, because no
+region covers them. Grid cells and drive times fill in from the existing nightly jobs.
+
+### Fixed — the Map tab's tide strip no longer vanishes for windows the Plan tab does not draw
+
+The briefing serves a tide rollup, and a slot-level tide fact for every coastal spot, for every
+sunrise and sunset of its four owned days, but the Map tab built its window list from the six
+events the Plan tab renders. The rest became unscored "beyond the briefing" filler rows with no
+tide and no clock time, so the strip disappeared for them — the Sunday sunrise, seen on a Thursday
+morning, is the seventh event. Tides and light times do not depend on the forecast being scored, so
+a filler row now borrows the briefing's own served tide and event time for its window
+(`mapTideFit.buildWindowTideIndex`, lent in `mapEvents.solarRow`, the time formatted by the same
+formatter served rows use). No tide, height or clock time is computed on the client — the tide and
+event time are the briefing's own, forwarded as served — and a window the server drew no tide for
+still shows none. The window menu now shows the briefing's clock time for those windows too. A filler whose window has already elapsed borrows nothing, by a test that
+mirrors `PlanWindowProjector.hasPassed` (30-minute afterglow) and runs on the app clock, so a Rewind
+behaves. The strip's per-spot fit is unchanged where spots carry a served tier for the window. Where none
+does, on a window the pane's rendered list does not carry, it now says there is no per-spot tide fit
+for the window instead of claiming no coastal spot has the water it wants (a served window keeps its
+old wording). The strip's "next high water" line now names the earliest window that fits, as the
+callout does: a button only when the strip can show that window, plain text when it cannot, and
+"beyond" only when nothing fits. The strip still needs a coastal spot in view after the reader's
+filters. A backend test pins that an unrendered window carries its own tide rollup.
+
+### Fixed — the Plan's aurora topic now names the night the alert is about
+
+The aurora banner and the Plan tab read the same alert level, but before dawn they talked about
+different nights. The poller judges the dark window in progress — before nautical dawn, the night
+whose dusk fell on yesterday's date — and the banner's "Kp 5 forecast tonight" meant that one. The
+Plan's hot topic dated the same alert from today's civil date, which as a `NIGHT` topic put it on
+this evening's sunset and tomorrow's sunrise: the following night. On 8 October a MODERATE alert
+for the small hours showed on the banner and on no Plan card at all, while Friday and Saturday
+carried the forecast topic for a night the alert had never mentioned.
+
+`AuroraHotTopicStrategy` now dates its alert-level topic from `AuroraForecastRunService
+.currentNight()`, the twin of the poller's own window rule, so a pre-dawn alert lands on this
+morning's sunrise. The Kp-forecast topic covers the night after the poller's, so before dawn the
+coming night is covered too. Both detail lines word the night relative to the civil day — "Kp 5
+forecast until dawn", "Kp 4 forecast tonight — worth watching", "Kp 4 forecast tomorrow night —
+worth watching" — rather than by which of the two topics emitted them.
+
+Three readers tested a topic's date alone and would have mishandled exactly that pre-dawn topic
+while the first Plan card badged it (two Codex reviews of #1056). `HotTopic.coveredDates()` and
+its client twin `topicCoveredDates` are now the one rule for which dates a topic's windows fall on.
+The Coming up tab's handoff row reads it, so the running night's aurora counts for today. The
+aggregator's travel-day filter reads the covered dates still ahead, so a travel day yesterday no
+longer silences this morning's sunrise and a travel day today does, whatever yesterday was. Ask's
+`get_coming_up` timeline keeps a `NIGHT` topic whose morning half is today, on its own date — the
+date `get_hot_topics` and the freshness check know it by, so an answer built from it stays live.
+
 ## [v2.24.1] - 2026-10-07
 
 ### Changed — every dated Coming up entry gets the day-box row, one box for a single day
