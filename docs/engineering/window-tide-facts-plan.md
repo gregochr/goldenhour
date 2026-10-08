@@ -308,6 +308,8 @@ together from one repo; P1 alone changes nothing a reader can see. Each PR adds 
 
 ### P5 — API slots stop carrying tide
 
+**Status: built (2026-10-08).** Measured on P1's production-shaped synthetic briefing (Jackson 3, 430 coastal facts): before P1 1,921,823 B raw / 61,756 B gzip; after P1 2,072,567 / 76,116; after P5 1,496,009 / 52,711, i.e. 22.2% smaller raw (-425,814 B) and 9,045 B smaller gzipped than before the series.
+
 - At the tail of `assembleForPlan`, after `PlanWindowProjector.apply`, set each slot's `tide` to **null**
   (never an empty `TideInfo`: its primitive booleans would serialise `tideAligned:false` on every slot). The
   persisted cache and every raw/cached reader are untouched; `getServedBriefing` is not stripped.

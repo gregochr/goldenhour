@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
@@ -155,12 +156,52 @@ class ServedBriefingAssembler {
         // which declared a window past up to an hour early — see plan-verdict-consolidation-plan.md
         // §1 D4. This is the "one clock, two calendars" rule from the daysAhead work: DATES are
         // London, INSTANT comparisons are UTC, and this is an instant comparison.
-        return PlanWindowProjector.apply(
+        DailyBriefingResponse projected = PlanWindowProjector.apply(
                 filtered,
                 LocalDateTime.now(clock.withZone(ZoneOffset.UTC)),
                 filtered == null ? Map.of()
                         : windowTideRollupBuilder.build(filtered.days()),
                 tideFacts);
+        // LAST, after the projector, so nothing the projector reads is stripped from under it (the
+        // facts themselves come from the raw snapshot above). See stripSlotTide.
+        return stripSlotTide(projected);
+    }
+
+    /**
+     * Removes the per-location tide from every served slot, so {@code window.tideFacts} is the one
+     * source of it on the wire (docs/engineering/window-tide-facts-plan.md §3, P5).
+     *
+     * <p>Sets each slot's {@code tide} to <b>null</b>, never an empty {@code TideInfo}: its primitive
+     * booleans would serialise {@code tideAligned:false} on every slot, and the unwrapped keys vanish
+     * only for a null. Covers regioned and unregioned slots. Rebuilds through the withers so each
+     * day's {@code peak}, every {@code window} (tideFacts included) and {@code renderedEvents} are
+     * carried. Runs at the tail of {@link #assembleForPlan} only: {@link #assembleWithoutPlan}
+     * (Close-to-home, which reads the size fields off slot tide) is deliberately not stripped, and
+     * the cached snapshot is never mutated (records are copied, not edited).
+     *
+     * @param response the fully projected response (may be {@code null})
+     * @return a copy whose slots carry no tide, or {@code null} if input was
+     */
+    private static DailyBriefingResponse stripSlotTide(DailyBriefingResponse response) {
+        if (response == null) {
+            return null;
+        }
+        List<BriefingDay> days = new ArrayList<>(response.days().size());
+        for (BriefingDay day : response.days()) {
+            List<BriefingEventSummary> events = new ArrayList<>(day.eventSummaries().size());
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                List<BriefingRegion> regions = es.regions().stream()
+                        .map(region -> region.withSlots(withoutTide(region.slots())))
+                        .toList();
+                events.add(es.withRegions(regions).withUnregioned(withoutTide(es.unregioned())));
+            }
+            days.add(day.withEventSummaries(events));
+        }
+        return response.withDays(days);
+    }
+
+    private static List<BriefingSlot> withoutTide(List<BriefingSlot> slots) {
+        return slots == null ? null : slots.stream().map(slot -> slot.withTide(null)).toList();
     }
 
     /**

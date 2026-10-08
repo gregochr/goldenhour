@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
@@ -23,6 +24,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
 
 import static com.gregochr.goldenhour.service.TideFactFixtures.coastal;
 import static com.gregochr.goldenhour.service.TideFactFixtures.day;
@@ -143,5 +146,96 @@ class ServedBriefingAssemblerTest {
                 0, null, List.of(), List.of());
 
         assertThat(assembler.assembleForPlan(snap, 0.5).days()).hasSize(1);
+    }
+
+    private static DailyBriefingResponse scoredSnapshot() {
+        return snapshot(
+                summary(TargetType.SUNRISE, List.of(
+                        region("North East", 3, coastal(1L, "Bamburgh", "HIGH"),
+                                coastal(2L, "Whitby", "LOW"), inland(3L, "Durham"))),
+                        List.of(coastal(4L, "Orphan", "MID"), inland(5L, "Wanderer"))),
+                summary(TargetType.SUNSET, List.of(
+                        region("North East", 3, coastal(1L, "Bamburgh", "LOW"))), List.of()));
+    }
+
+    private static List<BriefingSlot> allSlots(DailyBriefingResponse response) {
+        return response.days().stream().flatMap(d -> d.eventSummaries().stream())
+                .flatMap(es -> Stream.concat(
+                        es.regions().stream().flatMap(r -> r.slots().stream()),
+                        es.unregioned().stream()))
+                .toList();
+    }
+
+    @Test
+    @DisplayName("P5: after assembleForPlan no served slot carries tide, regioned or unregioned, "
+            + "while window.tideFacts stays verbatim")
+    void servedSlotsCarryNoTide() {
+        DailyBriefingResponse cached = scoredSnapshot();
+
+        DailyBriefingResponse served = assembler.assembleForPlan(cached, 0.5);
+
+        List<BriefingSlot> slots = allSlots(served);
+        assertThat(slots).as("scored region keeps its slots, so the strip is not vacuous")
+                .hasSize(6);
+        assertThat(slots).extracting(BriefingSlot::tide).containsOnlyNulls();
+        BriefingEventSummary sunrise = served.days().get(0).eventSummaries().get(0);
+        assertThat(sunrise.window().tideFacts()).containsExactly(
+                LocationTideFact.from(coastal(1L, "Bamburgh", "HIGH")),
+                LocationTideFact.from(coastal(2L, "Whitby", "LOW")),
+                LocationTideFact.from(coastal(4L, "Orphan", "MID")));
+        assertThat(served.days().get(0).eventSummaries().get(1).window().tideFacts())
+                .containsExactly(LocationTideFact.from(coastal(1L, "Bamburgh", "LOW")));
+    }
+
+    @Test
+    @DisplayName("P5: the strip changes slot tide and nothing else (peak, windows, renderedEvents, "
+            + "every other slot and region component)")
+    void stripPreservesEverythingButSlotTide() {
+        DailyBriefingResponse cached = scoredSnapshot();
+        DailyBriefingResponse unstripped = PlanWindowProjector.apply(
+                assembler.assembleWithoutPlan(cached, 0.5),
+                LocalDateTime.now(CLOCK), Map.of(),
+                WindowTideFactProjector.project(cached.days()));
+
+        DailyBriefingResponse served = assembler.assembleForPlan(cached, 0.5);
+
+        assertThat(unstripped.renderedEvents()).as("fixture renders events").isNotEmpty();
+        assertThat(served.renderedEvents()).isEqualTo(unstripped.renderedEvents());
+        assertThat(served.days().get(0).peak()).isNotNull()
+                .isEqualTo(unstripped.days().get(0).peak());
+        for (int d = 0; d < served.days().size(); d++) {
+            for (int e = 0; e < served.days().get(d).eventSummaries().size(); e++) {
+                BriefingEventSummary got = served.days().get(d).eventSummaries().get(e);
+                BriefingEventSummary want = unstripped.days().get(d).eventSummaries().get(e);
+                assertThat(got.window()).isEqualTo(want.window());
+                assertThat(got.solarEventTime()).isEqualTo(want.solarEventTime());
+                assertThat(got.unregioned()).isEqualTo(
+                        want.unregioned().stream().map(s -> s.withTide(null)).toList());
+                for (int r = 0; r < got.regions().size(); r++) {
+                    BriefingRegion expected = want.regions().get(r).withSlots(
+                            want.regions().get(r).slots().stream().map(s -> s.withTide(null))
+                                    .toList());
+                    assertThat(got.regions().get(r)).isEqualTo(expected);
+                }
+            }
+        }
+        assertThat(served).isEqualTo(unstripped.withDays(served.days()));
+    }
+
+    @Test
+    @DisplayName("P5: the cached snapshot is untouched, and assembleWithoutPlan (Close-to-home) "
+            + "still carries slot tide")
+    void cacheAndCloseToHomePathKeepSlotTide() {
+        DailyBriefingResponse cached = scoredSnapshot();
+        DailyBriefingResponse before = scoredSnapshot();
+
+        assembler.assembleForPlan(cached, 0.5);
+        DailyBriefingResponse closeToHome = assembler.assembleWithoutPlan(cached, 0.5);
+
+        assertThat(cached).isEqualTo(before);
+        assertThat(allSlots(cached)).extracting(BriefingSlot::tide).doesNotContainNull();
+        assertThat(allSlots(closeToHome)).hasSize(6);
+        assertThat(allSlots(closeToHome)).extracting(BriefingSlot::tide).doesNotContainNull();
+        assertThat(allSlots(closeToHome).get(0).tide().tideState()).isEqualTo("HIGH");
     }
 }

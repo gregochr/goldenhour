@@ -110,6 +110,17 @@ class WindowTideFactsPayloadTest {
         return PlanWindowProjector.apply(raw, LocalDateTime.of(2026, 10, 8, 4, 0), Map.of(), facts);
     }
 
+    /** The P5 shape: the same response with every served slot's tide removed. */
+    private static DailyBriefingResponse stripped(DailyBriefingResponse response) {
+        List<BriefingDay> days = response.days().stream().map(day -> day.withEventSummaries(
+                day.eventSummaries().stream().map(es -> es.withRegions(es.regions().stream()
+                        .map(r -> r.withSlots(r.slots().stream().map(sl -> sl.withTide(null))
+                                .toList())).toList())
+                        .withUnregioned(es.unregioned().stream().map(sl -> sl.withTide(null))
+                                .toList())).toList())).toList();
+        return response.withDays(days);
+    }
+
     private static int gzipSize(byte[] bytes) throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (GZIPOutputStream gz = new GZIPOutputStream(out)) {
@@ -150,6 +161,21 @@ class WindowTideFactsPayloadTest {
                         + "gzip_without=%d gzip_with=%d gzip_growth=%d projector_best_ms=%.3f%n",
                 facts, rawWithout.length, rawWith.length, rawGrowth, pct, gzipSize(rawWithout),
                 gzipSize(rawWith), gzGrowth, ms);
+
+        byte[] rawStripped = mapper.writeValueAsBytes(stripped(with));
+        System.out.printf("PAYLOAD_P5 before_P1_raw=%d after_P1_raw=%d after_P5_raw=%d "
+                        + "(vs before P1: %+d, %+.1f%%) before_P1_gzip=%d after_P1_gzip=%d "
+                        + "after_P5_gzip=%d (vs before P1: %+d)%n",
+                rawWithout.length, rawWith.length, rawStripped.length,
+                rawStripped.length - rawWithout.length,
+                100.0 * (rawStripped.length - rawWithout.length) / rawWithout.length,
+                gzipSize(rawWithout), gzipSize(rawWith), gzipSize(rawStripped),
+                gzipSize(rawStripped) - gzipSize(rawWithout));
+        assertThat(rawStripped.length).as("P5 ends smaller than before P1")
+                .isLessThan(rawWithout.length);
+        assertThat(new String(rawStripped, java.nio.charset.StandardCharsets.UTF_8))
+                .as("no slot tide key survives, facts remain")
+                .doesNotContain("\"heightAboveP95\"").contains("\"tideFacts\"");
 
         assertThat(facts).isEqualTo(DAYS * (59 + 27));
         assertThat(rawGrowth).as("raw growth bytes").isLessThanOrEqualTo(300 * 1024);
