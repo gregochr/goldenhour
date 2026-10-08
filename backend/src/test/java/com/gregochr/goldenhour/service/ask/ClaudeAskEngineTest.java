@@ -10,14 +10,12 @@ import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.TokenUsage;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.junit.jupiter.api.AfterEach;
@@ -77,7 +75,8 @@ class ClaudeAskEngineTest {
     private final AnthropicApiClient client = mock(AnthropicApiClient.class);
     private final AskJobRunService jobRuns = mock(AskJobRunService.class);
     private final DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
-    private final RegionRepository regions = mock(RegionRepository.class);
+    /** Region 5, the one scope these tests narrow to. */
+    private static final AskScope TEESDALE = AskScope.of(List.of(5L), Set.of("Teesdale"));
     private final AskProperties properties = new AskProperties();
     private final List<Logged> logged = new CopyOnWriteArrayList<>();
     private MutableClock clock;
@@ -108,7 +107,7 @@ class ClaudeAskEngineTest {
     }
 
     private void engineWith(Clock useClock) {
-        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, regions,
+        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes,
                 new AskAnswerValidator(), new AskPromptBuilder(), new ObjectMapper(), useClock);
     }
 
@@ -135,7 +134,7 @@ class ClaudeAskEngineTest {
     }
 
     private static AskQuestion question(String text) {
-        return new AskQuestion(text, text.toLowerCase(), null, List.of(), "plan");
+        return new AskQuestion(text, text.toLowerCase(), null, AskScope.ALL, "plan");
     }
 
     private static AskQuestion question() {
@@ -504,7 +503,7 @@ class ClaudeAskEngineTest {
     void unexpectedErrorIsFailed() {
         AskAnswerValidator broken = mock(AskAnswerValidator.class);
         when(broken.validate(any(), any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
-        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, regions, broken,
+        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, broken,
                 new AskPromptBuilder(), new ObjectMapper(), clock);
         when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
@@ -605,7 +604,7 @@ class ClaudeAskEngineTest {
     @ValueSource(strings = {"", " ", "   \t"})
     @DisplayName("a blank question is FAILED before any spend")
     void blankQuestion(String text) {
-        AskRun run = engine.run(new AskQuestion(text, text, null, List.of(), "plan"), snapshot(null), USER,
+        AskRun run = engine.run(new AskQuestion(text, text, null, AskScope.ALL, "plan"), snapshot(null), USER,
                 AskRunOptions.none());
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
@@ -887,13 +886,11 @@ class ClaudeAskEngineTest {
     @DisplayName("the question's region ids become the scope: the tools return only that region, and the system "
             + "prompt names it")
     void scopeIsResolvedAndApplied() {
-        when(regions.findAllById(Set.of(5L))).thenReturn(List.of(RegionEntity.builder().id(5L)
-                .name("Teesdale").build()));
         when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t", "rank_spots", Map.of())),
                 submit(answer(pick(10, WINDOW), pick(1, WINDOW))));
 
-        AskRun run = engine.run(new AskQuestion("Best spot?", "best spot", null, List.of(5L), "plan"),
+        AskRun run = engine.run(new AskQuestion("Best spot?", "best spot", null, TEESDALE, "plan"),
                 snapshot(null), USER, AskRunOptions.none());
 
         assertThat(run.outcome().answer().picks()).extracting(AskPick::locationName).containsExactly("Hamsterley");
@@ -906,13 +903,11 @@ class ClaudeAskEngineTest {
     @Test
     @DisplayName("a tool asked for a region outside the scope is told so, as an error result")
     void outOfScopeRegionIsAToolError() {
-        when(regions.findAllById(Set.of(5L))).thenReturn(List.of(RegionEntity.builder().id(5L)
-                .name("Teesdale").build()));
         when(client.createAskMessage(any(), any(), any())).thenReturn(
                 toolTurn(tool("t", "rank_spots", Map.of("regionNames", List.of("Northumberland")))),
                 submit(Map.of("answerable", false, "summary", "Can't say.")));
 
-        engine.run(new AskQuestion("Best spot?", "best spot", null, List.of(5L), "plan"), snapshot(null), USER,
+        engine.run(new AskQuestion("Best spot?", "best spot", null, TEESDALE, "plan"), snapshot(null), USER,
                 AskRunOptions.none());
 
         ToolResultBlockParam result = toolResultsIn(sentParams().get(1)).getFirst();
@@ -921,29 +916,13 @@ class ClaudeAskEngineTest {
     }
 
     @Test
-    @DisplayName("a region id that does not resolve fails the run before any spend: an empty scope would widen it "
-            + "to every region")
-    void unknownRegionIdFails() {
-        when(regions.findAllById(Set.of(5L, 6L))).thenReturn(List.of(RegionEntity.builder().id(5L)
-                .name("Teesdale").build()));
-
-        AskRun run = engine.run(new AskQuestion("Best spot?", "best spot", null, List.of(5L, 6L), "plan"),
-                snapshot(null), USER, AskRunOptions.none());
-
-        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
-        assertThat(run.reason()).contains("region id");
-        verifyNoInteractions(client, jobRuns);
-    }
-
-    @Test
-    @DisplayName("an empty region list is every region, with no repository lookup")
+    @DisplayName("an empty region list is every region")
     void emptyScopeIsEverything() {
         AskRun run = run(USER, toolTurn(tool("t", "rank_spots", Map.of())),
                 submit(answer(pick(10, WINDOW), pick(1, WINDOW))));
 
         assertThat(run.outcome().answer().picks()).extracting(AskPick::locationName)
                 .containsExactly("Hamsterley", "Bamburgh");
-        verifyNoInteractions(regions);
     }
 
     @Test
@@ -952,9 +931,9 @@ class ClaudeAskEngineTest {
         when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't say.")));
 
-        engine.run(new AskQuestion("And then?", "and then", WINDOW, List.of(), "map"), snapshot(null), USER,
+        engine.run(new AskQuestion("And then?", "and then", WINDOW, AskScope.ALL, "map"), snapshot(null), USER,
                 AskRunOptions.none());
-        engine.run(new AskQuestion("And then?", "and then", "2026-12-25_sunrise", List.of(), "map"),
+        engine.run(new AskQuestion("And then?", "and then", "2026-12-25_sunrise", AskScope.ALL, "map"),
                 snapshot(null), USER, AskRunOptions.none());
 
         List<MessageCreateParams> sent = sentParams();

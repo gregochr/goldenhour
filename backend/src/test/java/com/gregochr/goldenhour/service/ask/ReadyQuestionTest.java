@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.at;
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.both;
@@ -24,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ReadyQuestionTest {
 
-    private static final Set<String> ALL = Set.of();
+    private static final AskScope ALL = AskScope.ALL;
 
     private static Optional<Offer> offer(ReadyQuestion q, AskSnapshot snapshot) {
         return q.offer(snapshot, ALL);
@@ -108,9 +107,9 @@ class ReadyQuestionTest {
         AskSnapshot friday = at(ReadyFixtures.FRIDAY_NOON, day(oct(9), false, true, null, weakNorth, teesdale()),
                 both(oct(10), weakNorth, teesdale()));
 
-        assertThat(ReadyQuestion.BEST_WEEKEND.offer(friday, Set.of("Teesdale"))).isPresent();
-        assertThat(ReadyQuestion.BEST_WEEKEND.offer(friday, Set.of("Northumberland"))).isEmpty();
-        assertThat(ReadyQuestion.BEST_WEEKEND.offer(friday, Set.of("teesdale"))).isPresent();
+        assertThat(ReadyQuestion.BEST_WEEKEND.offer(friday, TestScopes.of("Teesdale"))).isPresent();
+        assertThat(ReadyQuestion.BEST_WEEKEND.offer(friday, TestScopes.of("Northumberland"))).isEmpty();
+        assertThat(ReadyQuestion.BEST_WEEKEND.offer(friday, TestScopes.of("teesdale"))).isPresent();
     }
 
     // -- BEST_NEXT --------------------------------------------------------------------------

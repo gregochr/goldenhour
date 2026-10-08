@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.service.ask.AskQuestionSanitiser;
 import com.gregochr.goldenhour.service.ask.AskReadyService;
 import com.gregochr.goldenhour.service.ask.AskRun;
 import com.gregochr.goldenhour.service.ask.AskRunOptions;
+import com.gregochr.goldenhour.service.ask.AskScope;
 import com.gregochr.goldenhour.service.ask.AskScopes;
 import com.gregochr.goldenhour.service.ask.AskSnapshot;
 import com.gregochr.goldenhour.service.ask.AskSnapshotBuilder;
@@ -31,7 +32,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -137,8 +137,8 @@ public class AskAdminController {
         if (!cleaned.ok()) {
             return badRequest(cleaned.error());
         }
-        Optional<List<Long>> regionIds = AskScopes.validRegionIds(regionRepository, request.regionIds());
-        if (regionIds.isEmpty()) {
+        Optional<AskScope> scope = AskScopes.resolve(regionRepository, request.regionIds());
+        if (scope.isEmpty()) {
             return badRequest("Unknown, disabled or too many region ids.");
         }
         Optional<AskSnapshot> snapshot = snapshotBuilder.current();
@@ -146,10 +146,7 @@ public class AskAdminController {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", "No briefing has been built yet."));
         }
-        // The normalised form is the cache key B5 will derive properly; a dry-run never caches.
-        AskQuestion question = new AskQuestion(cleaned.sanitised(),
-                cleaned.sanitised().toLowerCase(Locale.ROOT), request.windowId(),
-                regionIds.get(), "plan");
+        AskQuestion question = AskQuestion.of(cleaned, request.windowId(), scope.get(), "plan");
         AskRun run = engine.run(question, snapshot.get(), adminContext(auth), AskRunOptions.none());
         AskOutcome outcome = run.outcome();
         return ResponseEntity.ok(new DryRunResponse(

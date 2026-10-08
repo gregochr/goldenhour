@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -132,9 +131,8 @@ public class AskAnswerValidator {
      * @param raw      the model's submitted answer
      * @param snapshot the snapshot the conversation ran against
      * @param evidence what the conversation's tools returned
-     * @param scope    the region names the question is about, matched case-insensitively; null or
-     *                 empty means every region. Enforced here, not left to the evidence being
-     *                 scoped: a pick whose region is outside it is dropped
+     * @param scope    the regions the question is about. Enforced here, not left to the evidence
+     *                 being scoped: a pick whose region is outside it is dropped
      * @param anchor   the Ready {@code BEST_*} rule, or null for every other question
      * @param eventsQuestion which events question this is ({@link ReadyIntentRules#eventsQuestion}),
      *                 or null when it is not one: an answer to it with no event it admits is discarded while
@@ -142,7 +140,7 @@ public class AskAnswerValidator {
      * @return the validated answer, or the reason it was discarded
      */
     public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
-            Collection<String> scope, BestAnchor anchor, ReadyQuestion eventsQuestion) {
+            AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion) {
         String summary = clean(raw.summary(), SUMMARY_WORDS);
         if (summary == null || summary.isBlank()) {
             return discard("no summary");
@@ -190,14 +188,12 @@ public class AskAnswerValidator {
      * the question admits. Read from the snapshot, never from what the model's tool calls returned, so
      * a model that filtered, limited or skipped a tool cannot make "none" true.
      */
-    private static long offeredEvents(AskSnapshot snapshot, Collection<String> scope,
-            ReadyQuestion question) {
-        Set<String> scopeNames = scope == null ? Set.of() : Set.copyOf(scope);
+    private static long offeredEvents(AskSnapshot snapshot, AskScope scope, ReadyQuestion question) {
         Set<String> offered = new HashSet<>();
         snapshot.hotTopics().stream()
-                .filter(t -> t.inScope(scopeNames) && question.admitsEvent(t.type()))
+                .filter(t -> t.inScope(scope) && question.admitsEvent(t.type()))
                 .forEach(t -> offered.add(offerKey(t.type(), t.date())));
-        AskTools.timeline(snapshot, scopeNames, AskTools.MAX_COMING_UP_DAYS).stream()
+        AskTools.timeline(snapshot, scope, AskTools.MAX_COMING_UP_DAYS).stream()
                 .filter(e -> question.admitsEvent(e.type()))
                 .forEach(e -> offered.add(offerKey(e.type(), e.startDate())));
         return offered.size();
@@ -210,23 +206,23 @@ public class AskAnswerValidator {
     /**
      * The window a BEST question's pick 1 must be on: a covered window carrying the forecast's BEST
      * pick, in scope, that has at least one pick-eligible slot to lead with <em>within the
-     * question's scope</em> ({@link AskSnapshot#candidates(AskSnapshot.Window, java.util.Collection)},
+     * question's scope</em> ({@link AskSnapshot#candidates(AskSnapshot.Window, AskScope)},
      * the same set {@code rank_spots} draws from). Without that last clause a BEST BET whose own
      * location is under 3★, or whose only eligible neighbours sit in a region the question did not
      * ask about, would make every answer unsatisfiable.
      */
     static Optional<AskSnapshot.Window> anchoredWindow(AskSnapshot snapshot,
-            BestAnchor anchor, Collection<String> scope) {
+            BestAnchor anchor, AskScope scope) {
         return snapshot.windows().stream()
                 .filter(w -> anchor.windowIds().contains(w.id()))
                 .filter(w -> w.pick() != null && w.pick().kind() == BriefingWindow.PickKind.BEST)
-                .filter(w -> AskSnapshot.regionInScope(scope, w.pick().regionName()))
+                .filter(w -> scope.contains(w.pick().regionName()))
                 .filter(w -> !snapshot.candidates(w, scope).isEmpty())
                 .findFirst();
     }
 
     private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence,
-            Collection<String> scope) {
+            AskScope scope) {
         List<AskPick> out = new ArrayList<>();
         Set<Long> seen = new HashSet<>();
         for (RawPick pick : raw) {
@@ -239,8 +235,7 @@ public class AskAnswerValidator {
             }
             Optional<AskSnapshot.Candidate> candidate =
                     snapshot.candidate(pick.windowId(), pick.locationId());
-            if (candidate.isEmpty()
-                    || !AskSnapshot.regionInScope(scope, candidate.get().region().name())) {
+            if (candidate.isEmpty() || !scope.contains(candidate.get().region().name())) {
                 continue;
             }
             seen.add(pick.locationId());

@@ -15,7 +15,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * {@code POST /api/ask}: a reader's typed question (plan §2.5), run through the guards <b>in the
@@ -131,10 +130,6 @@ public class AskService {
         this.clock = clock;
     }
 
-    /** The question and the scope it resolved to, once steps 1 and 2 have passed. */
-    private record Asked(AskQuestion question, String scopeKey, Set<String> scopeNames) {
-    }
-
     /**
      * Step 1, the rate limit, and the only place a request is counted against it: resolves the asker
      * (one indexed read) and takes one slot of their sliding window.
@@ -176,18 +171,17 @@ public class AskService {
 
         // 1. The rate limit was applied by admit(), before the body was converted.
         // 2. Sanitise and validate.
-        Asked asked;
+        AskQuestion question;
         try {
-            asked = validate(request);
+            question = validate(request);
         } catch (AskRefusal refusal) {
             throw denied(userId, refusal);
         }
-        AskQuestion question = asked.question();
 
         // 3. Can't-answer pre-filter.
         Optional<AskAnswer> refused = preFilter.refuse(question);
         if (refused.isPresent()) {
-            return cant(userId, user, refused.get(), asked, null, startedAt,
+            return cant(userId, user, refused.get(), question, startedAt,
                     AskLog.Outcome.PREFILTER_CANT, snapshotBuilder.current().orElse(null));
         }
 
@@ -201,14 +195,13 @@ public class AskService {
         int limit = properties.limitFor(user.getRole());
 
         // 5. Ready intent match: free.
-        Optional<AskReadyResponse.Question> ready = intentMatcher.match(question, snapshot,
-                asked.scopeKey(), asked.scopeNames());
+        Optional<AskReadyResponse.Question> ready = intentMatcher.match(question, snapshot);
         if (ready.isPresent()) {
             AskReadyResponse.Answer answer = ready.get().answer();
             AskResponse response = new AskResponse(true, AskResponse.KIND_READY, answer.summary(),
                     answer.picks(), answer.events(), null, answer.tryThese(), left(userId, day, limit),
                     limit, false, ready.get().generatedAt(), ready.get().runLabel());
-            log(userId, asked, question, AskLog.Outcome.READY_MATCH, null, startedAt);
+            log(userId, question, AskLog.Outcome.READY_MATCH, null, startedAt);
             return response;
         }
 
@@ -216,7 +209,7 @@ public class AskService {
         Optional<AskAnswer> hit = cache.lookup(question, snapshot, context);
         if (hit.isPresent()) {
             AskResponse response = own(hit.get(), snapshot, left(userId, day, limit), limit, false);
-            log(userId, asked, question, AskLog.Outcome.CACHE_HIT, null, startedAt);
+            log(userId, question, AskLog.Outcome.CACHE_HIT, null, startedAt);
             return response;
         }
 
@@ -239,20 +232,20 @@ public class AskService {
         AskOutcome outcome = run.outcome();
         if (outcome.status() == AskOutcome.Status.FAILED || outcome.answer() == null) {
             usageStore.refund(userId, day);
-            log(userId, asked, question, AskLog.Outcome.CLAUDE_FAILED, null, startedAt);
+            log(userId, question, AskLog.Outcome.CLAUDE_FAILED, null, startedAt);
             throw new AskRefusal(run.accountingUnavailable() ? AskErrorCode.TYPED_UNAVAILABLE
                     : AskErrorCode.ENGINE_FAILED);
         }
         if (outcome.status() == AskOutcome.Status.CANT) {
             usageStore.refund(userId, day);
-            return cant(userId, user, outcome.answer(), asked, question, startedAt,
+            return cant(userId, user, outcome.answer(), question, startedAt,
                     AskLog.Outcome.CLAUDE_CANT, snapshot);
         }
 
         // 10. Respond, cache, log.
         offerToCache(question, snapshot, context, outcome);
         AskResponse response = own(outcome.answer(), snapshot, left(userId, day, limit), limit, true);
-        log(userId, asked, question, AskLog.Outcome.CLAUDE_OK, outcome.answer().missing(), startedAt);
+        log(userId, question, AskLog.Outcome.CLAUDE_OK, outcome.answer().missing(), startedAt);
         return response;
     }
 
@@ -285,8 +278,11 @@ public class AskService {
                 .orElseThrow(() -> new AskRefusal(AskErrorCode.UNAUTHENTICATED));
     }
 
-    /** Step 2: the sanitised question, the view and the regions, or an {@code INVALID} refusal. */
-    private Asked validate(AskRequest request) {
+    /**
+     * Step 2: the sanitised question, the view and the regions, or an {@code INVALID} refusal. The
+     * only place the region ids are resolved: the question carries the scope from here on.
+     */
+    private AskQuestion validate(AskRequest request) {
         if (request == null) {
             throw invalid("A request body is required.");
         }
@@ -297,17 +293,9 @@ public class AskService {
         if (!cleaned.ok()) {
             throw invalid(cleaned.error());
         }
-        List<Long> regionIds = AskScopes.validRegionIds(regionRepository, request.regionIds())
+        AskScope scope = AskScopes.resolve(regionRepository, request.regionIds())
                 .orElseThrow(() -> invalid("Unknown, disabled or too many regions."));
-        AskQuestion question = new AskQuestion(cleaned.sanitised(), cleaned.normalised(),
-                blankToNull(request.windowId()), regionIds, request.view());
-        Set<String> names = AskScopes.resolve(regionRepository, question)
-                .orElseThrow(() -> invalid("Unknown, disabled or too many regions."));
-        if (regionIds.size() == 1) {
-            return new Asked(question, String.valueOf(regionIds.getFirst()), names);
-        }
-        // Several regions (a "My area" spanning more than one) use the whole catalogue's Ready set.
-        return new Asked(question, AskReadyService.ALL, Set.of());
+        return AskQuestion.of(cleaned, blankToNull(request.windowId()), scope, request.view());
     }
 
     /**
@@ -336,7 +324,7 @@ public class AskService {
         String windowId = question.windowId() != null && snapshot.window(question.windowId()).isPresent()
                 ? question.windowId() : null;
         return new AskQuestion(question.sanitised(), question.normalised(), windowId,
-                question.regionIds(), question.view());
+                question.scope(), question.view());
     }
 
     private void reserve(long userId, LocalDate day, int limit, int ceiling) {
@@ -393,18 +381,18 @@ public class AskService {
      * other fresh Ready questions to try, never charged. The allowance shown is the asker's after
      * any refund.
      */
-    private AskResponse cant(long userId, AppUserEntity user, AskAnswer answer, Asked asked,
-            AskQuestion sent, long startedAt, AskLog.Outcome outcome, AskSnapshot snapshot) {
+    private AskResponse cant(long userId, AppUserEntity user, AskAnswer answer, AskQuestion question,
+            long startedAt, AskLog.Outcome outcome, AskSnapshot snapshot) {
         LocalDate day = ForecastHorizon.today(clock);
         int limit = properties.limitFor(user.getRole());
         List<AskReadyResponse.Suggestion> suggestions = snapshot == null ? List.of()
-                : readyService.suggestions(asked.scopeKey(), asked.scopeNames(), snapshot, TRY_COUNT);
+                : readyService.suggestions(question.scope().readyScope(), snapshot, TRY_COUNT);
         LocalDateTime generatedAt = snapshot == null ? null : snapshot.generatedAt();
         String runLabel = snapshot == null ? null : snapshot.runLabel();
         AskResponse response = new AskResponse(false, AskResponse.KIND_CANT, answer.summary(), List.of(),
                 List.of(), answer.missing(), suggestions, left(userId, day, limit), limit, false,
                 generatedAt, runLabel);
-        log(userId, asked, sent == null ? asked.question() : sent, outcome, answer.missing(), startedAt);
+        log(userId, question, outcome, answer.missing(), startedAt);
         return response;
     }
 
@@ -420,10 +408,12 @@ public class AskService {
         }
     }
 
-    private void log(long userId, Asked asked, AskQuestion question, AskLog.Outcome outcome,
-            String missing, long startedAt) {
+    private void log(long userId, AskQuestion question, AskLog.Outcome outcome, String missing,
+            long startedAt) {
         try {
-            askLog.record(new AskLog.Entry(userId, asked.scopeKey(), question.view(), outcome,
+            // The Ready scope's key: a single region's id, otherwise ALL, as the log has always held.
+            askLog.record(new AskLog.Entry(userId, question.scope().readyScope().key(), question.view(),
+                    outcome,
                     question.normalised(), missing, (System.nanoTime() - startedAt) / 1_000_000L));
         } catch (RuntimeException e) {
             LOG.warn("[ASK] The question could not be logged: {}", e.toString());

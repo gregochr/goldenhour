@@ -14,7 +14,6 @@ import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -86,7 +85,7 @@ class ClaudeAskEngineLatchTest {
         accounting = new AskJobRunService(jobRunService, jobRunRepository, apiCalls, costCalculator,
                 new AskProperties(), clock);
         engine = new ClaudeAskEngine(new AnthropicApiClient(shared), new AskProperties(), accounting,
-                mock(DriveTimeResolver.class), mock(RegionRepository.class), new AskAnswerValidator(),
+                mock(DriveTimeResolver.class), new AskAnswerValidator(),
                 new AskPromptBuilder(), new ObjectMapper(), clock);
     }
 
@@ -102,7 +101,7 @@ class ClaudeAskEngineLatchTest {
     }
 
     private static AskQuestion question() {
-        return new AskQuestion("Best spot tonight?", "best spot tonight", null, List.of(), "plan");
+        return new AskQuestion("Best spot tonight?", "best spot tonight", null, AskScope.ALL, "plan");
     }
 
     private static AskJobRunService.Turn failingTurn() {

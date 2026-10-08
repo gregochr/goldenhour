@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.at;
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.both;
@@ -60,7 +59,7 @@ class AskReadyFreshnessTest {
     }
 
     private static AskReadyFreshness.Verdict check(AskReadyStore.Stored stored, AskSnapshot live) {
-        return AskReadyFreshness.check(ReadyQuestion.valueOf(stored.questionId()), stored, live, Set.of());
+        return AskReadyFreshness.check(ReadyQuestion.valueOf(stored.questionId()), stored, live, TestScopes.of());
     }
 
     private static AskSnapshot withEvents(AskSnapshot base, List<AskSnapshot.Topic> topics,
@@ -212,10 +211,10 @@ class AskReadyFreshnessTest {
                 List.of())).fresh()).isFalse();
         assertThat(AskReadyFreshness.check(ReadyQuestion.RARE_EVENTS, stored,
                 withEvents(base, List.of(auroraTopic("Aurora", oct(12), List.of("Teesdale"), null)), List.of()),
-                Set.of("Northumberland")).fresh()).isFalse();
+                TestScopes.of("Northumberland")).fresh()).isFalse();
         assertThat(AskReadyFreshness.check(ReadyQuestion.RARE_EVENTS, stored,
                 withEvents(base, List.of(auroraTopic("Aurora", oct(12), List.of("Teesdale"), null)), List.of()),
-                Set.of("teesdale")).fresh()).isTrue();
+                TestScopes.of("teesdale")).fresh()).isTrue();
     }
 
     @Test

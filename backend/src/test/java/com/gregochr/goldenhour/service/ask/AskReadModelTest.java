@@ -68,7 +68,7 @@ class AskReadModelTest {
                 AskFixtures.slot(2L, "Six", 6), AskFixtures.slot(3L, "Good", 5));
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
                 List.of(AskFixtures.sunsetDay(TODAY, null, region)), List.of()));
-        AskTools tools = new AskTools(snapshot, AskUserContext.userLess(), Set.of(), null,
+        AskTools tools = new AskTools(snapshot, AskUserContext.userLess(), TestScopes.of(), null,
                 new com.fasterxml.jackson.databind.ObjectMapper());
 
         List<AskTools.SpotInfo> found = ((AskTools.RankSpotsResult) tools.rankSpots(null).payload())
@@ -136,7 +136,8 @@ class AskReadModelTest {
         assertThat(new AskAnswer(true, "s", null, null, null).picks()).isEmpty();
         assertThat(new AskAnswer(true, "s", null, null, null).events()).isEmpty();
         assertThat(new AskQuestion("q", "q", null, null, "map").regionIds()).isEmpty();
-        assertThat(new AskQuestion("q", "q", null, List.of(3L), "map").regionIds())
+        assertThat(new AskQuestion("q", "q", null, null, "map").scope()).isSameAs(AskScope.ALL);
+        assertThat(new AskQuestion("q", "q", null, AskScope.of(List.of(3L), Set.of("Coast")), "map").regionIds())
                 .containsExactly(3L);
         AskEvidence evidence = new AskEvidence(null, null, 0);
         assertThat(evidence.pairs()).isEmpty();

@@ -22,10 +22,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -86,8 +83,6 @@ class AskReadyServiceTest {
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
-        REGION_NAMES.clear();
-        REGION_NAMES.putAll(Map.of(1L, "Northumberland", 2L, "Teesdale"));
         snapshot = fridaySnapshot();
         when(snapshotBuilder.build()).thenReturn(Optional.of(snapshot));
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(region(1L, "Northumberland"),
@@ -127,17 +122,10 @@ class AskReadyServiceTest {
 
     // -- a well-behaved model ---------------------------------------------------------------
 
-    /** The names of the regions the fake engine resolves ids to, as the real one does by repository. */
-    private static final Map<Long, String> REGION_NAMES = new ConcurrentHashMap<>();
-
-    private static Set<String> scopeNames(AskQuestion q) {
-        return q.regionIds().stream().map(REGION_NAMES::get).collect(Collectors.toSet());
-    }
-
     /** Answers any Ready question the way a model that read the tools and obeyed the rules would. */
     private static AskRun goodModel(Call call, AskSnapshot snap) {
         AskQuestion q = call.question();
-        Set<String> scope = scopeNames(q);
+        AskScope scope = q.scope();
         ReadyQuestion asked = null;
         ReadyQuestion.Offer offer = null;
         for (ReadyQuestion candidate : ReadyQuestion.values()) {
@@ -164,7 +152,7 @@ class AskReadyServiceTest {
         return ok(new AskAnswer(true, "Go there.", List.of(pick), List.of(), null));
     }
 
-    private static AskSnapshot.Candidate chosenCandidate(AskSnapshot snap, Set<String> scope, ReadyQuestion asked,
+    private static AskSnapshot.Candidate chosenCandidate(AskSnapshot snap, AskScope scope, ReadyQuestion asked,
             ReadyQuestion.Offer offer, AskRunOptions options) {
         Optional<AskSnapshot.Window> lead = options.anchor() == null ? Optional.empty()
                 : AskAnswerValidator.anchoredWindow(snap, options.anchor(), scope);
@@ -290,7 +278,6 @@ class AskReadyServiceTest {
     void regionsDifferingByCase() {
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(region(1L, "Northumberland"),
                 region(2L, "northumberland")));
-        REGION_NAMES.put(2L, "northumberland");
 
         AskReadyService.Result result = service.precompute(1L);
 
@@ -713,7 +700,7 @@ class AskReadyServiceTest {
         when(store.findScope("ALL")).thenReturn(List.of(aurora(evening), tonight(morning),
                 saturdayBest(morning, 5)));
 
-        AskReadyResponse response = service.serve("ALL", Set.of());
+        AskReadyResponse response = service.serve(AskScope.ALL);
 
         assertThat(response.scope()).isEqualTo("all");
         assertThat(response.questions()).extracting(AskReadyResponse.Question::id)
@@ -746,7 +733,7 @@ class AskReadyServiceTest {
         when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
         when(store.findScope("ALL")).thenReturn(List.of(saturdayBest(BUILT, 4), tonight(BUILT)));
 
-        AskReadyResponse response = service.serve("ALL", Set.of());
+        AskReadyResponse response = service.serve(AskScope.ALL);
 
         assertThat(response.questions()).extracting(AskReadyResponse.Question::id).containsExactly("BEST_NEXT");
         assertThat(response.questions().getFirst().answer().tryThese()).isEmpty();
@@ -761,7 +748,7 @@ class AskReadyServiceTest {
                 new AskAnswer(true, "x", List.of(), List.of(), null));
         when(store.findScope("1")).thenReturn(List.of(bogus, scopedTonight("1")));
 
-        AskReadyResponse response = service.serve("1", Set.of("Northumberland"));
+        AskReadyResponse response = service.serve(AskScope.of(List.of(1L), Set.of("Northumberland")));
 
         assertThat(response.scope()).isEqualTo("1");
         assertThat(response.questions()).extracting(AskReadyResponse.Question::id).containsExactly("BEST_NEXT");
@@ -782,13 +769,13 @@ class AskReadyServiceTest {
                 saturdayBest(morning, 4)));
 
         // The weekend answer was stored at 4★ and the live rating differs: stale, so it is not suggested.
-        assertThat(service.suggestions("ALL", Set.of(), snapshot, 2)).extracting(
+        assertThat(service.suggestions(AskScope.ALL, snapshot, 2)).extracting(
                 AskReadyResponse.Suggestion::id).containsExactly("BEST_NEXT", "RARE_EVENTS");
-        assertThat(service.suggestions("ALL", Set.of(), snapshot, 1)).extracting(
+        assertThat(service.suggestions(AskScope.ALL, snapshot, 1)).extracting(
                 AskReadyResponse.Suggestion::id).containsExactly("BEST_NEXT");
-        assertThat(service.suggestions("ALL", Set.of(), snapshot, 0)).isEmpty();
-        assertThat(service.suggestions("ALL", Set.of(), snapshot, -1)).isEmpty();
-        assertThat(service.suggestions("ALL", Set.of(), snapshot, 2).getFirst().text())
+        assertThat(service.suggestions(AskScope.ALL, snapshot, 0)).isEmpty();
+        assertThat(service.suggestions(AskScope.ALL, snapshot, -1)).isEmpty();
+        assertThat(service.suggestions(AskScope.ALL, snapshot, 2).getFirst().text())
                 .isEqualTo("Best spot tonight?");
     }
 
@@ -797,7 +784,7 @@ class AskReadyServiceTest {
     void suggestionsWithNothingStored() {
         when(store.findScope("3")).thenReturn(List.of());
 
-        assertThat(service.suggestions("3", Set.of("Northumberland"), snapshot, 2)).isEmpty();
+        assertThat(service.suggestions(AskScope.of(List.of(3L), Set.of("Northumberland")), snapshot, 2)).isEmpty();
     }
 
     @Test
@@ -805,7 +792,7 @@ class AskReadyServiceTest {
     void serveWithNoBriefing() {
         when(snapshotBuilder.current()).thenReturn(Optional.empty());
 
-        assertThat(service.serve("ALL", Set.of()).questions()).isEmpty();
+        assertThat(service.serve(AskScope.ALL).questions()).isEmpty();
         verifyNoInteractions(store);
     }
 }

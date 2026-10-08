@@ -5,10 +5,8 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
-import java.util.Collection;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.TreeSet;
 
 /**
  * Builds the system prompt of an Ask conversation (plan §2.3), adapted from the design bundle's
@@ -78,21 +76,21 @@ public class AskPromptBuilder {
      * Builds the system prompt.
      *
      * @param today        today on the UK civil calendar
-     * @param scopeNames   the names of the regions asked about; empty means every region
+     * @param scope        the regions asked about; {@link AskScope#ALL} means every region
      * @param contextWindow the window the reader is looking at, or null
      * @param hasUser      whether a user (and so their drive times) is behind the conversation
      * @return the prompt
      */
-    public String systemPrompt(LocalDate today, Collection<String> scopeNames,
+    public String systemPrompt(LocalDate today, AskScope scope,
             Optional<AskSnapshot.Window> contextWindow, boolean hasUser) {
         StringBuilder sb = new StringBuilder(RULES).append('\n');
         sb.append(hasUser ? WITH_USER : USER_LESS).append('\n');
         sb.append("Today is ").append(LONG_DATE.format(today)).append(" in the UK.\n");
-        if (scopeNames == null || scopeNames.isEmpty()) {
+        if (scope.isEverywhere()) {
             sb.append("The question is about every region.\n");
         } else {
             sb.append("The question is about these regions only: ")
-                    .append(String.join(", ", new TreeSet<>(scopeNames))).append(".\n");
+                    .append(String.join(", ", scope.names())).append(".\n");
         }
         contextWindow.ifPresent(w -> sb.append("The reader is looking at ")
                 .append(w.date().getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH))

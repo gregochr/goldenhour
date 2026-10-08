@@ -66,8 +66,11 @@ class KeywordAskIntentMatcherTest {
     }
 
     private static AskQuestion typed(String text) {
-        AskQuestionSanitiser.Result cleaned = AskQuestionSanitiser.sanitiseTyped(text);
-        return new AskQuestion(cleaned.sanitised(), cleaned.normalised(), null, List.of(), "plan");
+        return typed(text, AskScope.ALL);
+    }
+
+    private static AskQuestion typed(String text, AskScope scope) {
+        return AskQuestion.of(AskQuestionSanitiser.sanitiseTyped(text), null, scope, "plan");
     }
 
     private static BriefingWindow.Pick bamburghIsBest() {
@@ -94,7 +97,7 @@ class KeywordAskIntentMatcherTest {
     }
 
     private Optional<AskReadyResponse.Question> match(String text, AskSnapshot snapshot) {
-        return matcher.match(typed(text), snapshot, "ALL", Set.of());
+        return matcher.match(typed(text), snapshot);
     }
 
     @Test
@@ -120,7 +123,7 @@ class KeywordAskIntentMatcherTest {
         AskSnapshot live = friday();
 
         Optional<AskReadyResponse.Question> typedMatch = match("Best spot this weekend?", live);
-        List<AskReadyResponse.Question> tapped = readyService.freshAnswers("ALL", Set.of(), live);
+        List<AskReadyResponse.Question> tapped = readyService.freshAnswers(AskScope.ALL, live);
 
         assertThat(typedMatch).contains(tapped.getFirst());
     }
@@ -230,11 +233,23 @@ class KeywordAskIntentMatcherTest {
         when(store.findScope("1")).thenReturn(List.of(scoped));
         when(store.findScope("ALL")).thenReturn(List.of());
 
-        assertThat(matcher.match(typed("Best spot this weekend?"), friday(), "1", Set.of("Northumberland")))
-                .isPresent();
-        assertThat(matcher.match(typed("Best spot this weekend?"), friday(), "ALL", Set.of())).isEmpty();
+        AskScope northumberland = AskScope.of(List.of(1L), Set.of("Northumberland"));
+        assertThat(matcher.match(typed("Best spot this weekend?", northumberland), friday())).isPresent();
+        assertThat(matcher.match(typed("Best spot this weekend?"), friday())).isEmpty();
         // The region's answer is judged against the region, not the whole catalogue.
-        assertThat(matcher.match(typed("Best spot this weekend?"), friday(), "1", Set.of("Teesdale"))).isEmpty();
+        AskScope teesdale = AskScope.of(List.of(1L), Set.of("Teesdale"));
+        assertThat(matcher.match(typed("Best spot this weekend?", teesdale), friday())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a question about several regions reads the whole catalogue's row, as the service has always "
+            + "routed it")
+    void severalRegionsReadAll() {
+        AskScope two = AskScope.of(List.of(1L, 2L), Set.of("Northumberland", "Teesdale"));
+        when(store.findScope("1,2")).thenReturn(List.of());
+
+        assertThat(matcher.match(typed("Best spot this weekend?", two), friday())).isPresent();
+        verify(store, never()).findScope("1,2");
     }
 
     @Test
@@ -243,12 +258,10 @@ class KeywordAskIntentMatcherTest {
         String longQuestion = "best spot this weekend " + "where ".repeat(KeywordAskIntentMatcher.MAX_WORDS);
 
         assertThat(match(longQuestion, friday())).isEmpty();
-        assertThat(matcher.match(null, friday(), "ALL", Set.of())).isEmpty();
-        assertThat(matcher.match(new AskQuestion("x", null, null, List.of(), "plan"), friday(), "ALL",
-                Set.of())).isEmpty();
-        assertThat(matcher.match(typed("Best spot this weekend?"), null, "ALL", Set.of())).isEmpty();
-        assertThat(matcher.match(new AskQuestion("?", "", null, List.of(), "plan"), friday(), "ALL",
-                Set.of())).isEmpty();
+        assertThat(matcher.match(null, friday())).isEmpty();
+        assertThat(matcher.match(new AskQuestion("x", null, null, AskScope.ALL, "plan"), friday())).isEmpty();
+        assertThat(matcher.match(typed("Best spot this weekend?"), null)).isEmpty();
+        assertThat(matcher.match(new AskQuestion("?", "", null, AskScope.ALL, "plan"), friday())).isEmpty();
         verify(store, never()).findScope("ALL");
     }
 
