@@ -5,10 +5,12 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
+import com.gregochr.goldenhour.model.CurrentNight;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -49,12 +51,23 @@ class AuroraHotTopicStrategyTest {
     @Mock
     private BriefingAuroraSummaryBuilder auroraSummaryBuilder;
 
+    @Mock
+    private AuroraForecastRunService forecastRunService;
+
     private AuroraHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
+        // Daylight: the poller's night is the coming one, whose dusk falls on TODAY.
+        stubCurrentNight(TODAY);
         strategy = new AuroraHotTopicStrategy(auroraStateCache, noaaSwpcClient,
-                locationRepository, auroraSummaryBuilder);
+                locationRepository, auroraSummaryBuilder, forecastRunService);
+    }
+
+    /** The poller's night, named by the date its dusk falls on; the end instant is scaffolding. */
+    private void stubCurrentNight(LocalDate duskDate) {
+        when(forecastRunService.currentNight()).thenReturn(new CurrentNight(duskDate,
+                duskDate.plusDays(1).atTime(4, 30).toInstant(ZoneOffset.UTC)));
     }
 
     // ── Tonight detection ────────────────────────────────────────────────────
@@ -145,7 +158,8 @@ class AuroraHotTopicStrategyTest {
         realCache.activateSimulation(AlertLevel.STRONG,
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
         AuroraHotTopicStrategy simStrategy = new AuroraHotTopicStrategy(
-                realCache, noaaSwpcClient, locationRepository, auroraSummaryBuilder);
+                realCache, noaaSwpcClient, locationRepository, auroraSummaryBuilder,
+                forecastRunService);
 
         List<HotTopic> topics = simStrategy.detect(TODAY, TO_DATE);
 
@@ -318,6 +332,120 @@ class AuroraHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TODAY);
 
         assertThat(topics).isEmpty();
+    }
+
+    // ── The poller's night, not the civil date ───────────────────────────────
+
+    @Test
+    @DisplayName("before dawn, the alert's topic is dated the night still running (yesterday's dusk)")
+    void detect_preDawnAlert_datedOnTheRunningNight() {
+        // 2026-10-08 production shape: a MODERATE alert for the night ending at dawn, read at 06:xx.
+        // Dated from the civil date it landed on this evening's sunset — the FOLLOWING night — while
+        // the banner, reading the same level, said "tonight" about the one in progress.
+        stubCurrentNight(TODAY.minusDays(1));
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of());
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        HotTopic tonight = topics.get(0);
+        // A NIGHT topic dated D buckets onto (D, SUNSET) and (D+1, SUNRISE): this one reaches
+        // TODAY's sunrise, the only window of that night still on the matrix.
+        assertThat(tonight.date()).isEqualTo(TODAY.minusDays(1));
+        assertThat(tonight.priority()).isEqualTo(1);
+        assertThat(tonight.detail()).isEqualTo("Kp 5 forecast until dawn");
+        assertThat(tonight.detail()).doesNotContain("tonight");
+    }
+
+    @Test
+    @DisplayName("before dawn, the forecast topic covers the COMING night and calls it tonight")
+    void detect_preDawnForecast_coversTheComingNightAsTonight() {
+        stubCurrentNight(TODAY.minusDays(1));
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        // Kp 4 in TODAY's dark hours — the night after the one running.
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(TODAY.atTime(21, 0).atZone(ZoneOffset.UTC),
+                        TODAY.atTime(0, 0).plusDays(1).atZone(ZoneOffset.UTC), 4.0)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        HotTopic coming = topics.get(0);
+        assertThat(coming.date()).isEqualTo(TODAY);
+        assertThat(coming.priority()).isEqualTo(3);
+        assertThat(coming.detail()).isEqualTo("Kp 4 forecast tonight — worth watching");
+        assertThat(coming.detail()).doesNotContain("tomorrow");
+    }
+
+    @Test
+    @DisplayName("before dawn, both nights can emit: the running one until dawn, the coming one tonight")
+    void detect_preDawn_bothNights() {
+        stubCurrentNight(TODAY.minusDays(1));
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(7.0);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(TODAY.atTime(21, 0).atZone(ZoneOffset.UTC),
+                        TODAY.atTime(0, 0).plusDays(1).atZone(ZoneOffset.UTC), 5.0)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).extracting(HotTopic::date)
+                .containsExactly(TODAY.minusDays(1), TODAY);
+        assertThat(topics).extracting(HotTopic::detail)
+                .containsExactly("Kp 7 forecast until dawn", "Kp 5 forecast tonight — worth watching");
+    }
+
+    @Test
+    @DisplayName("before dawn with no alert, the running night emits nothing and Kp 3 for tonight is below the bar")
+    void detect_preDawnQuiet_nothing() {
+        stubCurrentNight(TODAY.minusDays(1));
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(TODAY.atTime(21, 0).atZone(ZoneOffset.UTC),
+                        TODAY.atTime(0, 0).plusDays(1).atZone(ZoneOffset.UTC), 3.0)));
+
+        assertThat(strategy.detect(TODAY, TO_DATE)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a night older than yesterday's is outside the range and emits nothing, alert or not")
+    void detect_nightBeforeTheRange_notEmitted() {
+        // No window of a night two dusks ago is on a matrix starting TODAY, so a topic dated there
+        // would bucket onto nothing — and would still count against a travel day and reach Ask.
+        stubCurrentNight(TODAY.minusDays(2));
+
+        assertThat(strategy.detect(TODAY, TO_DATE)).isEmpty();
+        // Neither night is in range, so neither source is consulted.
+        verify(auroraStateCache, never()).getCurrentLevel();
+        verify(noaaSwpcClient, never()).getCachedKpForecast();
+    }
+
+    @Test
+    @DisplayName("in daylight the alert's topic is dated today and still says tonight")
+    void detect_daylightAlert_datedToday() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+
+        HotTopic tonight = strategy.detect(TODAY, TO_DATE).stream()
+                .filter(t -> t.date().equals(TODAY)).findFirst().orElseThrow();
+
+        assertThat(tonight.detail()).isEqualTo("Kp 5 forecast tonight");
+    }
+
+    @Test
+    @DisplayName("before dawn with toDate = fromDate, the coming night (today's) is still in range")
+    void detect_preDawnSingleDay_comingNightInRange() {
+        stubCurrentNight(TODAY.minusDays(1));
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(TODAY.atTime(21, 0).atZone(ZoneOffset.UTC),
+                        TODAY.atTime(0, 0).plusDays(1).atZone(ZoneOffset.UTC), 5.0)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TODAY);
+
+        assertThat(topics).extracting(HotTopic::date).containsExactly(TODAY);
     }
 
     // ── Regions ──────────────────────────────────────────────────────────────

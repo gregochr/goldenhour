@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   CLOCKED_TOPIC_TYPES, DAY_SCOPED_TOPIC_TYPES, REGION_SCOPED_TOPIC_TYPES, WHOLE_SKY_TOPIC_TYPES,
-  buildTopicIndex, chipClock, isWholeSkyTopic, topicWindowKeys, windowTopics,
+  buildTopicIndex, chipClock, isWholeSkyTopic, topicCoveredDates, topicWindowKeys, windowTopics,
 } from '../utils/windowFirstTopics.js';
 
 /**
@@ -46,6 +46,33 @@ function badge(overrides = {}) {
 
 const NE = 'Northumberland & Tyneside';
 const LAKES = 'The Lake District';
+
+describe('topicCoveredDates — the dates a topic\'s windows fall on', () => {
+  it('gives a NIGHT topic two dates: its own and the next morning\'s', () => {
+    expect(topicCoveredDates(topic({ type: 'AURORA', eventType: 'NIGHT', date: '2026-08-05' })))
+      .toEqual(['2026-08-05', '2026-08-06']);
+  });
+
+  it('gives a single-window topic its one date', () => {
+    expect(topicCoveredDates(topic({ type: 'DUST', eventType: 'SUNSET', date: '2026-08-05' })))
+      .toEqual(['2026-08-05']);
+  });
+
+  it('gives a day-scoped tide topic its one date, not two (two windows, one day)', () => {
+    expect(topicCoveredDates(topic({ type: 'KING_TIDE', eventType: null, date: '2026-08-05' })))
+      .toEqual(['2026-08-05']);
+  });
+
+  it('falls back to the topic\'s own date for an unanchored type, rather than nothing', () => {
+    expect(topicCoveredDates(topic({ type: 'STORM_SURGE', eventType: null, date: '2026-08-05' })))
+      .toEqual(['2026-08-05']);
+  });
+
+  it('is empty for an undated topic', () => {
+    expect(topicCoveredDates(topic({ date: null }))).toEqual([]);
+    expect(topicCoveredDates(null)).toEqual([]);
+  });
+});
 
 describe('topicWindowKeys — PlanWindowProjector.keysFor, replicated', () => {
   // ⚠️ These name INVERSION/DUST rather than taking the fixture's default type, which is

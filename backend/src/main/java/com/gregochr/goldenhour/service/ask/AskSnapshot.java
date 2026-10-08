@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.ask;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 
 import java.time.LocalDate;
@@ -143,12 +144,16 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param regions the regions the topic names; empty when it is not region-specific
      * @param safetyNote the served warning every surface raising this topic must show (the solar
      *                   eclipse's lens-filter warning), or null
+     * @param eventType  the served solar anchor ({@code SUNRISE}, {@code SUNSET}, {@code NIGHT}),
+     *                   or null when the topic has none; a {@code NIGHT} topic dated D also
+     *                   covers D+1's morning, exactly as {@code PlanWindowProjector.keysFor}
+     *                   buckets it
      */
     public record Topic(String type, String label, String detail, LocalDate date,
-            List<String> regions, String safetyNote) {
+            List<String> regions, String safetyNote, String eventType) {
 
         /**
-         * A topic with no safety note.
+         * A topic with no safety note and no solar anchor.
          *
          * @param type    the topic type
          * @param label   the topic label
@@ -158,7 +163,51 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
          */
         public Topic(String type, String label, String detail, LocalDate date,
                 List<String> regions) {
-            this(type, label, detail, date, regions, null);
+            this(type, label, detail, date, regions, null, null);
+        }
+
+        /**
+         * A topic with no solar anchor.
+         *
+         * @param type       the topic type
+         * @param label      the topic label
+         * @param detail     the topic detail, or null
+         * @param date       the topic's date
+         * @param regions    the regions the topic names
+         * @param safetyNote the served warning, or null
+         */
+        public Topic(String type, String label, String detail, LocalDate date,
+                List<String> regions, String safetyNote) {
+            this(type, label, detail, date, regions, safetyNote, null);
+        }
+
+        /**
+         * The last civil date this topic's window reaches: the day after its date for a
+         * {@code NIGHT} topic (its morning half), else its own date. Null for an undated topic.
+         *
+         * <p>The aurora strategy dates its alert topic by the poller's night, which before dawn is
+         * yesterday's — a date test on {@code date} alone would then leave out a topic whose
+         * remaining half is this morning's sunrise, while the Plan card shows its badge. The same
+         * rule as {@link HotTopic#coveredDates()}, over the served anchor this record carries.
+         *
+         * @return the last date covered, or null
+         */
+        public LocalDate lastDate() {
+            if (date == null) {
+                return null;
+            }
+            return HotTopic.EVENT_NIGHT.equals(eventType) ? date.plusDays(1) : date;
+        }
+
+        /**
+         * Whether any date this topic covers falls inside {@code [from, to]}.
+         *
+         * @param from the first date, inclusive
+         * @param to   the last date, inclusive
+         * @return true when the topic's span and the range overlap; false for an undated topic
+         */
+        public boolean coversAnyOf(LocalDate from, LocalDate to) {
+            return date != null && !lastDate().isBefore(from) && !date.isAfter(to);
         }
 
         /** Canonical constructor: takes an immutable copy of {@code regions}. */

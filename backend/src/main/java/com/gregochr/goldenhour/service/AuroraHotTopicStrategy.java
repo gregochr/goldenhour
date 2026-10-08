@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.springframework.stereotype.Component;
 
@@ -23,8 +24,21 @@ import java.util.Objects;
  *
  * <p>Emits a hot topic when the aurora alert level is MINOR or above (tonight),
  * and optionally when the cached 3-day Kp forecast shows Kp &ge; 4 for
- * tomorrow night. Makes no external API calls — reads only from
+ * the night after. Makes no external API calls — reads only from
  * {@link AuroraStateCache} and the cached Kp forecast.
+ *
+ * <p><b>"Tonight" is the poller's night, not the civil date.</b> The alert level this strategy
+ * reads is set by {@code AuroraOrchestrator} for the dark window
+ * {@code AuroraPollingJob.calculateTonightWindow(now)} names — before nautical dawn that is the
+ * night still running, whose dusk fell on <em>yesterday's</em> date. The topic is dated from the
+ * same rule, through {@link AuroraForecastRunService#currentNight()} (its twin), so that a
+ * {@code NIGHT} topic lands on the windows of the night the alert is actually about: dated
+ * yesterday, {@code PlanWindowProjector} buckets it onto this morning's sunrise. Dated from the
+ * civil date, as it was until 2026-10-08, a pre-dawn alert sat on this evening's sunset — the
+ * following night — while the banner, reading the same level, said "tonight" about the one ending
+ * in an hour. The forecast topic names the night after the poller's, so that pre-dawn the coming
+ * night is covered too; both details word the night relative to the civil {@code fromDate}
+ * ("until dawn", "tonight", "tomorrow night"), never by which of the two topics emitted them.
  */
 @Component
 public class AuroraHotTopicStrategy implements HotTopicStrategy {
@@ -50,6 +64,7 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
     private final NoaaSwpcClient noaaSwpcClient;
     private final LocationRepository locationRepository;
     private final BriefingAuroraSummaryBuilder auroraSummaryBuilder;
+    private final AuroraForecastRunService forecastRunService;
 
     /**
      * Constructs an {@code AuroraHotTopicStrategy}.
@@ -58,37 +73,63 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
      * @param noaaSwpcClient        client for cached Kp forecast data
      * @param locationRepository    repository for location lookups
      * @param auroraSummaryBuilder  builder for tonight's aurora summary (cloud-triaged counts)
+     * @param forecastRunService    names the night the alert level is about — the night in
+     *                              progress before dawn, else the coming one — from the clock
      */
     public AuroraHotTopicStrategy(AuroraStateCache auroraStateCache,
             NoaaSwpcClient noaaSwpcClient,
             LocationRepository locationRepository,
-            BriefingAuroraSummaryBuilder auroraSummaryBuilder) {
+            BriefingAuroraSummaryBuilder auroraSummaryBuilder,
+            AuroraForecastRunService forecastRunService) {
         this.auroraStateCache = auroraStateCache;
         this.noaaSwpcClient = noaaSwpcClient;
         this.locationRepository = locationRepository;
         this.auroraSummaryBuilder = auroraSummaryBuilder;
+        this.forecastRunService = forecastRunService;
     }
 
     /**
      * {@inheritDoc}
      *
-     * <p>Emits up to two topics: one for tonight (from live cache state) if the
-     * alert level is MINOR or above, and one for tomorrow night if the cached
-     * Kp forecast peaks at 4+.
+     * <p>Emits up to two topics: one for the poller's current night (from live cache state) if
+     * the alert level is MINOR or above, and one for the night after it if the cached Kp forecast
+     * peaks at 4+. Both are dated by the night's dusk date, the convention every {@code NIGHT}
+     * topic shares — so before dawn the first is dated yesterday, and is admitted because that
+     * night's sunrise is {@code fromDate}'s own.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
         List<HotTopic> topics = new ArrayList<>();
 
-        detectTonight(fromDate, topics);
-        if (!fromDate.plusDays(1).isAfter(toDate)) {
-            detectTomorrow(fromDate, topics);
+        LocalDate night = forecastRunService.currentNight().date();
+        if (!night.isBefore(fromDate.minusDays(1)) && !night.isAfter(toDate)) {
+            detectTonight(night, fromDate, topics);
+        }
+        LocalDate nextNight = night.plusDays(1);
+        if (!nextNight.isBefore(fromDate) && !nextNight.isAfter(toDate)) {
+            detectTomorrow(nextNight, fromDate, topics);
         }
 
         return topics;
     }
 
-    private void detectTonight(LocalDate fromDate, List<HotTopic> topics) {
+    /**
+     * The words a detail line uses for a night, relative to the civil day the topics were asked
+     * for: the night still running before dawn is "until dawn", today's is "tonight", and any
+     * later one is "tomorrow night".
+     *
+     * @param night the date of the night's dusk
+     * @param today the civil date the detection was asked for
+     * @return the phrase naming that night
+     */
+    private static String nightPhrase(LocalDate night, LocalDate today) {
+        if (night.isBefore(today)) {
+            return "until dawn";
+        }
+        return night.equals(today) ? "tonight" : "tomorrow night";
+    }
+
+    private void detectTonight(LocalDate night, LocalDate today, List<HotTopic> topics) {
         // An admin's aurora simulation (POST /api/aurora/admin/simulate) is for admin UI testing
         // only. It must never reach a signed-in user's Plan cards as if it were a real alert, so
         // this returns before touching the level or trigger Kp the simulation injects.
@@ -120,14 +161,14 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         }
 
         int priority = (level == AlertLevel.STRONG || level == AlertLevel.MODERATE) ? 1 : 2;
-        String detail = buildTonightDetail(kp, clearCount, totalCount);
+        String detail = buildTonightDetail(kp, clearCount, totalCount, nightPhrase(night, today));
         List<String> regions = findAuroraRegions();
 
         HotTopic topic = new HotTopic(
                 "AURORA",
                 "Aurora possible",
                 detail,
-                fromDate,
+                night,
                 priority,
                 null,
                 regions,
@@ -140,8 +181,8 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         topics.add(topic);
     }
 
-    private void detectTomorrow(LocalDate fromDate, List<HotTopic> topics) {
-        double tomorrowPeakKp = findTomorrowNightPeakKp(fromDate.plusDays(1));
+    private void detectTomorrow(LocalDate nextNight, LocalDate today, List<HotTopic> topics) {
+        double tomorrowPeakKp = findTomorrowNightPeakKp(nextNight);
         if (tomorrowPeakKp < TOMORROW_KP_THRESHOLD) {
             return;
         }
@@ -152,9 +193,9 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         HotTopic topic = new HotTopic(
                 "AURORA",
                 "Aurora possible",
-                String.format("Kp %.0f forecast tomorrow night — worth watching",
-                        tomorrowPeakKp),
-                fromDate.plusDays(1),
+                String.format("Kp %.0f forecast %s — worth watching",
+                        tomorrowPeakKp, nightPhrase(nextNight, today)),
+                nextNight,
                 3,
                 null,
                 findAuroraRegions(),
@@ -192,12 +233,13 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         return facts;
     }
 
-    private String buildTonightDetail(Double kp, Integer clearCount, Integer totalCount) {
+    private String buildTonightDetail(Double kp, Integer clearCount, Integer totalCount,
+            String nightPhrase) {
         StringBuilder sb = new StringBuilder();
         if (kp != null) {
-            sb.append(String.format("Kp %.0f forecast tonight", kp));
+            sb.append(String.format("Kp %.0f forecast %s", kp, nightPhrase));
         } else {
-            sb.append("Elevated activity tonight");
+            sb.append("Elevated activity ").append(nightPhrase);
         }
         if (clearCount != null && clearCount > 0) {
             // "clear at X of Y" when the dark-sky total is known and consistent, so the number reads
