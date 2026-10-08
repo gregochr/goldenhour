@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
-import TideWave from '../map/TideWave.jsx';
-import { STATE_WORD } from '../../utils/windowFirstRows.js';
+import { PickScore, PickTide, pickWhen } from './AskPickFacts.jsx';
+import { pickCardShape } from './askShapes.js';
 
 /**
  * One pick card (design README, Components → Pick card), built from a card of
@@ -66,21 +66,11 @@ export default function AskPickCard({
         <span className="sr-only">{`Pick ${card.rank}, `}</span>
         <span className="wf-ask-l1">
           <span className="wf-ask-nm" data-testid={`ask-pick-name-${card.rank}`}>{card.name}</span>
-          <span className="wf-ask-sc" data-tier={card.verdict} data-testid={`ask-pick-score-${card.rank}`}>
-            {card.verdictLabel}
-            {card.rating != null && (
-              <>
-                <span aria-hidden="true">{` · ${card.rating}`}</span>
-                <span className="sr-only">{`, ${card.rating} ${card.rating === 1 ? 'star' : 'stars'}`}</span>
-              </>
-            )}
-          </span>
+          <PickScore card={card} testId={`ask-pick-score-${card.rank}`} />
         </span>
         <span className="wf-ask-l2">
           <span className="wf-ask-evb" data-target={card.targetType}>{card.targetType}</span>
-          <span data-testid={`ask-pick-when-${card.rank}`}>
-            {card.eventTime ? `${card.dayWord} ${card.eventTime}` : card.dayWord}
-          </span>
+          <span data-testid={`ask-pick-when-${card.rank}`}>{pickWhen(card)}</span>
           {card.driveLabel && (
             <>
               <span className="wf-ask-sep" aria-hidden="true" />
@@ -95,15 +85,7 @@ export default function AskPickCard({
             <>
               <span className="wf-ask-sep" aria-hidden="true" />
               <span className="wf-ask-tide" data-tier={card.tide.tier} data-testid={`ask-pick-tide-${card.rank}`}>
-                <TideWave
-                  className="wf-ask-tide-wave"
-                  shortfall={card.tide.tier === 'miss' ? card.tide.shortfall : null}
-                  state={card.tide.tier === 'match' ? card.tide.state : null}
-                />
-                {STATE_WORD[card.tide.state] && (
-                  <span aria-hidden="true">{` ${STATE_WORD[card.tide.state]}`}</span>
-                )}
-                {card.tide.clause && <span className="sr-only">{`Tide: ${card.tide.clause}`}</span>}
+                <PickTide tide={card.tide} label="Tide" />
               </span>
             </>
           )}
@@ -116,25 +98,7 @@ export default function AskPickCard({
 }
 
 AskPickCard.propTypes = {
-  card: PropTypes.shape({
-    rank: PropTypes.number.isRequired,
-    name: PropTypes.string.isRequired,
-    targetType: PropTypes.string.isRequired,
-    dayWord: PropTypes.string.isRequired,
-    eventTime: PropTypes.string,
-    verdict: PropTypes.string.isRequired,
-    verdictLabel: PropTypes.string.isRequired,
-    rating: PropTypes.number,
-    driveLabel: PropTypes.string,
-    why: PropTypes.string,
-    label: PropTypes.string.isRequired,
-    tide: PropTypes.shape({
-      tier: PropTypes.oneOf(['match', 'miss']).isRequired,
-      state: PropTypes.string,
-      shortfall: PropTypes.string,
-      clause: PropTypes.string,
-    }),
-  }).isRequired,
+  card: pickCardShape.isRequired,
   selected: PropTypes.bool,
   onSelect: PropTypes.func,
   actions: PropTypes.node,

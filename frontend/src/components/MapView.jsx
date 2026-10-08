@@ -62,9 +62,8 @@ import MapRegionPanel from './map/MapRegionPanel.jsx';
 import { regionGlossEntry } from '../utils/regionGloss.js';
 import AskCameraController from './map/AskCameraController.jsx';
 import MapPeekAsk from './map/MapPeekAsk.jsx';
-import {
-  askPeekMode, peekRestingHeight, peekTargetHeight, PEEK_SETTLED_PHASES,
-} from '../utils/askPeek.js';
+import { askPeekMode, peekRestingHeight, peekTargetHeight } from '../utils/askPeek.js';
+import { SETTLED_PHASES } from '../utils/askModel.js';
 import { askWindowOf } from '../utils/askMapContext.js';
 import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
 
@@ -4840,7 +4839,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // "Minimised" is no flag: it is a settled answer with nothing open. The row exists only on a phone,
   // on the tab, and while Ask is offered.
   const askRowOn = isMobile && !overlayMode && askOffered;
-  const askSettled = PEEK_SETTLED_PHASES.includes(askPhase);
+  const askSettled = SETTLED_PHASES.includes(askPhase);
   const askMode = askPeekMode({
     offered: askRowOn,
     expanded: askRowOn && openMapMenu === 'peek:ask',

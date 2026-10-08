@@ -70,11 +70,28 @@ function Probe() {
   );
 }
 
-/** The tree under test, so a test can re-render it with other props. */
-const tree = (props = {}) => (
+/**
+ * Publishes what the Map pane would (`registerMapContext`, the one channel): the region in scope and the
+ * window on the pill. The conversation reads its request context itself, so this — not a prop — is how a
+ * test gives it a scope or a window.
+ */
+function PublishMapContext({ context }) {
+  const { registerMapContext } = useAsk();
+  useEffect(() => { registerMapContext(context); }, [registerMapContext, context]);
+  return null;
+}
+
+/** A published Map context; the window is absent unless the test names one. */
+const mapCtx = (over = {}) => ({
+  regionIds: [], regionNames: [], windowId: null, windowLabel: null, viewLabel: 'Map · My area', ...over,
+});
+
+/** The tree under test, so a test can re-render it with other props. {@code mapContext} is published. */
+const tree = ({ mapContext = null, ...props } = {}) => (
   <WindowFirstBriefingProvider>
     <AskProvider>
       <Capture />
+      <PublishMapContext context={mapContext} />
       <Probe />
       <AskConversation
         view="plan"
@@ -184,7 +201,7 @@ describe('AskConversation — the empty state', () => {
   });
 
   it('fetches the list for the scope it is shown, once, after a briefing exists', async () => {
-    await renderAsk({ scope: 3 });
+    await renderAsk({ view: 'map', mapContext: mapCtx({ regionIds: [3] }) });
     await screen.findByTestId('ask-ready-list');
 
     expect(getReady).toHaveBeenCalledTimes(1);
@@ -203,16 +220,6 @@ describe('AskConversation — the empty state', () => {
     await screen.findByText('2026-10-05T17:03:40');
     expect(getReady).toHaveBeenCalledTimes(2);
     expect(screen.queryByTestId('ask-ready-list')).toBeNull();
-  });
-
-  it('fetches again when a hidden conversation is shown, and not before', async () => {
-    const view = await renderAsk({ hidden: true });
-    expect(getReady).not.toHaveBeenCalled();
-
-    view.rerender(tree({ hidden: false }));
-
-    await screen.findByTestId('ask-ready-list');
-    expect(getReady).toHaveBeenCalledTimes(1);
   });
 
   describe('the allowance line', () => {
@@ -287,7 +294,11 @@ describe('AskConversation — the empty state', () => {
 
   describe('the "Asking about" chips', () => {
     it('shows the window chip and the view chip', async () => {
-      await renderAsk({ view: 'map', viewLabel: 'Map · My area', windowLabel: 'Sat sunrise' });
+      await renderAsk({
+        view: 'map',
+        viewLabel: 'Map · My area',
+        mapContext: mapCtx({ windowLabel: 'Sat sunrise', windowId: '2026-10-10_sunrise' }),
+      });
 
       expect(screen.getByTestId('ask-chip-window')).toHaveTextContent('Sat sunrise');
       expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · My area');
@@ -296,13 +307,14 @@ describe('AskConversation — the empty state', () => {
     it('removes the window chip with its ✕, and the question is then sent without the window', async () => {
       ask.mockResolvedValue(ownResponse());
       await renderAsk({
-        view: 'map', viewLabel: 'Map · My area', windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset',
+        view: 'map',
+        viewLabel: 'Map · My area',
+        mapContext: mapCtx({ windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset' }),
       });
 
       fireEvent.click(screen.getByRole('button', { name: 'Remove Mon sunset from the question' }));
 
       expect(screen.queryByTestId('ask-chip-window')).toBeNull();
-      expect(ctx.contextWindow).toBe(false);
       expect(ctx.removedWindow).toBe('2026-10-05_sunset');
       await askTyped('What about Sunday?', { windowId: '2026-10-05_sunset', regionIds: [3], view: 'map' });
       expect(ask).toHaveBeenCalledWith({ question: 'What about Sunday?', regionIds: [3], view: 'map' });
@@ -310,26 +322,31 @@ describe('AskConversation — the empty state', () => {
 
     it('puts the window back when the surface restores it (a tab switch)', async () => {
       await renderAsk({
-        view: 'map', viewLabel: 'Map · My area', windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset',
+        view: 'map',
+        viewLabel: 'Map · My area',
+        mapContext: mapCtx({ windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset' }),
       });
       fireEvent.click(screen.getByTestId('ask-chip-window-remove'));
+      expect(ctx.removedWindow).toBe('2026-10-05_sunset');
 
       act(() => ctx.restoreContextWindow());
 
       expect(screen.getByTestId('ask-chip-window')).toBeInTheDocument();
-      expect(ctx.contextWindow).toBe(true);
+      expect(ctx.removedWindow).toBeNull();
     });
 
     it('brings the chip back by itself when a DIFFERENT window arrives — a removal is of that window only', async () => {
       ask.mockResolvedValue(ownResponse());
       const props = { view: 'map', viewLabel: 'Map · My area' };
       const view = await renderAsk({
-        ...props, windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset',
+        ...props, mapContext: mapCtx({ windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset' }),
       });
       fireEvent.click(screen.getByTestId('ask-chip-window-remove'));
       expect(screen.queryByTestId('ask-chip-window')).toBeNull();
 
-      view.rerender(tree({ ...props, windowLabel: 'Tue sunrise', windowId: '2026-10-06_sunrise' }));
+      view.rerender(tree({
+        ...props, mapContext: mapCtx({ windowLabel: 'Tue sunrise', windowId: '2026-10-06_sunrise' }),
+      }));
 
       expect(screen.getByTestId('ask-chip-window')).toHaveTextContent('Tue sunrise');
       // ...and the new window IS sent, while the removed one still is not.
@@ -341,41 +358,7 @@ describe('AskConversation — the empty state', () => {
   });
 });
 
-describe('AskConversation — hidden', () => {
-  it('is an empty, hidden shell: a live region behind a hidden layer announces nothing', async () => {
-    ask.mockResolvedValue(ownResponse());
-    const view = await renderAsk();
-    await askTyped('Where is good?', { regionIds: [], view: 'plan' });
-    expect(screen.getByTestId('ask-summary')).toBeInTheDocument();
-
-    view.rerender(tree({ hidden: true }));
-
-    const shell = screen.getByTestId('ask-conversation');
-    expect(shell).not.toBeVisible();
-    expect(screen.getByTestId('ask-live')).toHaveAttribute('aria-live', 'polite');
-    expect(screen.getByTestId('ask-live')).toBeEmptyDOMElement();
-    expect(shell).not.toHaveTextContent(/Saltburn|Where is good|Ready/);
-    expect(screen.queryByRole('status')).toBeNull();
-  });
-
-  it('fetches nothing for the Ready list while hidden', async () => {
-    await renderAsk({ hidden: true });
-
-    expect(getReady).not.toHaveBeenCalled();
-  });
-
-  it('shows no busy line while hidden, even mid-question', async () => {
-    const pending = new Promise(() => {});
-    ask.mockReturnValue(pending);
-    const view = await renderAsk();
-    act(() => { ctx.askTyped('Where is good?', { view: 'plan' }); });
-    expect(screen.getByRole('status')).toBeInTheDocument();
-
-    view.rerender(tree({ hidden: true }));
-
-    expect(screen.queryByRole('status')).toBeNull();
-  });
-
+describe('AskConversation — live regions', () => {
   it('keeps the SAME live regions mounted from empty to answer, so the arrival is announced', async () => {
     ask.mockResolvedValue(ownResponse());
     await renderAsk();
@@ -678,7 +661,11 @@ describe('AskConversation — a typed question', () => {
 
   it('sends the question, the regions, the view and the window — and only those', async () => {
     ask.mockResolvedValue(ownResponse());
-    await renderAsk({ view: 'map', viewLabel: 'Map · Lakes', windowLabel: 'Mon sunset' });
+    await renderAsk({
+      view: 'map',
+      viewLabel: 'Map · Lakes',
+      mapContext: mapCtx({ windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset', viewLabel: 'Map · Lakes' }),
+    });
 
     await askTyped('  Where is good?  ', { windowId: '2026-10-05_sunset', regionIds: [3], view: 'map' });
 
@@ -1345,7 +1332,9 @@ describe('AskConversation — focus survives a press that unmounts the control',
 
   it('moves focus to the conversation when a window chip is removed', async () => {
     await renderAsk({
-      view: 'map', viewLabel: 'Map · My area', windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset',
+      view: 'map',
+      viewLabel: 'Map · My area',
+      mapContext: mapCtx({ windowLabel: 'Mon sunset', windowId: '2026-10-05_sunset' }),
     });
     const remove = screen.getByRole('button', { name: 'Remove Mon sunset from the question' });
     remove.focus();

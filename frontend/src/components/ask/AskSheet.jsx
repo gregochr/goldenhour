@@ -5,7 +5,7 @@ import AskClearAnswer from './AskClearAnswer.jsx';
 import AskConversation from './AskConversation.jsx';
 import AskInputRow from './AskInputRow.jsx';
 import { useAsk } from '../../context/AskContext.jsx';
-import useAskRequestContext from '../../hooks/useAskRequestContext.js';
+import { planActionsShape } from './askShapes.js';
 
 /** The sheet's accessible name — also how the shell recognises it among the dialogs outside its root. */
 export const ASK_SHEET_LABEL = 'Ask PhotoCast';
@@ -55,7 +55,6 @@ export default function AskSheet({
 }) {
   const ask = useAsk();
   const inputRef = useRef(null);
-  const requestContext = useAskRequestContext(view, viewLabel);
   const { typedDisabled } = ask;
   useEffect(() => {
     if (open && !typedDisabled) inputRef.current?.focus({ preventScroll: true });
@@ -74,11 +73,7 @@ export default function AskSheet({
     >
       <AskConversation
         view={view}
-        scope={requestContext.scope}
-        viewLabel={requestContext.viewLabel}
-        windowLabel={requestContext.windowLabel}
-        windowId={requestContext.windowId}
-        regionIds={requestContext.regionIds}
+        viewLabel={viewLabel}
         pickActions={pickActions}
         planActions={planActions}
       />
@@ -93,6 +88,6 @@ AskSheet.propTypes = {
   view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
   viewLabel: PropTypes.string.isRequired,
   pickActions: PropTypes.func,
-  planActions: PropTypes.shape({ openInPlan: PropTypes.func, setPostcode: PropTypes.func }),
+  planActions: planActionsShape,
   restoreFallback: PropTypes.func,
 };

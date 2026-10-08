@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildPickCards, eventKicker, newestRunLabel, questionsForView, readyBusyLine, resolveSuggestions,
-  shortWindow,
+  buildPickCards, eventKicker, meridiemOf, newestRunLabel, questionsForView, readyBusyLine,
+  resolveSuggestions, shortWindow,
 } from '../utils/askModel.js';
+import { windowKey } from '../utils/heatSpots.js';
 import {
   briefing, pick, readyResponse, ROSEBERRY, SALTBURN, slot, WHITBY,
 } from './askFixtures.js';
@@ -39,6 +40,13 @@ describe('buildPickCards — a served pick joined to the briefing', () => {
 
     expect(card.eventInstant).toBe('2026-10-05T17:41:00');
     expect(card.summary).toBe('Clear horizon, high cloud to catch it.');
+  });
+
+  it('carries the window key the shell addresses a Plan window by, so nothing recomputes it from the card', () => {
+    const [card] = buildPickCards([pick()], briefing().days, null);
+
+    expect(card.windowKey).toBe(windowKey(card.date, card.targetType));
+    expect(card.windowKey).toBe('2026-10-05:SUNSET');
   });
 
   it('has no summary rather than an empty one', () => {
@@ -227,6 +235,15 @@ describe('buildPickCards — drive time is the HOME map and unknown stays unknow
 
   it('rounds a fractional drive to the minute', () => {
     expect(buildPickCards([pick()], briefing().days, home([[WHITBY, 44.6]]))[0].driveMinutes).toBe(45);
+  });
+});
+
+describe('meridiemOf', () => {
+  it('is AM for a sunrise and PM for a sunset, and nothing for anything else', () => {
+    expect(meridiemOf('SUNRISE')).toBe('AM');
+    expect(meridiemOf('SUNSET')).toBe('PM');
+    expect(meridiemOf('ASTRO')).toBeNull();
+    expect(meridiemOf(undefined)).toBeNull();
   });
 });
 

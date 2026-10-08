@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
 import useAskRequestContext from '../../hooks/useAskRequestContext.js';
+import { refShape } from './askShapes.js';
 import { READY_ONLY_PLACEHOLDER } from '../../utils/askModel.js';
 
 /** The server's own length limit (`POST /api/ask` answers 400 `INVALID` beyond it). */
@@ -154,7 +155,7 @@ export default function AskInputRow({ inputRef, view, viewLabel = undefined }) {
 }
 
 AskInputRow.propTypes = {
-  inputRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]).isRequired,
+  inputRef: refShape.isRequired,
   view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
   viewLabel: PropTypes.string,
 };

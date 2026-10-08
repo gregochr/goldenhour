@@ -1,11 +1,11 @@
 import { forwardRef, useId, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useWindowFirstBriefing } from '../../context/WindowFirstBriefingContext.jsx';
-import TideWave from '../map/TideWave.jsx';
+import { PickScore, PickTide, pickWhen } from './AskPickFacts.jsx';
+import { pickCardShape, planActionsShape } from './askShapes.js';
 import { buildScoreIndex } from '../../utils/locationSheet.js';
 import { planFigures } from '../../utils/askPlan.js';
 import { SET_POSTCODE_LONG, SET_POSTCODE_SHORT } from '../../utils/postcodeNudge.js';
-import { STATE_WORD } from '../../utils/windowFirstRows.js';
 
 /**
  * Ask PhotoCast's "Plan this" (design README, State 4; plan §2.8): one pick's own view, drawn in place
@@ -53,7 +53,6 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
   const setPostcode = actions?.setPostcode;
   const showNudge = homePlace === null && typeof setPostcode === 'function'
     && (figures.leave === null || figures.drive === null);
-  const when = card.eventTime ? `${card.dayWord} ${card.eventTime}` : card.dayWord;
 
   return (
     <div
@@ -78,16 +77,8 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
           </h3>
           <div className="wf-ask-l2" data-testid="ask-plan-sub">
             <span className="wf-ask-evb" data-target={card.targetType}>{card.targetType}</span>
-            <span data-testid="ask-plan-when">{when}</span>
-            <span className="wf-ask-sc wf-ask-plh-sc" data-tier={card.verdict} data-testid="ask-plan-score">
-              {card.verdictLabel}
-              {card.rating != null && (
-                <>
-                  <span aria-hidden="true">{` · ${card.rating}`}</span>
-                  <span className="sr-only">{`, ${card.rating} ${card.rating === 1 ? 'star' : 'stars'}`}</span>
-                </>
-              )}
-            </span>
+            <span data-testid="ask-plan-when">{pickWhen(card)}</span>
+            <PickScore card={card} testId="ask-plan-score" className="wf-ask-plh-sc" />
           </div>
         </div>
       </div>
@@ -122,19 +113,7 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
           ))}
         </Figure>
         <Figure label="Tide" testId="ask-plan-tide" tier={figures.tide?.tier} emptyWords="No tide data">
-          {figures.tide && (
-            <>
-              <TideWave
-                className="wf-ask-tide-wave"
-                shortfall={figures.tide.tier === 'miss' ? figures.tide.shortfall : null}
-                state={figures.tide.tier === 'match' ? figures.tide.state : null}
-              />
-              {STATE_WORD[figures.tide.state] && (
-                <span aria-hidden="true">{` ${STATE_WORD[figures.tide.state]}`}</span>
-              )}
-              {figures.tide.clause && <span className="sr-only">{figures.tide.clause}</span>}
-            </>
-          )}
+          {figures.tide && <PickTide tide={figures.tide} />}
         </Figure>
       </dl>
       {showNudge && (
@@ -178,22 +157,9 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
 export default AskPlanThis;
 
 AskPlanThis.propTypes = {
-  card: PropTypes.shape({
-    rank: PropTypes.number.isRequired,
-    name: PropTypes.string.isRequired,
-    targetType: PropTypes.string.isRequired,
-    dayWord: PropTypes.string.isRequired,
-    eventTime: PropTypes.string,
-    verdict: PropTypes.string.isRequired,
-    verdictLabel: PropTypes.string.isRequired,
-    rating: PropTypes.number,
-    summary: PropTypes.string,
-  }).isRequired,
+  card: pickCardShape.isRequired,
   onBack: PropTypes.func.isRequired,
-  actions: PropTypes.shape({
-    openInPlan: PropTypes.func,
-    setPostcode: PropTypes.func,
-  }),
+  actions: planActionsShape,
 };
 
 /**

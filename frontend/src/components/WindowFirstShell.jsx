@@ -29,7 +29,6 @@ import {
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
-import { windowKey } from '../utils/heatSpots.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
@@ -434,16 +433,16 @@ export default function WindowFirstShell({
    * component's own setters. A context value could not be cleared from there. Never set from
    * {@code AskContext}, which holds the conversation and nothing about a surface.
    */
-  const [askOpen, setAskOpen] = useState(false);
+  const [askSheetOpen, setAskSheetOpen] = useState(false);
   /**
    * Whether Ask PhotoCast's DOCK is open (F2) — its own state, deliberately not a value of
-   * {@code askOpen}/{@code askEntry}. {@code askSheetOpen} drives the app container's {@code inert}, and
+   * {@code askSheetOpen}/{@code askEntry}. {@code askSheetShown} drives the app container's {@code inert}, and
    * the dock is not modal: folding it in would make the dock inert itself and the page beside it dead.
    *
    * <p>Not on {@code selectTab}'s list either, and that is the point of a dock: it survives a switch
    * between Plan, Coming up and Map (the conversation chips and suggestions follow the tab). It goes
    * when nothing can draw it any more — Operations, a band below 1024px, Ask switched off — through the
-   * same render-time release {@code askOpen} uses.
+   * same render-time release {@code askSheetOpen} uses.
    */
   const [askDockOpen, setAskDockOpen] = useState(false);
   /** The Ask bar or field that is on screen, where closing the sheet or the dock returns focus. */
@@ -769,7 +768,7 @@ export default function WindowFirstShell({
     // Ask's sheet is a layer like the rest: arriving anywhere ends it, and every route that only
     // wants the dialogs gone (the cog, the nudge, the settings edge) takes it down with them. The
     // CONVERSATION is not touched — it is context state, and this body may call only our own setters.
-    setAskOpen(false);
+    setAskSheetOpen(false);
   };
   /**
    * The Coming up tab's handoff row, going the other way (plan P1/D14).
@@ -1319,7 +1318,7 @@ export default function WindowFirstShell({
    * <p>The sheet claims {@code aria-modal}, so while it is up nothing else may be a dialog. That is held
    * four ways, because {@code useDialogFocus} is deliberately not a focus trap: the entry is DISABLED
    * while any shell dialog or settings is open (opening Ask never closes one — a refusal, not a
-   * take-down), and {@code openAsk} refuses over a dialog this shell does not own; the whole React app
+   * take-down), and {@code openAskSheet} refuses over a dialog this shell does not own; the whole React app
    * container is {@code inert} while the sheet is open (the layout effect below), so a keyboard
    * reader who Tabs out of the sheet reaches neither a card behind the scrim nor a banner above the
    * shell; and {@code selectTab} closes the sheet on any tab change, from any route.
@@ -1336,13 +1335,13 @@ export default function WindowFirstShell({
   const askDocked = askSurface === 'desktop' || askSurface === 'wide';
   const askDockEntry = (ask.availability === 'on' || ask.availability === 'down')
     && askDocked && effectiveTab !== 'operations';
-  // ⚠️ `askOpen` would otherwise be held while NOTHING draws the sheet — the window crossing 1024px, a
+  // ⚠️ `askSheetOpen` would otherwise be held while NOTHING draws the sheet — the window crossing 1024px, a
   // phone Map, Ask switched off — and bring the sheet back by itself the next time an entry exists (an
   // iPad turned landscape and back reopened it, unasked, focus and all). So it is let go the render
   // the entry goes: during render and with this component's own setter, the shape the settings edge
   // above uses, so no commit holds both states. The conversation is untouched.
-  if (askOpen && askEntry === null) setAskOpen(false);
-  const askSheetOpen = askOpen && askEntry !== null;
+  if (askSheetOpen && askEntry === null) setAskSheetOpen(false);
+  const askSheetShown = askSheetOpen && askEntry !== null;
   // The dock's twin: Operations, a window narrowed below 1024px and Ask switched off all take away what
   // the dock hangs from, and a state left true would bring it back unasked the next time one exists.
   // A tab switch between Plan, Coming up and Map is NOT one of them — see `askDockOpen`.
@@ -1367,9 +1366,9 @@ export default function WindowFirstShell({
    * does not own — the map overlay — so it is found the way {@code /} finds it (any
    * {@code role="dialog"} outside this root), at press time, and refused with nothing taken down.
    */
-  const openAsk = () => {
+  const openAskSheet = () => {
     if (foreignDialogOpen(shellRef.current)) return;
-    setAskOpen(true);
+    setAskSheetOpen(true);
   };
   /**
    * The ✕, the scrim and Escape: CLOSE, and keep the conversation (plan §2.6, §2.8 — the answer
@@ -1377,7 +1376,7 @@ export default function WindowFirstShell({
    * sheet's own "Clear answer" control. A scrim is a full-viewport target and Escape is global; either
    * discarding an answer the reader was charged a question for would be a trap.
    */
-  const dismissAsk = () => setAskOpen(false);
+  const closeAskSheet = () => setAskSheetOpen(false);
   /**
    * "Show on map ›" on a pick: select that pick, leave the sheet, land on the Map tab, keep the
    * answer. {@code selectTab} is the route (it closes the sheet with the rest of the layers); the
@@ -1398,7 +1397,7 @@ export default function WindowFirstShell({
       // Closing the sheet is the whole of "show": the map's camera was holding for exactly this
       // (`AskCameraController` waits while a modal stands over the pane) and fits the moment it goes.
       // Focus returns through the sheet's own restore, so nothing is moved here.
-      dismissAsk();
+      closeAskSheet();
       return;
     }
     selectTab('map');
@@ -1410,7 +1409,7 @@ export default function WindowFirstShell({
   // somewhere: a Map pane exists, and the reader is not already on it.
   // ...and, since F3, on the tablet's Ask SHEET over the Map: the picks are numbered on a map the sheet
   // covers, and this is the press that uncovers it (the dock, which covers nothing, is not offered it).
-  const askCanShowOnMap = mapPane != null && (effectiveTab !== 'map' || askSheetOpen);
+  const askCanShowOnMap = mapPane != null && (effectiveTab !== 'map' || askSheetShown);
   const askPickActions = (card) => (askCanShowOnMap ? (
     <button
       type="button"
@@ -1426,6 +1425,14 @@ export default function WindowFirstShell({
     </button>
   ) : null);
   /**
+   * The tab in force, read from the DOM — the one lookup behind both focus fallbacks below (a ref to the
+   * tab only catches up in a passive effect, and the close that needs it runs in its own cleanup).
+   */
+  const selectedTabNode = useCallback(
+    () => shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null,
+    [],
+  );
+  /**
    * Where focus goes on close when the trigger cannot take it back (a tap never focused it, it was
    * unmounted by the press, or it is disabled): the trigger if it is still there, else the tab in
    * force — read from the DOM, since a ref to the tab only catches up in a passive effect and this
@@ -1434,8 +1441,8 @@ export default function WindowFirstShell({
   const askRestoreFallback = useCallback(() => {
     const trigger = askTriggerRef.current;
     if (trigger?.isConnected && !trigger.disabled) return trigger;
-    return shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null;
-  }, []);
+    return selectedTabNode();
+  }, [selectedTabNode]);
   /**
    * The control in the DOCK that "Open in Plan ›" was pressed on, so closing the location sheet it opened
    * can put focus back there (null on every other host, where the pressed control went with its surface).
@@ -1459,12 +1466,12 @@ export default function WindowFirstShell({
    * sheet, opened AT the pick's window.
    *
    * <p><b>The two-deep rule, route by route.</b> {@code selectTab('plan')} is the one list that takes
-   * every dialog this shell owns down, and it is where the ASK SHEET goes (it sets {@code askOpen} false),
+   * every dialog this shell owns down, and it is where the ASK SHEET goes (it sets {@code askSheetOpen} false),
    * so the location sheet is the single modal on the tablet and the phone. The DOCK is not a layer and is
    * not on that list: it stays open beside the plan the reader asked to see, and turns {@code inert}
    * for as long as the sheet is up ({@code askDialogOpen} reads {@code sheetSpot} through
    * {@code stackedOverPopup}). A dialog this shell does not own (the map overlay) refuses the press, as
-   * {@code openAsk} does — a second {@code aria-modal} over it is the thing the rule is for.
+   * {@code openAskSheet} does — a second {@code aria-modal} over it is the thing the rule is for.
    *
    * <p>The sheet is the Plan tab's own, with the window the handoff effect above gives the map's callout:
    * {@code sheetWindowKey} is {@code date:targetType}, so it opens on the pick's window rather than on its
@@ -1481,13 +1488,13 @@ export default function WindowFirstShell({
   const askOpenInPlan = (card, pressed = null) => {
     // Ask's own sheet is a dialog outside this root, and this very press closes it: it is not a second
     // modal to refuse for. Every other dialog this shell does not own still is.
-    const closesWithThisPress = (node) => askSheetOpen && node.getAttribute('aria-label') === ASK_SHEET_LABEL;
+    const closesWithThisPress = (node) => askSheetShown && node.getAttribute('aria-label') === ASK_SHEET_LABEL;
     if (foreignDialogOpen(shellRef.current, closesWithThisPress)) return;
     // The control that was pressed — passed by the view, because Safari and Firefox on macOS do not focus a
     // button on a mouse press, so `activeElement` would be <body> there and there would be nothing to return to.
     const opener = pressed instanceof HTMLElement ? pressed : document.activeElement;
     askOpenerRef.current = askDockShown && opener instanceof HTMLElement ? opener : null;
-    askSheetReturnRef.current = askSheetOpen;
+    askSheetReturnRef.current = askSheetShown;
     warmStackedChunks();
     selectTab('plan');
     setSheetSpot({
@@ -1495,7 +1502,7 @@ export default function WindowFirstShell({
       name: card.name,
       regionName: card.regionName ?? null,
     });
-    setSheetWindowKey(windowKey(card.date, card.targetType));
+    setSheetWindowKey(card.windowKey);
   };
   useEffect(() => {
     if (sheetSpot != null) return;
@@ -1536,32 +1543,28 @@ export default function WindowFirstShell({
   const askHighlight = useMemo(() => {
     // Off the moment Ask is: a server that answered 404 hides every surface but keeps the conversation, and a
     // ring with no surface left to clear it would be stuck on the card for the session.
-    if (!askAvailable || effectiveTab !== 'plan' || askSheetOpen || askActiveRank == null) return NO_HIGHLIGHT;
+    if (!askAvailable || effectiveTab !== 'plan' || askSheetShown || askActiveRank == null) return NO_HIGHLIGHT;
     const card = ask.pickCards.find((c) => c.rank === askActiveRank);
-    return card ? new Map([[windowKey(card.date, card.targetType), card.rank]]) : NO_HIGHLIGHT;
-  }, [askAvailable, effectiveTab, askSheetOpen, askActiveRank, ask.pickCards]);
+    return card ? new Map([[card.windowKey, card.rank]]) : NO_HIGHLIGHT;
+  }, [askAvailable, effectiveTab, askSheetShown, askActiveRank, ask.pickCards]);
   /**
    * Where the dock's focus goes if the dock stops being somewhere focus can be while it holds it
    * (it turns {@code inert} under a dialog or a dead backend, or is released because the window
    * narrowed past 1024px): the tab in force. Never the field, which is disabled in the first case
    * and about to be replaced by another in the second. See {@code AskDock}'s {@code useKeepFocusAlive}.
    */
-  const askTabFocus = useCallback(
-    () => shellRef.current?.querySelector('[role="tab"][aria-selected="true"]') ?? null,
-    [],
-  );
   /**
    * The field's press from 1024px, and the whole of what {@code /} does once it is past its
    * refusals: open the dock, or — when it is already open — put the cursor back in its question field
    * (the field is "on" and a second press must not close what the reader just asked for). Refused
-   * over a dialog this shell does not own, exactly as {@code openAsk} is; the field is
+   * over a dialog this shell does not own, exactly as {@code openAskSheet} is; the field is
    * {@code disabled} while one of its own stands. Opening focuses the field from the dock's own mount.
    */
-  const openAskDock = () => {
+  const openAskDock = useCallback(() => {
     if (foreignDialogOpen(shellRef.current)) return;
     if (askDockShown) askDockInputRef.current?.focus({ preventScroll: true });
     else setAskDockOpen(true);
-  };
+  }, [askDockShown]);
   /**
    * The ✕ and Escape inside the dock: CLOSE, keep the conversation, and put focus on the field.
    *
@@ -1590,7 +1593,7 @@ export default function WindowFirstShell({
    * sheet takes {@code restoreFallback}. jsdom has no {@code inert}; tests assert the attribute.
    */
   useLayoutEffect(() => {
-    if (!askSheetOpen) return undefined;
+    if (!askSheetShown) return undefined;
     let container = shellRef.current;
     while (container?.parentElement && container.parentElement !== document.body) {
       container = container.parentElement;
@@ -1603,7 +1606,7 @@ export default function WindowFirstShell({
     if (container.hasAttribute('inert')) return undefined;
     container.setAttribute('inert', '');
     return () => container.removeAttribute('inert');
-  }, [askSheetOpen]);
+  }, [askSheetShown]);
   const dimmed = contentDisabled ? ' opacity-50 pointer-events-none' : '';
   // The shared tiers, not a local copy: `generatedAt` is a zone-less UTC instant, and the one
   // formatter that already knows that is the one that appends the Z. Hand-rolling it here read an
@@ -1762,12 +1765,12 @@ export default function WindowFirstShell({
       const tag = el?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
       event.preventDefault();
-      if (askDockShown) askDockInputRef.current?.focus({ preventScroll: true });
-      else setAskDockOpen(true);
+      // Past every refusal, `/` means exactly what the field's press means.
+      openAskDock();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [askDockEntry, askDockShown, askDisabled]);
+  }, [askDockEntry, askDisabled, openAskDock]);
 
   /**
    * The plan's way out of a lens that has shut it — the bar's controls, reached from the message.
@@ -2211,8 +2214,8 @@ export default function WindowFirstShell({
           width={260}
           prompt="Ask about the forecasts…"
           disabled={askDisabled}
-          expanded={askSheetOpen}
-          onOpen={openAsk}
+          expanded={askSheetShown}
+          onOpen={openAskSheet}
           buttonRef={askTriggerRef}
         />
       )}
@@ -2560,7 +2563,7 @@ export default function WindowFirstShell({
           contextLabel={ASK_DOCK_CONTEXT[effectiveTab] ?? ASK_DOCK_CONTEXT.plan}
           inputRef={askDockInputRef}
           onClose={closeAskDock}
-          fallbackFocus={askTabFocus}
+          fallbackFocus={selectedTabNode}
           pickActions={askPickActions}
           planActions={askPlanActions}
         />
@@ -2573,15 +2576,15 @@ export default function WindowFirstShell({
         <AskBar
           prompt={ASK_BAR_PROMPT[effectiveTab] ?? ASK_BAR_PROMPT.plan}
           disabled={askDisabled}
-          expanded={askSheetOpen}
-          onOpen={openAsk}
+          expanded={askSheetShown}
+          onOpen={openAskSheet}
           buttonRef={askTriggerRef}
         />
       )}
       {askEntry !== null && (
         <AskSheet
-          open={askSheetOpen}
-          onClose={dismissAsk}
+          open={askSheetShown}
+          onClose={closeAskSheet}
           view={askViewSpec.view}
           viewLabel={askViewSpec.label}
           pickActions={askPickActions}

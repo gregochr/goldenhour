@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { refShape } from './askShapes.js';
 
 /**
  * The Ask field at the right end of the tab row (design README, "Where Ask lives": the 340 × 34 px
@@ -77,6 +78,6 @@ AskField.propTypes = {
   disabled: PropTypes.bool,
   expanded: PropTypes.bool,
   prompt: PropTypes.string,
-  buttonRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]),
+  buttonRef: refShape,
   controls: PropTypes.string,
 };
