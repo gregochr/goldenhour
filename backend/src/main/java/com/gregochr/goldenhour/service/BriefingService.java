@@ -275,7 +275,7 @@ public class BriefingService {
         if (cached == null) {
             return null;
         }
-        DailyBriefingResponse withLiveOverlays;
+        DailyBriefingResponse overlaid;
         try {
             AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonightCached();
             AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrowCached();
@@ -290,28 +290,21 @@ public class BriefingService {
             if (Objects.equals(cached.auroraTonight(), liveTonight)
                     && Objects.equals(cached.auroraTomorrow(), liveTomorrow)
                     && Objects.equals(cached.hotTopics(), liveTopics)) {
-                withLiveOverlays = cached;
+                overlaid = cached;
             } else {
-                // bestBetStatus MUST be carried through. This rebuild overlays live aurora and hot
-                // topics; it is not a new verdict on the best-bet advisor, so dropping the status
-                // silently disables two things that switch on it — the serve-time fallback in
-                // applyBestBetFallback (which returns early unless the status is FAILED) and the
-                // frontend's "from an earlier forecast" chip. Both would go dark on exactly the
-                // requests that reach this branch, i.e. whenever aurora is live or a hot-topic
-                // simulation is toggled. The 12-arg convenience constructor defaults it to null,
-                // which is why this passes all 13 explicitly.
-                withLiveOverlays = new DailyBriefingResponse(
-                        cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
-                        liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
-                        cached.failedLocationCount(), cached.bestBetModel(),
-                        liveTopics, cached.seasonalFeatures(), cached.bestBetStatus());
+                // withLiveOverlays() carries every other component, bestBetStatus included. This
+                // rebuild overlays live aurora and hot topics; it is not a new verdict on the
+                // best-bet advisor, so dropping the status would silently disable the serve-time
+                // fallback in applyBestBetFallback (which returns early unless the status is
+                // FAILED) and the frontend's "from an earlier forecast" chip.
+                overlaid = cached.withLiveOverlays(liveTonight, liveTomorrow, liveTopics);
             }
         } catch (Exception e) {
             LOG.warn("Aurora overlay failed — returning briefing without live aurora: {}",
                     e.getMessage());
-            withLiveOverlays = cached;
+            overlaid = cached;
         }
-        return overlaySimulatedEclipse(withLiveOverlays);
+        return overlaySimulatedEclipse(overlaid);
     }
 
     /**

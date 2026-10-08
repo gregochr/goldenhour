@@ -301,14 +301,9 @@ class ServedBriefingAssembler {
         if (fallback.isEmpty()) {
             return response;
         }
-        return new DailyBriefingResponse(
-                response.generatedAt(), response.headline(), response.days(),
-                fallback, response.auroraTonight(), response.auroraTomorrow(),
-                response.stale(), response.partialFailure(), response.failedLocationCount(),
-                response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
-                // Carried, not cleared: this now runs BEFORE the honesty filter, so there is no
-                // withdrawal yet to describe — the filter sets the flag afterwards, against
-                // whichever list it ends up seeing, including this one.
-                response.bestBetStatus(), response.bestBetsWithdrawn());
+        // The withdrawal flag is carried, not cleared: this now runs BEFORE the honesty filter, so
+        // there is no withdrawal yet to describe — the filter sets the flag afterwards, against
+        // whichever list it ends up seeing, including this one.
+        return response.withBestBets(fallback, response.bestBetsWithdrawn());
     }
 }
