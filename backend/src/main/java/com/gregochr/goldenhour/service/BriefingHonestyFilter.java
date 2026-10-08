@@ -128,13 +128,7 @@ final class BriefingHonestyFilter {
         // difference, and only on this serve.
         Boolean withdrawn = response.bestBets() != null
                 && keptBets.size() != response.bestBets().size() ? Boolean.TRUE : null;
-        return new DailyBriefingResponse(
-                response.generatedAt(), response.headline(), rewrittenDays,
-                keptBets,
-                response.auroraTonight(), response.auroraTomorrow(),
-                response.stale(), response.partialFailure(), response.failedLocationCount(),
-                response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
-                response.bestBetStatus(), withdrawn);
+        return response.withDays(rewrittenDays).withBestBets(keptBets, withdrawn);
     }
 
     private static BriefingDay rewriteDay(BriefingDay day, double minCoverageRatio,
