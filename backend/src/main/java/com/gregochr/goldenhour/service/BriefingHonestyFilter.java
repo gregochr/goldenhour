@@ -24,9 +24,16 @@ import java.util.Set;
  *
  * <p><b>Role after the Gate 2 redesign:</b> failure-defence. Under the Gate 2
  * verdict-as-attribute redesign, weather-condition STANDDOWN slots reach Claude
- * via {@link BriefingGatingPolicy}, so policy-driven zero-coverage cases are
- * rare. Residual zero-coverage now comes from:
+ * via {@link BriefingGatingPolicy}, so zero coverage from a weather stand-down is
+ * rare. It is NOT rare overall: it is the designed state of every window Gate 4
+ * does not score (T+3 except SETTLED, and all of T+4) and of every travel day,
+ * whose batch is skipped. Zero-coverage now comes from:
  * <ul>
+ *   <li>Windows outside the scoring policy: T+3 regions that are not SETTLED,
+ *       every T+4 region, and travel days. Nothing failed; nothing was
+ *       attempted. Per-location tide facts survive this filter on
+ *       {@code BriefingWindow.tideFacts}, which is built from the unfiltered
+ *       slots before this runs.</li>
  *   <li>Batch API failures or partial results that write zero rows to a
  *       region's cache for a given (date, target).</li>
  *   <li>Regions whose every slot is hard-constrained (e.g. all-tide-mismatched
@@ -248,10 +255,11 @@ final class BriefingHonestyFilter {
         //
         // This filter is failure-defence — its whole premise is "we expected Claude coverage and
         // did not get it". A canopy slot never expected any, and neither did a slot the pipeline
-        // withheld by hard constraint (`evaluationGate`, today the tide gate): it is dropped before
-        // Claude by design, so counting it as expected coverage made an all-tide-mismatched coastal
-        // region read as a batch FAILURE — slots emptied, the served gate on every one of them
-        // discarded, and "too unsettled to evaluate" printed for a tide (adversarial review).
+        // withheld by hard constraint (`evaluationGate`; the tide gate that used to set it was
+        // lifted 2026-09-18, so the set is empty today and this is a seam, not a live case): it
+        // is dropped before Claude by design, so counting it as expected coverage made an
+        // all-tide-mismatched coastal region read as a batch FAILURE — slots emptied, the served
+        // gate on every one of them discarded, and "too unsettled to evaluate" printed for a tide (adversarial review).
         // Same predicate as the confidence denominator (BriefingRegionEvaluationRollup.rosterOf):
         // a slot counts when it COULD carry a rating, not merely when it is not canopy. An
         // in-season canopy bluebell site is scored by the bluebell prompt, so excluding it would
