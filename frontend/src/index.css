@@ -6206,8 +6206,16 @@ button.wf-hc.also.on:hover {
   z-index: 1500;
   width: 318px;
   max-width: calc(100vw - 32px);
-  max-height: 420px;
+  /* The design's 420px, or the room left in the map frame below the chip if that is less —
+     `--wf-filters-room` is measured by `FiltersPopover` while the panel is open (a short frame
+     used to clip the Sky and Scope rows with nothing to scroll). `overscroll-behavior` keeps a
+     wheel that reaches the end of the rows from scrolling the page behind. */
+  max-height: min(420px, var(--wf-filters-room, 420px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  /* A control Tabbed to at the panel's edge is scrolled in far enough to show its 2px + 1px focus
+     ring, not only its border box. */
+  scroll-padding-block: 6px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--color-plex-border-light);
@@ -6215,6 +6223,15 @@ button.wf-hc.also.on:hover {
   background: var(--color-plex-panel);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
   padding: 4px 0;
+}
+/* ⚠️ The menus rung (1500) is local to `.wf-map-chrome-tr`'s own stacking context (an absolutely
+   positioned box at 1100), so on its own it never beats the bottom-left chrome — the tide strip and
+   the counts footer, also 1100 and later in the DOM, painted OVER the panel's last rows once it
+   reached down to the frame's bottom on a frame too narrow to keep them apart. While the filters
+   panel is open the whole cluster takes the menus rung, which is what the ladder above says a menu
+   does. */
+.wf-map-chrome-tr:has(> .wf-filters > .wf-filters-panel) {
+  z-index: 1500;
 }
 .wf-filters-row {
   padding: 8px 12px;
