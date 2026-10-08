@@ -10,7 +10,7 @@
  * the settings modal by callers that care to.
  *
  * <p>Read at press time, from the DOM, by three callers that must never disagree: the {@code /}
- * shortcut, the sheet's {@code openAsk} and the dock's opener. It used to be written out in two of
+ * shortcut, the sheet's {@code openAskSheet} and the dock's opener. It used to be written out in two of
  * them (and a third copy in a test); a fourth was the moment to lift it.
  *
  * <p>With no {@code root} (the shell has not mounted, or its ref is gone) every dialog counts as
