@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.config;
 
-import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -29,25 +28,23 @@ import org.springframework.web.servlet.HandlerInterceptor;
  *
  * <p>Not counted, on purpose: an anonymous request (Spring Security answers 401 before any
  * interceptor, and this refuses to count one if it ever got here), and any request while Ask is
- * switched off (the controller answers 404 and no limiter state is touched, so the flag costs
- * nothing).
+ * switched off. This class does not read the flag itself: {@link AskFlagInterceptor} is registered
+ * ahead of it ({@code AskWebConfig}) and answers 404 first, so no limiter state is touched and the
+ * flag lives in one place.
  */
 public class AskAdmissionInterceptor implements HandlerInterceptor {
 
     /** The request attribute carrying the admitted {@code AppUserEntity} to the controller. */
     public static final String ADMITTED_USER_ATTRIBUTE = AskAdmissionInterceptor.class.getName() + ".user";
 
-    private final AskProperties properties;
     private final AskService askService;
 
     /**
      * Creates the interceptor.
      *
-     * @param properties the Ask settings (the {@code enabled} flag)
      * @param askService the service that resolves and counts the asker
      */
-    public AskAdmissionInterceptor(AskProperties properties, AskService askService) {
-        this.properties = properties;
+    public AskAdmissionInterceptor(AskService askService) {
         this.askService = askService;
     }
 
@@ -61,7 +58,7 @@ public class AskAdmissionInterceptor implements HandlerInterceptor {
      */
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        if (!HttpMethod.POST.matches(request.getMethod()) || !properties.isEnabled()) {
+        if (!HttpMethod.POST.matches(request.getMethod())) {
             return true;
         }
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();

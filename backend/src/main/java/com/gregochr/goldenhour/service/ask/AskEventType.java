@@ -13,10 +13,12 @@ import java.util.Locale;
  * offered-events count, the Ready freshness re-find, a Ready question's admitted types, the stub's
  * de-duplication) goes through here, so they cannot disagree.
  *
- * <p>{@link #served} is the other thing, and is not an identity: the type as a card carries it on the
- * wire and in stored answers (upper-cased, otherwise as served). Folding the dash there would change
- * what the client receives for an almanac type, so it is deliberately left alone; compare with
- * {@link #key}, display with {@link #served}.
+ * <p>The type an event <em>card</em> carries on the wire and in a stored answer is the {@link #key}
+ * too (an almanac {@code lunar-eclipse} is served as {@code LUNAR_ECLIPSE}, which is what the client
+ * keys its kicker and colour channel on). {@link #served} is the other spelling: the one the tools
+ * show the model (upper-cased, otherwise as served), so the evidence it reads is unchanged. An answer
+ * stored before the card type was folded still carries the dash; every comparison folds both sides,
+ * and the freshness re-join folds it on the way out.
  */
 final class AskEventType {
 

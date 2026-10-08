@@ -4,7 +4,6 @@ import com.gregochr.goldenhour.config.AskAdmissionInterceptor;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ask.AskErrorCode;
-import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskReadyService;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import com.gregochr.goldenhour.service.ask.AskRequest;
@@ -25,21 +24,20 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * Ask PhotoCast's reader-facing endpoints (plan §2.9): {@code GET /api/ask/ready} (B3) and the typed
- * {@code POST /api/ask} (B4).
+ * Ask PhotoCast's reader-facing endpoints (plan §2.9): {@code GET /api/ask/ready} and the typed
+ * {@code POST /api/ask}.
  *
  * <p>Bearer, with <b>no role gate</b>, by inheritance from {@code SecurityConfig}'s
  * {@code /api/**} → {@code .authenticated()}: every role sees the same ratings in Ask as on the
  * Plan tab, and a Ready answer is the same for everyone, so a gate would deny nothing. It is pinned
  * across LITE, PRO, ADMIN and anonymous in {@code AskControllerTest}. While
- * {@code photocast.ask.enabled} is false every endpoint here is 404, so a switched-off feature has
- * no surface.
+ * {@code photocast.ask.enabled} is false every endpoint here is 404, answered by
+ * {@code AskFlagInterceptor} before the request reaches this class, so a switched-off feature has no
+ * surface and this class never checks the flag.
  */
 @RestController
 @RequestMapping("/api/ask")
@@ -47,7 +45,6 @@ public class AskController {
 
     private static final Logger LOG = LoggerFactory.getLogger(AskController.class);
 
-    private final AskProperties properties;
     private final AskReadyService readyService;
     private final RegionRepository regionRepository;
     private final AskService askService;
@@ -55,14 +52,12 @@ public class AskController {
     /**
      * Constructs the controller.
      *
-     * @param properties       the Ask settings (the {@code enabled} flag)
      * @param readyService     serves the Ready answers
      * @param regionRepository validates a region scope
      * @param askService       answers typed questions
      */
-    public AskController(AskProperties properties, AskReadyService readyService,
-            RegionRepository regionRepository, AskService askService) {
-        this.properties = properties;
+    public AskController(AskReadyService readyService, RegionRepository regionRepository,
+            AskService askService) {
         this.readyService = readyService;
         this.regionRepository = regionRepository;
         this.askService = askService;
@@ -87,9 +82,6 @@ public class AskController {
     @PostMapping
     public ResponseEntity<?> ask(@RequestBody(required = false) AskRequest request,
             Authentication auth, HttpServletRequest http) {
-        if (!properties.isEnabled()) {
-            return ResponseEntity.notFound().build();
-        }
         AppUserEntity user = http.getAttribute(AskAdmissionInterceptor.ADMITTED_USER_ATTRIBUTE)
                 instanceof AppUserEntity admitted ? admitted : askService.admit(auth);
         return ResponseEntity.ok(askService.ask(user, request));
@@ -108,10 +100,6 @@ public class AskController {
     public ResponseEntity<?> unreadableBody(HttpMessageNotReadableException ex) {
         // The type only: Jackson's message names internal types and echoes caller-supplied values.
         LOG.debug("[ASK] Unreadable request body: {}", ex.getClass().getSimpleName());
-        if (!properties.isEnabled()) {
-            // The body is read before the method runs, so the flag-off 404 is answered here too.
-            return ResponseEntity.notFound().build();
-        }
         AskRefusal refusal = new AskRefusal(AskErrorCode.INVALID, "The request body could not be read.");
         return ResponseEntity.status(refusal.code().status()).body(refusal.body());
     }
@@ -130,29 +118,11 @@ public class AskController {
      */
     @GetMapping("/ready")
     public ResponseEntity<?> getReady(@RequestParam(name = "scope", defaultValue = "all") String scope) {
-        if (!properties.isEnabled()) {
-            return ResponseEntity.notFound().build();
-        }
-        String wanted = scope.strip();
-        if (wanted.toLowerCase(Locale.ROOT).equals("all")) {
-            return ResponseEntity.ok(readyService.serve(AskScope.ALL));
-        }
-        Optional<AskScope> region = regionById(wanted);
-        if (region.isEmpty()) {
+        Optional<AskScope> resolved = AskScopes.fromParameter(regionRepository, scope);
+        if (resolved.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error",
                     "The scope must be 'all' or the id of an enabled region."));
         }
-        return ResponseEntity.ok(readyService.serve(region.get()));
-    }
-
-    /** The scope of the enabled region with this id, or empty for a non-number, an unknown id or a disabled one. */
-    private Optional<AskScope> regionById(String text) {
-        long id;
-        try {
-            id = Long.parseLong(text);
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
-        return AskScopes.resolve(regionRepository, List.of(id));
+        return ResponseEntity.ok(readyService.serve(resolved.get()));
     }
 }

@@ -378,10 +378,8 @@ public class TopicDailyLogJob {
                 return;
             }
 
-            LocalDateTime windowStart =
-                    date.atStartOfDay(LONDON).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
-            LocalDateTime windowEnd =
-                    date.plusDays(1).atStartOfDay(LONDON).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+            LocalDateTime windowStart = ForecastHorizon.ukDayStartUtc(date);
+            LocalDateTime windowEnd = ForecastHorizon.ukDayStartUtc(date.plusDays(1));
 
             List<TideExtremeEntity> extremes = tideExtremeRepository
                     .findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(

@@ -260,7 +260,7 @@ public class AskAnswerValidator {
                 continue;
             }
             String why = clean(event.why(), WHY_WORDS);
-            out.add(new AskEvent(fact.get().type(), fact.get().label(), fact.get().date(),
+            out.add(new AskEvent(AskEventType.key(fact.get().type()), fact.get().label(), fact.get().date(),
                     why == null ? "" : why, fact.get().safetyNote()));
         }
         return out;

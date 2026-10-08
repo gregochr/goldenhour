@@ -3,7 +3,9 @@ package com.gregochr.goldenhour.util;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 
 /**
@@ -185,5 +187,20 @@ public final class ForecastHorizon {
      */
     public static LocalDate civilDate(Instant instant) {
         return instant == null ? null : LocalDate.ofInstant(instant, LONDON);
+    }
+
+    /**
+     * The start of a UK civil day as the UTC {@code LocalDateTime} that naive columns
+     * ({@code job_run.started_at}, {@code tide_extreme.event_time}) are stamped with.
+     *
+     * <p>The range-bound counterpart of {@link #civilDate}: a UK day is 23, 24 or 25 hours of UTC,
+     * so a window over such a column starts at this and ends at the next day's. Lives here so the
+     * London zone is named once, not in every service that bounds a query by a UK day.
+     *
+     * @param day the UK civil date
+     * @return its midnight, in UTC (e.g. 23:00 the evening before, in summer)
+     */
+    public static LocalDateTime ukDayStartUtc(LocalDate day) {
+        return day.atStartOfDay(LONDON).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
     }
 }

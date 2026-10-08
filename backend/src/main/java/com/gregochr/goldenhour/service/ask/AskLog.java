@@ -2,8 +2,7 @@ package com.gregochr.goldenhour.service.ask;
 
 /**
  * The question log (plan §2.5, {@code ask_log}): one row per request that was <em>answered</em>.
- * Denied requests write nothing. <b>B5 implements it</b>; until then {@link NoOpAskLog} (a
- * {@code @Fallback} bean) is wired, which records nothing. A real {@code @Component} wins over it.
+ * Denied requests write nothing. Implemented by {@link DatabaseAskLog}.
  */
 public interface AskLog {
 
@@ -30,7 +29,7 @@ public interface AskLog {
      * @param scopeKey           {@code ALL} or the single region's id as text
      * @param view               {@code map}, {@code plan} or {@code coming-up}
      * @param outcome            how it was answered
-     * @param normalisedQuestion the normalised question; B5 stores it only for {@code CLAUDE_OK} and
+     * @param normalisedQuestion the normalised question; the log stores it only for {@code CLAUDE_OK} and
      *                           {@code CLAUDE_CANT}
      * @param missing            what the answer said was missing, or null
      * @param durationMs         how long the request took
