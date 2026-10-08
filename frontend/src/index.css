@@ -4952,8 +4952,11 @@ button.wf-hc.also.on:hover {
    were wrong: 1200 is the selection RING (`.wf-selmk`) and the callout is 1350. Corrected to "above
    the chrome (1100), below the callout" — still wrong, because **`.wf-map-chrome-tl` is a stacking
    context**: `position: absolute` with a non-auto `z-index: 1100`. So `.wf-win-menu`'s `z-index:
-   1500` is LOCAL to that context and composites at the parent's 1100 slot; it has never competed
-   with anything outside the chrome. Same for `.wf-map-chrome-tr` and its Filters/Regions panels.
+   1500` is LOCAL to that context and composites at the parent's 1100 slot while the menu is
+   closed or the corner is not lifted. Same for `.wf-map-chrome-tr` and its Filters/Regions panels.
+   (Later change, #1060: while a menu is OPEN its corner takes z-index 1500 itself — see the
+   `:has(...)` rule beside `.wf-filters-panel` — so an open menu now outranks the ring, callout and
+   tooltip below as well; read the ladder with that exception.)
 
    Measured in headless Chromium against this built sheet, with the real ancestor chain and an open
    dropdown: at 1300 the card painted OVER the window menu across **328 × 133 px** at 1280 and
@@ -4964,7 +4967,8 @@ button.wf-hc.also.on:hover {
 
    The effective ladder inside `#map-container` (itself `position: relative; z-index: 0`) is:
    heat 410 / ring pane 415 / labels 650 / **card 1050** / chrome 1100 — and everything nested in
-   it, menus included / ring `.wf-selmk` 1200 / callout `.wf-callout` 1350 / tooltip 1400.
+   it, menus included / ring `.wf-selmk` 1200 / callout `.wf-callout` 1350 / tooltip 1400 —
+   EXCEPT a corner holding an open menu, which sits at 1500 (above all of these).
 
    The accepted cost of 1050 is that the 34px selection ring and the colour-scale notice also paint
    over the card. Both are small, both are things the reader asked for; a menu covered by a greeting
@@ -5740,8 +5744,10 @@ button.wf-hc.also.on:hover {
      trigger that #773 removed, in the 640–642px band. */
   width: 100%;
   max-width: calc(100vw - 32px);
-  max-height: 420px;
+  max-height: min(420px, var(--wf-fit-room, 420px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 6px;
   border: 1px solid var(--color-plex-border-light);
   border-radius: 10px;
   background: var(--color-plex-panel);
@@ -6207,10 +6213,10 @@ button.wf-hc.also.on:hover {
   width: 318px;
   max-width: calc(100vw - 32px);
   /* The design's 420px, or the room left in the map frame below the chip if that is less —
-     `--wf-filters-room` is measured by `FiltersPopover` while the panel is open (a short frame
+     `--wf-fit-room` is measured by `useFitToFrame` while the panel is open (a short frame
      used to clip the Sky and Scope rows with nothing to scroll). `overscroll-behavior` keeps a
      wheel that reaches the end of the rows from scrolling the page behind. */
-  max-height: min(420px, var(--wf-filters-room, 420px));
+  max-height: min(420px, var(--wf-fit-room, 420px));
   overflow-y: auto;
   overscroll-behavior: contain;
   /* A control Tabbed to at the panel's edge is scrolled in far enough to show its 2px + 1px focus
@@ -6229,8 +6235,11 @@ button.wf-hc.also.on:hover {
    the counts footer, also 1100 and later in the DOM, painted OVER the panel's last rows once it
    reached down to the frame's bottom on a frame too narrow to keep them apart. While the filters
    panel is open the whole cluster takes the menus rung, which is what the ladder above says a menu
-   does. */
-.wf-map-chrome-tr:has(> .wf-filters > .wf-filters-panel) {
+   does. The Regions menu (same cluster) and the window menu (`.wf-map-chrome-tl`, which the callout
+   at 1350 and the phone peek sheet at 1120 would otherwise paint over) take it the same way. */
+.wf-map-chrome-tr:has(> .wf-filters > .wf-filters-panel),
+.wf-map-chrome-tr:has(> .wf-jump > .wf-jump-menu),
+.wf-map-chrome-tl:has(.wf-win-menu) {
   z-index: 1500;
 }
 .wf-filters-row {
@@ -6562,8 +6571,10 @@ button.wf-hc.also.on:hover {
   z-index: 1500;
   width: 262px;
   max-width: calc(100vw - 32px);
-  max-height: 420px;
+  max-height: min(420px, var(--wf-fit-room, 420px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 6px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -6709,8 +6720,10 @@ button.wf-hc.also.on:hover {
   z-index: 1500;
   width: 300px;
   max-width: calc(100vw - 32px);
-  max-height: 420px;
+  max-height: min(420px, var(--wf-fit-room, 420px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 6px;
   border: 1px solid var(--color-plex-border-light);
   border-radius: 10px;
   background: var(--color-plex-panel);

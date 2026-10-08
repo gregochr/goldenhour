@@ -7,6 +7,7 @@ import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
 import { verdictRegionLabel } from '../../utils/mapVerdict.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
+import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 
 /**
  * The Map tab's single chronological window control — map-tab-v2-plan.md §3 P6,
@@ -62,6 +63,9 @@ export default function WindowControl({
     onOpenChange?.(value);
   }, [open, isControlled, onOpenChange]);
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
+  // Opens down from the pill, so the frame's bottom edge is the one it can run past.
+  useFitToFrame(menuRef, rootRef, { direction: 'down', open });
   /** The pill, so the reopen row can hand focus back to the control that opened the menu. */
   /**
    * ⚠️ **The pill is this tab's return address, and `MapView` needs to reach it.** Two routes it
@@ -289,7 +293,7 @@ export default function WindowControl({
       </button>
 
       {open && (
-        <div id="wf-win-menu" data-testid="wf-win-menu" className="wf-win-menu">
+        <div ref={menuRef} id="wf-win-menu" data-testid="wf-win-menu" className="wf-win-menu">
           {/* The way back into the landing card, above the windows it compares — dismissing it used
               to be irreversible, which quietly made closing it a risk (README §4 "Recoverable").
               `RegionsJump`'s own `wf-jump-reset` is the precedent: the way back lives in the
