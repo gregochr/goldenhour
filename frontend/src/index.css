@@ -5740,8 +5740,10 @@ button.wf-hc.also.on:hover {
      trigger that #773 removed, in the 640–642px band. */
   width: 100%;
   max-width: calc(100vw - 32px);
-  max-height: 420px;
+  max-height: min(420px, var(--wf-fit-room, 420px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 6px;
   border: 1px solid var(--color-plex-border-light);
   border-radius: 10px;
   background: var(--color-plex-panel);
@@ -6207,10 +6209,10 @@ button.wf-hc.also.on:hover {
   width: 318px;
   max-width: calc(100vw - 32px);
   /* The design's 420px, or the room left in the map frame below the chip if that is less —
-     `--wf-filters-room` is measured by `FiltersPopover` while the panel is open (a short frame
+     `--wf-fit-room` is measured by `useFitToFrame` while the panel is open (a short frame
      used to clip the Sky and Scope rows with nothing to scroll). `overscroll-behavior` keeps a
      wheel that reaches the end of the rows from scrolling the page behind. */
-  max-height: min(420px, var(--wf-filters-room, 420px));
+  max-height: min(420px, var(--wf-fit-room, 420px));
   overflow-y: auto;
   overscroll-behavior: contain;
   /* A control Tabbed to at the panel's edge is scrolled in far enough to show its 2px + 1px focus
@@ -6230,7 +6232,9 @@ button.wf-hc.also.on:hover {
    reached down to the frame's bottom on a frame too narrow to keep them apart. While the filters
    panel is open the whole cluster takes the menus rung, which is what the ladder above says a menu
    does. */
-.wf-map-chrome-tr:has(> .wf-filters > .wf-filters-panel) {
+.wf-map-chrome-tr:has(> .wf-filters > .wf-filters-panel),
+.wf-map-chrome-tr:has(> .wf-jump > .wf-jump-menu),
+.wf-map-chrome-tl:has(.wf-win-menu) {
   z-index: 1500;
 }
 .wf-filters-row {
@@ -6562,8 +6566,10 @@ button.wf-hc.also.on:hover {
   z-index: 1500;
   width: 262px;
   max-width: calc(100vw - 32px);
-  max-height: 420px;
+  max-height: min(420px, var(--wf-fit-room, 420px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 6px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -6709,8 +6715,10 @@ button.wf-hc.also.on:hover {
   z-index: 1500;
   width: 300px;
   max-width: calc(100vw - 32px);
-  max-height: 420px;
+  max-height: min(420px, var(--wf-fit-room, 420px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 6px;
   border: 1px solid var(--color-plex-border-light);
   border-radius: 10px;
   background: var(--color-plex-panel);

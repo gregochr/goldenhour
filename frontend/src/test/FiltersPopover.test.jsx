@@ -320,7 +320,7 @@ describe('FiltersPopover — phone: the same rows in a BottomSheet (map-tab-v2-p
  * The desktop/tablet panel fits the map frame it opens in (owner report, 2026-10-08): on a ~1000px
  * window the panel ran past the frame's bottom edge, the frame clipped it, and the Sky and Scope
  * rows could not be reached at all. `FiltersPopover` measures the room between the panel's top and
- * the pane's bottom (or the viewport's, if that comes first) and writes it as `--wf-filters-room`;
+ * the pane's bottom (or the viewport's, if that comes first) and writes it as `--wf-fit-room`;
  * the stylesheet's `max-height` reads it beside `overflow-y: auto`. jsdom has no layout, so the two
  * rects are stubbed — the real geometry is a browser check, recorded in the PR.
  */
@@ -359,7 +359,7 @@ describe('FiltersPopover — the panel fits the map frame', () => {
     );
   }
 
-  const room = () => screen.getByTestId('wf-filters-panel').style.getPropertyValue('--wf-filters-room');
+  const room = () => screen.getByTestId('wf-filters-panel').style.getPropertyValue('--wf-fit-room');
 
   it('writes the room from the panel top to the pane bottom, less the 8px inset', () => {
     renderInPane();
@@ -440,7 +440,7 @@ describe('FiltersPopover — the panel fits the map frame', () => {
     );
     const spy = vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty');
     act(() => { window.dispatchEvent(new Event('resize')); });
-    expect(spy).not.toHaveBeenCalledWith('--wf-filters-room', expect.anything());
+    expect(spy).not.toHaveBeenCalledWith('--wf-fit-room', expect.anything());
     spy.mockRestore();
   });
 
@@ -470,7 +470,7 @@ describe('FiltersPopover — the panel fits the map frame', () => {
       .filter(([, , selector]) => selector.split(',').some((s) => s.trim().split(/\s+/).pop() === '.wf-filters-panel'));
     expect(blocks).toHaveLength(1);
     const body = blocks[0][3];
-    expect(body).toMatch(/max-height:\s*min\(420px,\s*var\(--wf-filters-room,\s*420px\)\);/);
+    expect(body).toMatch(/max-height:\s*min\(420px,\s*var\(--wf-fit-room,\s*420px\)\);/);
     expect(body).toMatch(/overflow-y:\s*auto;/);
     expect(body).toMatch(/overscroll-behavior:\s*contain;/);
     expect(body).toMatch(/scroll-padding-block:\s*6px;/);
@@ -480,7 +480,7 @@ describe('FiltersPopover — the panel fits the map frame', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '');
     expect(css).toMatch(
-      /\.wf-map-chrome-tr:has\(> \.wf-filters > \.wf-filters-panel\)\s*\{\s*z-index:\s*1500;\s*\}/,
+      /\.wf-map-chrome-tr:has\(> \.wf-filters > \.wf-filters-panel\)[^{}]*\{\s*z-index:\s*1500;\s*\}/,
     );
   });
 });
