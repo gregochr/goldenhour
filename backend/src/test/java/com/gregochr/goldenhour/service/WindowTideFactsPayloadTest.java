@@ -110,7 +110,12 @@ class WindowTideFactsPayloadTest {
         return PlanWindowProjector.apply(raw, LocalDateTime.of(2026, 10, 8, 4, 0), Map.of(), facts);
     }
 
-    /** The P5 shape: the same response with every served slot's tide removed. */
+    /**
+     * The P5 shape: the same response with every served slot's tide removed. This reimplements the
+     * private {@code ServedBriefingAssembler.stripSlotTide} with the same withers;
+     * {@code ServedBriefingAssemblerTest} proves the real method, so the size figures here measure
+     * this helper's equivalent, not the method itself.
+     */
     private static DailyBriefingResponse stripped(DailyBriefingResponse response) {
         List<BriefingDay> days = response.days().stream().map(day -> day.withEventSummaries(
                 day.eventSummaries().stream().map(es -> es.withRegions(es.regions().stream()

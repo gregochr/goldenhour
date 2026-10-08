@@ -94,6 +94,8 @@ class WindowTideFactsWireContractTest extends AbstractControllerTest {
                         .doesNotExist());
     }
 
+    // This proves null-@JsonUnwrapped serialisation on the Jackson 3 wire only (a null tide writes
+    // none of the keys). The strip itself is proven in ServedBriefingAssemblerTest.
     @Test
     @WithMockUser
     @DisplayName("P5: a served slot (tide null) serialises none of the unwrapped tide keys, "
