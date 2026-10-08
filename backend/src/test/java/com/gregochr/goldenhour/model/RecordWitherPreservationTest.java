@@ -89,12 +89,23 @@ class RecordWitherPreservationTest {
             Wither.of(BriefingEventSummary.class, "withRegions", "regions"),
             Wither.of(BriefingEventSummary.class, "withUnregioned", "unregioned"),
             Wither.of(BriefingEventSummary.class, "withWindow", "window"),
-            Wither.of(BriefingWindow.Pick.class, "withKind", "kind"));
+            Wither.of(BriefingWindow.Pick.class, "withKind", "kind"),
+            Wither.of(BriefingSlot.class, "withTide", "tide"),
+            Wither.of(BriefingSlot.class, "withEvaluationGate", "evaluationGate"),
+            Wither.of(BriefingSlot.class, "withEclipse", "eclipse"));
+
+    /**
+     * Withers deliberately outside the table: {@code BriefingSlot.withClaudeScores} is overloaded
+     * (three arities share a name, so reflection by name cannot pick one) and recomputes
+     * {@code displayVerdict} from the new rating, so "replaces only what it names" is false by
+     * design. It is guarded by its own test below instead.
+     */
+    private static final Set<String> EXEMPT = Set.of("BriefingSlot.withClaudeScores");
 
     private static final List<Class<?>> GUARDED = List.of(
             DailyBriefingResponse.class, BriefingDay.class, BriefingRegion.class,
             BriefingEventSummary.class,
-            BriefingWindow.Pick.class);
+            BriefingWindow.Pick.class, BriefingSlot.class);
 
     @Test
     @DisplayName("every with* method on a guarded record is declared in the table, and vice versa")
@@ -102,7 +113,7 @@ class RecordWitherPreservationTest {
         Set<String> found = new TreeSet<>();
         for (Class<?> type : GUARDED) {
             for (Method m : type.getDeclaredMethods()) {
-                if (isWither(type, m)) {
+                if (isWither(type, m) && !EXEMPT.contains(type.getSimpleName() + "." + m.getName())) {
                     found.add(type.getSimpleName() + "." + m.getName());
                 }
             }
@@ -173,6 +184,25 @@ class RecordWitherPreservationTest {
                 }
             }
         }
+    }
+
+    @Test
+    @DisplayName("BriefingSlot.withClaudeScores (exempt from the table) preserves every non-score component")
+    void briefingSlot_withClaudeScores_preservesEveryNonScoreComponent() {
+        Set<String> scoreComponents = Set.of("claudeRating", "skyRating", "fierySkyPotential",
+                "goldenHourPotential", "claudeSummary", "displayVerdict", "claudeHeadline");
+        BriefingSlot original = (BriefingSlot) Sentinels.record(BriefingSlot.class, 1, Map.of());
+
+        BriefingSlot copy = original.withClaudeScores(4, 3, 55, 66, "new summary", "new headline");
+
+        for (RecordComponent c : BriefingSlot.class.getRecordComponents()) {
+            if (!scoreComponents.contains(c.getName())) {
+                assertThat(accessor(copy, c)).as("withClaudeScores must preserve " + c.getName())
+                        .isEqualTo(accessor(original, c));
+            }
+        }
+        assertThat(copy.claudeRating()).isEqualTo(4);
+        assertThat(copy.skyRating()).isEqualTo(3);
     }
 
     /**

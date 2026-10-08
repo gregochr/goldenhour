@@ -231,6 +231,25 @@ public record BriefingSlot(
     }
 
     /**
+     * Returns a copy of this slot carrying the given tide data, every other field unchanged.
+     *
+     * <p>Its one production caller is the serve-time strip in {@code ServedBriefingAssembler}, which
+     * passes {@code null} so the unwrapped tide keys leave the API payload (the per-location tide now
+     * travels on {@code BriefingWindow.tideFacts}). A {@code null} here serialises none of the
+     * {@code @JsonUnwrapped} keys; an empty {@link TideInfo} would serialise {@code tideAligned:false}
+     * on every slot.
+     *
+     * @param newTide the tide data, or null to carry none
+     * @return a new slot, every other field unchanged
+     */
+    public BriefingSlot withTide(TideInfo newTide) {
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, newTide,
+                flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
+                evaluationGate, eclipse);
+    }
+
+    /**
      * Returns a copy of this slot carrying the given lunar eclipse sight, every other field
      * unchanged.
      *

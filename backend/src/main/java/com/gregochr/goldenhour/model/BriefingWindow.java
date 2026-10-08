@@ -55,7 +55,7 @@ import java.util.List;
  *   <li>{@code topRarityRank} — no badges. Advice for the client's promoted strip; nothing here
  *       enforces the one-strip rule.</li>
  *   <li>{@code tide} — no coastal location could be resolved, or the one that was has no day with
- *       both a high and a low water on this date. The row falls back to {@code BriefingSlot.tide}'s
+ *       both a high and a low water on this date. The row falls back to {@link #tideFacts}'s
  *       per-location fact line. It is <em>not</em> a statement that the tide is unremarkable, and
  *       nothing is ever synthesised to fill the gap.</li>
  * </ul>
