@@ -357,6 +357,60 @@ class AskAnswerValidatorTest {
     }
 
     @Test
+    @DisplayName("lunar-eclipse and LUNAR_ECLIPSE are one type here: a model that names either spelling "
+            + "validates against the other's evidence, and the card keeps the served type")
+    void event_theTwoSpellingsOfOneTypeMatch() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        LocalDate day = TODAY.plusDays(50);
+        AskEvidence dashed = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("LUNAR-ECLIPSE", "Total lunar eclipse", day)), 1);
+        AskEvidence underscored = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("LUNAR_ECLIPSE", "Lunar eclipse", day)), 1);
+
+        Result nameUnderscore = validate(new Raw(true, "Eclipse.", null,
+                List.of(new RawEvent("LUNAR_ECLIPSE", null, "Easy")), null), snapshot, dashed);
+        Result nameDash = validate(new Raw(true, "Eclipse.", null,
+                List.of(new RawEvent(" lunar-eclipse ", null, "Easy")), null), snapshot, underscored);
+
+        assertThat(nameUnderscore.answer().events()).extracting(AskEvent::type)
+                .containsExactly("LUNAR-ECLIPSE");
+        assertThat(nameDash.answer().events()).extracting(AskEvent::type)
+                .containsExactly("LUNAR_ECLIPSE");
+    }
+
+    @Test
+    @DisplayName("one eclipse the tools returned under both spellings (the almanac's and the hot topic's) "
+            + "is one card, not two")
+    void event_bothSpellingsOfOneEventAreOneCard() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        LocalDate day = TODAY.plusDays(50);
+        AskEvidence both = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("LUNAR-ECLIPSE", "Total lunar eclipse", day),
+                new AskEvidence.EventFact("LUNAR_ECLIPSE", "Lunar eclipse", day)), 2);
+
+        Result result = validate(new Raw(true, "Eclipse.", null, List.of(
+                new RawEvent("LUNAR-ECLIPSE", null, "Easy"),
+                new RawEvent("LUNAR_ECLIPSE", null, "Easy again")), null), snapshot, both);
+
+        assertThat(result.answer().events()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("an events question's offered count reads one eclipse once whichever spelling lists it")
+    void eventsQuestion_offeredCountReadsOneTypeOnce() {
+        LocalDate day = TODAY.plusDays(4);
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("LUNAR_ECLIPSE", "Lunar eclipse", "d", day, List.of()))),
+                List.of(AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse", day, day,
+                        "d")));
+
+        Result result = validator.validate(new Raw(true, "None.", List.of(), List.of(), null), snapshot,
+                new AskEvidence(Set.of(), Set.of(), 2), AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.reason()).isEqualTo("events question answered \"none\" while 1 events were offered");
+    }
+
+    @Test
     @DisplayName("of two served facts for one type and date, the one carrying a warning is used")
     void event_aWarningIsNeverLostToAnEqualFact() {
         AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));

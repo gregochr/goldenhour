@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.util.ForecastHorizon;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -348,15 +349,27 @@ public class AskService {
         }
     }
 
-    /** Runs the engine. It never throws for a model failure; anything it does throw is a FAILED run. */
+    /**
+     * Runs the engine. It never throws for a model failure; anything it does throw is a FAILED run.
+     * A FAILED run's reason is logged here, once, at INFO: it reaches no reader (the response is the
+     * fixed {@code ENGINE_FAILED}/{@code TYPED_UNAVAILABLE} sentence), so this line is the only trace
+     * of why a typed question failed. The reason is the engine's own text (a fixed sentence, a window
+     * id, a count or a library exception's message), never the question, and is passed through
+     * {@link LogSanitizer} regardless.
+     */
     private AskRun runEngine(AskQuestion question, AskSnapshot snapshot, AskUserContext context) {
+        AskRun run;
         try {
-            return engine.run(question, snapshot, context, AskRunOptions.none());
+            run = engine.run(question, snapshot, context, AskRunOptions.none());
         } catch (RuntimeException e) {
             LOG.error("[ASK] The engine threw for user {}: {}", context.userId(), e.toString());
-            return new AskRun(new AskOutcome(AskOutcome.Status.FAILED, null, false, 0), List.of(),
-                    "the engine threw: " + e.getClass().getSimpleName());
+            run = AskRun.failed("the engine threw: " + e.getClass().getSimpleName(), 0, false, List.of());
         }
+        if (run.outcome().status() == AskOutcome.Status.FAILED) {
+            LOG.info("[ASK] A typed question for user {} failed after {} turn(s): {}", context.userId(),
+                    run.outcome().turns(), LogSanitizer.sanitize(run.reason()));
+        }
+        return run;
     }
 
     private void offerToCache(AskQuestion question, AskSnapshot snapshot, AskUserContext context,
@@ -370,7 +383,8 @@ public class AskService {
 
     // -- responses ----------------------------------------------------------------------------
 
-    private AskResponse own(AskAnswer answer, AskSnapshot snapshot, int left, int limit, boolean charged) {
+    private AskResponse own(AskAnswer answer, AskSnapshot snapshot, Integer left, int limit,
+            boolean charged) {
         return new AskResponse(true, AskResponse.KIND_OWN, answer.summary(),
                 answer.picks().stream().map(AskReadyResponse.Pick::of).toList(), answer.events(),
                 null, List.of(), left, limit, charged, snapshot.generatedAt(), snapshot.runLabel());
@@ -396,15 +410,20 @@ public class AskService {
         return response;
     }
 
-    /** {@code limit - used} for today; never throws and never negative. */
-    private int left(long userId, LocalDate day, int limit) {
+    /**
+     * {@code limit - used} for today; never throws and never negative, and {@code null} when the read
+     * fails. A null is NOT a count of zero: the client applies a served figure as the server's word and
+     * does not re-read after it, but treats a missing one as "unknown" and re-reads the settings, so a
+     * transient database failure cannot turn off typed questions.
+     */
+    private Integer left(long userId, LocalDate day, int limit) {
         try {
             return Math.max(0, limit - usageStore.read(userId, day).used());
         } catch (RuntimeException e) {
-            // The answer is already paid for; do not lose it over a count. The next settings read
-            // shows the true figure.
+            // The answer is already paid for; do not lose it over a count. The response carries no
+            // figure and the client re-reads the settings, which show the true one.
             LOG.warn("[ASK] Could not read user {}'s usage for the response: {}", userId, e.toString());
-            return 0;
+            return null;
         }
     }
 

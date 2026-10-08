@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service.ask;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.UserRole;
@@ -17,6 +20,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -42,6 +46,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -725,6 +730,131 @@ class AskServiceTest {
         assertThat(codeOf(request("Best spot tonight?"))).isEqualTo(AskErrorCode.ENGINE_FAILED);
 
         assertThat(usage()).isEqualTo(new AskUsageStore.Usage(0, 1));
+    }
+
+    /** Makes every usage read fail from here on, as a transient database failure would; returns the real store. */
+    private AskUsageStore failUsageReads() {
+        AskUsageStore real = usageStore;
+        usageStore = spy(real);
+        doThrow(new IllegalStateException("db down")).when(usageStore).read(anyLong(), any());
+        rebuild();
+        return real;
+    }
+
+    @Test
+    @DisplayName("an answer whose usage read fails still arrives, charged, with NO allowanceLeft (null, not 0): "
+            + "the client re-reads rather than applying a count of zero")
+    void answerSurvivesAFailedUsageRead() {
+        AskUsageStore real = failUsageReads();
+
+        AskResponse response = ask("Best spot tonight?");
+
+        assertThat(response.kind()).isEqualTo("own");
+        assertThat(response.charged()).isTrue();
+        assertThat(response.picks()).hasSize(1);
+        assertThat(response.allowanceLeft()).isNull();
+        assertThat(response.allowanceLimit()).isEqualTo(3);
+        assertThat(real.read(41L, LocalDate.of(2026, 10, 5))).isEqualTo(new AskUsageStore.Usage(1, 1));
+    }
+
+    @Test
+    @DisplayName("a pre-filter can't whose usage read fails carries a null allowanceLeft and is still free")
+    void preFilterCantWithAFailedUsageRead() {
+        AskAnswer cant = new AskAnswer(false, "PhotoCast has no parking information.", List.of(), List.of(),
+                "parking");
+        when(preFilter.refuse(any())).thenReturn(Optional.of(cant));
+        AskUsageStore real = failUsageReads();
+
+        AskResponse response = ask("Is the car park busy?");
+
+        assertThat(response.kind()).isEqualTo("cant");
+        assertThat(response.charged()).isFalse();
+        assertThat(response.allowanceLeft()).isNull();
+        assertThat(real.read(41L, LocalDate.of(2026, 10, 5))).isEqualTo(AskUsageStore.Usage.NONE);
+    }
+
+    @Test
+    @DisplayName("an engine can't whose usage read fails still refunds the question and carries a null "
+            + "allowanceLeft")
+    void engineCantWithAFailedUsageRead() {
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
+        AskUsageStore real = failUsageReads();
+
+        AskResponse response = ask("Parking?");
+
+        assertThat(response.kind()).isEqualTo("cant");
+        assertThat(response.allowanceLeft()).isNull();
+        assertThat(response.allowanceLimit()).isEqualTo(3);
+        assertThat(real.read(41L, LocalDate.of(2026, 10, 5))).isEqualTo(new AskUsageStore.Usage(0, 1));
+    }
+
+    /** Runs {@code action} with an appender on {@link AskService}'s logger and returns what it logged. */
+    private static List<ILoggingEvent> logged(Runnable action) {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(AskService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            action.run();
+        } finally {
+            logger.detachAppender(appender);
+        }
+        return List.copyOf(appender.list);
+    }
+
+    @Test
+    @DisplayName("a failed typed run is logged once at INFO with [ASK], the user, the turns and the reason "
+            + "the engine gave: the only trace of why it failed")
+    void failedRunReasonIsLogged() {
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv ->
+                AskRun.failed("the answer was discarded: pick 1 is not on the BEST BET window "
+                        + "2026-10-05_sunset", 3, false, List.of()));
+
+        List<ILoggingEvent> events = logged(() ->
+                assertThat(codeOf(request("Best spot tonight?"))).isEqualTo(AskErrorCode.ENGINE_FAILED));
+
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.INFO).singleElement().satisfies(e -> {
+            assertThat(e.getFormattedMessage()).startsWith("[ASK]").contains("user 41").contains("3 turn(s)")
+                    .contains("the answer was discarded: pick 1 is not on the BEST BET window 2026-10-05_sunset");
+            assertThat(e.getFormattedMessage()).as("never the question").doesNotContain("Best spot tonight");
+        });
+    }
+
+    @Test
+    @DisplayName("the reason is flattened to one line before it is logged, whatever the engine put in it")
+    void failedRunReasonIsOneLine() {
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv ->
+                failedRun("the model call failed: boom\n2026-10-05 [ASK] second line\r end"));
+
+        List<ILoggingEvent> events = logged(() -> codeOf(request("Best spot tonight?")));
+
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.INFO).singleElement().satisfies(e ->
+                assertThat(e.getFormattedMessage()).doesNotContain("\n").doesNotContain("\r")
+                        .doesNotContain(" ").contains("second line"));
+    }
+
+    @Test
+    @DisplayName("an engine that throws is logged with its class name as the reason")
+    void thrownEngineReasonIsLogged() {
+        when(engine.run(any(), any(), any(), any())).thenThrow(new IllegalArgumentException("bug"));
+
+        List<ILoggingEvent> events = logged(() -> codeOf(request("Best spot tonight?")));
+
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.INFO).singleElement().satisfies(e ->
+                assertThat(e.getFormattedMessage()).contains("the engine threw: IllegalArgumentException")
+                        .contains("0 turn(s)"));
+    }
+
+    @Test
+    @DisplayName("an answered question, and an honest 'not in the forecast', log no failure line")
+    void answeredRunsLogNoFailure() {
+        List<ILoggingEvent> ok = logged(() -> ask("Best spot tonight?"));
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
+        List<ILoggingEvent> cant = logged(() -> ask("Is parking busy tonight?"));
+
+        assertThat(ok).filteredOn(e -> e.getLevel() == Level.INFO).isEmpty();
+        assertThat(cant).filteredOn(e -> e.getLevel() == Level.INFO).isEmpty();
     }
 
     @Test

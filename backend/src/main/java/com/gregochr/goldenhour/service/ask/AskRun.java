@@ -21,6 +21,20 @@ public record AskRun(AskOutcome outcome, List<AskTools.ToolCall> trace, String r
             "accounting unavailable: a model call's cost could not be recorded";
 
     /**
+     * A run that failed. The one place a FAILED outcome is built, so every engine and the service's
+     * own "the engine threw" stand-in say it the same way.
+     *
+     * @param reason   why it failed, for the log and the dry-run only
+     * @param turns    how many model turns it took
+     * @param personal whether the conversation had used the asker's own drive times
+     * @param trace    the tool calls made before it failed
+     * @return the FAILED run
+     */
+    public static AskRun failed(String reason, int turns, boolean personal, List<AskTools.ToolCall> trace) {
+        return new AskRun(new AskOutcome(AskOutcome.Status.FAILED, null, personal, turns), trace, reason);
+    }
+
+    /**
      * Whether this run stopped because accounting is unavailable.
      *
      * @return true when {@code reason} is {@link #ACCOUNTING_UNAVAILABLE}

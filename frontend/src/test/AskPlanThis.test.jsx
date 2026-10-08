@@ -398,7 +398,10 @@ describe('the four figures and the note, as the view prints them', () => {
     expect(screen.getByTestId('ask-plan-light')).toHaveTextContent('golden 17:50–18:41');
     expect(screen.getByTestId('ask-plan-light')).toHaveTextContent('blue 18:41–19:15');
     expect(screen.getByTestId('ask-plan-tide')).toHaveTextContent('high water');
+    // The spoken clause is bare here: the cell's <dt> already says "Tide", so a screen reader reading
+    // straight through says it once (the pick card, which has no label of its own, leads with "Tide: ").
     expect(screen.getByTestId('ask-plan-tide')).toHaveTextContent('high water, right here');
+    expect(screen.getByTestId('ask-plan-tide')).not.toHaveTextContent('Tide: ');
   });
 
   it('the header names the spot, the event, the UK time and the served verdict in its tier', async () => {

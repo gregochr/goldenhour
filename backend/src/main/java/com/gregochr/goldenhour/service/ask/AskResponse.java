@@ -21,7 +21,9 @@ import java.util.List;
  * @param missing        what PhotoCast does not have (a {@code cant}); null otherwise, always written
  * @param tryThese       up to two other fresh Ready questions, chosen by the server, serialised as
  *                       {@code try}; only a {@code cant} carries any
- * @param allowanceLeft  the asker's remaining charged questions today
+ * @param allowanceLeft  the asker's remaining charged questions today; {@code null} (written, not omitted)
+ *                       only when the usage read failed after the answer was already paid for, which
+ *                       tells the client to re-read the allowance rather than apply a figure
  * @param allowanceLimit the asker's daily allowance
  * @param charged        whether this answer used one of the allowance
  * @param generatedAt    when the briefing the answer was built from was generated (UTC)
@@ -30,8 +32,9 @@ import java.util.List;
 public record AskResponse(boolean answerable, String kind, String summary,
         List<AskReadyResponse.Pick> picks, List<AskEvent> events,
         @JsonInclude(JsonInclude.Include.ALWAYS) String missing,
-        @JsonProperty("try") List<AskReadyResponse.Suggestion> tryThese, int allowanceLeft,
-        int allowanceLimit, boolean charged, LocalDateTime generatedAt, String runLabel) {
+        @JsonProperty("try") List<AskReadyResponse.Suggestion> tryThese,
+        @JsonInclude(JsonInclude.Include.ALWAYS) Integer allowanceLeft, int allowanceLimit, boolean charged,
+        LocalDateTime generatedAt, String runLabel) {
 
     /** An answer from the typed engine (or a typed-cache hit). */
     public static final String KIND_OWN = "own";

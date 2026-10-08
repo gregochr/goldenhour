@@ -379,6 +379,21 @@ class AskTypedControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("an answer served without its allowance figure writes allowanceLeft as an explicit null")
+    void unknownAllowanceIsWrittenAsNull() throws Exception {
+        AskResponse base = answer();
+        when(askService.ask(any(), any())).thenReturn(new AskResponse(base.answerable(), base.kind(), base.summary(),
+                base.picks(), base.events(), null, List.of(), null, 3, true, base.generatedAt(), base.runLabel()));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasKey("allowanceLeft")))
+                .andExpect(jsonPath("$.allowanceLeft").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.allowanceLimit").value(3));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
     @DisplayName("a can't-answer carries answerable false, empty picks and events, missing, and the try pair")
     void cantWireShape() throws Exception {
         when(askService.ask(any(), any())).thenReturn(new AskResponse(false, "cant", "No parking data.",

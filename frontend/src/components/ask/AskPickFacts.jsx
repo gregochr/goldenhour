@@ -9,10 +9,11 @@ import { STATE_WORD } from '../../utils/windowFirstRows.js';
  * a join over the card {@code buildPickCards} built from served data; nothing here is computed.
  *
  * <p>The two hosts differ only in the wrapper they draw around a fact (the card's score pill and the
- * plan view's carry different test-ids and one extra class) and in the visible copy of the tide's
- * spoken clause — "Tide: …" on the card, bare on the plan view, where the cell's own label already says
- * Tide. That difference is kept as it was (an owner decision to unify it, or not, is open), so the
- * clause's label is a prop and neither host's text moved.
+ * plan view's carry different test-ids and one extra class) and in whether the tide's spoken clause
+ * leads with its own "Tide: ". Every surface says Tide exactly once (owner decision, 2026-10-08): the
+ * card has no visible label, so its clause carries the word; the plan view's cell has a {@code <dt>}
+ * that already says Tide, so its clause is bare — a screen reader reading straight through would
+ * otherwise say it twice.
  */
 
 /**
@@ -72,10 +73,10 @@ PickScore.propTypes = {
  *
  * @param {object} props
  * @param {{tier: string, state: ?string, shortfall: ?string, clause: ?string}} props.tide
- * @param {string} [props.label] a word to lead the spoken clause with ("Tide" reads "Tide: …"); none
- *        reads the clause bare
+ * @param {boolean} [props.labelled=true] lead the spoken clause with "Tide: "; false where an adjacent
+ *        label (the plan view's {@code <dt>}) already says it
  */
-export function PickTide({ tide, label = undefined }) {
+export function PickTide({ tide, labelled = true }) {
   return (
     <>
       <TideWave
@@ -87,7 +88,7 @@ export function PickTide({ tide, label = undefined }) {
         <span aria-hidden="true">{` ${STATE_WORD[tide.state]}`}</span>
       )}
       {tide.clause && (
-        <span className="sr-only">{label ? `${label}: ${tide.clause}` : tide.clause}</span>
+        <span className="sr-only">{labelled ? `Tide: ${tide.clause}` : tide.clause}</span>
       )}
     </>
   );
@@ -100,5 +101,5 @@ PickTide.propTypes = {
     shortfall: PropTypes.string,
     clause: PropTypes.string,
   }).isRequired,
-  label: PropTypes.string,
+  labelled: PropTypes.bool,
 };

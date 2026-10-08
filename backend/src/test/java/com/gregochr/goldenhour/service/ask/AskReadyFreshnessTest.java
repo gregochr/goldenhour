@@ -285,6 +285,31 @@ class AskReadyFreshnessTest {
                 .isEqualTo("Certified solar filter on the lens");
     }
 
+    @Test
+    @DisplayName("an event is re-found whichever spelling stored and live use: lunar-eclipse and "
+            + "LUNAR_ECLIPSE are one type, as the timeline's dedupe already reads them")
+    void eventIsRefoundAcrossTheTwoSpellingsOfItsType() {
+        AskSnapshot base = at(ReadyFixtures.FRIDAY_NOON, both(oct(10), northumberland()));
+        AskEvent storedDashed = new AskEvent("LUNAR-ECLIPSE", "Total lunar eclipse", oct(14), "Visible.", null);
+        AskEvent storedUnderscored = new AskEvent("LUNAR_ECLIPSE", "Lunar eclipse", oct(14), "Visible.", null);
+        AskSnapshot liveAlmanac = withEvents(base, List.of(), List.of(
+                new AskSnapshot.ComingUp("lunar-eclipse", "Total lunar eclipse (live)", oct(14), oct(14), "d", null)));
+        AskSnapshot liveTopic = withEvents(base, List.of(
+                new AskSnapshot.Topic("LUNAR_ECLIPSE", "Lunar eclipse (live)", "d", oct(14), List.of())),
+                List.of());
+
+        AskReadyFreshness.Verdict underscoredAgainstAlmanac = check(
+                events("RARE_EVENTS", "Any rare events coming up?", storedUnderscored), liveAlmanac);
+        AskReadyFreshness.Verdict dashedAgainstTopic = check(
+                events("RARE_EVENTS", "Any rare events coming up?", storedDashed), liveTopic);
+
+        assertThat(underscoredAgainstAlmanac.fresh()).isTrue();
+        assertThat(underscoredAgainstAlmanac.answer().events().getFirst().label())
+                .isEqualTo("Total lunar eclipse (live)");
+        assertThat(dashedAgainstTopic.fresh()).isTrue();
+        assertThat(dashedAgainstTopic.answer().events().getFirst().label()).isEqualTo("Lunar eclipse (live)");
+    }
+
     // -- the rest of what an answer claims --------------------------------------------------
 
     @Test

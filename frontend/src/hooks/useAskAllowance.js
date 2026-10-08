@@ -10,10 +10,16 @@ import { ukDateStr } from '../utils/mapDates.js';
  * <p><b>Only the server's figures are ever shown.</b> The hook holds what the endpoint said, or what
  * a typed answer said ({@link applyServed}, fed the POST response's own {@code allowanceLeft} and
  * {@code allowanceLimit}); nothing here counts a question down. It is refetched on demand
- * ({@code refetch}) — the provider calls it after every POST that could have moved the figure — and
- * never cached: this endpoint sits under the personal-data prefix `HttpCachingConfig` never filters,
- * and the state lives in the component, not in `utils/swrCache.js`, so a logout cannot carry one
- * reader's allowance to the next.
+ * ({@code refetch}): the provider calls it after a POST that could have moved the figure and carried
+ * none (an answer without its figures, a lost connection, a failed engine, a refusal that used a
+ * question, a response a newer ask overtook), and NOT after an answer that states its figures, which
+ * is the server's word and is applied as it stands. (That leaves {@code typedAvailable}, which a POST
+ * answer does not carry, as the last read had it until the next read — owner decision, 2026-10-08.)
+ * A read in flight when a served figure lands is ignored when it resolves: it was taken before that
+ * answer and would put the older count back over it. A read started AFTER it is applied as usual.
+ * It is never cached: this endpoint sits under the personal-data prefix `HttpCachingConfig` never
+ * filters, and the state lives in the component, not in `utils/swrCache.js`, so a logout cannot carry
+ * one reader's allowance to the next.
  *
  * <p><b>The UK day turning over refetches it.</b> The allowance resets at UK midnight, and a tab left
  * open overnight (an installed PWA is the ordinary case) would otherwise go on saying "No own
@@ -38,13 +44,21 @@ export default function useAskAllowance() {
   // it was, so a tab that comes back after midnight and fails to re-read tries again on the next
   // return instead of keeping yesterday's "none left" as today's answer.
   const readOn = useRef(null);
+  // Orders what may write the state. Every read takes a ticket when it STARTS and {@code applyServed}
+  // takes one too, so a read is applied only if no newer read has started and no served figure has
+  // landed since: a settings snapshot taken before a POST answer must not overwrite that answer.
+  // (`live` alone covers the newer-read case; it cannot see a served figure, which is not a read.)
+  const ticket = useRef(0);
 
   useEffect(() => {
     let live = true;
     const startedOn = ukDateStr();
+    ticket.current += 1;
+    const mine = ticket.current;
+    const current = () => live && mine === ticket.current;
     getAskSettings()
       .then((raw) => {
-        if (!live) return;
+        if (!current()) return;
         const data = normalise(raw);
         if (data) readOn.current = startedOn;
         setState((prev) => (data
@@ -53,7 +67,7 @@ export default function useAskAllowance() {
       })
       // A superseded request's failure must not mark the newest request's answer as failed.
       .catch(() => {
-        if (live) setState((prev) => ({ status: 'failed', data: prev.data }));
+        if (current()) setState((prev) => ({ status: 'failed', data: prev.data }));
       });
     return () => { live = false; };
   }, [tick]);
@@ -79,6 +93,7 @@ export default function useAskAllowance() {
   /** Takes the server's own left/limit from a POST response; `used` follows from them. */
   const applyServed = useCallback(({ left, limit }) => {
     if (!isCount(left) || !isCount(limit)) return;
+    ticket.current += 1; // every read started before this answer is now stale
     setState((prev) => ({
       status: prev.status === 'failed' ? 'ready' : prev.status,
       data: {
