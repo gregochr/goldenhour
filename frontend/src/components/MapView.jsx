@@ -62,9 +62,8 @@ import MapRegionPanel from './map/MapRegionPanel.jsx';
 import { regionGlossEntry } from '../utils/regionGloss.js';
 import AskCameraController from './map/AskCameraController.jsx';
 import MapPeekAsk from './map/MapPeekAsk.jsx';
-import {
-  askPeekMode, peekRestingHeight, peekTargetHeight, PEEK_SETTLED_PHASES,
-} from '../utils/askPeek.js';
+import { askPeekMode, peekRestingHeight, peekTargetHeight } from '../utils/askPeek.js';
+import { SETTLED_PHASES } from '../utils/askModel.js';
 import { askWindowOf } from '../utils/askMapContext.js';
 import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
 
@@ -4840,7 +4839,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // "Minimised" is no flag: it is a settled answer with nothing open. The row exists only on a phone,
   // on the tab, and while Ask is offered.
   const askRowOn = isMobile && !overlayMode && askOffered;
-  const askSettled = PEEK_SETTLED_PHASES.includes(askPhase);
+  const askSettled = SETTLED_PHASES.includes(askPhase);
   const askMode = askPeekMode({
     offered: askRowOn,
     expanded: askRowOn && openMapMenu === 'peek:ask',
@@ -4891,7 +4890,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * `handlePeekPress('ask')`'s write without its toggle — same gate, same clearing of the selection (the
    * callout and an EXPANDED sheet must never coexist; only the 112px line may) — behind the one refusal
    * every Ask entry makes: it never opens over a dialog (`foreignModalOver`, the predicate every Escape
-   * rule on this tab and the shell's own `openAsk` apply).
+   * rule on this tab and the shell's own `openAskSheet` apply).
    */
   function openAskSection() {
     if (foreignModalOver(mapPaneRef.current)) return;
@@ -5189,7 +5188,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>Containment, not "is any modal open": a dialog this pane renders INLINE is its own business
    * and must keep behaving exactly as it does — only a FOREIGN one suppresses the press. It is the
-   * same test, for the same reason, that `WindowFirstShell`'s `/` shortcut (now Ask's) and `openAsk` apply to
+   * same test, for the same reason, that `WindowFirstShell`'s `/` shortcut (now Ask's) and `openAskSheet` apply to
    * `UserSettingsModal` (`utils/shellForeignDialog.js`). ⚠️ <b>It is DOM containment, so it protects no component that exists
    * today</b> — a first draft of this comment named the phone `BottomSheet` and was wrong:
    * `BottomSheet` portals to `document.body`, so it is foreign by this test whatever the React tree

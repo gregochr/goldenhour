@@ -24,16 +24,11 @@
  * <p>The numbers live here AND in `index.css` (the sheet's own rules); {@code askPeekCss.test.js} reads
  * the stylesheet and asserts the two agree, so a change to one fails against the other. They are
  * published to the rest of the map through {@code --psh} (the callout's band) and the camera's inset.
+ *
+ * <p>"Settled" is {@code askModel}'s {@code SETTLED_PHASES} — the conversation's own list, not a
+ * second one of the sheet's.
  */
-
-/**
- * The phases the peek sheet treats as "something SETTLED to keep and to clear": not empty, not still
- * being fetched. Includes {@code 'plan'} (F5's phase — a conversation that has an answer and is looking
- * at one pick's plan is still an answer to keep, to minimise and to clear). {@code AskClearAnswer}'s own
- * list agrees since F5 (it, too, can end a conversation from the plan view), but they remain two lists
- * for two questions: this one decides the sheet's height, that one whether a text button is drawn.
- */
-export const PEEK_SETTLED_PHASES = Object.freeze(['answer', 'plan', 'cant', 'error']);
+import { SETTLED_PHASES } from './askModel.js';
 
 /**
  * Every height the sheet takes, in px (all clamped to {@code calc(100% - 64px)} by the stylesheet, so
@@ -81,7 +76,7 @@ export function askPeekMode({
   if (!offered) return 'off';
   if (expanded) return 'expanded';
   if (section != null) return 'section';
-  return PEEK_SETTLED_PHASES.includes(phase) ? 'minimised' : 'collapsed';
+  return SETTLED_PHASES.includes(phase) ? 'minimised' : 'collapsed';
 }
 
 /**

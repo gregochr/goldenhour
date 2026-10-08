@@ -22,16 +22,16 @@ const NOTHING = { key: null, questions: NONE, error: null };
  *
  * @param {string|number} [scope='all'] `all`, or an enabled region's id
  * @param {?string} [generatedAt] the briefing's {@code generatedAt}; a new value refetches
- * @param {{enabled?: boolean}} [options] {@code enabled: false} fetches nothing (a hidden surface)
+ * @param {{enabled?: boolean}} [options] {@code enabled: false} fetches nothing (no briefing yet)
  * @returns {{questions: Array<object>, loading: boolean, failed: boolean, error: ?Error}}
  */
 export default function useAskReady(scope = 'all', generatedAt = null, { enabled = true } = {}) {
   const key = `${scope}|${generatedAt ?? ''}`;
   const [state, setState] = useState(NOTHING);
-  // A hidden surface forgets its list. Without this a surface that is shown again under the SAME key
-  // would hand out the list it held when it was hidden — possibly hours old, for a rule (freshness)
-  // the server decides per request — while the new fetch is still in flight. The reset is made
-  // during render, React's own pattern for state that follows a prop.
+  // A disabled hook forgets its list. Without this one that is enabled again under the SAME key would
+  // hand out the list it held when it was disabled — possibly hours old, for a rule (freshness) the
+  // server decides per request — while the new fetch is still in flight. The reset is made during
+  // render, React's own pattern for state that follows a prop.
   const [wasEnabled, setWasEnabled] = useState(enabled);
   if (wasEnabled !== enabled) {
     setWasEnabled(enabled);

@@ -3,17 +3,19 @@ import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
 import { useWindowFirstBriefing } from '../../context/WindowFirstBriefingContext.jsx';
 import useAskReady from '../../hooks/useAskReady.js';
+import useAskRequestContext from '../../hooks/useAskRequestContext.js';
 import ProPill from '../shared/ProPill.jsx';
 import AskContextChips from './AskContextChips.jsx';
 import AskEventCard from './AskEventCard.jsx';
 import AskPickCard from './AskPickCard.jsx';
 import AskPlanThis from './AskPlanThis.jsx';
+import { planActionsShape } from './askShapes.js';
 import {
   KIND, newestRunLabel, PRO_DAILY_LIMIT, questionsForView, readyBusyLine, resolveSuggestions,
   TYPED_BUSY_LINE,
 } from '../../utils/askModel.js';
 
-/** One shared empty list, so an absent {@code regionIds} is not a new array on every render. */
+/** One shared empty list, so a Ready answer opened over the whole catalogue records the same array every time. */
 const NO_REGIONS = [];
 
 /**
@@ -43,9 +45,9 @@ const READY_ALL_LABEL = {
  * refusal PUTS BACK ({@code ask.restored}) is rendered outside the live region: re-inserting it
  * there would announce it all again. The empty state's suggestions are deliberately outside all
  * three, since a list that appears when the surface opens is not news; the "Try asking" list of a
- * not-in-the-forecast reply is part of that reply and so is inside. With {@code hidden} set the body
- * is an empty, hidden shell — no status node at all — so nothing can be announced from a layer the
- * reader cannot see (the rule {@code MapCallout}'s night retry line records).
+ * not-in-the-forecast reply is part of that reply and so is inside. Every host unmounts the
+ * conversation when its surface closes, so there is no hidden state of it to announce from (the rule
+ * {@code MapCallout}'s night retry line records).
  *
  * <h2>Focus</h2>
  * <p>The three controls here that unmount when pressed (a suggestion, "Try again", a chip's ✕) first
@@ -69,6 +71,12 @@ const READY_ALL_LABEL = {
  * on the phase, set only by those two presses, so a plan view that appears because a refusal restored it
  * never takes focus from the field.
  *
+ * <h2>The request context is read here</h2>
+ * <p>What the next question carries and what the chips say it is — the region in scope, the window on
+ * the Map's pill, and the words for both — comes from {@code useAskRequestContext(view, viewLabel)},
+ * called by this component, not forwarded to it by the dock, the sheet and the peek, which used to
+ * copy the same five fields onto it. A host says only which tab it is on and its own fallback chip.
+ *
  * <h2>Nothing here decides anything</h2>
  * <p>The suggestions are the served Ready questions offered on this view; the footer names the run
  * and the allowance the server stated; the cards are joined facts. "Add to Coming up" was removed by
@@ -76,25 +84,20 @@ const READY_ALL_LABEL = {
  *
  * @param {object} props
  * @param {'map'|'plan'|'coming-up'} props.view the tab the suggestions are offered for
- * @param {string|number} [props.scope='all'] the Ready list's scope: {@code all} or a region id
- * @param {string} props.viewLabel the view chip's text, e.g. "Plan · all regions"
- * @param {?string} [props.windowLabel] the window chip's text (Map, solar rows only); none when null
- * @param {string} [props.windowId] the window's id, the same one the surface passes to
- *        {@code askTyped}; required whenever {@code windowLabel} is given. It is what the chip's ✕
- *        removes, and a different window brings the chip back
- * @param {Array<number>} [props.regionIds] the regions in scope, for a Ready answer's own record of
- *        the context it was opened in
- * @param {boolean} [props.hidden=false] the surface is closed or covered: render an empty shell
+ * @param {string} props.viewLabel the surface's own view chip text, e.g. "Plan · all regions" — used
+ *        wherever the Map has published nothing to say instead
  * @param {function(object): React.ReactNode} [props.pickActions] controls for a pick card's own row,
  *        after the "Plan this ›" every card carries
  * @param {{openInPlan: ?function(object): void, setPostcode: ?function(): void}} [props.planActions]
  *        the surface's two doors out of the plan view; see {@link AskPlanThis}
  */
 export default function AskConversation({
-  view, scope = 'all', viewLabel, windowLabel = null, windowId = undefined, regionIds = NO_REGIONS,
-  hidden = false, pickActions = undefined, planActions = undefined,
+  view, viewLabel, pickActions = undefined, planActions = undefined,
 }) {
   const ask = useAsk();
+  const requestContext = useAskRequestContext(view, viewLabel);
+  const { scope, windowId, regionIds } = requestContext;
+  const windowLabel = requestContext.windowLabel ?? null;
   const { briefing } = useWindowFirstBriefing();
   const root = useRef(null);
   const planRef = useRef(null);
@@ -134,15 +137,7 @@ export default function AskConversation({
   // Nothing to fetch until a briefing exists: no briefing, no Ready answers (precompute skips it),
   // and fetching before it lands would only be refetched the moment it does.
   const generatedAt = briefing?.generatedAt ?? null;
-  const ready = useAskReady(scope, generatedAt, { enabled: !hidden && generatedAt !== null });
-
-  if (hidden) {
-    return (
-      <div className="wf-ask-conv" data-testid="ask-conversation" hidden>
-        <div aria-live="polite" data-testid="ask-live" />
-      </div>
-    );
-  }
+  const ready = useAskReady(scope, generatedAt, { enabled: generatedAt !== null });
 
   const offered = questionsForView(ready.questions, view);
   const { phase } = ask;
@@ -152,7 +147,7 @@ export default function AskConversation({
   // removable — removing it from a finished answer would change nothing the reader can see.
   const asked = phase === 'empty' ? null : ask.asked;
   const showWindowChip = windowLabel !== null && ask.removedWindow !== windowId;
-  const chipView = asked?.viewLabel || viewLabel;
+  const chipView = asked?.viewLabel || requestContext.viewLabel;
   const chipWindow = asked ? asked.windowLabel : (showWindowChip ? windowLabel : null);
   // Moves focus somewhere that survives the press. Called first, before the state change that
   // unmounts the control.
@@ -162,7 +157,9 @@ export default function AskConversation({
     const wholeCatalogue = scope === 'all';
     ask.openReady(question, {
       view,
-      viewLabel: wholeCatalogue ? (READY_ALL_LABEL[view] ?? viewLabel) : viewLabel,
+      viewLabel: wholeCatalogue
+        ? (READY_ALL_LABEL[view] ?? requestContext.viewLabel)
+        : requestContext.viewLabel,
       regionIds: wholeCatalogue ? NO_REGIONS : regionIds,
     });
   };
@@ -244,21 +241,9 @@ export default function AskConversation({
 
 AskConversation.propTypes = {
   view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
-  scope: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   viewLabel: PropTypes.string.isRequired,
-  windowLabel: PropTypes.string,
-  windowId: (props, name, component) => (
-    props.windowLabel && typeof props[name] !== 'string'
-      ? new Error(`${component}: \`${name}\` is required whenever \`windowLabel\` is given`)
-      : null
-  ),
-  regionIds: PropTypes.arrayOf(PropTypes.number),
-  hidden: PropTypes.bool,
   pickActions: PropTypes.func,
-  planActions: PropTypes.shape({
-    openInPlan: PropTypes.func,
-    setPostcode: PropTypes.func,
-  }),
+  planActions: planActionsShape,
 };
 
 /** The Ready tag and its question — one tappable row. */

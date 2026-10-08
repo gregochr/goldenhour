@@ -574,16 +574,3 @@ describe('the one action', () => {
     expect(screen.getByTestId('ask-plan-back')).toBeInTheDocument();
   });
 });
-
-describe('a hidden conversation draws no plan', () => {
-  it('is an empty shell: no group, no buttons, nothing to announce', async () => {
-    const view = await renderAnswer();
-    await planThis(2);
-    expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
-
-    view.rerender(tree({ hidden: true }));
-
-    expect(screen.queryByTestId('ask-plan')).toBeNull();
-    expect(screen.queryByTestId('ask-plan-open')).toBeNull();
-  });
-});

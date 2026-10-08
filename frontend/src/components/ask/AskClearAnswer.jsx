@@ -1,12 +1,6 @@
-import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
-
-/**
- * The phases with something on screen the reader may want to end: not empty, and not still busy.
- * {@code plan} is one (F5): a reader looking at one pick's plan can end the whole conversation from
- * there, as the phone peek's ✕ can, rather than having to step back to the answer first.
- */
-const SETTLED_PHASES = new Set(['answer', 'plan', 'cant', 'error']);
+import { refShape } from './askShapes.js';
+import { SETTLED_PHASES } from '../../utils/askModel.js';
 
 /**
  * "Clear answer" — the one explicit way to END a conversation (the sheet and the dock both CLOSE
@@ -26,7 +20,7 @@ const SETTLED_PHASES = new Set(['answer', 'plan', 'cant', 'error']);
  */
 export default function AskClearAnswer({ inputRef }) {
   const ask = useAsk();
-  if (!SETTLED_PHASES.has(ask.phase)) return null;
+  if (!SETTLED_PHASES.includes(ask.phase)) return null;
   const clearAnswer = () => {
     inputRef.current?.focus({ preventScroll: true });
     ask.clear();
@@ -44,5 +38,5 @@ export default function AskClearAnswer({ inputRef }) {
 }
 
 AskClearAnswer.propTypes = {
-  inputRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]).isRequired,
+  inputRef: refShape.isRequired,
 };

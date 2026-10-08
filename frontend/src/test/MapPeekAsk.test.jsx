@@ -17,7 +17,9 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 let mockAsk;
 vi.mock('../context/AskContext.jsx', () => ({ useAsk: () => mockAsk }));
 vi.mock('../components/ask/AskConversation.jsx', () => ({
-  default: (props) => <div data-testid="stub-conversation" data-scope={String(props.scope)} />,
+  default: (props) => (
+    <div data-testid="stub-conversation" data-view={props.view} data-view-label={props.viewLabel} />
+  ),
 }));
 
 import MapPeekAsk, { PEEK_ASK_PROMPT } from '../components/map/MapPeekAsk.jsx';
@@ -175,7 +177,9 @@ describe('expanded — the row holds the field and a ✕, the conversation fills
     expect(screen.getByTestId('ask-input')).toBeInTheDocument();
     expect(screen.getByTestId('wf-map-peek-ask-x')).toBeInTheDocument();
     expect(screen.getByTestId('stub-conversation')).toBeInTheDocument();
-    expect(screen.getByTestId('stub-conversation')).toHaveAttribute('data-scope', 'all');
+    // The conversation resolves its own scope and window; the peek hands it the tab and its fallback chip.
+    expect(screen.getByTestId('stub-conversation')).toHaveAttribute('data-view', 'map');
+    expect(screen.getByTestId('stub-conversation')).toHaveAttribute('data-view-label', 'Map · all regions');
     expect(screen.queryByTestId('wf-map-peek-ask-entry')).not.toBeInTheDocument();
   });
 

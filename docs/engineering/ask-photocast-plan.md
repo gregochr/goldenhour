@@ -527,6 +527,40 @@ No Ask on the Operations tab: the field is not rendered there and switching to i
 - Hidden: while rewound; when `enabled` is false. Disabled: when `contentDisabled`.
 - "Pro: 30 a day" is text with `ProPill`, not a link.
 
+**As built (refactor, 2026-10-08) — the client says each thing once.** A behaviour-preserving pass: the
+DOM, text, test-ids, accessible names and classes of every Ask surface are as they were.
+- **The request context is read in one place.** `AskConversation` calls `useAskRequestContext(view, viewLabel)`
+  itself; the sheet, the dock and the peek used to copy its fields onto it as `scope`, `windowLabel`, `windowId`
+  and `regionIds` (plus a hand-written PropTypes validator policing two of them), and now pass `view` and
+  `viewLabel` only. `AskSheet`/`AskDock`/`MapPeekAsk` no longer call the hook at all (the peek hands both children
+  its fallback chip text); `AskInputRow` still calls it for what a question is sent with. The hook's `windowId` is
+  `null` where there is no window, never `undefined`.
+- **Pick facts are drawn once** (`components/ask/AskPickFacts.jsx`): `PickScore` (verdict word and star),
+  `PickTide` (wave glyph, state word, spoken clause) and `pickWhen(card)`. ⚠️ **The two hosts' visible copy was NOT
+  unified**: the card's spoken tide clause reads `Tide: …` (`<PickTide label="Tide" />`) and the plan view's reads
+  the bare clause under its own `Tide` cell label. Whether to unify them is an owner decision; the `label` prop is
+  what keeps each host's text where it was. `starsWord(n)` (`askModel.js`) is the one "star"/"stars" spelling.
+  `components/ask/askShapes.js` holds `pickCardShape`, `planActionsShape`, `refShape` and `objectRefShape` (the peek's
+  entry ref, which a callback ref cannot satisfy).
+- **One `SETTLED_PHASES`** (`askModel.js`, `answer|plan|cant|error`): `AskClearAnswer`, `askPeek`, `MapPeekAsk`
+  and `MapView` import it; `PEEK_SETTLED_PHASES` and `AskClearAnswer`'s private set are gone, and
+  `askSettledPhases.test.js` fails if a consumer restates the list. `meridiemOf(targetType)` is the one AM/PM word
+  (`MapPeekSheet` re-derived it).
+- **Window identity:** a pick card carries `windowKey` (`date:targetType`, `heatSpots.windowKey`), so the shell
+  stops recomputing it from the card in `askOpenInPlan` and the Plan highlight. The served `windowId`
+  (`2026-10-05_sunset`) and the Map pane's `askWindow` `{date, eventType, nonce}` are different channels and unchanged.
+- **Deleted as dead:** `AskConversation`'s `hidden` prop (no production mount passed it; every host unmounts the
+  conversation), `AskContext`'s `contextWindow` (no production reader; `removedWindow === null` says the same) and
+  `MapPeekAsk`'s `error?.message ??` fallback (`errorFor` always sets a message). `useAskReady`'s `enabled` option
+  STAYS: the conversation still passes `enabled: generatedAt !== null` (no briefing, nothing to fetch), and the
+  reset-during-render keeps a list from outliving that gate.
+- **The shell** writes the dock-opening body once: the `/` handler keeps its refusals (still in front of
+  `preventDefault`, which `AskShellKey.test.jsx` pins through `defaultPrevented`) and then calls `openAskDock()`,
+  which re-checks the foreign dialog (idempotent). One `selectedTabNode()` serves `askRestoreFallback` and the
+  dock's `fallbackFocus`. Renamed to mirror the dock's `askDockOpen`/`askDockShown` pair: state `askOpen` →
+  `askSheetOpen`, the derived `askSheetOpen` → `askSheetShown`, `openAsk` → `openAskSheet`, `dismissAsk` →
+  `closeAskSheet`. Earlier as-built notes in this file keep the names they were written under.
+
 ### 2.7 Map linkage (F3, F4)
 `MapView` gains `askPicks` (`[{rank, locationId, name, date, eventType, shortWindow, rating,
 verdict}]`), `askSelectedRank`, `onSelectAskPick`, `askWindow` (`{date, eventType, nonce}`).

@@ -5,6 +5,7 @@ import {
 import { tideAccessibleClause, tierOf } from './mapTideFit.js';
 import { formatDriveDuration } from './briefingDisplay.js';
 import { formatEventTimeUk } from './conversions.js';
+import { windowKey } from './heatSpots.js';
 
 /**
  * Ask PhotoCast's client model — pure, no React, no clock.
@@ -41,8 +42,41 @@ export const PRO_DAILY_LIMIT = 30;
 /** The wire's `kind` values. */
 export const KIND = { READY: 'ready', OWN: 'own', CANT: 'cant' };
 
+/**
+ * The phases with something on screen the reader may want to keep, minimise or end: not empty, and not
+ * still being fetched (clearing an answer that is still on its way would drop a charged answer).
+ * Includes {@code 'plan'} — a conversation that has an answer and is looking at one pick's plan is
+ * still an answer.
+ *
+ * <p>The ONE list: {@code AskClearAnswer} (is a "Clear answer" drawn?), {@code askPeek} (is the phone
+ * sheet minimised?), {@code MapPeekAsk} (does the ✕ clear?) and {@code MapView} all read it. They used
+ * to be two copies that nothing pinned together, and adding the plan phase was two edits.
+ */
+export const SETTLED_PHASES = Object.freeze(['answer', 'plan', 'cant', 'error']);
+
 /** AM for a sunrise, PM for a sunset — the map's short window word. */
 const MERIDIEM = { SUNRISE: 'AM', SUNSET: 'PM' };
+
+/**
+ * The short meridiem word for a solar event: {@code 'AM'} for a sunrise, {@code 'PM'} for a sunset.
+ *
+ * @param {?string} targetType the served event type
+ * @returns {?string} the word, or null for anything that is not a solar event
+ */
+export function meridiemOf(targetType) {
+  return MERIDIEM[targetType] ?? null;
+}
+
+/**
+ * The noun for a star count: "star" for exactly one, else "stars" — the one spelling of the
+ * pick card's, the plan view's and the rank circle's accessible names.
+ *
+ * @param {number} n a rating
+ * @returns {'star'|'stars'}
+ */
+export function starsWord(n) {
+  return n === 1 ? 'star' : 'stars';
+}
 
 /** The lowest and highest star a rating can be: Claude's own 1–5 scale. */
 const MIN_RATING = 1;
@@ -60,7 +94,7 @@ const MAX_RATING = 5;
  * @returns {?string} the short window, or null when the date or event is not one this knows
  */
 export function shortWindow(pick) {
-  const meridiem = MERIDIEM[pick?.targetType];
+  const meridiem = meridiemOf(pick?.targetType);
   if (!meridiem || typeof pick?.date !== 'string' || pick.date === '') return null;
   return `${shortDow(pick.date)} ${meridiem}`;
 }
@@ -91,7 +125,7 @@ function slotFor(days, pick) {
 /** The accessible name of a pick's rank circle: "Pick 1, Whitby, Saturday sunrise, 5 stars". */
 function pickLabel({ rank, name, date, targetType, rating }) {
   const event = eventWord(targetType);
-  const stars = rating == null ? null : `${rating} ${rating === 1 ? 'star' : 'stars'}`;
+  const stars = rating == null ? null : `${rating} ${starsWord(rating)}`;
   return [`Pick ${rank}`, name, `${longDow(date)} ${event}`, stars].filter(Boolean).join(', ');
 }
 
@@ -114,7 +148,7 @@ function pickLabel({ rank, name, date, targetType, rating }) {
  *        (`WindowFirstBriefingContext`'s {@code reachById}) — never {@code effectiveReachById},
  *        which the Plan origin replaces with a region base's drive times
  * @returns {Array<{rank: number, locationId: number, name: string, regionName: ?string,
- *   date: string, targetType: string, windowId: ?string, why: string, rating: ?number,
+ *   date: string, targetType: string, windowId: ?string, windowKey: string, why: string, rating: ?number,
  *   verdict: string, verdictLabel: string, eventTime: ?string, eventInstant: ?string,
  *   summary: ?string, dayWord: string, shortWindow: string, driveMinutes: ?number,
  *   driveLabel: ?string,
@@ -130,7 +164,7 @@ export function buildPickCards(picks, briefingDays, homeReachById) {
   const cards = [];
   for (const pick of picks) {
     if (!pick || !Number.isInteger(pick.rank) || pick.locationId == null
-        || typeof pick.date !== 'string' || !MERIDIEM[pick.targetType]) continue;
+        || typeof pick.date !== 'string' || !meridiemOf(pick.targetType)) continue;
     const slot = slotFor(briefingDays, pick);
     if (!slot) continue;
     const name = slot.locationName || pick.locationName;
@@ -152,6 +186,7 @@ export function buildPickCards(picks, briefingDays, homeReachById) {
       date: pick.date,
       targetType: pick.targetType,
       windowId: pick.windowId ?? null,
+      windowKey: windowKey(pick.date, pick.targetType),
       why: typeof pick.why === 'string' ? pick.why : '',
       rating,
       verdict,

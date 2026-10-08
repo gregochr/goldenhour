@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import AskClearAnswer from './AskClearAnswer.jsx';
 import AskConversation from './AskConversation.jsx';
 import AskInputRow from './AskInputRow.jsx';
-import useAskRequestContext from '../../hooks/useAskRequestContext.js';
+import { planActionsShape, refShape } from './askShapes.js';
 
 /** The dock's id: the one an {@code AskField}'s {@code aria-controls} names while it is open. */
 export const ASK_DOCK_ID = 'wf-ask-dock';
@@ -139,8 +139,6 @@ export default function AskDock({
   pickActions = undefined, planActions = undefined,
 }) {
   const dockRef = useRef(null);
-  // On the Map: the region in scope and the window on the pill, as the pane published them.
-  const requestContext = useAskRequestContext(view, viewLabel);
   useStickyViewportFill(dockRef, sticky);
   useKeepFocusAlive(dockRef, inert, fallbackFocus);
   // Opening focuses the question field — the mock's own behaviour, and the whole of what `/` means
@@ -200,11 +198,7 @@ export default function AskDock({
         <div className="wf-ask-dock-scroll" data-testid="ask-dock-scroller">
           <AskConversation
             view={view}
-            scope={requestContext.scope}
-            viewLabel={requestContext.viewLabel}
-            windowLabel={requestContext.windowLabel}
-            windowId={requestContext.windowId}
-            regionIds={requestContext.regionIds}
+            viewLabel={viewLabel}
             pickActions={pickActions}
             planActions={planActions}
           />
@@ -223,9 +217,9 @@ AskDock.propTypes = {
   view: PropTypes.oneOf(['map', 'plan', 'coming-up']).isRequired,
   viewLabel: PropTypes.string.isRequired,
   contextLabel: PropTypes.string.isRequired,
-  inputRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]).isRequired,
+  inputRef: refShape.isRequired,
   onClose: PropTypes.func.isRequired,
   fallbackFocus: PropTypes.func.isRequired,
   pickActions: PropTypes.func,
-  planActions: PropTypes.shape({ openInPlan: PropTypes.func, setPostcode: PropTypes.func }),
+  planActions: planActionsShape,
 };
