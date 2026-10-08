@@ -1,4 +1,5 @@
 import { daysOut, resolveConfidence } from './confidenceUtils.js';
+import { windowTail } from './windowKeys.js';
 import { formatDriveDuration, formatTime } from './briefingDisplay.js';
 import { GLANCE_MINUTES } from './planningArea.js';
 import { leaveByParts } from './leaveBy.js';
@@ -216,11 +217,6 @@ export function slotsOf(eventSummary) {
   return [...regioned, ...(eventSummary?.unregioned ?? []).map((slot) => ({ slot, region: null }))];
 }
 
-/** The window half of both indexes' key. */
-function tailOf(date, targetType) {
-  return `${date}|${targetType}`;
-}
-
 /** Puts a value under the id key and the name key, first-inserted winning in each. */
 function index(byId, byName, locationId, locationName, tail, value) {
   if (locationId != null) {
@@ -234,6 +230,49 @@ function index(byId, byName, locationId, locationName, tail, value) {
 }
 
 /**
+ * Every served window of a briefing, in document order, as {@code {date, summary, tail}}.
+ *
+ * <p>The one walk all four per-location indexes share: a day with no date and a summary with no
+ * {@code targetType} are skipped, and {@code tail} is the window half of every index key.
+ *
+ * @param {Array} days {@code briefing.days}
+ * @returns {Array<{date: string, summary: object, tail: string}>}
+ */
+export function windowsOf(days) {
+  const windows = [];
+  for (const day of Array.isArray(days) ? days : []) {
+    if (!day?.date) continue;
+    for (const summary of day.eventSummaries ?? []) {
+      if (!summary?.targetType) continue;
+      windows.push({ date: day.date, summary, tail: windowTail(day.date, summary.targetType) });
+    }
+  }
+  return windows;
+}
+
+/**
+ * Builds the {@code {byId, byName}} pair every per-location, per-window index shares.
+ *
+ * <p>Keys are {@code `${locationId}|${tail}`} and {@code `${name}|${tail}`}, first entry winning in
+ * each map ({@link index}'s rule), so a duplicate location in one window resolves to the first.
+ *
+ * @param {Array} days       {@code briefing.days}
+ * @param {function({date: string, summary: object, tail: string}): Iterable<{locationId: *,
+ *        locationName: ?string, value: *}>} entriesOf the entries one window contributes
+ * @returns {{byId: Map<string, *>, byName: Map<string, *>}}
+ */
+export function indexByWindow(days, entriesOf) {
+  const byId = new Map();
+  const byName = new Map();
+  for (const window of windowsOf(days)) {
+    for (const { locationId, locationName, value } of entriesOf(window) ?? []) {
+      index(byId, byName, locationId, locationName, window.tail, value);
+    }
+  }
+  return { byId, byName };
+}
+
+/**
  * Each slot's own solar event time and its region's confidence, keyed by location and window.
  *
  * <p><b>Unregioned slots are indexed too</b>, unlike {@code buildWindowSpots}, which drops them.
@@ -242,35 +281,28 @@ function index(byId, byName, locationId, locationName, tail, value) {
  * confidence, which is the honest answer — a region's confidence is a fact about a region.
  *
  * <p>Also carries the slot's {@code evaluationGate} — the pipeline's own served reason a window has
- * no score (a hard-constraint skip, today only the tide gate). Read off the slot flat, like the
- * tide-on-the-light fields. Null is "eligible or unknown", never "eligible": the field is absent
- * from every cache payload written before it existed.
+ * no score (a hard-constraint skip). The tide gate that produced it was lifted on 2026-09-18, so
+ * the field is rare today, but it is a served seam and stays read. Null is "eligible or unknown",
+ * never "eligible": the field is absent from every cache payload written before it existed.
  *
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
  *          {@code {eventTime, confidence, evaluationGate}}
  */
 export function buildSlotIndex(days) {
-  const byId = new Map();
-  const byName = new Map();
-  for (const day of Array.isArray(days) ? days : []) {
-    if (!day?.date) continue;
-    for (const summary of day.eventSummaries ?? []) {
-      if (!summary?.targetType) continue;
-      const tail = tailOf(day.date, summary.targetType);
-      for (const { slot, region } of slotsOf(summary)) {
-        if (!slot?.solarEventTime) continue;
-        index(byId, byName, slot.locationId, slot.locationName, tail, {
-          eventTime: slot.solarEventTime,
-          confidence: region?.confidence ?? null,
-          evaluationGate: typeof slot.evaluationGate === 'string' && slot.evaluationGate.trim() !== ''
-            ? slot.evaluationGate.trim()
-            : null,
-        });
-      }
-    }
-  }
-  return { byId, byName };
+  return indexByWindow(days, ({ summary }) => slotsOf(summary)
+    .filter(({ slot }) => slot?.solarEventTime)
+    .map(({ slot, region }) => ({
+      locationId: slot.locationId,
+      locationName: slot.locationName,
+      value: {
+        eventTime: slot.solarEventTime,
+        confidence: region?.confidence ?? null,
+        evaluationGate: typeof slot.evaluationGate === 'string' && slot.evaluationGate.trim() !== ''
+          ? slot.evaluationGate.trim()
+          : null,
+      },
+    })));
 }
 
 /**
@@ -289,22 +321,13 @@ export function buildSlotIndex(days) {
  *          {@code {gate}}
  */
 export function buildEvaluationGateIndex(days) {
-  const byId = new Map();
-  const byName = new Map();
-  for (const day of Array.isArray(days) ? days : []) {
-    if (!day?.date) continue;
-    for (const summary of day.eventSummaries ?? []) {
-      if (!summary?.targetType) continue;
-      const tail = tailOf(day.date, summary.targetType);
-      for (const { slot } of slotsOf(summary)) {
-        if (typeof slot?.evaluationGate !== 'string' || slot.evaluationGate.trim() === '') continue;
-        index(byId, byName, slot.locationId, slot.locationName, tail, {
-          gate: slot.evaluationGate.trim(),
-        });
-      }
-    }
-  }
-  return { byId, byName };
+  return indexByWindow(days, ({ summary }) => slotsOf(summary)
+    .filter(({ slot }) => typeof slot?.evaluationGate === 'string' && slot.evaluationGate.trim() !== '')
+    .map(({ slot }) => ({
+      locationId: slot.locationId,
+      locationName: slot.locationName,
+      value: { gate: slot.evaluationGate.trim() },
+    })));
 }
 
 /**
@@ -312,11 +335,17 @@ export function buildEvaluationGateIndex(days) {
  * keeps apart, carried side by side rather than folded into one answer, keyed exactly like
  * {@link buildSlotIndex} so `MapView`/`MapCallout` read it through the same {@link lookupForWindow}.
  *
- * <p>Reads {@code BriefingSlot.TideInfo}'s tide-fit fields off each slot flat ({@code tideState},
- * {@code tideAligned}, {@code tideOnTheLight}, {@code nearestSolarOffsetPhrase}, {@code tideLevel},
- * {@code tideDirection}, {@code tideHeight}, {@code tideShortfall}, {@code tideFitPhrase} —
- * {@code @JsonUnwrapped} puts them directly on the slot) plus {@code evaluationGate}, which lives on
- * the slot itself rather than on {@code TideInfo}. The two wire fields with no reader on any arm of
+ * <p>⚠️ <b>Reads {@code window.tideFacts}, not slots</b>
+ * (docs/engineering/window-tide-facts-plan.md). A slot exists only where Claude coverage does —
+ * {@code BriefingHonestyFilter} empties a zero-coverage region's slot list, which is the designed
+ * state of every unscored window — while tide comes from stored tide tables and has nothing to do
+ * with Claude. Each served fact is flat ({@code tideState}, {@code tideAligned},
+ * {@code tideOnTheLight}, {@code nearestSolarOffsetPhrase}, {@code tideLevel},
+ * {@code tideDirection}, {@code tideHeight}, {@code tideShortfall}, {@code tideFitPhrase}). A payload
+ * with no {@code tideFacts} gives an empty index and there is NO fallback to slots. The two
+ * evaluation-side fields, {@code evaluationGate} and {@code skyRating}, live on the slot, so they are
+ * joined from the same window's slot (id first, then name) and read as "not gated, no sky rating"
+ * when the window has none. The two wire fields with no reader on any arm of
  * this increment ({@code nearestSolarOffsetMinutes}, {@code nearestExtremeKind}) stay unindexed —
  * the chip, tooltip, callout and strip only ever need the already-formatted phrase — so this INDEX
  * carries only what is read; the wire keeps serving both regardless.
@@ -360,44 +389,48 @@ export function buildEvaluationGateIndex(days) {
  *          one did
  */
 export function buildTideAlignmentIndex(days) {
-  const byId = new Map();
-  const byName = new Map();
-  for (const day of Array.isArray(days) ? days : []) {
-    if (!day?.date) continue;
-    for (const summary of day.eventSummaries ?? []) {
-      if (!summary?.targetType) continue;
-      const tail = tailOf(day.date, summary.targetType);
-      for (const { slot } of slotsOf(summary)) {
-        if (slot?.tideState == null) continue;
-        index(byId, byName, slot.locationId, slot.locationName, tail, {
-          aligned: Boolean(slot.tideAligned),
-          // The served HIGH/MID/LOW state itself, beside the aggregate `aligned`: a spot wanting
-          // {HIGH, LOW} is `aligned` in a LOW window too, so a scan for "the next HIGH window" has
-          // to read WHICH water the alignment was to (a Codex P1 on #878 — `mapTideFit.nextAlignedRow`
-          // scanned the bare flag and offered low water under a "Next high water" sentence).
-          state: slot.tideState,
-          // Nullable, unlike `aligned` above: a genuine `false` and "no nearby extreme to name" are
-          // different claims on this axis, and the old skip that required this to be non-null is
-          // exactly what T3 removes — a coastal slot can have a served preference answer with no
-          // derivable on-the-light fact at all.
-          onTheLight: slot.tideOnTheLight ?? null,
-          phrase: slot.nearestSolarOffsetPhrase ?? null,
-          level: slot.tideLevel ?? null,
-          direction: slot.tideDirection ?? null,
-          height: slot.tideHeight ?? null,
-          shortfall: slot.tideShortfall ?? null,
-          fitPhrase: slot.tideFitPhrase ?? null,
-          // `evaluationGate` is `@JsonInclude(NON_NULL)` on the slot (BriefingSlot.java) and is set
-          // only to a real, non-blank sentence — never `""` — so a plain null check is sufficient
-          // here, unlike `buildEvaluationGateIndex`'s own defensive trim.
-          gated: slot.evaluationGate != null,
-          // The sky visitor's own component score — see the class doc's tide-gate-lift note above.
-          skyRating: slot.skyRating ?? null,
-        });
-      }
+  return indexByWindow(days, ({ summary }) => {
+    // A payload with no `tideFacts` (a pre-deploy cache, an inland-only window) is an empty index,
+    // never a fallback to slots: two sources would hide a missing-facts bug.
+    const facts = summary?.window?.tideFacts;
+    if (!Array.isArray(facts) || facts.length === 0) return [];
+    // The slot join for the two evaluation-side fields, built once per window.
+    const slotById = new Map();
+    const slotByName = new Map();
+    for (const { slot } of slotsOf(summary)) {
+      if (slot?.locationId != null && !slotById.has(slot.locationId)) slotById.set(slot.locationId, slot);
+      if (slot?.locationName && !slotByName.has(slot.locationName)) slotByName.set(slot.locationName, slot);
     }
-  }
-  return { byId, byName };
+    return facts
+      .filter((fact) => fact?.tideState != null)
+      .map((fact) => {
+        const slot = (fact.locationId != null ? slotById.get(fact.locationId) : undefined)
+          ?? (fact.locationName ? slotByName.get(fact.locationName) : undefined);
+        return {
+          locationId: fact.locationId,
+          locationName: fact.locationName,
+          value: {
+            aligned: Boolean(fact.tideAligned),
+            // The served HIGH/MID/LOW state itself, beside the aggregate `aligned`: a spot wanting
+            // {HIGH, LOW} is `aligned` in a LOW window too, so a scan for "the next HIGH window" has
+            // to read WHICH water the alignment was to (a Codex P1 on #878).
+            state: fact.tideState,
+            // Nullable: a genuine `false` and "no nearby extreme to name" are different claims.
+            onTheLight: fact.tideOnTheLight ?? null,
+            phrase: fact.nearestSolarOffsetPhrase ?? null,
+            level: fact.tideLevel ?? null,
+            direction: fact.tideDirection ?? null,
+            height: fact.tideHeight ?? null,
+            shortfall: fact.tideShortfall ?? null,
+            fitPhrase: fact.tideFitPhrase ?? null,
+            // The evaluation-side fields live on the window's slot, not the fact: a window the
+            // honesty filter blanked has no slot, so they default to "not gated, no sky rating".
+            gated: slot?.evaluationGate != null,
+            skyRating: slot?.skyRating ?? null,
+          },
+        };
+      });
+  });
 }
 
 /**
@@ -417,20 +450,13 @@ export function buildTideAlignmentIndex(days) {
  *          the served {@code EclipseSight} object verbatim
  */
 export function buildEclipseIndex(days) {
-  const byId = new Map();
-  const byName = new Map();
-  for (const day of Array.isArray(days) ? days : []) {
-    if (!day?.date) continue;
-    for (const summary of day.eventSummaries ?? []) {
-      if (!summary?.targetType) continue;
-      const tail = tailOf(day.date, summary.targetType);
-      for (const { slot } of slotsOf(summary)) {
-        if (!slot?.eclipse) continue;
-        index(byId, byName, slot.locationId, slot.locationName, tail, slot.eclipse);
-      }
-    }
-  }
-  return { byId, byName };
+  return indexByWindow(days, ({ summary }) => slotsOf(summary)
+    .filter(({ slot }) => slot?.eclipse)
+    .map(({ slot }) => ({
+      locationId: slot.locationId,
+      locationName: slot.locationName,
+      value: slot.eclipse,
+    })));
 }
 
 /**
@@ -474,7 +500,7 @@ export function buildScoreIndex(scoreRows) {
     const fierySky = boundedScore(row.fierySkyPotential);
     const goldenHour = boundedScore(row.goldenHourPotential);
     index(byId, byName, row.locationId, row.locationName,
-      tailOf(row.date, row.targetType), {
+      windowTail(row.date, row.targetType), {
         rating,
         summary,
         fierySky,
@@ -504,7 +530,7 @@ export function buildScoreIndex(scoreRows) {
  */
 export function lookupForWindow(idx, locationId, name, date, targetType) {
   if (!idx) return null;
-  const tail = tailOf(date, targetType);
+  const tail = windowTail(date, targetType);
   if (locationId != null) {
     const hit = idx.byId?.get(`${locationId}|${tail}`);
     if (hit !== undefined) return hit;

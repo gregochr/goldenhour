@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { planFigures } from '../utils/askPlan.js';
 import { buildPickCards } from '../utils/askModel.js';
 import {
-  buildLocationSheet, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex, departureWithDay,
+  buildLocationSheet, buildScoreIndex, buildSlotIndex, departureWithDay,
   lightWindows, lookupForWindow,
 } from '../utils/locationSheet.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { tideIndexOf } from './tideFactsFixture.js';
 import {
   briefing, pick, ROSEBERRY, SALTBURN, WHITBY,
 } from './askFixtures.js';
@@ -109,7 +110,7 @@ describe('the four figures equal the location sheet’s own row for the same fix
 
   it('Tide is the tide-alignment index’s fact for that location and window', () => {
     const { card, days, figures } = both();
-    const fact = lookupForWindow(buildTideAlignmentIndex(days), card.locationId, card.name, card.date, card.targetType);
+    const fact = lookupForWindow(tideIndexOf(days), card.locationId, card.name, card.date, card.targetType);
 
     expect(figures.tide).toEqual({
       tier: 'match', state: fact.state, shortfall: null, clause: 'high water, right here',

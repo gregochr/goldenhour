@@ -11,6 +11,8 @@
  * {@link NOW} is the instant the suites freeze to (Monday 5 October 2026, mid-morning UK).
  */
 
+import { factsOf } from './tideFactsFixture.js';
+
 /** The instant every Ask suite freezes the clock to — a Monday, so Saturday is the 10th. */
 export const NOW = new Date('2026-10-05T09:00:00Z');
 
@@ -50,7 +52,9 @@ function summary(targetType, date, time, slots, regionName = 'North York Moors &
       slots,
     }],
     unregioned: [],
-    window: { verdict: 'WORTH_IT', badges: [], eventTime: `${date}T${time}` },
+    window: {
+      verdict: 'WORTH_IT', badges: [], eventTime: `${date}T${time}`, tideFacts: factsOf(slots),
+    },
   };
 }
 

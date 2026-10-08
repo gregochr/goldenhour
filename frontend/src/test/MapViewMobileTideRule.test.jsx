@@ -18,7 +18,7 @@ import {
 } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
-import { buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import { tideIndexOf } from './tideFactsFixture.js';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -205,7 +205,7 @@ function mapElement(props = {}) {
       autoEventType="SUNSET"
       heat={heatProp()}
       regionVerdictIndex={buildRegionVerdictIndex(DAYS)}
-      tideAlignmentIndex={buildTideAlignmentIndex(DAYS)}
+      tideAlignmentIndex={tideIndexOf(DAYS)}
       {...props}
     />
   );

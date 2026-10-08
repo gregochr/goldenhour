@@ -24,11 +24,7 @@
  */
 
 import { parseUtcInstant } from './conversions.js';
-
-/** Key for the (date, event type) pair a slot list is grouped under. */
-function keyFor(date, targetType) {
-  return `${date}|${targetType}`;
-}
+import { windowTail } from './windowKeys.js';
 
 /**
  * Every slot in an event summary, across its regioned and unregioned halves.
@@ -58,7 +54,7 @@ export function latestSolarEventTimes(briefing) {
         .filter(Boolean);
       if (instants.length === 0) continue;
       const latest = instants.reduce((a, b) => (b > a ? b : a));
-      const key = keyFor(day.date, summary.targetType);
+      const key = windowTail(day.date, summary.targetType);
       // A payload could carry the same (date, type) twice; keep the later, matching the rule
       // within a single summary rather than letting document order decide.
       if (!times.has(key) || latest > times.get(key)) times.set(key, latest);
@@ -77,6 +73,6 @@ export function latestSolarEventTimes(briefing) {
  * @returns {boolean} true only when the event time is known AND has passed
  */
 export function hasEventPassed(times, date, targetType, now) {
-  const eventTime = times?.get(keyFor(date, targetType));
+  const eventTime = times?.get(windowTail(date, targetType));
   return eventTime ? now.getTime() > eventTime.getTime() : false;
 }
