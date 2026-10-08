@@ -11,7 +11,7 @@ import com.gregochr.goldenhour.service.ask.AskOutcome;
 import com.gregochr.goldenhour.service.ask.AskPick;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskQuestion;
-import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
 import com.gregochr.goldenhour.service.ask.AskRun;
 import com.gregochr.goldenhour.service.ask.AskRunOptions;
 import com.gregochr.goldenhour.service.ask.AskSnapshot;
@@ -74,7 +74,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
     @MockitoBean
     private RegionRepository regionRepository;
     @MockitoBean
-    private AskReadyService readyService;
+    private AskReadyPrecompute readyPrecompute;
     @MockitoBean
     private AskMetricsService metricsService;
 
@@ -381,7 +381,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/admin/ask/ready/precompute: ADMIN runs it on demand and gets {written, skipped, failed}")
     void precompute_admin_ok() throws Exception {
-        when(readyService.precomputeOnDemand()).thenReturn(new AskReadyService.Result(17, 4, 1, null));
+        when(readyPrecompute.precomputeOnDemand()).thenReturn(new AskReadyPrecompute.Result(17, 4, 1, null));
 
         mockMvc.perform(post(PRECOMPUTE_URL))
                 .andExpect(status().isOk())
@@ -395,7 +395,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
     @DisplayName("the precompute is 403 for PRO_USER and never runs")
     void precompute_pro_forbidden() throws Exception {
         mockMvc.perform(post(PRECOMPUTE_URL)).andExpect(status().isForbidden());
-        verifyNoInteractions(readyService);
+        verifyNoInteractions(readyPrecompute);
     }
 
     @Test
@@ -403,14 +403,14 @@ class AskAdminControllerTest extends AbstractControllerTest {
     @DisplayName("the precompute is 403 for LITE_USER and never runs")
     void precompute_lite_forbidden() throws Exception {
         mockMvc.perform(post(PRECOMPUTE_URL)).andExpect(status().isForbidden());
-        verifyNoInteractions(readyService);
+        verifyNoInteractions(readyPrecompute);
     }
 
     @Test
     @DisplayName("the precompute is 401 without authentication")
     void precompute_anonymous_unauthorised() throws Exception {
         mockMvc.perform(post(PRECOMPUTE_URL)).andExpect(status().isUnauthorized());
-        verifyNoInteractions(readyService);
+        verifyNoInteractions(readyPrecompute);
     }
 
     @Test
@@ -420,7 +420,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
         properties.setEnabled(false);
 
         mockMvc.perform(post(PRECOMPUTE_URL)).andExpect(status().isNotFound());
-        verifyNoInteractions(readyService);
+        verifyNoInteractions(readyPrecompute);
     }
 
     @Test
@@ -428,8 +428,8 @@ class AskAdminControllerTest extends AbstractControllerTest {
     @DisplayName("a precompute refused as a whole (no fresh briefing, a simulation, one already running) is "
             + "409 with the reason")
     void precompute_refused_409() throws Exception {
-        when(readyService.precomputeOnDemand()).thenReturn(
-                new AskReadyService.Result(0, 0, 0, "a precompute is already running"));
+        when(readyPrecompute.precomputeOnDemand()).thenReturn(
+                new AskReadyPrecompute.Result(0, 0, 0, "a precompute is already running"));
 
         mockMvc.perform(post(PRECOMPUTE_URL))
                 .andExpect(status().isConflict())

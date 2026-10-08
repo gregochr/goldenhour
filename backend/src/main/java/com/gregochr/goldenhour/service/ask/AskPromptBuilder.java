@@ -4,9 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.time.format.TextStyle;
 import java.util.Locale;
-import java.util.Optional;
 
 /**
  * Builds the system prompt of an Ask conversation (plan §2.3), adapted from the design bundle's
@@ -23,6 +21,12 @@ public class AskPromptBuilder {
 
     private static final DateTimeFormatter LONG_DATE =
             DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.ENGLISH);
+
+    /**
+     * The window the reader is looking at: always the weekday and date ("Saturday 10 October"), even for
+     * today, which is why this does not use {@code DayLabels.relative} ("today").
+     */
+    private static final DateTimeFormatter DAY_MONTH = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH);
 
     /** The rules every conversation runs under. */
     static final String RULES = """
@@ -82,7 +86,7 @@ public class AskPromptBuilder {
      * @return the prompt
      */
     public String systemPrompt(LocalDate today, AskScope scope,
-            Optional<AskSnapshot.Window> contextWindow, boolean hasUser) {
+            AskSnapshot.Window contextWindow, boolean hasUser) {
         StringBuilder sb = new StringBuilder(RULES).append('\n');
         sb.append(hasUser ? WITH_USER : USER_LESS).append('\n');
         sb.append("Today is ").append(LONG_DATE.format(today)).append(" in the UK.\n");
@@ -92,13 +96,13 @@ public class AskPromptBuilder {
             sb.append("The question is about these regions only: ")
                     .append(String.join(", ", scope.names())).append(".\n");
         }
-        contextWindow.ifPresent(w -> sb.append("The reader is looking at ")
-                .append(w.date().getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH))
-                .append(' ').append(w.date().getDayOfMonth()).append(' ')
-                .append(w.date().getMonth().getDisplayName(TextStyle.FULL, Locale.ENGLISH))
-                .append(' ').append(w.targetType().name().toLowerCase(Locale.ROOT))
-                .append(" (windowId ").append(w.id()).append("). Read \"it\", \"then\" and "
-                        + "\"that day\" as that window unless the question says otherwise.\n"));
+        if (contextWindow != null) {
+            sb.append("The reader is looking at ")
+                    .append(DAY_MONTH.format(contextWindow.date()))
+                    .append(' ').append(contextWindow.targetType().name().toLowerCase(Locale.ROOT))
+                    .append(" (windowId ").append(contextWindow.id()).append("). Read \"it\", \"then\" and "
+                            + "\"that day\" as that window unless the question says otherwise.\n");
+        }
         return sb.toString();
     }
 }

@@ -274,7 +274,7 @@ class AskUnrecordedCostTest {
     // -- the holder's bound ------------------------------------------------------------------
 
     @ParameterizedTest(name = "{0} held")
-    @ValueSource(ints = {AskJobRunService.UNRECORDED_CAP - 1, AskJobRunService.UNRECORDED_CAP})
+    @ValueSource(ints = {UnrecordedTurnHolder.UNRECORDED_CAP - 1, UnrecordedTurnHolder.UNRECORDED_CAP})
     @DisplayName("the holder keeps 100 turns in detail: one under the cap and at it, every turn is its own row "
             + "on recovery and no summary row is needed")
     void holderBelowAndAtTheCap(int held) {
@@ -297,7 +297,7 @@ class AskUnrecordedCostTest {
             + "one summary row carrying the summed cost, and the latch holds until it is written")
     void holderOverflowKeepsTheSum() {
         databaseUp.set(false);
-        int total = AskJobRunService.UNRECORDED_CAP + 1;
+        int total = UnrecordedTurnHolder.UNRECORDED_CAP + 1;
         for (int i = 0; i < total; i++) {
             service.recordTurn(typed());
         }
@@ -330,7 +330,7 @@ class AskUnrecordedCostTest {
             + "request; a later latch is reported again")
     void errorIsLoggedOncePerLatch() {
         ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
-                .getLogger(AskJobRunService.class);
+                .getLogger(UnrecordedTurnHolder.class);
         ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
                 new ch.qos.logback.core.read.ListAppender<>();
         appender.start();

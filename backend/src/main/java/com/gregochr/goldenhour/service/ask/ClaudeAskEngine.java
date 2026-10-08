@@ -36,7 +36,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -189,8 +188,8 @@ public class ClaudeAskEngine implements AskEngine {
             AskUserContext user, long startRunId, boolean ready) {
         EvaluationModel model = properties.getModel();
         AskTools tools = conversation.tools();
-        Optional<AskSnapshot.Window> contextWindow = question.windowId() == null
-                ? Optional.empty() : snapshot.window(question.windowId());
+        AskSnapshot.Window contextWindow = question.windowId() == null
+                ? null : snapshot.window(question.windowId()).orElse(null);
         String system = promptBuilder.systemPrompt(snapshot.today(), conversation.scope(), contextWindow,
                 user.hasUser());
         List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser());

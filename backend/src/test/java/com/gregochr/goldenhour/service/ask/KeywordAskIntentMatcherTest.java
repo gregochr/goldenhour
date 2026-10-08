@@ -4,17 +4,10 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.repository.JobRunRepository;
-import com.gregochr.goldenhour.repository.RegionRepository;
-import com.gregochr.goldenhour.service.HotTopicSimulationService;
-import com.gregochr.goldenhour.service.JobRunService;
-import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -32,7 +25,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * The Ready intent match end to end over the real {@link AskReadyService} and its real freshness
+ * The Ready intent match end to end over the real {@link AskReadyServing} and its real freshness
  * test: a typed question is served a Ready answer only when the Ready id is stored for the scope,
  * fresh against the live snapshot <em>right now</em>, and the question carries nothing the answer
  * ignores. The snapshot is built through the real builder; only the store is stubbed.
@@ -47,20 +40,12 @@ class KeywordAskIntentMatcherTest {
 
     private final AskReadyStore store = mock(AskReadyStore.class);
     private KeywordAskIntentMatcher matcher;
-    private AskReadyService readyService;
+    private AskReadyServing readyServing;
 
     @BeforeEach
     void setUp() {
-        AskProperties properties = new AskProperties();
-        properties.setEnabled(true);
-        readyService = new AskReadyService(properties, mock(AskSnapshotBuilder.class),
-                (question, snapshot, user, options) -> {
-                    throw new AssertionError("the matcher never runs the engine");
-                }, mock(RegionRepository.class), store, mock(JobRunService.class),
-                mock(JobRunRepository.class), mock(HotTopicSimulationService.class),
-                mock(AuroraStateCache.class), new MutableClock(Instant.parse("2026-10-09T12:00:00Z")),
-                Duration.ofMinutes(5));
-        matcher = new KeywordAskIntentMatcher(readyService);
+        readyServing = new AskReadyServing(mock(AskSnapshotBuilder.class), store);
+        matcher = new KeywordAskIntentMatcher(readyServing);
         when(store.findScope("ALL")).thenReturn(List.of(weekendRow()));
         when(store.findScope("1")).thenReturn(List.of());
     }
@@ -123,7 +108,7 @@ class KeywordAskIntentMatcherTest {
         AskSnapshot live = friday();
 
         Optional<AskReadyResponse.Question> typedMatch = match("Best spot this weekend?", live);
-        List<AskReadyResponse.Question> tapped = readyService.freshAnswers(AskScope.ALL, live);
+        List<AskReadyResponse.Question> tapped = readyServing.freshAnswers(AskScope.ALL, live);
 
         assertThat(typedMatch).contains(tapped.getFirst());
     }

@@ -147,7 +147,8 @@ public class AskAnswerValidator {
         }
         List<AskEvent> events = raw.answerable() ? validEvents(raw.events(), evidence) : List.of();
         // "None" means no event the question admits: a typed answer is never relevance-filtered afterwards.
-        if (eventsQuestion != null && events.stream().noneMatch(e -> eventsQuestion.admitsEvent(e.type()))) {
+        if (eventsQuestion != null
+                && events.stream().noneMatch(e -> ReadyRelevance.admitsEvent(eventsQuestion, e.type()))) {
             long offered = offeredEvents(snapshot, scope, eventsQuestion);
             if (offered > 0) {
                 return discard("events question answered \"none\" while " + offered
@@ -184,10 +185,10 @@ public class AskAnswerValidator {
     private static long offeredEvents(AskSnapshot snapshot, AskScope scope, ReadyQuestion question) {
         Set<String> offered = new HashSet<>();
         snapshot.hotTopics().stream()
-                .filter(t -> t.inScope(scope) && question.admitsEvent(t.type()))
+                .filter(t -> t.inScope(scope) && ReadyRelevance.admitsEvent(question, t.type()))
                 .forEach(t -> offered.add(AskEventType.offerKey(t.type(), t.date())));
         snapshot.timeline(scope, AskSnapshot.MAX_COMING_UP_DAYS).stream()
-                .filter(e -> question.admitsEvent(e.type()))
+                .filter(e -> ReadyRelevance.admitsEvent(question, e.type()))
                 .forEach(e -> offered.add(AskEventType.offerKey(e.type(), e.startDate())));
         return offered.size();
     }

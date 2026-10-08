@@ -2,7 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.service.ask.AskDryRunService;
 import com.gregochr.goldenhour.service.ask.AskMetricsService;
-import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -32,20 +32,20 @@ import java.util.Map;
 public class AskAdminController {
 
     private final AskDryRunService dryRunService;
-    private final AskReadyService readyService;
+    private final AskReadyPrecompute readyPrecompute;
     private final AskMetricsService metricsService;
 
     /**
      * Constructs the controller.
      *
      * @param dryRunService  runs the dry-run
-     * @param readyService   the Ready precompute
+     * @param readyPrecompute   the Ready precompute
      * @param metricsService the question-log metrics
      */
-    public AskAdminController(AskDryRunService dryRunService, AskReadyService readyService,
+    public AskAdminController(AskDryRunService dryRunService, AskReadyPrecompute readyPrecompute,
             AskMetricsService metricsService) {
         this.dryRunService = dryRunService;
-        this.readyService = readyService;
+        this.readyPrecompute = readyPrecompute;
         this.metricsService = metricsService;
     }
 
@@ -98,7 +98,7 @@ public class AskAdminController {
      */
     @PostMapping("/ready/precompute")
     public ResponseEntity<?> precompute() {
-        AskReadyService.Result result = readyService.precomputeOnDemand();
+        AskReadyPrecompute.Result result = readyPrecompute.precomputeOnDemand();
         if (result.wasRefused()) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", result.refusal()));
         }

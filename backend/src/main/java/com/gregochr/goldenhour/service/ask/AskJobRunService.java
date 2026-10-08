@@ -22,11 +22,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -70,7 +65,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *       makes no further call. The conversation in which the failure happened therefore stops before
  *       its next turn (each further turn is more spend that cannot be recorded), but a turn that
  *       carried the {@code submit_answer} has already been paid for and is still returned.</li>
- *   <li>The holder keeps at most {@value #UNRECORDED_CAP} turns in detail. A further turn is folded
+ *   <li>The holder keeps at most {@value UnrecordedTurnHolder#UNRECORDED_CAP} turns in detail. A further turn is folded
  *       into one per-run total, so cost is never dropped, only per-turn detail; that total is written
  *       as one summary row when the database recovers, and the latch holds until it is.</li>
  * </ul>
@@ -89,9 +84,6 @@ public class AskJobRunService {
     /** How long {@link #typedSpendTodayMicroDollars()} reuses a figure. */
     static final int SPEND_MEMO_SECONDS = 30;
 
-    /** The most unrecorded turns kept in detail; later ones are folded into a per-run total. */
-    static final int UNRECORDED_CAP = 100;
-
     /** The {@code request_url} tag of a typed turn's row. */
     static final String URL_TYPED = "ask";
 
@@ -105,16 +97,19 @@ public class AskJobRunService {
     private final AskProperties properties;
     private final Clock clock;
 
-    /** Guards {@link #cachedDay} and {@link #cachedRunId}. A lock, not {@code synchronized}: virtual threads. */
+    /**
+     * Guards {@link #cachedDay} and {@link #cachedRunId}. Built as a lock when {@code synchronized} pinned
+     * a virtual thread; on Java 25 (JEP 491) it no longer does, and the lock is left as it was.
+     */
     private final ReentrantLock runLock = new ReentrantLock();
     private LocalDate cachedDay;
     private long cachedRunId;
 
-    /** Guards the spend memo, the unrecorded-turn holder and every flush. */
-    private final ReentrantLock spendLock = new ReentrantLock();
-    private final Deque<Pending> pending = new ArrayDeque<>();
-    private final Map<Long, Overflow> overflow = new LinkedHashMap<>();
-    private volatile boolean latched;
+    /**
+     * The unrecorded-turn holder and latch. Its lock also guards the three spend-memo fields below, so
+     * the memo's invalidation and a held turn's removal are one critical section.
+     */
+    private final UnrecordedTurnHolder holder = new UnrecordedTurnHolder(new HolderLedger());
     private Instant spendMemoAt;
     private LocalDate spendMemoDay;
     private long spendMemo;
@@ -221,22 +216,21 @@ public class AskJobRunService {
      * @return micro-dollars spent today
      */
     public long typedSpendTodayMicroDollars() {
+        return holder.typedSpend(this::memoisedPersistedSpend);
+    }
+
+    /** The persisted typed spend, reused for {@value #SPEND_MEMO_SECONDS} seconds. Runs under the holder's lock. */
+    private long memoisedPersistedSpend() {
         Instant now = clock.instant();
         LocalDate today = ForecastHorizon.today(clock);
-        spendLock.lock();
-        try {
-            if (spendMemoAt == null || !today.equals(spendMemoDay)
-                    || Duration.between(spendMemoAt, now).compareTo(
-                            Duration.ofSeconds(SPEND_MEMO_SECONDS)) >= 0) {
-                spendMemo = apiCallLogRepository.sumCostMicroDollarsByRunTypeStartedSince(RunType.ASK,
-                        ForecastHorizon.ukDayStartUtc(today));
-                spendMemoAt = now;
-                spendMemoDay = today;
-            }
-            return spendMemo + unrecordedTypedCostLocked();
-        } finally {
-            spendLock.unlock();
+        if (spendMemoAt == null || !today.equals(spendMemoDay)
+                || Duration.between(spendMemoAt, now).compareTo(Duration.ofSeconds(SPEND_MEMO_SECONDS)) >= 0) {
+            spendMemo = apiCallLogRepository.sumCostMicroDollarsByRunTypeStartedSince(RunType.ASK,
+                    ForecastHorizon.ukDayStartUtc(today));
+            spendMemoAt = now;
+            spendMemoDay = today;
         }
+        return spendMemo;
     }
 
     // -- unrecorded cost --------------------------------------------------------------------
@@ -275,21 +269,6 @@ public class AskJobRunService {
         }
     }
 
-    /** A turn whose row could not be written, with the cost it is priced at. */
-    private record Pending(Turn turn, long cost) {
-    }
-
-    /** The folded cost of turns that did not fit the holder's detail cap. */
-    private static final class Overflow {
-        private final boolean typed;
-        private int turns;
-        private long cost;
-
-        Overflow(boolean typed) {
-            this.typed = typed;
-        }
-    }
-
     /**
      * Records a model turn: one {@code api_call_log} row and, for a typed turn, the run's cost
      * increment. Never throws. If the row cannot be written the turn is held and the latch is set (see
@@ -307,7 +286,7 @@ public class AskJobRunService {
                 recordCost(turn.runId(), recorded == null ? cost : recorded);
             }
         } catch (RuntimeException e) {
-            hold(turn, cost, e);
+            holder.hold(turn, cost, e);
         }
     }
 
@@ -317,110 +296,47 @@ public class AskJobRunService {
                 t.error(), t.model(), t.usage(), t.cacheDiagnostics());
     }
 
-    private void hold(Turn turn, long cost, RuntimeException cause) {
-        spendLock.lock();
-        try {
-            boolean first = !latched;
-            if (pending.size() < UNRECORDED_CAP) {
-                pending.addLast(new Pending(turn, cost));
-            } else {
-                Overflow bucket = overflow.computeIfAbsent(turn.runId(), id -> new Overflow(!turn.ready()));
-                bucket.turns++;
-                bucket.cost += cost;
-            }
-            latched = true;
-            if (first) {
-                LOG.error("[ASK] Could not write an api_call_log row for a paid model turn ({} micro-dollars): "
-                        + "{}. Holding it in memory and refusing further Ask model calls until it is "
-                        + "written. A restart now would lose it.", cost, cause.toString());
-            }
-        } finally {
-            spendLock.unlock();
+    /** The holder's window onto this service: the retried writes, and the memo drop on settle. */
+    private final class HolderLedger implements UnrecordedTurnHolder.Ledger {
+
+        @Override
+        public void writeTurn(Turn turn) {
+            writeRow(turn);
         }
+
+        @Override
+        public void writeOverflow(long runId, boolean typed, int turns, long cost) {
+            apiCallLogRepository.save(summaryRow(runId, typed, turns, cost));
+        }
+
+        @Override
+        public void settled(long runId, boolean ready, long cost) {
+            // The persisted sum now includes this row, and it has left the holder in the same critical
+            // section, so a reader sees it once.
+            spendMemoAt = null;
+            if (!ready) {
+                recordCost(runId, cost);
+            }
+        }
+    }
+
+    private static ApiCallLogEntity summaryRow(long runId, boolean typed, int turns, long cost) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        return ApiCallLogEntity.builder().jobRunId(runId).service(ServiceName.ANTHROPIC).calledAt(now)
+                .completedAt(now).createdAt(now).durationMs(0L).requestMethod("POST")
+                .requestUrl(typed ? URL_TYPED : URL_READY).succeeded(false)
+                .errorMessage(turns + " turns' detail lost: the unrecorded-turn holder overflowed")
+                .costMicroDollars(cost).build();
     }
 
     /**
      * Whether the engine may start another model turn: true when nothing is unrecorded, or when every
-     * held turn has just been written. Otherwise false and the engine must make no call, for any
-     * conversation. Takes the lock only while latched.
+     * held turn has just been written (see {@link UnrecordedTurnHolder#available()}). Otherwise false
+     * and the engine must make no call, for any conversation.
      *
      * @return true when every paid call is on record
      */
     public boolean accountingAvailable() {
-        if (!latched) {
-            return true;
-        }
-        spendLock.lock();
-        try {
-            return !latched || flushLocked();
-        } finally {
-            spendLock.unlock();
-        }
-    }
-
-    /** Writes the held turns, oldest first, then the overflow totals; stops at the first failure. */
-    private boolean flushLocked() {
-        Iterator<Pending> held = pending.iterator();
-        while (held.hasNext()) {
-            Pending next = held.next();
-            try {
-                writeRow(next.turn());
-            } catch (RuntimeException e) {
-                LOG.debug("[ASK] Still cannot write held turns: {}", e.toString());
-                return false;
-            }
-            held.remove();
-            settled(next.turn().runId(), next.turn().ready(), next.cost());
-        }
-        Iterator<Map.Entry<Long, Overflow>> totals = overflow.entrySet().iterator();
-        while (totals.hasNext()) {
-            Map.Entry<Long, Overflow> entry = totals.next();
-            Overflow bucket = entry.getValue();
-            try {
-                apiCallLogRepository.save(summaryRow(entry.getKey(), bucket));
-            } catch (RuntimeException e) {
-                LOG.debug("[ASK] Still cannot write the overflow total: {}", e.toString());
-                return false;
-            }
-            totals.remove();
-            settled(entry.getKey(), !bucket.typed, bucket.cost);
-        }
-        latched = false;
-        LOG.info("[ASK] Every held model turn is now on record; Ask model calls resume.");
-        return true;
-    }
-
-    /** A held cost reached the database: bring the display total up and drop the stale memo. */
-    private void settled(long runId, boolean ready, long cost) {
-        // The persisted sum now includes this row, and it has left the holder in the same critical
-        // section, so a reader sees it once.
-        spendMemoAt = null;
-        if (!ready) {
-            recordCost(runId, cost);
-        }
-    }
-
-    private ApiCallLogEntity summaryRow(long runId, Overflow bucket) {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        return ApiCallLogEntity.builder().jobRunId(runId).service(ServiceName.ANTHROPIC).calledAt(now)
-                .completedAt(now).createdAt(now).durationMs(0L).requestMethod("POST")
-                .requestUrl(bucket.typed ? URL_TYPED : URL_READY).succeeded(false)
-                .errorMessage(bucket.turns + " turns' detail lost: the unrecorded-turn holder overflowed")
-                .costMicroDollars(bucket.cost).build();
-    }
-
-    private long unrecordedTypedCostLocked() {
-        long sum = 0;
-        for (Pending p : pending) {
-            if (!p.turn().ready()) {
-                sum += p.cost();
-            }
-        }
-        for (Overflow bucket : overflow.values()) {
-            if (bucket.typed) {
-                sum += bucket.cost;
-            }
-        }
-        return sum;
+        return holder.available();
     }
 }

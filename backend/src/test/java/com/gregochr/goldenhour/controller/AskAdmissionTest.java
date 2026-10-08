@@ -18,7 +18,7 @@ import com.gregochr.goldenhour.service.ask.AskLog;
 import com.gregochr.goldenhour.service.ask.AskPreFilter;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskRateLimiter;
-import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskReadyServing;
 import com.gregochr.goldenhour.service.ask.AskService;
 import com.gregochr.goldenhour.service.ask.AskSnapshotBuilder;
 import com.gregochr.goldenhour.service.ask.AskSpendGuard;
@@ -82,10 +82,10 @@ class AskAdmissionTest {
         AskService service = new AskService(properties, new AskRateLimiter(properties, clock), users,
                 mock(RegionRepository.class), snapshotBuilder, engine, usageStore,
                 new AskSpendGuard(properties, jobRuns, mock(AdminAlertService.class), clock),
-                mock(AskReadyService.class), mock(DriveTimeResolver.class), mock(AskPreFilter.class),
+                mock(AskReadyServing.class), mock(DriveTimeResolver.class), mock(AskPreFilter.class),
                 mock(AskIntentMatcher.class), mock(AskAnswerCache.class), mock(AskLog.class),
                 new AskDenialCounter(clock), clock);
-        AskController controller = new AskController(mock(AskReadyService.class),
+        AskController controller = new AskController(mock(AskReadyServing.class),
                 mock(RegionRepository.class), service);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())

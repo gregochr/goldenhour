@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
  *
  * <p>The answer is stored with each pick's rating and verdict as they were at answer time, because
  * a serve withholds the whole question when live data no longer agrees with them. Never serialised
- * to an API response as it stands: {@code AskReadyService} re-decorates the answer from the live
+ * to an API response as it stands: {@code AskReadyServing} re-decorates the answer from the live
  * snapshot first.
  */
 @Entity

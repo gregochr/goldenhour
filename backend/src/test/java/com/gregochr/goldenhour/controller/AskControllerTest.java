@@ -6,7 +6,7 @@ import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ask.AskEvent;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskReadyResponse;
-import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskReadyServing;
 import com.gregochr.goldenhour.service.ask.AskScope;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,14 +54,14 @@ class AskControllerTest extends AbstractControllerTest {
     private AskProperties properties;
 
     @MockitoBean
-    private AskReadyService readyService;
+    private AskReadyServing readyServing;
     @MockitoBean
     private RegionRepository regionRepository;
 
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
-        when(readyService.serve(any())).thenAnswer(inv -> {
+        when(readyServing.serve(any())).thenAnswer(inv -> {
             AskScope scope = inv.getArgument(0);
             return new AskReadyResponse(scope.isEverywhere() ? "all" : scope.key(), List.of(question()));
         });
@@ -107,7 +107,7 @@ class AskControllerTest extends AbstractControllerTest {
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
         properties.setEnabled(false);
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
-        verifyNoInteractions(readyService);
+        verifyNoInteractions(readyServing);
     }
 
     @Test
@@ -117,7 +117,7 @@ class AskControllerTest extends AbstractControllerTest {
         properties.setEnabled(false);
 
         mockMvc.perform(get(URL)).andExpect(status().isNotFound());
-        verifyNoInteractions(readyService);
+        verifyNoInteractions(readyServing);
     }
 
     // -- the wire shape ---------------------------------------------------------------------
@@ -179,13 +179,13 @@ class AskControllerTest extends AbstractControllerTest {
         mockMvc.perform(get(URL).param("scope", " all ")).andExpect(status().isOk());
         // An empty value is Spring's own "missing", so it takes the default too.
         mockMvc.perform(get(URL).param("scope", "")).andExpect(status().isOk());
-        verify(readyService, org.mockito.Mockito.times(4)).serve(AskScope.ALL);
+        verify(readyServing, org.mockito.Mockito.times(4)).serve(AskScope.ALL);
 
         mockMvc.perform(get(URL).param("scope", "3"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("3"));
         ArgumentCaptor<AskScope> served = ArgumentCaptor.forClass(AskScope.class);
-        verify(readyService, org.mockito.Mockito.times(5)).serve(served.capture());
+        verify(readyServing, org.mockito.Mockito.times(5)).serve(served.capture());
         assertThat(served.getValue().key()).isEqualTo("3");
         assertThat(served.getValue().names()).containsExactly("Northumberland");
     }
@@ -198,7 +198,7 @@ class AskControllerTest extends AbstractControllerTest {
         mockMvc.perform(get(URL).param("scope", scope))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
-        verify(readyService, never()).serve(any(AskScope.class));
+        verify(readyServing, never()).serve(any(AskScope.class));
     }
 
     @Test

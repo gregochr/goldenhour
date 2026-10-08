@@ -103,15 +103,15 @@ class AskReadyClaudeEngineTest {
                 toolTurn(tool("t4", "get_hot_topics", Map.of())),
                 submit(Map.of("answerable", true, "summary", "Snow on the Cheviot.", "events",
                         List.of(Map.of("type", "SNOW_TOPS", "why", "Fresh snow.")))));
-        AskReadyService service = new AskReadyService(properties, snapshotBuilder, engine, regions, store,
+        AskReadyPrecompute service = new AskReadyPrecompute(properties, snapshotBuilder, engine, regions, store,
                 jobRunService, mock(JobRunRepository.class), mock(HotTopicSimulationService.class),
                 mock(AuroraStateCache.class), clock, Duration.ofMinutes(5));
 
-        AskReadyService.Result result = service.precompute(42L);
+        AskReadyPrecompute.Result result = service.precompute(42L);
 
         // Three asked; the weekend, next-few-days, coastal-high and sunrise-or-sunset questions are not
         // available on a forecast of one inland sunset.
-        assertThat(result).isEqualTo(new AskReadyService.Result(3, 4, 0, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(3, 4, 0, null));
         List<MessageCreateParams> sent = sent();
         ToolResultBlockParam refusal = toolResultsIn(sent.get(1)).getFirst();
         assertThat(refusal.isError()).contains(true);
