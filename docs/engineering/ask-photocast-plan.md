@@ -742,7 +742,7 @@ naming `LUNAR_ECLIPSE` against evidence the almanac served as `LUNAR-ECLIPSE`), 
 not. **`AskEventType.served` is not an identity and was deliberately left unfolded:** the type an event card carries on the
 wire and in `ask_ready_answer` is still the served type upper-cased (`LUNAR-ECLIPSE` for an almanac entry), because folding it
 would change what the client receives (`eventKicker`/`badgeChannel` read underscores, so the almanac-sourced lunar card's
-kicker and colour channel are a pre-existing client mismatch — an owner call, not part of a behaviour-preserving pass).
+kicker and colour channel are a pre-existing client mismatch — an owner call, not part of a behaviour-preserving pass). *Fixed in the edges pass, below: the card now carries the key.*
 Stored answers keep matching because every compare folds both sides. **`AskSnapshot.timeline(scope, days)`** and
 `AskSnapshot.MAX_COMING_UP_DAYS` are where the timeline now lives (it reads only the snapshot, like `candidates(window,
 scope)`); `get_coming_up` delegates, and the validator and the freshness check no longer import `AskTools`.
@@ -752,6 +752,35 @@ latch, deadline, stop-reason and tool-call failures now leave a trace. The reaso
 a window id, a count, an exception class and message), never the question, and goes through `LogSanitizer`'s allow-list
 (`java/log-injection`). **`AskToolResult<T>`** carries the tool's typed result, so the stub's casts are gone. Nothing on the
 wire moved; the prompt text and tool-schema goldens are untouched.
+
+*As built (refactor, 2026-10-08) — the edges: thin controllers, one flag-off interceptor, the B5 scaffolding gone, and one wire fix.*
+**`AskDryRunService`** holds what `AskAdminController.dryRun` used to decide (sanitise, resolve the scope, build the question,
+resolve the admin's id with `UserSettingsService.getUserId`, run the engine, label it stub or claude); the controller maps its
+`Result` to 200, 400 or 409 and nothing else. **`AskScopes.fromParameter`** owns the Ready `scope` parameter (`all` or an enabled
+region's id), and **`AskScopes.INVALID_REGIONS`** is the one sentence for a region list that does not resolve: the dry-run said
+"region ids", the typed path "regions"; both now say "Unknown, disabled or too many regions." (the one assertion that moved).
+**`AskFlagInterceptor`** is the only request-level `photocast.ask.enabled` check: two instances registered in `AskWebConfig`
+ahead of the admission interceptor, over `/api/ask/**` and `/api/admin/ask/**`, answering 404 and stopping the request before the
+body is read. ⚠️ **Precedence is 401, 403, 404, and the admin instance exists because of the middle one:** interceptors run after the
+filter chain (an anonymous caller is already 401) but *before* method security, and the admin routes are guarded by
+`@PreAuthorize`, which runs inside the controller; a plain 404 interceptor would therefore have shown a LITE caller 404 where the
+documented contract is 403. The admin instance stands down unless the caller holds `ROLE_ADMIN`. `AskFlagOffPrecedenceTest` proves
+the order on all five routes through the real chain, and `GET /api/user/settings/ask` (outside both paths) is still always 200.
+**`AskAdmissionInterceptor` dropped its own flag check** (folded, not kept): the flag interceptor is registered first and a 404
+stops the chain, so the admission interceptor can never run with Ask off; one place reads the flag per request, and the
+rate-limit-before-body invariant is untouched (both run before the body is converted). The service-level checks that guard *work*
+rather than requests stay: `AskReadyService.run`/`stopReason` (a pipeline-dispatched precompute has no request) and
+`AskSpendGuard`; `AskService.settings` too (the always-200 route). **The four `NoOp*` `@Fallback` beans and
+`AskPhaseB5FallbackTest` are deleted** (B5 shipped; every "until B5" javadoc is now present tense) and
+`AskProperties.seedLocalFixture` is gone: nothing read its getter, the seeder gates on the raw key through
+`@ConditionalOnProperty`, and the YAML key stays (an unknown key under a `@ConfigurationProperties` prefix is ignored).
+`PipelineOrchestrator.dispatchAlmanacRefresh`/`dispatchAskReady` share `dispatchAfterRun`; `ForecastHorizon.ukDayStartUtc` replaces
+`AskJobRunService.ukDayStartUtc` (called statically by `AskReadyService` and `AskMetricsService`) and the same expression inline
+in `TopicDailyLogJob`; `AskUsageEntity`'s counters are `updatable = false` with no setters, like `app_user`'s settings columns
+(`AskUsageRepositoryTest`). **The wire fix:** an event card is now served with `AskEventType.key(type)` (the validator's
+`AskEvent`, and the freshness re-join, which folds a dashed stored answer on the way out), so an almanac lunar eclipse reaches
+the client as `LUNAR_ECLIPSE`, the type `eventKicker`/`badgeChannel` key on. `served` stays the tools' spelling, so the model's
+evidence and the prompt goldens are unchanged; stored Ready answers keep matching because every compare folds both sides.
 
 ---
 

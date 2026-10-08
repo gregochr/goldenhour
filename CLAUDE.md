@@ -397,7 +397,7 @@ Never commit `application.yml`. Only `application-example.yml` is committed.
 
 Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `forecast.locations`, `jwt`, `server.port`, `aurora` (enabled, poll-interval-minutes — unread, the interval is the `aurora_polling` scheduler row's, light-pollution-api-key, noaa.*, met-office.*, triggers.*, bortle-threshold.moderate/strong).
 
-`photocast.ask.*` (Ask PhotoCast, `AskProperties`; every key is bounded and a bad value fails startup, `application-example.yml` lists each with its range): `enabled` (false), `stub` (false; refused under `prod`), `seed-local-fixture` (false; local H2 only), `model` (HAIKU; `HAIKU | SONNET` only), `max-turns` (4), `max-tokens` (600), `call-timeout-seconds` (20; may not exceed the deadline), `deadline-seconds` (30), `rate-per-minute` (5), `limit-lite` (3), `limit-pro` (30; ADMIN takes it too), `engine-ceiling-multiplier` (3), `daily-spend-cap-usd` (0.50), `ready.max-cycles-per-day` (6), `cache.max-entries` (2000), `cache.ttl-minutes` (30), `log.retention-days` (90). Beside them: the `ask` instances under `resilience4j.retry|circuitbreaker|bulkhead` in every YAML set, and `notifications.admin-alerts.enabled`, which is the spend cap's only signal. The production host's config is hand-edited (the checkout is stale and dirty): read the RUNNING file, never this repo's, before deciding what is on.
+`photocast.ask.*` (Ask PhotoCast, `AskProperties`; every key is bounded and a bad value fails startup, `application-example.yml` lists each with its range): `enabled` (false), `stub` (false; refused under `prod`), `seed-local-fixture` (false; local H2 only; not an `AskProperties` field — only `AskLocalFixtureSeeder`'s `@ConditionalOnProperty` reads it), `model` (HAIKU; `HAIKU | SONNET` only), `max-turns` (4), `max-tokens` (600), `call-timeout-seconds` (20; may not exceed the deadline), `deadline-seconds` (30), `rate-per-minute` (5), `limit-lite` (3), `limit-pro` (30; ADMIN takes it too), `engine-ceiling-multiplier` (3), `daily-spend-cap-usd` (0.50), `ready.max-cycles-per-day` (6), `cache.max-entries` (2000), `cache.ttl-minutes` (30), `log.retention-days` (90). Beside them: the `ask` instances under `resilience4j.retry|circuitbreaker|bulkhead` in every YAML set, and `notifications.admin-alerts.enabled`, which is the spend cap's only signal. The production host's config is hand-edited (the checkout is stale and dirty): read the RUNNING file, never this repo's, before deciding what is on.
 
 ---
 
@@ -1098,7 +1098,11 @@ interrupt — the design's own ~10/year, one-or-two-interrupts target.
 
 > The three reader endpoints are Bearer with **no role gate**, by inheritance from `SecurityConfig`'s `/api/**` → `.authenticated()`: the
 > allowance is the gate (*Roles*). **With `photocast.ask.enabled` false every Ask endpoint answers 404 — except `GET /api/user/settings/ask`,
-> which is always 200** so the client can tell "off" from "unreachable"; the admin endpoints check the role first (403) and the flag second.
+> which is always 200** so the client can tell "off" from "unreachable" — from ONE place, `AskFlagInterceptor` (registered in `AskWebConfig` over
+> `/api/ask/**` and `/api/admin/ask/**`, ahead of the admission interceptor, before the body is read); no controller checks the flag. The admin
+> endpoints check the role first (403) and the flag second: the interceptor runs before method security, so its admin-route instance stands down
+> unless the caller holds `ROLE_ADMIN` and `@PreAuthorize` answers everyone else; the order 401, 403, 404 is pinned through the real chain in
+> `AskFlagOffPrecedenceTest`. Controllers parse and delegate (`AskDryRunService` holds the dry-run).
 >
 > **`GET /api/ask/ready`** → `{scope, questions: [{id, text, tabs, generatedAt, runLabel, answer: {answerable, kind: "ready", summary, picks,
 > events, missing, try}}]}`. `scope` defaults to `all`; anything that is neither `all` nor the id of an ENABLED region is 400 `{error}` (no

@@ -152,7 +152,7 @@ public class AskMetricsService {
     public Metrics metrics(int requestedDays) {
         int days = clampDays(requestedDays);
         LocalDate from = ForecastHorizon.today(clock).minusDays(days - 1L);
-        LocalDateTime startUtc = AskJobRunService.ukDayStartUtc(from);
+        LocalDateTime startUtc = ForecastHorizon.ukDayStartUtc(from);
         Instant since = startUtc.toInstant(ZoneOffset.UTC);
 
         Map<AskLog.Outcome, Long> counts = new EnumMap<>(AskLog.Outcome.class);

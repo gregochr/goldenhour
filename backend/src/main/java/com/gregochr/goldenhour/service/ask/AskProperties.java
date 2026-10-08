@@ -69,10 +69,6 @@ public class AskProperties implements InitializingBean {
     @Setter
     private boolean stub;
 
-    /** Whether the local profile seeds a rated fixture at startup. */
-    @Setter
-    private boolean seedLocalFixture;
-
     private EvaluationModel model = EvaluationModel.HAIKU;
     private int maxTurns = 4;
     private int maxTokens = 600;

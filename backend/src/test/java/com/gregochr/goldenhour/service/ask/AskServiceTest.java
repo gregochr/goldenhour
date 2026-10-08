@@ -428,7 +428,7 @@ class AskServiceTest {
         assertThat(windows).containsExactly("2026-10-05_sunset", "2026-10-06_sunrise", null, null, null, null, null);
     }
 
-    // -- B5 seams ------------------------------------------------------------------------------
+    // -- the typed seams ------------------------------------------------------------------------------
 
     @Test
     @DisplayName("the steps run in the plan's order: pre-filter, snapshot, Ready match, cache, engine, cache "
@@ -526,20 +526,6 @@ class AskServiceTest {
         doThrow(new IllegalStateException("log down")).when(askLog).record(any());
 
         assertThat(ask("Best spot tonight?").kind()).isEqualTo("own");
-    }
-
-    @Test
-    @DisplayName("the B5 stand-ins are real overriding classes that do nothing: nothing refuses, matches, "
-            + "caches or logs")
-    void defaultsAreNoOps() {
-        AskQuestion question = new AskQuestion("q", "q", null, AskScope.ALL, "plan");
-        AskAnswerCache noOpCache = new NoOpAskAnswerCache();
-
-        assertThat(new NoOpAskPreFilter().refuse(question)).isEmpty();
-        assertThat(new NoOpAskIntentMatcher().match(question, snapshot)).isEmpty();
-        noOpCache.store(question, snapshot, AskUserContext.userLess(), ok().outcome());
-        assertThat(noOpCache.lookup(question, snapshot, AskUserContext.userLess())).isEmpty();
-        new NoOpAskLog().record(new AskLog.Entry(1L, "ALL", "plan", AskLog.Outcome.CLAUDE_OK, "q", null, 1L));
     }
 
     // -- 7. spend cap and latch -----------------------------------------------------------------

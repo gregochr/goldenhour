@@ -214,7 +214,7 @@ public class AskReadyService {
         LocalDate today = ForecastHorizon.today(clock);
         if (!manual) {
             long cycles = jobRunRepository.countByRunTypeAndTriggeredManuallyAndStartedAtGreaterThanEqual(
-                    RunType.ASK_READY, false, AskJobRunService.ukDayStartUtc(today));
+                    RunType.ASK_READY, false, ForecastHorizon.ukDayStartUtc(today));
             if (cycles >= properties.getReady().getMaxCyclesPerDay()) {
                 LOG.info("[ASK] Ready precompute skipped: {} scheduled runs already started today "
                         + "(ceiling {})", cycles, properties.getReady().getMaxCyclesPerDay());

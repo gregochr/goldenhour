@@ -10,15 +10,20 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Web wiring for {@code POST /api/ask}: the admission interceptor (the rate limit, applied before the
- * body is converted) and the body-size filter. Both are mapped to exactly {@value #PATH}, so nothing
- * else in the application is touched; both act on POST only.
+ * Web wiring for Ask: the flag-off interceptor ({@link AskFlagInterceptor}) over every Ask route, the
+ * admission interceptor (the rate limit, applied before the body is converted) and the body-size
+ * filter. The last two are mapped to exactly {@value #PATH}, so nothing else in the application is
+ * touched; both act on POST only. The flag interceptor is registered first, so with Ask off nothing
+ * downstream of it runs.
  */
 @Configuration
 public class AskWebConfig implements WebMvcConfigurer {
 
     /** The one path both are mapped to. */
     static final String PATH = "/api/ask";
+
+    /** The admin routes' prefix. */
+    static final String ADMIN_PATH = "/api/admin/ask";
 
     /** After Spring Security's chain (order -100), so an anonymous request is 401 before it. */
     private static final int AFTER_SECURITY = 0;
@@ -29,7 +34,7 @@ public class AskWebConfig implements WebMvcConfigurer {
     /**
      * Creates the configuration.
      *
-     * @param properties the Ask settings
+     * @param properties the Ask settings (the flag interceptor reads them)
      * @param askService the service the interceptor admits through
      */
     public AskWebConfig(AskProperties properties, @Lazy AskService askService) {
@@ -39,7 +44,11 @@ public class AskWebConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new AskAdmissionInterceptor(properties, askService)).addPathPatterns(PATH);
+        registry.addInterceptor(new AskFlagInterceptor(properties, false))
+                .addPathPatterns(PATH, PATH + "/**");
+        registry.addInterceptor(new AskFlagInterceptor(properties, true))
+                .addPathPatterns(ADMIN_PATH, ADMIN_PATH + "/**");
+        registry.addInterceptor(new AskAdmissionInterceptor(askService)).addPathPatterns(PATH);
     }
 
     /**

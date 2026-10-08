@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.repository.AskReadyAnswerRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -154,7 +155,7 @@ class AskReadyStoreTest {
     @DisplayName("the ceiling's count: scheduled ASK_READY runs started at or after UK midnight; not manual "
             + "ones, not other run types, not the day before (BST midnight is 23:00 UTC)")
     void ceilingCount() {
-        LocalDateTime ukMidnight = AskJobRunService.ukDayStartUtc(LocalDate.of(2026, 10, 5));
+        LocalDateTime ukMidnight = ForecastHorizon.ukDayStartUtc(LocalDate.of(2026, 10, 5));
         assertThat(ukMidnight).isEqualTo(LocalDateTime.of(2026, 10, 4, 23, 0));
         run(RunType.ASK_READY, false, ukMidnight.minusSeconds(1));
         run(RunType.ASK_READY, false, ukMidnight);

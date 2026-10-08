@@ -332,7 +332,8 @@ class AskAnswerValidatorTest {
     }
 
     @Test
-    @DisplayName("a solar eclipse validated from get_coming_up evidence alone carries the note; a lunar one none")
+    @DisplayName("a solar eclipse validated from get_coming_up evidence alone carries the note; a lunar one none, "
+            + "and the almanac's lunar-eclipse reaches the card as LUNAR_ECLIPSE, the type the client keys on")
     void event_fromTheAlmanacAlone_solarCarriesTheNoteLunarNone() {
         AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
         AskSnapshot withAlmanac = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()), List.of(
@@ -350,7 +351,7 @@ class AskAnswerValidatorTest {
                 snapshot, tools.evidence());
 
         assertThat(result.answer().events()).extracting(AskEvent::type)
-                .containsExactly("ECLIPSE", "LUNAR-ECLIPSE");
+                .containsExactly("ECLIPSE", "LUNAR_ECLIPSE");
         assertThat(result.answer().events().get(0).safetyNote())
                 .isEqualTo(EclipseHotTopicStrategy.SAFETY_NOTE);
         assertThat(result.answer().events().get(1).safetyNote()).isNull();
@@ -358,7 +359,7 @@ class AskAnswerValidatorTest {
 
     @Test
     @DisplayName("lunar-eclipse and LUNAR_ECLIPSE are one type here: a model that names either spelling "
-            + "validates against the other's evidence, and the card keeps the served type")
+            + "validates against the other's evidence, and the card carries the one folded type")
     void event_theTwoSpellingsOfOneTypeMatch() {
         AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
         LocalDate day = TODAY.plusDays(50);
@@ -373,7 +374,7 @@ class AskAnswerValidatorTest {
                 List.of(new RawEvent(" lunar-eclipse ", null, "Easy")), null), snapshot, underscored);
 
         assertThat(nameUnderscore.answer().events()).extracting(AskEvent::type)
-                .containsExactly("LUNAR-ECLIPSE");
+                .containsExactly("LUNAR_ECLIPSE");
         assertThat(nameDash.answer().events()).extracting(AskEvent::type)
                 .containsExactly("LUNAR_ECLIPSE");
     }

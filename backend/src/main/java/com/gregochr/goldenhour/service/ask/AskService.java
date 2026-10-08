@@ -295,7 +295,7 @@ public class AskService {
             throw invalid(cleaned.error());
         }
         AskScope scope = AskScopes.resolve(regionRepository, request.regionIds())
-                .orElseThrow(() -> invalid("Unknown, disabled or too many regions."));
+                .orElseThrow(() -> invalid(AskScopes.INVALID_REGIONS));
         return AskQuestion.of(cleaned, blankToNull(request.windowId()), scope, request.view());
     }
 
