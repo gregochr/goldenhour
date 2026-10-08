@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.ask;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 
 import java.time.LocalDate;
@@ -151,9 +152,6 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
     public record Topic(String type, String label, String detail, LocalDate date,
             List<String> regions, String safetyNote, String eventType) {
 
-        /** The served anchor of a topic whose window runs from its date's dusk to the next dawn. */
-        public static final String EVENT_NIGHT = "NIGHT";
-
         /**
          * A topic with no safety note and no solar anchor.
          *
@@ -189,7 +187,8 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
          *
          * <p>The aurora strategy dates its alert topic by the poller's night, which before dawn is
          * yesterday's — a date test on {@code date} alone would then leave out a topic whose
-         * remaining half is this morning's sunrise, while the Plan card shows its badge.
+         * remaining half is this morning's sunrise, while the Plan card shows its badge. The same
+         * rule as {@link HotTopic#coveredDates()}, over the served anchor this record carries.
          *
          * @return the last date covered, or null
          */
@@ -197,7 +196,7 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
             if (date == null) {
                 return null;
             }
-            return EVENT_NIGHT.equals(eventType) ? date.plusDays(1) : date;
+            return HotTopic.EVENT_NIGHT.equals(eventType) ? date.plusDays(1) : date;
         }
 
         /**

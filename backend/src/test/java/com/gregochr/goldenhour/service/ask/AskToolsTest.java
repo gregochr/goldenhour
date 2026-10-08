@@ -1018,8 +1018,9 @@ class AskToolsTest {
 
     @Test
     @DisplayName("get_coming_up keeps a NIGHT topic dated yesterday — the aurora alert for the night still "
-            + "running before dawn, whose morning half is today's sunrise — and stands it on today")
-    void getComingUp_runningNightTopicDatedYesterdayStandsOnToday() {
+            + "running before dawn, whose morning half is today's sunrise — on its own date, the one "
+            + "get_hot_topics and the freshness check know it by")
+    void getComingUp_runningNightTopicDatedYesterdayKeepsItsDate() {
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
                 AskFixtures.topic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
                         TODAY.minusDays(1), List.of()).withEvent("NIGHT", "18:30"),
@@ -1029,8 +1030,8 @@ class AskToolsTest {
         ComingUpResult result = (ComingUpResult) tools(snapshot).getComingUp(null).payload();
 
         assertThat(result.entries()).extracting(AskTools.ComingUpInfo::type).containsExactly("AURORA");
-        assertThat(result.entries().get(0).start()).isEqualTo(TODAY.toString());
-        assertThat(result.entries().get(0).end()).isEqualTo(TODAY.toString());
+        assertThat(result.entries().get(0).start()).isEqualTo(TODAY.minusDays(1).toString());
+        assertThat(result.entries().get(0).end()).isEqualTo(TODAY.minusDays(1).toString());
     }
 
     @Test

@@ -63,18 +63,38 @@ public class HotTopicAggregator {
      * @return sorted list of hot topics; never null
      */
     public List<HotTopic> getHotTopics(LocalDate fromDate, LocalDate toDate) {
-        List<HotTopic> topics;
         if (simulationService.isEnabled()) {
-            topics = simulationService.getSimulatedTopics(fromDate, toDate);
-        } else {
-            topics = strategies.stream()
-                    .flatMap(s -> s.detect(fromDate, toDate).stream())
-                    // Suppress topics dated on a travel day — the operator is away and can't act on
-                    // them ("Spring tide today", "Aurora tomorrow night" are noise when in London).
-                    .filter(topic -> topic.date() == null || !travelDayService.isTravelDay(topic.date()))
-                    .sorted()
-                    .toList();
+            return eventEnricher.enrich(simulationService.getSimulatedTopics(fromDate, toDate));
         }
-        return eventEnricher.enrich(topics);
+        List<HotTopic> topics = strategies.stream()
+                .flatMap(s -> s.detect(fromDate, toDate).stream())
+                .sorted()
+                .toList();
+        // Enriched BEFORE the travel filter: the filter reads the dates a topic covers, and a
+        // NIGHT anchor is what the enricher adds.
+        return eventEnricher.enrich(topics).stream()
+                .filter(topic -> actionableOutsideTravel(topic, fromDate))
+                .toList();
+    }
+
+    /**
+     * Whether the operator can act on this topic on some day it covers — not away on every one.
+     *
+     * <p>Suppresses topics the operator cannot act on ("Spring tide today", "Aurora tomorrow night"
+     * are noise when in London). The test is over the dates the topic COVERS that are still ahead,
+     * never its date alone: a {@code NIGHT} topic dated yesterday — the aurora alert for the night
+     * running before dawn — is actionable on today's sunrise, so a travel day yesterday must not
+     * silence it, and a travel day today must, whatever yesterday was. A NIGHT topic dated a travel
+     * day today still reaches tomorrow's sunrise card when tomorrow is not one. Dates already behind
+     * {@code fromDate} are not consulted (nothing can be acted on there); an undated topic is kept.
+     */
+    private boolean actionableOutsideTravel(HotTopic topic, LocalDate fromDate) {
+        List<LocalDate> covered = topic.coveredDates();
+        if (covered.isEmpty()) {
+            return true;
+        }
+        List<LocalDate> ahead = covered.stream().filter(d -> !d.isBefore(fromDate)).toList();
+        List<LocalDate> actionable = ahead.isEmpty() ? covered : ahead;
+        return actionable.stream().anyMatch(d -> !travelDayService.isTravelDay(d));
     }
 }

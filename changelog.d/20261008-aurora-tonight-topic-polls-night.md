@@ -15,8 +15,11 @@ coming night is covered too. Both detail lines word the night relative to the ci
 forecast until dawn", "Kp 4 forecast tonight — worth watching", "Kp 4 forecast tomorrow night —
 worth watching" — rather than by which of the two topics emitted them.
 
-Two readers tested a topic's date alone and would have dropped exactly that pre-dawn topic while
-the first Plan card badged it (a Codex review of #1056): the Coming up tab's handoff row now reads
-the dates a topic's windows cover (`topicCoveredDates`, one home for the `NIGHT` rule beside
-`topicWindowKeys`), and Ask's `get_coming_up` timeline keeps a `NIGHT` topic whose morning half is
-today, standing it on today rather than on a date already gone.
+Three readers tested a topic's date alone and would have mishandled exactly that pre-dawn topic
+while the first Plan card badged it (two Codex reviews of #1056). `HotTopic.coveredDates()` and
+its client twin `topicCoveredDates` are now the one rule for which dates a topic's windows fall on.
+The Coming up tab's handoff row reads it, so the running night's aurora counts for today. The
+aggregator's travel-day filter reads the covered dates still ahead, so a travel day yesterday no
+longer silences this morning's sunrise and a travel day today does, whatever yesterday was. Ask's
+`get_coming_up` timeline keeps a `NIGHT` topic whose morning half is today, on its own date — the
+date `get_hot_topics` and the freshness check know it by, so an answer built from it stays live.

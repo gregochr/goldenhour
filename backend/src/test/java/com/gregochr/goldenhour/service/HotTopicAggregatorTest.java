@@ -22,6 +22,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -102,6 +103,82 @@ class HotTopicAggregatorTest {
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
         assertThat(topics).containsExactly(workable);
+    }
+
+    @Test
+    @DisplayName("a NIGHT topic dated a travel day yesterday survives when today — its sunrise half — is not one")
+    void getHotTopics_runningNightTopic_travelYesterdayHomeToday_kept() {
+        // The aurora strategy dates the pre-dawn alert by the night still running: yesterday.
+        HotTopic running = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
+                FROM.minusDays(1), 1, null, List.of(), null, null).withEvent("NIGHT", "18:30");
+        // Yesterday is behind the range and is not consulted at all — so being away then cannot
+        // matter; only today's answer is asked for. (A stub for yesterday would go unused.)
+        when(travelDayService.isTravelDay(FROM)).thenReturn(false);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(running)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(running);
+    }
+
+    @Test
+    @DisplayName("a NIGHT topic dated yesterday is suppressed when today — its only half ahead — is a travel day")
+    void getHotTopics_runningNightTopic_travelToday_suppressed() {
+        HotTopic running = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
+                FROM.minusDays(1), 1, null, List.of(), null, null).withEvent("NIGHT", "18:30");
+        when(travelDayService.isTravelDay(FROM)).thenReturn(true);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(running)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
+        // Yesterday is behind the range and is never consulted — being away then changes nothing.
+        verify(travelDayService, never()).isTravelDay(FROM.minusDays(1));
+    }
+
+    @Test
+    @DisplayName("a NIGHT topic dated a travel day today survives for tomorrow's sunrise when tomorrow is not one")
+    void getHotTopics_nightTopic_travelTodayHomeTomorrow_kept() {
+        HotTopic tonight = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast tonight",
+                FROM, 1, null, List.of(), null, null).withEvent("NIGHT", "18:30");
+        when(travelDayService.isTravelDay(FROM)).thenReturn(true);
+        when(travelDayService.isTravelDay(FROM.plusDays(1))).thenReturn(false);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(tonight)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(tonight);
+    }
+
+    @Test
+    @DisplayName("a NIGHT topic is suppressed when both of its dates are travel days")
+    void getHotTopics_nightTopic_awayBothDays_suppressed() {
+        HotTopic tonight = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast tonight",
+                FROM, 1, null, List.of(), null, null).withEvent("NIGHT", "18:30");
+        when(travelDayService.isTravelDay(FROM)).thenReturn(true);
+        when(travelDayService.isTravelDay(FROM.plusDays(1))).thenReturn(true);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(tonight)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the travel filter reads the ENRICHED topic — an anchor the enricher adds decides the dates")
+    void getHotTopics_travelFilter_readsTheEnrichedAnchor() {
+        // The strategy emits the topic with no anchor; the enricher (the real one maps AURORA to
+        // NIGHT) supplies it. Filtering before enrichment would read one date and drop this topic.
+        HotTopic bare = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
+                FROM.minusDays(1), 1, null, List.of(), null, null);
+        HotTopic enriched = bare.withEvent("NIGHT", "18:30");
+        when(eventEnricher.enrich(anyList())).thenReturn(List.of(enriched));
+        when(travelDayService.isTravelDay(FROM)).thenReturn(false);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(bare)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(enriched);
     }
 
     @Test

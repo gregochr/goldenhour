@@ -456,8 +456,11 @@ public class AskTools {
      *
      * <p>"Dated inside them" reads the dates a topic COVERS ({@link AskSnapshot.Topic#coversAnyOf}),
      * not its date alone: a {@code NIGHT} topic dated yesterday — the aurora alert for the night
-     * still running before dawn — reaches this morning's sunrise, so it is listed, standing on
-     * today (the first date of its span still inside the window) rather than on a date already gone.
+     * still running before dawn — reaches this morning's sunrise, so it is listed. ⚠️ It stands on
+     * its OWN date, yesterday, even so: {@code AskReadyFreshness.liveEvent} re-finds an event by the
+     * live topic's {@code date}, and {@code get_hot_topics} reports the same topic on that date, so
+     * moving the entry onto today would make an answer built from it read as no longer live on
+     * the very next serve (a Codex review of #1056). The night is named by its dusk date everywhere.
      *
      * @param snapshot the snapshot the conversation runs against
      * @param scope    the question's region names, matched case-insensitively; empty means every region
@@ -476,11 +479,8 @@ public class AskTools {
                 .filter(t -> t.coversAnyOf(from, to))
                 .filter(t -> t.inScope(scope))
                 .filter(t -> almanac.stream().noneMatch(e -> listedBy(e, t)))
-                .map(t -> {
-                    LocalDate on = t.date().isBefore(from) ? from : t.date();
-                    return new AskSnapshot.ComingUp(t.type(), t.label(), on, on, t.detail(),
-                            t.safetyNote());
-                })
+                .map(t -> new AskSnapshot.ComingUp(t.type(), t.label(), t.date(), t.date(), t.detail(),
+                        t.safetyNote()))
                 .forEach(entries::add);
         entries.sort(Comparator.comparing(AskSnapshot.ComingUp::startDate)
                 .thenComparing(AskSnapshot.ComingUp::title)
