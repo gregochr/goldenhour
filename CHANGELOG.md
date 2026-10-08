@@ -5,6 +5,237 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.25.0] - 2026-10-08
+
+### Refactor — API slots stop carrying tide; window.tideFacts is the one source (window tide facts, P5)
+
+`GET /api/briefing` slots no longer carry per-location tide: `ServedBriefingAssembler.assembleForPlan` ends with a serve-time strip that sets every regioned and unregioned slot's `tide` to null (never an empty `TideInfo`), after the window projection, so `window.tideFacts` is the only per-location tide on the wire. The persisted cache, the build path, the hot-topic strategies and `getServedBriefing` (Close-to-home) still see slot tide. On a production-shaped synthetic briefing the payload ends 22% smaller than before the series (1.92 MB to 1.50 MB raw, 61.8 KB to 52.7 KB gzipped). Adds `BriefingSlot.withTide` and brings `BriefingSlot` under the record-wither guard. See `docs/engineering/window-tide-facts-plan.md`.
+
+### Refactor — Ask reads tide from the window's facts (window tide facts, P4)
+
+`AskSnapshotBuilder` now joins each slot's `tideState`, `tideAligned` and `tideFitPhrase` from the summary's `window.tideFacts` (by location id, then name; the lookup is built once per window) instead of from `slot.tide()`, which it no longer reads. A slot with no fact reads as an inland one did before. No behaviour change while slots still carry tide; it makes Ask survive P5 stripping tide from API slots. See `docs/engineering/window-tide-facts-plan.md`.
+
+### Changed — the Plan tab's pool and grid read tide from `window.tideFacts`
+
+`buildWindowSpots` now copies each spot's `tideState`, `tideAligned` and `tideQuality` from the
+window's served tide facts (by location id, then name) instead of from the slot; the spot population
+still comes from slots, so every Plan card counts the same pool as before. `HeatmapGrid` builds the
+tide index once and hands an `alignedOf(slot, date, targetType)` lookup to its cells and drill-down:
+the cell's "N tide aligned" count, `computeCellTier(region, alignedOf)` and the drill-down's
+`slotSortKey(slot, aligned)` / `sortedSlotsByTidePriority(slots, alignedOf)` ordering no longer read
+`slot.tideAligned`. The lookup has no default, and a window or location with no fact is not aligned.
+No visible change on a scored window. After this, no frontend code reads tide off a slot, which is
+what lets the series stop serving it there.
+
+### Fixed — the Map tab keeps its coast, tide strip and tide cues on windows nothing scored
+
+The Map tab's per-location tide index (`buildTideAlignmentIndex`) now reads `window.tideFacts`
+instead of walking slots. A window the honesty filter blanked (T+3 except SETTLED, all of T+4, travel
+days) has no slots but still has its facts, so coastal locations pass the rating floor through their
+tide fact, the tide strip shows with its dimmed count, chips carry their tier and the callout and
+four-day sheet show the tide block, on a coast-only, unrated map ("1 of N shown · 0 rated"). A payload
+with no `tideFacts` (a pre-deploy cache) gives an empty index; there is no fallback to slots. The
+index's `skyRating` and `gated` fields are joined from that window's slot when one exists.
+
+A tide miss on a window the light was not assessed for now reads "Tide misses the light here"
+instead of "Wrong water, not wrong light" (a match is unchanged).
+
+### Changed — one window walk and one key helper per format on the client
+
+`locationSheet.js` gains `windowsOf` and `indexByWindow`, and its slot, evaluation-gate, eclipse and
+tide indexes are built over them with unchanged output. `mapEvents.solarWindowKey` and
+`heatSpots.windowKey` (both `date:targetType`) are one `windowKey`, and `locationSheet.tailOf` and
+`solarEventTimes.keyFor` (both `date|targetType`) are one `windowTail`, both in the new
+`utils/windowKeys.js`. The two formats are deliberately not merged. A stale "the tide gate" comment
+is corrected.
+
+### Added — `GET /api/briefing` serves per-location tide on each window (`window.tideFacts`)
+
+Each `BriefingWindow` gains a nullable `tideFacts` list: one `LocationTideFact` per coastal
+location that has a tide state in that window, omitted when there is none. It is built by the new
+`WindowTideFactProjector` from the unfiltered cached slots, before `BriefingHonestyFilter` empties a
+zero-coverage region's slots, so the facts survive on every window Claude did not score (T+3 except
+SETTLED, all of T+4, travel days). Nothing reads it yet: this is the additive backend half of the
+fix for the Map tab showing no tide strip and no coastal locations on those windows (the 2026-10-08
+Sunday-sunrise defect); the client and the removal of slot tide follow in later phases.
+`PlanWindowProjector.apply` takes the facts as a new argument. Measured on a production-shaped
+synthetic briefing (five days, 225/182 slots a sunrise/sunset with 59/27 coastal): about 150 KB raw
+(7.8%) and 14 KB gzipped extra, and the projector takes under 1 ms. The comments claiming
+`BriefingHonestyFilter`'s zero-coverage cases are rare, and that the tide gate is live, are
+corrected.
+
+### Changed — Rewind: the debt it introduced, paid
+
+Four pieces of the admin Rewind (#998) were written beside code that already did the same job,
+and one of its rules lived in the wrong place. The forecast serve window's past edge is now one
+constant, `ForecastHorizon.SERVE_PAST_DAYS`, read by `GET /api/forecast`, the scores endpoint and
+the Rewind menu alike (it was `ForecastController.PAST_WINDOW_DAYS` with a second copy on
+`RewindEventService`, a service reading a controller's constant). The `ROLE_` authority test the
+JWT filter's convention implies is one helper, `Authorities.hasRole`, shared by the Rewind filter's
+ADMIN check and `ForecastController`'s LITE check. `RewindFilter` is registered once, inside the
+security chain, with its servlet-container registration disabled outright rather than kept second
+by bean ordering, and a test pins it. The `ROLE_` prefix itself is one constant,
+`Authorities.ROLE_PREFIX`, where the JWT filter, `AppUserEntity` and the status endpoint each
+spelt it out. The three-day bound on a rewind is `Rewind.MAX_AGE` and is served to the Rewind view
+as `maxAgeDays`; the view's own `3` survives only as the fallback while the events are loading or
+after a failed load. On the client, the "never read or write the SWR cache while rewound" rule moved
+into `swrCache` itself, where the data lives, instead of a guard at each consumer; the rewind's UK
+formatters became `conversions.formatDayClockUk` beside the other UK formatters (the clock was
+already `formatEventTimeUk`); `briefingDisplay`'s private London calendar reads became
+`mapDates.ukDateStr`/`ukHour`; and the Operations Rewind view no longer repeats the bar the page
+already shows above it. No behaviour changes.
+
+### Fixed — the Map tab's window, Regions and legend panels fit the map frame too
+
+The Filters fix above left three siblings with the same fixed 420px cap: the window menu (opens
+down from the top-left), the Regions menu (opens down from the top-right cluster) and the colour
+key's legend panel (opens up from the bottom-left). On a short map frame each ran past the frame
+edge it grows toward — the bottom for the first two, the top for the legend — and was clipped with
+its last rows unreachable. All four now share one hook, `useFitToFrame`, which measures the room
+to that edge (bounded by the viewport) while the panel is open, caps the height there and scrolls
+inside it. An open Regions or window menu also lifts its corner above the rest of the chrome, as
+the Filters popover already did, so the tide strip and counts footer no longer paint over it.
+Phone sheets are unchanged.
+
+### Fixed — the Map tab's Filters popover fits the map frame and scrolls
+
+On desktop and tablet the Filters popover had a fixed maximum height of 420px and drops from the
+bottom of the top-right cluster, so on a short map frame (a ~1000px window was enough) it ran past
+the frame's bottom edge. The frame clipped it, and the Sky row (dark-sky toggle) and the Scope row
+below it could not be reached at all. The popover now measures the room between its own top and the
+bottom of the map frame (or the viewport, if that comes first), caps its height there, and scrolls
+inside it by wheel, scroll bar and Tab; a control Tabbed to at its edge is brought in far enough to
+show its focus ring. While it is open the top-right cluster also takes the menus' place in the
+stacking order, so the bottom-left chrome (the tide strip, the counts footer) no longer paints over
+its last rows on a narrow frame. The phone's Filters sheet in the peek sheet's Layers section is
+unchanged; it already scrolled.
+
+### Changed — local-only tooling leaves the production jar
+
+`AskLocalFixtureSeeder` and `LocalH2EnumWidener`, the two classes only the `local` Spring profile ever uses, moved out of `backend/src/main` into `backend/src/local/java`, with their five test classes (46 tests) in `backend/src/local-test/java`. Both roots are added only by the existing `local-dev` Maven profile (`build-helper-maven-plugin` `add-source` / `add-test-source`), so the production jar, CI's plain `./mvnw clean verify` and the Docker build no longer compile, test or ship them, and Checkstyle, SpotBugs and JaCoCo no longer price them. Their runtime guards (profile, conditional property, refusals) are unchanged. The `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local` recipe still finds both beans; an IDE needs the `local-dev` profile active to index the two roots.
+
+### Changed — briefing record copies can no longer silently drop a component
+
+`DailyBriefingResponse` gains `withBestBets(bestBets, bestBetsWithdrawn)` and
+`withLiveOverlays(auroraTonight, auroraTomorrow, hotTopics)`, and the three places that rebuilt a
+response positionally (`BriefingHonestyFilter`, `ServedBriefingAssembler.applyBestBetFallback`,
+`BriefingService.getCachedBriefing`) now use withers, so none of them can forget
+`renderedEvents`, `previousGeneratedAt` or `bestBetsWithdrawn` when a component is added. A new
+reflection test (`RecordWitherPreservationTest`) fills every component of `DailyBriefingResponse`,
+`BriefingRegion`, `BriefingEventSummary` and `BriefingWindow.Pick` with a sentinel and fails if any
+`with*` method loses a component it does not name. No behaviour change: the three rebuilds carried
+nothing in those components before.
+
+### Changed — Ask services split at their seams; relevance and day words have one home each
+
+A behaviour-preserving refactor of Ask PhotoCast's backend. `AskJobRunService` no longer holds two
+unrelated jobs under one lock: the daily `ASK` run, the cost increments and the typed-spend sum stay
+there, and the unrecorded-turn holder with its accounting latch is `UnrecordedTurnHolder` (the lock
+still covers the spend memo, so a held turn and its persisted row are still never counted twice).
+`AskReadyService` is split into `AskReadyPrecompute` (the pipeline dispatch, the admin endpoint and the
+per-day ceiling) and `AskReadyServing` (what `GET /api/ask/ready`, the typed intent match and the `try`
+suggestions read), so the code that only serves no longer constructs the ten-argument precompute bean.
+What a Ready question may carry is `ReadyRelevance`, one code path for store, serve and the validator,
+and `ReadyQuestion` keeps the catalogue. The relative-day words in three places are built on the shared
+`DayLabels.relative`, the London `HH:mm` clock has one home (`AskClock`), and a new test round-trips the
+stored Ready question text through the typed-question matcher for every weekday and both events. Nothing
+on the wire moves; the prompt and tool-schema golden files are byte-identical.
+
+### Changed — Ask resolves a question's region scope once, as a value
+
+Ask PhotoCast carried a question's regions as a bare list of names that seven call sites re-lower-cased and re-compared in
+four different ways, and it read the region ids from the database up to four times per typed question (the guard, the
+scope, the engine, and the answer cache). The scope is now one immutable `AskScope` value, resolved once where the question
+is validated and carried on the question, so the tools, the validator, the prompt, the Ready freshness check, both engines
+and the typed cache all ask the same `contains` question of the same object. An unknown or disabled region id still fails
+the request with the same 400 `INVALID` rather than widening it, and nothing on the wire, in `ask_log`, `ask_usage` or
+`ask_ready_answer`, or in the prompt sent to Claude changes. The admin dry-run and the Ready precompute now take their
+normalised question form from the sanitiser like the typed endpoint instead of lower-casing it themselves.
+
+### Changed — Ask client: one request-context hook, shared pick facts, dead branches removed
+
+A behaviour-preserving refactor of the Ask PhotoCast front end; the rendered DOM, text, test-ids,
+accessible names and classes of every Ask surface are unchanged. `AskConversation` now reads the
+request context (scope, window, regions, view chip) from `useAskRequestContext` itself, so the sheet,
+the dock and the phone peek pass it `view` and `viewLabel` only instead of copying five fields onto
+it; the hook's `windowId` is `null`, never `undefined`. The pick card and the "Plan this" view draw
+their verdict-and-star, tide and day-and-time facts from one `AskPickFacts` (the card still says
+"Tide: …" and the plan view the bare clause: unifying that copy is left to the owner), with the
+prop-type shapes in `askShapes.js` and one `starsWord`. The two lists of "settled" conversation
+phases are now the single `SETTLED_PHASES`, a pick card carries its `windowKey` so the shell stops
+recomputing it, and the shell writes the dock-opening body once for both the field and the `/` key.
+Removed as dead: `AskConversation`'s `hidden` prop, `AskContext`'s `contextWindow` and an unreachable
+error fallback in the phone peek.
+
+### Changed — Ask engines share one conversation frame; one event-type key; the validator no longer logs
+
+The Claude and stub Ask engines each carried their own copy of the conversation's opening (options
+check, blank question, tools, which events question it is) and closing (validate, discard, OK or
+CANT); both now go through `AskConversation`, so they cannot drift (the stub's FAILED runs now
+report `personal` as the tools saw it, as Claude's did; visible only in the admin dry-run). An
+event's type had five spellings of "the same type"; `AskEventType.key` is the one (strip, upper-case,
+`-` read as `_`), so the almanac's `lunar-eclipse` and a hot topic's `LUNAR_ECLIPSE` are one type in
+the validator, the Ready freshness check and a Ready question's admitted types, as the timeline's
+dedupe already read them. The type an event card carries on the wire is unchanged. The
+`get_coming_up` timeline and its 90-day horizon moved from `AskTools` to `AskSnapshot`, and
+`AskToolResult` is now generic. A failed typed question's reason was logged nowhere (only two of the
+validator's six discard reasons reached a WARN); `AskService` now logs it once at INFO and the
+validator, which was meant to be pure, logs nothing. Nothing on the wire, in the prompt or in the tool
+schemas moved.
+
+### Changed — Ask edges: thin controllers, one flag-off interceptor, B5 scaffolding removed, a lunar-eclipse card's type fixed
+
+A behaviour-preserving pass over Ask PhotoCast's backend edges, plus one wire fix. The admin dry-run's
+logic moved out of `AskAdminController` into `AskDryRunService`, and the Ready `scope` parameter's
+parsing into `AskScopes.fromParameter`, so both controllers only parse and delegate; the two
+"region ids" error sentences are now one. "Ask is off, so 404" was decided in eleven places across six
+files; it is now one `AskFlagInterceptor` registered in `AskWebConfig` over `/api/ask/**` and
+`/api/admin/ask/**`, ahead of the admission interceptor (so the rate limit still runs before the body
+is read). The order stays 401, then 403, then 404: the admin routes are guarded by `@PreAuthorize`,
+which runs after any interceptor, so the interceptor's admin instance stands down for a caller who is
+not an admin. The four `NoOp*` fallback beans, their test and the unread `seedLocalFixture` property
+are gone and every "until B5" comment is present tense. `PipelineOrchestrator`'s two identical
+dispatch methods share one, the UK-day-start arithmetic lives in `ForecastHorizon.ukDayStartUtc`, and
+`AskUsageEntity`'s counters follow the repo's scoped-update rule (`updatable = false`, no setters).
+
+Fixed: an almanac lunar-eclipse event card was served with type `LUNAR-ECLIPSE` while the client keys
+its kicker and colour channel on `LUNAR_ECLIPSE`, so that card read wrongly. Event cards now carry the
+folded type; stored Ready answers still match and are served folded.
+
+### Changed — Ask client: the conversation is a reducer; no re-read of the allowance after an answer; "Tide:" on every pick
+
+Ask PhotoCast's conversation state moved out of `AskContext` into a pure reducer
+(`utils/askConversation.js`): nine named actions replace thirteen `setConv` writes, the
+last-settled conversation a refusal restores is a reducer field rather than a ref mirrored by an
+effect, `retryWith` is gone (a retry re-asks the conversation's own question and context), the
+"Plan this" view is derived from an answer with a plan pick instead of being stored as a second
+phase, and one `normaliseAnswer` replaces the typed and Ready normalisers. The Map pane's channel
+is its own hook, `useAskMapContext`, on the same `useAsk()` value. `AskConversation` is split into
+`AskEmptyState`, `AskAnswer`, `AskCantAnswer` and `AskErrorState` (DOM, text, test-ids and classes
+unchanged), and its 1,500-line test into one file per state over a shared harness; the reducer is
+tested with plain objects.
+
+Two owner decisions ride along. An answer that states `allowanceLeft` and `allowanceLimit` no
+longer triggers a second `GET /api/user/settings/ask`: the response is the server's word and is
+applied as it stands. Every path whose body carries no figure still re-reads it (an answer missing
+either figure, a lost connection, a failed engine, any other failure, a refusal that can have moved
+the count, a response a newer ask overtook). And the pick card's spoken tide clause reads
+"Tide: …", as the plan view's cell label already did visibly (the plan view's own clause stays bare, so a
+screen reader says Tide once).
+
+A review of the first cut found that dropping the re-read leaned on a backend assumption: when the
+usage read failed after an answer was paid for, the server served `allowanceLeft: 0` and left the true
+figure to the next settings read, which no longer happens. `AskResponse.allowanceLeft` is now a
+nullable value, written as an explicit `null` only in that failure case (every normal answer is
+unchanged), and the client treats it as unknown and re-reads instead of switching typed questions
+off.
+
+A second review finding followed from the same decision: a settings read still in flight when an
+answer's figure was applied (one started by an earlier failure, refusal or overtaken response) could
+resolve afterwards and put the older count back over the fresher one, leaving the field enabled until
+the server turned a question away. Reads in `useAskAllowance` now take a ticket when they start, and
+applying a served figure takes one too, so a read is applied only if nothing newer has happened.
+
 ## [v2.24.2] - 2026-10-08
 
 ### Added — ten more northern bluebell woods
