@@ -163,6 +163,24 @@ export function formatEventTimeUk(utcDateTimeStr) {
 }
 
 /**
+ * Formats an instant as the UK day and clock a reader acts on: "Sun 4 Oct, 05:58".
+ *
+ * <p>`en-GB` puts its own comma between the weekday and the day ("Sun, 4 Oct, 05:58"); the first
+ * is dropped so the phrase reads as one. The Rewind bar and the Operations Rewind view print the
+ * moment the app is rendering as of in this form.
+ *
+ * @param {string|Date|null} value - a backend instant (bare or `Z`-suffixed), or a Date
+ * @returns {string|null} e.g. "Sun 4 Oct, 05:58", or null when the instant is absent or unparseable
+ */
+export function formatDayClockUk(value) {
+  const s = formatInstantUk(value, {
+    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  return s == null ? null : s.replace(/^(\w{3}),/, '$1');
+}
+
+/**
  * Formats a UTC forecast run timestamp as a full UK local datetime string including year.
  *
  * Returns a string like "23 Feb 2026 13:25" for display in map popups and detail views.

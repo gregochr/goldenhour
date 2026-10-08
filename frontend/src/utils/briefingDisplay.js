@@ -1,4 +1,5 @@
 import { formatEventTimeUk } from './conversions.js';
+import { ukDateStr, ukHour } from './mapDates.js';
 import { appNow } from './rewind.js';
 
 /**
@@ -163,19 +164,6 @@ export function getEventTime(es) {
 /** Local hour at which a sunrise with no resolvable time is assumed to have happened. */
 const SUNRISE_ELAPSED_BY_HOUR = 12;
 
-/** Today's ISO date in the forecast's own timezone. */
-function londonToday() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(appNow());
-}
-
-/** Current hour (0–23) in the forecast's own timezone. */
-function londonHour() {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London', hour: '2-digit', hourCycle: 'h23',
-  }).formatToParts(appNow());
-  return Number(parts.find((p) => p.type === 'hour')?.value);
-}
-
 /**
  * Last-resort pastness for an event carrying no time at all, decided from its date.
  *
@@ -196,10 +184,11 @@ function londonHour() {
  */
 function isUndatedEventPast(dateStr, targetType) {
   if (!dateStr) return false;
-  const today = londonToday();
+  // `mapDates`' own UK calendar reads, on the app clock (an admin's rewind included).
+  const today = ukDateStr();
   if (dateStr < today) return true;
   if (dateStr > today) return false;
-  return targetType === 'SUNRISE' && londonHour() >= SUNRISE_ELAPSED_BY_HOUR;
+  return targetType === 'SUNRISE' && ukHour() >= SUNRISE_ELAPSED_BY_HOUR;
 }
 
 /**

@@ -98,9 +98,9 @@ class AskServiceTest {
         when(jobRuns.accountingAvailable()).thenReturn(true);
         when(jobRuns.typedSpendTodayMicroDollars()).thenAnswer(inv -> spent);
         when(preFilter.refuse(any())).thenReturn(Optional.empty());
-        when(matcher.match(any(), any(), any(), any())).thenReturn(Optional.empty());
+        when(matcher.match(any(), any())).thenReturn(Optional.empty());
         when(cache.lookup(any(), any(), any())).thenReturn(Optional.empty());
-        when(readyService.suggestions(any(), any(), any(), anyInt())).thenReturn(List.of());
+        when(readyService.suggestions(any(), any(), anyInt())).thenReturn(List.of());
         when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> ok());
         properties.setDailySpendCapUsd(0.5);
         usageStore = new AskUsageStore(usageRepository);
@@ -358,8 +358,37 @@ class AskServiceTest {
         submit(new AskRequest("Parking?", null, List.of(3L), "map"));
         submit(new AskRequest("Parking?", null, List.of(3L, 4L), "map"));
 
-        verify(readyService).suggestions(eq("3"), eq(Set.of("Northumberland")), eq(snapshot), eq(2));
-        verify(readyService).suggestions(eq("ALL"), eq(Set.of()), eq(snapshot), eq(2));
+        verify(readyService).suggestions(eq(AskScope.of(List.of(3L), Set.of("Northumberland"))), eq(snapshot),
+                eq(2));
+        verify(readyService).suggestions(eq(AskScope.ALL), eq(snapshot), eq(2));
+    }
+
+    @Test
+    @DisplayName("the region ids are read from the database once per typed question, and the question the "
+            + "engine, the cache and the matcher are given carries the resolved scope")
+    void regionIdsAreReadOnce() {
+        when(regions.findAllById(Set.of(3L, 4L))).thenReturn(List.of(
+                RegionEntity.builder().id(3L).name("Northumberland").enabled(true).build(),
+                RegionEntity.builder().id(4L).name("Teesdale").enabled(true).build()));
+
+        submit(new AskRequest("Best spot tonight?", null, List.of(4L, 3L), "map"));
+
+        verify(regions, times(1)).findAllById(Set.of(3L, 4L));
+        AskScope scope = AskScope.of(List.of(4L, 3L), Set.of("Northumberland", "Teesdale"));
+        ArgumentCaptor<AskQuestion> matched = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskQuestion> looked = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskQuestion> ran = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskQuestion> stored = ArgumentCaptor.forClass(AskQuestion.class);
+        ArgumentCaptor<AskLog.Entry> logged = ArgumentCaptor.forClass(AskLog.Entry.class);
+        verify(matcher).match(matched.capture(), any());
+        verify(cache).lookup(looked.capture(), any(), any());
+        verify(engine).run(ran.capture(), any(), any(), any());
+        verify(cache).store(stored.capture(), any(), any(), any());
+        verify(askLog).record(logged.capture());
+        assertThat(List.of(matched.getValue(), looked.getValue(), ran.getValue(), stored.getValue()))
+                .extracting(AskQuestion::scope).containsOnly(scope);
+        // Several regions are logged, and routed to the Ready set, as the whole catalogue.
+        assertThat(logged.getValue().scopeKey()).isEqualTo("ALL");
     }
 
     // -- 4. snapshot --------------------------------------------------------------------------
@@ -406,7 +435,7 @@ class AskServiceTest {
         InOrder order = inOrder(preFilter, snapshotBuilder, matcher, cache, engine, askLog);
         order.verify(preFilter).refuse(any());
         order.verify(snapshotBuilder).current();
-        order.verify(matcher).match(any(), any(), any(), any());
+        order.verify(matcher).match(any(), any());
         order.verify(cache).lookup(any(), any(), any());
         order.verify(engine).run(any(), any(), any(), any());
         order.verify(cache).store(any(), any(), any(), any());
@@ -444,7 +473,7 @@ class AskServiceTest {
                 List.of(), null, List.of(new AskReadyResponse.Suggestion("RARE_EVENTS", "Any rare events coming up?")));
         AskReadyResponse.Question matched = new AskReadyResponse.Question("BEST_NEXT", "Best spot tonight?",
                 List.of("plan"), java.time.LocalDateTime.of(2026, 10, 5, 4, 0), "05:00", answer);
-        when(matcher.match(any(), any(), any(), any())).thenReturn(Optional.of(matched));
+        when(matcher.match(any(), any())).thenReturn(Optional.of(matched));
 
         AskResponse response = ask("Best spot tonight?");
 
@@ -499,11 +528,11 @@ class AskServiceTest {
     @DisplayName("the B5 stand-ins are real overriding classes that do nothing: nothing refuses, matches, "
             + "caches or logs")
     void defaultsAreNoOps() {
-        AskQuestion question = new AskQuestion("q", "q", null, List.of(), "plan");
+        AskQuestion question = new AskQuestion("q", "q", null, AskScope.ALL, "plan");
         AskAnswerCache noOpCache = new NoOpAskAnswerCache();
 
         assertThat(new NoOpAskPreFilter().refuse(question)).isEmpty();
-        assertThat(new NoOpAskIntentMatcher().match(question, snapshot, "ALL", Set.of())).isEmpty();
+        assertThat(new NoOpAskIntentMatcher().match(question, snapshot)).isEmpty();
         noOpCache.store(question, snapshot, AskUserContext.userLess(), ok().outcome());
         assertThat(noOpCache.lookup(question, snapshot, AskUserContext.userLess())).isEmpty();
         new NoOpAskLog().record(new AskLog.Entry(1L, "ALL", "plan", AskLog.Outcome.CLAUDE_OK, "q", null, 1L));
@@ -650,7 +679,7 @@ class AskServiceTest {
         List<AskReadyResponse.Suggestion> suggestions = List.of(
                 new AskReadyResponse.Suggestion("BEST_NEXT", "Best spot tonight?"),
                 new AskReadyResponse.Suggestion("RARE_EVENTS", "Any rare events coming up?"));
-        when(readyService.suggestions(any(), any(), any(), anyInt())).thenReturn(suggestions);
+        when(readyService.suggestions(any(), any(), anyInt())).thenReturn(suggestions);
 
         AskResponse response = ask("Is the car park free?");
 

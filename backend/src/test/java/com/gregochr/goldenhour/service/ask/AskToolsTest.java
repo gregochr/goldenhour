@@ -26,7 +26,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,10 +44,10 @@ class AskToolsTest {
     private final DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
 
     private AskTools tools(AskSnapshot snapshot) {
-        return new AskTools(snapshot, AskUserContext.userLess(), Set.of(), driveTimes, mapper);
+        return new AskTools(snapshot, AskUserContext.userLess(), TestScopes.of(), driveTimes, mapper);
     }
 
-    private AskTools tools(AskSnapshot snapshot, AskUserContext user, Set<String> scope) {
+    private AskTools tools(AskSnapshot snapshot, AskUserContext user, AskScope scope) {
         return new AskTools(snapshot, user, scope, driveTimes, mapper);
     }
 
@@ -299,7 +298,7 @@ class AskToolsTest {
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
                 List.of(AskFixtures.sunsetDay(saturday, best, coast)), List.of()));
 
-        AskTools.WindowInfo info = ((ListWindowsResult) tools(snapshot, USER, Set.of("coast"))
+        AskTools.WindowInfo info = ((ListWindowsResult) tools(snapshot, USER, TestScopes.of("coast"))
                 .listWindows().payload()).windows().getFirst();
 
         assertThat(info.day()).isEqualTo("Saturday");
@@ -361,7 +360,7 @@ class AskToolsTest {
 
         AskToolResult unknown = tools(snapshot).rankSpots(
                 new RankSpotsArgs(null, List.of("Atlantis"), null, null, null, 5));
-        AskToolResult outside = tools(snapshot, USER, Set.of("Coast")).rankSpots(
+        AskToolResult outside = tools(snapshot, USER, TestScopes.of("Coast")).rankSpots(
                 new RankSpotsArgs(null, List.of("hills"), null, null, null, 5));
         AskToolResult badTide = tools(snapshot).rankSpots(
                 new RankSpotsArgs(null, null, null, "FLOOD", null, 5));
@@ -384,7 +383,7 @@ class AskToolsTest {
         assertThat(spots(tools(snapshot).rankSpots(
                 new RankSpotsArgs(null, List.of("COAST"), null, null, null, 5))))
                 .extracting(SpotInfo::name).containsExactly("A");
-        assertThat(spots(tools(snapshot, USER, Set.of("coast")).rankSpots(rank(5))))
+        assertThat(spots(tools(snapshot, USER, TestScopes.of("coast")).rankSpots(rank(5))))
                 .extracting(SpotInfo::name).containsExactly("A");
     }
 
@@ -438,7 +437,7 @@ class AskToolsTest {
                 AskFixtures.slot(1L, "Near", 4), AskFixtures.slot(2L, "Far", 5),
                 AskFixtures.slot(3L, "Unknown", 5), AskFixtures.slot(4L, "Edge", 3));
         when(driveTimes.getAllMinutes(7L)).thenReturn(Map.of(1L, 30, 2L, 90, 4L, 60));
-        AskTools tools = tools(snapshotOfRegions(region), USER, Set.of());
+        AskTools tools = tools(snapshotOfRegions(region), USER, TestScopes.of());
 
         List<SpotInfo> found = spots(tools.rankSpots(
                 new RankSpotsArgs(null, null, null, null, 60, 5)));
@@ -452,7 +451,7 @@ class AskToolsTest {
     @DisplayName("without maxDriveMinutes no drive time is returned and the answer is not personal")
     void rankSpots_noDriveLimit_noDriveFieldAndNotPersonal() {
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
-        AskTools tools = tools(snapshotOfRegions(region), USER, Set.of());
+        AskTools tools = tools(snapshotOfRegions(region), USER, TestScopes.of());
 
         AskToolResult result = tools.rankSpots(rank(5));
 
@@ -466,7 +465,7 @@ class AskToolsTest {
     void rankSpots_askerWithNoDriveTimes() {
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
         AskUserContext noTimes = new AskUserContext(9L, UserRole.LITE_USER, false);
-        AskTools tools = tools(snapshotOfRegions(region), noTimes, Set.of());
+        AskTools tools = tools(snapshotOfRegions(region), noTimes, TestScopes.of());
 
         RankSpotsResult payload = (RankSpotsResult) tools.rankSpots(
                 new RankSpotsArgs(null, null, null, null, 60, 5)).payload();
@@ -481,7 +480,7 @@ class AskToolsTest {
     void rankSpots_driveLimitBelowOne() {
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
 
-        AskToolResult result = tools(snapshotOfRegions(region), USER, Set.of()).rankSpots(
+        AskToolResult result = tools(snapshotOfRegions(region), USER, TestScopes.of()).rankSpots(
                 new RankSpotsArgs(null, null, null, null, 0, 5));
 
         assertThat(result.error()).isTrue();
@@ -628,7 +627,7 @@ class AskToolsTest {
                 AskFixtures.topic("AURORA", "Aurora", "Kp 6", TODAY, List.of()),
                 AskFixtures.topic("SNOW", "Snow", "Tops", TODAY, List.of("Hills", "Coast")))));
 
-        HotTopicsResult result = (HotTopicsResult) tools(snapshot, USER, Set.of("coast"))
+        HotTopicsResult result = (HotTopicsResult) tools(snapshot, USER, TestScopes.of("coast"))
                 .getHotTopics(null).payload();
 
         assertThat(result.topics()).extracting(AskTools.TopicInfo::type)
@@ -856,7 +855,7 @@ class AskToolsTest {
         }
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), topics));
 
-        List<AskTools.TopicInfo> scoped = ((HotTopicsResult) tools(snapshot, USER, Set.of("Coast"))
+        List<AskTools.TopicInfo> scoped = ((HotTopicsResult) tools(snapshot, USER, TestScopes.of("Coast"))
                 .getHotTopics(new HotTopicsArgs(null, 3)).payload()).topics();
 
         assertThat(scoped).extracting(AskTools.TopicInfo::type).containsExactly("IN0", "IN1", "IN2");
@@ -891,7 +890,7 @@ class AskToolsTest {
                 AskFixtures.slot(1L, "Sixty", 4), AskFixtures.slot(2L, "SixtyOne", 4));
         when(driveTimes.getAllMinutes(7L)).thenReturn(Map.of(1L, 60, 2L, 61));
 
-        List<SpotInfo> found = spots(tools(snapshotOfRegions(region), USER, Set.of()).rankSpots(
+        List<SpotInfo> found = spots(tools(snapshotOfRegions(region), USER, TestScopes.of()).rankSpots(
                 new RankSpotsArgs(null, null, null, null, 60, 5)));
 
         assertThat(found).extracting(SpotInfo::name).containsExactly("Sixty");
@@ -1049,7 +1048,7 @@ class AskToolsTest {
 
         assertThat(comingUpTypes(snapshot, 7)).as("unscoped: every region")
                 .containsExactly("ELSEWHERE", "HERE", "TODAY", "EDGE");
-        assertThat(((ComingUpResult) tools(snapshot, USER, Set.of("Coast")).getComingUp(
+        assertThat(((ComingUpResult) tools(snapshot, USER, TestScopes.of("Coast")).getComingUp(
                 new ComingUpArgs(7, 10)).payload()).entries()).extracting(AskTools.ComingUpInfo::type)
                 .containsExactly("HERE", "TODAY", "EDGE");
     }

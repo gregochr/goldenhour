@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.util.ForecastHorizon;
+import com.gregochr.goldenhour.util.Rewind;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -25,7 +26,7 @@ import java.util.Set;
  * .RewindFilter}) makes the app render as it would have at an earlier moment, so a photographer
  * who went out for this morning's sunrise can screenshot the forecast that sent them there after the
  * event has passed. This service answers "which events, and what moment": for the UK civil dates
- * from {@value #PAST_DAYS} days ago through today, both solar events, timed across the whole
+ * from {@value ForecastHorizon#SERVE_PAST_DAYS} days ago through today, both solar events, timed across the whole
  * enabled sky roster — the earliest and latest event time, since a sunrise spans ~20 minutes
  * across the British Isles — and a {@code rewindTo} of {@value #LEAD_MINUTES} minutes before the
  * roster's earliest event, which is before the window at every location without being so early
@@ -50,13 +51,6 @@ import java.util.Set;
  */
 @Service
 public class RewindEventService {
-
-    /**
-     * How many UK civil days before today are offered, matching the forecast serve window
-     * ({@code ForecastController.PAST_WINDOW_DAYS}). {@code RewindFilter} refuses an instant more
-     * than a day older than this reaches.
-     */
-    public static final int PAST_DAYS = 2;
 
     /** How long before the roster's earliest event time the rewind instant is placed. */
     static final int LEAD_MINUTES = 60;
@@ -96,7 +90,7 @@ public class RewindEventService {
                 .toList();
         Set<LocalDate> briefed = briefedDates();
         List<RewindEvent> events = new ArrayList<>();
-        for (int back = 0; back <= PAST_DAYS; back++) {
+        for (int back = 0; back <= ForecastHorizon.SERVE_PAST_DAYS; back++) {
             LocalDate date = today.minusDays(back);
             for (TargetType type : List.of(TargetType.SUNSET, TargetType.SUNRISE)) {
                 RewindEvent event = eventFor(roster, date, type, now, briefed.contains(date));
@@ -109,6 +103,7 @@ public class RewindEventService {
         return new RewindEvents(
                 now.toInstant(ZoneOffset.UTC),
                 generatedAt == null ? null : generatedAt.toInstant(ZoneOffset.UTC),
+                (int) Rewind.MAX_AGE.toDays(),
                 events);
     }
 
@@ -165,9 +160,13 @@ public class RewindEventService {
      * @param now                 the current instant (UTC) — the real one, never a rewound one,
      *                            since {@code /api/admin/**} is never rewound
      * @param briefingGeneratedAt when the cached briefing was built, or null if none exists
+     * @param maxAgeDays          how many days back a rewind may reach ({@code Rewind.MAX_AGE}), so
+     *                            the admin screen bounds a hand-typed moment where the filter would
+     *                            refuse it, without carrying a copy of the number
      * @param events              the recent solar events, newest first
      */
-    public record RewindEvents(Instant now, Instant briefingGeneratedAt, List<RewindEvent> events) { }
+    public record RewindEvents(Instant now, Instant briefingGeneratedAt, int maxAgeDays,
+            List<RewindEvent> events) { }
 
     /**
      * One solar event across the roster.

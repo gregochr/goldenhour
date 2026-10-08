@@ -61,10 +61,18 @@ const MAP_CONTEXT = {
   viewLabel: 'Map · The Lake District',
 };
 
-const tree = (props = {}) => (
+/** Publishes what the Map pane would; the conversation reads its request context itself. */
+function PublishMapContext({ context }) {
+  const { registerMapContext } = useAsk();
+  useEffect(() => { registerMapContext(context); }, [registerMapContext, context]);
+  return null;
+}
+
+const tree = ({ mapContext = null, ...props } = {}) => (
   <WindowFirstBriefingProvider>
     <AskProvider>
       <Capture />
+      <PublishMapContext context={mapContext} />
       <AskConversation view="plan" viewLabel="Plan · all regions" {...props} />
     </AskProvider>
   </WindowFirstBriefingProvider>
@@ -139,7 +147,10 @@ describe('an answer remembers the context it was asked in', () => {
 
   it('shows the asked window chip as a plain label — nothing to remove from a finished answer', async () => {
     ask.mockResolvedValue(ownResponse());
-    await renderAsk({ windowLabel: 'Sunday sunset', windowId: '2026-10-11_sunset' });
+    await renderAsk({
+      view: 'map',
+      mapContext: { ...MAP_CONTEXT, windowLabel: 'Sunday sunset', windowId: '2026-10-11_sunset' },
+    });
     expect(screen.getByTestId('ask-chip-window-remove')).toBeInTheDocument();
 
     await askTyped('Where is good?', SENT);
@@ -151,7 +162,11 @@ describe('an answer remembers the context it was asked in', () => {
   it('says what the NEXT question will carry once the answer is cleared — removable again', async () => {
     ask.mockResolvedValue(ownResponse());
     await renderAsk({
-      view: 'map', viewLabel: 'Map · My area', windowLabel: 'Sunday sunset', windowId: '2026-10-11_sunset',
+      view: 'map',
+      viewLabel: 'Map · My area',
+      mapContext: {
+        ...MAP_CONTEXT, viewLabel: 'Map · My area', windowLabel: 'Sunday sunset', windowId: '2026-10-11_sunset',
+      },
     });
     await askTyped('Where is good?', SENT);
     expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Map · The Lake District');
@@ -178,10 +193,7 @@ describe('an answer remembers the context it was asked in', () => {
   });
 
   it('a Ready answer records the scope it was opened in and NO window — nothing was sent', async () => {
-    await renderAsk({
-      view: 'map', viewLabel: 'Map · The Lake District', windowLabel: 'Saturday sunrise',
-      windowId: '2026-10-10_sunrise', regionIds: [3], scope: 3,
-    });
+    await renderAsk({ view: 'map', viewLabel: 'Map · The Lake District', mapContext: MAP_CONTEXT });
 
     fireEvent.click(await screen.findByTestId('ask-ready-COASTAL_HIGH'));
     await act(async () => { await vi.advanceTimersByTimeAsync(400); });
@@ -197,7 +209,11 @@ describe('an answer remembers the context it was asked in', () => {
 
   it('a Ready answer over SEVERAL regions says all regions: its list is the whole catalogue, and "My area" would claim a narrower scope than the answer has', async () => {
     await renderAsk({
-      view: 'map', viewLabel: 'Map · My area', regionIds: [3, 5], scope: 'all',
+      view: 'map',
+      viewLabel: 'Map · My area',
+      mapContext: {
+        ...MAP_CONTEXT, regionIds: [3, 5], windowId: null, windowLabel: null, viewLabel: 'Map · My area',
+      },
     });
 
     fireEvent.click(await screen.findByTestId('ask-ready-COASTAL_HIGH'));
@@ -409,7 +425,7 @@ describe('useAskRequestContext', () => {
     act(() => ctx.registerMapContext(MAP_CONTEXT));
 
     expect(seen).toEqual({
-      view: 'plan', regionIds: [], scope: 'all', viewLabel: 'Plan · all regions', windowId: undefined, windowLabel: null,
+      view: 'plan', regionIds: [], scope: 'all', viewLabel: 'Plan · all regions', windowId: null, windowLabel: null,
     });
   });
 
@@ -419,7 +435,7 @@ describe('useAskRequestContext', () => {
 
     expect(seen.regionIds).toEqual([]);
     expect(seen.viewLabel).toBe('Map · all regions');
-    expect(seen.windowId).toBeUndefined();
+    expect(seen.windowId).toBeNull();
   });
 });
 

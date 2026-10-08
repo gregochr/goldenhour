@@ -7,6 +7,7 @@ import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import BottomSheet from '../BottomSheet.jsx';
 import useDialogFocus from '../../hooks/useDialogFocus.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
+import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 
 /**
  * The Map tab's Regions jump list (map-tab-v2-plan.md §3 P11,
@@ -79,6 +80,7 @@ export default function RegionsJump({
    * `BottomSheet` already owns it — running both would restore focus twice.
    */
   const popoverRef = useDialogFocus(open && !isMobile);
+  useFitToFrame(popoverRef, rootRef, { direction: 'down', open, disabled: isMobile });
 
   // Desktop/tablet only — `FiltersPopover`'s identical guard, for the identical reason.
 

@@ -7,6 +7,7 @@ import { STAND_DOWN_COLOUR } from '../markerUtils.js';
 import InfoTip from '../InfoTip.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
+import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 
 /**
  * The Map tab's filters popover — map-tab-v2-plan.md §3 P7,
@@ -59,7 +60,12 @@ export default function FiltersPopover({
   chipHidden = false, restoreFallback = null,
 }) {
   const rootRef = useRef(null);
+  const panelRef = useRef(null);
   const isMobile = useIsMobile();
+
+  // The desktop/tablet panel must fit the map frame it opens in (owner report, 2026-10-08) — see
+  // `useFitToFrame`. The phone's `BottomSheet` scrolls its own body, so the hook stands down there.
+  useFitToFrame(panelRef, rootRef, { direction: 'down', open, disabled: isMobile });
 
   // Desktop/tablet only — see the class doc's phone section. `BottomSheet`'s own backdrop is the
   // phone's dismiss surface, and its content is portalled OUTSIDE `rootRef`, so this listener would
@@ -306,7 +312,7 @@ export default function FiltersPopover({
         </BottomSheet>
       ) : (
         open && (
-          <div id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-panel" role="dialog" aria-label="Map filters">
+          <div ref={panelRef} id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-panel" role="dialog" aria-label="Map filters">
             {panelBody}
           </div>
         )

@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.service.ask;
 
 import org.springframework.stereotype.Component;
 
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -28,8 +27,8 @@ import java.util.Set;
  * weekend" or "tonight" has fixed its own time, and the matcher only accepts such questions. A
  * question that names no time ("best spot?") is never matched, so the window chip still steers it.
  *
- * <p>The scope is the one the request resolved: a single region's Ready set, otherwise the whole
- * catalogue's (plan §6 Q8), exactly what {@code AskService} hands every seam.
+ * <p>The scope is the question's own: a single region's Ready set, otherwise the whole catalogue's
+ * (plan §6 Q8), which is {@link AskScope#readyScope}.
  */
 @Component
 public class KeywordAskIntentMatcher implements AskIntentMatcher {
@@ -49,8 +48,7 @@ public class KeywordAskIntentMatcher implements AskIntentMatcher {
     }
 
     @Override
-    public Optional<AskReadyResponse.Question> match(AskQuestion question, AskSnapshot snapshot,
-            String scopeKey, Collection<String> scopeNames) {
+    public Optional<AskReadyResponse.Question> match(AskQuestion question, AskSnapshot snapshot) {
         if (question == null || question.normalised() == null || snapshot == null) {
             return Optional.empty();
         }
@@ -60,7 +58,7 @@ public class KeywordAskIntentMatcher implements AskIntentMatcher {
             return Optional.empty();
         }
         // Only now a read: the question is made of nothing but words a Ready question uses.
-        for (AskReadyResponse.Question ready : readyService.freshAnswers(scopeKey, scopeNames, snapshot)) {
+        for (AskReadyResponse.Question ready : readyService.freshAnswers(question.scope().readyScope(), snapshot)) {
             // The id is a ReadyQuestion name by construction (freshAnswers walks the catalogue).
             if (ReadyIntentRules.matches(ReadyQuestion.valueOf(ready.id()), words, ready)) {
                 return Optional.of(ready);

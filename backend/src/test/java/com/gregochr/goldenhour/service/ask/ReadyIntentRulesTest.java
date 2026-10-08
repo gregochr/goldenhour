@@ -396,7 +396,7 @@ class ReadyIntentRulesTest {
     @DisplayName("the engines' own Ready texts (and a politely padded one) are events questions: the sanitiser's "
             + "filler words are dropped as the typed matcher drops them")
     void eventsQuestion_ofAnEngineQuestion(String text, String expected) {
-        AskQuestion question = new AskQuestion(text, text.toLowerCase(java.util.Locale.ROOT), null, List.of(),
+        AskQuestion question = new AskQuestion(text, text.toLowerCase(java.util.Locale.ROOT), null, AskScope.ALL,
                 "plan");
 
         assertThat(ReadyIntentRules.eventsQuestion(question)).contains(ReadyQuestion.valueOf(expected));

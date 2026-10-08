@@ -183,7 +183,6 @@ const conversation = (phase) => {
     selectionNonce: 0,
     mapContext: null,
     planPick: null,
-    contextWindow: true,
     removedWindow: null,
     error: null,
     inputError: null,
@@ -204,6 +203,10 @@ const conversation = (phase) => {
     removeContextWindow: vi.fn(),
     restoreContextWindow: vi.fn(),
   };
+  if (phase === 'error') {
+    // `errorFor` always sets a message; a fake that left it null would test a state that cannot occur.
+    return { ...base, error: { status: 502, code: 'ENGINE_FAILED', message: 'Couldn’t answer just now. No question used.' } };
+  }
   if (phase === 'answer') {
     return {
       ...base,

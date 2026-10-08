@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { VERDICT_LABEL } from '../../utils/windowFirstCards.js';
 import { isNightRow } from '../../utils/mapPeek.js';
+import { meridiemOf } from '../../utils/askModel.js';
 import { KindChip } from './WindowControl.jsx';
 
 /**
@@ -269,7 +270,7 @@ export function OtherWindowValue({ row, verdict = null }) {
     <>
       <span className="wf-map-peek-v-day">
         {row.dayLabel ?? row.label}
-        {!night && ` ${row.eventType === 'SUNRISE' ? 'AM' : 'PM'}`}
+        {!night && ` ${meridiemOf(row.eventType)}`}
       </span>
       {night ? (
         row.scored && row.bestRating != null ? (

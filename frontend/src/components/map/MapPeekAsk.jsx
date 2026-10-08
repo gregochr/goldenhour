@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
-import useAskRequestContext from '../../hooks/useAskRequestContext.js';
-import { PEEK_SETTLED_PHASES } from '../../utils/askPeek.js';
+import { SETTLED_PHASES } from '../../utils/askModel.js';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import AskConversation from '../ask/AskConversation.jsx';
 import AskInputRow from '../ask/AskInputRow.jsx';
+import { objectRefShape, planActionsShape } from '../ask/askShapes.js';
 
 /** The collapsed row's prompt (design `Map Ask in Peek.html`: "Ask about what’s on the map…"). */
 export const PEEK_ASK_PROMPT = 'Ask about what’s on the map…';
@@ -66,7 +66,6 @@ export default function MapPeekAsk({
   mode, onOpen, onClose, entryRef, planActions = undefined,
 }) {
   const ask = useAsk();
-  const requestContext = useAskRequestContext('map', FALLBACK_VIEW_LABEL);
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
   const wasExpanded = useRef(false);
@@ -74,7 +73,7 @@ export default function MapPeekAsk({
   const {
     phase, typedDisabled, availability, inputError,
   } = ask;
-  const settled = PEEK_SETTLED_PHASES.includes(phase);
+  const settled = SETTLED_PHASES.includes(phase);
   // ⚠️ A refusal's sentence is shown in the collapsed row only while the reader has not yet SEEN it. The
   // conversation, while the section is open, renders it itself (and announces it); `inputError` then
   // lives on in the provider until the next question, so a row that mirrored it unconditionally would
@@ -143,7 +142,7 @@ export default function MapPeekAsk({
         {expanded ? (
           <>
             <div className="wf-map-peek-ask-field" data-testid="wf-map-peek-ask-field">
-              <AskInputRow inputRef={inputRef} view="map" viewLabel={requestContext.viewLabel} />
+              <AskInputRow inputRef={inputRef} view="map" viewLabel={FALLBACK_VIEW_LABEL} />
             </div>
             <button
               type="button"
@@ -185,11 +184,7 @@ export default function MapPeekAsk({
         >
           <AskConversation
             view="map"
-            scope={requestContext.scope}
-            viewLabel={requestContext.viewLabel}
-            windowLabel={requestContext.windowLabel}
-            windowId={requestContext.windowId}
-            regionIds={requestContext.regionIds}
+            viewLabel={FALLBACK_VIEW_LABEL}
             planActions={planActions}
           />
         </div>
@@ -209,8 +204,8 @@ MapPeekAsk.propTypes = {
   mode: PropTypes.oneOf(['collapsed', 'expanded', 'minimised', 'section']).isRequired,
   onOpen: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
-  entryRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
-  planActions: PropTypes.shape({ openInPlan: PropTypes.func, setPostcode: PropTypes.func }),
+  entryRef: objectRefShape.isRequired,
+  planActions: planActionsShape,
 };
 
 /**
@@ -247,7 +242,7 @@ function MinimisedLine({ ask, onOpen }) {
   }
   let text = 'Answer';
   if (phase === 'cant') text = 'Not in the forecast';
-  else if (phase === 'error') text = error?.message ?? 'Couldn’t answer just now';
+  else if (phase === 'error') text = error.message;
   else if (typeof answer?.summary === 'string' && answer.summary !== '') text = answer.summary;
   return (
     <button

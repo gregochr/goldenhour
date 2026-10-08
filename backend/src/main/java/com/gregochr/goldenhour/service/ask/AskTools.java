@@ -18,6 +18,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -82,7 +83,7 @@ public class AskTools {
 
     private final AskSnapshot snapshot;
     private final AskUserContext user;
-    private final Set<String> scope;
+    private final AskScope scope;
     private final DriveTimeResolver driveTimes;
     private final ObjectMapper mapper;
 
@@ -98,16 +99,15 @@ public class AskTools {
      *
      * @param snapshot   the served snapshot every tool reads
      * @param user       who is asking; a user-less context refuses {@code maxDriveMinutes}
-     * @param scopeNames the region names the question is about, matched case-insensitively; null
-     *                   or empty means every region
+     * @param scope      the regions the question is about
      * @param driveTimes the source of the asker's own drive times
      * @param mapper     serialises results for the model
      */
-    public AskTools(AskSnapshot snapshot, AskUserContext user, Set<String> scopeNames,
+    public AskTools(AskSnapshot snapshot, AskUserContext user, AskScope scope,
             DriveTimeResolver driveTimes, ObjectMapper mapper) {
         this.snapshot = snapshot;
         this.user = user;
-        this.scope = lowerCased(scopeNames);
+        this.scope = Objects.requireNonNull(scope, "scope");
         this.driveTimes = driveTimes;
         this.mapper = mapper;
     }
@@ -314,7 +314,7 @@ public class AskTools {
             windows = picked;
         }
 
-        Set<String> regionFilter = new HashSet<>();
+        Set<String> regionFilter = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         if (a.regionNames() != null) {
             for (String name : a.regionNames()) {
                 String canonical = canonicalRegion(name);
@@ -322,11 +322,11 @@ public class AskTools {
                     return fail("rank_spots", "Unknown region '" + name
                             + "'. Region names appear in the list_windows and rank_spots results.");
                 }
-                if (!inScope(canonical)) {
+                if (!scope.contains(canonical)) {
                     return fail("rank_spots", "Region '" + canonical
                             + "' is outside the scope of this question.");
                 }
-                regionFilter.add(canonical.toLowerCase(Locale.ROOT));
+                regionFilter.add(canonical);
             }
         }
 
@@ -358,8 +358,7 @@ public class AskTools {
         for (AskSnapshot.Window w : windows) {
             // The same in-scope set the BEST anchor consults (AskSnapshot#candidates with a scope).
             for (AskSnapshot.Candidate c : snapshot.candidates(w, scope)) {
-                if (regionFilter.isEmpty()
-                        || regionFilter.contains(c.region().name().toLowerCase(Locale.ROOT))) {
+                if (regionFilter.isEmpty() || regionFilter.contains(c.region().name())) {
                     pool.add(c);
                 }
             }
@@ -463,11 +462,11 @@ public class AskTools {
      * the very next serve (a Codex review of #1056). The night is named by its dusk date everywhere.
      *
      * @param snapshot the snapshot the conversation runs against
-     * @param scope    the question's region names, matched case-insensitively; empty means every region
+     * @param scope    the regions the question is about
      * @param days     how many days ahead, from today
      * @return the timeline, soonest first, unlimited
      */
-    static List<AskSnapshot.ComingUp> timeline(AskSnapshot snapshot, Set<String> scope, int days) {
+    static List<AskSnapshot.ComingUp> timeline(AskSnapshot snapshot, AskScope scope, int days) {
         LocalDate from = snapshot.today();
         // N days is N civil dates from today: AlmanacService.getFeed ends at today + N - 1.
         LocalDate to = from.plusDays(days - 1L);
@@ -574,7 +573,7 @@ public class AskTools {
 
     private WindowInfo windowInfo(AskSnapshot.Window w) {
         BriefingWindow.Pick pick = w.pick();
-        boolean pickInScope = pick != null && inScope(pick.regionName());
+        boolean pickInScope = pick != null && scope.contains(pick.regionName());
         PickInfo named = pickInScope
                 ? new PickInfo(pick.regionName(), pick.locationName(), pick.locationId()) : null;
         boolean best = pickInScope && pick.kind() == BriefingWindow.PickKind.BEST;
@@ -637,11 +636,6 @@ public class AskTools {
                 .orElse(null);
     }
 
-    private boolean inScope(String regionName) {
-        return scope.isEmpty() || (regionName != null
-                && scope.contains(regionName.toLowerCase(Locale.ROOT)));
-    }
-
     private AskToolResult fail(String tool, String message) {
         trace.add(new ToolCall(tool, true, 0));
         return AskToolResult.error(message);
@@ -670,15 +664,6 @@ public class AskTools {
     private static int clamp(Integer requested, int fallback, int max) {
         int value = requested == null ? fallback : requested;
         return Math.clamp(value, 1, max);
-    }
-
-    private static Set<String> lowerCased(Set<String> names) {
-        Set<String> out = new HashSet<>();
-        if (names != null) {
-            names.stream().filter(n -> n != null && !n.isBlank())
-                    .forEach(n -> out.add(n.strip().toLowerCase(Locale.ROOT)));
-        }
-        return out;
     }
 
     private static Set<String> upperCased(List<String> values) {

@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
+import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 import { rampGradientCss } from '../../utils/scoreRamp.js';
 import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
@@ -84,6 +85,10 @@ export default function MapLegendPanel({
   hasHome = false, reachMeasured = false,
 }) {
   const rootRef = useRef(null);
+  const panelRef = useRef(null);
+
+  // Opens UP from the bottom-left chip, so it is the frame's TOP edge it can run past.
+  useFitToFrame(panelRef, rootRef, { direction: 'up', open });
 
 
   // A press on the MAP dismisses nothing — `useOutsideDismiss` carries that rule for all four map
@@ -137,7 +142,7 @@ export default function MapLegendPanel({
       </button>
 
       {open && (
-        <div id="wf-legend-panel" data-testid="wf-legend-panel" className="wf-legend-panel" role="dialog" aria-label="Map legend">
+        <div ref={panelRef} id="wf-legend-panel" data-testid="wf-legend-panel" className="wf-legend-panel" role="dialog" aria-label="Map legend">
           <div
             data-testid="wf-legend-ramp"
             className="wf-legend-ramp"

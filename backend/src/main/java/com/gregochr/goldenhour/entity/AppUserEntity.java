@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.entity;
 
+import com.gregochr.goldenhour.util.Authorities;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -209,7 +210,7 @@ public class AppUserEntity implements UserDetails {
      */
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
+        return List.of(new SimpleGrantedAuthority(Authorities.ROLE_PREFIX + role.name()));
     }
 
     /**

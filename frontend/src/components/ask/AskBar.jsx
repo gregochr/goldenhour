@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { refShape } from './askShapes.js';
 
 /**
  * The phone's Ask entry on Plan and Coming up: a 48px bar fixed above the bottom of the screen
@@ -53,5 +54,5 @@ AskBar.propTypes = {
   onOpen: PropTypes.func.isRequired,
   disabled: PropTypes.bool,
   expanded: PropTypes.bool,
-  buttonRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]),
+  buttonRef: refShape,
 };

@@ -7,12 +7,14 @@ import com.gregochr.goldenhour.service.ask.AskEvent;
 import com.gregochr.goldenhour.service.ask.AskProperties;
 import com.gregochr.goldenhour.service.ask.AskReadyResponse;
 import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskScope;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -21,15 +23,13 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -61,11 +61,13 @@ class AskControllerTest extends AbstractControllerTest {
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
-        when(readyService.serve(any(), any())).thenAnswer(inv -> new AskReadyResponse(
-                "ALL".equals(inv.getArgument(0)) ? "all" : inv.getArgument(0), List.of(question())));
-        when(regionRepository.findById(3L)).thenReturn(Optional.of(
+        when(readyService.serve(any())).thenAnswer(inv -> {
+            AskScope scope = inv.getArgument(0);
+            return new AskReadyResponse(scope.isEverywhere() ? "all" : scope.key(), List.of(question()));
+        });
+        when(regionRepository.findAllById(Set.of(3L))).thenReturn(List.of(
                 RegionEntity.builder().id(3L).name("Northumberland").enabled(true).build()));
-        when(regionRepository.findById(4L)).thenReturn(Optional.of(
+        when(regionRepository.findAllById(Set.of(4L))).thenReturn(List.of(
                 RegionEntity.builder().id(4L).name("Retired").enabled(false).build()));
     }
 
@@ -177,12 +179,15 @@ class AskControllerTest extends AbstractControllerTest {
         mockMvc.perform(get(URL).param("scope", " all ")).andExpect(status().isOk());
         // An empty value is Spring's own "missing", so it takes the default too.
         mockMvc.perform(get(URL).param("scope", "")).andExpect(status().isOk());
-        verify(readyService, org.mockito.Mockito.times(4)).serve(eq("ALL"), eq(java.util.Set.of()));
+        verify(readyService, org.mockito.Mockito.times(4)).serve(AskScope.ALL);
 
         mockMvc.perform(get(URL).param("scope", "3"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("3"));
-        verify(readyService).serve(eq("3"), eq(java.util.Set.of("Northumberland")));
+        ArgumentCaptor<AskScope> served = ArgumentCaptor.forClass(AskScope.class);
+        verify(readyService, org.mockito.Mockito.times(5)).serve(served.capture());
+        assertThat(served.getValue().key()).isEqualTo("3");
+        assertThat(served.getValue().names()).containsExactly("Northumberland");
     }
 
     @ParameterizedTest
@@ -193,7 +198,7 @@ class AskControllerTest extends AbstractControllerTest {
         mockMvc.perform(get(URL).param("scope", scope))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
-        verify(readyService, never()).serve(any(String.class), any(Collection.class));
+        verify(readyService, never()).serve(any(AskScope.class));
     }
 
     @Test

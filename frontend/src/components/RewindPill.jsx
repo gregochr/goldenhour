@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
-import { formatRewindInstant, setRewind } from '../utils/rewind.js';
+import { setRewind } from '../utils/rewind.js';
+import { formatDayClockUk } from '../utils/conversions.js';
 
 /**
  * The one visible sign that the page is rewound (`utils/rewind.js`): a thin full-width bar in the
@@ -28,7 +29,7 @@ export default function RewindPill({ rewind }) {
     >
       <span role="status" data-testid="rewind-pill-text">
         <span aria-hidden="true">⏪ </span>
-        Rewound to <span className="font-semibold">{formatRewindInstant(rewind.to)}</span> UK
+        Rewound to <span className="font-semibold">{formatDayClockUk(rewind.to)}</span> UK
       </span>
       <button
         type="button"

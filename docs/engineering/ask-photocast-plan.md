@@ -527,6 +527,40 @@ No Ask on the Operations tab: the field is not rendered there and switching to i
 - Hidden: while rewound; when `enabled` is false. Disabled: when `contentDisabled`.
 - "Pro: 30 a day" is text with `ProPill`, not a link.
 
+**As built (refactor, 2026-10-08) — the client says each thing once.** A behaviour-preserving pass: the
+DOM, text, test-ids, accessible names and classes of every Ask surface are as they were.
+- **The request context is read in one place.** `AskConversation` calls `useAskRequestContext(view, viewLabel)`
+  itself; the sheet, the dock and the peek used to copy its fields onto it as `scope`, `windowLabel`, `windowId`
+  and `regionIds` (plus a hand-written PropTypes validator policing two of them), and now pass `view` and
+  `viewLabel` only. `AskSheet`/`AskDock`/`MapPeekAsk` no longer call the hook at all (the peek hands both children
+  its fallback chip text); `AskInputRow` still calls it for what a question is sent with. The hook's `windowId` is
+  `null` where there is no window, never `undefined`.
+- **Pick facts are drawn once** (`components/ask/AskPickFacts.jsx`): `PickScore` (verdict word and star),
+  `PickTide` (wave glyph, state word, spoken clause) and `pickWhen(card)`. ⚠️ **The two hosts' visible copy was NOT
+  unified**: the card's spoken tide clause reads `Tide: …` (`<PickTide label="Tide" />`) and the plan view's reads
+  the bare clause under its own `Tide` cell label. Whether to unify them is an owner decision; the `label` prop is
+  what keeps each host's text where it was. `starsWord(n)` (`askModel.js`) is the one "star"/"stars" spelling.
+  `components/ask/askShapes.js` holds `pickCardShape`, `planActionsShape`, `refShape` and `objectRefShape` (the peek's
+  entry ref, which a callback ref cannot satisfy).
+- **One `SETTLED_PHASES`** (`askModel.js`, `answer|plan|cant|error`): `AskClearAnswer`, `askPeek`, `MapPeekAsk`
+  and `MapView` import it; `PEEK_SETTLED_PHASES` and `AskClearAnswer`'s private set are gone, and
+  `askSettledPhases.test.js` fails if a consumer restates the list. `meridiemOf(targetType)` is the one AM/PM word
+  (`MapPeekSheet` re-derived it).
+- **Window identity:** a pick card carries `windowKey` (`date:targetType`, `heatSpots.windowKey`), so the shell
+  stops recomputing it from the card in `askOpenInPlan` and the Plan highlight. The served `windowId`
+  (`2026-10-05_sunset`) and the Map pane's `askWindow` `{date, eventType, nonce}` are different channels and unchanged.
+- **Deleted as dead:** `AskConversation`'s `hidden` prop (no production mount passed it; every host unmounts the
+  conversation), `AskContext`'s `contextWindow` (no production reader; `removedWindow === null` says the same) and
+  `MapPeekAsk`'s `error?.message ??` fallback (`errorFor` always sets a message). `useAskReady`'s `enabled` option
+  STAYS: the conversation still passes `enabled: generatedAt !== null` (no briefing, nothing to fetch), and the
+  reset-during-render keeps a list from outliving that gate.
+- **The shell** writes the dock-opening body once: the `/` handler keeps its refusals (still in front of
+  `preventDefault`, which `AskShellKey.test.jsx` pins through `defaultPrevented`) and then calls `openAskDock()`,
+  which re-checks the foreign dialog (idempotent). One `selectedTabNode()` serves `askRestoreFallback` and the
+  dock's `fallbackFocus`. Renamed to mirror the dock's `askDockOpen`/`askDockShown` pair: state `askOpen` →
+  `askSheetOpen`, the derived `askSheetOpen` → `askSheetShown`, `openAsk` → `openAskSheet`, `dismissAsk` →
+  `closeAskSheet`. Earlier as-built notes in this file keep the names they were written under.
+
 ### 2.7 Map linkage (F3, F4)
 `MapView` gains `askPicks` (`[{rank, locationId, name, date, eventType, shortWindow, rating,
 verdict}]`), `askSelectedRank`, `onSelectAskPick`, `askWindow` (`{date, eventType, nonce}`).
@@ -660,6 +694,32 @@ the role check); 400 for a blank or over-200-character question or an unknown, d
 region ids; 409 when no briefing has been built. A FAILED run is a 200 carrying `status: FAILED` and the
 `reason`, since the admin is there to see why. `POST /api/admin/ask/ready/precompute` → `{written,
 skipped, failed}`. `GET /api/admin/ask/metrics?days=`.
+
+*As built (refactor, 2026-10-08) — a question's region scope is resolved once, as an `AskScope` value.* Scope had been a
+bare `Collection<String>` of region names re-normalised at seven sites with four spellings of "is this region in scope",
+a `(scopeKey, scopeNames)` pair carried as two parameters, and the region ids read from the database up to four times per
+typed question (`validRegionIds`, `resolve`, again inside the engine, again in the cache's `store`). Now
+`AskScopes.resolve(RegionRepository, Collection<Long>)` is the one merged method and `AskScope` the value it returns
+(`key`, `regionIds`, `names`, `contains`, `isEverywhere`, `readyScope`, and the one `AskScope.ALL`/`ALL_KEY`). **The rules
+that survive unchanged:** an unknown or disabled id fails rather than widens (`Optional.empty()`, which `AskService.validate`
+and the admin dry-run turn into the same 400 `INVALID` as before); empty ids mean every region; more than 20 ids or a null
+id is refused before the repository is asked. **The one-resolution rule:** `AskService.validate` resolves the ids once and
+the `AskQuestion` carries the scope (`question.regionIds()` still answers, delegating); `ClaudeAskEngine`, `StubAskEngine`,
+`CaffeineAskAnswerCache.store` and the Ready precompute read `question.scope()` and hold no `RegionRepository` for it (the
+precompute builds each region's scope from the entities it already read). Repository reads per typed question with a region
+scope: 2 before (`validRegionIds` + `resolve`) plus 1 in the real engine plus 1 in the cache's `store`, so 4; 1 now
+(`AskServiceTest.regionIdsAreReadOnce`, `AskScopesTest.idsResolveToAScope`). **`AskScope` is a final class, not a record, on
+purpose:** a record's canonical constructor is as public as the record, and scope is a safety boundary that must not be
+constructible from an id that did not resolve. **Two keys, not one:** `key()` is the typed cache's (sorted ids joined, or
+`ALL`); a question about several regions is answered from, and logged under, the whole catalogue's Ready scope
+(`readyScope()`, itself for one region, `ALL` otherwise), exactly as `AskService` had routed it. `names()` stays as stored and
+sorted because the system prompt prints them (the golden prompt tests would move if they were lower-cased); the single
+case-insensitive comparison lives in `contains`. `AskIntentMatcher.match` and `AskReadyService.serve/freshAnswers/suggestions`
+take the scope instead of a `(key, names)` pair, and `AskReadyService.ALL`/`CaffeineAskAnswerCache.ALL` are gone. The
+normalised form comes from `AskQuestionSanitiser` for every producer (`AskQuestion.of`): the dry-run and the Ready precompute
+had each lower-cased the text themselves, but nothing reads `normalised` on either path (it is read only by the Ready intent
+matcher, the typed cache and `ask_log`, all typed-only) and `ask_ready_answer` stores the offer's text, never the normalised
+form, so no stored key moved. Nothing on the wire moved.
 
 ---
 
@@ -2023,6 +2083,13 @@ migration — and the Codex review, and updates §0 at merge.
 
 ## §9 Local verification recipe
 
+> **Where the seeder lives (2026-10-08).** `AskLocalFixtureSeeder` (and `LocalH2EnumWidener`, §10) live under
+> `backend/src/local/java` and their tests under `backend/src/local-test/java`; both roots are compiled only by the
+> `local-dev` Maven profile (build-helper `add-source` / `add-test-source`), so neither class is in the production jar
+> and no CI gate prices them. The recipe below therefore needs `-Plocal-dev` on the `spring-boot:run` line. The IDE needs
+> the `local-dev` profile active to index these sources. Their tests run with
+> `./mvnw -Plocal-dev test -Dtest='AskLocalFixtureSeeder*,LocalH2EnumWidener*,LocalH2EnumOldSchema*' -DfailIfNoSpecifiedTests=false`.
+
 1. `application-local.yml` carries `photocast.ask.enabled: true` and `stub: true` (spend-free, safe as
    committed defaults). `seed-local-fixture` is **false** there and is turned on for one run on the command
    line (step 2): the seeder writes into the developer's own H2 file and triggers a briefing build, which
@@ -2073,7 +2140,7 @@ type fixed when the table is created, and `ddl-auto: update` does not alter it �
 `backend/data/goldenhour.mv.db` refuses an `ASK` row. B2a read this from the DDL; **B2b reproduced it**
 (`LocalH2EnumOldSchemaReproductionTest`: a file database with the fifteen pre-Ask `RunType` values, the real
 Hibernate with `update`, and `saveAndFlush(ASK)` fails with *Value not permitted for column … "ASK"*) **and
-fixed it**: `LocalH2EnumWidener` (local profile, H2 only, a `SmartInitializingSingleton`) widens each
+fixed it**: `LocalH2EnumWidener` (local profile, H2 only, under `backend/src/local/java` and compiled only by `-Plocal-dev`, a `SmartInitializingSingleton`) widens each
 registered column to its current values plus the Java enum's with one `ALTER TABLE … SET DATA TYPE ENUM(…)`
 (H2 keeps stored values and `NOT NULL`; checked), idempotent and never failing startup. Its registry
 (`TARGETS`) has one line, `job_run.run_type`; **add a line when a change adds a value to an enum whose column

@@ -8,7 +8,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,7 +21,7 @@ class AskPromptBuilderTest {
     @Test
     @DisplayName("states today's UK date with the day name, and the rules")
     void statesTodayAndTheRules() {
-        String prompt = builder.systemPrompt(MONDAY, Set.of(), Optional.empty(), true);
+        String prompt = builder.systemPrompt(MONDAY, TestScopes.of(), Optional.empty(), true);
 
         assertThat(prompt).contains("Today is Monday 5 October 2026 in the UK.")
                 .contains("every region")
@@ -37,7 +36,7 @@ class AskPromptBuilderTest {
     @Test
     @DisplayName("names the scope's regions, sorted, when the question has one")
     void namesTheScope() {
-        String prompt = builder.systemPrompt(MONDAY, List.of("Teesdale", "Northumberland"), Optional.empty(),
+        String prompt = builder.systemPrompt(MONDAY, TestScopes.of("Teesdale", "Northumberland"), Optional.empty(),
                 true);
 
         assertThat(prompt).contains("these regions only: Northumberland, Teesdale.")
@@ -50,7 +49,7 @@ class AskPromptBuilderTest {
         AskSnapshot.Window window = new AskSnapshot.Window("2026-10-10_sunrise", LocalDate.of(2026, 10, 10),
                 TargetType.SUNRISE, LocalDateTime.of(2026, 10, 10, 6, 0), null, null, null, List.of());
 
-        String prompt = builder.systemPrompt(MONDAY, Set.of(), Optional.of(window), true);
+        String prompt = builder.systemPrompt(MONDAY, TestScopes.of(), Optional.of(window), true);
 
         assertThat(prompt).contains("looking at Saturday 10 October sunrise (windowId 2026-10-10_sunrise)");
     }
@@ -59,8 +58,8 @@ class AskPromptBuilderTest {
     @DisplayName("a user-less conversation is told never to mention home; a typed one is told about "
             + "drive times, and never both")
     void userLessAndTypedDiffer() {
-        String shared = builder.systemPrompt(MONDAY, Set.of(), Optional.empty(), false);
-        String typed = builder.systemPrompt(MONDAY, Set.of(), Optional.empty(), true);
+        String shared = builder.systemPrompt(MONDAY, TestScopes.of(), Optional.empty(), false);
+        String typed = builder.systemPrompt(MONDAY, TestScopes.of(), Optional.empty(), true);
 
         assertThat(shared).contains("never mention home, distance or drive times")
                 .doesNotContain("maxDriveMinutes");
@@ -71,7 +70,7 @@ class AskPromptBuilderTest {
     @DisplayName("an events question must consult BOTH events tools, and 'no events' is allowed only after both "
             + "returned nothing")
     void eventsQuestionsRequireBothTools() {
-        String prompt = builder.systemPrompt(MONDAY, Set.of(), Optional.empty(), true)
+        String prompt = builder.systemPrompt(MONDAY, TestScopes.of(), Optional.empty(), true)
                 .replaceAll("\\s+", " ");
 
         assertThat(prompt).contains("call BOTH get_hot_topics")

@@ -121,7 +121,6 @@ const INITIAL = {
  *           (`utils/askMapContext.js`), or null when no Map pane is mounted
  * @property {?number} planPick the rank whose "Plan this" view is on screen, or null — non-null only
  *           while {@code phase} is {@code plan} and that pick still has a card
- * @property {boolean} contextWindow false while a window has been removed from the request
  * @property {?string} removedWindow the id of the window whose chip was removed; a DIFFERENT
  *           window brings the chip back by itself
  * @property {?{status: ?number, code: ?string, message: string}} error set in phase {@code error}
@@ -178,7 +177,6 @@ const AskContext = createContext({
   selectionNonce: 0,
   mapContext: null,
   planPick: null,
-  contextWindow: true,
   removedWindow: null,
   error: null,
   inputError: null,
@@ -518,7 +516,6 @@ export function AskProvider({ children }) {
     selectionNonce: conv.selectionNonce,
     mapContext,
     planPick,
-    contextWindow: removedWindow === null,
     removedWindow,
     error: conv.error,
     inputError: conv.inputError,

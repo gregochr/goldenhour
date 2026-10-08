@@ -20,7 +20,6 @@ import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ask.AskAnswerParser.Parsed;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Result;
@@ -39,7 +38,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -100,7 +98,6 @@ public class ClaudeAskEngine implements AskEngine {
     private final AskProperties properties;
     private final AskJobRunService jobRuns;
     private final DriveTimeResolver driveTimes;
-    private final RegionRepository regionRepository;
     private final AskAnswerValidator validator;
     private final AskPromptBuilder promptBuilder;
     private final ObjectMapper mapper;
@@ -116,7 +113,6 @@ public class ClaudeAskEngine implements AskEngine {
      * @param properties       the Ask settings
      * @param jobRuns          the per-day run, the turn log and the unrecorded-cost latch
      * @param driveTimes       the asker's own drive times, for {@code maxDriveMinutes}
-     * @param regionRepository resolves the question's region ids to names
      * @param validator        holds an answer to what the tools returned
      * @param promptBuilder    builds the system prompt
      * @param mapper           serialises tool results for the model
@@ -124,13 +120,12 @@ public class ClaudeAskEngine implements AskEngine {
      */
     public ClaudeAskEngine(AnthropicApiClient client, AskProperties properties,
             AskJobRunService jobRuns, DriveTimeResolver driveTimes,
-            RegionRepository regionRepository, AskAnswerValidator validator,
+            AskAnswerValidator validator,
             AskPromptBuilder promptBuilder, ObjectMapper mapper, Clock clock) {
         this.client = client;
         this.properties = properties;
         this.jobRuns = jobRuns;
         this.driveTimes = driveTimes;
-        this.regionRepository = regionRepository;
         this.validator = validator;
         this.promptBuilder = promptBuilder;
         this.mapper = mapper;
@@ -159,10 +154,6 @@ public class ClaudeAskEngine implements AskEngine {
         if (question.sanitised() == null || question.sanitised().isBlank()) {
             return failed("the question is empty", 0, false, List.of());
         }
-        Optional<Set<String>> scope = resolveScope(question);
-        if (scope.isEmpty()) {
-            return failed("a region id in the question's scope does not exist", 0, false, List.of());
-        }
         if (!accountingOpen()) {
             return failed(AskRun.ACCOUNTING_UNAVAILABLE, 0, false, List.of());
         }
@@ -177,7 +168,7 @@ public class ClaudeAskEngine implements AskEngine {
 
         AskRun run;
         try {
-            run = converse(question, snapshot, user, opts, scope.get(), runId, ready);
+            run = converse(question, snapshot, user, opts, runId, ready);
         } catch (RuntimeException e) {
             LOG.warn("[ASK] Conversation failed unexpectedly: {}", e.toString());
             run = failed("unexpected error: " + describe(e), 0, false, List.of());
@@ -191,8 +182,9 @@ public class ClaudeAskEngine implements AskEngine {
     // -- the loop ---------------------------------------------------------------------------
 
     private AskRun converse(AskQuestion question, AskSnapshot snapshot, AskUserContext user,
-            AskRunOptions opts, Set<String> scope, long startRunId, boolean ready) {
+            AskRunOptions opts, long startRunId, boolean ready) {
         EvaluationModel model = properties.getModel();
+        AskScope scope = question.scope();
         AskTools tools = new AskTools(snapshot, user, scope, driveTimes, mapper);
         Optional<AskSnapshot.Window> contextWindow = question.windowId() == null
                 ? Optional.empty() : snapshot.window(question.windowId());
@@ -406,7 +398,7 @@ public class ClaudeAskEngine implements AskEngine {
     }
 
     /** Reads, parses and validates the model's {@code submit_answer}; ends the conversation. */
-    private AskRun submit(ToolUseBlock block, AskSnapshot snapshot, AskTools tools, Set<String> scope,
+    private AskRun submit(ToolUseBlock block, AskSnapshot snapshot, AskTools tools, AskScope scope,
             AskRunOptions opts, ReadyQuestion eventsQuestion, int turns, List<AskTools.ToolCall> trace) {
         Parsed parsed = AskAnswerParser.parse(toNode(block._input()));
         trace.add(new AskTools.ToolCall(AskToolSchemas.SUBMIT_ANSWER, !parsed.ok(), 0));
@@ -438,11 +430,6 @@ public class ClaudeAskEngine implements AskEngine {
     }
 
     // -- scope and cost ---------------------------------------------------------------------
-
-    /** The question's region names, or empty when an id does not resolve. */
-    private Optional<Set<String>> resolveScope(AskQuestion question) {
-        return AskScopes.resolve(regionRepository, question);
-    }
 
     /**
      * Hands one model turn, failed or not, to {@link AskJobRunService#recordTurn}, which never throws:

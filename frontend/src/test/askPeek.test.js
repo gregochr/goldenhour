@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  askPeekMode, PEEK_HEIGHT, peekRestingHeight, peekTargetHeight, PEEK_SETTLED_PHASES,
+  askPeekMode, PEEK_HEIGHT, peekRestingHeight, peekTargetHeight,
 } from '../utils/askPeek.js';
+import { SETTLED_PHASES } from '../utils/askModel.js';
 
 /**
  * The phone peek sheet's Ask states, pure (`utils/askPeek.js`). The sheet's state is DERIVED from three
@@ -85,9 +86,9 @@ describe('the heights', () => {
   });
 
   it('the peek\'s settled phases are an answer, a plan (F5), a not-in-the-forecast reply and a failure: never empty, never busy', () => {
-    expect([...PEEK_SETTLED_PHASES].sort()).toEqual(['answer', 'cant', 'error', 'plan']);
-    expect(PEEK_SETTLED_PHASES).not.toContain('busy');
-    expect(PEEK_SETTLED_PHASES).not.toContain('empty');
+    expect([...SETTLED_PHASES].sort()).toEqual(['answer', 'cant', 'error', 'plan']);
+    expect(SETTLED_PHASES).not.toContain('busy');
+    expect(SETTLED_PHASES).not.toContain('empty');
   });
 
   it('a plan phase rests as the minimised line, like an answer', () => {
