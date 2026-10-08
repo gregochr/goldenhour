@@ -30,10 +30,16 @@ export function resolveRegionDisplay(region) {
 /**
  * Returns the quality tier (0–5) for a briefing region object.
  *
- * @param {{ displayVerdict?: string, verdict?: string, tideHighlights?: string[], slots?: Array<{ tideAligned?: boolean }> }} region
+ * <p>Whether a slot's tide suits its spot is not a slot field any more: it is served per window as
+ * {@code window.tideFacts} (docs/engineering/window-tide-facts-plan.md), so the caller hands in the
+ * lookup for the window this region belongs to. There is no default — a caller that has no facts
+ * says so with a predicate that answers false.
+ *
+ * @param {{ displayVerdict?: string, verdict?: string, tideHighlights?: string[], slots?: Array<object> }} region
+ * @param {function(object): boolean} alignedOf true when the given slot's tide suits it in this window
  * @returns {number} 0–5
  */
-export function computeCellTier(region) {
+export function computeCellTier(region, alignedOf) {
   if (!region) return 5;
 
   const dv = resolveRegionDisplay(region);
@@ -44,7 +50,7 @@ export function computeCellTier(region) {
     .some((h) => h.toLowerCase().includes('king'));
 
   const hasTideAligned = (region.slots || [])
-    .some((s) => s.tideAligned === true);
+    .some((s) => alignedOf(s) === true);
 
   if (dv === 'WORTH_IT') {
     if (hasKingTide) return 0;

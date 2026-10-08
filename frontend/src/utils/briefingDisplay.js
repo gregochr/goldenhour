@@ -51,16 +51,18 @@ export function isPoorSlot(slot) {
  *   5. Other MARGINAL
  *   6. STANDDOWN (filtered out by caller)
  *
- * @param {{ verdict?: string, tideAligned?: boolean, flags?: string[] }} slot
+ * @param {{ verdict?: string, flags?: string[] }} slot
+ * @param {boolean} aligned whether this slot's tide suits its spot in this window, from the window's
+ *        served tide facts (never a slot field)
  * @returns {number}
  */
-export function slotSortKey(slot) {
+export function slotSortKey(slot, aligned) {
   const v = VERDICT_ORDER[slot.verdict] ?? 3;
   const hasKing = (slot.flags || []).some((f) => f.toLowerCase().includes('king'));
   if (v === 0 && hasKing) return 0; // GO + king
-  if (v === 0 && slot.tideAligned) return 1; // GO + tide
+  if (v === 0 && aligned) return 1; // GO + tide
   if (v === 0) return 2; // GO plain
-  if (v === 1 && slot.tideAligned) return 3; // MARGINAL + tide
+  if (v === 1 && aligned) return 3; // MARGINAL + tide
   if (v === 1) return 4; // MARGINAL plain
   return 5;
 }
@@ -70,11 +72,12 @@ export function slotSortKey(slot) {
  * then A–Z within each group.
  *
  * @param {Array} slots
+ * @param {function(object): boolean} alignedOf true when the given slot's tide suits it in this window
  * @returns {Array} a new sorted array
  */
-export function sortedSlotsByTidePriority(slots) {
+export function sortedSlotsByTidePriority(slots, alignedOf) {
   return [...slots].sort((a, b) => {
-    const diff = slotSortKey(a) - slotSortKey(b);
+    const diff = slotSortKey(a, alignedOf(a)) - slotSortKey(b, alignedOf(b));
     return diff !== 0 ? diff : a.locationName.localeCompare(b.locationName);
   });
 }

@@ -3,6 +3,7 @@ import {
   buildWindowSpots, compareSpots, readableInkOn, spotBadgeStyle, spotOrderStatement,
 } from '../utils/windowFirstSpots.js';
 import { STOPS_VERDICT, rampHex } from '../utils/scoreRamp.js';
+import { factsOf } from './tideFactsFixture.js';
 
 /** A briefing slot as the payload carries one. */
 function slot(overrides = {}) {
@@ -24,12 +25,15 @@ function slot(overrides = {}) {
  * differ by an hour here, which is far more than the tens of minutes real geography produces —
  * a fixture's job is to be unmistakable, not typical.
  */
-function summary(slots, regionName = 'Northumberland & Tyneside') {
+function summary(slots, regionName = 'Northumberland & Tyneside', tideFacts = factsOf(slots)) {
   return {
     targetType: 'SUNSET',
     solarEventTime: '2026-08-14T19:00:00',
     regions: [{ regionName, slots }],
     unregioned: [],
+    // Tide is served per window beside the slots, not on them (window-tide-facts-plan.md). By
+    // default the fixture states a slot's tide once, on the slot, and serves the same facts.
+    window: tideFacts.length > 0 ? { tideFacts } : undefined,
   };
 }
 
@@ -228,6 +232,64 @@ describe('buildWindowSpots', () => {
       expect(s.tideState).toBeNull();
       expect(s.tideAligned).toBeNull();
       expect(s.tideQuality).toBeNull();
+    });
+  });
+
+  describe('tide comes from the window\'s served facts, not the slot (window-tide-facts-plan.md)', () => {
+    const FACT = {
+      locationId: 1, locationName: 'Bamburgh Castle', tideState: 'HIGH', tideAligned: true,
+      tideAlignmentQuality: 0.7,
+    };
+
+    it('copies the tide from the fact when the slot carries none', () => {
+      const [s] = buildWindowSpots(summary([slot()], undefined, [FACT]), new Map());
+      expect(s.tideState).toBe('HIGH');
+      expect(s.tideAligned).toBe(true);
+      expect(s.tideQuality).toBe(0.7);
+    });
+
+    it('prefers the fact over a contradicting slot (the slot is not a source)', () => {
+      const [s] = buildWindowSpots(summary(
+        [slot({ tideState: 'LOW', tideAligned: false, tideAlignmentQuality: null })], undefined, [FACT],
+      ), new Map());
+      expect([s.tideState, s.tideAligned, s.tideQuality]).toEqual(['HIGH', true, 0.7]);
+    });
+
+    it('gives a slot with no fact no tide at all, whatever the slot carries', () => {
+      const [s] = buildWindowSpots(summary(
+        [slot({ tideState: 'HIGH', tideAligned: true, tideAlignmentQuality: 0.9 })], undefined, [],
+      ), new Map());
+      expect([s.tideState, s.tideAligned, s.tideQuality]).toEqual([null, null, null]);
+    });
+
+    it('does not make a spot of a fact with no slot: the population still comes from slots', () => {
+      const spots = buildWindowSpots(summary(
+        [slot({ locationId: 5, locationName: 'Elsewhere' })], undefined, [FACT],
+      ), new Map());
+      expect(spots.map((s) => s.locationName)).toEqual(['Elsewhere']);
+      expect(spots[0].tideState).toBeNull();
+    });
+
+    it('mixes per spot: one location has a fact, its neighbour does not', () => {
+      const spots = buildWindowSpots(summary(
+        [slot(), slot({ locationId: 2, locationName: 'Craster' })], undefined, [FACT],
+      ), new Map());
+      const byName = Object.fromEntries(spots.map((s) => [s.locationName, s.tideState]));
+      expect(byName).toEqual({ 'Bamburgh Castle': 'HIGH', Craster: null });
+    });
+
+    it('joins by name when the slot has no id (a legacy slot)', () => {
+      const [s] = buildWindowSpots(summary(
+        [slot({ locationId: undefined })], undefined, [{ ...FACT, locationId: undefined }],
+      ), new Map());
+      expect(s.tideAligned).toBe(true);
+    });
+
+    it('reads a coastal miss fact as tideAligned false, not null', () => {
+      const [s] = buildWindowSpots(summary(
+        [slot()], undefined, [{ ...FACT, tideState: 'LOW', tideAligned: false, tideAlignmentQuality: undefined }],
+      ), new Map());
+      expect([s.tideState, s.tideAligned, s.tideQuality]).toEqual(['LOW', false, null]);
     });
   });
 

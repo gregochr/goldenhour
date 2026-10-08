@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { badgeChannel, buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildRegionRows } from '../utils/windowFirstRegions.js';
+import { factsOf } from './tideFactsFixture.js';
 
 const TODAY = '2026-08-04';
 const TOMORROW = '2026-08-05';
@@ -745,7 +746,9 @@ describe('buildWindowCards', () => {
           targetType: 'SUNSET',
           regions: [{ regionName: 'Northumberland & Tyneside', slots }],
           unregioned: [],
-          window: { verdict: 'WORTH_IT', badges: [], ...window },
+          window: {
+            verdict: 'WORTH_IT', badges: [], tideFacts: factsOf(slots), ...window,
+          },
         }])];
         return buildWindowCards(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
       }
