@@ -536,10 +536,12 @@ DOM, text, test-ids, accessible names and classes of every Ask surface are as th
   its fallback chip text); `AskInputRow` still calls it for what a question is sent with. The hook's `windowId` is
   `null` where there is no window, never `undefined`.
 - **Pick facts are drawn once** (`components/ask/AskPickFacts.jsx`): `PickScore` (verdict word and star),
-  `PickTide` (wave glyph, state word, spoken clause) and `pickWhen(card)`. ⚠️ **The two hosts' visible copy was NOT
-  unified**: the card's spoken tide clause reads `Tide: …` (`<PickTide label="Tide" />`) and the plan view's reads
-  the bare clause under its own `Tide` cell label. Whether to unify them is an owner decision; the `label` prop is
-  what keeps each host's text where it was. `starsWord(n)` (`askModel.js`) is the one "star"/"stars" spelling.
+  `PickTide` (wave glyph, state word, spoken clause) and `pickWhen(card)`. ⚠️ **Every surface says Tide once** (owner
+  decision, 2026-10-08, "Tide: everywhere", made in the conversation-reducer pass below). The pick card has no visible
+  tide label, so its spoken clause leads with `Tide: …`; the plan view's cell has a `<dt>Tide</dt>` that already says
+  it, so its clause stays bare (`<PickTide labelled={false} />`) and a screen reader reading straight through does not
+  hear it twice. The first cut of the decision made the clause `Tide: …` on both and dropped the prop, which doubled the
+  word on the plan view; the boolean (default `true`) is why the prop exists. `starsWord(n)` (`askModel.js`) is the one "star"/"stars" spelling.
   `components/ask/askShapes.js` holds `pickCardShape`, `planActionsShape`, `refShape` and `objectRefShape` (the peek's
   entry ref, which a callback ref cannot satisfy).
 - **One `SETTLED_PHASES`** (`askModel.js`, `answer|plan|cant|error`): `AskClearAnswer`, `askPeek`, `MapPeekAsk`
@@ -560,6 +562,68 @@ DOM, text, test-ids, accessible names and classes of every Ask surface are as th
   dock's `fallbackFocus`. Renamed to mirror the dock's `askDockOpen`/`askDockShown` pair: state `askOpen` →
   `askSheetOpen`, the derived `askSheetOpen` → `askSheetShown`, `openAsk` → `openAskSheet`, `dismissAsk` →
   `closeAskSheet`. Earlier as-built notes in this file keep the names they were written under.
+
+**As built (refactor, 2026-10-08, the conversation) — `AskContext` is a reducer and a seam.** Behaviour-preserving
+except for the two owner decisions at the end.
+- **`utils/askConversation.js`** is a pure `reduce(conv, action)` over one state object (`INITIAL_CONVERSATION`), with
+  `selectView(conv, pickCards)` and `normaliseAnswer(body, meta)`; `askConversation.test.js` checks every transition with
+  plain objects. Actions, and the old `setConv` site each replaced: `ASK_SENT` (`send`'s busy), `READY_OPENED`
+  (`openReady`'s busy), `ANSWERED` (`send`'s answer/cant landing AND the Ready timer's landing — the two were the same
+  object, so one action), `FAILED` (the malformed 200 and the other-failure catch, same object), `REFUSED` (the
+  404-off and the refusal-table restores; `inputError: null` keeps the restored conversation's own), `CLEARED`,
+  `PICK_SELECTED` (both `selectPick` writes, `rank: null` being the deselect), `PLAN_OPENED`, `PLAN_LEFT`. Thirteen
+  writes became nine actions. Ids and nonces (`answer.id`, `selectionNonce`) are minted by the provider and arrive in the
+  action: they count across conversations, which state that resets on `CLEARED` cannot.
+- **`settled` is a reducer field, and the mirrored ref is gone.** It is non-null only in a `busy` conversation: the last
+  conversation that was not busy, which `REFUSED` puts back (a question sent over one still out keeps the first's). The
+  three actions that RESOLVE a busy conversation (`ANSWERED`, `FAILED`, `REFUSED`) leave a conversation that is not busy
+  alone, as a second line behind `send`'s sequence check, which stays where "a late response is dropped" lives.
+- **`retryWith` is gone**: `ANSWERED`/`FAILED` take the question and the context from the busy conversation, an error
+  conversation holds its own, and `retry` re-asks `conv.question` with `conv.asked` when the stored phase is `error` (a
+  refusal that restores an earlier failure restores its retry with it).
+- **`'plan'` is a derived view, not a stored phase.** The stored `phase` is `empty|busy|answer|cant|error`; "Plan this" is
+  an `answer` with `planPick` set, and `selectView` reads it as `plan` only while that pick's card exists (otherwise it
+  reads as the answer again, the way `selectedPick` reads as null). One home for one fact; the exposed `phase` values are
+  unchanged.
+- **One normaliser** replaced `fromTyped`/`fromReady`: a Ready answer differs in four things only (always a ready,
+  answerable one; nothing missing; free, no allowance; run label and `generatedAt` from the list entry), carried as
+  `meta.ready`/`runLabel`/`generatedAt`.
+- **The Map pane's channel is `hooks/useAskMapContext.js`** (`mapContext` + `registerMapContext`), unrelated to the
+  conversation's lifecycle; the provider spreads both onto the same `useAsk()` value, so no consumer changed.
+- **`AskConversation.jsx` keeps the three live regions and the focus handoff** and renders `AskEmptyState` (with the
+  allowance line), `AskAnswer` (with "Plan this ›"), `AskCantAnswer` and `AskErrorState`; the pieces two of them share
+  are `AskSuggestion` (the Ready tag and its question) and `AskAnswerFoot` (the footer). DOM, text, test-ids and classes
+  are as they were. `AskConversation.test.jsx` is split the same way — `AskEmptyState`, `AskAnswer`, `AskCantAnswer`,
+  `AskErrorState`, `AskContextRefusals`, `AskContextLateResponse` — over `askConversationHarness.jsx`.
+- **Owner decision: no re-read of the allowance after an answer that states its figures.** The POST answer carries
+  `allowanceLeft`/`allowanceLimit`, which `applyServed` takes as the server's word; the follow-up `GET
+  /api/user/settings/ask` is gone. Paths that still re-read, because their body carries no allowance (an error body is
+  `{error, code}`): an answer missing either figure, a 200 that is not an answer, a lost connection, any failure that is
+  not a refusal (including `ENGINE_FAILED` and 500s), the refusals that can have moved it (all but `INVALID`,
+  `RATE_LIMITED`), and a response a newer ask or a clear overtook (a charged question was used; its own figure is not
+  applied). A 404 and the two refusals that cannot have moved the figure read nothing, as before. Accepted: the
+  `typedAvailable` flag, which a POST does not carry, stays as the last read had it until the next read.
+- **Owner decision: `Tide:` on every pick, said once** (see the pick-facts note above: the plan view's `<dt>` carries
+  the word, the card's clause does).
+- **Review fix: an older read cannot overwrite a served figure.** With no follow-up read, a `GET /api/user/settings/ask`
+  started earlier (by a failure, a refusal that moved the count, or a response a newer ask overtook) could resolve AFTER
+  a POST answer's figure was applied and put its older snapshot back, showing too many questions and leaving the field
+  enabled until the server refused one. `useAskAllowance` now versions its writes with a ref sequence: every read takes
+  a ticket when it starts (the effect), `applyServed` takes one too (only for a valid count), and a read — success or
+  failure — writes state only while its ticket is still the newest. A read started after a served figure is applied as
+  usual. Pinned in `useAskAllowance.test.jsx` (older read after a served figure, an older failure, a newer read, an
+  invalid served figure that must not invalidate, and the first of two reads resolving last).
+- **Review fix: an unknown count is not zero.** The first cut of the allowance decision exposed a backend assumption:
+  `AskService.left()` returned `0` when the usage read threw ("the next settings read shows the true figure"), and
+  `AskResponse.allowanceLeft` was a primitive `int`, so the client's "answer missing a figure → re-read" branch was
+  unreachable and a transient database failure would have served `allowanceLeft: 0`, which the client applies — typed
+  questions off until a UK-day turnover or a remount. Fixed at the source: `AskResponse.allowanceLeft` is a nullable
+  `Integer` (written as an explicit `null`, `@JsonInclude(ALWAYS)`; every normal answer is byte-identical),
+  `left()` returns `null` when the read fails and still logs at WARN, and the client's existing both-figures-are-whole-
+  numbers test treats it as missing and re-reads. `allowanceLimit` comes from configuration, not the read, and stays an
+  `int`. `GET /api/user/settings/ask` is a separate path and unchanged. Pinned by `AskServiceTest` (the typed answer,
+  the pre-filter can't and the engine can't with a failing read — the refund still lands), `AskTypedControllerTest` (the
+  wire carries the null) and `AskAnswer.test.jsx` (one re-read, never applied as zero).
 
 ### 2.7 Map linkage (F3, F4)
 `MapView` gains `askPicks` (`[{rank, locationId, name, date, eventType, shortWindow, rating,
@@ -1151,7 +1215,7 @@ when the provider's origin is away; the live region is empty while hidden; nothi
   day check), so an installed PWA left open overnight does not stay on "No own questions left today".
 - **Refusals restore the conversation.** `INVALID`, `RATE_LIMITED` and the three "no typed questions" codes put back
   what was on screen before the ask, with the server's sentence in `inputError` — nothing was used and a typo must not
-  cost the reader their answer. What "Try again" re-asks is part of that snapshot (`conv.retryWith`), so a refused
+  cost the reader their answer. What "Try again" re-asks is part of that snapshot (the restored conversation's own `question` and `asked`; it was a separate `retryWith` until the 2026-10-08 reducer pass), so a refused
   question cannot hijack the retry of an earlier failure (a review finding). Everything else that is not a refusal, the
   404 or a superseded response becomes phase `error`: `ENGINE_FAILED`, an unreadable 200, a 401, any other status, and a
   failure with no response. **A lost connection does not say "No question used"** (the request may have reached the
