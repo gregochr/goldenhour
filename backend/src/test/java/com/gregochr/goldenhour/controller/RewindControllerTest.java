@@ -60,6 +60,8 @@ class RewindControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.now").value(endsWith("Z")))
                 .andExpect(jsonPath("$.briefingGeneratedAt").value("2026-10-04T06:42:10Z"))
+                // The filter's own bound, served rather than copied into the view.
+                .andExpect(jsonPath("$.maxAgeDays").value(ForecastHorizon.SERVE_PAST_DAYS + 1))
                 .andExpect(jsonPath("$.events.length()").value(6))
                 .andExpect(jsonPath("$.events[0].eventType").value("SUNSET"))
                 .andExpect(jsonPath("$.events[1].eventType").value("SUNRISE"))

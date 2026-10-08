@@ -75,38 +75,3 @@ export function subscribeRewind(listener) {
 export function appNow() {
   return rewind ? new Date(rewind.to) : new Date();
 }
-
-const UK_INSTANT_FORMAT = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short',
-  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-});
-
-const UK_CLOCK_FORMAT = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-});
-
-/**
- * An instant as the admin reads it: UK wall time, "Sun 4 Oct, 05:58".
- *
- * @param {string|Date} instant - an ISO-8601 instant or a Date
- * @returns {string} the UK date and clock time, or '' for an unreadable instant
- */
-export function formatRewindInstant(instant) {
-  const date = instant instanceof Date ? instant : new Date(instant);
-  if (Number.isNaN(date.getTime())) return '';
-  // en-GB puts a comma between the day and the time already; normalise the weekday's own comma
-  // ("Sun, 4 Oct, 05:58" → "Sun 4 Oct, 05:58") so the pill reads as one phrase.
-  return UK_INSTANT_FORMAT.format(date).replace(/^(\w{3}),/, '$1');
-}
-
-/**
- * An instant's UK clock time alone, "05:58".
- *
- * @param {string|Date} instant - an ISO-8601 instant or a Date
- * @returns {string} HH:MM on the UK clock, or '' for an unreadable instant
- */
-export function formatRewindClock(instant) {
-  const date = instant instanceof Date ? instant : new Date(instant);
-  if (Number.isNaN(date.getTime())) return '';
-  return UK_CLOCK_FORMAT.format(date);
-}

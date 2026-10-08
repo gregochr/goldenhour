@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.StatusResponse.BuildInfo;
 import com.gregochr.goldenhour.model.StatusResponse.ComponentStatus;
 import com.gregochr.goldenhour.model.StatusResponse.SessionInfo;
 import com.gregochr.goldenhour.service.JwtService;
+import com.gregochr.goldenhour.util.Authorities;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -305,7 +306,7 @@ public class StatusController {
                 ? auth.getAuthorities().stream()
                 .findFirst()
                 .map(GrantedAuthority::getAuthority)
-                .map(a -> a.replace("ROLE_", ""))
+                .map(a -> a.replace(Authorities.ROLE_PREFIX, ""))
                 .orElse("UNKNOWN")
                 : "UNKNOWN";
         Instant loginTime = extractLoginTime(request);

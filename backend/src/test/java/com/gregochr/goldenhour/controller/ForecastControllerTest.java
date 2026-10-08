@@ -353,7 +353,7 @@ class ForecastControllerTest extends AbstractControllerTest {
         // some other number — is what this pins. A literal here would have to be edited in step
         // with the constant, which is how a test stops testing anything.
         assertThat(fromCaptor.getValue())
-                .isEqualTo(today.minusDays(ForecastController.PAST_WINDOW_DAYS));
+                .isEqualTo(today.minusDays(ForecastHorizon.SERVE_PAST_DAYS));
         assertThat(toCaptor.getValue())
                 .isEqualTo(today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS));
     }

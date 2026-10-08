@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getRewindEvents } from '../api/rewindApi.js';
-import { useRewind } from '../hooks/useRewind.js';
-import { formatRewindClock, formatRewindInstant, setRewind } from '../utils/rewind.js';
+import { setRewind } from '../utils/rewind.js';
+import { formatDateLabel, formatEventTimeUk } from '../utils/conversions.js';
 
 const EVENT_WORD = { SUNRISE: 'Sunrise', SUNSET: 'Sunset' };
 
-const UK_DAY_FORMAT = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short',
-});
+/**
+ * The backend's bound on a rewind, in days, until the payload has said what it is (`maxAgeDays`,
+ * served beside the events off the filter's own constant). The custom-moment input is offered
+ * while the events are still loading and after a failed load, and those two states are the only
+ * readers of this copy; a loaded view, an empty roster included, reads the served figure.
+ */
+const DEFAULT_MAX_AGE_DAYS = 3;
 
-/** The backend's own bound on a rewind: never further back than the serve window plus a day. */
-const MAX_AGE_DAYS = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** A Date as a `datetime-local` value in the browser's own zone, "YYYY-MM-DDTHH:MM". */
 function toLocalInputValue(date) {
@@ -21,20 +24,19 @@ function toLocalInputValue(date) {
 
 /**
  * Whether a `datetime-local` value names a moment the backend will accept: readable, not in the
- * future, not more than {@value MAX_AGE_DAYS} days ago. Mirrors `RewindFilter`'s own two bounds so
- * the button is disabled where the request would be a 400.
+ * future, not more than `maxAgeDays` days ago. Mirrors `RewindFilter`'s own two bounds so the
+ * button is disabled where the request would be a 400.
  */
-export function customInRange(value, now = new Date()) {
+export function customInRange(value, now = new Date(), maxAgeDays = DEFAULT_MAX_AGE_DAYS) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
   const ms = date.getTime();
-  return ms <= now.getTime() && ms >= now.getTime() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+  return ms <= now.getTime() && ms >= now.getTime() - maxAgeDays * DAY_MS;
 }
 
-/** "Sun 4 Oct" for a YYYY-MM-DD date, read as a UK calendar day. */
+/** "Sun 4 Oct" for a YYYY-MM-DD date — the app's own day label, never "Today"/"Tomorrow" here. */
 function dayLabel(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return UK_DAY_FORMAT.format(new Date(Date.UTC(y, m - 1, d, 12))).replace(/^(\w{3}),/, '$1');
+  return formatDateLabel(dateStr, undefined, true);
 }
 
 /**
@@ -45,10 +47,10 @@ function dayLabel(dateStr) {
  * <p>Sets nothing on the server. Choosing a moment writes the module-level rewind
  * (`utils/rewind.js`); from then on every GET carries it as {@code X-Rewind-To}, every client clock
  * read answers with it, and the whole app remounts (`App.jsx`'s `RewindGate`) on the moment chosen.
- * The pill in the corner of every page is the way back, and so is a reload.
+ * The bar above every page names the moment and is the way back, and so is a reload — which is
+ * why this view does not repeat it.
  */
 export default function RewindView() {
-  const rewind = useRewind();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [custom, setCustom] = useState('');
@@ -70,12 +72,14 @@ export default function RewindView() {
     setRewind(event.rewindTo, { date: event.date, eventType: event.eventType });
   };
 
-  const rewindToCustom = () => {
-    if (!customInRange(custom)) return;
-    setRewind(new Date(custom).toISOString());
-  };
   // Read at render so the bounds move with the clock while the view stays open.
   const wallNow = new Date();
+  const maxAgeDays = data?.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS;
+
+  const rewindToCustom = () => {
+    if (!customInRange(custom, new Date(), maxAgeDays)) return;
+    setRewind(new Date(custom).toISOString());
+  };
 
   const builtAfter = (event) => data?.briefingGeneratedAt
     && new Date(data.briefingGeneratedAt).getTime() > new Date(event.rewindTo).getTime();
@@ -91,25 +95,6 @@ export default function RewindView() {
         the forecast as it stood at that moment — that window live, its verdict, stars and best bet in
         place — so you can screenshot the forecast that sent you out after you have got back.
       </p>
-
-      {rewind && (
-        <div
-          className="flex flex-wrap items-center gap-3 rounded border border-plex-gold/60 bg-plex-gold/10 px-3 py-2 text-sm"
-          data-testid="rewind-current"
-        >
-          <span>
-            Rewound to <span className="font-semibold">{formatRewindInstant(rewind.to)}</span> UK
-          </span>
-          <button
-            type="button"
-            data-testid="rewind-exit"
-            onClick={() => setRewind(null)}
-            className="rounded bg-plex-gold px-3 py-1 text-xs font-semibold text-plex-bg hover:bg-plex-gold/80"
-          >
-            Back to live
-          </button>
-        </div>
-      )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
       {!error && !data && <p className="text-sm text-plex-text-muted">Loading…</p>}
@@ -132,7 +117,7 @@ export default function RewindView() {
                     {EVENT_WORD[event.eventType] ?? event.eventType} · {dayLabel(event.date)}
                   </span>
                   <span className="text-xs text-plex-text-muted">
-                    {formatRewindClock(event.earliest)}–{formatRewindClock(event.latest)} UK across
+                    {formatEventTimeUk(event.earliest)}–{formatEventTimeUk(event.latest)} UK across
                     {' '}{event.locationCount} {event.locationCount === 1 ? 'location' : 'locations'}
                     {event.passed ? '' : ' · still ahead'}
                     {event.passed && !event.inBriefing ? ' · no longer in the forecast' : ''}
@@ -145,7 +130,7 @@ export default function RewindView() {
                   )}
                   {event.passed && builtAfter(event) && (
                     <span className="text-xs text-plex-text-muted" data-testid={`rewind-built-after-${key}`}>
-                      Forecast last built {formatRewindClock(data.briefingGeneratedAt)} UK, after this
+                      Forecast last built {formatEventTimeUk(data.briefingGeneratedAt)} UK, after this
                       moment — a passed window is not re-scored, so it normally still matches.
                     </span>
                   )}
@@ -154,11 +139,11 @@ export default function RewindView() {
                   type="button"
                   data-testid={`rewind-to-${key}`}
                   disabled={!offerable(event)}
-                  aria-label={`Rewind to ${formatRewindClock(event.rewindTo)}, before the ${(EVENT_WORD[event.eventType] ?? event.eventType).toLowerCase()} of ${dayLabel(event.date)}`}
+                  aria-label={`Rewind to ${formatEventTimeUk(event.rewindTo)}, before the ${(EVENT_WORD[event.eventType] ?? event.eventType).toLowerCase()} of ${dayLabel(event.date)}`}
                   onClick={() => rewindToEvent(event)}
                   className="rounded bg-plex-surface border border-plex-border px-3 py-1 text-xs font-semibold text-plex-text hover:border-plex-gold disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Rewind to {formatRewindClock(event.rewindTo)}
+                  Rewind to {formatEventTimeUk(event.rewindTo)}
                 </button>
               </li>
             );
@@ -168,7 +153,7 @@ export default function RewindView() {
 
       <div className="flex flex-col gap-2 border-t border-plex-border pt-3">
         <label className="text-xs text-plex-text-muted" htmlFor="rewind-custom">
-          Or a moment of your own, in your browser’s time zone — within the last {MAX_AGE_DAYS} days.
+          Or a moment of your own, in your browser’s time zone — within the last {maxAgeDays} days.
           The Plan tab shows only the days the current briefing holds.
         </label>
         <div className="flex flex-wrap items-center gap-2">
@@ -176,7 +161,7 @@ export default function RewindView() {
             id="rewind-custom"
             type="datetime-local"
             value={custom}
-            min={toLocalInputValue(new Date(wallNow.getTime() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000))}
+            min={toLocalInputValue(new Date(wallNow.getTime() - maxAgeDays * DAY_MS))}
             max={toLocalInputValue(wallNow)}
             onChange={(e) => setCustom(e.target.value)}
             className="rounded border border-plex-border bg-plex-surface px-2 py-1 text-sm text-plex-text"
@@ -185,7 +170,7 @@ export default function RewindView() {
           <button
             type="button"
             data-testid="rewind-custom-go"
-            disabled={!customInRange(custom, wallNow)}
+            disabled={!customInRange(custom, wallNow, maxAgeDays)}
             onClick={rewindToCustom}
             className="rounded bg-plex-surface border border-plex-border px-3 py-1 text-xs font-semibold text-plex-text hover:border-plex-gold disabled:cursor-not-allowed disabled:opacity-40"
           >

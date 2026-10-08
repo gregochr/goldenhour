@@ -1,11 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
-  appNow, formatRewindClock, formatRewindInstant, getRewind, getRewindTo, setRewind, subscribeRewind,
+  appNow, getRewind, getRewindTo, setRewind, subscribeRewind,
 } from '../utils/rewind.js';
 
 /**
- * The rewind store: one module-level instant, one clock read for the whole client, and the UK
- * wording the pill and the Operations view print it in.
+ * The rewind store: one module-level instant and one clock read for the whole client.
  */
 describe('utils/rewind', () => {
   afterEach(() => {
@@ -52,13 +51,5 @@ describe('utils/rewind', () => {
     unsubscribe();
     setRewind('2026-10-04T05:58:00Z');
     expect(listener).toHaveBeenCalledTimes(2);
-  });
-
-  it('formats an instant as UK wall time — BST in October, GMT in January', () => {
-    expect(formatRewindInstant('2026-10-04T04:58:00Z')).toBe('Sun 4 Oct, 05:58');
-    expect(formatRewindInstant('2026-01-13T07:58:00Z')).toBe('Tue 13 Jan, 07:58');
-    expect(formatRewindClock('2026-10-04T04:58:00Z')).toBe('05:58');
-    expect(formatRewindInstant('nope')).toBe('');
-    expect(formatRewindClock('nope')).toBe('');
   });
 });
