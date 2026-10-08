@@ -68,15 +68,15 @@ class ReadyRelevanceTest {
     @DisplayName("which event types each question admits: RARE_EVENTS any, SNOW_TOPS only the three snow "
             + "topic types, every pick question none")
     void admitsEvent(ReadyQuestion question, String type, boolean admitted) {
-        assertThat(question.admitsEvent(type)).isEqualTo(admitted);
+        assertThat(ReadyRelevance.admitsEvent(question, type)).isEqualTo(admitted);
     }
 
     @Test
     @DisplayName("a missing type is admitted by RARE_EVENTS (it keeps anything) and by no other question")
     void nullType() {
-        assertThat(ReadyQuestion.RARE_EVENTS.admitsEvent(null)).isTrue();
-        assertThat(ReadyQuestion.SNOW_TOPS.admitsEvent(null)).isFalse();
-        assertThat(ReadyQuestion.BEST_NEXT.admitsEvent(null)).isFalse();
+        assertThat(ReadyRelevance.admitsEvent(ReadyQuestion.RARE_EVENTS, null)).isTrue();
+        assertThat(ReadyRelevance.admitsEvent(ReadyQuestion.SNOW_TOPS, null)).isFalse();
+        assertThat(ReadyRelevance.admitsEvent(ReadyQuestion.BEST_NEXT, null)).isFalse();
     }
 
     @Test
@@ -84,11 +84,12 @@ class ReadyRelevanceTest {
     void relevantPartOfAnEventsQuestion() {
         AskAnswer both = withEvents(event("AURORA", null), event("SNOW_FRESH", null));
 
-        assertThat(ReadyQuestion.SNOW_TOPS.relevantPart(both).events()).extracting(AskEvent::type)
+        assertThat(ReadyRelevance.relevantPart(ReadyQuestion.SNOW_TOPS, both).events()).extracting(AskEvent::type)
                 .containsExactly("SNOW_FRESH");
-        assertThat(ReadyQuestion.RARE_EVENTS.relevantPart(both).events()).extracting(AskEvent::type)
+        assertThat(ReadyRelevance.relevantPart(ReadyQuestion.RARE_EVENTS, both).events()).extracting(AskEvent::type)
                 .containsExactly("AURORA", "SNOW_FRESH");
-        assertThat(ReadyQuestion.SNOW_TOPS.relevantPart(withEvents(event("AURORA", null))).events()).isEmpty();
+        assertThat(ReadyRelevance.relevantPart(ReadyQuestion.SNOW_TOPS, withEvents(event("AURORA", null))).events())
+                .isEmpty();
     }
 
     @Test
@@ -98,10 +99,10 @@ class ReadyRelevanceTest {
         AskPick pick = pick(1, 1L, "Bamburgh", "Northumberland", "2026-10-05_sunset", 5);
         AskAnswer mixed = new AskAnswer(true, "S.", List.of(pick), List.of(event("AURORA", null)), null);
 
-        assertThat(ReadyQuestion.RARE_EVENTS.relevantPart(mixed).picks()).isEmpty();
-        assertThat(ReadyQuestion.RARE_EVENTS.relevantPart(mixed).events()).hasSize(1);
-        assertThat(ReadyQuestion.BEST_NEXT.relevantPart(mixed).events()).isEmpty();
-        assertThat(ReadyQuestion.BEST_NEXT.relevantPart(mixed).picks()).containsExactly(pick);
+        assertThat(ReadyRelevance.relevantPart(ReadyQuestion.RARE_EVENTS, mixed).picks()).isEmpty();
+        assertThat(ReadyRelevance.relevantPart(ReadyQuestion.RARE_EVENTS, mixed).events()).hasSize(1);
+        assertThat(ReadyRelevance.relevantPart(ReadyQuestion.BEST_NEXT, mixed).events()).isEmpty();
+        assertThat(ReadyRelevance.relevantPart(ReadyQuestion.BEST_NEXT, mixed).picks()).containsExactly(pick);
     }
 
     @Test
@@ -111,10 +112,10 @@ class ReadyRelevanceTest {
         AskAnswer eclipse = withEvents(event("ECLIPSE", "Certified solar filter on the lens"),
                 event("SNOW_TOPS", null));
 
-        assertThat(ReadyQuestion.SNOW_TOPS.dropsWarning(eclipse)).isTrue();
-        assertThat(ReadyQuestion.RARE_EVENTS.dropsWarning(eclipse)).isFalse();
-        assertThat(ReadyQuestion.SNOW_TOPS.dropsWarning(withEvents(event("AURORA", null)))).isFalse();
-        assertThat(ReadyQuestion.BEST_NEXT.dropsWarning(eclipse)).isTrue();
+        assertThat(ReadyRelevance.dropsWarning(ReadyQuestion.SNOW_TOPS, eclipse)).isTrue();
+        assertThat(ReadyRelevance.dropsWarning(ReadyQuestion.RARE_EVENTS, eclipse)).isFalse();
+        assertThat(ReadyRelevance.dropsWarning(ReadyQuestion.SNOW_TOPS, withEvents(event("AURORA", null)))).isFalse();
+        assertThat(ReadyRelevance.dropsWarning(ReadyQuestion.BEST_NEXT, eclipse)).isTrue();
     }
 
     @Test
@@ -126,12 +127,12 @@ class ReadyRelevanceTest {
         AskAnswer aurora = withEvents(event("AURORA", null));
         AskAnswer snow = withEvents(event("SNOW_TOPS", null));
 
-        assertThat(ReadyQuestion.SNOW_TOPS.violation(aurora, offer, snapshot, ALL))
+        assertThat(ReadyRelevance.violation(ReadyQuestion.SNOW_TOPS, aurora, offer, snapshot, ALL))
                 .hasValueSatisfying(v -> assertThat(v).contains("AURORA").contains("not relevant to SNOW_TOPS"));
-        assertThat(ReadyQuestion.SNOW_TOPS.violation(snow, offer, snapshot, ALL)).isEmpty();
-        assertThat(ReadyQuestion.RARE_EVENTS.violation(aurora, offer, snapshot, ALL)).isEmpty();
+        assertThat(ReadyRelevance.violation(ReadyQuestion.SNOW_TOPS, snow, offer, snapshot, ALL)).isEmpty();
+        assertThat(ReadyRelevance.violation(ReadyQuestion.RARE_EVENTS, aurora, offer, snapshot, ALL)).isEmpty();
         AskPick pick = pick(1, 1L, "Bamburgh", "Northumberland", "2026-10-05_sunset", 5);
-        assertThat(ReadyQuestion.RARE_EVENTS.violation(new AskAnswer(true, "S.", List.of(pick),
+        assertThat(ReadyRelevance.violation(ReadyQuestion.RARE_EVENTS, new AskAnswer(true, "S.", List.of(pick),
                 List.of(event("AURORA", null)), null), offer, snapshot, ALL))
                 .hasValueSatisfying(v -> assertThat(v).contains("not relevant to RARE_EVENTS"));
     }
@@ -140,7 +141,7 @@ class ReadyRelevanceTest {
 
     private static boolean admits(ReadyQuestion question, AskSnapshot snapshot, AskScope scope, AskPick pick) {
         ReadyQuestion.Offer offer = question.offer(snapshot, scope).orElseThrow();
-        return question.admitsPick(pick, offer, snapshot, scope);
+        return ReadyRelevance.admitsPick(question, pick, offer, snapshot, scope);
     }
 
     @Test
@@ -234,11 +235,11 @@ class ReadyRelevanceTest {
         assertThat(admits(ReadyQuestion.BEST_NEXT, snapshot, ALL, teesdalePick)).isTrue();
         ReadyQuestion.Offer northOffer = ReadyQuestion.BEST_NEXT.offer(snapshot, TestScopes.of("Northumberland"))
                 .orElseThrow();
-        assertThat(ReadyQuestion.BEST_NEXT.admitsPick(teesdalePick, northOffer, snapshot,
+        assertThat(ReadyRelevance.admitsPick(ReadyQuestion.BEST_NEXT, teesdalePick, northOffer, snapshot,
                 TestScopes.of("Northumberland"))).isFalse();
         assertThat(admits(ReadyQuestion.BEST_NEXT, snapshot, ALL, noSuchSlot)).isFalse();
         ReadyQuestion.Offer none = new ReadyQuestion.Offer("Any rare events coming up?", List.of(), null);
-        assertThat(ReadyQuestion.RARE_EVENTS.admitsPick(teesdalePick, none, snapshot, ALL)).isFalse();
-        assertThat(ReadyQuestion.SNOW_TOPS.admitsPick(teesdalePick, none, snapshot, ALL)).isFalse();
+        assertThat(ReadyRelevance.admitsPick(ReadyQuestion.RARE_EVENTS, teesdalePick, none, snapshot, ALL)).isFalse();
+        assertThat(ReadyRelevance.admitsPick(ReadyQuestion.SNOW_TOPS, teesdalePick, none, snapshot, ALL)).isFalse();
     }
 }

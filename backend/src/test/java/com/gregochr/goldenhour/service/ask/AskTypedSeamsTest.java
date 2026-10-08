@@ -8,11 +8,9 @@ import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AskUsageRepository;
-import com.gregochr.goldenhour.repository.JobRunRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import org.junit.jupiter.api.AfterEach;
@@ -86,7 +84,7 @@ class AskTypedSeamsTest {
     private AskReadyFixturesHolder world;
 
     /** The Friday-noon world and the services built over it. */
-    private record AskReadyFixturesHolder(AskSnapshot snapshot, AskReadyService readyService) {
+    private record AskReadyFixturesHolder(AskSnapshot snapshot, AskReadyServing readyServing) {
     }
 
     @BeforeEach
@@ -100,11 +98,8 @@ class AskTypedSeamsTest {
                 day(oct(10), true, true, AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland",
                         "Bamburgh", 1L), northumberland()),
                 both(oct(11), northumberland()));
-        AskReadyService readyService = new AskReadyService(properties, snapshotBuilder, engine, regions,
-                readyStore, mock(JobRunService.class), mock(JobRunRepository.class),
-                mock(HotTopicSimulationService.class), mock(AuroraStateCache.class), clock,
-                Duration.ofMinutes(5));
-        world = new AskReadyFixturesHolder(snapshot, readyService);
+        AskReadyServing readyServing = new AskReadyServing(snapshotBuilder, readyStore);
+        world = new AskReadyFixturesHolder(snapshot, readyServing);
         when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
         when(readyStore.findScope("ALL")).thenReturn(List.of(new AskReadyStore.Stored("ALL", "BEST_WEEKEND",
                 "Best spot this weekend?", WEEKEND, AskFixtures.GENERATED_AT, bamburghAnswer())));
@@ -140,8 +135,8 @@ class AskTypedSeamsTest {
         AskDenialCounter counter = new AskDenialCounter(clock, report -> denied.add(report.userId() + ":"
                 + report.counts()));
         service = new AskService(properties, new AskRateLimiter(properties, clock), users, regions,
-                snapshotBuilder, engine, usageStore, guard, world.readyService(), driveTimes,
-                new PhraseAskPreFilter(), new KeywordAskIntentMatcher(world.readyService()), cache,
+                snapshotBuilder, engine, usageStore, guard, world.readyServing(), driveTimes,
+                new PhraseAskPreFilter(), new KeywordAskIntentMatcher(world.readyServing()), cache,
                 logged::add, counter, clock);
     }
 

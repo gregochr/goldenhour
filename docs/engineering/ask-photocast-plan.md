@@ -846,6 +846,35 @@ in `TopicDailyLogJob`; `AskUsageEntity`'s counters are `updatable = false` with 
 the client as `LUNAR_ECLIPSE`, the type `eventKicker`/`badgeChannel` key on. `served` stays the tools' spelling, so the model's
 evidence and the prompt goldens are unchanged; stored Ready answers keep matching because every compare folds both sides.
 
+*As built (refactor, 2026-10-08) — the services split at their seams; relevance and day words have one home each.*
+**`AskJobRunService`** is the daily `ASK` run, `recordTurn` and the typed-spend sum; the unrecorded-turn holder and the accounting
+latch are **`UnrecordedTurnHolder`**, which owns the one lock. ⚠️ **The lock still guards the spend memo too:** `typedSpend(LongSupplier)`
+runs the service's memoised persisted-sum read and adds the unrecorded typed cost inside the holder's critical section, and
+`Ledger.settled` (called as each held turn is flushed, lock held) drops the memo and bumps the run's display cost, so a reader still
+sees a held turn or its persisted row, never both and never neither. The holder is a plain class with a three-method `Ledger`
+(`writeTurn`, `writeOverflow`, `settled`) and no repository; `AskJobRunService` supplies the ledger and keeps its constructor.
+`UnrecordedTurnHolderTest` drives it with a hand-written ledger; `AskUnrecordedCostTest` still drives the same code through
+the service (its ERROR-once log capture now listens on the holder's logger, and `UNRECORDED_CAP` lives on the holder).
+**`AskReadyService` is gone**: **`AskReadyPrecompute`** (the pipeline's `dispatchAfterRun`, the admin endpoint, the per-day ceiling,
+one-at-a-time, `Result`) and **`AskReadyServing`** (`serve`, `freshAnswers`, `suggestions`, taking only the snapshot builder and the
+store) share nothing but those two collaborators; `AskController`, `AskService` and `KeywordAskIntentMatcher` take the serving half,
+`AskAdminController` and `PipelineOrchestrator` the precompute half. `AskReadyServiceTest` split the same way
+(`AskReadyPrecomputeTest`, `AskReadyServingTest`; the Friday-noon snapshot moved to `ReadyFixtures.fridaySnapshot`).
+**`ReadyRelevance`** owns what a question may carry (`admitsEvent`, `admitsSlot`, `admitsPick`, `relevantPart`, `dropsWarning`,
+`violation`, and the one high-water test `COASTAL_HIGH` also offers on), keyed on the enum's `picks()`, `eventTypes()` and
+`COASTAL_HIGH`; `ReadyQuestion` keeps identity, tabs, `offer` and `anchor`. Store, serve and the validator still call the same
+predicates. **Day words:** `ReadyQuestion.dayWords`, `AskTools.dayWord` and `StubAskEngine.windowWords` are built on
+`DayLabels.relative` (its `Locale.UK` weekday names are `Locale.ENGLISH`'s, pinned by `ReadyTextContractTest`; `AskTools` capitalises
+the first letter, `ReadyQuestion` prefixes "on " beyond tomorrow). `AskPromptBuilder` keeps its own formatter on purpose: it prints
+the reader's window as "Saturday 10 October" even for today, where `DayLabels` would say "today". **`AskClock.londonHHmm`** is the one
+London `HH:mm` (the snapshot's run label, a Ready question's label, a tool result's clock; `AskSnapshotBuilder.runLabel` is gone).
+⚠️ **`ReadyQuestion.dayWords`/`nextWindowWords` output is a stored contract** (compared at serve time, parsed back by
+`ReadyIntentRules.nextWindowSubjects`); `ReadyTextContractTest` round-trips both ends for two weeks of days and both events, which
+`ReadyIntentRulesTest`'s hard-coded strings could not catch. Small tidy-ups in files already open: `AskTools.pickKind`,
+`StubAskEngine.dayWindows` and `ReadyIntentRules.withoutSubject` return `Optional`; `AskPromptBuilder.systemPrompt` takes a nullable window, as its
+Javadoc always said, rather than an `Optional` parameter. The "virtual threads" comment on `AskJobRunService`'s run lock is updated:
+on Java 25 (JEP 491) `synchronized` no longer pins, the lock is left as it was.
+
 ---
 
 ## §3 Phases

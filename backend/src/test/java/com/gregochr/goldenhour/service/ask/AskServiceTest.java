@@ -76,7 +76,7 @@ class AskServiceTest {
     private final AskEngine engine = mock(AskEngine.class);
     private final AskJobRunService jobRuns = mock(AskJobRunService.class);
     private final AdminAlertService alerts = mock(AdminAlertService.class);
-    private final AskReadyService readyService = mock(AskReadyService.class);
+    private final AskReadyServing readyServing = mock(AskReadyServing.class);
     private final DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
     private final AskPreFilter preFilter = mock(AskPreFilter.class);
     private final AskIntentMatcher matcher = mock(AskIntentMatcher.class);
@@ -105,7 +105,7 @@ class AskServiceTest {
         when(preFilter.refuse(any())).thenReturn(Optional.empty());
         when(matcher.match(any(), any())).thenReturn(Optional.empty());
         when(cache.lookup(any(), any(), any())).thenReturn(Optional.empty());
-        when(readyService.suggestions(any(), any(), anyInt())).thenReturn(List.of());
+        when(readyServing.suggestions(any(), any(), anyInt())).thenReturn(List.of());
         when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> ok());
         properties.setDailySpendCapUsd(0.5);
         usageStore = new AskUsageStore(usageRepository);
@@ -120,7 +120,7 @@ class AskServiceTest {
     private void rebuild() {
         AskSpendGuard guard = new AskSpendGuard(properties, jobRuns, alerts, clock);
         service = new AskService(properties, new AskRateLimiter(properties, clock), users, regions,
-                snapshotBuilder, engine, usageStore, guard, readyService, driveTimes, preFilter, matcher,
+                snapshotBuilder, engine, usageStore, guard, readyServing, driveTimes, preFilter, matcher,
                 cache, askLog, denials, clock);
     }
 
@@ -363,9 +363,9 @@ class AskServiceTest {
         submit(new AskRequest("Parking?", null, List.of(3L), "map"));
         submit(new AskRequest("Parking?", null, List.of(3L, 4L), "map"));
 
-        verify(readyService).suggestions(eq(AskScope.of(List.of(3L), Set.of("Northumberland"))), eq(snapshot),
+        verify(readyServing).suggestions(eq(AskScope.of(List.of(3L), Set.of("Northumberland"))), eq(snapshot),
                 eq(2));
-        verify(readyService).suggestions(eq(AskScope.ALL), eq(snapshot), eq(2));
+        verify(readyServing).suggestions(eq(AskScope.ALL), eq(snapshot), eq(2));
     }
 
     @Test
@@ -670,7 +670,7 @@ class AskServiceTest {
         List<AskReadyResponse.Suggestion> suggestions = List.of(
                 new AskReadyResponse.Suggestion("BEST_NEXT", "Best spot tonight?"),
                 new AskReadyResponse.Suggestion("RARE_EVENTS", "Any rare events coming up?"));
-        when(readyService.suggestions(any(), any(), anyInt())).thenReturn(suggestions);
+        when(readyServing.suggestions(any(), any(), anyInt())).thenReturn(suggestions);
 
         AskResponse response = ask("Is the car park free?");
 

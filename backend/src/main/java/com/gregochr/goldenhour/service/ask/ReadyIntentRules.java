@@ -290,25 +290,24 @@ final class ReadyIntentRules {
      */
     private static boolean asksForAPlace(List<String> words, List<List<String>> subjects,
             Set<String> extra) {
-        List<String> rest = withoutSubject(words, subjects);
-        return rest != null && rest.stream().anyMatch(WANTS_A_PLACE::contains)
-                && allIn(rest, ASKING, extra);
+        return withoutSubject(words, subjects).filter(rest -> rest.stream().anyMatch(WANTS_A_PLACE::contains)
+                && allIn(rest, ASKING, extra)).isPresent();
     }
 
     /**
      * The words with the first subject phrase that occurs in them removed (longest phrases are
-     * listed first), or null when none does.
+     * listed first), or empty when none does.
      */
-    static List<String> withoutSubject(List<String> words, List<List<String>> subjects) {
+    static Optional<List<String>> withoutSubject(List<String> words, List<List<String>> subjects) {
         for (List<String> subject : subjects) {
             int at = indexOf(words, subject);
             if (at >= 0) {
                 List<String> rest = new ArrayList<>(words);
                 rest.subList(at, at + subject.size()).clear();
-                return rest;
+                return Optional.of(rest);
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     private static int indexOf(List<String> words, List<String> phrase) {

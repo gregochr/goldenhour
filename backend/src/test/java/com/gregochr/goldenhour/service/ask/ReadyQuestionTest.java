@@ -299,14 +299,15 @@ class ReadyQuestionTest {
         AskPick onFriday = ReadyFixtures.pick(2, 2L, "Cheviot Edge", "Northumberland", "2026-10-09_sunset", 4,
                 AskFixtures.slot(2L, "x", 4).displayVerdict());
 
-        assertThat(ReadyQuestion.BEST_WEEKEND.violation(ReadyFixtures.answer(onSaturday), weekend, friday, ALL))
-                .isEmpty();
-        assertThat(ReadyQuestion.BEST_WEEKEND.violation(ReadyFixtures.answer(onSaturday, onFriday), weekend,
-                friday, ALL)).hasValueSatisfying(v -> assertThat(v).contains("is not relevant to BEST_WEEKEND"));
-        assertThat(ReadyQuestion.BEST_WEEKEND.violation(
+        assertThat(ReadyRelevance.violation(ReadyQuestion.BEST_WEEKEND, ReadyFixtures.answer(onSaturday),
+                weekend, friday, ALL)).isEmpty();
+        assertThat(ReadyRelevance.violation(ReadyQuestion.BEST_WEEKEND,
+                ReadyFixtures.answer(onSaturday, onFriday), weekend, friday, ALL))
+                .hasValueSatisfying(v -> assertThat(v).contains("is not relevant to BEST_WEEKEND"));
+        assertThat(ReadyRelevance.violation(ReadyQuestion.BEST_WEEKEND,
                 new AskAnswer(true, "Nothing.", List.of(), List.of(), null), weekend, friday, ALL))
                 .hasValueSatisfying(v -> assertThat(v).contains("no pick"));
-        assertThat(ReadyQuestion.RARE_EVENTS.violation(ReadyFixtures.answer(onSaturday),
+        assertThat(ReadyRelevance.violation(ReadyQuestion.RARE_EVENTS, ReadyFixtures.answer(onSaturday),
                 new Offer("Any rare events coming up?", List.of(), null), friday, ALL))
                 .hasValueSatisfying(v -> assertThat(v).contains("no event"));
     }
@@ -322,9 +323,10 @@ class ReadyQuestionTest {
         AskPick inland = ReadyFixtures.pick(1, 2L, "Cheviot Edge", "Northumberland", "2026-10-05_sunset", 4,
                 AskFixtures.slot(2L, "x", 4).displayVerdict());
 
-        assertThat(ReadyQuestion.COASTAL_HIGH.violation(ReadyFixtures.answer(coastal), offer, snapshot, ALL))
-                .isEmpty();
-        assertThat(ReadyQuestion.COASTAL_HIGH.violation(ReadyFixtures.answer(inland), offer, snapshot, ALL))
+        assertThat(ReadyRelevance.violation(ReadyQuestion.COASTAL_HIGH, ReadyFixtures.answer(coastal), offer,
+                snapshot, ALL)).isEmpty();
+        assertThat(ReadyRelevance.violation(ReadyQuestion.COASTAL_HIGH, ReadyFixtures.answer(inland), offer,
+                snapshot, ALL))
                 .hasValueSatisfying(v -> assertThat(v).contains("is not relevant to COASTAL_HIGH"));
     }
 

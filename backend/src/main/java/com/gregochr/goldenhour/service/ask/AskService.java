@@ -77,7 +77,7 @@ public class AskService {
     private final AskEngine engine;
     private final AskUsageStore usageStore;
     private final AskSpendGuard spendGuard;
-    private final AskReadyService readyService;
+    private final AskReadyServing readyServing;
     private final DriveTimeResolver driveTimeResolver;
     private final AskPreFilter preFilter;
     private final AskIntentMatcher intentMatcher;
@@ -97,7 +97,7 @@ public class AskService {
      * @param engine            the one active engine: the stub or Claude
      * @param usageStore        the per-day counters
      * @param spendGuard        the spend cap and the accounting latch
-     * @param readyService      chooses the {@code try} suggestions
+     * @param readyServing      chooses the {@code try} suggestions
      * @param driveTimeResolver whether the asker has stored drive times
      * @param preFilter         the can't-answer pre-filter (step 3)
      * @param intentMatcher     the Ready intent match (step 5)
@@ -109,7 +109,7 @@ public class AskService {
     public AskService(AskProperties properties, AskRateLimiter rateLimiter,
             AppUserRepository userRepository, RegionRepository regionRepository,
             AskSnapshotBuilder snapshotBuilder, AskEngine engine, AskUsageStore usageStore,
-            AskSpendGuard spendGuard, AskReadyService readyService,
+            AskSpendGuard spendGuard, AskReadyServing readyServing,
             DriveTimeResolver driveTimeResolver, AskPreFilter preFilter,
             AskIntentMatcher intentMatcher, AskAnswerCache cache, AskLog askLog,
             AskDenialCounter denials, Clock clock) {
@@ -121,7 +121,7 @@ public class AskService {
         this.engine = engine;
         this.usageStore = usageStore;
         this.spendGuard = spendGuard;
-        this.readyService = readyService;
+        this.readyServing = readyServing;
         this.driveTimeResolver = driveTimeResolver;
         this.preFilter = preFilter;
         this.intentMatcher = intentMatcher;
@@ -400,7 +400,7 @@ public class AskService {
         LocalDate day = ForecastHorizon.today(clock);
         int limit = properties.limitFor(user.getRole());
         List<AskReadyResponse.Suggestion> suggestions = snapshot == null ? List.of()
-                : readyService.suggestions(question.scope().readyScope(), snapshot, TRY_COUNT);
+                : readyServing.suggestions(question.scope().readyScope(), snapshot, TRY_COUNT);
         LocalDateTime generatedAt = snapshot == null ? null : snapshot.generatedAt();
         String runLabel = snapshot == null ? null : snapshot.runLabel();
         AskResponse response = new AskResponse(false, AskResponse.KIND_CANT, answer.summary(), List.of(),

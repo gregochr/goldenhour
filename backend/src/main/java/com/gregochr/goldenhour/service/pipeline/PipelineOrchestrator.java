@@ -14,7 +14,7 @@ import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.LocationFailureService;
-import com.gregochr.goldenhour.service.ask.AskReadyService;
+import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
@@ -123,7 +123,7 @@ public class PipelineOrchestrator {
     private final BatchRetryService batchRetryService;
     private final AdminAlertService adminAlertService;
     private final LocationFailureService locationFailureService;
-    private final AskReadyService askReadyService;
+    private final AskReadyPrecompute askReadyPrecompute;
     private final AlmanacService almanacService;
 
     /**
@@ -146,7 +146,7 @@ public class PipelineOrchestrator {
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      * @param locationFailureService          settles each cycle's per-place failure counting
-     * @param askReadyService                 precomputes Ask PhotoCast's Ready answers once the
+     * @param askReadyPrecompute                 precomputes Ask PhotoCast's Ready answers once the
      *                                        cycle's run is finished
      * @param almanacService                  rebuilds the "Coming up" feed's cache once the cycle's
      *                                        run is finished
@@ -163,14 +163,14 @@ public class PipelineOrchestrator {
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
-            AskReadyService askReadyService,
+            AskReadyPrecompute askReadyPrecompute,
             AlmanacService almanacService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService,
-                adminAlertService, locationFailureService, askReadyService, almanacService);
+                adminAlertService, locationFailureService, askReadyPrecompute, almanacService);
     }
 
     /**
@@ -231,7 +231,7 @@ public class PipelineOrchestrator {
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      * @param locationFailureService          settles each cycle's per-place failure counting
-     * @param askReadyService                 precomputes the Ready answers after the run is
+     * @param askReadyPrecompute                 precomputes the Ready answers after the run is
      *                                        finished; {@code null} skips it
      */
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -247,11 +247,11 @@ public class PipelineOrchestrator {
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
-            AskReadyService askReadyService) {
+            AskReadyPrecompute askReadyPrecompute) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock, backgroundExecutor, pollInterval, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService,
-                adminAlertService, locationFailureService, askReadyService, null);
+                adminAlertService, locationFailureService, askReadyPrecompute, null);
     }
 
     /**
@@ -271,7 +271,7 @@ public class PipelineOrchestrator {
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      * @param adminAlertService               emails enabled ADMINs when a cycle is marked DEGRADED
      * @param locationFailureService          settles each cycle's per-place failure counting
-     * @param askReadyService                 precomputes the Ready answers after the run is
+     * @param askReadyPrecompute                 precomputes the Ready answers after the run is
      *                                        finished; {@code null} skips it
      * @param almanacService                  rebuilds the "Coming up" feed after the run is
      *                                        finished; {@code null} skips it
@@ -289,7 +289,7 @@ public class PipelineOrchestrator {
             BatchRetryService batchRetryService,
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
-            AskReadyService askReadyService,
+            AskReadyPrecompute askReadyPrecompute,
             AlmanacService almanacService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
@@ -304,7 +304,7 @@ public class PipelineOrchestrator {
         this.pipelineRunPickService = pipelineRunPickService;
         this.batchRetryService = batchRetryService;
         this.locationFailureService = locationFailureService;
-        this.askReadyService = askReadyService;
+        this.askReadyPrecompute = askReadyPrecompute;
         this.almanacService = almanacService;
     }
 
@@ -701,10 +701,10 @@ public class PipelineOrchestrator {
      * @param runId the pipeline run that has just finished
      */
     private void dispatchAskReady(Long runId) {
-        if (askReadyService == null) {
+        if (askReadyPrecompute == null) {
             return;
         }
-        dispatchAfterRun(runId, "the Ask Ready precompute", () -> askReadyService.precompute(runId));
+        dispatchAfterRun(runId, "the Ask Ready precompute", () -> askReadyPrecompute.precompute(runId));
     }
 
     /**

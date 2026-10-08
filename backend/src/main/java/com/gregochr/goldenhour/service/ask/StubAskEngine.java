@@ -14,13 +14,13 @@ import com.gregochr.goldenhour.service.ask.AskTools.RankSpotsArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.RankSpotsResult;
 import com.gregochr.goldenhour.service.ask.AskTools.SpotInfo;
 import com.gregochr.goldenhour.service.ask.AskTools.TopicInfo;
+import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -145,7 +145,7 @@ public class StubAskEngine implements AskEngine {
                 ? List.of(question.windowId())
                 : anchor != null && !anchor.windowIds().isEmpty()
                 ? anchor.windowIds().stream().sorted().toList()
-                : dayWindows(text, snapshot);
+                : dayWindows(text, snapshot).orElse(null);
         Boolean coastal = COASTAL_WORDS.matcher(text).find() ? Boolean.TRUE : null;
         String tide = HIGH_TIDE.matcher(text).find() ? "HIGH"
                 : LOW_TIDE.matcher(text).find() ? "LOW" : null;
@@ -179,8 +179,8 @@ public class StubAskEngine implements AskEngine {
                 List.of(), null);
     }
 
-    /** The windows a day word in the question names, or null when it names none that exist. */
-    private static List<String> dayWindows(String text, AskSnapshot snapshot) {
+    /** The windows a day word in the question names, or empty when it names none that exist. */
+    private static Optional<List<String>> dayWindows(String text, AskSnapshot snapshot) {
         Predicate<LocalDate> wanted = null;
         LocalDate today = snapshot.today();
         if (TODAY_WORDS.matcher(text).find()) {
@@ -197,12 +197,12 @@ public class StubAskEngine implements AskEngine {
             }
         }
         if (wanted == null) {
-            return null;
+            return Optional.empty();
         }
         Predicate<LocalDate> onDay = wanted;
         List<String> ids = snapshot.windows().stream().filter(w -> onDay.test(w.date()))
                 .map(AskSnapshot.Window::id).toList();
-        return ids.isEmpty() ? null : ids;
+        return ids.isEmpty() ? Optional.empty() : Optional.of(ids);
     }
 
     private static String spotsSummary(List<SpotInfo> chosen, LocalDate today) {
@@ -237,15 +237,8 @@ public class StubAskEngine implements AskEngine {
     /** {@code today sunrise}, {@code tomorrow sunset}, {@code Thursday sunrise}. */
     private static String windowWords(String windowId, LocalDate today) {
         return AskWindowId.parse(windowId).map(parts -> {
-            String day;
-            if (parts.date().equals(today)) {
-                day = "today";
-            } else if (parts.date().equals(today.plusDays(1))) {
-                day = "tomorrow";
-            } else {
-                day = parts.date().getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
-            }
-            return day + " " + parts.targetType().name().toLowerCase(Locale.ROOT);
+            return DayLabels.relative(parts.date(), today) + " "
+                    + parts.targetType().name().toLowerCase(Locale.ROOT);
         }).orElse(windowId);
     }
 

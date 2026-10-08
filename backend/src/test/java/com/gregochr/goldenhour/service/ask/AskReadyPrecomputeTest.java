@@ -4,8 +4,6 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.model.BriefingWindow;
-import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
@@ -22,7 +20,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -31,11 +28,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
-import static com.gregochr.goldenhour.service.ask.ReadyFixtures.both;
-import static com.gregochr.goldenhour.service.ask.ReadyFixtures.day;
-import static com.gregochr.goldenhour.service.ask.ReadyFixtures.northumberland;
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.oct;
-import static com.gregochr.goldenhour.service.ask.ReadyFixtures.teesdale;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -49,12 +42,12 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link AskReadyService}: what a precompute runs and stores, every way it refuses or stops, the
+ * {@link AskReadyPrecompute}: what a precompute runs and stores, every way it refuses or stops, the
  * one-question-fails-the-rest-carry-on rule, the deadline and the per-day ceiling at their
- * boundaries, and what a serve returns. The engine is a fake that plays a well-behaved model over the
- * real snapshot; the snapshot, the predicates and the validator are the real ones.
+ * boundaries. What a serve returns is {@link AskReadyServingTest}. The engine is a fake that plays a well-behaved
+ * model over the real snapshot; the snapshot, the predicates and the validator are the real ones.
  */
-class AskReadyServiceTest {
+class AskReadyPrecomputeTest {
 
     private static final long JOB_RUN_ID = 900L;
     private static final Instant FRIDAY = Instant.parse("2026-10-09T12:00:00Z");
@@ -74,7 +67,7 @@ class AskReadyServiceTest {
     private final List<Call> calls = new CopyOnWriteArrayList<>();
     private Function<Call, AskRun> model;
     private AskSnapshot snapshot;
-    private AskReadyService service;
+    private AskReadyPrecompute service;
 
     /** One engine call, as the fake engine saw it. */
     private record Call(AskQuestion question, AskUserContext user, AskRunOptions options) {
@@ -83,7 +76,7 @@ class AskReadyServiceTest {
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
-        snapshot = fridaySnapshot();
+        snapshot = ReadyFixtures.fridaySnapshot();
         when(snapshotBuilder.build()).thenReturn(Optional.of(snapshot));
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(region(1L, "Northumberland"),
                 region(2L, "Teesdale")));
@@ -93,31 +86,18 @@ class AskReadyServiceTest {
         service = newService(Duration.ofMinutes(5));
     }
 
-    private AskReadyService newService(Duration deadline) {
+    private AskReadyPrecompute newService(Duration deadline) {
         AskEngine engine = (question, snap, user, options) -> {
             Call call = new Call(question, user, options);
             calls.add(call);
             return model.apply(call);
         };
-        return new AskReadyService(properties, snapshotBuilder, engine, regions, store, jobRunService,
+        return new AskReadyPrecompute(properties, snapshotBuilder, engine, regions, store, jobRunService,
                 jobRunRepository, hotTopicSimulation, auroraStateCache, clock, deadline);
     }
 
     private static RegionEntity region(long id, String name) {
         return RegionEntity.builder().id(id).name(name).enabled(true).build();
-    }
-
-    /** Friday noon: Saturday's sunset carries the BEST BET at Bamburgh; both regions in every window. */
-    private static AskSnapshot fridaySnapshot() {
-        BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Northumberland", "Bamburgh", 1L);
-        List<HotTopic> topics = List.of(
-                AskFixtures.topic("AURORA", "Aurora tonight", "Kp 6", oct(12), List.of()),
-                AskFixtures.topic("SNOW_TOPS", "Snow on the Cheviot", "Fresh snow", oct(12), List.of()));
-        return ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
-                List.of(day(oct(9), false, true, null, northumberland(), teesdale()),
-                        day(oct(10), true, true, best, northumberland(), teesdale()),
-                        both(oct(11), northumberland(), teesdale())),
-                topics);
     }
 
     // -- a well-behaved model ---------------------------------------------------------------
@@ -192,10 +172,10 @@ class AskReadyServiceTest {
     @DisplayName("a precompute runs every available question of every scope, user-less, one at a time, and "
             + "stores each answer with the question's text and windows")
     void runsEveryAvailableQuestion() {
-        AskReadyService.Result result = service.precompute(42L);
+        AskReadyPrecompute.Result result = service.precompute(42L);
 
         // ALL: 6 (BEST_SOON off with a weekend on); Northumberland: 6; Teesdale: 5 (no coastal high water).
-        assertThat(result).isEqualTo(new AskReadyService.Result(17, 4, 0, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(17, 4, 0, null));
         assertThat(storedKeys()).containsExactly(
                 "ALL/BEST_WEEKEND", "ALL/BEST_NEXT", "ALL/COASTAL_HIGH", "ALL/AM_OR_PM", "ALL/RARE_EVENTS",
                 "ALL/SNOW_TOPS",
@@ -253,7 +233,7 @@ class AskReadyServiceTest {
     @Test
     @DisplayName("an on-demand precompute is a manual run with no pipeline run behind it")
     void onDemandIsManual() {
-        AskReadyService.Result result = service.precomputeOnDemand();
+        AskReadyPrecompute.Result result = service.precomputeOnDemand();
 
         assertThat(result.written()).isEqualTo(17);
         verify(jobRunService).startRun(RunType.ASK_READY, true, properties.getModel());
@@ -279,7 +259,7 @@ class AskReadyServiceTest {
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(region(1L, "Northumberland"),
                 region(2L, "northumberland")));
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(result.failed()).isZero();
         assertThat(storedKeys()).contains("1/BEST_WEEKEND", "2/BEST_WEEKEND");
@@ -287,7 +267,7 @@ class AskReadyServiceTest {
 
     // -- refusals ---------------------------------------------------------------------------
 
-    private void assertRefused(AskReadyService.Result result, String reasonPart) {
+    private void assertRefused(AskReadyPrecompute.Result result, String reasonPart) {
         assertThat(result.wasRefused()).isTrue();
         assertThat(result.refusal()).contains(reasonPart);
         assertThat(result.written() + result.skipped() + result.failed()).isZero();
@@ -347,7 +327,7 @@ class AskReadyServiceTest {
 
         calls.clear();
         todaysScheduledRuns(6);
-        AskReadyService.Result atCeiling = service.precompute(2L);
+        AskReadyPrecompute.Result atCeiling = service.precompute(2L);
         assertThat(atCeiling.wasRefused()).isTrue();
         assertThat(atCeiling.refusal()).contains("ceiling of 6");
         assertThat(calls).isEmpty();
@@ -413,9 +393,9 @@ class AskReadyServiceTest {
             return goodModel(call, snapshot);
         };
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
-        assertThat(result).isEqualTo(new AskReadyService.Result(14, 4, 3, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(14, 4, 3, null));
         assertThat(calls).hasSize(17);
         verify(jobRunService).completeRun(job, 14, 3);
     }
@@ -426,9 +406,9 @@ class AskReadyServiceTest {
         doThrow(new IllegalStateException("db down")).when(store).upsert(eq("ALL"),
                 eq(ReadyQuestion.BEST_WEEKEND), any(), any(), any(), any());
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
-        assertThat(result).isEqualTo(new AskReadyService.Result(16, 4, 1, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(16, 4, 1, null));
     }
 
     @Test
@@ -453,7 +433,7 @@ class AskReadyServiceTest {
             };
         };
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         // ALL: weekend (no pick), tonight (outside its windows), coastal (personal) fail; rare is skipped.
         assertThat(result.failed()).isEqualTo(3);
@@ -497,7 +477,7 @@ class AskReadyServiceTest {
             return good;
         };
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(result.failed()).isZero();
         assertThat(storedAnswer("ALL", ReadyQuestion.SNOW_TOPS).events()).extracting(AskEvent::type)
@@ -518,10 +498,10 @@ class AskReadyServiceTest {
         model = call -> call.question().sanitised().equals("Is there snow on the tops?")
                 ? onlyAnAurora : goodModel(call, snapshot);
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         // The three SNOW_TOPS questions (ALL and both regions) are skipped; nothing failed.
-        assertThat(result).isEqualTo(new AskReadyService.Result(14, 4 + 3, 0, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(14, 4 + 3, 0, null));
         assertThat(storedKeys()).doesNotContain("ALL/SNOW_TOPS", "1/SNOW_TOPS", "2/SNOW_TOPS");
     }
 
@@ -536,7 +516,7 @@ class AskReadyServiceTest {
         model = call -> call.question().sanitised().equals("Is there snow on the tops?")
                 ? eclipseAndSnow : goodModel(call, snapshot);
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(result.failed()).isEqualTo(3);
         assertThat(storedKeys()).doesNotContain("ALL/SNOW_TOPS");
@@ -562,7 +542,7 @@ class AskReadyServiceTest {
             return run;
         };
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(calls).hasSize(2);
         assertThat(result.written()).isEqualTo(1);
@@ -577,7 +557,7 @@ class AskReadyServiceTest {
             return goodModel(call, snapshot);
         };
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(calls).hasSize(1);
         assertThat(result.written()).isEqualTo(1);
@@ -593,10 +573,10 @@ class AskReadyServiceTest {
             return goodModel(call, snapshot);
         };
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(calls).hasSize(3);
-        assertThat(result).isEqualTo(new AskReadyService.Result(3, 4 + 14, 0, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(3, 4 + 14, 0, null));
         verify(jobRunService).completeRun(job, 3, 0);
     }
 
@@ -627,10 +607,10 @@ class AskReadyServiceTest {
     void accountingUnavailableStops() {
         model = call -> calls.size() == 2 ? failed(AskRun.ACCOUNTING_UNAVAILABLE) : goodModel(call, snapshot);
 
-        AskReadyService.Result result = service.precompute(1L);
+        AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(calls).hasSize(2);
-        assertThat(result).isEqualTo(new AskReadyService.Result(1, 4 + 15, 1, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(1, 4 + 15, 1, null));
     }
 
     @Test
@@ -650,10 +630,10 @@ class AskReadyServiceTest {
         };
         ExecutorService other = Executors.newVirtualThreadPerTaskExecutor();
         try {
-            Future<AskReadyService.Result> first = other.submit(() -> service.precompute(1L));
+            Future<AskReadyPrecompute.Result> first = other.submit(() -> service.precompute(1L));
             assertThat(inside.await(10, TimeUnit.SECONDS)).isTrue();
 
-            AskReadyService.Result second = service.precomputeOnDemand();
+            AskReadyPrecompute.Result second = service.precomputeOnDemand();
             assertThat(second.refusal()).contains("already running");
 
             release.countDown();
@@ -663,136 +643,5 @@ class AskReadyServiceTest {
             other.shutdownNow();
         }
         assertThat(service.precomputeOnDemand().wasRefused()).isFalse();
-    }
-
-    // -- serve ------------------------------------------------------------------------------
-
-    private AskReadyStore.Stored saturdayBest(LocalDateTime built, int rating) {
-        AskPick pick = new AskPick(1, 1L, "Bamburgh", "Northumberland", oct(10),
-                com.gregochr.goldenhour.entity.TargetType.SUNSET, "2026-10-10_sunset", "Clear sky and the tide.",
-                rating, com.gregochr.goldenhour.model.DisplayVerdict.WORTH_IT.name());
-        return new AskReadyStore.Stored("ALL", "BEST_WEEKEND", "Best spot this weekend?",
-                List.of("2026-10-10_sunrise", "2026-10-10_sunset", "2026-10-11_sunrise", "2026-10-11_sunset"), built,
-                new AskAnswer(true, "Bamburgh.", List.of(pick), List.of(), null));
-    }
-
-    private AskReadyStore.Stored aurora(LocalDateTime built) {
-        return new AskReadyStore.Stored("ALL", "RARE_EVENTS", "Any rare events coming up?", List.of(), built,
-                new AskAnswer(true, "Aurora.", List.of(), List.of(new AskEvent("AURORA", "old label", oct(12),
-                        "Kp 6.", null)), null));
-    }
-
-    private AskReadyStore.Stored tonight(LocalDateTime built) {
-        AskPick pick = new AskPick(1, 1L, "Bamburgh", "Northumberland", oct(9),
-                com.gregochr.goldenhour.entity.TargetType.SUNSET, "2026-10-09_sunset", "Why.", 5,
-                com.gregochr.goldenhour.model.DisplayVerdict.WORTH_IT.name());
-        return new AskReadyStore.Stored("ALL", "BEST_NEXT", "Best spot tonight?", List.of("2026-10-09_sunset"), built,
-                new AskAnswer(true, "Tonight.", List.of(pick), List.of(), null));
-    }
-
-    @Test
-    @DisplayName("a serve returns the fresh questions in catalogue order, each with its own generatedAt and "
-            + "runLabel from its own row, live names, and two other fresh questions to try")
-    void serveReturnsFreshQuestions() {
-        LocalDateTime morning = LocalDateTime.of(2026, 10, 9, 5, 2, 11);
-        LocalDateTime evening = LocalDateTime.of(2026, 10, 8, 17, 5, 0);
-        when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
-        when(store.findScope("ALL")).thenReturn(List.of(aurora(evening), tonight(morning),
-                saturdayBest(morning, 5)));
-
-        AskReadyResponse response = service.serve(AskScope.ALL);
-
-        assertThat(response.scope()).isEqualTo("all");
-        assertThat(response.questions()).extracting(AskReadyResponse.Question::id)
-                .containsExactly("BEST_WEEKEND", "BEST_NEXT", "RARE_EVENTS");
-        AskReadyResponse.Question weekend = response.questions().getFirst();
-        assertThat(weekend.runLabel()).isEqualTo("06:02");
-        assertThat(weekend.generatedAt()).isEqualTo(morning);
-        assertThat(weekend.tabs()).containsExactly("plan", "map");
-        assertThat(weekend.answer().kind()).isEqualTo("ready");
-        assertThat(weekend.answer().answerable()).isTrue();
-        assertThat(weekend.answer().missing()).isNull();
-        assertThat(weekend.answer().picks()).singleElement().satisfies(p -> {
-            assertThat(p.locationName()).isEqualTo("Bamburgh");
-            assertThat(p.why()).isEqualTo("Clear sky and the tide.");
-        });
-        assertThat(weekend.answer().tryThese()).extracting(AskReadyResponse.Suggestion::id)
-                .containsExactly("BEST_NEXT", "RARE_EVENTS");
-        AskReadyResponse.Question rare = response.questions().get(2);
-        assertThat(rare.runLabel()).isEqualTo("18:05");
-        assertThat(rare.answer().events().getFirst().label()).isEqualTo("Aurora tonight");
-        assertThat(rare.answer().tryThese()).extracting(AskReadyResponse.Suggestion::id)
-                .containsExactly("BEST_WEEKEND", "BEST_NEXT");
-        assertThat(rare.answer().tryThese().getFirst().text()).isEqualTo("Best spot this weekend?");
-    }
-
-    @Test
-    @DisplayName("a question that fails freshness is withheld whole and the others are still served; with "
-            + "one question left there is nothing else to try")
-    void serveWithholdsTheStaleOne() {
-        when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
-        when(store.findScope("ALL")).thenReturn(List.of(saturdayBest(BUILT, 4), tonight(BUILT)));
-
-        AskReadyResponse response = service.serve(AskScope.ALL);
-
-        assertThat(response.questions()).extracting(AskReadyResponse.Question::id).containsExactly("BEST_NEXT");
-        assertThat(response.questions().getFirst().answer().tryThese()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("a region scope echoes its key and is checked against that region's names; a row for a "
-            + "question the catalogue no longer has is ignored")
-    void serveRegionScopeAndUnknownRows() {
-        when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
-        AskReadyStore.Stored bogus = new AskReadyStore.Stored("1", "BOGUS", "?", List.of(), BUILT,
-                new AskAnswer(true, "x", List.of(), List.of(), null));
-        when(store.findScope("1")).thenReturn(List.of(bogus, scopedTonight("1")));
-
-        AskReadyResponse response = service.serve(AskScope.of(List.of(1L), Set.of("Northumberland")));
-
-        assertThat(response.scope()).isEqualTo("1");
-        assertThat(response.questions()).extracting(AskReadyResponse.Question::id).containsExactly("BEST_NEXT");
-    }
-
-    private AskReadyStore.Stored scopedTonight(String scopeKey) {
-        AskReadyStore.Stored base = tonight(BUILT);
-        return new AskReadyStore.Stored(scopeKey, base.questionId(), base.questionText(), base.windowIds(),
-                base.briefingGeneratedAt(), base.answer());
-    }
-
-    @Test
-    @DisplayName("suggestions are the first fresh questions in catalogue order, at most the limit, and a stale "
-            + "one is never suggested")
-    void suggestionsAreFreshAndBounded() {
-        LocalDateTime morning = LocalDateTime.of(2026, 10, 9, 5, 2, 11);
-        when(store.findScope("ALL")).thenReturn(List.of(aurora(morning), tonight(morning),
-                saturdayBest(morning, 4)));
-
-        // The weekend answer was stored at 4★ and the live rating differs: stale, so it is not suggested.
-        assertThat(service.suggestions(AskScope.ALL, snapshot, 2)).extracting(
-                AskReadyResponse.Suggestion::id).containsExactly("BEST_NEXT", "RARE_EVENTS");
-        assertThat(service.suggestions(AskScope.ALL, snapshot, 1)).extracting(
-                AskReadyResponse.Suggestion::id).containsExactly("BEST_NEXT");
-        assertThat(service.suggestions(AskScope.ALL, snapshot, 0)).isEmpty();
-        assertThat(service.suggestions(AskScope.ALL, snapshot, -1)).isEmpty();
-        assertThat(service.suggestions(AskScope.ALL, snapshot, 2).getFirst().text())
-                .isEqualTo("Best spot tonight?");
-    }
-
-    @Test
-    @DisplayName("with nothing stored for the scope there is nothing to suggest")
-    void suggestionsWithNothingStored() {
-        when(store.findScope("3")).thenReturn(List.of());
-
-        assertThat(service.suggestions(AskScope.of(List.of(3L), Set.of("Northumberland")), snapshot, 2)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("with no briefing a serve is an empty list, not an error")
-    void serveWithNoBriefing() {
-        when(snapshotBuilder.current()).thenReturn(Optional.empty());
-
-        assertThat(service.serve(AskScope.ALL).questions()).isEmpty();
-        verifyNoInteractions(store);
     }
 }

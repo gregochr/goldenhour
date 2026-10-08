@@ -5,12 +5,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.util.DayLabels;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -19,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -74,8 +72,6 @@ public class AskTools {
     private static final String LIMIT_REACHED =
             "Tool output limit reached for this conversation. Answer now with what you have.";
 
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
-    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm");
     private static final Set<String> TIDE_STATES = Set.of("HIGH", "MID", "LOW");
 
     private final AskSnapshot snapshot;
@@ -494,23 +490,19 @@ public class AskTools {
                     .thenComparingLong(c -> c.slot().locationId());
 
     private static int pickOrder(AskSnapshot.Candidate c) {
-        BriefingWindow.PickKind kind = pickKind(c);
-        if (kind == null) {
-            return 2;
-        }
-        return kind == BriefingWindow.PickKind.BEST ? 0 : 1;
+        return pickKind(c).map(kind -> kind == BriefingWindow.PickKind.BEST ? 0 : 1).orElse(2);
     }
 
     /** Whether this slot is the window's forecast-wide pick, matched by id then by name. */
-    private static BriefingWindow.PickKind pickKind(AskSnapshot.Candidate c) {
+    private static Optional<BriefingWindow.PickKind> pickKind(AskSnapshot.Candidate c) {
         BriefingWindow.Pick pick = c.window().pick();
         if (pick == null) {
-            return null;
+            return Optional.empty();
         }
         boolean same = pick.locationId() != null
                 ? pick.locationId().equals(c.slot().locationId())
                 : pick.locationName() != null && pick.locationName().equals(c.slot().name());
-        return same ? pick.kind() : null;
+        return same ? Optional.of(pick.kind()) : Optional.empty();
     }
 
     private WindowInfo windowInfo(AskSnapshot.Window w) {
@@ -527,29 +519,21 @@ public class AskTools {
 
     private SpotInfo spotInfo(AskSnapshot.Candidate c, Integer minutes) {
         AskSnapshot.Slot s = c.slot();
-        BriefingWindow.PickKind kind = pickKind(c);
+        Optional<BriefingWindow.PickKind> kind = pickKind(c);
         return new SpotInfo(s.locationId(), s.name(), c.region().name(), c.window().id(),
                 s.rating(), s.verdict() == null ? null : s.verdict().name(), s.tideState(),
                 s.coastal() ? s.tideAligned() : null, s.tideFitPhrase(),
-                cap(s.headline(), HEADLINE_CAP), kind == null ? null : kind.name(), minutes);
+                cap(s.headline(), HEADLINE_CAP), kind.map(Enum::name).orElse(null), minutes);
     }
 
+    /** {@code Today}, {@code Tomorrow} or the weekday: the shared relative day, capitalised for a tool result. */
     private String dayWord(LocalDate date) {
-        LocalDate today = snapshot.today();
-        if (date.equals(today)) {
-            return "Today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "Tomorrow";
-        }
-        return date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
+        String relative = DayLabels.relative(date, snapshot.today());
+        return Character.toUpperCase(relative.charAt(0)) + relative.substring(1);
     }
 
     private static String clock(AskSnapshot.Window w) {
-        if (w.eventTime() == null) {
-            return null;
-        }
-        return w.eventTime().atZone(ZoneOffset.UTC).withZoneSameInstant(LONDON).format(CLOCK);
+        return AskClock.londonHHmm(w.eventTime());
     }
 
     private Map<Long, Integer> driveMinutesByLocation() {
