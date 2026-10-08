@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
 import java.time.LocalDate;
@@ -1516,10 +1517,10 @@ class PlanWindowProjectorTest {
                                 List.of())))),
                 List.of());
 
-        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW, Map.of())
+        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW, Map.of(), Map.of())
                 .days().get(0).eventSummaries().get(0).window();
         BriefingWindow rightOrder =
-                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW, Map.of())
+                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW, Map.of(), Map.of())
                         .days().get(0).eventSummaries().get(0).window();
 
         assertThat(wrongOrder.pick()).isNotNull();
@@ -1545,7 +1546,8 @@ class PlanWindowProjectorTest {
             DailyBriefingResponse out = PlanWindowProjector.apply(
                     response(twoWindowDay(), List.of()), NOW,
                     Map.of(new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNRISE), sunrise,
-                            new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNSET), sunset));
+                            new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNSET), sunset),
+                    Map.of());
 
             List<BriefingEventSummary> summaries = out.days().get(0).eventSummaries();
             assertThat(summaries.get(0).targetType()).isEqualTo(TargetType.SUNRISE);
@@ -1576,7 +1578,8 @@ class PlanWindowProjectorTest {
             DailyBriefingResponse out = PlanWindowProjector.apply(
                     response(twoWindowDay(), List.of()), NOW,
                     Map.of(new PlanWindowProjector.WindowKey(TODAY.plusDays(9), TargetType.SUNSET),
-                            tide("LW", "19:28")));
+                            tide("LW", "19:28")),
+                    Map.of());
 
             assertThat(out.days().get(0).eventSummaries())
                     .allSatisfy(es -> assertThat(es.window().tide()).isNull());
@@ -1587,6 +1590,72 @@ class PlanWindowProjectorTest {
                     BriefingWindowTide.Direction.FALLING, nearestType, nearestTime,
                     "1h43 before sunset", "4.9 m", "1.2 m above an average tide", null,
                     List.of(0.0, 0.5, 1.0), 0.88, 0.42);
+        }
+    }
+
+    @Nested
+    @DisplayName("per-location tide facts")
+    class TideFacts {
+
+        private LocationTideFact fact(String name) {
+            return new LocationTideFact(7L, name, "HIGH", true, 0.9, true, "1h before",
+                    0.8, "RISING", "4.9 m", null, "fits");
+        }
+
+        private List<BriefingDay> fourDays() {
+            return List.of(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3)));
+        }
+
+        @Test
+        @DisplayName("facts reach an unrendered window, each window its own")
+        void factsReachAnUnrenderedWindow() {
+            Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> facts =
+                    new java.util.HashMap<>();
+            for (int d = 0; d < 4; d++) {
+                facts.put(new PlanWindowProjector.WindowKey(TODAY.plusDays(d), TargetType.SUNRISE),
+                        List.of(fact("sunrise d" + d)));
+            }
+
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
+                    NOW, Map.of(), facts);
+
+            BriefingEventSummary unrendered = out.days().get(3).eventSummaries().get(0);
+            assertThat(out.renderedEvents()).doesNotContain(
+                    new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNRISE));
+            assertThat(unrendered.window().tideFacts()).containsExactly(fact("sunrise d3"));
+            assertThat(out.days().get(0).eventSummaries().get(0).window().tideFacts())
+                    .containsExactly(fact("sunrise d0"));
+        }
+
+        @Test
+        @DisplayName("facts reach a window that has already passed")
+        void factsReachAPastWindow() {
+            Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> facts = Map.of(
+                    new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNRISE),
+                    List.of(fact("gone")));
+            LocalDateTime tomorrowNoon = LocalDateTime.of(TODAY.plusDays(1), LocalTime.NOON);
+
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
+                    tomorrowNoon, Map.of(), facts);
+
+            assertThat(out.renderedEvents()).doesNotContain(
+                    new PlanRenderedEvent(TODAY, TargetType.SUNRISE));
+            assertThat(out.days().get(0).eventSummaries().get(0).window().tideFacts())
+                    .containsExactly(fact("gone"));
+        }
+
+        @Test
+        @DisplayName("a window with no entry carries null, never an empty list")
+        void aWindowWithoutFactsCarriesNull() {
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
+                    NOW, Map.of(), Map.of());
+
+            assertThat(out.days()).allSatisfy(day -> assertThat(day.eventSummaries())
+                    .allSatisfy(es -> assertThat(es.window().tideFacts()).isNull()));
         }
     }
 
@@ -1684,14 +1753,14 @@ class PlanWindowProjectorTest {
 
     @Test
     void aNullResponsePassesThrough() {
-        assertThat(PlanWindowProjector.apply(null, NOW, Map.of())).isNull();
+        assertThat(PlanWindowProjector.apply(null, NOW, Map.of(), Map.of())).isNull();
     }
 
     @Test
     void everyOtherComponentOfTheResponseSurvives() {
         DailyBriefingResponse in = response(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
 
-        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW, Map.of());
+        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW, Map.of(), Map.of());
 
         assertThat(out.headline()).isEqualTo(in.headline());
         assertThat(out.generatedAt()).isEqualTo(in.generatedAt());
@@ -1719,13 +1788,13 @@ class PlanWindowProjectorTest {
 
     private static DailyBriefingResponse projectAt(List<BriefingDay> days, List<HotTopic> topics,
             LocalDateTime now) {
-        return PlanWindowProjector.apply(response(days, topics), now, Map.of());
+        return PlanWindowProjector.apply(response(days, topics), now, Map.of(), Map.of());
     }
 
     /** As {@link #project}, with the per-window tide rollups the neutral badge detail reads. */
     private static DailyBriefingResponse projectWithTides(List<BriefingDay> days,
             List<HotTopic> topics, Map<PlanWindowProjector.WindowKey, BriefingWindowTide> tides) {
-        return PlanWindowProjector.apply(response(days, topics), NOW, tides);
+        return PlanWindowProjector.apply(response(days, topics), NOW, tides, Map.of());
     }
 
     /**

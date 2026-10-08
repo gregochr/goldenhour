@@ -178,10 +178,11 @@ class RecordWitherPreservationTest {
     /**
      * Tripwire, not a preservation check: {@code BriefingWindow} has no withers, so there is
      * nothing to preserve through. It fails if a wither appears without joining the table, and
-     * round-trips the canonical constructor so a component added in P1 is built and compared here.
+     * round-trips the canonical constructor so every component, {@code tideFacts} included (added in P1),
+     * is built and compared here.
      */
     @Test
-    @DisplayName("tripwire: BriefingWindow has no withers; P1 adds a component, re-check")
+    @DisplayName("tripwire: BriefingWindow has no withers; the canonical constructor carries every component")
     void briefingWindow_canonicalConstructorCarriesEveryComponent() throws Exception {
         assertThat(Arrays.stream(BriefingWindow.class.getDeclaredMethods())
                 .filter(m -> isWither(BriefingWindow.class, m)))
@@ -208,9 +209,10 @@ class RecordWitherPreservationTest {
     @DisplayName("tripwire: a BriefingWindow convenience constructor must register what it defaults")
     void briefingWindow_convenienceConstructorsDefaultOnlyRegisteredComponents() throws Exception {
         // Component names a convenience constructor of the given arity is documented to default.
-        // Empty today: BriefingWindow has only its canonical constructor. A constructor added
-        // later must be registered, which is the moment to state what it defaults.
-        Map<Integer, Set<String>> documentedDefaults = Map.of();
+        // The 8-arg form (every component but tideFacts) is the one P1 added so the existing
+        // `new BriefingWindow(` sites compile unchanged; it defaults tideFacts to null. A
+        // constructor added later must be registered, which is the moment to state what it defaults.
+        Map<Integer, Set<String>> documentedDefaults = Map.of(8, Set.of("tideFacts"));
 
         RecordComponent[] components = BriefingWindow.class.getRecordComponents();
         Object full = Sentinels.record(BriefingWindow.class, 1, Map.of());
