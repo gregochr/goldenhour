@@ -605,6 +605,14 @@ except for the two owner decisions at the end.
   `typedAvailable` flag, which a POST does not carry, stays as the last read had it until the next read.
 - **Owner decision: `Tide:` on every pick, said once** (see the pick-facts note above: the plan view's `<dt>` carries
   the word, the card's clause does).
+- **Review fix: an older read cannot overwrite a served figure.** With no follow-up read, a `GET /api/user/settings/ask`
+  started earlier (by a failure, a refusal that moved the count, or a response a newer ask overtook) could resolve AFTER
+  a POST answer's figure was applied and put its older snapshot back, showing too many questions and leaving the field
+  enabled until the server refused one. `useAskAllowance` now versions its writes with a ref sequence: every read takes
+  a ticket when it starts (the effect), `applyServed` takes one too (only for a valid count), and a read — success or
+  failure — writes state only while its ticket is still the newest. A read started after a served figure is applied as
+  usual. Pinned in `useAskAllowance.test.jsx` (older read after a served figure, an older failure, a newer read, an
+  invalid served figure that must not invalidate, and the first of two reads resolving last).
 - **Review fix: an unknown count is not zero.** The first cut of the allowance decision exposed a backend assumption:
   `AskService.left()` returned `0` when the usage read threw ("the next settings read shows the true figure"), and
   `AskResponse.allowanceLeft` was a primitive `int`, so the client's "answer missing a figure → re-read" branch was

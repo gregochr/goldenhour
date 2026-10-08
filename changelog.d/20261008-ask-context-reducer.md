@@ -25,3 +25,9 @@ figure to the next settings read, which no longer happens. `AskResponse.allowanc
 nullable value, written as an explicit `null` only in that failure case (every normal answer is
 unchanged), and the client treats it as unknown and re-reads instead of switching typed questions
 off.
+
+A second review finding followed from the same decision: a settings read still in flight when an
+answer's figure was applied (one started by an earlier failure, refusal or overtaken response) could
+resolve afterwards and put the older count back over the fresher one, leaving the field enabled until
+the server turned a question away. Reads in `useAskAllowance` now take a ticket when they start, and
+applying a served figure takes one too, so a read is applied only if nothing newer has happened.
