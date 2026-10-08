@@ -1017,6 +1017,23 @@ class AskToolsTest {
     }
 
     @Test
+    @DisplayName("get_coming_up keeps a NIGHT topic dated yesterday — the aurora alert for the night still "
+            + "running before dawn, whose morning half is today's sunrise — and stands it on today")
+    void getComingUp_runningNightTopicDatedYesterdayStandsOnToday() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
+                        TODAY.minusDays(1), List.of()).withEvent("NIGHT", "18:30"),
+                AskFixtures.topic("DUST", "Saharan dust", "d", TODAY.minusDays(1), List.of())
+                        .withEvent("SUNSET", "18:00"))));
+
+        ComingUpResult result = (ComingUpResult) tools(snapshot).getComingUp(null).payload();
+
+        assertThat(result.entries()).extracting(AskTools.ComingUpInfo::type).containsExactly("AURORA");
+        assertThat(result.entries().get(0).start()).isEqualTo(TODAY.toString());
+        assertThat(result.entries().get(0).end()).isEqualTo(TODAY.toString());
+    }
+
+    @Test
     @DisplayName("get_coming_up leaves out a live topic dated before today, beyond the horizon, undated or "
             + "naming only regions outside the question's scope")
     void getComingUp_liveTopicsAreBoundedByHorizonAndScope() {

@@ -454,6 +454,11 @@ public class AskTools {
      * does not already list, soonest first. A hot topic is stood in the timeline as a one-day entry
      * titled with its label, carrying its served detail and safety note.
      *
+     * <p>"Dated inside them" reads the dates a topic COVERS ({@link AskSnapshot.Topic#coversAnyOf}),
+     * not its date alone: a {@code NIGHT} topic dated yesterday — the aurora alert for the night
+     * still running before dawn — reaches this morning's sunrise, so it is listed, standing on
+     * today (the first date of its span still inside the window) rather than on a date already gone.
+     *
      * @param snapshot the snapshot the conversation runs against
      * @param scope    the question's region names, matched case-insensitively; empty means every region
      * @param days     how many days ahead, from today
@@ -468,11 +473,14 @@ public class AskTools {
                 .toList());
         List<AskSnapshot.ComingUp> almanac = List.copyOf(entries);
         snapshot.hotTopics().stream()
-                .filter(t -> t.date() != null && !t.date().isBefore(from) && !t.date().isAfter(to))
+                .filter(t -> t.coversAnyOf(from, to))
                 .filter(t -> t.inScope(scope))
                 .filter(t -> almanac.stream().noneMatch(e -> listedBy(e, t)))
-                .map(t -> new AskSnapshot.ComingUp(t.type(), t.label(), t.date(), t.date(), t.detail(),
-                        t.safetyNote()))
+                .map(t -> {
+                    LocalDate on = t.date().isBefore(from) ? from : t.date();
+                    return new AskSnapshot.ComingUp(t.type(), t.label(), on, on, t.detail(),
+                            t.safetyNote());
+                })
                 .forEach(entries::add);
         entries.sort(Comparator.comparing(AskSnapshot.ComingUp::startDate)
                 .thenComparing(AskSnapshot.ComingUp::title)

@@ -1,4 +1,5 @@
 import { ukDateStrOffset } from './mapDates.js';
+import { topicCoveredDates } from './windowFirstTopics.js';
 
 /**
  * The Coming up tab's handoff row — plan D14.
@@ -112,7 +113,10 @@ export function buildHandoff(todayStr, hotTopics) {
   const topics = [];
   for (const topic of hotTopics) {
     if (!topic?.type || !topic.date) continue;
-    if (topic.date < todayStr || topic.date > lastPlan) continue;
+    // The dates the topic COVERS, not its date alone: a NIGHT topic dated yesterday (the aurora
+    // alert for the night still running before dawn) reaches this morning's sunrise, which the
+    // first Plan card badges — so this row must count it too, or the two disagree.
+    if (!topicCoveredDates(topic).some((d) => d >= todayStr && d <= lastPlan)) continue;
     if (seen.has(topic.type)) continue;
     seen.add(topic.type);
     topics.push({

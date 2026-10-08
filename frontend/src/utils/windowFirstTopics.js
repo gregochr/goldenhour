@@ -197,6 +197,26 @@ export function topicWindowKeys(topic) {
 }
 
 /**
+ * The civil dates a served topic's windows fall on — {@link topicWindowKeys}' dates, de-duped, or
+ * the topic's own date when it has no solar anchor (storm surge, a clearance: dated, bucketed
+ * nowhere, but still a claim about that day).
+ *
+ * <p>⚠️ <b>A {@code NIGHT} topic covers TWO dates.</b> The aurora strategy dates its alert topic by
+ * the poller's night, which before dawn is YESTERDAY's — so a "dated before today" test on
+ * {@code topic.date} alone drops a topic whose remaining half, this morning's sunrise, the Plan
+ * card is badging at that very moment (a Codex review of #1056). Every date test over a topic must
+ * read this list, never {@code topic.date}.
+ *
+ * @param {?{date: string, type?: string, eventType: ?string}} topic a served {@code HotTopic}
+ * @returns {string[]} the `YYYY-MM-DD` dates covered, ascending; empty for an undated topic
+ */
+export function topicCoveredDates(topic) {
+  if (!topic?.date) return [];
+  const dates = [...new Set(topicWindowKeys(topic).map((key) => key.slice(0, key.indexOf(':'))))];
+  return dates.length > 0 ? dates.sort() : [topic.date];
+}
+
+/**
  * Indexes the served hot topics by the window keys they bucket onto.
  *
  * <p>Built once per render rather than per card: the join is O(topics) and the lookup O(1), where
