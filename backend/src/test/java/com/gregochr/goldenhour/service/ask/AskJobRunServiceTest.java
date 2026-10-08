@@ -14,7 +14,6 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -246,21 +245,6 @@ class AskJobRunServiceTest {
         assertThat(service.typedSpendTodayMicroDollars()).isEqualTo(900_000L);
         clock.set(Instant.parse("2026-10-05T23:00:05Z"));
         assertThat(service.typedSpendTodayMicroDollars()).isZero();
-    }
-
-    @Test
-    @DisplayName("ukDayStartUtc: BST, GMT and the two clock-change days")
-    void ukDayStart() {
-        assertThat(AskJobRunService.ukDayStartUtc(LocalDate.of(2026, 7, 1)))
-                .isEqualTo(LocalDateTime.of(2026, 6, 30, 23, 0));
-        assertThat(AskJobRunService.ukDayStartUtc(LocalDate.of(2026, 1, 1)))
-                .isEqualTo(LocalDateTime.of(2026, 1, 1, 0, 0));
-        // 2026-03-29: clocks go forward at 01:00 UTC, the day started in GMT.
-        assertThat(AskJobRunService.ukDayStartUtc(LocalDate.of(2026, 3, 29)))
-                .isEqualTo(LocalDateTime.of(2026, 3, 29, 0, 0));
-        // 2026-10-25: clocks go back at 01:00 UTC, the day started in BST.
-        assertThat(AskJobRunService.ukDayStartUtc(LocalDate.of(2026, 10, 25)))
-                .isEqualTo(LocalDateTime.of(2026, 10, 24, 23, 0));
     }
 
     @Test

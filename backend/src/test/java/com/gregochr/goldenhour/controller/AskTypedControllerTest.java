@@ -109,8 +109,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
     // -- the four seams ------------------------------------------------------------------------
 
     @Test
-    @DisplayName("in the real application context each B5 seam resolves to B5's implementation, not B4's "
-            + "no-op: the plain @Component wins over the @Fallback")
+    @DisplayName("in the real application context each seam resolves to its one real implementation")
     void theRealSeamsAreWired() {
         assertThat(preFilter).isInstanceOf(PhraseAskPreFilter.class);
         assertThat(intentMatcher).isInstanceOf(KeywordAskIntentMatcher.class);

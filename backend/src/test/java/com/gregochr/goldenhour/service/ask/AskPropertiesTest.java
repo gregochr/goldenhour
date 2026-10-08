@@ -53,7 +53,6 @@ class AskPropertiesTest {
 
         assertThat(p.isEnabled()).isFalse();
         assertThat(p.isStub()).isFalse();
-        assertThat(p.isSeedLocalFixture()).isFalse();
         assertThat(p.getModel()).isEqualTo(EvaluationModel.HAIKU);
         assertThat(p.getMaxTurns()).isEqualTo(4);
         assertThat(p.getMaxTokens()).isEqualTo(600);

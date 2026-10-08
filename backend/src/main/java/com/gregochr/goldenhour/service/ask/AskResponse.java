@@ -14,7 +14,8 @@ import java.util.List;
  * ran against, so nothing here is the model's except each {@code why} and the summary.
  *
  * @param answerable     false for {@code kind: cant}
- * @param kind           {@code ready} (B5), {@code own} (an engine answer or a cache hit) or {@code cant}
+ * @param kind           {@code ready} (matched to a fresh Ready answer), {@code own} (an engine answer or a
+ *                       cache hit) or {@code cant}
  * @param summary        the one or two sentences, or the can't-answer sentence
  * @param picks          at most three ranked picks; empty for {@code cant}
  * @param events         the event cards; empty for {@code cant}

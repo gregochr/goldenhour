@@ -4,10 +4,8 @@ import java.util.Optional;
 
 /**
  * The can't-answer pre-filter (plan §2.5 step 3): whole-word phrases (car park, crowds, opening
- * times…) the forecast can never answer, refused before anything is spent. <b>B5 implements it</b>;
- * until then {@link NoOpAskPreFilter} (a {@code @Fallback} bean) is wired, which never refuses, so
- * every question goes on to the later steps. A real {@code @Component} implementing this interface
- * wins over it.
+ * times…) the forecast can never answer, refused before anything is spent. Implemented by
+ * {@link PhraseAskPreFilter}; a question it does not refuse goes on to the later steps.
  */
 public interface AskPreFilter {
 

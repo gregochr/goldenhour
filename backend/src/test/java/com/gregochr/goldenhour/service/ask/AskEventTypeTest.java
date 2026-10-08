@@ -62,8 +62,8 @@ class AskEventTypeTest {
     }
 
     @Test
-    @DisplayName("the served type is upper-cased and stripped but keeps its dash: it is what a card carries, "
-            + "not an identity")
+    @DisplayName("the served type is upper-cased and stripped but keeps its dash: it is what the tools show "
+            + "the model; the card carries the key instead")
     void served() {
         assertThat(AskEventType.served(" lunar-eclipse ")).isEqualTo("LUNAR-ECLIPSE");
         assertThat(AskEventType.served("LUNAR_ECLIPSE")).isEqualTo("LUNAR_ECLIPSE");

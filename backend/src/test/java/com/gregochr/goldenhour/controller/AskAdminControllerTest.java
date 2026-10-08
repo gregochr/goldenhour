@@ -4,7 +4,6 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.RegionRepository;
-import com.gregochr.goldenhour.service.UserSettingsService.HomeLocation;
 import com.gregochr.goldenhour.service.ask.AskAnswer;
 import com.gregochr.goldenhour.service.ask.AskEngine;
 import com.gregochr.goldenhour.service.ask.AskMetricsService;
@@ -86,7 +85,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
     void setUp() {
         properties.setEnabled(true);
         when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
-        when(settingsService.getHomeLocation(any())).thenReturn(new HomeLocation(7L, null, null, null, null));
+        when(settingsService.getUserId(any())).thenReturn(7L);
         when(driveTimeResolver.hasDriveTimes(7L)).thenReturn(true);
         AskPick pick = new AskPick(1, 5L, "Bamburgh", "Coast", LocalDate.of(2026, 10, 5), TargetType.SUNSET,
                 "2026-10-05_sunset", "Clear sky.", 5, "WORTH_IT");
@@ -322,7 +321,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
             mockMvc.perform(post(URL).contentType(APPLICATION_JSON)
                             .content(body("Best spot?", ",\"regionIds\":" + ids)))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value("Unknown, disabled or too many region ids."));
+                    .andExpect(jsonPath("$.error").value("Unknown, disabled or too many regions."));
         }
         verifyNoInteractions(engine);
     }

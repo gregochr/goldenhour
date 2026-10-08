@@ -5,9 +5,8 @@ import java.util.Optional;
 /**
  * The typed-answer cache (plan §2.5 step 6, D-6): a shared answer to a question already paid for,
  * served free and re-checked for freshness against live data on every hit. The key (scope, UK date,
- * briefing build, normalised question, window, and the user only for a personal answer) is B5's to
- * define. <b>B5 implements it</b>; until then {@link NoOpAskAnswerCache} (a {@code @Fallback} bean)
- * is wired: always a miss, stores nothing. A real {@code @Component} wins over it.
+ * briefing build, normalised question, window, and the user only for a personal answer) is defined by
+ * the implementation, {@link CaffeineAskAnswerCache}.
  */
 public interface AskAnswerCache {
 

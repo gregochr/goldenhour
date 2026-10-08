@@ -21,7 +21,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -99,8 +98,6 @@ public class AskJobRunService {
     /** The {@code request_url} tag of a Ready turn's row. */
     static final String URL_READY = "ask-ready";
 
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
-
     private final JobRunService jobRunService;
     private final JobRunRepository jobRunRepository;
     private final ApiCallLogRepository apiCallLogRepository;
@@ -158,7 +155,7 @@ public class AskJobRunService {
             }
             long id = jobRunRepository
                     .findFirstByRunTypeAndStartedAtGreaterThanEqualOrderByStartedAtDesc(RunType.ASK,
-                            ukDayStartUtc(today))
+                            ForecastHorizon.ukDayStartUtc(today))
                     .map(JobRunEntity::getId)
                     .orElseGet(() -> createDailyRun().getId());
             cachedDay = today;
@@ -217,7 +214,7 @@ public class AskJobRunService {
      * Today's typed spend: the recorded cost of every call logged against an {@code ASK} run started
      * since UK midnight (reused for {@value #SPEND_MEMO_SECONDS} seconds) <em>plus</em> the cost of
      * every typed turn still unrecorded, which is never memoised. {@code ASK_READY} spend is not in it.
-     * The B4 spend cap compares this with {@link AskProperties#dailySpendCapMicroDollars()}.
+     * The typed spend cap ({@link AskSpendGuard}) compares this with {@link AskProperties#dailySpendCapMicroDollars()}.
      * Unrecorded cost from before UK midnight is counted too: it cannot be attributed to a day, and
      * counting it is the safe direction.
      *
@@ -232,7 +229,7 @@ public class AskJobRunService {
                     || Duration.between(spendMemoAt, now).compareTo(
                             Duration.ofSeconds(SPEND_MEMO_SECONDS)) >= 0) {
                 spendMemo = apiCallLogRepository.sumCostMicroDollarsByRunTypeStartedSince(RunType.ASK,
-                        ukDayStartUtc(today));
+                        ForecastHorizon.ukDayStartUtc(today));
                 spendMemoAt = now;
                 spendMemoDay = today;
             }
@@ -425,15 +422,5 @@ public class AskJobRunService {
             }
         }
         return sum;
-    }
-
-    /**
-     * The start of a UK civil day as the UTC {@code LocalDateTime} job runs are stamped with.
-     *
-     * @param day the UK civil date
-     * @return its midnight, in UTC
-     */
-    static LocalDateTime ukDayStartUtc(LocalDate day) {
-        return day.atStartOfDay(LONDON).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
     }
 }

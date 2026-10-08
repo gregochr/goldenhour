@@ -59,7 +59,7 @@ import java.util.regex.Pattern;
  * daily {@code ASK} run's counters are display-only and Operations should show Claude's spend, not
  * local rehearsals). It does enforce the same options contract as the Claude engine
  * ({@link AskRunOptions#requireConsistentWith}) so a caller that would misbill a real run fails the
- * same way against the stub. It has no pre-filter: that is a separate, earlier step (B5).
+ * same way against the stub. It has no pre-filter: that is a separate, earlier step ({@link PhraseAskPreFilter}).
  */
 @Service
 @Conditional(AskEngineSelection.StubSelected.class)
