@@ -198,6 +198,17 @@ describe('App — the admin rewind', () => {
     await waitFor(() => expect(screen.queryByTestId('rewind-pill')).toBeNull());
   });
 
+  it('the pill stays above the Operations tab — the tab the rewind is set from, and the way back from it', async () => {
+    act(() => setRewind(REWIND_TO));
+    renderApp('ADMIN');
+    const operations = await screen.findByRole('tab', { name: 'Operations' });
+    await act(async () => { fireEvent.click(operations); });
+
+    await screen.findByTestId('manage-stub');
+    expect(screen.getByTestId('rewind-pill')).toHaveTextContent('Rewound to Sun 4 Oct, 05:58 UK');
+    expect(screen.getByTestId('rewind-pill-exit')).toBeInTheDocument();
+  });
+
   it('the rewind\'s window — yesterday\'s sunrise — is handed to the Map tab as an explicit, lens-free selection on a date the live clock would refuse', async () => {
     // Sanity: on the live clock yesterday IS past, so the never-past rule would drop it.
     expect(YESTERDAY < ukDateStr(new Date())).toBe(true);

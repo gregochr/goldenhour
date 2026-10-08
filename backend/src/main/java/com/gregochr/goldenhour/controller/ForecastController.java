@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastListDto;
@@ -19,6 +20,7 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
+import com.gregochr.goldenhour.util.Authorities;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +30,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -67,58 +68,6 @@ public class ForecastController {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastController.class);
 
-    /**
-     * How many past days the list endpoint returns, alongside the forward horizon — anchored on the
-     * UK civil date (see {@link ForecastHorizon}).
-     *
-     * <p>⚠️ <b>Shared.</b> {@link BriefingEvaluationController} reuses this constant for
-     * {@code GET /api/briefing/evaluate/scores}, so changing it moves both endpoints' windows.
-     *
-     * <p>Was 7, added by f58621f0 together with the DateStrip's dimmed past chips (the DateStrip
-     * has since been retired). Reduced to 2 because the payload is cached client-side for instant
-     * paint and the past half of it was the larger half: past days are fully dense (every one was
-     * scored when it was T+0, and each WILDLIFE-only hide carries one HOURLY comfort row per
-     * daylight hour — roughly 8 to 18 a day — written for today through T+5 by
-     * {@code WildlifeComfortRefreshJob}, so a past day's rows are whatever the last refresh left;
-     * waterfalls never carry any) while T+4 and beyond are never batch-evaluated.
-     *
-     * <p><b>Not zero, for two reasons the frontend depends on</b> — neither visible from here:
-     *
-     * <ul>
-     *   <li><b>The aurora night in progress.</b> A night runs dusk to dawn, so before dawn it is
-     *       YESTERDAY's date. The frontend's {@code mapDates.resolveMapDate}, which picks the Map
-     *       tab's date, honours a selection naming that night — set by the aurora banner, and by the
-     *       tab's own auto-jump to a night with a stored run — only if the date is in the set this
-     *       endpoint returns. At zero T-1 would never be served, and the exemption would refuse the
-     *       night silently: no error, the tab just falls through to today, taking its aurora
-     *       viewline off the night the alert is about. (The banner's own overlay reads its date
-     *       directly and would be unaffected; it is the Map tab that depends on this.)</li>
-     *   <li><b>A forecast outage.</b> With no rows from today forward, the past rows are what keep
-     *       the client's date set non-empty — and the frontend offers the Map tab only while that set
-     *       is non-empty. Once it empties, the Map tab is withheld outright instead of opening onto
-     *       its "No forecast to show." empty state.</li>
-     * </ul>
-     *
-     * <p>⚠️ <b>The two need different depths, and only the first is fixed.</b> The aurora night needs
-     * exactly one day: the night in progress began at most yesterday. The outage case
-     * <b>scales</b>. The most recent row the client can hold is the last date any run forecast, so
-     * the Map tab stays reachable for exactly this many days after that date passes — each past day
-     * buys one more. A reader who has been away gets the empty state rather than a missing tab for
-     * that long; at 1 they would lose it a day sooner. So <b>reducing this is
-     * not correctness-neutral</b>, whatever the payload saving: it shortens how long an outage can
-     * run before the tab disappears. (An earlier revision of this comment claimed both reasons need
-     * one day and called a reduction "a payload decision rather than a correctness one" — true of
-     * the aurora case, false of this one, and caught in review before it merged.)
-     *
-     * <p>The reason this javadoc used to give for "not zero" is gone: it said
-     * {@code computeAutoSelection} picked the browser's <em>local</em> date, so a reader west of the
-     * UK could legitimately ask for T-1. That stopped being true when it moved to the UK calendar
-     * ({@code ukDateStr}); both sides of that comparison are now {@code Europe/London}.
-     *
-     * <p>Anything older belongs in {@code GET /api/forecast/history}, the ADMIN-only backtesting
-     * endpoint, which takes explicit from/to dates and is unaffected by this bound.
-     */
-    static final int PAST_WINDOW_DAYS = 2;
 
     private final ForecastEvaluationRepository repository;
     private final LocationService locationService;
@@ -174,7 +123,7 @@ public class ForecastController {
 
     /**
      * Returns stored forecast evaluations for all configured locations from
-     * T-{@value #PAST_WINDOW_DAYS} through
+     * T-{@value ForecastHorizon#SERVE_PAST_DAYS} through
      * T+{@value ForecastCommandFactory#FORECAST_HORIZON_DAYS}.
      *
      * <p>Merges two sources so the Map tab stays in sync with the Plan tab:
@@ -195,7 +144,7 @@ public class ForecastController {
     @GetMapping
     public List<ForecastListDto> getForecasts(Authentication auth) {
         LocalDate today = ForecastHorizon.today(clock);
-        LocalDate from = today.minusDays(PAST_WINDOW_DAYS);
+        LocalDate from = today.minusDays(ForecastHorizon.SERVE_PAST_DAYS);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         boolean lite = isLiteUser(auth);
 
@@ -294,7 +243,7 @@ public class ForecastController {
      *
      * <p>{@code forecast_evaluation} is insert-only and never pruned (see CLAUDE.md's "Where a
      * rating lives" table), so unlike {@link #getForecasts} — which is bounded to
-     * {@value #PAST_WINDOW_DAYS} days back plus the forward horizon — this endpoint's cost scales
+     * {@value ForecastHorizon#SERVE_PAST_DAYS} days back plus the forward horizon — this endpoint's cost scales
      * with however much history the caller asks for. This is the admin backtesting tool: comparing
      * how a rating evolved across runs for a season at a time, per the class javadoc. 366 days (one
      * calendar year, inclusive of a leap day) comfortably covers that real use while bounding the
@@ -707,11 +656,7 @@ public class ForecastController {
     }
 
     private boolean isLiteUser(Authentication auth) {
-        if (auth == null) {
-            return true;
-        }
-        return auth.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch("ROLE_LITE_USER"::equals);
+        // No authentication at all is read as the least-privileged tier, never as PRO.
+        return auth == null || Authorities.hasRole(auth, UserRole.LITE_USER);
     }
 }

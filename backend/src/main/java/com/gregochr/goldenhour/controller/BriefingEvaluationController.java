@@ -73,7 +73,7 @@ public class BriefingEvaluationController {
         // stand-down rather than as absent (see frontend `standDown.js`). The two drifted apart for
         // one hour a night when the forecast window moved to Europe/London and this did not.
         LocalDate today = ForecastHorizon.today(clock);
-        LocalDate from = today.minusDays(ForecastController.PAST_WINDOW_DAYS);
+        LocalDate from = today.minusDays(ForecastHorizon.SERVE_PAST_DAYS);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         List<LocationEvaluationView> views = evaluationViewService.forDateRange(
                 from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET));

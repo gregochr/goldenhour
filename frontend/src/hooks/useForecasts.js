@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
 import { groupForecastsByLocation } from '../utils/conversions.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
-import { appNow, getRewindTo } from '../utils/rewind.js';
+import { appNow } from '../utils/rewind.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
 
@@ -59,9 +59,6 @@ function buildLocations(forecasts, locationMeta, outcomes) {
  * @returns {{forecasts: Array, locationMeta: Array, outcomes: Array}|null}
  */
 function readValidCache(cacheKey) {
-  // Never under an admin's rewind (`utils/rewind.js`): the cache holds the live payload, and a
-  // rewound page must not paint it first — see the matching guard on the write below.
-  if (getRewindTo()) return null;
   const cached = readSwrCache(cacheKey, FORECASTS_CACHE_MAX_AGE_MS);
   if (
     cached &&
@@ -126,7 +123,7 @@ export function useForecasts() {
       // nothing.
       //
       // This deliberately NO LONGER matches the forecast payload's past edge, which is now
-      // ForecastController.PAST_WINDOW_DAYS (2). The forecast window shrank because that payload
+      // ForecastHorizon.SERVE_PAST_DAYS (2). The forecast window shrank because that payload
       // is cached client-side and the past half was the larger half; outcomes have neither
       // problem — `actual_outcome` has never held a row — so narrowing them would trade a future
       // capability for nothing. The two windows answer different questions and are allowed to
@@ -148,8 +145,7 @@ export function useForecasts() {
       hasDataRef.current = true;
       // Best-effort: writeSwrCache silently no-ops if the payload exceeds the storage quota,
       // and refuses the write outright if the cache was cleared since `gen` was captured.
-      // Never a REWOUND payload: the next live page would paint it first, and keep it for a day.
-      if (!getRewindTo()) writeSwrCache(cacheKey, { forecasts, locationMeta, outcomes }, gen);
+      writeSwrCache(cacheKey, { forecasts, locationMeta, outcomes }, gen);
     } catch (err) {
       // Surface the error on a cold load (nothing on screen), or when the user explicitly asked to
       // refresh — an explicit action (Run Forecast, drive-time change, manual re-run) expects

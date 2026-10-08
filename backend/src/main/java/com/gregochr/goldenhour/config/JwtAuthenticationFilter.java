@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.config;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.service.JwtService;
+import com.gregochr.goldenhour.util.Authorities;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -88,7 +89,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         UserRole role = jwtService.extractRole(token);
 
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            SimpleGrantedAuthority authority = new SimpleGrantedAuthority("ROLE_" + role.name());
+            SimpleGrantedAuthority authority = new SimpleGrantedAuthority(Authorities.ROLE_PREFIX + role.name());
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                     username, null, List.of(authority));
             SecurityContextHolder.getContext().setAuthentication(authToken);

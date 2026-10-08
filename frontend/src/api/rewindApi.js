@@ -5,7 +5,7 @@ const BASE_URL = '/api/admin/rewind';
 /**
  * The recent solar events an admin can rewind the app to (admin only).
  *
- * @returns {Promise<{ now: string, briefingGeneratedAt: string|null,
+ * @returns {Promise<{ now: string, briefingGeneratedAt: string|null, maxAgeDays: number,
  *   events: Array<{ date: string, eventType: string, earliest: string, latest: string,
  *   rewindTo: string, passed: boolean, inBriefing: boolean, locationCount: number }> }>}
  */

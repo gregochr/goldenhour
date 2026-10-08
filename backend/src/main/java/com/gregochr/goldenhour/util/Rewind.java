@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.util;
 
+import java.time.Duration;
 import java.time.Instant;
 
 /**
@@ -18,6 +19,13 @@ import java.time.Instant;
  * pipeline.
  */
 public final class Rewind {
+
+    /**
+     * The furthest back a rewind may go: the forecast serve window plus a day. {@code RewindFilter}
+     * refuses an older instant, and {@code RewindEventService} serves it beside the events so the
+     * admin screen's own bound on a hand-typed moment is this one, never a copy of it.
+     */
+    public static final Duration MAX_AGE = Duration.ofDays(ForecastHorizon.SERVE_PAST_DAYS + 1L);
 
     private static final ThreadLocal<Instant> CURRENT = new ThreadLocal<>();
 

@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,7 +60,7 @@ class ForecastWindowAnchorTest {
     private static final LocalDate UK_YESTERDAY = LocalDate.of(2026, 8, 11);
 
     private static final LocalDate EXPECTED_FROM =
-            UK_TODAY.minusDays(ForecastController.PAST_WINDOW_DAYS);
+            UK_TODAY.minusDays(ForecastHorizon.SERVE_PAST_DAYS);
     private static final LocalDate EXPECTED_TO =
             UK_TODAY.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
 

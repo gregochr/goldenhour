@@ -17,6 +17,7 @@ function localValue(date) {
 const EVENTS = {
   now: '2026-10-04T09:30:00Z',
   briefingGeneratedAt: '2026-10-04T06:42:00Z',
+  maxAgeDays: 3,
   events: [
     { date: '2026-10-04', eventType: 'SUNSET', earliest: '2026-10-04T17:35:00Z', latest: '2026-10-04T17:58:00Z',
       rewindTo: '2026-10-04T16:35:00Z', passed: false, inBriefing: true, locationCount: 2 },
@@ -100,15 +101,6 @@ describe('RewindView', () => {
     expect(screen.queryByTestId('rewind-built-after-2026-10-04-SUNRISE')).toBeNull();
   });
 
-  it('shows the current rewind with a way back to live', async () => {
-    setRewind('2026-10-04T04:58:00Z');
-    render(<RewindView />);
-    expect(await screen.findByTestId('rewind-current')).toHaveTextContent('Rewound to Sun 4 Oct, 05:58 UK');
-    fireEvent.click(screen.getByTestId('rewind-exit'));
-    expect(getRewind()).toBeNull();
-    expect(screen.queryByTestId('rewind-current')).toBeNull();
-  });
-
   it('a moment of your own: disabled until the input names a moment in range, then rewinds to it with no focus', async () => {
     render(<RewindView />);
     await screen.findByTestId('rewind-events');
@@ -145,6 +137,23 @@ describe('RewindView', () => {
     expect(customInRange(new Date('2026-10-04T09:30:01Z'), now)).toBe(false);
     expect(customInRange(new Date('2026-10-01T09:30:00Z'), now)).toBe(true);
     expect(customInRange(new Date('2026-10-01T09:29:59Z'), now)).toBe(false);
+    // The bound is the caller's: a served figure narrows it.
+    expect(customInRange(new Date('2026-10-03T09:30:00Z'), now, 1)).toBe(true);
+    expect(customInRange(new Date('2026-10-03T09:29:59Z'), now, 1)).toBe(false);
+  });
+
+  it('the bound on a moment of your own is the SERVED one, not a copy of the backend\'s number', async () => {
+    getRewindEvents.mockResolvedValue({ ...EVENTS, maxAgeDays: 1 });
+    render(<RewindView />);
+    await screen.findByTestId('rewind-events');
+    expect(screen.getByText(/within the last 1 days/)).toBeInTheDocument();
+    const go = screen.getByTestId('rewind-custom-go');
+    const input = screen.getByTestId('rewind-custom');
+    // Two days back: inside the default three, outside the served one.
+    fireEvent.change(input, { target: { value: localValue(new Date(Date.now() - 2 * 24 * 3600 * 1000)) } });
+    expect(go).toBeDisabled();
+    fireEvent.change(input, { target: { value: localValue(new Date(Date.now() - 2 * 3600 * 1000)) } });
+    expect(go).toBeEnabled();
   });
 
   it('a failed load says so', async () => {
@@ -154,7 +163,7 @@ describe('RewindView', () => {
   });
 
   it('an empty roster is said, not left blank', async () => {
-    getRewindEvents.mockResolvedValue({ now: EVENTS.now, briefingGeneratedAt: null, events: [] });
+    getRewindEvents.mockResolvedValue({ now: EVENTS.now, briefingGeneratedAt: null, maxAgeDays: 3, events: [] });
     render(<RewindView />);
     expect(await screen.findByText('No sky locations to time an event across.')).toBeInTheDocument();
   });

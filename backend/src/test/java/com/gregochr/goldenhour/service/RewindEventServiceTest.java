@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.util.ForecastHorizon;
+import com.gregochr.goldenhour.util.Rewind;
 import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -175,5 +177,13 @@ class RewindEventServiceTest {
 
         when(briefingService.getCachedGeneratedAt()).thenReturn(null);
         assertThat(service.events().briefingGeneratedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("the filter's own bound on a rewind rides along, in days, so the screen never copies it")
+    void maxAgeDays() {
+        when(locations.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
+        assertThat(service.events().maxAgeDays()).isEqualTo((int) Rewind.MAX_AGE.toDays());
+        assertThat(service.events().maxAgeDays()).isEqualTo(ForecastHorizon.SERVE_PAST_DAYS + 1);
     }
 }

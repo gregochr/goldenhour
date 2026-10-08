@@ -5,12 +5,16 @@ import com.gregochr.goldenhour.util.Rewind;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.boot.web.servlet.ServletContextInitializerBeans;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,9 +44,31 @@ class RewindFilterTest extends AbstractControllerTest {
     @Autowired
     private Clock clock;
 
+    @Autowired
+    private ListableBeanFactory beanFactory;
+
     @AfterEach
     void rewindIsNeverLeftBehind() {
         assertThat(Rewind.isActive()).as("a rewind must not outlive its request").isFalse();
+    }
+
+    @Test
+    @DisplayName("the filter is registered once, in the security chain: its servlet-container "
+            + "registration is disabled, not merely ordered")
+    void registeredOnlyInTheChain() {
+        // What Boot hands the servlet container at startup. With no registration bean of its own,
+        // a @Component Filter is wrapped and registered as an outer filter; with one, Boot defers to
+        // it — and a disabled one registers nothing. So the proof is: exactly one, and disabled.
+        List<FilterRegistrationBean<?>> registrations = new ServletContextInitializerBeans(beanFactory).stream()
+                .filter(FilterRegistrationBean.class::isInstance)
+                .<FilterRegistrationBean<?>>map(b -> (FilterRegistrationBean<?>) b)
+                .filter(r -> r.getFilter() instanceof RewindFilter)
+                .toList();
+        assertThat(registrations).hasSize(1);
+        assertThat(registrations.get(0).isEnabled())
+                .as("a second, outer run of the filter sees an empty SecurityContext and marks the "
+                        + "request filtered before the chain's run can apply the rewind")
+                .isFalse();
     }
 
     private AtomicReference<Instant> captureClockInsideHandler() {
@@ -127,7 +153,7 @@ class RewindFilterTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("an instant older than the serve window is a 400 — there is nothing to render there")
     void admin_tooOld_400() throws Exception {
-        String old = Instant.now().minus(RewindFilter.MAX_AGE).minusSeconds(60).toString();
+        String old = Instant.now().minus(Rewind.MAX_AGE).minusSeconds(60).toString();
         mockMvc.perform(get("/api/briefing").header(RewindFilter.HEADER, old))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("within the last 3 days")));

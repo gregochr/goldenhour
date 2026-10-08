@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { setRewind } from '../utils/rewind.js';
 import {
   cacheGeneration,
   readSwrCache,
@@ -37,6 +38,20 @@ function rejectSetItem(name = 'QuotaExceededError') {
 describe('swrCache', () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  it('under an admin rewind reads nothing and writes nothing, and the live entry survives', () => {
+    writeSwrCache('briefing:PRO_USER', { live: true });
+    const liveEntry = localStorage.getItem(storageKey('briefing:PRO_USER'));
+    try {
+      setRewind('2026-10-04T04:58:00Z');
+      expect(readSwrCache('briefing:PRO_USER')).toBeNull();
+      expect(writeSwrCache('briefing:PRO_USER', { rewound: true }, cacheGeneration())).toBe(false);
+      expect(localStorage.getItem(storageKey('briefing:PRO_USER'))).toBe(liveEntry);
+    } finally {
+      setRewind(null);
+    }
+    expect(readSwrCache('briefing:PRO_USER')).toEqual({ live: true });
   });
 
   it('round-trips a written value', () => {

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.config;
 
-import com.gregochr.goldenhour.service.RewindEventService;
+import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.util.Authorities;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import com.gregochr.goldenhour.util.Rewind;
 import jakarta.servlet.FilterChain;
@@ -10,8 +11,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -48,21 +47,19 @@ import java.time.format.DateTimeParseException;
  *       passed — a rewound value persisting server-side for people who never asked for one. A
  *       PAST instant stamps an entry that the next real request simply finds stale and
  *       refetches, which costs one request and nothing else. The far bound,
- *       {@link RewindEventService#PAST_DAYS} plus a day, is where the forecast serve window ends:
+ *       {@code ForecastHorizon.SERVE_PAST_DAYS} plus a day, is where the forecast serve window ends:
  *       beyond it there is nothing to render.</li>
  * </ul>
  *
  * <p>The instant is cleared in a {@code finally}: a thread that kept it would serve it to the next
  * request it handled, which under virtual threads is the next request from anyone.
  *
- * <p>⚠️ <b>Must stay un-{@code @Order}ed.</b> As a {@code @Component} it is registered twice —
- * by Boot as a plain servlet filter and by {@code SecurityConfig} inside the security chain, the
- * same shape {@link JwtAuthenticationFilter} has. An unordered filter bean sorts at
- * {@code LOWEST_PRECEDENCE}, after the security chain, so the in-chain run (which sees the
- * authenticated {@code SecurityContext}) executes first, marks the request filtered, and the outer
- * run is skipped by {@link OncePerRequestFilter}. An {@code @Order} below the chain's would make
- * the OUTER run go first with an empty context, log "non-admin", mark the request filtered — and
- * the rewind would silently never apply.
+ * <p>Registered exactly once, inside the security chain after {@link JwtAuthenticationFilter}.
+ * Boot would otherwise ALSO register any {@code Filter} bean with the servlet container, outside
+ * the chain, where the {@code SecurityContext} is empty — an outer run that happened to go first
+ * would log "non-admin", mark the request filtered, and the rewind would silently never apply.
+ * {@code SecurityConfig#rewindFilterRegistration} disables that second registration outright
+ * rather than relying on bean ordering to keep the outer run second.
  */
 @Component
 public class RewindFilter extends OncePerRequestFilter {
@@ -76,11 +73,7 @@ public class RewindFilter extends OncePerRequestFilter {
      */
     public static final Duration FUTURE_TOLERANCE = Duration.ofMinutes(1);
 
-    /** The furthest back a rewind may go: the forecast serve window plus a day. */
-    public static final Duration MAX_AGE = Duration.ofDays(RewindEventService.PAST_DAYS + 1L);
-
     private static final Logger LOG = LoggerFactory.getLogger(RewindFilter.class);
-    private static final String ADMIN_AUTHORITY = "ROLE_ADMIN";
     private static final String ADMIN_PREFIX = "/api/admin/";
 
     @Override
@@ -127,10 +120,10 @@ public class RewindFilter extends OncePerRequestFilter {
             refuse(response, HEADER + " must not be in the future");
             return;
         }
-        if (rewindTo.isBefore(now.minus(MAX_AGE))) {
+        if (rewindTo.isBefore(now.minus(Rewind.MAX_AGE))) {
             LOG.info("Refusing {} {} on {}: more than {} days ago", HEADER, rewindTo, path,
-                    MAX_AGE.toDays());
-            refuse(response, HEADER + " must be within the last " + MAX_AGE.toDays() + " days");
+                    Rewind.MAX_AGE.toDays());
+            refuse(response, HEADER + " must be within the last " + Rewind.MAX_AGE.toDays() + " days");
             return;
         }
         Rewind.set(rewindTo);
@@ -150,12 +143,6 @@ public class RewindFilter extends OncePerRequestFilter {
     }
 
     private static boolean isAdmin() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
-            return false;
-        }
-        return auth.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch(ADMIN_AUTHORITY::equals);
+        return Authorities.hasRole(SecurityContextHolder.getContext().getAuthentication(), UserRole.ADMIN);
     }
 }
