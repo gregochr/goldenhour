@@ -15,5 +15,13 @@ Two owner decisions ride along. An answer that states `allowanceLeft` and `allow
 longer triggers a second `GET /api/user/settings/ask`: the response is the server's word and is
 applied as it stands. Every path whose body carries no figure still re-reads it (an answer missing
 either figure, a lost connection, a failed engine, any other failure, a refusal that can have moved
-the count, a response a newer ask overtook). And the "Plan this" view's spoken tide clause now reads
-"Tide: …" like the pick card's, instead of the bare clause.
+the count, a response a newer ask overtook). And the pick card's spoken tide clause reads
+"Tide: …", as the plan view's cell label already did visibly (the plan view's own clause stays bare, so a
+screen reader says Tide once).
+
+A review of the first cut found that dropping the re-read leaned on a backend assumption: when the
+usage read failed after an answer was paid for, the server served `allowanceLeft: 0` and left the true
+figure to the next settings read, which no longer happens. `AskResponse.allowanceLeft` is now a
+nullable value, written as an explicit `null` only in that failure case (every normal answer is
+unchanged), and the client treats it as unknown and re-reads instead of switching typed questions
+off.

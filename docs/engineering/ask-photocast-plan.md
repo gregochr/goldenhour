@@ -536,11 +536,12 @@ DOM, text, test-ids, accessible names and classes of every Ask surface are as th
   its fallback chip text); `AskInputRow` still calls it for what a question is sent with. The hook's `windowId` is
   `null` where there is no window, never `undefined`.
 - **Pick facts are drawn once** (`components/ask/AskPickFacts.jsx`): `PickScore` (verdict word and star),
-  `PickTide` (wave glyph, state word, spoken clause) and `pickWhen(card)`. ⚠️ **The spoken tide clause reads `Tide: …`
-  on BOTH hosts** (owner decision, 2026-10-08, made in the conversation-reducer pass below): the card said it and
-  the plan view's clause was bare under its own visible `Tide` cell label, but a screen reader meets the clause on
-  its own inside that cell's value. The `label` prop had a single value at both sites, so it was dropped and `Tide`
-  is hard-coded; the plan view's accessible text moved, nothing visible did. `starsWord(n)` (`askModel.js`) is the one "star"/"stars" spelling.
+  `PickTide` (wave glyph, state word, spoken clause) and `pickWhen(card)`. ⚠️ **Every surface says Tide once** (owner
+  decision, 2026-10-08, "Tide: everywhere", made in the conversation-reducer pass below). The pick card has no visible
+  tide label, so its spoken clause leads with `Tide: …`; the plan view's cell has a `<dt>Tide</dt>` that already says
+  it, so its clause stays bare (`<PickTide labelled={false} />`) and a screen reader reading straight through does not
+  hear it twice. The first cut of the decision made the clause `Tide: …` on both and dropped the prop, which doubled the
+  word on the plan view; the boolean (default `true`) is why the prop exists. `starsWord(n)` (`askModel.js`) is the one "star"/"stars" spelling.
   `components/ask/askShapes.js` holds `pickCardShape`, `planActionsShape`, `refShape` and `objectRefShape` (the peek's
   entry ref, which a callback ref cannot satisfy).
 - **One `SETTLED_PHASES`** (`askModel.js`, `answer|plan|cant|error`): `AskClearAnswer`, `askPeek`, `MapPeekAsk`
@@ -602,7 +603,19 @@ except for the two owner decisions at the end.
   `RATE_LIMITED`), and a response a newer ask or a clear overtook (a charged question was used; its own figure is not
   applied). A 404 and the two refusals that cannot have moved the figure read nothing, as before. Accepted: the
   `typedAvailable` flag, which a POST does not carry, stays as the last read had it until the next read.
-- **Owner decision: `Tide:` on every pick** (see the pick-facts note above).
+- **Owner decision: `Tide:` on every pick, said once** (see the pick-facts note above: the plan view's `<dt>` carries
+  the word, the card's clause does).
+- **Review fix: an unknown count is not zero.** The first cut of the allowance decision exposed a backend assumption:
+  `AskService.left()` returned `0` when the usage read threw ("the next settings read shows the true figure"), and
+  `AskResponse.allowanceLeft` was a primitive `int`, so the client's "answer missing a figure → re-read" branch was
+  unreachable and a transient database failure would have served `allowanceLeft: 0`, which the client applies — typed
+  questions off until a UK-day turnover or a remount. Fixed at the source: `AskResponse.allowanceLeft` is a nullable
+  `Integer` (written as an explicit `null`, `@JsonInclude(ALWAYS)`; every normal answer is byte-identical),
+  `left()` returns `null` when the read fails and still logs at WARN, and the client's existing both-figures-are-whole-
+  numbers test treats it as missing and re-reads. `allowanceLimit` comes from configuration, not the read, and stays an
+  `int`. `GET /api/user/settings/ask` is a separate path and unchanged. Pinned by `AskServiceTest` (the typed answer,
+  the pre-filter can't and the engine can't with a failing read — the refund still lands), `AskTypedControllerTest` (the
+  wire carries the null) and `AskAnswer.test.jsx` (one re-read, never applied as zero).
 
 ### 2.7 Map linkage (F3, F4)
 `MapView` gains `askPicks` (`[{rank, locationId, name, date, eventType, shortWindow, rating,

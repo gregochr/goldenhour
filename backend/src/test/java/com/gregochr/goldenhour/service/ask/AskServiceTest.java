@@ -42,6 +42,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -696,6 +697,62 @@ class AskServiceTest {
         assertThat(codeOf(request("Best spot tonight?"))).isEqualTo(AskErrorCode.ENGINE_FAILED);
 
         assertThat(usage()).isEqualTo(new AskUsageStore.Usage(0, 1));
+    }
+
+    /** Makes every usage read fail from here on, as a transient database failure would; returns the real store. */
+    private AskUsageStore failUsageReads() {
+        AskUsageStore real = usageStore;
+        usageStore = spy(real);
+        doThrow(new IllegalStateException("db down")).when(usageStore).read(anyLong(), any());
+        rebuild();
+        return real;
+    }
+
+    @Test
+    @DisplayName("an answer whose usage read fails still arrives, charged, with NO allowanceLeft (null, not 0): "
+            + "the client re-reads rather than applying a count of zero")
+    void answerSurvivesAFailedUsageRead() {
+        AskUsageStore real = failUsageReads();
+
+        AskResponse response = ask("Best spot tonight?");
+
+        assertThat(response.kind()).isEqualTo("own");
+        assertThat(response.charged()).isTrue();
+        assertThat(response.picks()).hasSize(1);
+        assertThat(response.allowanceLeft()).isNull();
+        assertThat(response.allowanceLimit()).isEqualTo(3);
+        assertThat(real.read(41L, LocalDate.of(2026, 10, 5))).isEqualTo(new AskUsageStore.Usage(1, 1));
+    }
+
+    @Test
+    @DisplayName("a pre-filter can't whose usage read fails carries a null allowanceLeft and is still free")
+    void preFilterCantWithAFailedUsageRead() {
+        AskAnswer cant = new AskAnswer(false, "PhotoCast has no parking information.", List.of(), List.of(),
+                "parking");
+        when(preFilter.refuse(any())).thenReturn(Optional.of(cant));
+        AskUsageStore real = failUsageReads();
+
+        AskResponse response = ask("Is the car park busy?");
+
+        assertThat(response.kind()).isEqualTo("cant");
+        assertThat(response.charged()).isFalse();
+        assertThat(response.allowanceLeft()).isNull();
+        assertThat(real.read(41L, LocalDate.of(2026, 10, 5))).isEqualTo(AskUsageStore.Usage.NONE);
+    }
+
+    @Test
+    @DisplayName("an engine can't whose usage read fails still refunds the question and carries a null "
+            + "allowanceLeft")
+    void engineCantWithAFailedUsageRead() {
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
+        AskUsageStore real = failUsageReads();
+
+        AskResponse response = ask("Parking?");
+
+        assertThat(response.kind()).isEqualTo("cant");
+        assertThat(response.allowanceLeft()).isNull();
+        assertThat(response.allowanceLimit()).isEqualTo(3);
+        assertThat(real.read(41L, LocalDate.of(2026, 10, 5))).isEqualTo(new AskUsageStore.Usage(0, 1));
     }
 
     @Test

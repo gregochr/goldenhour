@@ -64,7 +64,7 @@ describe('PickScore', () => {
 });
 
 describe('PickTide', () => {
-  it('leads the spoken clause with "Tide: " — on the card and on the plan view alike', () => {
+  it('leads the spoken clause with "Tide: " by default — the card has no visible label of its own', () => {
     const { container } = render(<PickTide tide={MISS} />);
 
     expect(container.querySelector('.sr-only')).toHaveTextContent(/^Tide: wants the water lower$/);
@@ -74,6 +74,12 @@ describe('PickTide', () => {
     const { container } = render(<PickTide tide={MATCH} />);
 
     expect(container.querySelector('.sr-only')).toHaveTextContent(/^Tide: high water, right here$/);
+  });
+
+  it('reads the clause bare when labelled is false — the plan view’s <dt> already says Tide, once', () => {
+    const { container } = render(<PickTide tide={MATCH} labelled={false} />);
+
+    expect(container.querySelector('.sr-only')).toHaveTextContent(/^high water, right here$/);
   });
 
   it('hides the visible state word from assistive technology, so the fact is said once', () => {

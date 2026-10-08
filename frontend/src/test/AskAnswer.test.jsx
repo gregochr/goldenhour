@@ -376,6 +376,21 @@ describe('AskConversation — a typed question', () => {
     expect(getAskSettings).toHaveBeenCalledTimes(reads + 1);
   });
 
+  it('treats a null allowanceLeft — the server could not read the count — as unknown: one re-read, never applied as zero', async () => {
+    ask.mockResolvedValue(ownResponse({ allowanceLeft: null, allowanceLimit: 3 }));
+    await renderAsk();
+    await screen.findByTestId('ask-allowance');
+    const reads = getAskSettings.mock.calls.length;
+    // The re-read is left pending, so the only thing that could move the count before it lands is the response.
+    getAskSettings.mockReturnValue(new Promise(() => {}));
+
+    await askTyped('Where is good?', { view: 'plan' });
+
+    expect(getAskSettings).toHaveBeenCalledTimes(reads + 1);
+    expect(ctx.allowance).toMatchObject({ left: 3, limit: 3, used: 0 });
+    expect(ctx.typedDisabled).toBe(false);
+  });
+
   it('re-reads the allowance after an answer that states only one of its figures', async () => {
     ask.mockResolvedValue(ownResponse({ allowanceLeft: 2, allowanceLimit: null }));
     await renderAsk();
