@@ -109,6 +109,14 @@ const loc = (id, name, tideType) => ({
   locationType: ['LANDSCAPE'], tideType, forecastsByDate: new Map(),
 });
 
+/** A location with a served rating for the Sunday sunrise, so the 3★ floor keeps it. */
+const ratedLocation = (id, name, tideType, rating) => ({
+  ...loc(id, name, tideType),
+  forecastsByDate: new Map([[SUN, {
+    sunrise: { rating, solarEventTime: EVENT_TIME, fierySkyPotential: 70, goldenHourPotential: 60 },
+  }]]),
+});
+
 /** Bamburgh has a fact; Seahouses is coastal with NO fact; Alnwick is inland. */
 const LOCATIONS = [loc(1, 'Bamburgh', ['HIGH']), loc(2, 'Seahouses', ['HIGH']), loc(3, 'Alnwick', [])];
 
@@ -163,11 +171,11 @@ function heat() {
   };
 }
 
-async function renderMap(days = DAYS) {
+async function renderMap(days = DAYS, locations = LOCATIONS) {
   await act(async () => {
     render(
       <MapView
-        locations={LOCATIONS}
+        locations={locations}
         date={SUN}
         forecastDates={[TODAY, SUN]}
         autoEventType="SUNRISE"
@@ -215,10 +223,26 @@ describe('MapView — window.tideFacts on a window whose regions carry no slots'
       .toHaveTextContent('1 of 1 coastal spots are dimmed — they want high water');
   });
 
-  it('gives a coastal location with NO fact no tide: it is filtered out, not shown as a miss', async () => {
-    await renderMap();
-    expect(labelProps.spots.some((s) => s.name === 'Seahouses')).toBe(false);
-    expect(labelProps.spots.some((s) => s.name === 'Alnwick')).toBe(false);
+  it('gives a VISIBLE coastal location with NO fact no tide tier (rated, so the floor is not what hides it)', async () => {
+    const seahouses = ratedLocation(2, 'Seahouses', ['HIGH'], 4);
+    await renderMap(DAYS, [LOCATIONS[0], seahouses, LOCATIONS[2]]);
+    const spot = labelProps.spots.find((s) => s.name === 'Seahouses');
+    expect(spot).toBeDefined();
+    expect(spot.rating).toBe(4);
+    expect(spot.tideTier).toBeNull();
+    expect(spot.tideFitPhrase).toBeNull();
+    expect(spot.tideAssessed).toBe(true);
+    // The location with a fact keeps its tier beside it.
+    expect(labelProps.spots.find((s) => s.name === 'Bamburgh').tideTier).toBe('miss');
+  });
+
+  it('marks a spot tideAssessed when it has a rating, with or without a fact', async () => {
+    const bamburgh = ratedLocation(1, 'Bamburgh', ['HIGH'], 3);
+    await renderMap(DAYS, [bamburgh, LOCATIONS[1], LOCATIONS[2]]);
+    const spot = labelProps.spots.find((s) => s.name === 'Bamburgh');
+    expect(spot.rating).toBe(3);
+    expect(spot.tideTier).toBe('miss');
+    expect(spot.tideAssessed).toBe(true);
   });
 
   it('with no tideFacts at all (a pre-deploy payload) draws as an unscored window: no strip, no coast', async () => {
@@ -226,7 +250,14 @@ describe('MapView — window.tideFacts on a window whose regions carry no slots'
       date: SUN,
       eventSummaries: [{
         targetType: 'SUNRISE',
-        regions: [{ regionName: 'North East', slots: [] }],
+        // Slots carry full tide fields, so a slot fallback would find Bamburgh a fact.
+        regions: [{
+          regionName: 'North East',
+          slots: [{
+            locationId: 1, locationName: 'Bamburgh', tideState: 'LOW', tideAligned: false,
+            tideFitPhrase: 'wants high water · low tide', tideShortfall: 'HIGHER',
+          }],
+        }],
         window: { eventTime: EVENT_TIME, tide: TIDE },
       }],
     }];

@@ -13,7 +13,9 @@ import { eventWord } from '../../utils/windowFirstCards.js';
  *
  * <p>Match: heading <b>Tide lands on the light</b>, body {@code fact.fitPhrase} (already the
  * complete server-formatted sentence — "high water, falling · HW 20:46 · 17m after sunset ·
- * 3.9 m"). Miss: heading <b>Wrong water, not wrong light</b>, the same kind of body (already
+ * 3.9 m"). Miss: heading <b>Wrong water, not wrong light</b> when the window was assessed for
+ * this location (a {@code skyRating} or a combined rating exists), else <b>Tide misses the light
+ * here</b> (window-tide-facts-plan §4.2), the same kind of body (already
  * carrying its own "wants low water" clause — T1's {@code tideFitPhrase} miss form), then on its
  * own line either the jump or the denial (below). Omitted entirely — never a "no alignment" line
  * — when {@code fact} is null (not a coastal slot with a served tide state this window) or its
