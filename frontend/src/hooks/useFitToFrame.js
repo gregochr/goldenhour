@@ -19,6 +19,9 @@ export const FIT_ROOM_PROPERTY = '--wf-fit-room';
  * laid-out geometry no class can know. Re-measured on a window resize and whenever the frame or
  * the anchor's own box changes size.
  *
+ * <p>Precondition: a 'down' panel is anchored by its top edge and an 'up' panel by its bottom edge
+ * (`top: calc(100% + 6px)` / `bottom: calc(100% + 6px)`), so its height never moves the edge measured.
+ *
  * <p>No floor: a panel given more than the room would be clipped again, which is the bug itself.
  * Nothing is written outside a map pane or with no panel mounted, leaving the stylesheet's 420px.
  *

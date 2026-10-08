@@ -319,7 +319,7 @@ describe('FiltersPopover — phone: the same rows in a BottomSheet (map-tab-v2-p
 /**
  * The desktop/tablet panel fits the map frame it opens in (owner report, 2026-10-08): on a ~1000px
  * window the panel ran past the frame's bottom edge, the frame clipped it, and the Sky and Scope
- * rows could not be reached at all. `FiltersPopover` measures the room between the panel's top and
+ * rows could not be reached at all. `useFitToFrame` (used by `FiltersPopover`) measures the room between the panel's top and
  * the pane's bottom (or the viewport's, if that comes first) and writes it as `--wf-fit-room`;
  * the stylesheet's `max-height` reads it beside `overflow-y: auto`. jsdom has no layout, so the two
  * rects are stubbed — the real geometry is a browser check, recorded in the PR.

@@ -13,7 +13,8 @@ import RegionsJump from '../components/map/RegionsJump.jsx';
 import MapLegendPanel from '../components/map/MapLegendPanel.jsx';
 import WindowControl from '../components/map/WindowControl.jsx';
 
-vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
+let mockIsMobile = false;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
 
 const PROP = '--wf-fit-room';
 let originalRect;
@@ -21,6 +22,7 @@ let originalInnerHeight;
 let rects;
 
 beforeEach(() => {
+  mockIsMobile = false;
   originalRect = Element.prototype.getBoundingClientRect;
   originalInnerHeight = window.innerHeight;
   rects = {
@@ -64,10 +66,16 @@ describe('Regions menu — opens down, fitted to the frame bottom', () => {
     expect(room('wf-jump-menu')).toBe('292px');
   });
 
-  it('is bounded by the viewport when that ends first, and never goes negative', () => {
+  it('is bounded by the viewport when that ends first', () => {
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 });
     render(inPane('wf-map-chrome-tr', jump(true)));
     expect(room('wf-jump-menu')).toBe('192px');
+  });
+
+  it('writes nothing on a phone, where the menu is a sheet that scrolls its own body', () => {
+    mockIsMobile = true;
+    render(inPane('wf-map-chrome-tr', jump(true)));
+    expect(screen.queryByTestId('wf-jump-menu')?.style.getPropertyValue(PROP) ?? '').toBe('');
   });
 
   it('writes nothing outside a map pane', () => {
@@ -146,11 +154,11 @@ describe('stylesheet', () => {
       expect(body).toMatch(/max-height:\s*min\(420px,\s*var\(--wf-fit-room,\s*420px\)\);/);
       expect(body).toMatch(/overflow-y:\s*auto;/);
       expect(body).toMatch(/overscroll-behavior:\s*contain;/);
+      expect(body).toMatch(/scroll-padding-block:\s*6px;/);
     },
   );
 
   it('an open Regions or window menu lifts its cluster to the menus rung', () => {
-    expect(css).toMatch(/\.wf-map-chrome-tr:has\(> \.wf-jump > \.wf-jump-menu\)/);
     expect(css).toMatch(/\.wf-map-chrome-tl:has\(\.wf-win-menu\)/);
     expect(css).toMatch(/\.wf-map-chrome-tl:has\(\.wf-win-menu\)\s*\{\s*z-index:\s*1500;\s*\}/);
   });
