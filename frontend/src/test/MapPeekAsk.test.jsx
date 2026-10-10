@@ -36,6 +36,7 @@ const ask = (over = {}) => ({
   phase: 'empty',
   answer: null,
   pickCards: [],
+  history: [],
   selectedPick: null,
   error: null,
   inputError: null,
@@ -201,6 +202,18 @@ describe('expanded — the row holds the field and a ✕, the conversation fills
     expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('Close Ask');
   });
 
+  it('the ✕ says "Clear" once a thread stands above the answer — it ends the whole conversation', () => {
+    mockAsk = ask({
+      phase: 'answer', pickCards: [card(1)], history: [{ question: 'One?', summary: 's', answerId: 1 }],
+    });
+    mount('expanded');
+
+    expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('Clear');
+    fireEvent.click(screen.getByTestId('wf-map-peek-ask-x'));
+    expect(mockAsk.clear).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['answer', true], ['cant', true], ['error', true], ['empty', false], ['busy', false],
   ])('the ✕ in phase %s %s the conversation, and always closes the section', (phase, clears) => {
@@ -215,6 +228,40 @@ describe('expanded — the row holds the field and a ✕, the conversation fills
 });
 
 describe('minimised — one line', () => {
+  it('is the LIVE answer’s line, exactly as without a thread: earlier exchanges add nothing to it', () => {
+    const live = {
+      phase: 'answer', pickCards: [card(1), card(2, { name: 'Whitby' })], selectedPick: 2, answer: { summary: 's' },
+    };
+    mockAsk = ask(live);
+    mount('minimised');
+    const alone = screen.getByTestId('wf-map-peek-mini');
+    const before = { text: alone.textContent, name: alone.getAttribute('aria-label') };
+
+    mockAsk = ask({
+      ...live,
+      thread: [{ question: 'One?', summary: 'Earlier.', answerId: 1 }, { question: 'Two?', summary: 's', answerId: 2 }],
+      history: [{ question: 'One?', summary: 'Earlier.', answerId: 1 }],
+    });
+    setMode('minimised');
+
+    const withThread = screen.getByTestId('wf-map-peek-mini');
+    expect(withThread.textContent).toBe(before.text);
+    expect(withThread.getAttribute('aria-label')).toBe(before.name);
+    expect(withThread).not.toHaveTextContent('Earlier.');
+  });
+
+  it('an events-only answer reads its own summary, not an earlier exchange’s, over a thread', () => {
+    mockAsk = ask({
+      phase: 'answer',
+      answer: { summary: 'A king tide on Thursday.' },
+      history: [{ question: 'One?', summary: 'Earlier.', answerId: 1 }],
+    });
+    mount('minimised');
+
+    expect(screen.getByTestId('wf-map-peek-mini')).toHaveTextContent('A king tide on Thursday.');
+    expect(screen.getByTestId('wf-map-peek-mini')).not.toHaveTextContent('Earlier.');
+  });
+
   it('names the chosen pick: rank, spot, time, and how many picks', () => {
     mockAsk = ask({
       phase: 'answer', pickCards: [card(1), card(2, { name: 'Whitby' }), card(3)], selectedPick: 2, answer: { summary: 's' },

@@ -552,8 +552,14 @@ describe('the "Next question" row: what the field will send, when the answer abo
     expect(screen.getByTestId('ask-chip-window')).toHaveTextContent('Saturday sunrise');
     await userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       .type(screen.getByTestId('ask-input'), 'And this one?{Enter}');
+    // The second question of a session carries the first exchange (the thread, T4); this test is about the
+    // window, so the exchange is named only as present.
     expect(ask).toHaveBeenLastCalledWith({
-      question: 'And this one?', regionIds: [3], view: 'map', windowId: '2026-10-11_sunset',
+      question: 'And this one?',
+      regionIds: [3],
+      view: 'map',
+      windowId: '2026-10-11_sunset',
+      thread: [expect.objectContaining({ question: 'Where is good?' })],
     });
   });
 

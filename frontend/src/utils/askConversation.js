@@ -19,6 +19,16 @@ import { KIND } from './askModel.js';
  * (a second ask, a Ready tap over a question still out) keeps the first's, so a refusal restores what
  * was on screen before ANY of them.
  *
+ * <h2>The thread (`docs/engineering/ask-thread-plan.md` §2.5)</h2>
+ * {@code thread} is every answered exchange of the session, oldest first, in the shape the next typed
+ * question carries to the server ({@link exchangeOf}); {@code resetReason} is the one line's worth of
+ * "the forecast moved, this is a fresh answer" ({@code THREAD_RESET}). ⚠️ The live answer is itself the
+ * thread's last exchange (it is appended when it lands), so what is drawn above it is
+ * {@link selectHistory}, not the list. ⚠️ Every action that rebuilds the conversation from
+ * {@link INITIAL_CONVERSATION} — {@code ASK_SENT}, {@code READY_OPENED}, {@code FAILED},
+ * {@code REFUSED} — must name {@code thread} itself, or the spread silently drops it (a failed or refused
+ * follow-up would end the session); a test pins each.
+ *
  * <h2>What is not here, on purpose</h2>
  * <ul>
  *   <li>Ids and nonces are minted by the provider and arrive in the action ({@code answer.id},
@@ -54,8 +64,14 @@ export const ACTION = Object.freeze({
    * earlier conversation carried.
    */
   REFUSED: 'REFUSED',
-  /** "Clear answer" (or anything else that ends the conversation). */
+  /** "Clear" (or anything else that ends the conversation): the thread goes with it. */
   CLEARED: 'CLEARED',
+  /**
+   * The server answered a follow-up against a newer forecast and dropped the thread
+   * ({@code threadReset}): {@code {reason}}. Dispatched BEFORE the {@code ANSWERED} it belongs to, so the
+   * fresh answer is the thread's first exchange.
+   */
+  THREAD_RESET: 'THREAD_RESET',
   /** A pick was chosen, or (rank null) none: {@code {rank, nonce}}. */
   PICK_SELECTED: 'PICK_SELECTED',
   /** "Plan this ›" on a pick: {@code {rank, nonce}}. */
@@ -63,6 +79,16 @@ export const ACTION = Object.freeze({
   /** "‹ Back to the answer". */
   PLAN_LEFT: 'PLAN_LEFT',
 });
+
+/**
+ * How many exchanges a thread keeps; the oldest is dropped when one more would exceed it. The server
+ * refuses a longer list (400), so this is the client half of the same bound
+ * ({@code photocast.ask.thread.max-exchanges}, default 8).
+ */
+export const THREAD_MAX_EXCHANGES = 8;
+
+/** The most code points the server takes of an earlier summary (it answers 400 over this). */
+export const THREAD_SUMMARY_MAX_CODE_POINTS = 500;
 
 /** The empty conversation: nothing asked. */
 export const INITIAL_CONVERSATION = Object.freeze({
@@ -79,7 +105,67 @@ export const INITIAL_CONVERSATION = Object.freeze({
   inputError: null,
   restored: false,
   settled: null,
+  thread: Object.freeze([]),
+  resetReason: null,
 });
+
+/**
+ * An answered exchange as the thread holds it.
+ *
+ * @param {string} question the question the reader asked (the Ready question's text, or the typed one)
+ * @param {object} answer a normalised, answerable answer ({@link normaliseAnswer})
+ * @returns {{question: string, summary: string, picks: Array<{locationId: number, windowId: string}>,
+ *          events: Array<{type: string, date: ?string}>, generatedAt: ?string, ready: boolean,
+ *          answerId: number}}
+ */
+export function exchangeOf(question, answer) {
+  return {
+    question,
+    summary: answer.summary,
+    picks: answer.picks
+      .filter((p) => p && p.locationId != null && p.windowId != null)
+      .map((p) => ({ locationId: p.locationId, windowId: p.windowId })),
+    events: answer.events
+      .filter((e) => e && typeof e.type === 'string')
+      .map((e) => ({ type: e.type, date: e.date ?? null })),
+    generatedAt: answer.generatedAt ?? null,
+    ready: answer.kind === KIND.READY,
+    answerId: answer.id,
+  };
+}
+
+/**
+ * The thread as {@code POST /api/ask} takes it: the exchanges' wire fields only (never the client's own
+ * {@code answerId}), at most {@link THREAD_MAX_EXCHANGES} of them (the newest), each summary held to the
+ * server's code-point cap.
+ *
+ * @param {Array<object>} thread
+ * @returns {Array<object>} empty when there is no thread
+ */
+export function threadForWire(thread) {
+  return thread.slice(-THREAD_MAX_EXCHANGES).map((x) => ({
+    question: x.question,
+    summary: Array.from(x.summary).slice(0, THREAD_SUMMARY_MAX_CODE_POINTS).join(''),
+    picks: x.picks,
+    events: x.events,
+    generatedAt: x.generatedAt,
+    ready: x.ready,
+  }));
+}
+
+/**
+ * The exchanges drawn ABOVE the live turn: the thread without the answer that is on screen (which is
+ * the thread's last exchange, and is drawn in full by the answer itself).
+ *
+ * @param {Array<object>} thread
+ * @param {?{id: number}} answer the live answer, or null
+ * @returns {Array<object>}
+ */
+export function selectHistory(thread, answer) {
+  if (thread.length === 0) return thread;
+  const last = thread[thread.length - 1];
+  return answer && last.answerId === answer.id ? thread.slice(0, -1) : thread;
+}
 
 /** The conversation as a refused question puts it back: itself, with nothing to restore to. */
 function settledOf(conv) {
@@ -103,6 +189,7 @@ export function reduce(conv, action) {
         question: action.question,
         asked: action.asked,
         settled: settledOf(conv),
+        thread: conv.thread,
       };
     case ACTION.READY_OPENED:
       return {
@@ -113,6 +200,7 @@ export function reduce(conv, action) {
         asked: action.asked,
         busyRunLabel: action.runLabel,
         settled: settledOf(conv),
+        thread: conv.thread,
       };
     case ACTION.ANSWERED:
       if (conv.phase !== 'busy') return conv;
@@ -123,7 +211,25 @@ export function reduce(conv, action) {
         question: conv.question,
         answer: action.answer,
         asked: conv.asked,
+        // An answerable answer is an exchange; a can't-answer is not (the thread is what the reader was
+        // told, not what they typed — plan §4 #5).
+        thread: action.answer.answerable
+          ? [...conv.thread, exchangeOf(conv.question, action.answer)].slice(-THREAD_MAX_EXCHANGES)
+          : conv.thread,
+        resetReason: conv.resetReason,
       };
+    case ACTION.THREAD_RESET: {
+      if (conv.phase !== 'busy') return conv;
+      // The question went out as "follow-up · N so far"; its answer is the first of a new thread.
+      const asked = conv.asked ? { ...conv.asked } : conv.asked;
+      if (asked) delete asked.followUp;
+      return {
+        ...conv,
+        thread: INITIAL_CONVERSATION.thread,
+        resetReason: action.reason ?? 'forecast updated',
+        asked,
+      };
+    }
     case ACTION.FAILED:
       if (conv.phase !== 'busy') return conv;
       return {
@@ -133,12 +239,14 @@ export function reduce(conv, action) {
         question: conv.question,
         asked: conv.asked,
         error: action.error,
+        thread: conv.thread,
       };
     case ACTION.REFUSED: {
       if (conv.phase !== 'busy') return conv;
       const back = conv.settled ?? INITIAL_CONVERSATION;
       return {
         ...back,
+        thread: conv.thread,
         settled: null,
         restored: true,
         inputError: action.inputError ?? back.inputError,

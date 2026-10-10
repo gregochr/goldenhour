@@ -11257,6 +11257,44 @@ button.wf-mchip:hover {
   overflow-wrap: anywhere;
 }
 
+/* The thread — earlier exchanges, collapsed (docs/engineering/ask-thread-plan.md §2.5). Static text: the
+   reader's question is the same `.wf-ask-yq` bubble, and the answer's summary is the answer's own serif
+   one size down and muted, so the LIVE answer (17px, gold) is the one that reads as current. They scroll
+   with the conversation inside whichever surface holds it (the sheet's scroller, the dock's, the phone
+   peek's body); the input row is outside all three and stays put. */
+.wf-ask-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.wf-ask-thread-x {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.wf-ask-thread-sum {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+/* The one line above a fresh answer that followed a dropped thread. */
+.wf-ask-thread-reset {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+}
+
 /* Busy */
 .wf-ask-think {
   display: flex;
