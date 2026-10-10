@@ -146,7 +146,11 @@ public class AskAnswerValidator {
      */
     public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
             AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion) {
-        String summary = boundCodePoints(clean(raw.summary(), SUMMARY_WORDS), THREAD_SUMMARY_MAX_CODE_POINTS);
+        // Strip what a follow-up would refuse the summary for, THEN the word cap and the code-point bound, so
+        // every summary served is accepted back verbatim as an earlier exchange.
+        String summary = boundCodePoints(
+                clean(AskQuestionSanitiser.stripRefusedInProse(raw.summary()), SUMMARY_WORDS),
+                THREAD_SUMMARY_MAX_CODE_POINTS);
         if (summary == null || summary.isBlank()) {
             return discard("no summary");
         }

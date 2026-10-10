@@ -227,6 +227,42 @@ class AskAnswerValidatorTest {
     }
 
     @Test
+    @DisplayName("an emoji, a zero-width joiner and a bare combining mark are removed from a served summary, "
+            + "the prose characters stay, and the result round-trips through the thread validation unchanged")
+    void summary_isStrippedOfWhatAFollowUpRefuses() {
+        String raw = "Lovely \uD83C\uDF05 sunrise\u200D at Bamburgh \u2605\u2605\u2605\u2605 \u2014 high water "
+                + "\u2026 \"worth it\" at 4\u00B0C near Caf\u00E9, rain\u2614 later, \u0307ok.\u00A0Go early.";
+
+        String served = servedSummary(raw);
+
+        assertThat(served).isEqualTo("Lovely sunrise at Bamburgh \u2605\u2605\u2605\u2605 \u2014 high water "
+                + "\u2026 \"worth it\" at 4\u00B0C near Caf\u00E9, rain later, ok. Go early.");
+        ThreadExchange echoed = new ThreadExchange("Best spot?", served, null, null,
+                java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false);
+        assertThat(AskThreadValidation.validate(List.of(echoed), 8).exchanges().get(0).summary()).isEqualTo(served);
+    }
+
+    @Test
+    @DisplayName("a decomposed accent is composed, not stripped, and a plain summary is served byte for byte")
+    void summary_plainTextIsUntouched() {
+        String plain = "Bamburgh has high water on the light on Saturday, so go early.";
+
+        assertThat(servedSummary(plain)).isEqualTo(plain);
+        assertThat(servedSummary("Cafe\u0301 by the sea")).isEqualTo("Caf\u00E9 by the sea");
+    }
+
+    @Test
+    @DisplayName("a summary that is only emoji and invisible characters becomes empty, so the answer is discarded "
+            + "as having no summary")
+    void summary_onlyEmojiIsDiscarded() {
+        Result result = validate(new Raw(false, "\uD83C\uDF05\u200D\uD83C\uDF05 \u2614\uFE0F", null, null, null),
+                snapshot(null, AskFixtures.slot(1L, "A", 4)), evidenceOf());
+
+        assertThat(result.answer()).isNull();
+        assertThat(result.reason()).isEqualTo("no summary");
+    }
+
+    @Test
     @DisplayName("a summary within the bound is served byte for byte, and one long word is cut at the bound")
     void summary_boundIsOnlyAppliedWhenNeeded() {
         String normal = "Bamburgh has high water on the light on Saturday, so go early.";
