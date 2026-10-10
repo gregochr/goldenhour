@@ -28,6 +28,31 @@ public final class AskQuestionSanitiser {
     public static final int MAX_LENGTH = 200;
 
     /**
+     * The longest earlier-answer summary accepted from a thread, in code points, counted on the RAW text
+     * before any normalising or whitespace collapse, so padding cannot smuggle a longer exchange past it.
+     * It is {@link AskAnswerValidator#THREAD_SUMMARY_MAX_CODE_POINTS}, the bound the validator puts on every
+     * summary it serves: the two are one constant so that a summary the server served is always accepted back
+     * verbatim.
+     */
+    public static final int MAX_THREAD_SUMMARY_LENGTH = AskAnswerValidator.THREAD_SUMMARY_MAX_CODE_POINTS;
+
+    /**
+     * The longest earlier question accepted from a thread, in code points, counted on the RAW text. The live
+     * question's own cap ({@value #MAX_LENGTH}) counts after whitespace collapse; a thread question is
+     * held to the same figure before it, because the client sends it already collapsed.
+     */
+    public static final int MAX_THREAD_QUESTION_LENGTH = MAX_LENGTH;
+
+    /** The most UTF-16 units a raw summary within its cap can occupy: a cheap bound before counting. */
+    static final int MAX_THREAD_SUMMARY_RAW_LENGTH = 2 * MAX_THREAD_SUMMARY_LENGTH;
+
+    /** The one sentence for any thread summary that cannot be used; it never echoes the text. */
+    static final String THREAD_SUMMARY_UNUSABLE = "An earlier answer in the conversation could not be used.";
+
+    /** Where the pictograph planes begin: emoji outside the BMP that are not marked as presentation. */
+    private static final int FIRST_PICTOGRAPH_PLANE_CODE_POINT = 0x1F000;
+
+    /**
      * The longest raw input {@link #sanitiseTyped} will look at, in UTF-16 units. A cap taken before
      * any normalising so a megabyte body costs nothing: a question this long is never a question
      * (the cleaned limit is {@value #MAX_LENGTH}, and whitespace collapses).
@@ -125,6 +150,127 @@ public final class AskQuestionSanitiser {
             return new Result(null, "The question needs some words in it.");
         }
         return new Result(cleaned.sanitised(), normalised, null);
+    }
+
+    /**
+     * Cleans the summary of an earlier answer that a client sends back inside a thread (plan §2.1).
+     * The text was the model's, but it arrives from the client, so it is the reader's text for every
+     * purpose here: composed to NFC, whitespace collapsed, <em>refused</em> (never stripped) when it
+     * holds a control, format or unpaired-surrogate character, a combining mark or an emoji (the same
+     * refused classes as a question), refused when it is blank or its RAW text is longer than
+     * {@value #MAX_THREAD_SUMMARY_LENGTH} code points, counted before any collapse (the validator's own cap
+     * counts words, so one very long "word" would pass it, and a padded summary would otherwise be accepted
+     * at several times that size), and then given the validator's cleaning: URL-like strings removed,
+     * the model's brand names replaced and a cap of {@value AskAnswerValidator#SUMMARY_WORDS} words.
+     *
+     * <p>Unlike a question it is <em>not</em> held to the letters-and-punctuation allow-list: the
+     * model's prose legitimately carries stars, dashes, ellipses, quotes and a degree sign.
+     *
+     * @param raw the summary as received; may be null
+     * @return the cleaned summary, or the sentence saying why it was refused
+     */
+    public static Result sanitiseThreadSummary(String raw) {
+        if (raw == null || raw.length() > MAX_THREAD_SUMMARY_RAW_LENGTH
+                || raw.codePointCount(0, raw.length()) > MAX_THREAD_SUMMARY_LENGTH) {
+            return new Result(null, THREAD_SUMMARY_UNUSABLE);
+        }
+        String composed = Normalizer.normalize(raw, Normalizer.Form.NFC);
+        StringBuilder collapsed = new StringBuilder(composed.length());
+        boolean pendingSpace = false;
+        int length = 0;
+        for (int i = 0; i < composed.length(); ) {
+            int cp = composed.codePointAt(i);
+            i += Character.charCount(cp);
+            if (isSpace(cp)) {
+                pendingSpace = collapsed.length() > 0;
+                continue;
+            }
+            if (refusedInProse(cp)) {
+                return new Result(null, THREAD_SUMMARY_UNUSABLE);
+            }
+            if (pendingSpace) {
+                collapsed.append(' ');
+                length++;
+                pendingSpace = false;
+            }
+            collapsed.appendCodePoint(cp);
+            length++;
+            if (length > MAX_THREAD_SUMMARY_LENGTH) {
+                return new Result(null, THREAD_SUMMARY_UNUSABLE);
+            }
+        }
+        String cleaned = AskAnswerValidator.clean(collapsed.toString(), AskAnswerValidator.SUMMARY_WORDS);
+        if (cleaned == null || cleaned.isBlank()) {
+            return new Result(null, THREAD_SUMMARY_UNUSABLE);
+        }
+        return new Result(cleaned, null);
+    }
+
+    /**
+     * The one definition of "a character a thread summary may not hold": the invisible ones a question refuses
+     * (control, format, surrogate), combining marks (which includes the variation selector that turns a symbol
+     * into an emoji) and emoji themselves. Shared by {@link #sanitiseThreadSummary}, which <em>refuses</em> a
+     * summary that holds one, and {@link #stripRefusedInProse}, which the validator applies to every summary it
+     * <em>serves</em>, so a served summary is never refused when it is sent back and the two cannot drift.
+     * Whitespace is not one (it is collapsed, never refused): callers test {@link #isSpace} first.
+     */
+    static boolean refusedInProse(int cp) {
+        return switch (Character.getType(cp)) {
+            case Character.CONTROL, Character.FORMAT, Character.SURROGATE, Character.NON_SPACING_MARK,
+                    Character.ENCLOSING_MARK, Character.COMBINING_SPACING_MARK -> true;
+            default -> Character.isEmojiPresentation(cp)
+                    || (cp >= FIRST_PICTOGRAPH_PLANE_CODE_POINT && Character.isExtendedPictographic(cp));
+        };
+    }
+
+    /**
+     * Whether a code point is whitespace to the sanitiser: collapsed to one space, never refused.
+     *
+     * @param cp the code point
+     * @return true for white space and for any Unicode space separator
+     */
+    static boolean isSpace(int cp) {
+        return Character.isWhitespace(cp) || Character.isSpaceChar(cp);
+    }
+
+    /**
+     * Removes from text the model wrote exactly what {@link #sanitiseThreadSummary} would refuse it for: after
+     * composing to NFC, every code point {@link #refusedInProse} names is dropped, and every space-like code
+     * point becomes a plain space (the caller collapses runs). Stars, dashes, ellipses, quotes, accents, digits
+     * and punctuation are kept. Applied to a SERVED summary so the summary round-trips through a thread.
+     *
+     * @param text the text; may be null
+     * @return the text without those characters, or null for null input
+     */
+    static String stripRefusedInProse(String text) {
+        if (text == null) {
+            return null;
+        }
+        StringBuilder kept = new StringBuilder(text.length());
+        Normalizer.normalize(text, Normalizer.Form.NFC).codePoints().forEach(cp -> {
+            if (isSpace(cp)) {
+                kept.append(' ');
+            } else if (!refusedInProse(cp)) {
+                kept.appendCodePoint(cp);
+            }
+        });
+        return kept.toString();
+    }
+
+    /**
+     * Cleans an earlier question carried in a thread: refused when its RAW text is longer than
+     * {@value #MAX_THREAD_QUESTION_LENGTH} code points (counted before any collapse, so a padded question is
+     * never accepted), otherwise exactly {@link #sanitiseTyped}.
+     *
+     * @param raw the question as received; may be null
+     * @return the cleaned question, or the sentence saying why it was refused
+     */
+    public static Result sanitiseThreadQuestion(String raw) {
+        if (raw != null && (raw.length() > 2 * MAX_THREAD_QUESTION_LENGTH
+                || raw.codePointCount(0, raw.length()) > MAX_THREAD_QUESTION_LENGTH)) {
+            return new Result(null, tooLong());
+        }
+        return sanitiseTyped(raw);
     }
 
     /**

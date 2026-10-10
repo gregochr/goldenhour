@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.service.ask.AskReadyResponse;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import com.gregochr.goldenhour.service.ask.AskRequest;
 import com.gregochr.goldenhour.service.ask.AskResponse;
+import com.gregochr.goldenhour.service.ask.ThreadExchange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -209,9 +210,9 @@ class AskTypedControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("a body over 8 KiB is 400 INVALID without being read to the end, and is still counted")
+    @DisplayName("a body over the derived limit is 400 INVALID without being read to the end, and is still counted")
     void oversizedBody() throws Exception {
-        String padding = " ".repeat(AskBodyLimitFilter.MAX_BODY_BYTES + 1);
+        String padding = " ".repeat(AskBodyLimitFilter.limitFor(properties.getThread().getMaxExchanges()) + 1);
         String body = "{\"question\":\"Best?\",\"view\":\"plan\"," + padding + "\"x\":1}";
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
@@ -411,6 +412,107 @@ class AskTypedControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.try[0].id").value("BEST_NEXT"))
                 .andExpect(jsonPath("$.try[1].text").value("Any rare events coming up?"))
                 .andExpect(jsonPath("$.charged").value(false));
+    }
+
+    // -- the thread -------------------------------------------------------------------------------------
+
+    private static final String THREAD_BODY = "{\"question\":\"Anything closer to home?\","
+            + "\"windowId\":\"2026-10-11_sunrise\",\"regionIds\":[],\"view\":\"map\",\"thread\":["
+            + "{\"question\":\"anything for sunrise with tide alignment this weekend?\","
+            + "\"summary\":\"Bamburgh and Dunstanburgh both have high water on the light.\","
+            + "\"picks\":[{\"locationId\":41,\"windowId\":\"2026-10-11_sunrise\"},"
+            + "{\"locationId\":57,\"windowId\":\"2026-10-11_sunrise\"}],"
+            + "\"events\":[{\"type\":\"KING_TIDE\",\"date\":\"2026-10-11\"}],"
+            + "\"generatedAt\":\"2026-10-10T14:17:40\"},"
+            + "{\"question\":\"Best spot this weekend?\",\"summary\":\"Bamburgh.\",\"picks\":[],"
+            + "\"events\":[],\"generatedAt\":\"2026-10-10T08:00:00\",\"ready\":true}]}";
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("the thread maps to the request: question, summary, ids only, generatedAt and ready, "
+            + "oldest first; ready defaults to false")
+    void threadMapping() throws Exception {
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(THREAD_BODY))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<AskRequest> captured = ArgumentCaptor.forClass(AskRequest.class);
+        verify(askService).ask(any(), captured.capture());
+        assertThat(captured.getValue().thread()).containsExactly(
+                new ThreadExchange("anything for sunrise with tide alignment this weekend?",
+                        "Bamburgh and Dunstanburgh both have high water on the light.",
+                        List.of(new ThreadExchange.PickRef(41L, "2026-10-11_sunrise"),
+                                new ThreadExchange.PickRef(57L, "2026-10-11_sunrise")),
+                        List.of(new ThreadExchange.EventRef("KING_TIDE", LocalDate.of(2026, 10, 11))),
+                        LocalDateTime.of(2026, 10, 10, 14, 17, 40), false),
+                new ThreadExchange("Best spot this weekend?", "Bamburgh.", List.of(), List.of(),
+                        LocalDateTime.of(2026, 10, 10, 8, 0, 0), true));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("a body with no thread, a null thread or an empty one is the same request as before threads "
+            + "existed")
+    void absentThreadIsTheOldRequest() throws Exception {
+        for (String body : List.of(BODY, BODY.replace("}", ",\"thread\":null}"),
+                BODY.replace("}", ",\"thread\":[]}"))) {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isOk());
+        }
+
+        ArgumentCaptor<AskRequest> captured = ArgumentCaptor.forClass(AskRequest.class);
+        verify(askService, times(3)).ask(any(), captured.capture());
+        assertThat(captured.getAllValues()).containsOnly(
+                new AskRequest("Best spot tonight?", "2026-10-05_sunset", List.of(3L), "map"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"thread\":\"x\"", "\"thread\":[1]", "\"thread\":[{\"generatedAt\":\"yesterday\"}]",
+        "\"thread\":[{\"picks\":[{\"locationId\":\"a\"}]}]", "\"thread\":[{\"events\":[{\"date\":\"soon\"}]}]",
+        "\"thread\":[{\"ready\":\"maybe\"}]"})
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("a thread that cannot be read is 400 INVALID with the fixed unreadable-body sentence")
+    void unreadableThread(String field) throws Exception {
+        String body = "{\"question\":\"Q?\",\"view\":\"plan\"," + field + "}";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID"))
+                .andExpect(jsonPath("$.error").value("The request body could not be read."));
+
+        verify(askService, never()).ask(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("a service refusal of a bad thread is 400 INVALID in the shared {error, code} shape")
+    void badThreadRefusal() throws Exception {
+        when(askService.ask(any(), any())).thenThrow(new AskRefusal(AskErrorCode.INVALID,
+                "The conversation can carry at most 8 earlier questions."));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(THREAD_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID"))
+                .andExpect(jsonPath("$.error").value("The conversation can carry at most 8 earlier questions."));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("a reset answer carries threadReset true and threadResetReason; a fresh answer carries "
+            + "neither key at all")
+    void threadResetWireShape() throws Exception {
+        MvcResult fresh = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", not(hasKey("threadReset"))))
+                .andExpect(jsonPath("$", not(hasKey("threadResetReason")))).andReturn();
+        when(askService.ask(any(), any())).thenReturn(answer().withThreadReset());
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(THREAD_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.threadReset").value(true))
+                .andExpect(jsonPath("$.threadResetReason").value("forecast updated"))
+                .andExpect(jsonPath("$.kind").value("own"));
+
+        assertThat(fresh.getResponse().getContentAsString()).doesNotContain("threadReset");
     }
 
     // -- caching ------------------------------------------------------------------------------------

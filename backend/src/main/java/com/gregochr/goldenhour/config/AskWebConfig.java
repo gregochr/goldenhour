@@ -59,7 +59,7 @@ public class AskWebConfig implements WebMvcConfigurer {
     @Bean
     public FilterRegistrationBean<AskBodyLimitFilter> askBodyLimitFilter() {
         FilterRegistrationBean<AskBodyLimitFilter> registration =
-                new FilterRegistrationBean<>(new AskBodyLimitFilter());
+                new FilterRegistrationBean<>(new AskBodyLimitFilter(properties));
         registration.addUrlPatterns(PATH);
         registration.setName("askBodyLimitFilter");
         registration.setOrder(AFTER_SECURITY);

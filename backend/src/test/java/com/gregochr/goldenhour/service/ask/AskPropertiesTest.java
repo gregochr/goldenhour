@@ -42,12 +42,13 @@ class AskPropertiesTest {
                         (p, v) -> p.getReady().setMaxCyclesPerDay(v)),
                 new Bound("cache.max-entries", 1, 100_000, (p, v) -> p.getCache().setMaxEntries(v)),
                 new Bound("cache.ttl-minutes", 1, 1440, (p, v) -> p.getCache().setTtlMinutes(v)),
+                new Bound("thread.max-exchanges", 1, 20, (p, v) -> p.getThread().setMaxExchanges(v)),
                 new Bound("log.retention-days", 1, 3650, (p, v) -> p.getLog().setRetentionDays(v)));
     }
 
     @Test
     @DisplayName("the defaults are the plan's: off, Haiku, 4 turns, 600 tokens, 20s/30s, 5/min, 3/30, "
-            + "ceiling 3x, $0.50, 6 cycles, 2000 entries for 30 minutes, 90 days")
+            + "ceiling 3x, $0.50, 6 cycles, 2000 entries for 30 minutes, 8 thread exchanges, 90 days")
     void defaults() {
         AskProperties p = new AskProperties();
 
@@ -66,6 +67,7 @@ class AskPropertiesTest {
         assertThat(p.getReady().getMaxCyclesPerDay()).isEqualTo(6);
         assertThat(p.getCache().getMaxEntries()).isEqualTo(2000);
         assertThat(p.getCache().getTtlMinutes()).isEqualTo(30);
+        assertThat(p.getThread().getMaxExchanges()).isEqualTo(8);
         assertThat(p.getLog().getRetentionDays()).isEqualTo(90);
         assertThatCode(p::afterPropertiesSet).doesNotThrowAnyException();
     }
@@ -179,6 +181,7 @@ class AskPropertiesTest {
                 "photocast.ask.daily-spend-cap-usd", "1.25",
                 "photocast.ask.ready.max-cycles-per-day", "8",
                 "photocast.ask.cache.ttl-minutes", "45",
+                "photocast.ask.thread.max-exchanges", "12",
                 "photocast.ask.log.retention-days", "30"));
 
         assertThat(p.isEnabled()).isTrue();
@@ -188,6 +191,7 @@ class AskPropertiesTest {
         assertThat(p.getDailySpendCapUsd()).isEqualTo(1.25);
         assertThat(p.getReady().getMaxCyclesPerDay()).isEqualTo(8);
         assertThat(p.getCache().getTtlMinutes()).isEqualTo(45);
+        assertThat(p.getThread().getMaxExchanges()).isEqualTo(12);
         assertThat(p.getLog().getRetentionDays()).isEqualTo(30);
     }
 
@@ -208,6 +212,8 @@ class AskPropertiesTest {
                 Map.of("photocast.ask.daily-spend-cap-usd", "0"),
                 Map.of("photocast.ask.rate-per-minute", "601"),
                 Map.of("photocast.ask.cache.max-entries", "0"),
+                Map.of("photocast.ask.thread.max-exchanges", "0"),
+                Map.of("photocast.ask.thread.max-exchanges", "21"),
                 Map.of("photocast.ask.ready.max-cycles-per-day", "49"));
     }
 

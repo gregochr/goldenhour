@@ -529,6 +529,311 @@ class AskServiceTest {
         assertThat(ask("Best spot tonight?").kind()).isEqualTo("own");
     }
 
+    // -- the thread (docs/engineering/ask-thread-plan.md T1) ---------------------------------------------
+
+    private static ThreadExchange exchange(java.time.LocalDateTime generatedAt, boolean ready) {
+        return new ThreadExchange("anything for sunrise with tide alignment this weekend?",
+                "Bamburgh has high water on the light on Saturday.",
+                List.of(new ThreadExchange.PickRef(1L, "2026-10-05_sunset")),
+                List.of(new ThreadExchange.EventRef("KING_TIDE", LocalDate.of(2026, 10, 5))), generatedAt, ready);
+    }
+
+    private ThreadExchange sameRun() {
+        return exchange(snapshot.generatedAt(), false);
+    }
+
+    private ThreadExchange otherRun() {
+        return exchange(snapshot.generatedAt().minusHours(6), false);
+    }
+
+    private static AskRequest followUp(String question, ThreadExchange... thread) {
+        return new AskRequest(question, null, List.of(), "plan", List.of(thread));
+    }
+
+    private AskRunOptions engineOptions() {
+        ArgumentCaptor<AskRunOptions> options = ArgumentCaptor.forClass(AskRunOptions.class);
+        verify(engine).run(any(), any(), any(), options.capture());
+        return options.getValue();
+    }
+
+    private AskReadyResponse.Question readyMatchFixture() {
+        AskReadyResponse.Answer answer = new AskReadyResponse.Answer(true, "ready", "Bamburgh.", List.of(),
+                List.of(), null, List.of());
+        return new AskReadyResponse.Question("BEST_NEXT", "Best spot tonight?", List.of("plan"),
+                java.time.LocalDateTime.of(2026, 10, 5, 4, 0), "05:00", answer);
+    }
+
+    @Test
+    @DisplayName("no thread and an empty thread are one fresh question: the matcher and the cache run, nothing "
+            + "marks the response, the engine gets no thread and the answer is cached")
+    void freshQuestionIsUnchanged() {
+        AskResponse absent = ask("Best spot tonight?");
+        AskResponse empty = submit(new AskRequest("Best spot tonight?", null, List.of(), "plan", List.of()));
+
+        assertThat(empty).usingRecursiveComparison().ignoringFields("allowanceLeft").isEqualTo(absent);
+        assertThat(absent.threadReset()).isNull();
+        assertThat(absent.threadResetReason()).isNull();
+        verify(matcher, times(2)).match(any(), any());
+        verify(cache, times(2)).lookup(any(), any(), any());
+        verify(cache, times(2)).store(any(), any(), any(), any());
+        ArgumentCaptor<AskRunOptions> options = ArgumentCaptor.forClass(AskRunOptions.class);
+        verify(engine, times(2)).run(any(), any(), any(), options.capture());
+        assertThat(options.getAllValues()).containsOnly(AskRunOptions.none());
+    }
+
+    @Test
+    @DisplayName("a follow-up skips the Ready matcher and the typed cache, read and write, and the engine gets "
+            + "the validated thread")
+    void followUpSkipsMatcherAndCache() {
+        AskResponse response = submit(followUp("Anything closer to home?", sameRun()));
+
+        assertThat(response.kind()).isEqualTo("own");
+        verify(matcher, never()).match(any(), any());
+        verify(cache, never()).lookup(any(), any(), any());
+        verify(cache, never()).store(any(), any(), any(), any());
+        AskRunOptions options = engineOptions();
+        assertThat(options.thread().exchanges()).containsExactly(sameRun());
+        assertThat(options.anchor()).isNull();
+        assertThat(options.readyJobRunId()).isNull();
+    }
+
+    @Test
+    @DisplayName("a follow-up that the matcher or the cache would have answered still goes to the engine, "
+            + "and is not marked as a reset")
+    void followUpIgnoresWhatWouldHaveMatched() {
+        when(matcher.match(any(), any())).thenReturn(Optional.of(readyMatchFixture()));
+        when(cache.lookup(any(), any(), any())).thenReturn(Optional.of(ok().outcome().answer()));
+
+        AskResponse response = submit(followUp("Best spot tonight?", sameRun()));
+
+        assertThat(response.kind()).isEqualTo("own");
+        assertThat(response.charged()).isTrue();
+        assertThat(response.threadReset()).isNull();
+        verify(engine).run(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a follow-up is a typed question: charged, one allowance and one engine call, refused at the "
+            + "allowance and at the spend cap")
+    void followUpIsChargedAsTyped() {
+        AskResponse first = submit(followUp("Anything closer to home?", sameRun()));
+
+        assertThat(first.charged()).isTrue();
+        assertThat(first.allowanceLeft()).isEqualTo(2);
+        assertThat(usage()).isEqualTo(new AskUsageStore.Usage(1, 1));
+        submit(followUp("And sunset?", sameRun()));
+        submit(followUp("And later?", sameRun()));
+        assertThat(codeOf(followUp("One more?", sameRun()))).isEqualTo(AskErrorCode.ALLOWANCE_EXHAUSTED);
+        spent = CAP;
+        properties.setLimitLite(100);
+        assertThat(codeOf(followUp("After the cap?", sameRun()))).isEqualTo(AskErrorCode.TYPED_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("a follow-up the engine cannot answer is refunded like any typed can't, and a failed one is 502 "
+            + "and refunded; neither is cached")
+    void followUpCantAndFailureAreRefunded() {
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
+        AskResponse cant = submit(followUp("Parking?", sameRun()));
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> failedRun("x"));
+
+        assertThat(cant.kind()).isEqualTo("cant");
+        assertThat(codeOf(followUp("Again?", sameRun()))).isEqualTo(AskErrorCode.ENGINE_FAILED);
+        assertThat(usage()).isEqualTo(new AskUsageStore.Usage(0, 2));
+        verify(cache, never()).store(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("the pre-filter runs on the new question only: an earlier question's phrase refuses nothing, "
+            + "and a refused follow-up never reaches the engine")
+    void preFilterReadsTheNewQuestionOnly() {
+        ThreadExchange carPark = new ThreadExchange("is the car park busy?", "No data.", null, null,
+                snapshot.generatedAt(), false);
+
+        submit(followUp("Anything closer to home?", carPark));
+
+        ArgumentCaptor<AskQuestion> screened = ArgumentCaptor.forClass(AskQuestion.class);
+        verify(preFilter).refuse(screened.capture());
+        assertThat(screened.getValue().sanitised()).isEqualTo("Anything closer to home?");
+        AskAnswer cant = new AskAnswer(false, "PhotoCast has no parking information.", List.of(), List.of(),
+                "parking");
+        when(preFilter.refuse(any())).thenReturn(Optional.of(cant));
+        org.mockito.Mockito.clearInvocations(engine);
+
+        AskResponse refused = submit(followUp("Is the car park busy?", sameRun()));
+
+        assertThat(refused.kind()).isEqualTo("cant");
+        assertThat(refused.threadReset()).isNull();
+        verifyNoInteractions(engine);
+    }
+
+    @Test
+    @DisplayName("a typed exchange from another forecast run drops the whole thread: the answer is fresh, the "
+            + "engine gets none, and the response says why")
+    void typedMismatchResets() {
+        AskResponse response = submit(followUp("Anything closer to home?", sameRun(), otherRun()));
+
+        assertThat(response.kind()).isEqualTo("own");
+        assertThat(response.threadReset()).isTrue();
+        assertThat(response.threadResetReason()).isEqualTo("forecast updated");
+        assertThat(engineOptions()).isEqualTo(AskRunOptions.none());
+        assertThat(response.charged()).isTrue();
+        assertThat(usage()).isEqualTo(new AskUsageStore.Usage(1, 1));
+    }
+
+    @Test
+    @DisplayName("after a reset the question is a fresh one: the matcher and the cache run again, the answer "
+            + "is cached, and a Ready match, a cache hit and a can't all carry the reset")
+    void resetQuestionTakesTheFreshPath() {
+        AskResponse own = submit(followUp("Best spot tonight?", otherRun()));
+        verify(matcher).match(any(), any());
+        verify(cache).lookup(any(), any(), any());
+        verify(cache).store(any(), any(), any(), any());
+        assertThat(own.threadReset()).isTrue();
+
+        when(cache.lookup(any(), any(), any())).thenReturn(Optional.of(ok().outcome().answer()));
+        AskResponse hit = submit(followUp("Best spot tonight?", otherRun()));
+        assertThat(hit.charged()).isFalse();
+        assertThat(hit.threadReset()).isTrue();
+        assertThat(hit.threadResetReason()).isEqualTo("forecast updated");
+
+        when(matcher.match(any(), any())).thenReturn(Optional.of(readyMatchFixture()));
+        AskResponse ready = submit(followUp("Best spot tonight?", otherRun()));
+        assertThat(ready.kind()).isEqualTo("ready");
+        assertThat(ready.threadReset()).isTrue();
+
+        when(matcher.match(any(), any())).thenReturn(Optional.empty());
+        when(cache.lookup(any(), any(), any())).thenReturn(Optional.empty());
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> cantRun());
+        AskResponse cant = submit(followUp("Parking?", otherRun()));
+        assertThat(cant.kind()).isEqualTo("cant");
+        assertThat(cant.threadReset()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a Ready-origin exchange is never compared: an old one beside a current typed one keeps the "
+            + "thread and does not reset")
+    void readyMismatchDoesNotReset() {
+        ThreadExchange readyOld = exchange(snapshot.generatedAt().minusDays(1), true);
+
+        AskResponse response = submit(followUp("Anything closer to home?", readyOld, sameRun()));
+
+        assertThat(response.threadReset()).isNull();
+        assertThat(response.threadResetReason()).isNull();
+        assertThat(engineOptions().thread().exchanges()).containsExactly(readyOld, sameRun());
+        verify(matcher, never()).match(any(), any());
+    }
+
+    @Test
+    @DisplayName("a thread whose typed exchanges all match the live run is carried whole and the response has "
+            + "no reset fields")
+    void matchingThreadIsCarried() {
+        AskResponse response = submit(followUp("Anything closer to home?", sameRun(), sameRun()));
+
+        assertThat(response.threadReset()).isNull();
+        assertThat(engineOptions().thread().size()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("every way a thread can be bad is 400 INVALID before anything is read or reserved, and counted "
+            + "as a denied request")
+    void badThreadsAreInvalid() {
+        ThreadExchange good = sameRun();
+        List<ThreadExchange> nineExchanges = java.util.Collections.nCopies(9, good);
+        ThreadExchange badQuestion = new ThreadExchange("emoji 😀?", "Fine.", null, null,
+                snapshot.generatedAt(), false);
+        ThreadExchange hugeWord = new ThreadExchange("Best?", "a".repeat(5_000), null, null,
+                snapshot.generatedAt(), false);
+        ThreadExchange emojiSummary = new ThreadExchange("Best?", "Lovely 🌅 sunrise.", null, null,
+                snapshot.generatedAt(), false);
+        ThreadExchange controlSummary = new ThreadExchange("Best?", "Lovely\u0007 sunrise.", null, null,
+                snapshot.generatedAt(), false);
+        ThreadExchange noLocation = new ThreadExchange("Best?", "Fine.",
+                List.of(new ThreadExchange.PickRef(null, "2026-10-05_sunset")), null, snapshot.generatedAt(), false);
+        ThreadExchange noWindow = new ThreadExchange("Best?", "Fine.",
+                List.of(new ThreadExchange.PickRef(1L, null)), null, snapshot.generatedAt(), false);
+        ThreadExchange badWindow = new ThreadExchange("Best?", "Fine.",
+                List.of(new ThreadExchange.PickRef(1L, "tomorrow_morning")), null, snapshot.generatedAt(), false);
+        ThreadExchange noTime = new ThreadExchange("Best?", "Fine.", null, null, null, false);
+        List<AskRequest> bad = List.of(
+                new AskRequest("Q?", null, List.of(), "plan", nineExchanges),
+                followUp("Q?", badQuestion), followUp("Q?", hugeWord), followUp("Q?", emojiSummary),
+                followUp("Q?", controlSummary), followUp("Q?", noLocation), followUp("Q?", noWindow),
+                followUp("Q?", badWindow), followUp("Q?", noTime),
+                new AskRequest("Q?", null, List.of(), "plan", java.util.Arrays.asList(good, null)));
+
+        for (AskRequest request : bad) {
+            assertThat(codeOf(request)).isEqualTo(AskErrorCode.INVALID);
+        }
+
+        verify(denials, times(bad.size())).record(41L, AskErrorCode.INVALID);
+        verifyNoInteractions(engine, matcher, cache);
+        verify(snapshotBuilder, never()).current();
+        assertThat(usage()).isEqualTo(AskUsageStore.Usage.NONE);
+    }
+
+    @Test
+    @DisplayName("the thread cap is photocast.ask.thread.max-exchanges: the cap is accepted, one more is INVALID")
+    void threadCapFollowsConfiguration() {
+        properties.getThread().setMaxExchanges(2);
+        properties.setLimitLite(100);
+
+        assertThat(submit(followUp("Q?", sameRun(), sameRun())).kind()).isEqualTo("own");
+        AskRefusal refusal = org.junit.jupiter.api.Assertions.assertThrows(AskRefusal.class,
+                () -> submit(followUp("Q?", sameRun(), sameRun(), sameRun())));
+
+        assertThat(refusal.code()).isEqualTo(AskErrorCode.INVALID);
+        assertThat(refusal.getMessage()).isEqualTo("The conversation can carry at most 2 earlier questions.");
+    }
+
+    @Test
+    @DisplayName("an earlier question, once sanitised, is what the engine receives: not the raw text")
+    void engineReceivesTheCleanedThread() {
+        ThreadExchange untidy = new ThreadExchange("  anything   closer?  ", "Nothing\n closer.", null, null,
+                snapshot.generatedAt(), false);
+
+        submit(followUp("And sunset?", untidy));
+
+        ThreadExchange received = engineOptions().thread().exchanges().get(0);
+        assertThat(received.question()).isEqualTo("anything closer?");
+        assertThat(received.summary()).isEqualTo("Nothing closer.");
+    }
+
+    @Test
+    @DisplayName("a follow-up logs one INFO line with the thread size after any reset, never the thread's text; "
+            + "a fresh question logs none; and the ask_log row is the new question alone")
+    void followUpLogging() {
+        List<ILoggingEvent> fresh = logged(() -> ask("Best spot tonight?"));
+        List<ILoggingEvent> followUp = logged(() ->
+                submit(followUp("Anything closer to home?", sameRun(), sameRun())));
+        List<ILoggingEvent> reset = logged(() -> submit(followUp("Anything closer to home?", otherRun())));
+
+        assertThat(fresh).filteredOn(e -> e.getLevel() == Level.INFO).isEmpty();
+        assertThat(followUp).filteredOn(e -> e.getLevel() == Level.INFO).singleElement().satisfies(e ->
+                assertThat(e.getFormattedMessage()).isEqualTo(
+                        "[ASK] User 41 answered a follow-up: outcome=CLAUDE_OK thread=2 reset=false"));
+        assertThat(reset).filteredOn(e -> e.getLevel() == Level.INFO).singleElement().satisfies(e ->
+                assertThat(e.getFormattedMessage()).isEqualTo(
+                        "[ASK] User 41 answered a follow-up: outcome=CLAUDE_OK thread=0 reset=true"));
+        ArgumentCaptor<AskLog.Entry> entries = ArgumentCaptor.forClass(AskLog.Entry.class);
+        verify(askLog, times(3)).record(entries.capture());
+        assertThat(entries.getAllValues().get(1).normalisedQuestion()).isEqualTo("anything closer to home");
+    }
+
+    @Test
+    @DisplayName("a failed follow-up's one INFO failure line also carries the thread size")
+    void failedFollowUpLineCarriesThreadSize() {
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> failedRun("boom"));
+
+        List<ILoggingEvent> events = logged(() ->
+                assertThat(codeOf(followUp("Anything closer?", sameRun()))).isEqualTo(AskErrorCode.ENGINE_FAILED));
+
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.INFO)
+                .filteredOn(e -> e.getFormattedMessage().contains("failed after"))
+                .singleElement().satisfies(e -> assertThat(e.getFormattedMessage()).contains("thread=1")
+                        .doesNotContain("closer"));
+    }
+
     // -- 7. spend cap and latch -----------------------------------------------------------------
 
     @Test

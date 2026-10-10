@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.config;
 
+import com.gregochr.goldenhour.service.ask.AskProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,13 +16,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@link AskBodyLimitFilter}: the body of {@code POST /api/ask} is bounded at 8 KiB for both the
- * stream and the reader, the boundary is exact, the declared charset cannot break it, and nothing but
- * a POST is wrapped.
+ * {@link AskBodyLimitFilter}: the body of {@code POST /api/ask} is bounded at a size derived from the
+ * permitted thread for both the stream and the reader, the boundary is exact, the declared charset
+ * cannot break it, and nothing but a POST is wrapped.
  */
 class AskBodyLimitFilterTest {
 
-    private final AskBodyLimitFilter filter = new AskBodyLimitFilter();
+    /** The live question's raw cap is 1,000 UTF-16 units: 500 astral code points. */
+    private static final int LIVE_QUESTION_ASTRAL_MAX = 500;
+
+    private final AskProperties properties = new AskProperties();
+    private final AskBodyLimitFilter filter = new AskBodyLimitFilter(properties);
+
+    private int limit() {
+        return AskBodyLimitFilter.limitFor(properties.getThread().getMaxExchanges());
+    }
 
     private HttpServletRequest wrapped(MockHttpServletRequest request) throws Exception {
         AtomicReference<HttpServletRequest> seen = new AtomicReference<>();
@@ -36,9 +45,130 @@ class AskBodyLimitFilterTest {
     }
 
     @Test
+    @DisplayName("the limit is 8 KiB plus 10 KiB per permitted exchange: 88 KiB at the default cap of 8, "
+            + "208 KiB at the largest cap of 20, and it follows the configured cap")
+    void limitIsDerivedFromTheCap() {
+        assertThat(AskBodyLimitFilter.limitFor(8)).isEqualTo(88 * 1024);
+        assertThat(AskBodyLimitFilter.limitFor(20)).isEqualTo(208 * 1024);
+        assertThat(limit()).isEqualTo(88 * 1024);
+        properties.getThread().setMaxExchanges(20);
+        assertThat(limit()).isEqualTo(208 * 1024);
+    }
+
+    @Test
+    @DisplayName("the budget holds for the body the CLIENT writes: compact JSON, unescaped ASCII keys and ids, "
+            + "500-code-point astral summaries and 200-code-point questions as raw UTF-8 (4 bytes each), at the "
+            + "default and the largest cap, with at least 1 KiB to spare")
+    void clientEncodedWorstCaseFits() throws Exception {
+        for (int cap : new int[] {8, 20}) {
+            properties.getThread().setMaxExchanges(cap);
+            byte[] body = clientWorstCaseBody(cap).getBytes(StandardCharsets.UTF_8);
+
+            assertThat(limit() - body.length).as("margin at cap %d", cap).isGreaterThan(1024);
+            assertThat(wrapped(post(body)).getInputStream().readAllBytes()).hasSize(body.length);
+        }
+        assertThat(clientWorstCaseExchange().getBytes(StandardCharsets.UTF_8).length)
+                .as("the client's worst exchange is far under its per-exchange budget")
+                .isLessThan(AskBodyLimitFilter.PER_EXCHANGE_BYTES / 2);
+    }
+
+    @Test
+    @DisplayName("a body padded with insignificant whitespace past the limit is refused: the limit promises "
+            + "every body the client sends, not every JSON encoding of a valid payload")
+    void whitespacePaddingIsRefused() throws Exception {
+        String compact = "{\"question\":\"Best?\",\"view\":\"plan\"}";
+        byte[] atLimit = (compact + " ".repeat(limit() - compact.length())).getBytes(StandardCharsets.UTF_8);
+        byte[] over = (compact + " ".repeat(limit() - compact.length() + 1)).getBytes(StandardCharsets.UTF_8);
+
+        assertThat(atLimit).hasSize(limit());
+        assertThat(wrapped(post(atLimit)).getInputStream().readAllBytes()).hasSize(limit());
+        assertThatThrownBy(() -> wrapped(post(over)).getInputStream().readAllBytes())
+                .isInstanceOf(IOException.class).hasMessageContaining("larger than");
+    }
+
+    /** One exchange as the client serialises it: compact, ASCII keys and ids unescaped, astral text raw. */
+    private static String clientWorstCaseExchange() {
+        String astral = "🌅";
+        String picks = String.join(",", java.util.Collections.nCopies(3,
+                "{\"locationId\":9223372036854775807,\"windowId\":\"2026-10-11_sunrise\"}"));
+        String events = String.join(",", java.util.Collections.nCopies(10,
+                "{\"type\":\"" + "A".repeat(64) + "\",\"date\":\"2026-10-11\"}"));
+        return "{\"question\":\"" + astral.repeat(200) + "\",\"summary\":\"" + astral.repeat(500)
+                + "\",\"picks\":[" + picks + "],\"events\":[" + events
+                + "],\"generatedAt\":\"2026-10-10T14:17:40.123456789\",\"ready\":false}";
+    }
+
+    private static String clientWorstCaseBody(int exchanges) {
+        String regionIds = String.join(",", java.util.Collections.nCopies(20, "9223372036854775807"));
+        return "{\"question\":\"" + "🌅".repeat(LIVE_QUESTION_ASTRAL_MAX)
+                + "\",\"windowId\":\"2026-10-11_sunrise\",\"regionIds\":[" + regionIds
+                + "],\"view\":\"coming-up\",\"thread\":["
+                + String.join(",", java.util.Collections.nCopies(exchanges, clientWorstCaseExchange())) + "]}";
+    }
+
+    @Test
+    @DisplayName("even if the client escaped its text, a worst-case body is under the limit at the default cap "
+            + "and at the largest cap: every exchange at its maximum, all astral and escaped (12 bytes each), "
+            + "plus an outer body with 20 region ids; this bounds escaped text, not escaped keys or padding")
+    void worstCaseBodyFits() throws Exception {
+        for (int cap : new int[] {8, 20}) {
+            properties.getThread().setMaxExchanges(cap);
+            byte[] body = worstCaseBody(cap).getBytes(StandardCharsets.UTF_8);
+
+            assertThat(body.length).as("cap %d", cap).isLessThan(limit());
+            assertThat(AskBodyLimitFilter.PER_EXCHANGE_BYTES - worstCaseExchange().length())
+                    .as("per-exchange margin").isGreaterThan(256);
+            assertThat(limit() - body.length).as("margin at cap %d", cap).isGreaterThan(cap * 256);
+            assertThat(wrapped(post(body)).getInputStream().readAllBytes()).hasSize(body.length);
+            assertThatThrownBy(() -> wrapped(post(limit() + 1)).getInputStream().readAllBytes())
+                    .isInstanceOf(IOException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("the outer body at its worst (a live question at its raw cap, escaped, and 20 region ids) "
+            + "fits inside the base, with room for the window id and view")
+    void outerBodyFitsInTheBase() {
+        int rawCapUnits = 1_000;
+        String question = "\\uD83C\\uDF05".repeat(LIVE_QUESTION_ASTRAL_MAX);
+        assertThat(question.length()).isEqualTo(rawCapUnits / 2 * 12);
+        String regionIds = String.join(",", java.util.Collections.nCopies(20, "9223372036854775807"));
+        String outer = "{\"question\":\"" + question + "\",\"windowId\":\"2026-10-11_sunrise\",\"regionIds\":["
+                + regionIds + "],\"view\":\"coming-up\",\"thread\":[]}";
+
+        assertThat(outer.length()).isLessThan(AskBodyLimitFilter.BASE_BYTES - 1024);
+    }
+
+    /** One exchange at the contract's maxima, each code point an escaped surrogate pair (12 bytes). */
+    private static String worstCaseExchange() {
+        String astral = "\\uD83C\\uDF05";
+        String picks = String.join(",", java.util.Collections.nCopies(3,
+                "{\"locationId\":9223372036854775807,\"windowId\":\"2026-10-11_sunrise\"}"));
+        String events = String.join(",", java.util.Collections.nCopies(10,
+                "{\"type\":\"" + "A".repeat(64) + "\",\"date\":\"2026-10-11\"}"));
+        return "{\"question\":\"" + astral.repeat(200) + "\",\"summary\":\"" + astral.repeat(500)
+                + "\",\"picks\":[" + picks + "],\"events\":[" + events
+                + "],\"generatedAt\":\"2026-10-10T14:17:40.123456789\",\"ready\":false}";
+    }
+
+    private static String worstCaseBody(int exchanges) {
+        String regionIds = String.join(",", java.util.Collections.nCopies(20, "9223372036854775807"));
+        return "{\"question\":\"" + "\\uD83C\\uDF05".repeat(LIVE_QUESTION_ASTRAL_MAX)
+                + "\",\"windowId\":\"2026-10-11_sunrise\",\"regionIds\":[" + regionIds
+                + "],\"view\":\"coming-up\",\"thread\":["
+                + String.join(",", java.util.Collections.nCopies(exchanges, worstCaseExchange())) + "]}";
+    }
+
+    private static MockHttpServletRequest post(byte[] content) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ask");
+        request.setContent(content);
+        return request;
+    }
+
+    @Test
     @DisplayName("a body of exactly the limit is delivered whole, byte by byte and in bulk")
     void atTheLimit() throws Exception {
-        int limit = AskBodyLimitFilter.MAX_BODY_BYTES;
+        int limit = limit();
 
         assertThat(wrapped(post(limit)).getInputStream().readAllBytes()).hasSize(limit);
         HttpServletRequest single = wrapped(post(limit));
@@ -52,7 +182,7 @@ class AskBodyLimitFilterTest {
     @Test
     @DisplayName("one byte over the limit fails the read that passes it, whether read in bulk or singly")
     void overTheLimit() throws Exception {
-        int over = AskBodyLimitFilter.MAX_BODY_BYTES + 1;
+        int over = limit() + 1;
 
         assertThatThrownBy(() -> wrapped(post(over)).getInputStream().readAllBytes())
                 .isInstanceOf(IOException.class).hasMessageContaining("larger than");
@@ -72,7 +202,7 @@ class AskBodyLimitFilterTest {
         try (BufferedReader reader = wrapped(request).getReader()) {
             assertThat(reader.readLine()).isEqualTo("a".repeat(10));
         }
-        HttpServletRequest big = wrapped(post(AskBodyLimitFilter.MAX_BODY_BYTES + 1));
+        HttpServletRequest big = wrapped(post(limit() + 1));
         assertThatThrownBy(() -> big.getReader().readLine()).isInstanceOf(IOException.class);
     }
 
