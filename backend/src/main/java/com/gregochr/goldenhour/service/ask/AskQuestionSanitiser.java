@@ -30,8 +30,11 @@ public final class AskQuestionSanitiser {
     /**
      * The longest earlier-answer summary accepted from a thread, in code points, counted on the RAW text
      * before any normalising or whitespace collapse, so padding cannot smuggle a longer exchange past it.
+     * It is {@link AskAnswerValidator#THREAD_SUMMARY_MAX_CODE_POINTS}, the bound the validator puts on every
+     * summary it serves: the two are one constant so that a summary the server served is always accepted back
+     * verbatim.
      */
-    public static final int MAX_THREAD_SUMMARY_LENGTH = 500;
+    public static final int MAX_THREAD_SUMMARY_LENGTH = AskAnswerValidator.THREAD_SUMMARY_MAX_CODE_POINTS;
 
     /**
      * The longest earlier question accepted from a thread, in code points, counted on the RAW text. The live
