@@ -66,6 +66,16 @@ class AskPromptBuilderTest {
     }
 
     @Test
+    @DisplayName("the model may never ask the reader anything, and 'close to home' is a drive filter it applies "
+            + "itself (production 2026-10-10: it asked how far the reader would travel and the question failed)")
+    void neverAsksAndReadsCloseToHomeAsADriveLimit() {
+        String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true);
+
+        assertThat(typed).contains("never ask the reader a question")
+                .contains("close to home, near, nearby or local without a time, pass 60");
+    }
+
+    @Test
     @DisplayName("an events question must consult BOTH events tools, and 'no events' is allowed only after both "
             + "returned nothing")
     void eventsQuestionsRequireBothTools() {

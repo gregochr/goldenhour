@@ -243,6 +243,8 @@ class ClaudeAskEngineTest {
         assertThat(sent.get(0).messages()).hasSize(1);
         assertThat(sent.get(1).messages()).hasSize(3);
         assertThat(sent.get(2).messages()).hasSize(5);
+        assertThat(sent).as("every turn must be a tool call, so none may leave the choice to the model")
+                .allSatisfy(params -> assertThat(params.toolChoice().orElseThrow().isAny()).isTrue());
         assertThat(toolResultsIn(sent.get(2))).extracting(ToolResultBlockParam::toolUseId)
                 .containsExactly("t1", "t2");
         assertThat(toolResultsIn(sent.get(1)).getFirst().content().orElseThrow().string().orElseThrow())
@@ -737,7 +739,7 @@ class ClaudeAskEngineTest {
     }
 
     @Test
-    @DisplayName("each request carries the model, the 600-token ceiling, every tool, and auto tool choice")
+    @DisplayName("each request carries the model, the 600-token ceiling, every tool, and tool_choice any")
     void requestShape() {
         run(USER, submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
@@ -745,7 +747,7 @@ class ClaudeAskEngineTest {
         assertThat(params.model().asString()).isEqualTo(EvaluationModel.HAIKU.getModelId());
         assertThat(params.maxTokens()).isEqualTo(600);
         assertThat(params.tools().orElseThrow()).hasSize(5);
-        assertThat(params.toolChoice().orElseThrow().isAuto()).isTrue();
+        assertThat(params.toolChoice().orElseThrow().isAny()).isTrue();
         assertThat(params.outputConfig()).as("Haiku and Sonnet 4.6 take no effort setting").isEmpty();
     }
 

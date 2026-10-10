@@ -10,7 +10,7 @@ import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.Tool;
-import com.anthropic.models.messages.ToolChoiceAuto;
+import com.anthropic.models.messages.ToolChoiceAny;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUseBlock;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -45,7 +45,8 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * The Claude tool loop (plan §2.3, D-1): at most {@code max-turns} model turns, {@code tool_choice}
- * auto, and the reply is the input of the model's {@code submit_answer} call.
+ * {@code any} (every turn must be a tool call, so a prose reply cannot happen), and the reply is the
+ * input of the model's {@code submit_answer} call.
  *
  * <p><b>Nothing safety- or cost-relevant depends on the model behaving.</b>
  * <ul>
@@ -283,7 +284,7 @@ public class ClaudeAskEngine implements AskEngine {
                 .model(model.getModelId())
                 .maxTokens(ModelRequestSupport.maxTokens(model, properties.getMaxTokens()))
                 .systemOfTextBlockParams(List.of(TextBlockParam.builder().text(system).build()))
-                .toolChoice(ToolChoiceAuto.builder().build())
+                .toolChoice(ToolChoiceAny.builder().build())
                 .addUserMessage(question.sanitised());
         tools.forEach(builder::addTool);
         ModelRequestSupport.tune(builder, model);
@@ -346,7 +347,10 @@ public class ClaudeAskEngine implements AskEngine {
      * Why a response cannot be used, or null when it is a tool-use turn. Refusal, {@code max_tokens}
      * and the context-window stop are the shared {@link ModelRequestSupport#checkStopReason} test;
      * anything else that is not {@code tool_use} (an {@code end_turn} with no tool call, a pause)
-     * is a turn that did not call a tool.
+     * is a turn that did not call a tool. With {@code tool_choice} {@code any} a text-only turn is
+     * not reachable except through those stops; the test stays as the defence behind the request
+     * (2026-10-10: under {@code auto}, Haiku once answered a drive question with a question of its
+     * own and the whole conversation failed).
      */
     private static String stopProblem(Message response) {
         try {

@@ -89,7 +89,7 @@ class ClaudeAskEngineWireTest {
     }
 
     @Test
-    @DisplayName("a real tool-use conversation: the request carries the tools, auto tool choice and the question; "
+    @DisplayName("a real tool-use conversation: the request carries the tools, tool_choice any and the question; "
             + "the second request replays the assistant's tool call and our result; the answer is read back")
     void toolConversationOverTheWire() throws Exception {
         WIRE_MOCK.stubFor(post(urlPathEqualTo(PATH)).atPriority(2)
@@ -120,7 +120,7 @@ class ClaudeAskEngineWireTest {
         JsonNode first = json.readTree(requests.get(0).getBodyAsString());
         assertThat(first.get("model").asText()).isEqualTo(EvaluationModel.HAIKU.getModelId());
         assertThat(first.get("max_tokens").asInt()).isEqualTo(600);
-        assertThat(first.get("tool_choice").get("type").asText()).isEqualTo("auto");
+        assertThat(first.get("tool_choice").get("type").asText()).isEqualTo("any");
         assertThat(first.get("system").get(0).get("text").asText()).contains("submit_answer");
         assertThat(first.get("messages")).hasSize(1);
         assertThat(first.get("messages").get(0).get("role").asText()).isEqualTo("user");
@@ -137,6 +137,10 @@ class ClaudeAskEngineWireTest {
                 .containsExactly("answerable", "summary");
 
         JsonNode second = json.readTree(requests.get(1).getBodyAsString());
+        assertThat(second.get("tool_choice").get("type").asText())
+                .as("a later turn must be a tool call too").isEqualTo("any");
+        assertThat(first.get("tool_choice").has("disable_parallel_tool_use"))
+                .as("parallel tool use stays on").isFalse();
         JsonNode messages = second.get("messages");
         assertThat(messages).hasSize(3);
         assertThat(messages.get(1).get("role").asText()).isEqualTo("assistant");

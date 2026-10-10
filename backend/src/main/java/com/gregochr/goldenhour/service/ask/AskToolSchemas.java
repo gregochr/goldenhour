@@ -65,7 +65,8 @@ public final class AskToolSchemas {
         if (withDriveLimit) {
             props.put("maxDriveMinutes", m("type", "integer", "minimum", 1,
                     "description", "Only spots within this many minutes' drive of the reader's "
-                            + "home. Use only when the question names a time limit."));
+                            + "home. Use for any question about a drive time or about somewhere "
+                            + "close to home (60 when no time is named)."));
         }
         props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_SPOTS,
                 "description", "How many spots, at most " + AskTools.MAX_SPOTS + "."));
