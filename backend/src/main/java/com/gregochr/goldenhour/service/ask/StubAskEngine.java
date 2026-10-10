@@ -30,6 +30,7 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 /**
  * The engine that makes <b>no Anthropic call</b>, selected by {@code photocast.ask.stub=true}
@@ -120,9 +121,10 @@ public class StubAskEngine implements AskEngine {
         String text = question.sanitised().toLowerCase(Locale.ROOT);
 
         AskAnswerValidator.Raw raw;
-        if (!EVENT_WORDS.matcher(text).find()) {
-            // A follow-up with earlier picks still in the forecast ranks those: no tool call, the way a
-            // question only about the earlier picks is answered.
+        if (!EVENT_WORDS.matcher(text).find() && asksAboutEarlierPicks(text, question, snapshot)) {
+            // A question about the earlier picks themselves (rank, compare, "those") ranks them with no
+            // tool call. Anything that asks for new places (a day, the coast, a tide, a window) falls
+            // through to the ordinary script, with the thread still in evidence for the validator.
             Optional<AskAnswerValidator.Raw> earlier = threadAnswer(conversation, snapshot);
             if (earlier.isPresent()) {
                 return conversation.submit(earlier.get(), 1, tools.trace());
@@ -139,6 +141,28 @@ public class StubAskEngine implements AskEngine {
     }
 
     // -- the thread ---------------------------------------------------------------------------
+
+    /** Words that point back at the answers already given. */
+    private static final Set<String> EARLIER_WORDS = Set.of("rank", "order", "those", "them", "these",
+            "either", "both", "closer", "nearer", "earlier", "which");
+
+    /**
+     * Whether the question is about the earlier options rather than a request for new places: it
+     * points back at them (a deterministic word test, whole words) and names no day, coast, tide or
+     * window of its own, since any of those asks the forecast a new question.
+     */
+    private static boolean asksAboutEarlierPicks(String text, AskQuestion question, AskSnapshot snapshot) {
+        List<String> words = PhraseAskPreFilter.words(text);
+        boolean pointsBack = words.stream().anyMatch(EARLIER_WORDS::contains)
+                || IntStream.range(0, words.size() - 1)
+                        .anyMatch(i -> "the".equals(words.get(i)) && "other".equals(words.get(i + 1)));
+        boolean newPlaces = TODAY_WORDS.matcher(text).find() || TOMORROW_WORD.matcher(text).find()
+                || WEEKEND_WORD.matcher(text).find() || WEEKDAY_WORDS.matcher(text).find()
+                || COASTAL_WORDS.matcher(text).find() || HIGH_TIDE.matcher(text).find()
+                || LOW_TIDE.matcher(text).find()
+                || question.windowId() != null && snapshot.window(question.windowId()).isPresent();
+        return pointsBack && !newPlaces;
+    }
 
     /**
      * The thread's picks that are still in scope and pick-eligible, ranked the way {@code rank_spots}
