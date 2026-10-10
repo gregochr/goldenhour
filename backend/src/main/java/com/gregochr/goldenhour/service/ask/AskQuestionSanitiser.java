@@ -27,11 +27,21 @@ public final class AskQuestionSanitiser {
     /** The longest question accepted, in characters (code points) after cleaning. */
     public static final int MAX_LENGTH = 200;
 
-    /** The longest earlier-answer summary accepted from a thread, in code points after cleaning. */
+    /**
+     * The longest earlier-answer summary accepted from a thread, in code points, counted on the RAW text
+     * before any normalising or whitespace collapse, so padding cannot smuggle a longer exchange past it.
+     */
     public static final int MAX_THREAD_SUMMARY_LENGTH = 500;
 
-    /** The longest raw summary {@link #sanitiseThreadSummary} will look at, in UTF-16 units. */
-    static final int MAX_THREAD_SUMMARY_RAW_LENGTH = 2_000;
+    /**
+     * The longest earlier question accepted from a thread, in code points, counted on the RAW text. The live
+     * question's own cap ({@value #MAX_LENGTH}) counts after whitespace collapse; a thread question is
+     * held to the same figure before it, because the client sends it already collapsed.
+     */
+    public static final int MAX_THREAD_QUESTION_LENGTH = MAX_LENGTH;
+
+    /** The most UTF-16 units a raw summary within its cap can occupy: a cheap bound before counting. */
+    static final int MAX_THREAD_SUMMARY_RAW_LENGTH = 2 * MAX_THREAD_SUMMARY_LENGTH;
 
     /** The one sentence for any thread summary that cannot be used; it never echoes the text. */
     static final String THREAD_SUMMARY_UNUSABLE = "An earlier answer in the conversation could not be used.";
@@ -144,9 +154,10 @@ public final class AskQuestionSanitiser {
      * The text was the model's, but it arrives from the client, so it is the reader's text for every
      * purpose here: composed to NFC, whitespace collapsed, <em>refused</em> (never stripped) when it
      * holds a control, format or unpaired-surrogate character, a combining mark or an emoji (the same
-     * refused classes as a question), refused when it is blank or longer than
-     * {@value #MAX_THREAD_SUMMARY_LENGTH} code points (the validator's own cap counts words, so one very
-     * long "word" would pass it), and then given the validator's cleaning: URL-like strings removed,
+     * refused classes as a question), refused when it is blank or its RAW text is longer than
+     * {@value #MAX_THREAD_SUMMARY_LENGTH} code points, counted before any collapse (the validator's own cap
+     * counts words, so one very long "word" would pass it, and a padded summary would otherwise be accepted
+     * at several times that size), and then given the validator's cleaning: URL-like strings removed,
      * the model's brand names replaced and a cap of {@value AskAnswerValidator#SUMMARY_WORDS} words.
      *
      * <p>Unlike a question it is <em>not</em> held to the letters-and-punctuation allow-list: the
@@ -156,7 +167,8 @@ public final class AskQuestionSanitiser {
      * @return the cleaned summary, or the sentence saying why it was refused
      */
     public static Result sanitiseThreadSummary(String raw) {
-        if (raw == null || raw.length() > MAX_THREAD_SUMMARY_RAW_LENGTH) {
+        if (raw == null || raw.length() > MAX_THREAD_SUMMARY_RAW_LENGTH
+                || raw.codePointCount(0, raw.length()) > MAX_THREAD_SUMMARY_LENGTH) {
             return new Result(null, THREAD_SUMMARY_UNUSABLE);
         }
         String composed = Normalizer.normalize(raw, Normalizer.Form.NFC);
@@ -203,6 +215,22 @@ public final class AskQuestionSanitiser {
             default -> Character.isEmojiPresentation(cp)
                     || (cp >= FIRST_PICTOGRAPH_PLANE_CODE_POINT && Character.isExtendedPictographic(cp));
         };
+    }
+
+    /**
+     * Cleans an earlier question carried in a thread: refused when its RAW text is longer than
+     * {@value #MAX_THREAD_QUESTION_LENGTH} code points (counted before any collapse, so a padded question is
+     * never accepted), otherwise exactly {@link #sanitiseTyped}.
+     *
+     * @param raw the question as received; may be null
+     * @return the cleaned question, or the sentence saying why it was refused
+     */
+    public static Result sanitiseThreadQuestion(String raw) {
+        if (raw != null && (raw.length() > 2 * MAX_THREAD_QUESTION_LENGTH
+                || raw.codePointCount(0, raw.length()) > MAX_THREAD_QUESTION_LENGTH)) {
+            return new Result(null, tooLong());
+        }
+        return sanitiseTyped(raw);
     }
 
     /**

@@ -22,6 +22,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class AskBodyLimitFilterTest {
 
+    /** The live question's raw cap is 1,000 UTF-16 units: 500 astral code points. */
+    private static final int LIVE_QUESTION_ASTRAL_MAX = 500;
+
     private final AskProperties properties = new AskProperties();
     private final AskBodyLimitFilter filter = new AskBodyLimitFilter(properties);
 
@@ -42,14 +45,14 @@ class AskBodyLimitFilterTest {
     }
 
     @Test
-    @DisplayName("the limit is 4 KiB plus 10 KiB per permitted exchange: 84 KiB at the default cap of 8, "
-            + "204 KiB at the largest cap of 20, and it follows the configured cap")
+    @DisplayName("the limit is 8 KiB plus 10 KiB per permitted exchange: 88 KiB at the default cap of 8, "
+            + "208 KiB at the largest cap of 20, and it follows the configured cap")
     void limitIsDerivedFromTheCap() {
-        assertThat(AskBodyLimitFilter.limitFor(8)).isEqualTo(84 * 1024);
-        assertThat(AskBodyLimitFilter.limitFor(20)).isEqualTo(204 * 1024);
-        assertThat(limit()).isEqualTo(84 * 1024);
+        assertThat(AskBodyLimitFilter.limitFor(8)).isEqualTo(88 * 1024);
+        assertThat(AskBodyLimitFilter.limitFor(20)).isEqualTo(208 * 1024);
+        assertThat(limit()).isEqualTo(88 * 1024);
         properties.getThread().setMaxExchanges(20);
-        assertThat(limit()).isEqualTo(204 * 1024);
+        assertThat(limit()).isEqualTo(208 * 1024);
     }
 
     @Test
@@ -70,6 +73,20 @@ class AskBodyLimitFilterTest {
         }
     }
 
+    @Test
+    @DisplayName("the outer body at its worst (a live question at its raw cap, escaped, and 20 region ids) "
+            + "fits inside the base, with room for the window id and view")
+    void outerBodyFitsInTheBase() {
+        int rawCapUnits = 1_000;
+        String question = "\\uD83C\\uDF05".repeat(LIVE_QUESTION_ASTRAL_MAX);
+        assertThat(question.length()).isEqualTo(rawCapUnits / 2 * 12);
+        String regionIds = String.join(",", java.util.Collections.nCopies(20, "9223372036854775807"));
+        String outer = "{\"question\":\"" + question + "\",\"windowId\":\"2026-10-11_sunrise\",\"regionIds\":["
+                + regionIds + "],\"view\":\"coming-up\",\"thread\":[]}";
+
+        assertThat(outer.length()).isLessThan(AskBodyLimitFilter.BASE_BYTES - 1024);
+    }
+
     /** One exchange at the contract's maxima, each code point an escaped surrogate pair (12 bytes). */
     private static String worstCaseExchange() {
         String astral = "\\uD83C\\uDF05";
@@ -84,8 +101,9 @@ class AskBodyLimitFilterTest {
 
     private static String worstCaseBody(int exchanges) {
         String regionIds = String.join(",", java.util.Collections.nCopies(20, "9223372036854775807"));
-        return "{\"question\":\"" + "\\uD83C\\uDF05".repeat(160) + "\",\"windowId\":\"2026-10-11_sunrise\","
-                + "\"regionIds\":[" + regionIds + "],\"view\":\"coming-up\",\"thread\":["
+        return "{\"question\":\"" + "\\uD83C\\uDF05".repeat(LIVE_QUESTION_ASTRAL_MAX)
+                + "\",\"windowId\":\"2026-10-11_sunrise\",\"regionIds\":[" + regionIds
+                + "],\"view\":\"coming-up\",\"thread\":["
                 + String.join(",", java.util.Collections.nCopies(exchanges, worstCaseExchange())) + "]}";
     }
 

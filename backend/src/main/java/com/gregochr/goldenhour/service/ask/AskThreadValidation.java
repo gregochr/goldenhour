@@ -13,7 +13,8 @@ import java.util.regex.Pattern;
  *
  * <p>Everything in a thread is client-supplied, so everything is checked here and nothing is passed
  * through: the exchange count against {@code photocast.ask.thread.max-exchanges}; each question
- * through the live question's own {@link AskQuestionSanitiser#sanitiseTyped} rules; each summary
+ * through {@link AskQuestionSanitiser#sanitiseThreadQuestion} (the live question's rules, and a RAW cap
+ * of 200 code points); each summary
  * through {@link AskQuestionSanitiser#sanitiseThreadSummary}; each pick as a positive location id and
  * a well-formed {@link AskWindowId}; each event as a plain type token and a date; and a
  * {@code generatedAt} on every exchange. A null entry anywhere is refused too. The refusals say
@@ -68,7 +69,7 @@ final class AskThreadValidation {
     }
 
     private static ThreadExchange clean(ThreadExchange exchange) {
-        AskQuestionSanitiser.Result question = AskQuestionSanitiser.sanitiseTyped(exchange.question());
+        AskQuestionSanitiser.Result question = AskQuestionSanitiser.sanitiseThreadQuestion(exchange.question());
         if (!question.ok()) {
             throw invalid(BAD_QUESTION);
         }

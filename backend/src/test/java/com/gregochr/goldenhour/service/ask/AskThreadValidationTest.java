@@ -173,6 +173,42 @@ class AskThreadValidationTest {
     }
 
     @Test
+    @DisplayName("a thread summary is capped on its RAW length: 500 raw code points are accepted and a "
+            + "501-code-point summary of padding spaces plus one letter is INVALID, collapse or not")
+    void summaryRawCap() {
+        String paddedAtCap = " ".repeat(499) + "A";
+        String paddedOver = " ".repeat(500) + "A";
+
+        assertThat(paddedAtCap.codePointCount(0, paddedAtCap.length())).isEqualTo(500);
+        assertThat(AskThreadValidation.validate(List.of(with("Best spot?", paddedAtCap)), MAX).size())
+                .isEqualTo(1);
+        assertThat(refused(List.of(with("Best spot?", paddedOver))).code()).isEqualTo(AskErrorCode.INVALID);
+        assertThat(refused(List.of(with("Best spot?", " ".repeat(1_999) + "A"))).code())
+                .isEqualTo(AskErrorCode.INVALID);
+    }
+
+    @Test
+    @DisplayName("a thread question is capped on its RAW length too: 200 raw code points are accepted and a "
+            + "201-code-point question of padding plus one letter is INVALID")
+    void questionRawCap() {
+        String paddedAtCap = " ".repeat(199) + "A";
+        String paddedOver = " ".repeat(200) + "A";
+
+        assertThat(AskThreadValidation.validate(List.of(with(paddedAtCap, "Fine.")), MAX).size()).isEqualTo(1);
+        AskRefusal refusal = refused(List.of(with(paddedOver, "Fine.")));
+        assertThat(refusal.code()).isEqualTo(AskErrorCode.INVALID);
+        assertThat(refusal.getMessage()).isEqualTo("An earlier question in the conversation could not be used.");
+        assertThat(refused(List.of(with(" ".repeat(999) + "A", "Fine."))).code()).isEqualTo(AskErrorCode.INVALID);
+    }
+
+    @Test
+    @DisplayName("the live question keeps its own rule: a padded question that collapses to under 200 is "
+            + "still accepted by sanitiseTyped")
+    void liveQuestionIsUnchanged() {
+        assertThat(AskQuestionSanitiser.sanitiseTyped(" ".repeat(300) + "A").sanitised()).isEqualTo("A");
+    }
+
+    @Test
     @DisplayName("whitespace collapses before the cap is counted, and the raw input is bounded before any work")
     void summaryWhitespaceAndRawBound() {
         String padded = "Bamburgh." + " ".repeat(300) + "Dunstanburgh.";
