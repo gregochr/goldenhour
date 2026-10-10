@@ -39,6 +39,7 @@ class AskEngineSelectionTest {
                     .withBean(AskProperties.class, AskProperties::new)
                     .withBean(AskJobRunService.class, () -> mock(AskJobRunService.class))
                     .withBean(AskPromptBuilder.class, AskPromptBuilder::new)
+                    .withBean(AskLocationNames.class, () -> AskLocationNames.NONE)
                     .withBean(Clock.class, Clock::systemUTC);
         }
         return runner;

@@ -479,7 +479,8 @@ public class AskTools {
 
     // -- internals --------------------------------------------------------------------------
 
-    private static final Comparator<AskSnapshot.Candidate> RANK =
+    /** The order {@code rank_spots} returns spots in, shared with the stub's ranking of a thread's picks. */
+    static final Comparator<AskSnapshot.Candidate> RANK =
             Comparator.<AskSnapshot.Candidate>comparingInt(c -> -c.slot().rating())
                     .thenComparingInt(AskTools::pickOrder)
                     .thenComparingInt(c -> c.slot().tideAligned() ? 0 : 1)
@@ -517,7 +518,15 @@ public class AskTools {
                 w.bestRating(), best ? named : null, also ? named : null);
     }
 
-    private SpotInfo spotInfo(AskSnapshot.Candidate c, Integer minutes) {
+    /**
+     * One slot as {@code rank_spots} renders it: the one vocabulary the model reads, whether the slot
+     * came from a tool result or from a thread's earlier pick.
+     *
+     * @param c       the slot
+     * @param minutes the asker's drive minutes to it, or null
+     * @return the rendered spot
+     */
+    SpotInfo spotInfo(AskSnapshot.Candidate c, Integer minutes) {
         AskSnapshot.Slot s = c.slot();
         Optional<BriefingWindow.PickKind> kind = pickKind(c);
         return new SpotInfo(s.locationId(), s.name(), c.region().name(), c.window().id(),
@@ -528,7 +537,12 @@ public class AskTools {
 
     /** {@code Today}, {@code Tomorrow} or the weekday: the shared relative day, capitalised for a tool result. */
     private String dayWord(LocalDate date) {
-        String relative = DayLabels.relative(date, snapshot.today());
+        return dayWord(date, snapshot.today());
+    }
+
+    /** The same day word for any date: {@code Today}, {@code Tomorrow} or the weekday. */
+    static String dayWord(LocalDate date, LocalDate today) {
+        String relative = DayLabels.relative(date, today);
         return Character.toUpperCase(relative.charAt(0)) + relative.substring(1);
     }
 
@@ -541,6 +555,21 @@ public class AskTools {
             driveMinutes = driveTimes.getAllMinutes(user.userId());
         }
         return driveMinutes;
+    }
+
+    /**
+     * The asker's drive minutes to a location, for a thread's pick line. Unlike {@code rank_spots} this
+     * is read without a drive limit, but only for a user who has drive times, and it does not make the
+     * answer personal (a follow-up is never cached or shared).
+     *
+     * @param locationId the location id
+     * @return the minutes, or null when the asker has none for it
+     */
+    Integer driveMinutesOf(long locationId) {
+        if (!user.hasUser() || !user.hasDriveTimes()) {
+            return null;
+        }
+        return driveMinutesByLocation().get(locationId);
     }
 
     private static boolean withinDrive(Map<Long, Integer> minutes, AskSnapshot.Candidate c,

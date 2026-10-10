@@ -108,7 +108,7 @@ class ClaudeAskEngineTest {
 
     private void engineWith(Clock useClock) {
         engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes,
-                new AskAnswerValidator(), new AskPromptBuilder(), new ObjectMapper(), useClock);
+                new AskAnswerValidator(), new AskPromptBuilder(), new ObjectMapper(), useClock, AskLocationNames.NONE);
     }
 
     // -- fixtures ---------------------------------------------------------------------------
@@ -506,7 +506,7 @@ class ClaudeAskEngineTest {
         AskAnswerValidator broken = mock(AskAnswerValidator.class);
         when(broken.validate(any(), any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
         engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, broken,
-                new AskPromptBuilder(), new ObjectMapper(), clock);
+                new AskPromptBuilder(), new ObjectMapper(), clock, AskLocationNames.NONE);
         when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
@@ -736,6 +736,127 @@ class ClaudeAskEngineTest {
             assertThat(params.system().orElseThrow().asTextBlockParams().getFirst().text()).doesNotContain(secret);
             assertThat(countOccurrences(params.toString(), secret)).as("occurrences in the request").isEqualTo(1);
         }
+    }
+
+    // -- the thread -------------------------------------------------------------------------
+
+    private static final String THREAD_USER_MESSAGE = """
+            Earlier in this conversation:
+            You asked: "anything for sunset?"
+            I answered: "Bamburgh looks best."
+              Picks:
+                1. Bamburgh (Northumberland) · locationId 1 · windowId 2026-10-05_sunset · Today sunset · \
+            5★ · WORTH_IT · 55 min from home · tide suits
+            Now the reader asks: "Best spot tonight?\"""";
+
+    private static AskRunOptions threadOf(ThreadExchange.PickRef... picks) {
+        return AskRunOptions.typed(new AskThread(List.of(new ThreadExchange("anything for sunset?",
+                "Bamburgh looks best.", List.of(picks), List.of(), AskFixtures.GENERATED_AT, false))));
+    }
+
+    private static String systemText(MessageCreateParams params) {
+        return params.system().orElseThrow().asTextBlockParams().getFirst().text();
+    }
+
+    @Test
+    @DisplayName("a follow-up's earlier exchanges ride the first user message, re-joined live with the "
+            + "asker's drive minutes, and the system prompt gains the thread rules; a fresh question gets "
+            + "neither")
+    void threadRendersIntoThePrompt() {
+        when(driveTimes.getAllMinutes(7L)).thenReturn(Map.of(1L, 55));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                submit(answer(pick(1, WINDOW))));
+
+        AskRun run = engine.run(question(), snapshot(null), USER, threadOf(new ThreadExchange.PickRef(1L, WINDOW)));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        MessageCreateParams params = sentParams().getFirst();
+        assertThat(params.messages().getFirst().content().asString()).isEqualTo(THREAD_USER_MESSAGE);
+        assertThat(systemText(params)).endsWith(AskPromptBuilder.THREAD_RULES);
+
+        // The fresh question beside it: no thread block and no thread rules.
+        org.mockito.Mockito.clearInvocations(client);
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+        engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+        MessageCreateParams fresh = sentParams().getFirst();
+        assertThat(fresh.messages().getFirst().content().asString()).isEqualTo("Best spot tonight?");
+        assertThat(systemText(fresh)).doesNotContain("Earlier picks").doesNotContain("emoji");
+    }
+
+    @Test
+    @DisplayName("the thread rides the first message of the conversation only: a tool turn's follow-on "
+            + "request repeats it unchanged and adds no second copy")
+    void threadIsInTheFirstMessageOnce() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("t1", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), snapshot(null), USER, threadOf(new ThreadExchange.PickRef(1L, WINDOW)));
+
+        for (MessageCreateParams params : sentParams()) {
+            assertThat(countOccurrences(params.toString(), "Earlier in this conversation:"))
+                    .as("occurrences in the request").isEqualTo(1);
+            assertThat(params.messages().getFirst().content().asString()).startsWith("Earlier in this conversation:");
+        }
+    }
+
+    @Test
+    @DisplayName("a pick the thread offered is accepted with no tool call at all: ranking the earlier picks "
+            + "needs no rank_spots")
+    void threadPickAcceptedWithoutATool() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        AskRun run = engine.run(question("Rank those"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(1L, WINDOW)));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().answer().picks()).extracting(AskPick::locationName)
+                .containsExactly("Bamburgh");
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).containsExactly("submit_answer");
+        verify(client, times(1)).createAskMessage(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a pick neither the thread offered nor a tool returned is dropped: with no tool call either, "
+            + "that is the ordinary FAILED run, not the stale-thread can't-answer")
+    void unofferedPickStillDropped() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(2, WINDOW))));
+
+        AskRun run = engine.run(question("Rank those"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(1L, WINDOW)));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.reason()).contains("no pick, no event and no tool call");
+    }
+
+    @Test
+    @DisplayName("a follow-up about places that have since left the forecast is a CANT with the stale-thread "
+            + "phrase, and the place is named from the repository in the prompt")
+    void staleThreadIsACant() {
+        engine.shutdown();
+        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, new AskAnswerValidator(),
+                new AskPromptBuilder(), new ObjectMapper(), clock, () -> Map.of(99L, "Dunstanburgh"));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(99, WINDOW))));
+
+        AskRun run = engine.run(question("Rank those"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(99L, WINDOW)));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        assertThat(run.outcome().answer().missing()).isEqualTo("those places are no longer in the forecast");
+        assertThat(run.reason()).isNull();
+        assertThat(sentParams().getFirst().messages().getFirst().content().asString())
+                .contains("    1. Dunstanburgh · no longer in the forecast");
+        verify(jobRuns).recordQuestion(RUN_ID, true);
+    }
+
+    @Test
+    @DisplayName("a fresh question with an answer naming a place and no tool call is still a FAILED run")
+    void freshQuestionKeepsTheFailure() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        AskRun run = engine.run(question("Rank those"), snapshot(null), USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.reason()).contains("no pick, no event and no tool call");
     }
 
     @Test

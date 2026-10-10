@@ -119,15 +119,18 @@ public class ClaudeAskEngine implements AskEngine {
      * @param promptBuilder    builds the system prompt
      * @param mapper           serialises tool results for the model
      * @param clock            the application clock: the deadline and the durations
+     * @param locationNames    the names of enabled locations, for a thread's earlier pick that has left
+     *                         the forecast
      */
     public ClaudeAskEngine(AnthropicApiClient client, AskProperties properties,
             AskJobRunService jobRuns, DriveTimeResolver driveTimes,
             AskAnswerValidator validator,
-            AskPromptBuilder promptBuilder, ObjectMapper mapper, Clock clock) {
+            AskPromptBuilder promptBuilder, ObjectMapper mapper, Clock clock,
+            AskLocationNames locationNames) {
         this.client = client;
         this.properties = properties;
         this.jobRuns = jobRuns;
-        this.frame = new AskConversation.Deps(validator, driveTimes, mapper);
+        this.frame = new AskConversation.Deps(validator, driveTimes, mapper, locationNames);
         this.promptBuilder = promptBuilder;
         this.clock = clock;
     }
@@ -191,8 +194,12 @@ public class ClaudeAskEngine implements AskEngine {
         AskTools tools = conversation.tools();
         AskSnapshot.Window contextWindow = question.windowId() == null
                 ? null : snapshot.window(question.windowId()).orElse(null);
+        AskThreadContext thread = conversation.thread();
         String system = promptBuilder.systemPrompt(snapshot.today(), conversation.scope(), contextWindow,
-                user.hasUser());
+                user.hasUser(), !thread.isEmpty());
+        // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
+        // the forecast, one query for names, neither of which should repeat each turn.
+        String userMessage = promptBuilder.userMessage(question.sanitised(), thread);
         List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser());
         List<AskTools.ToolCall> trace = new ArrayList<>();
         List<Message> assistantTurns = new ArrayList<>();
@@ -222,7 +229,7 @@ public class ClaudeAskEngine implements AskEngine {
                 return conversation.fail("the deadline passed before turn " + turn, turns, trace);
             }
             Duration callTimeout = min(Duration.ofSeconds(properties.getCallTimeoutSeconds()), remaining);
-            MessageCreateParams params = buildParams(model, system, toolDefinitions, question,
+            MessageCreateParams params = buildParams(model, system, toolDefinitions, userMessage,
                     assistantTurns, toolResults);
             turns = turn;
 
@@ -279,13 +286,13 @@ public class ClaudeAskEngine implements AskEngine {
 
     /** The params of one turn: the rules, the tools, the question, then every earlier turn. */
     private MessageCreateParams buildParams(EvaluationModel model, String system, List<Tool> tools,
-            AskQuestion question, List<Message> assistantTurns, List<List<ContentBlockParam>> results) {
+            String userMessage, List<Message> assistantTurns, List<List<ContentBlockParam>> results) {
         MessageCreateParams.Builder builder = MessageCreateParams.builder()
                 .model(model.getModelId())
                 .maxTokens(ModelRequestSupport.maxTokens(model, properties.getMaxTokens()))
                 .systemOfTextBlockParams(List.of(TextBlockParam.builder().text(system).build()))
                 .toolChoice(ToolChoiceAny.builder().build())
-                .addUserMessage(question.sanitised());
+                .addUserMessage(userMessage);
         tools.forEach(builder::addTool);
         ModelRequestSupport.tune(builder, model);
         // The two lists are appended together, one entry per completed turn; the bound is the shorter

@@ -86,7 +86,7 @@ class ClaudeAskEngineLatchTest {
                 new AskProperties(), clock);
         engine = new ClaudeAskEngine(new AnthropicApiClient(shared), new AskProperties(), accounting,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(),
-                new AskPromptBuilder(), new ObjectMapper(), clock);
+                new AskPromptBuilder(), new ObjectMapper(), clock, AskLocationNames.NONE);
     }
 
     @AfterEach

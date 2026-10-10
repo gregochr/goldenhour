@@ -104,7 +104,7 @@ class AskPromptRegressionTest {
         when(jobRuns.accountingAvailable()).thenReturn(true);
         engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(), jobRuns,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(),
-                new AskPromptBuilder(), mapper, Clock.systemUTC());
+                new AskPromptBuilder(), mapper, Clock.systemUTC(), AskLocationNames.NONE);
     }
 
     @AfterAll

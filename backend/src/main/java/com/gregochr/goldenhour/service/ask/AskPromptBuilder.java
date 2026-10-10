@@ -82,7 +82,28 @@ public class AskPromptBuilder {
             """;
 
     /**
-     * Builds the system prompt.
+     * Added, last, when the question follows earlier ones (plan {@code ask-thread-plan.md} §2.3). The
+     * first two sentences are the plan's rule word for word; the emoji line is there because the
+     * summary of this answer may be sent back as the next question's earlier answer, which refuses
+     * an emoji; the last sentence tells the model what the "no longer in the forecast" lines of the
+     * user message mean.
+     */
+    static final String THREAD_RULES = """
+            Earlier picks are real candidates: you may rank, compare, or exclude them. Resolve \
+            'closer', 'earlier', 'the other one', 'those' against them. Call `rank_spots` again when \
+            the reader asks for new places; you do not need to for a question only about the earlier \
+            picks.
+            When the reader turns down the places you gave them ("neither of those", "I've been to \
+            both"), leave those places out of your new picks, at every window. Each earlier pick \
+            lists its locationId and windowId: use those exact ids when you pick it again. When asked \
+            to rank earlier options, submit them as the picks, best first, as many as three.
+            Never use emoji or symbols other than ★ in the summary.
+            An earlier place the message lists as no longer in the forecast, or outside the area, \
+            cannot be a pick: say so in the summary when it bears on the question.
+            """;
+
+    /**
+     * Builds the system prompt of a fresh question.
      *
      * @param today        today on the UK civil calendar
      * @param scope        the regions asked about; {@link AskScope#ALL} means every region
@@ -92,6 +113,22 @@ public class AskPromptBuilder {
      */
     public String systemPrompt(LocalDate today, AskScope scope,
             AskSnapshot.Window contextWindow, boolean hasUser) {
+        return systemPrompt(today, scope, contextWindow, hasUser, false);
+    }
+
+    /**
+     * Builds the system prompt. With no thread it is byte for byte the fresh question's prompt.
+     *
+     * @param today        today on the UK civil calendar
+     * @param scope        the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the window the reader is looking at, or null
+     * @param hasUser      whether a user (and so their drive times) is behind the conversation
+     * @param hasThread    whether the question follows earlier exchanges, which adds the rules for
+     *                     reading them
+     * @return the prompt
+     */
+    public String systemPrompt(LocalDate today, AskScope scope,
+            AskSnapshot.Window contextWindow, boolean hasUser, boolean hasThread) {
         StringBuilder sb = new StringBuilder(RULES).append('\n');
         sb.append(hasUser ? WITH_USER : USER_LESS).append('\n');
         sb.append("Today is ").append(LONG_DATE.format(today)).append(" in the UK.\n");
@@ -108,6 +145,38 @@ public class AskPromptBuilder {
                     .append(" (windowId ").append(contextWindow.id()).append("). Read \"it\", \"then\" and "
                             + "\"that day\" as that window unless the question says otherwise.\n");
         }
+        if (hasThread) {
+            sb.append('\n').append(THREAD_RULES);
+        }
         return sb.toString();
+    }
+
+    /**
+     * Builds the user message. A fresh question is the question and nothing else, byte for byte. A
+     * follow-up opens with the earlier exchanges, each pick and event re-joined live by the
+     * {@link AskThreadContext}, and ends with the question the reader is asking now.
+     *
+     * @param question the reader's sanitised question
+     * @param thread   the conversation's thread; {@link AskThreadContext#NONE} for a fresh question
+     * @return the message
+     */
+    String userMessage(String question, AskThreadContext thread) {
+        if (thread == null || thread.isEmpty()) {
+            return question;
+        }
+        StringBuilder sb = new StringBuilder("Earlier in this conversation:\n");
+        for (AskThreadContext.ExchangeView exchange : thread.exchanges()) {
+            sb.append("You asked: \"").append(exchange.question()).append("\"\n");
+            sb.append("I answered: \"").append(exchange.summary()).append("\"\n");
+            if (!exchange.pickLines().isEmpty()) {
+                sb.append("  Picks:\n");
+                exchange.pickLines().forEach(line -> sb.append("    ").append(line).append('\n'));
+            }
+            if (!exchange.eventLines().isEmpty()) {
+                sb.append("  Events:\n");
+                exchange.eventLines().forEach(line -> sb.append("    ").append(line).append('\n'));
+            }
+        }
+        return sb.append("Now the reader asks: \"").append(question).append('"').toString();
     }
 }

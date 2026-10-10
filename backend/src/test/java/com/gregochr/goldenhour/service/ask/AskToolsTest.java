@@ -1001,4 +1001,61 @@ class AskToolsTest {
         assertThat(tools.evidence().events()).containsExactly(new AskEvidence.EventFact("ECLIPSE",
                 "Partial solar eclipse", TODAY.plusDays(4), warning));
     }
+
+    // -- helpers the thread's prompt lines share with rank_spots -----------------------------
+
+    @Test
+    @DisplayName("driveMinutesOf reads the asker's own drive times lazily, once, without making the answer "
+            + "personal, and never for a user-less or drive-less asker")
+    void driveMinutesOf() {
+        AskSnapshot snapshot = snapshotOfRegions(AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Whitby", 4)));
+        when(driveTimes.getAllMinutes(7L)).thenReturn(Map.of(1L, 55));
+        AskTools pro = tools(snapshot, USER, AskScope.ALL);
+        verify(driveTimes, never()).getAllMinutes(7L);
+
+        assertThat(pro.driveMinutesOf(1L)).isEqualTo(55);
+        assertThat(pro.driveMinutesOf(2L)).isNull();
+        assertThat(pro.personal()).isFalse();
+        verify(driveTimes).getAllMinutes(7L);
+
+        assertThat(tools(snapshot).driveMinutesOf(1L)).isNull();
+        assertThat(tools(snapshot, new AskUserContext(8L, UserRole.LITE_USER, false), AskScope.ALL)
+                .driveMinutesOf(1L)).isNull();
+        verify(driveTimes, never()).getAllMinutes(8L);
+    }
+
+    @Test
+    @DisplayName("spotInfo renders a slot as rank_spots does, whichever caller asks; dayWord is the one day word")
+    void spotInfoAndDayWordAreShared() {
+        AskSnapshot snapshot = snapshotOfRegions(AskFixtures.region("Coast", true,
+                AskFixtures.coastal(1L, "Whitby", 4, "HIGH", true)));
+        AskSnapshot.Candidate candidate = snapshot.candidate("2026-10-05_sunset", 1L).orElseThrow();
+        AskTools tools = tools(snapshot);
+
+        SpotInfo direct = tools.spotInfo(candidate, 12);
+        SpotInfo viaTool = spots(tools.rankSpots(rank(8))).getFirst();
+
+        assertThat(direct).isEqualTo(new SpotInfo(viaTool.locationId(), viaTool.name(), viaTool.region(),
+                viaTool.windowId(), viaTool.rating(), viaTool.verdict(), viaTool.tideState(),
+                viaTool.tideAligned(), viaTool.tideFitPhrase(), viaTool.headline(), viaTool.pick(), 12));
+        assertThat(AskTools.dayWord(TODAY, TODAY)).isEqualTo("Today");
+        assertThat(AskTools.dayWord(TODAY.plusDays(1), TODAY)).isEqualTo("Tomorrow");
+        assertThat(AskTools.dayWord(TODAY.plusDays(2), TODAY)).isEqualTo("Wednesday");
+    }
+
+    @Test
+    @DisplayName("slotAt finds a slot whether or not it is pick-eligible, and only in a window that exists")
+    void slotAtFindsIneligibleSlotsToo() {
+        AskSnapshot snapshot = snapshotOfRegions(AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Whitby", 4), AskFixtures.slot(2L, "Poor Moor", 2),
+                AskFixtures.wood(3L, "Hollin Wood", 5)));
+
+        assertThat(snapshot.slotAt("2026-10-05_sunset", 2L)).get()
+                .extracting(c -> c.slot().name()).isEqualTo("Poor Moor");
+        assertThat(snapshot.candidate("2026-10-05_sunset", 2L)).as("not eligible").isEmpty();
+        assertThat(snapshot.slotAt("2026-10-05_sunset", 3L)).isPresent();
+        assertThat(snapshot.slotAt("2026-10-05_sunset", 9L)).isEmpty();
+        assertThat(snapshot.slotAt("2026-10-04_sunset", 1L)).isEmpty();
+    }
 }

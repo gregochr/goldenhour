@@ -120,6 +120,14 @@ public class StubAskEngine implements AskEngine {
         String text = question.sanitised().toLowerCase(Locale.ROOT);
 
         AskAnswerValidator.Raw raw;
+        if (!EVENT_WORDS.matcher(text).find()) {
+            // A follow-up with earlier picks still in the forecast ranks those: no tool call, the way a
+            // question only about the earlier picks is answered.
+            Optional<AskAnswerValidator.Raw> earlier = threadAnswer(conversation, snapshot);
+            if (earlier.isPresent()) {
+                return conversation.submit(earlier.get(), 1, tools.trace());
+            }
+        }
         try {
             raw = EVENT_WORDS.matcher(text).find()
                     ? eventsAnswer(text, tools)
@@ -128,6 +136,44 @@ public class StubAskEngine implements AskEngine {
             return conversation.fail(e.getMessage(), 0, tools.trace());
         }
         return conversation.submit(raw, 1, tools.trace());
+    }
+
+    // -- the thread ---------------------------------------------------------------------------
+
+    /**
+     * The thread's picks that are still in scope and pick-eligible, ranked the way {@code rank_spots}
+     * ranks (rating, the forecast's own pick, tide met, name), best three at distinct places. Empty
+     * when the conversation has no earlier pick left, which sends the question to the ordinary script.
+     */
+    private static Optional<AskAnswerValidator.Raw> threadAnswer(AskConversation conversation,
+            AskSnapshot snapshot) {
+        List<AskSnapshot.Candidate> earlier = conversation.thread().fact().picks().stream()
+                .flatMap(pair -> snapshot.candidate(pair.windowId(), pair.locationId()).stream())
+                .sorted(AskTools.RANK)
+                .toList();
+        List<SpotInfo> chosen = new ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        for (AskSnapshot.Candidate c : earlier) {
+            if (chosen.size() < PICKS && seen.add(c.slot().locationId())) {
+                chosen.add(conversation.tools().spotInfo(c, null));
+            }
+        }
+        if (chosen.isEmpty()) {
+            return Optional.empty();
+        }
+        List<RawPick> picks = chosen.stream()
+                .map(s -> new RawPick(s.locationId(), s.windowId(), why(s, snapshot.today())))
+                .toList();
+        StringBuilder summary = new StringBuilder("Of your earlier options, ")
+                .append(chosen.getFirst().name()).append(" at ")
+                .append(windowWords(chosen.getFirst().windowId(), snapshot.today())).append(" ranks first at ")
+                .append(chosen.getFirst().rating()).append('★');
+        for (int i = 1; i < chosen.size(); i++) {
+            summary.append(i == 1 ? ", then " : i == chosen.size() - 1 ? " and " : ", ")
+                    .append(chosen.get(i).name());
+        }
+        return Optional.of(new AskAnswerValidator.Raw(true, summary.append('.').toString(), picks,
+                List.of(), null));
     }
 
     // -- where and when -----------------------------------------------------------------------
