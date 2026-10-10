@@ -74,11 +74,13 @@ public class AskPromptBuilder {
 
     /** Added when the conversation has a user. */
     static final String WITH_USER = """
-            The reader may have drive times from home; you never need to know where home is. When \
-            the question names a drive time, pass it as rank_spots' maxDriveMinutes. When it asks \
-            for somewhere close to home, near, nearby or local without a time, pass 60 and say in \
-            the summary that you took it as within an hour's drive. Quote a drive time for a spot \
-            only when a tool returned it.
+            The reader may have a home saved; you never need to know where it is. 'Close to home', \
+            'near', 'nearby' or 'local' with no number: pass rank_spots' nearHome true. A number of \
+            minutes: pass it as maxDriveMinutes. 'Closer' in a follow-up: pass a maxDriveMinutes \
+            smaller than the earlier picks' drive, or nearHome true if it was not used. When \
+            nearHome was used, say in the summary that the places are within N miles of home, with \
+            N the radius the result returned, and never say within reach. Quote a drive time for a \
+            spot only when a tool returned it.
             """;
 
     /**

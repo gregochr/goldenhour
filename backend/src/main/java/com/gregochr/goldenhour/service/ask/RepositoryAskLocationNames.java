@@ -7,7 +7,10 @@ import org.springframework.stereotype.Component;
 import java.util.HashMap;
 import java.util.Map;
 
-/** {@link AskLocationNames} over the enabled locations in the database: one query when asked. */
+/**
+ * {@link AskLocationNames} over the enabled locations in the database: one query each time it is
+ * asked ({@link AskLocationNames#memoised} makes that once per conversation).
+ */
 @Component
 class RepositoryAskLocationNames implements AskLocationNames {
 
@@ -23,13 +26,14 @@ class RepositoryAskLocationNames implements AskLocationNames {
     }
 
     @Override
-    public Map<Long, String> byId() {
-        Map<Long, String> names = new HashMap<>();
+    public Map<Long, Place> byId() {
+        Map<Long, Place> places = new HashMap<>();
         for (LocationEntity location : locations.findAllByEnabledTrueOrderByNameAsc()) {
             if (location.getId() != null && location.getName() != null) {
-                names.put(location.getId(), location.getName());
+                places.put(location.getId(),
+                        new Place(location.getName(), location.getLat(), location.getLon()));
             }
         }
-        return names;
+        return places;
     }
 }

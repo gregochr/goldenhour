@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.util.DayLabels;
+import com.gregochr.goldenhour.util.GeoUtils;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -69,6 +70,9 @@ public class AskTools {
     static final String NO_DRIVE_TIMES_NOTE =
             "No drive times are stored for this account, so a drive limit cannot be applied.";
 
+    /** The note {@code rank_spots} gives when {@code nearHome} is asked of an account with no saved home. */
+    static final String NO_HOME_NOTE = "nearHome is not available: no home postcode is saved.";
+
     private static final String LIMIT_REACHED =
             "Tool output limit reached for this conversation. Answer now with what you have.";
 
@@ -79,6 +83,7 @@ public class AskTools {
     private final AskScope scope;
     private final DriveTimeResolver driveTimes;
     private final ObjectMapper mapper;
+    private final AskLocationNames places;
 
     private final Set<AskEvidence.Pair> pairs = new LinkedHashSet<>();
     private final Set<AskEvidence.EventFact> events = new LinkedHashSet<>();
@@ -98,11 +103,29 @@ public class AskTools {
      */
     public AskTools(AskSnapshot snapshot, AskUserContext user, AskScope scope,
             DriveTimeResolver driveTimes, ObjectMapper mapper) {
+        this(snapshot, user, scope, driveTimes, mapper, AskLocationNames.NONE);
+    }
+
+    /**
+     * Creates the tools for one conversation, with the coordinates {@code nearHome} measures from.
+     *
+     * @param snapshot   the served snapshot every tool reads
+     * @param user       who is asking; a user-less context refuses {@code maxDriveMinutes} and
+     *                   {@code nearHome}
+     * @param scope      the regions the question is about
+     * @param driveTimes the source of the asker's own drive times
+     * @param mapper     serialises results for the model
+     * @param places     the enabled locations' coordinates, read lazily and only for {@code nearHome};
+     *                   a conversation passes one memoised lookup so it costs one query
+     */
+    AskTools(AskSnapshot snapshot, AskUserContext user, AskScope scope,
+            DriveTimeResolver driveTimes, ObjectMapper mapper, AskLocationNames places) {
         this.snapshot = snapshot;
         this.user = user;
         this.scope = Objects.requireNonNull(scope, "scope");
         this.driveTimes = driveTimes;
         this.mapper = mapper;
+        this.places = places;
     }
 
     // -- argument records -------------------------------------------------------------------
@@ -114,11 +137,29 @@ public class AskTools {
      * @param regionNames     regions to rank within; null or empty means every region in scope
      * @param coastalOnly     true to keep only coastal spots
      * @param tideState       HIGH, MID or LOW: keep only spots whose served tide state matches
-     * @param maxDriveMinutes keep only spots within this many minutes of the asker's home
+     * @param maxDriveMinutes keep only spots within this many minutes' drive of the asker's home
+     * @param nearHome        true to keep only spots within the asker's saved local radius of home, as
+     *                        the crow flies (the server resolves the radius; no drive time is needed)
      * @param limit           how many spots, at most {@value AskTools#MAX_SPOTS}
      */
     public record RankSpotsArgs(List<String> windowIds, List<String> regionNames,
-            Boolean coastalOnly, String tideState, Integer maxDriveMinutes, Integer limit) {
+            Boolean coastalOnly, String tideState, Integer maxDriveMinutes, Boolean nearHome,
+            Integer limit) {
+
+        /**
+         * Arguments with no {@code nearHome}.
+         *
+         * @param windowIds       windows to rank within
+         * @param regionNames     regions to rank within
+         * @param coastalOnly     true to keep only coastal spots
+         * @param tideState       HIGH, MID or LOW
+         * @param maxDriveMinutes a drive limit in minutes
+         * @param limit           how many spots
+         */
+        public RankSpotsArgs(List<String> windowIds, List<String> regionNames, Boolean coastalOnly,
+                String tideState, Integer maxDriveMinutes, Integer limit) {
+            this(windowIds, regionNames, coastalOnly, tideState, maxDriveMinutes, null, limit);
+        }
     }
 
     /**
@@ -203,11 +244,23 @@ public class AskTools {
     /**
      * The {@code rank_spots} result.
      *
-     * @param spots the spots, best first
-     * @param note  why the list is empty, or null
+     * @param spots            the spots, best first
+     * @param note             why the list is empty, or null
+     * @param withinMilesOfHome the radius {@code nearHome} was resolved to, in miles, so the model can
+     *                         say "within N miles of home"; null when {@code nearHome} was not used
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record RankSpotsResult(List<SpotInfo> spots, String note) {
+    public record RankSpotsResult(List<SpotInfo> spots, String note, Integer withinMilesOfHome) {
+
+        /**
+         * A result that did not use {@code nearHome}.
+         *
+         * @param spots the spots, best first
+         * @param note  why the list is empty, or null
+         */
+        public RankSpotsResult(List<SpotInfo> spots, String note) {
+            this(spots, note, null);
+        }
     }
 
     /**
@@ -289,7 +342,7 @@ public class AskTools {
      * @return the spots, or an error result for a bad argument
      */
     public AskToolResult<RankSpotsResult> rankSpots(RankSpotsArgs args) {
-        RankSpotsArgs a = args == null ? new RankSpotsArgs(null, null, null, null, null, null)
+        RankSpotsArgs a = args == null ? new RankSpotsArgs(null, null, null, null, null, null, null)
                 : args;
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_SPOTS);
 
@@ -347,6 +400,18 @@ public class AskTools {
             }
         }
 
+        boolean nearHome = Boolean.TRUE.equals(a.nearHome());
+        if (nearHome) {
+            if (!user.hasUser()) {
+                return fail("rank_spots", "nearHome is not available in this conversation.");
+            }
+            // The answer depends on who asked (their home and radius), so it must never be shared.
+            personal = true;
+            if (!user.hasHome()) {
+                return finish("rank_spots", new RankSpotsResult(List.of(), NO_HOME_NOTE), () -> { });
+            }
+        }
+
         List<AskSnapshot.Candidate> pool = new ArrayList<>();
         for (AskSnapshot.Window w : windows) {
             // The same in-scope set the BEST anchor consults (AskSnapshot#candidates with a scope).
@@ -364,18 +429,24 @@ public class AskTools {
         boolean coastalOnly = Boolean.TRUE.equals(a.coastalOnly());
         String wantedTide = tideState;
         Map<Long, Integer> minutes = maxDrive == null ? Map.of() : driveMinutesByLocation();
+        Set<Long> nearIds = nearHome ? locationsNearHome() : Set.of();
         List<AskSnapshot.Candidate> kept = pool.stream()
                 .filter(c -> !coastalOnly || c.slot().coastal())
                 .filter(c -> wantedTide == null || wantedTide.equals(c.slot().tideState()))
                 .filter(c -> maxDrive == null || withinDrive(minutes, c, maxDrive))
+                .filter(c -> !nearHome || nearIds.contains(c.slot().locationId()))
                 .sorted(RANK)
                 .limit(limit)
                 .toList();
 
         List<SpotInfo> spots = kept.stream().map(c -> spotInfo(c, maxDrive == null ? null
                 : minutes.get(c.slot().locationId()))).toList();
-        String note = spots.isEmpty() ? NOTHING_MATCHES_NOTE : null;
-        return finish("rank_spots", new RankSpotsResult(spots, note), () -> {
+        Integer radius = nearHome ? user.home().radiusMiles() : null;
+        String note = spots.isEmpty()
+                ? (nearHome ? "Nothing pick-eligible within " + radius + " miles of home matches those filters."
+                        : NOTHING_MATCHES_NOTE)
+                : null;
+        return finish("rank_spots", new RankSpotsResult(spots, note, radius), () -> {
             for (SpotInfo s : spots) {
                 pairs.add(new AskEvidence.Pair(s.locationId(), s.windowId()));
             }
@@ -451,9 +522,9 @@ public class AskTools {
     }
 
     /**
-     * Whether the asker's own drive times were used, which makes the answer personal.
+     * Whether the asker's own drive times or home were used, which makes the answer personal.
      *
-     * @return true once {@code maxDriveMinutes} has been used by a user
+     * @return true once {@code maxDriveMinutes} or {@code nearHome} has been used by a user
      */
     public boolean personal() {
         return personal;
@@ -570,6 +641,24 @@ public class AskTools {
             return null;
         }
         return driveMinutesByLocation().get(locationId);
+    }
+
+    /**
+     * The ids of the enabled locations within the asker's saved radius of home, in straight-line miles:
+     * {@code GeoUtils.distanceMiles}, the measure {@code CloseToHomeService} has always applied to that
+     * radius (not the drive time the Map's reach lens uses). A location the lookup does not hold is
+     * not near.
+     */
+    private Set<Long> locationsNearHome() {
+        AskUserContext.Home home = user.home();
+        Set<Long> near = new HashSet<>();
+        places.byId().forEach((id, place) -> {
+            if (GeoUtils.distanceMiles(home.latitude(), home.longitude(), place.lat(), place.lon())
+                    <= home.radiusMiles()) {
+                near.add(id);
+            }
+        });
+        return near;
     }
 
     private static boolean withinDrive(Map<Long, Integer> minutes, AskSnapshot.Candidate c,

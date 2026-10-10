@@ -137,7 +137,7 @@ class AskTypedSeamsTest {
         service = new AskService(properties, new AskRateLimiter(properties, clock), users, regions,
                 snapshotBuilder, engine, usageStore, guard, world.readyServing(), driveTimes,
                 new PhraseAskPreFilter(), new KeywordAskIntentMatcher(world.readyServing()), cache,
-                logged::add, counter, clock);
+                logged::add, counter, clock, 22);
     }
 
     private static AskRun run(AskOutcome outcome) {

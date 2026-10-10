@@ -9,8 +9,33 @@ import com.gregochr.goldenhour.entity.UserRole;
  * @param userId        the asker's id, or null for a user-less conversation
  * @param role          the asker's role, or null when user-less
  * @param hasDriveTimes whether the asker has stored drive times
+ * @param home          the asker's saved home point and local radius, or null when no home postcode is
+ *                      saved (and always null for a user-less conversation). Read once from the user
+ *                      row by {@code AskService}; it is what {@code rank_spots.nearHome} resolves
  */
-public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes) {
+public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, Home home) {
+
+    /**
+     * An asker's saved home, for {@code nearHome}.
+     *
+     * @param latitude    the home latitude
+     * @param longitude   the home longitude
+     * @param radiusMiles the straight-line radius that counts as "close to home": the asker's saved
+     *                    local radius, or the configured default when none is saved
+     */
+    public record Home(double latitude, double longitude, int radiusMiles) {
+    }
+
+    /**
+     * A context with no saved home.
+     *
+     * @param userId        the asker's id, or null
+     * @param role          the asker's role, or null
+     * @param hasDriveTimes whether the asker has stored drive times
+     */
+    public AskUserContext(Long userId, UserRole role, boolean hasDriveTimes) {
+        this(userId, role, hasDriveTimes, null);
+    }
 
     /**
      * The context of a user-less (Ready) conversation.
@@ -18,7 +43,7 @@ public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes) 
      * @return a context with no user
      */
     public static AskUserContext userLess() {
-        return new AskUserContext(null, null, false);
+        return new AskUserContext(null, null, false, null);
     }
 
     /**
@@ -28,5 +53,14 @@ public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes) 
      */
     public boolean hasUser() {
         return userId != null;
+    }
+
+    /**
+     * Whether the asker has a saved home point, so {@code nearHome} can be resolved.
+     *
+     * @return true when a user is present and a home is saved
+     */
+    public boolean hasHome() {
+        return hasUser() && home != null;
     }
 }

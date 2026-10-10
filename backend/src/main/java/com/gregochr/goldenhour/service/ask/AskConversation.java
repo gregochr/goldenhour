@@ -116,11 +116,14 @@ final class AskConversation {
             return new Opening.Refused(AskRun.failed("the question is empty", 0, false, List.of()));
         }
         AskScope scope = question.scope();
-        AskTools tools = new AskTools(snapshot, user, scope, deps.driveTimes(), deps.mapper());
+        // One lookup of the enabled locations, shared by nearHome's coordinates and the thread's names:
+        // however many readers ask, the conversation pays for one query.
+        AskLocationNames places = AskLocationNames.memoised(deps.names());
+        AskTools tools = new AskTools(snapshot, user, scope, deps.driveTimes(), deps.mapper(), places);
         ReadyQuestion eventsQuestion = ReadyIntentRules.eventsQuestion(question).orElse(null);
         // The thread's earlier picks and events are reconciled with the live forecast once, here: what
         // is still there is offered to the validator beside what the tools return.
-        AskThreadContext thread = AskThreadContext.of(opts.thread(), snapshot, scope, tools, deps.names());
+        AskThreadContext thread = AskThreadContext.of(opts.thread(), snapshot, scope, tools, places);
         return new Opening.Open(new AskConversation(snapshot, scope, opts, tools, eventsQuestion,
                 deps.validator(), thread));
     }

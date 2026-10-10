@@ -22,6 +22,18 @@ import java.util.regex.Pattern;
  * reason per event. Everything a card shows — name, region, date, event, rating, verdict, label —
  * is joined here from the snapshot, so a card can never state something served data does not.
  *
+ * <p><b>Two pick rules, one chosen per answer.</b> A <em>fresh</em> answer carries at most
+ * {@value #MAX_PICKS} picks at <em>distinct locations</em>: three different places, never one place
+ * three times. A <em>ranking follow-up</em> — a thread offered earlier picks, and <em>every</em> pick the
+ * model submitted is one of them — carries at most {@value #MAX_RANKED_PICKS} picks distinct by
+ * <em>(location, window)</em>, so "rank those options" can return Bamburgh sunrise, Whitby sunrise, Whitby
+ * sunset and Saltburn sunset: the reader's own four options, not two. <b>A mixed answer</b> (any submitted
+ * pick that is not one of the thread's offered picks, including one returned by a new
+ * {@code rank_spots}) falls under the fresh rule: the relaxation exists to let the reader's own options
+ * be ranked whole, and a mixed answer is a "new places" answer, where one place at two windows would
+ * crowd out the variety the fresh rule exists to give. The decision reads the submitted pairs only, so
+ * it never depends on which picks happen to survive the checks below.
+ *
  * <p><b>Residual, stated:</b> the summary's prose is not fact-checked. The cards beside it carry
  * served facts.
  */
@@ -30,6 +42,9 @@ public class AskAnswerValidator {
 
     /** The most picks an answer may carry. */
     public static final int MAX_PICKS = 3;
+
+    /** The most picks a ranking follow-up may carry: its earlier options, one place at two windows allowed. */
+    public static final int MAX_RANKED_PICKS = 4;
 
     /** Word cap of a summary. */
     public static final int SUMMARY_WORDS = 60;
@@ -227,15 +242,18 @@ public class AskAnswerValidator {
     private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence,
             AskScope scope) {
         List<AskPick> out = new ArrayList<>();
-        Set<Long> seen = new HashSet<>();
+        boolean ranking = isRankingFollowUp(raw, evidence);
+        int cap = ranking ? MAX_RANKED_PICKS : MAX_PICKS;
+        Set<Object> seen = new HashSet<>();
         for (RawPick pick : raw) {
-            if (out.size() >= MAX_PICKS) {
+            if (out.size() >= cap) {
                 break;
             }
+            Object key = ranking ? new AskEvidence.Pair(pick.locationId(), pick.windowId()) : pick.locationId();
             // Offered by a tool in this conversation or by the thread; either way it must still be a live,
             // in-scope, pick-eligible slot below.
             if (!evidence.offers(new AskEvidence.Pair(pick.locationId(), pick.windowId()))
-                    || seen.contains(pick.locationId())) {
+                    || seen.contains(key)) {
                 continue;
             }
             Optional<AskSnapshot.Candidate> candidate =
@@ -243,7 +261,7 @@ public class AskAnswerValidator {
             if (candidate.isEmpty() || !scope.contains(candidate.get().region().name())) {
                 continue;
             }
-            seen.add(pick.locationId());
+            seen.add(key);
             AskSnapshot.Candidate c = candidate.get();
             String why = clean(pick.why(), WHY_WORDS);
             out.add(new AskPick(out.size() + 1, pick.locationId(), c.slot().name(),
@@ -298,6 +316,16 @@ public class AskAnswerValidator {
         String branded = PromptUtils.sanitizeBrand(noUrls);
         String collapsed = WHITESPACE.matcher(branded).replaceAll(" ").strip();
         return PromptUtils.truncateToWords(collapsed, maxWords);
+    }
+
+    /**
+     * Whether a submission is a ranking follow-up: the thread offered earlier picks and every pick the
+     * model submitted is one of them. Empty submissions and mixed ones are not.
+     */
+    private static boolean isRankingFollowUp(List<RawPick> raw, AskEvidence evidence) {
+        Set<AskEvidence.Pair> offered = evidence.thread().picks();
+        return !offered.isEmpty() && !raw.isEmpty()
+                && submittedPairs(raw).stream().allMatch(offered::contains);
     }
 
     private static Set<AskEvidence.Pair> submittedPairs(List<RawPick> picks) {

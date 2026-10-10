@@ -14,9 +14,11 @@ import java.util.Map;
  * {@link AskAnswerParser}.
  *
  * <p>{@code submit_answer} is the reply. It has no suggestions field: the server chooses any "try
- * this instead" questions, never the model (plan §4 #17). {@code maxDriveMinutes} is advertised
- * only to a conversation that has a user, because a user-less (Ready) conversation must not be
- * able even to think about home.
+ * this instead" questions, never the model (plan §4 #17). {@code maxDriveMinutes} and {@code nearHome}
+ * are advertised only to a conversation that has a user, because a user-less (Ready) conversation
+ * must not be able even to think about home. A follow-up's {@code submit_answer} may carry
+ * {@link AskAnswerValidator#MAX_RANKED_PICKS} picks, so a ranking of the reader's earlier options is
+ * not cut to three.
  */
 public final class AskToolSchemas {
 
@@ -37,13 +39,26 @@ public final class AskToolSchemas {
     /**
      * Every tool of a conversation.
      *
-     * @param withDriveLimit true when the conversation has a user, so {@code rank_spots} may take
-     *                       {@code maxDriveMinutes}
+     * @param withUser true when the conversation has a user, so {@code rank_spots} may take
+     *                 {@code maxDriveMinutes} and {@code nearHome}
+     * @return the tools, {@code submit_answer} last; a fresh question's, with three picks at most
+     */
+    public static List<Tool> tools(boolean withUser) {
+        return tools(withUser, false);
+    }
+
+    /**
+     * Every tool of a conversation, for a fresh question or a follow-up.
+     *
+     * @param withUser   true when the conversation has a user, so {@code rank_spots} may take
+     *                   {@code maxDriveMinutes} and {@code nearHome}
+     * @param withThread true for a follow-up: {@code submit_answer} then allows
+     *                   {@link AskAnswerValidator#MAX_RANKED_PICKS} picks, for ranking earlier options
      * @return the tools, {@code submit_answer} last
      */
-    public static List<Tool> tools(boolean withDriveLimit) {
-        return List.of(listWindows(), rankSpots(withDriveLimit), getHotTopics(), getComingUp(),
-                submitAnswer());
+    public static List<Tool> tools(boolean withUser, boolean withThread) {
+        return List.of(listWindows(), rankSpots(withUser), getHotTopics(), getComingUp(),
+                submitAnswer(withThread));
     }
 
     private static Tool listWindows() {
@@ -54,7 +69,7 @@ public final class AskToolSchemas {
                 m(), List.of());
     }
 
-    private static Tool rankSpots(boolean withDriveLimit) {
+    private static Tool rankSpots(boolean withUser) {
         Map<String, Object> props = new LinkedHashMap<>();
         props.put("windowIds", array(string(), "Only these window ids (from list_windows)."));
         props.put("regionNames", array(string(), "Only these region names."));
@@ -62,11 +77,16 @@ public final class AskToolSchemas {
                 "description", "True to keep only coastal spots."));
         props.put("tideState", m("type", "string", "enum", List.of("HIGH", "MID", "LOW"),
                 "description", "Only spots whose water at the event is in this state."));
-        if (withDriveLimit) {
+        if (withUser) {
             props.put("maxDriveMinutes", m("type", "integer", "minimum", 1,
                     "description", "Only spots within this many minutes' drive of the reader's "
-                            + "home. Use for any question about a drive time or about somewhere "
-                            + "close to home (60 when no time is named)."));
+                            + "home. Use when the reader names a number of minutes, or asks for "
+                            + "somewhere closer than the places already given."));
+            props.put("nearHome", m("type", "boolean",
+                    "description", "True to keep only spots within the reader's own saved local "
+                            + "radius of home, in straight-line miles. Use for 'close to home', "
+                            + "'near', 'nearby' or 'local' with no number. The result says the "
+                            + "radius: quote it as 'within N miles of home'."));
         }
         props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_SPOTS,
                 "description", "How many spots, at most " + AskTools.MAX_SPOTS + "."));
@@ -104,7 +124,7 @@ public final class AskToolSchemas {
                 props, List.of());
     }
 
-    private static Tool submitAnswer() {
+    private static Tool submitAnswer(boolean withThread) {
         Map<String, Object> pick = object(m(
                 "locationId", m("type", "integer",
                         "description", "The locationId rank_spots returned."),
@@ -124,8 +144,14 @@ public final class AskToolSchemas {
                 "description", "False when PhotoCast's forecast cannot answer the question."));
         props.put("summary", m("type", "string",
                 "description", "One or two plain sentences that answer the question directly."));
-        props.put("picks", m("type", "array", "items", pick, "maxItems", AskAnswerValidator.MAX_PICKS,
-                "description", "Two or three different spots, best first, for where/when questions."));
+        props.put("picks", withThread
+                ? m("type", "array", "items", pick, "maxItems", AskAnswerValidator.MAX_RANKED_PICKS,
+                        "description", "Two or three different spots, best first, for where/when "
+                                + "questions. When ranking the reader's earlier options, up to four "
+                                + "(a place may appear at two windows).")
+                : m("type", "array", "items", pick, "maxItems", AskAnswerValidator.MAX_PICKS,
+                        "description", "Two or three different spots, best first, for where/when "
+                                + "questions."));
         props.put("events", m("type", "array", "items", event, "maxItems", AskAnswerValidator.MAX_PICKS,
                 "description", "Only events a tool returned that bear on the question."));
         props.put("missing", m("type", "string",

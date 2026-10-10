@@ -89,6 +89,9 @@ class AskServiceTest {
     private AskService service;
     private UserRole role = UserRole.LITE_USER;
     private long spent;
+    private Double homeLatitude;
+    private Double homeLongitude;
+    private Integer localRadiusMiles;
 
     @BeforeEach
     void setUp() {
@@ -98,7 +101,9 @@ class AskServiceTest {
                 ReadyFixtures.both(ReadyFixtures.oct(6), ReadyFixtures.northumberland()));
         when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
         when(users.findByUsername("reader")).thenAnswer(inv ->
-                Optional.of(AppUserEntity.builder().id(41L).username("reader").role(role).build()));
+                Optional.of(AppUserEntity.builder().id(41L).username("reader").role(role)
+                        .homeLatitude(homeLatitude).homeLongitude(homeLongitude)
+                        .localRadiusMiles(localRadiusMiles).build()));
         when(driveTimes.hasDriveTimes(41L)).thenReturn(true);
         when(jobRuns.accountingAvailable()).thenReturn(true);
         when(jobRuns.typedSpendTodayMicroDollars()).thenAnswer(inv -> spent);
@@ -121,7 +126,7 @@ class AskServiceTest {
         AskSpendGuard guard = new AskSpendGuard(properties, jobRuns, alerts, clock);
         service = new AskService(properties, new AskRateLimiter(properties, clock), users, regions,
                 snapshotBuilder, engine, usageStore, guard, readyServing, driveTimes, preFilter, matcher,
-                cache, askLog, denials, clock);
+                cache, askLog, denials, clock, 22);
     }
 
     private static Authentication reader() {
@@ -209,6 +214,48 @@ class AskServiceTest {
         assertThat(question.getValue().view()).isEqualTo("plan");
         assertThat(context.getValue()).isEqualTo(new AskUserContext(41L, UserRole.LITE_USER, true));
         assertThat(options.getValue()).isEqualTo(AskRunOptions.none());
+    }
+
+    private AskUserContext contextSent() {
+        ArgumentCaptor<AskUserContext> context = ArgumentCaptor.forClass(AskUserContext.class);
+        verify(engine).run(any(), eq(snapshot), context.capture(), any());
+        return context.getValue();
+    }
+
+    @Test
+    @DisplayName("the engine's user context carries the asker's saved home and their own local radius")
+    void contextCarriesHomeAndSavedRadius() {
+        homeLatitude = 54.9;
+        homeLongitude = -1.6;
+        localRadiusMiles = 25;
+
+        ask("Best spot tonight?");
+
+        assertThat(contextSent()).isEqualTo(new AskUserContext(41L, UserRole.LITE_USER, true,
+                new AskUserContext.Home(54.9, -1.6, 25)));
+    }
+
+    @Test
+    @DisplayName("an asker with a home and no saved radius gets the configured Close-to-home default")
+    void contextUsesTheDefaultRadiusWhenNoneIsSaved() {
+        homeLatitude = 54.9;
+        homeLongitude = -1.6;
+
+        ask("Best spot tonight?");
+
+        assertThat(contextSent().home()).isEqualTo(new AskUserContext.Home(54.9, -1.6, 22));
+    }
+
+    @Test
+    @DisplayName("an asker with no saved home gets a context with no home, whatever radius is stored")
+    void contextHasNoHomeWithoutACoordinatePair() {
+        localRadiusMiles = 30;
+        homeLatitude = 54.9;
+
+        ask("Best spot tonight?");
+
+        assertThat(contextSent().home()).isNull();
+        assertThat(contextSent().hasHome()).isFalse();
     }
 
     // -- 1. rate limit ------------------------------------------------------------------------

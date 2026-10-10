@@ -75,13 +75,26 @@ class AskPromptBuilderTest {
     }
 
     @Test
-    @DisplayName("the model may never ask the reader anything, and 'close to home' is a drive filter it applies "
-            + "itself (production 2026-10-10: it asked how far the reader would travel and the question failed)")
-    void neverAsksAndReadsCloseToHomeAsADriveLimit() {
-        String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true);
+    @DisplayName("the model may never ask the reader anything, and 'close to home' is nearHome, a number of "
+            + "minutes is maxDriveMinutes, 'closer' narrows the earlier drive (the 60-minute rule is gone)")
+    void neverAsksAndReadsCloseToHomeAsNearHome() {
+        String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true).replaceAll("\\s+", " ");
 
         assertThat(typed).contains("never ask the reader a question")
-                .contains("close to home, near, nearby or local without a time, pass 60");
+                .contains("'Close to home', 'near', 'nearby' or 'local' with no number: pass rank_spots' "
+                        + "nearHome true")
+                .contains("A number of minutes: pass it as maxDriveMinutes")
+                .contains("'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier picks' "
+                        + "drive, or nearHome true if it was not used")
+                .contains("within N miles of home")
+                .contains("never say within reach")
+                .doesNotContain("pass 60").doesNotContain("an hour's drive");
+    }
+
+    @Test
+    @DisplayName("a user-less prompt says nothing of nearHome")
+    void userLessPromptDoesNotMentionNearHome() {
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false)).doesNotContain("nearHome");
     }
 
     @Test
@@ -168,7 +181,7 @@ class AskPromptBuilderTest {
                 List.of(new PickRef(3L, "2026-10-05_sunset"), new PickRef(41L, "2026-10-05_sunrise")),
                 List.of(new EventRef("AURORA", wednesday)), AskFixtures.GENERATED_AT, false);
         return AskThreadContext.of(new AskThread(List.of(first, second)), snapshot, scope, tools,
-                () -> Map.of(41L, "Dunstanburgh"));
+                () -> Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
     }
 
     private static String golden(String name) throws Exception {

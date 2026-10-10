@@ -486,6 +486,146 @@ class AskToolsTest {
         assertThat(result.error()).isTrue();
     }
 
+    // -- nearHome: the saved local radius, straight-line --------------------------------------
+
+    /** Home at 55.0 N, 1.5 W with a 25-mile radius: Near is about 7 miles away, Far about 35. */
+    private static final AskUserContext HOMED = new AskUserContext(7L, UserRole.PRO_USER, false,
+            new AskUserContext.Home(55.0, -1.5, 25));
+
+    private static final Map<Long, AskLocationNames.Place> PLACES = Map.of(
+            1L, new AskLocationNames.Place("Near", 55.1, -1.5),
+            2L, new AskLocationNames.Place("Far", 55.5, -1.5),
+            3L, new AskLocationNames.Place("Edge", 55.0, -1.5 + 0.2));
+
+    private AskTools nearHomeTools(AskSnapshot snapshot, AskUserContext user) {
+        return new AskTools(snapshot, user, TestScopes.of(), driveTimes, mapper, () -> PLACES);
+    }
+
+    private static RankSpotsArgs nearHome() {
+        return new RankSpotsArgs(null, null, null, null, null, true, 5);
+    }
+
+    @Test
+    @DisplayName("nearHome keeps the spots within the asker's radius as the crow flies, drops the rest and any "
+            + "place the lookup does not hold, and says the radius")
+    void rankSpots_nearHomeFiltersByStraightLineRadius() {
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Near", 4), AskFixtures.slot(2L, "Far", 5),
+                AskFixtures.slot(3L, "Edge", 3), AskFixtures.slot(4L, "Unlisted", 5));
+        AskTools tools = nearHomeTools(snapshotOfRegions(region), HOMED);
+
+        AskToolResult<RankSpotsResult> result = tools.rankSpots(nearHome());
+
+        assertThat(spots(result)).extracting(SpotInfo::name).containsExactly("Near", "Edge");
+        assertThat(result.payload().withinMilesOfHome()).isEqualTo(25);
+        assertThat(parse(result.content()).path("withinMilesOfHome").asInt()).isEqualTo(25);
+        assertThat(tools.personal()).isTrue();
+    }
+
+    @Test
+    @DisplayName("the radius is the asker's own: a larger radius admits the place a smaller one refuses")
+    void rankSpots_nearHomeUsesTheContextRadius() {
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Near", 4), AskFixtures.slot(2L, "Far", 5));
+        AskUserContext wide = new AskUserContext(7L, UserRole.PRO_USER, false,
+                new AskUserContext.Home(55.0, -1.5, 50));
+
+        List<SpotInfo> found = spots(nearHomeTools(snapshotOfRegions(region), wide).rankSpots(nearHome()));
+
+        assertThat(found).extracting(SpotInfo::name).containsExactly("Far", "Near");
+    }
+
+    @Test
+    @DisplayName("nothing within the radius is an empty result whose note names the radius, still personal")
+    void rankSpots_nearHomeNothingInRadiusNamesIt() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(2L, "Far", 5));
+        AskTools tools = nearHomeTools(snapshotOfRegions(region), HOMED);
+
+        RankSpotsResult payload = tools.rankSpots(nearHome()).payload();
+
+        assertThat(payload.spots()).isEmpty();
+        assertThat(payload.note()).contains("within 25 miles of home");
+        assertThat(payload.withinMilesOfHome()).isEqualTo(25);
+        assertThat(tools.personal()).isTrue();
+    }
+
+    @Test
+    @DisplayName("nearHome with no home saved answers that it is not available, still personal, and reads no places")
+    void rankSpots_nearHomeWithoutAHome() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Near", 4));
+        AskLocationNames lookup = mock(AskLocationNames.class);
+        AskUserContext noHome = new AskUserContext(7L, UserRole.PRO_USER, true);
+        AskTools tools = new AskTools(snapshotOfRegions(region), noHome, TestScopes.of(), driveTimes, mapper,
+                lookup);
+
+        RankSpotsResult payload = tools.rankSpots(nearHome()).payload();
+
+        assertThat(payload.spots()).isEmpty();
+        assertThat(payload.note()).isEqualTo(AskTools.NO_HOME_NOTE);
+        assertThat(payload.withinMilesOfHome()).isNull();
+        assertThat(tools.personal()).isTrue();
+        verify(lookup, never()).byId();
+    }
+
+    @Test
+    @DisplayName("a LITE account with a home and no drive times gets nearHome: distance needs no drive time")
+    void rankSpots_nearHomeNeedsNoDriveTimes() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Near", 4));
+        AskUserContext lite = new AskUserContext(9L, UserRole.LITE_USER, false,
+                new AskUserContext.Home(55.0, -1.5, 22));
+
+        List<SpotInfo> found = spots(nearHomeTools(snapshotOfRegions(region), lite).rankSpots(nearHome()));
+
+        assertThat(found).extracting(SpotInfo::name).containsExactly("Near");
+        verify(driveTimes, never()).getAllMinutes(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    @DisplayName("nearHome is refused in a user-less (Ready) conversation, leaves it non-personal and reads no places")
+    void rankSpots_nearHomeRefusedWithoutAUser() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Near", 4));
+        AskLocationNames lookup = mock(AskLocationNames.class);
+        AskTools tools = new AskTools(snapshotOfRegions(region), AskUserContext.userLess(), TestScopes.of(),
+                driveTimes, mapper, lookup);
+
+        AskToolResult<RankSpotsResult> result = tools.rankSpots(nearHome());
+
+        assertThat(result.error()).isTrue();
+        assertThat(tools.personal()).isFalse();
+        verify(lookup, never()).byId();
+    }
+
+    @Test
+    @DisplayName("nearHome false or absent applies no distance filter and reports no radius")
+    void rankSpots_nearHomeOffIsNotApplied() {
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Near", 4), AskFixtures.slot(2L, "Far", 5));
+        AskTools tools = nearHomeTools(snapshotOfRegions(region), HOMED);
+
+        AskToolResult<RankSpotsResult> result = tools.rankSpots(
+                new RankSpotsArgs(null, null, null, null, null, false, 5));
+
+        assertThat(spots(result)).extracting(SpotInfo::name).containsExactly("Far", "Near");
+        assertThat(result.payload().withinMilesOfHome()).isNull();
+        assertThat(parse(result.content()).has("withinMilesOfHome")).isFalse();
+        assertThat(tools.personal()).isFalse();
+    }
+
+    @Test
+    @DisplayName("nearHome and maxDriveMinutes together apply both filters")
+    void rankSpots_nearHomeAndDriveLimitCombine() {
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Near", 4), AskFixtures.slot(3L, "Edge", 4));
+        AskUserContext both = new AskUserContext(7L, UserRole.PRO_USER, true,
+                new AskUserContext.Home(55.0, -1.5, 25));
+        when(driveTimes.getAllMinutes(7L)).thenReturn(Map.of(1L, 20, 3L, 80));
+
+        List<SpotInfo> found = spots(nearHomeTools(snapshotOfRegions(region), both).rankSpots(
+                new RankSpotsArgs(null, null, null, null, 45, true, 5)));
+
+        assertThat(found).extracting(SpotInfo::name).containsExactly("Near");
+    }
+
     // -- evidence and the character cap -----------------------------------------------------
 
     @Test

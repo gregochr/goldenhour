@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -109,6 +110,7 @@ public class AskService {
     private final AskLog askLog;
     private final AskDenialCounter denials;
     private final Clock clock;
+    private final int defaultLocalRadiusMiles;
 
     /**
      * Creates the service.
@@ -129,6 +131,8 @@ public class AskService {
      * @param askLog            the question log (step 10)
      * @param denials           counts denied requests, for the hourly INFO line
      * @param clock             the application clock (the UK civil day); a POST sees the real clock
+     * @param defaultLocalRadiusMiles the radius {@code nearHome} uses for an asker who never chose one
+     *                          ({@code photocast.close-to-home.radius-miles}, the Close-to-home default)
      */
     public AskService(AskProperties properties, AskRateLimiter rateLimiter,
             AppUserRepository userRepository, RegionRepository regionRepository,
@@ -136,7 +140,8 @@ public class AskService {
             AskSpendGuard spendGuard, AskReadyServing readyServing,
             DriveTimeResolver driveTimeResolver, AskPreFilter preFilter,
             AskIntentMatcher intentMatcher, AskAnswerCache cache, AskLog askLog,
-            AskDenialCounter denials, Clock clock) {
+            AskDenialCounter denials, Clock clock,
+            @Value("${photocast.close-to-home.radius-miles:22}") int defaultLocalRadiusMiles) {
         this.properties = properties;
         this.rateLimiter = rateLimiter;
         this.userRepository = userRepository;
@@ -153,6 +158,20 @@ public class AskService {
         this.askLog = askLog;
         this.denials = denials;
         this.clock = clock;
+        this.defaultLocalRadiusMiles = defaultLocalRadiusMiles;
+    }
+
+    /**
+     * The asker's saved home and local radius, read from the user row already in hand (no query). Null
+     * when no home postcode is saved. The radius is the asker's own when saved, else the configured
+     * default; the UI clamps a saved one to 10-50 miles.
+     */
+    private AskUserContext.Home homeOf(AppUserEntity user) {
+        if (user.getHomeLatitude() == null || user.getHomeLongitude() == null) {
+            return null;
+        }
+        int radius = user.getLocalRadiusMiles() != null ? user.getLocalRadiusMiles() : defaultLocalRadiusMiles;
+        return new AskUserContext.Home(user.getHomeLatitude(), user.getHomeLongitude(), radius);
     }
 
     /**
@@ -221,7 +240,7 @@ public class AskService {
         AskThread thread = reset ? AskThread.EMPTY : validated.thread();
         Carry carry = new Carry(thread.size(), reset);
         AskUserContext context = new AskUserContext(userId, user.getRole(),
-                driveTimeResolver.hasDriveTimes(userId));
+                driveTimeResolver.hasDriveTimes(userId), homeOf(user));
         LocalDate day = ForecastHorizon.today(clock);
         int limit = properties.limitFor(user.getRole());
 

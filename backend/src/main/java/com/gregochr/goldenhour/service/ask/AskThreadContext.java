@@ -64,7 +64,7 @@ final class AskThreadContext {
     private final AskScope scope;
     private final AskTools tools;
     private final AskLocationNames names;
-    private Map<Long, String> nameById;
+    private Map<Long, AskLocationNames.Place> nameById;
 
     private AskThreadContext(AskThread thread, ThreadFact fact, Map<String, EventFact> liveEvents,
             AskSnapshot snapshot, AskScope scope, AskTools tools, AskLocationNames names) {
@@ -230,7 +230,8 @@ final class AskThreadContext {
         if (nameById == null) {
             nameById = names == null ? Map.of() : names.byId();
         }
-        String name = locationId == null ? null : nameById.get(locationId);
+        AskLocationNames.Place place = locationId == null ? null : nameById.get(locationId);
+        String name = place == null ? null : place.name();
         return name == null || name.isBlank() ? UNLISTED_PLACE : name;
     }
 

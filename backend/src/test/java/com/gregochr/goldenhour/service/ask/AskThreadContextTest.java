@@ -195,7 +195,7 @@ class AskThreadContextTest {
     @DisplayName("a pick whose slot has left the forecast says so, by the name the repository knows; with "
             + "no name it says a place no longer listed")
     void noLongerInTheForecast() {
-        when(names.byId()).thenReturn(Map.of(41L, "Dunstanburgh"));
+        when(names.byId()).thenReturn(Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
 
         List<String> lines = context(thread(exchange(
                 List.of(new PickRef(41L, SUNSET_TODAY), new PickRef(42L, SUNSET_TODAY)), List.of())))

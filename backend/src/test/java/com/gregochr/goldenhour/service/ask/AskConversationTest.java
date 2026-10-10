@@ -291,7 +291,7 @@ class AskConversationTest {
     @DisplayName("the location names the deps carry reach the thread's rendering, for a place that has gone")
     void depsNamesReachTheThread() {
         AskConversation.Deps named = new AskConversation.Deps(validator, driveTimes, new ObjectMapper(),
-                () -> Map.of(9L, "Dunstanburgh"));
+                () -> Map.of(9L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
         AskConversation.Opening opening = AskConversation.open(question("rank those"), snapshot(null), USER,
                 threadOf(new ThreadExchange.PickRef(9L, SUNSET_TODAY)), named);
 

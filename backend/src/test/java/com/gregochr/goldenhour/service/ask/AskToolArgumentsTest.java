@@ -30,7 +30,7 @@ class AskToolArgumentsTest {
     void rankSpotsFields() throws Exception {
         RankSpotsArgs a = AskToolArguments.rankSpots(json("""
                 {"windowIds": ["2026-10-05_sunset"], "regionNames": ["Northumberland"],
-                 "coastalOnly": true, "tideState": "HIGH", "maxDriveMinutes": 60, "limit": 3,
+                 "coastalOnly": true, "tideState": "HIGH", "maxDriveMinutes": 60, "nearHome": true, "limit": 3,
                  "unknown": "ignored"}"""));
 
         assertThat(a.windowIds()).containsExactly("2026-10-05_sunset");
@@ -38,17 +38,20 @@ class AskToolArgumentsTest {
         assertThat(a.coastalOnly()).isTrue();
         assertThat(a.tideState()).isEqualTo("HIGH");
         assertThat(a.maxDriveMinutes()).isEqualTo(60);
+        assertThat(a.nearHome()).isTrue();
         assertThat(a.limit()).isEqualTo(3);
 
         RankSpotsArgs nulls = AskToolArguments.rankSpots(json("{\"limit\": null, \"tideState\": null}"));
         assertThat(nulls.limit()).isNull();
+        assertThat(nulls.nearHome()).isNull();
         assertThat(nulls.tideState()).isNull();
     }
 
     @Test
     @DisplayName("a missing, null or missing-node input is an empty object: every argument is optional")
     void emptyInputs() throws Exception {
-        assertThat(AskToolArguments.rankSpots(null)).isEqualTo(new RankSpotsArgs(null, null, null, null, null, null));
+        assertThat(AskToolArguments.rankSpots(null))
+                .isEqualTo(new RankSpotsArgs(null, null, null, null, null, null, null));
         assertThat(AskToolArguments.hotTopics(json("null"))).isEqualTo(new HotTopicsArgs(null, null));
         assertThat(AskToolArguments.comingUp(json("{}"))).isEqualTo(new ComingUpArgs(null, null));
         assertThat(AskToolArguments.comingUp(mapper.missingNode())).isEqualTo(new ComingUpArgs(null, null));
@@ -69,7 +72,7 @@ class AskToolArgumentsTest {
             "{\"limit\": \"5\"}", "{\"limit\": 5.5}", "{\"limit\": 5.0}", "{\"limit\": 3000000000}",
             "{\"limit\": true}", "{\"coastalOnly\": \"yes\"}", "{\"coastalOnly\": 1}",
             "{\"tideState\": 5}", "{\"windowIds\": \"2026-10-05_sunset\"}", "{\"windowIds\": [1]}",
-            "{\"regionNames\": [null]}", "{\"maxDriveMinutes\": \"60\"}"
+            "{\"regionNames\": [null]}", "{\"maxDriveMinutes\": \"60\"}", "{\"nearHome\": \"yes\"}", "{\"nearHome\": 1}"
     })
     @DisplayName("a field of the wrong type is a bad-arguments error, which the engine feeds back")
     void wrongTypesAreBadArguments(String input) {

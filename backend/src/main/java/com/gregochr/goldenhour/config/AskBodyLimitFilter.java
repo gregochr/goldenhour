@@ -41,7 +41,7 @@ import java.nio.charset.StandardCharsets;
  * <p><b>The invariant: every accepted exchange is under {@value #PER_EXCHANGE_BYTES} bytes even when
  * JSON-escaped, because raw lengths are capped before any collapse.</b> The service refuses a thread
  * question over 200 raw code points and a thread summary over 500 raw code points ({@code AskThreadValidation},
- * 400 {@code INVALID}), so one exchange is at most 700 x 12 = 8,400 bytes of text plus three picks, ten events,
+ * 400 {@code INVALID}), so one exchange is at most 700 x 12 = 8,400 bytes of text plus four picks, ten events,
  * a {@code generatedAt} and the keys (about 9.5 KiB in all). Without that raw cap an exchange padded with
  * escaped spaces would be accepted at several times the size. The limit is {@value #BASE_BYTES} bytes for the
  * outer body plus {@value #PER_EXCHANGE_BYTES} bytes per permitted exchange: 88 KiB at the default cap of 8,
@@ -64,7 +64,7 @@ public class AskBodyLimitFilter extends OncePerRequestFilter {
 
     /**
      * Bytes allowed per permitted exchange, sized to the worst case the contract admits: a 500-code-point
-     * summary and a 200-code-point question, all astral and escaped (12 bytes each, 8,400), plus three
+     * summary and a 200-code-point question, all astral and escaped (12 bytes each, 8,400), plus four
      * picks, ten events, a {@code generatedAt} and the keys, rounded up.
      */
     public static final int PER_EXCHANGE_BYTES = 10 * 1024;

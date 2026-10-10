@@ -22,8 +22,8 @@ import java.util.regex.Pattern;
  */
 final class AskThreadValidation {
 
-    /** The most picks one exchange may carry: an answer never carries more. */
-    static final int MAX_PICKS_PER_EXCHANGE = AskAnswerValidator.MAX_PICKS;
+    /** The most picks one exchange may carry: a ranking follow-up's four, which an answer never exceeds. */
+    static final int MAX_PICKS_PER_EXCHANGE = AskAnswerValidator.MAX_RANKED_PICKS;
 
     /** The most event cards one exchange may carry. */
     static final int MAX_EVENTS_PER_EXCHANGE = 10;
