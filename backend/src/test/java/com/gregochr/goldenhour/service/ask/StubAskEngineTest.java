@@ -89,6 +89,22 @@ class StubAskEngineTest {
         return run.outcome().answer().picks().stream().map(AskPick::locationName).toList();
     }
 
+    @Test
+    @DisplayName("a thread rides the run options and changes nothing yet: the same answer as a fresh question "
+            + "(the prompt phase reads it)")
+    void aThreadIsAcceptedAndIgnored() {
+        AskThread thread = new AskThread(List.of(new ThreadExchange("Where is the best spot?", "Whitby.",
+                List.of(new ThreadExchange.PickRef(1L, TODAY_SUNSET)), List.of(),
+                java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false)));
+
+        AskRun fresh = run("Where is the best spot?");
+        AskRun withThread = engine.run(question("Where is the best spot?"), snapshot(null), USER,
+                AskRunOptions.typed(thread));
+
+        assertThat(withThread.outcome()).isEqualTo(fresh.outcome());
+        assertThat(withThread.reason()).isNull();
+    }
+
     // -- where and when ---------------------------------------------------------------------
 
     @Test

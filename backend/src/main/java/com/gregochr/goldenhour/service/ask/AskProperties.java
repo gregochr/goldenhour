@@ -48,6 +48,10 @@ public class AskProperties implements InitializingBean {
     public static final int MAX_DAILY_LIMIT = 1_000;
     /** Highest engine-ceiling multiplier accepted. */
     public static final int MAX_CEILING_MULTIPLIER = 20;
+    /** Fewest exchanges a thread may be allowed to carry. */
+    public static final int MIN_THREAD_EXCHANGES = 1;
+    /** Most exchanges a thread may be allowed to carry. */
+    public static final int MAX_THREAD_EXCHANGES = 20;
     /** Highest daily spend cap accepted, in US dollars. */
     public static final double MAX_SPEND_CAP_USD = 1_000.0;
     /** Most precompute cycles a day accepted. */
@@ -85,6 +89,9 @@ public class AskProperties implements InitializingBean {
 
     /** Typed-answer cache settings. */
     private final Cache cache = new Cache();
+
+    /** Thread (follow-up question) settings. */
+    private final ThreadSettings thread = new ThreadSettings();
 
     /** Question-log settings. */
     private final Log log = new Log();
@@ -305,6 +312,24 @@ public class AskProperties implements InitializingBean {
          */
         public void setTtlMinutes(int ttlMinutes) {
             this.ttlMinutes = within("cache.ttl-minutes", ttlMinutes, 1, MAX_CACHE_TTL_MINUTES);
+        }
+    }
+
+    /** {@code photocast.ask.thread.*}. */
+    @Getter
+    public static class ThreadSettings {
+
+        private int maxExchanges = 8;
+
+        /**
+         * Sets the most earlier exchanges a question may carry.
+         *
+         * @param maxExchanges 1 to 20
+         * @throws IllegalArgumentException if out of range
+         */
+        public void setMaxExchanges(int maxExchanges) {
+            this.maxExchanges = within("thread.max-exchanges", maxExchanges, MIN_THREAD_EXCHANGES,
+                    MAX_THREAD_EXCHANGES);
         }
     }
 

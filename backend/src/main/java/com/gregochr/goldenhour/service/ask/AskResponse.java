@@ -29,13 +29,23 @@ import java.util.List;
  * @param charged        whether this answer used one of the allowance
  * @param generatedAt    when the briefing the answer was built from was generated (UTC)
  * @param runLabel       {@code HH:mm} Europe/London of {@code generatedAt}
+ * @param threadReset    {@code true} when the request carried a thread that was dropped because the
+ *                       forecast had been rebuilt since its last typed answer and this answer is fresh;
+ *                       absent from the wire otherwise
+ * @param threadResetReason the fixed sentence naming why ({@code "forecast updated"}); absent from the
+ *                       wire whenever {@code threadReset} is
  */
 public record AskResponse(boolean answerable, String kind, String summary,
         List<AskReadyResponse.Pick> picks, List<AskEvent> events,
         @JsonInclude(JsonInclude.Include.ALWAYS) String missing,
         @JsonProperty("try") List<AskReadyResponse.Suggestion> tryThese,
         @JsonInclude(JsonInclude.Include.ALWAYS) Integer allowanceLeft, int allowanceLimit, boolean charged,
-        LocalDateTime generatedAt, String runLabel) {
+        LocalDateTime generatedAt, String runLabel,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean threadReset,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String threadResetReason) {
+
+    /** Why a thread was dropped (plan §2.2); the client words its own line. */
+    public static final String THREAD_RESET_REASON = "forecast updated";
 
     /** An answer from the typed engine (or a typed-cache hit). */
     public static final String KIND_OWN = "own";
@@ -51,5 +61,40 @@ public record AskResponse(boolean answerable, String kind, String summary,
         picks = picks == null ? List.of() : List.copyOf(picks);
         events = events == null ? List.of() : List.copyOf(events);
         tryThese = tryThese == null ? List.of() : List.copyOf(tryThese);
+    }
+
+    /**
+     * A response with no thread-reset fields, which is the wire shape of every answer to a fresh
+     * question: byte-identical to the shape before threads existed.
+     *
+     * @param answerable     see the record
+     * @param kind           see the record
+     * @param summary        see the record
+     * @param picks          see the record
+     * @param events         see the record
+     * @param missing        see the record
+     * @param tryThese       see the record
+     * @param allowanceLeft  see the record
+     * @param allowanceLimit see the record
+     * @param charged        see the record
+     * @param generatedAt    see the record
+     * @param runLabel       see the record
+     */
+    public AskResponse(boolean answerable, String kind, String summary, List<AskReadyResponse.Pick> picks,
+            List<AskEvent> events, String missing, List<AskReadyResponse.Suggestion> tryThese,
+            Integer allowanceLeft, int allowanceLimit, boolean charged, LocalDateTime generatedAt,
+            String runLabel) {
+        this(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft, allowanceLimit,
+                charged, generatedAt, runLabel, null, null);
+    }
+
+    /**
+     * The same answer marked as given after a thread was dropped because the forecast had been rebuilt.
+     *
+     * @return a copy carrying {@code threadReset: true} and {@link #THREAD_RESET_REASON}
+     */
+    public AskResponse withThreadReset() {
+        return new AskResponse(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft,
+                allowanceLimit, charged, generatedAt, runLabel, Boolean.TRUE, THREAD_RESET_REASON);
     }
 }
