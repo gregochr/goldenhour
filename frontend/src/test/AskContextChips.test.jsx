@@ -27,4 +27,19 @@ describe('AskContextChips', () => {
     expect(screen.queryByTestId('ask-chip-window')).toBeNull();
     expect(screen.getByTestId('ask-chip-view')).toHaveTextContent('Plan · all regions');
   });
+
+  it('says "follow-up · N so far" over a follow-up: a plain label, last, with no ✕', () => {
+    render(<AskContextChips viewLabel="Map · My area" windowLabel="Sat sunrise" followUp={3} />);
+
+    const chip = screen.getByTestId('ask-chip-followup');
+    expect(chip).toHaveTextContent('follow-up · 3 so far');
+    expect(screen.getByTestId('ask-chip-view').nextElementSibling).toBe(chip);
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it.each([undefined, 0])('draws no follow-up chip for %s: a first question’s chips are what they were', (followUp) => {
+    render(<AskContextChips viewLabel="Map · My area" followUp={followUp} />);
+
+    expect(screen.queryByTestId('ask-chip-followup')).toBeNull();
+  });
 });

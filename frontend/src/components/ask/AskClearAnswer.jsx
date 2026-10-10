@@ -8,6 +8,10 @@ import { SETTLED_PHASES } from '../../utils/askModel.js';
  * It is the only way back to the Ready suggestions, which the conversation shows only in its empty
  * phase.
  *
+ * <p>Once there is a thread above the answer (an earlier exchange to lose) the label is "Clear" — the
+ * button ends the whole conversation, the earlier exchanges included, and "Clear answer" would
+ * understate it. A first answer is still "Clear answer".
+ *
  * <p>Drawn only while there is something settled to clear: never while an answer is still being
  * fetched, since clearing then would drop a charged answer. It moves focus to the question field
  * FIRST — the button unmounts when pressed, and a focused node that goes takes focus to
@@ -32,7 +36,7 @@ export default function AskClearAnswer({ inputRef }) {
       data-testid="ask-clear"
       onClick={clearAnswer}
     >
-      Clear answer
+      {ask.history.length > 0 ? 'Clear' : 'Clear answer'}
     </button>
   );
 }

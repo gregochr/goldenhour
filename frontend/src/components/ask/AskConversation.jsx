@@ -10,7 +10,10 @@ import AskCantAnswer from './AskCantAnswer.jsx';
 import AskEmptyState from './AskEmptyState.jsx';
 import AskErrorState from './AskErrorState.jsx';
 import AskPlanThis from './AskPlanThis.jsx';
+import AskThreadHistory from './AskThreadHistory.jsx';
+import AskThreadReset from './AskThreadReset.jsx';
 import { planActionsShape } from './askShapes.js';
+import { scrollToTopOfScroller } from '../../utils/askScroll.js';
 import {
   KIND, newestRunLabel, questionsForView, readyBusyLine, TYPED_BUSY_LINE,
 } from '../../utils/askModel.js';
@@ -71,6 +74,17 @@ const READY_ALL_LABEL = {
  * on the phase, set only by those two presses, so a plan view that appears because a refusal restored it
  * never takes focus from the field.
  *
+ * <h2>The thread (`docs/engineering/ask-thread-plan.md` §2.5)</h2>
+ * <p>The answers STACK: {@link AskThreadHistory} draws each earlier exchange collapsed (the reader's
+ * question and the answer's summary, static text) above the live turn, which keeps everything it has
+ * always had — chips, bubble, busy line, answer, cards. With no earlier exchange nothing is drawn and
+ * the DOM is what it was. The live regions are unchanged: ONE for the answer (the history is outside
+ * it, so an answer that moves into the history when the next question is sent is not announced again),
+ * and {@link AskThreadReset} sits inside it with the fresh answer it explains. When a follow-up goes
+ * out, the conversation's scroller is moved to the new question (and only the scroller — the field
+ * keeps focus), so the answer that lands is not below a fold of old text. The map follows the LIVE
+ * answer alone, as before: this component never touches a pick that is not the live answer's.
+ *
  * <h2>The request context is read here</h2>
  * <p>What the next question carries and what the chips say it is — the region in scope, the window on
  * the Map's pill, and the words for both — comes from {@code useAskRequestContext(view, viewLabel)},
@@ -101,6 +115,7 @@ export default function AskConversation({
   const { briefing } = useWindowFirstBriefing();
   const root = useRef(null);
   const planRef = useRef(null);
+  const questionRef = useRef(null);
   /**
    * Where focus goes once the phase this press asked for has rendered: {@code {to: 'plan'}} or
    * {@code {to: 'card', rank}}. Set only by the two presses, consumed once.
@@ -134,6 +149,12 @@ export default function AskConversation({
         ?.focus();
     }
   }, [livePhase, livePlanPick]);
+  // A follow-up has gone out: put its question at the top of the scroller, so the answer that lands
+  // under it is in view rather than below the earlier exchanges. Scroller only, never focus.
+  const historyCount = ask.history.length;
+  useEffect(() => {
+    if (livePhase === 'busy' && historyCount > 0) scrollToTopOfScroller(questionRef.current);
+  }, [livePhase, historyCount]);
   // Nothing to fetch until a briefing exists: no briefing, no Ready answers (precompute skips it),
   // and fetching before it lands would only be refetched the moment it does.
   const generatedAt = briefing?.generatedAt ?? null;
@@ -175,6 +196,7 @@ export default function AskConversation({
   };
   const body = (
     <>
+      {(phase === 'answer' || phase === 'cant') && <AskThreadReset ask={ask} />}
       {phase === 'answer' && <AskAnswer ask={ask} pickActions={pickActions} onPlan={openPlan} />}
       {phase === 'cant' && <AskCantAnswer ask={ask} questions={ready.questions} onOpen={openReady} />}
       {phase === 'error' && (
@@ -197,10 +219,12 @@ export default function AskConversation({
       ref={root}
       tabIndex={-1}
     >
+      {planCard === null && historyCount > 0 && <AskThreadHistory exchanges={ask.history} />}
       {planCard === null && (
         <AskContextChips
           viewLabel={chipView}
           windowLabel={chipWindow}
+          followUp={asked?.followUp ?? 0}
           onRemoveWindow={asked ? undefined : () => {
             keepFocus();
             ask.removeContextWindow(windowId);
@@ -208,7 +232,7 @@ export default function AskConversation({
         />
       )}
       {planCard === null && phase !== 'empty' && ask.question && (
-        <div className="wf-ask-yq" data-testid="ask-question">{ask.question}</div>
+        <div className="wf-ask-yq" data-testid="ask-question" ref={questionRef}>{ask.question}</div>
       )}
       <div role="status" className="sr-only" data-testid="ask-status">
         {phase === 'busy' ? busyText : ''}

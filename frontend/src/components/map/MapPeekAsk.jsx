@@ -148,7 +148,7 @@ export default function MapPeekAsk({
               type="button"
               className="wf-map-peek-ask-x"
               data-testid="wf-map-peek-ask-x"
-              aria-label={settled ? 'Clear answer' : 'Close Ask'}
+              aria-label={settled ? (ask.history.length > 0 ? 'Clear' : 'Clear answer') : 'Close Ask'}
               onClick={closeSection}
             >
               <span aria-hidden="true">✕</span>

@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, cleanup, fireEvent, screen, waitFor,
+  act, cleanup, fireEvent, screen, waitFor, within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ASK_SURFACE_SELECTOR } from '../hooks/useOutsideDismiss.js';
@@ -412,6 +412,36 @@ describe('opening, closing and the conversation', () => {
 
     expect(dock()).toBeNull();
     expect(modalCount()).toBe(1);
+  });
+});
+
+describe('a thread in the dock (T4)', () => {
+  it('stacks the earlier exchanges INSIDE the conversation’s scroller, with the input row outside it', async () => {
+    renderAskShell({ width: 1280 });
+    await openDock();
+    await askOne('One?');
+    await askOne('Two?');
+    await askOne('Three?');
+
+    const scroller = screen.getByTestId('ask-dock-scroller');
+    const history = within(scroller).getByTestId('ask-thread');
+    expect(within(history).getAllByTestId('ask-thread-exchange')).toHaveLength(2);
+    // The field is a sibling AFTER the scroller: it does not scroll away with a long stack.
+    expect(scroller).not.toContainElement(screen.getByTestId('ask-input-row'));
+    expect(scroller.compareDocumentPosition(screen.getByTestId('ask-input-row')) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    // "Clear" ends the lot, and sits in the scroller after the conversation.
+    expect(within(scroller).getByTestId('ask-clear')).toHaveTextContent(/^Clear$/);
+  });
+
+  it('keeps focus on the question field through a follow-up: the answer does not take it', async () => {
+    renderAskShell({ width: 1280 });
+    await openDock();
+    await askOne('One?');
+
+    await askOne('Two?');
+
+    expect(screen.getByTestId('ask-input')).toHaveFocus();
   });
 });
 

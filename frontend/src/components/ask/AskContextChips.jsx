@@ -15,11 +15,16 @@ import PropTypes from 'prop-types';
  * @param {object} props
  * @param {string} props.viewLabel the non-removable view chip's text
  * @param {?string} [props.windowLabel] the removable window chip's text; no chip when null
+ * @param {number} [props.followUp] how many exchanges came before the question this answer belongs to;
+ *        above zero a further chip says "follow-up · N so far" (the thread's own count, not a context the
+ *        reader can change, so it is never removable)
  * @param {function(): void} [props.onRemoveWindow] called by the window chip's ✕. Absent, the chip is a
  *        plain label: that is how it reads above an answer, where it says what was SENT and removing
  *        it would change nothing
  */
-export default function AskContextChips({ viewLabel, windowLabel = null, onRemoveWindow }) {
+export default function AskContextChips({
+  viewLabel, windowLabel = null, followUp = 0, onRemoveWindow,
+}) {
   return (
     <div className="wf-ask-ctx" role="group" aria-label="Asking about" data-testid="ask-context">
       <span className="wf-ask-k" aria-hidden="true">Asking about</span>
@@ -40,6 +45,9 @@ export default function AskContextChips({ viewLabel, windowLabel = null, onRemov
         </span>
       )}
       <span className="wf-ask-cx" data-testid="ask-chip-view">{viewLabel}</span>
+      {followUp > 0 && (
+        <span className="wf-ask-cx" data-testid="ask-chip-followup">{`follow-up · ${followUp} so far`}</span>
+      )}
     </div>
   );
 }
@@ -47,5 +55,6 @@ export default function AskContextChips({ viewLabel, windowLabel = null, onRemov
 AskContextChips.propTypes = {
   viewLabel: PropTypes.string.isRequired,
   windowLabel: PropTypes.string,
+  followUp: PropTypes.number,
   onRemoveWindow: PropTypes.func,
 };
