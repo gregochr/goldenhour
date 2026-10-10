@@ -151,6 +151,46 @@ class StubAskEngineTest {
     }
 
     @Test
+    @DisplayName("a follow-up that points back at the earlier picks but asks for a new day and the coast is "
+            + "a new-place question: rank_spots runs for that day, and the earlier picks are not repeated")
+    void newPlacesQuestionRerunsRankSpots() {
+        AskRun run = engine.run(question("neither of those; coastal spots tonight"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(3L, TODAY_SUNSET)));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).contains("rank_spots");
+        assertThat(run.outcome().answer().picks()).extracting(AskPick::windowId).containsOnly(TODAY_SUNSET);
+        assertThat(names(run)).containsExactly("Whitby", "Saltburn").doesNotContain("Inland Edge");
+    }
+
+    @Test
+    @DisplayName("a question that never points back at the earlier options runs the ordinary script even with "
+            + "a live thread, and a window of its own makes it a new-place question too")
+    void noBackReference_orAWindow_runsTheOrdinaryScript() {
+        AskRunOptions thread = threadOf(new ThreadExchange.PickRef(2L, TODAY_SUNSET));
+
+        AskRun plain = engine.run(question("Where is the best spot?"), snapshot(null), USER, thread);
+        AskQuestion inWindow = new AskQuestion("rank those", "rank those", TOMORROW_SUNRISE, AskScope.ALL, "map");
+        AskRun windowed = engine.run(inWindow, snapshot(null), USER, thread);
+
+        assertThat(plain.trace()).extracting(AskTools.ToolCall::tool).contains("rank_spots");
+        assertThat(names(plain)).contains("Whitby");
+        assertThat(windowed.trace()).extracting(AskTools.ToolCall::tool).contains("rank_spots");
+        assertThat(windowed.outcome().answer().picks()).extracting(AskPick::windowId)
+                .containsOnly(TOMORROW_SUNRISE);
+    }
+
+    @Test
+    @DisplayName("'the other one' points back at the earlier options too")
+    void theOtherOneRanksTheThread() {
+        AskRun run = engine.run(question("What about the other one?"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(2L, TODAY_SUNSET)));
+
+        assertThat(names(run)).containsExactly("Saltburn");
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).containsExactly("submit_answer");
+    }
+
+    @Test
     @DisplayName("an events word still sends a follow-up to the events script, thread or not")
     void eventsWordsBeatTheThread() {
         AskRun run = engine.run(question("any rare events?"), snapshot(null), USER,
