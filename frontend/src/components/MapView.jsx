@@ -65,6 +65,7 @@ import MapPeekAsk from './map/MapPeekAsk.jsx';
 import { askPeekMode, peekRestingHeight, peekTargetHeight } from '../utils/askPeek.js';
 import { SETTLED_PHASES } from '../utils/askModel.js';
 import { askWindowOf } from '../utils/askMapContext.js';
+import { ranksPhrase } from '../utils/askPickChip.js';
 import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
@@ -3869,24 +3870,39 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // pick rides on the spot as `askPick` — the card's own facts for the PICK'S window (rank, short
     // window, that window's rating and verdict) — so the chip draws those and not the active window's
     // `rating`, which the spot keeps for everything else that reads it. Identity is id first, name
-    // second (`heatSpots`' doctrine); two picks at one location cannot be asked of the server, but the
-    // lowest rank wins if one ever arrives. A pick whose location the catalogue does not hold, or holds
-    // without coordinates, has nowhere to be drawn and is skipped.
+    // second (`heatSpots`' doctrine). A place may win MORE than one pick — a ranking follow-up over the
+    // thread's own picks can return one place at two windows — and the map has one position per place,
+    // so it is ONE chip carrying every rank it won (`askPick.ranks`, present only then, so a single-pick
+    // place's `askPick` is exactly what it was). The chip is `selected` when ANY of its picks is, and
+    // shows the facts of the chosen pick (else the lowest rank's); `selectedRank` says which, so a press
+    // can move on to the next. The camera keys on the selection's nonce and the place's position, never
+    // on a rank, so choosing either pick flies to the one chip. A pick whose location the catalogue does
+    // not hold, or holds without coordinates, has nowhere to be drawn and is skipped.
     if (askPicks.length > 0) {
-      const taken = new Set();
+      const byPlace = new Map();
       for (const pick of [...askPicks].sort((a, b) => a.rank - b.rank)) {
         const loc = locations.find((l) => l.id === pick.locationId)
           ?? locations.find((l) => l.name === pick.name);
-        if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon) || taken.has(loc.name)) continue;
-        taken.add(loc.name);
+        if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) continue;
+        if (!byPlace.has(loc.name)) byPlace.set(loc.name, { loc, picks: [] });
+        byPlace.get(loc.name).picks.push(pick);
+      }
+      for (const { loc, picks } of byPlace.values()) {
+        const chosen = picks.find((p) => p.rank === askSelectedRank);
+        const shown = chosen ?? picks[0];
         const askPick = {
-          rank: pick.rank,
-          shortWindow: pick.shortWindow,
-          rating: pick.rating,
-          verdict: pick.verdict,
-          label: pick.label,
-          selected: pick.rank === askSelectedRank,
+          rank: picks[0].rank,
+          shortWindow: shown.shortWindow,
+          rating: shown.rating,
+          verdict: shown.verdict,
+          label: shown.label,
+          selected: chosen !== undefined,
         };
+        if (picks.length > 1) {
+          askPick.ranks = picks.map((p) => p.rank);
+          askPick.selectedRank = chosen?.rank ?? null;
+          askPick.label = `Ask picks ${ranksPhrase(askPick.ranks)}: ${picks.map((p) => p.label).join('; ')}`;
+        }
         const at = spots.findIndex((s) => s.name === loc.name);
         if (at >= 0) spots[at] = { ...spots[at], askPick };
         else spots.push({ ...spotOf(loc), askPick });

@@ -206,3 +206,41 @@ function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
   return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
 }
+
+describe('a place that won more than one pick (a ranking follow-up)', () => {
+  const TWO = (over = {}) => PICK(1, {
+    ranks: [1, 2],
+    selectedRank: null,
+    label: 'Ask picks 1 and 2: Pick 1, Whitby, Saturday sunrise, 4 stars; Pick 2, Whitby, Saturday sunset, 3 stars',
+    ...over,
+  });
+
+  it('is one dot reading "1·2", named for both picks, and selected when either is chosen', async () => {
+    currentMap = makeMap();
+    await mount({ spots: [{ ...WHITBY, askPick: TWO({ selected: true, selectedRank: 2 }) }] });
+
+    expect(picks()).toHaveLength(1);
+    expect(picks()[0]).toHaveTextContent(/^1·2$/);
+    expect(picks()[0].querySelector('span')).toHaveAttribute('data-multi', 'true');
+    expect(picks()[0]).toHaveAttribute('data-ask-selected', 'true');
+    expect(screen.getByRole('button', { name: /^Ask picks 1 and 2: / })).toBe(picks()[0]);
+  });
+
+  it('a press chooses the next of its picks; a single-pick dot still chooses its rank and shows a plain number', async () => {
+    currentMap = makeMap();
+    const onSelectAskPick = vi.fn();
+    await mount({
+      spots: [{ ...WHITBY, askPick: TWO({ selected: true, selectedRank: 1 }) }, { ...SALTBURN, askPick: PICK(3) }],
+      onSelectAskPick,
+    });
+
+    const [multi, single] = picks();
+    fireEvent.click(multi);
+    fireEvent.click(single);
+
+    expect(onSelectAskPick.mock.calls.map(([rank]) => rank)).toEqual([2, 3]);
+    expect(single).toHaveTextContent(/^3$/);
+    expect(single.querySelector('span')).not.toHaveAttribute('data-multi');
+    expect(single).not.toHaveAttribute('data-ask-ranks');
+  });
+});

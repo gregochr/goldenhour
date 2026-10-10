@@ -6475,6 +6475,15 @@ button.wf-hc.also.on:hover {
 .wf-maplab-chip.wf-maplab-pick .wf-maplab-pick-n {
   font-size: 11px;
 }
+/* A place that won more than one pick ("1·2", a ranking follow-up) is one chip with a pill for a badge: the
+   circle grows to fit its ranks rather than clipping them. Single-pick chips never carry `data-multi`. */
+.wf-maplab-pick-rk[data-multi='true'] {
+  width: auto;
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  white-space: nowrap;
+}
 .wf-maplab-pick-w {
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -6502,6 +6511,11 @@ button.wf-hc.also.on:hover {
 .wf-maplab-pick[data-compact='true'] .wf-maplab-pick-w,
 .wf-maplab-pick[data-compact='true'] .wf-maplab-pick-r {
   display: none;
+}
+/* …and its pin: the dot keeps its size, so "1·2" is set a notch smaller to fit inside it. */
+.wf-pin[data-ask='pick'] > span[data-multi='true'] {
+  font-size: 8px;
+  letter-spacing: -0.04em;
 }
 /* Pins mode: the pick's dot carries a gold ring (the dot's own colour is the pick window's rating), and
    the chosen one a pale-gold ring with a halo. An outline, because the dot's box-shadow is set inline. */
