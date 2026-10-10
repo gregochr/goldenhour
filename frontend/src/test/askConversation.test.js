@@ -763,13 +763,61 @@ describe('threadForWire', () => {
     expect(sent[0].question).toBe('Q4');
   });
 
-  it('holds a summary to the server’s code-point cap — counting code points, so an emoji is one', () => {
-    const long = { ...full(1), summary: '😀'.repeat(THREAD_SUMMARY_MAX_CODE_POINTS + 50) };
+  it('holds a summary to the server’s code-point cap — counting code points, so an astral letter is one', () => {
+    const long = { ...full(1), summary: '𝒶'.repeat(THREAD_SUMMARY_MAX_CODE_POINTS + 50) };
 
     const [sent] = threadForWire([long]);
 
     expect(Array.from(sent.summary)).toHaveLength(THREAD_SUMMARY_MAX_CODE_POINTS);
     expect(threadForWire([{ ...full(1), summary: 'short' }])[0].summary).toBe('short');
+  });
+
+  describe('a summary reaches the wire without what the server refuses', () => {
+    const wire = (summary) => threadForWire([{ ...full(1), summary }])[0].summary;
+
+    it.each([
+      ['an emoji', 'Whitby is lovely 😀 tonight.', 'Whitby is lovely tonight.'],
+      ['a pictograph with a variation selector', 'Clear skies ☀️ at dawn.', 'Clear skies at dawn.'],
+      ['a ZWJ sequence', 'Out with the family 👨‍👩‍👧 today.', 'Out with the family today.'],
+      ['a flag', 'Go north 🇬🇧 for it.', 'Go north for it.'],
+      ['a keycap', 'Pick 1️⃣ is best.', 'Pick 1 is best.'],
+      ['a symbol that is emoji by default', 'Mind the weather ⚠ and the ™.', 'Mind the weather and the .'],
+      ['a control character', 'Bamburgh\u0007 is best.', 'Bamburgh is best.'],
+      ['a format character', 'Dun\u200bstanburgh and Bam\u00adburgh.', 'Dunstanburgh and Bamburgh.'],
+      ['a combining mark with no precomposed form', 'Whitby\u0334 is best.', 'Whitby is best.'],
+    ])('removes %s', (_name, summary, expected) => {
+      expect(wire(summary)).toBe(expected);
+    });
+
+    it('collapses whitespace, newlines and tabs to single spaces, and trims', () => {
+      expect(wire('  Whitby,\n\tthen   Saltburn.  ')).toBe('Whitby, then Saltburn.');
+    });
+
+    it('keeps a plain summary byte-identical: letters, digits, punctuation, ★, —, …, quotes and accents', () => {
+      const plain = 'Whitby is 4★ — “worth it” … 55 min from home, £2.50 parking? Café à la mer: 12°C & rising (it’s on).';
+
+      expect(wire(plain)).toBe(plain);
+    });
+
+    it('reads a decomposed accent as the letter it is (NFC, as the server normalises), not a refused mark', () => {
+      expect(wire('Cafe\u0301')).toBe('Caf\u00e9');
+    });
+
+    it('counts the clip in code points AFTER the stripping: refused characters spend none of the budget', () => {
+      const padded = `${'😀'.repeat(300)}${'a'.repeat(THREAD_SUMMARY_MAX_CODE_POINTS + 20)}${'\u200b'.repeat(50)}`;
+
+      const sent = wire(padded);
+
+      expect(sent).toBe('a'.repeat(THREAD_SUMMARY_MAX_CODE_POINTS));
+    });
+
+    it('leaves the exchange the client keeps for itself untouched: only the wire copy is cleaned', () => {
+      const exchange = { ...full(1), summary: 'Lovely 😀' };
+
+      threadForWire([exchange]);
+
+      expect(exchange.summary).toBe('Lovely 😀');
+    });
   });
 
   it('is empty for an empty thread', () => {

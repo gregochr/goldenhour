@@ -78,6 +78,30 @@ describe('what a question sends', () => {
     expect(ctx.asked.followUp).toBe(1);
   });
 
+  it('echoes generatedAt byte-for-byte from the served answer: the server resets on strict equality', async () => {
+    await renderAsk();
+    const served = '2026-10-05T05:02:11.123456';
+    ask.mockResolvedValueOnce(ownResponse({ generatedAt: served }));
+    await askTyped(FIRST, { view: 'plan' });
+    ask.mockResolvedValueOnce(ownResponse());
+
+    await askTyped('And closer?', { view: 'plan' });
+
+    expect(body(1).thread[0].generatedAt).toBe(served);
+  });
+
+  it('sends a summary the server would refuse without the offending characters, and the screen keeps its own copy', async () => {
+    await renderAsk();
+    ask.mockResolvedValueOnce(ownResponse({ summary: 'Whitby is the one 😀 tonight.' }));
+    await askTyped(FIRST, { view: 'plan' });
+    ask.mockResolvedValueOnce(ownResponse());
+
+    await askTyped('And closer?', { view: 'plan' });
+
+    expect(body(1).thread[0].summary).toBe('Whitby is the one tonight.');
+    expect(ctx.thread[0].summary).toBe('Whitby is the one 😀 tonight.');
+  });
+
   it('names its context beside the thread: the same question, region and view as ever', async () => {
     await renderAsk();
 

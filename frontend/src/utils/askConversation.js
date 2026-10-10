@@ -24,10 +24,12 @@ import { KIND } from './askModel.js';
  * question carries to the server ({@link exchangeOf}); {@code resetReason} is the one line's worth of
  * "the forecast moved, this is a fresh answer" ({@code THREAD_RESET}). ⚠️ The live answer is itself the
  * thread's last exchange (it is appended when it lands), so what is drawn above it is
- * {@link selectHistory}, not the list. ⚠️ Every action that rebuilds the conversation from
- * {@link INITIAL_CONVERSATION} — {@code ASK_SENT}, {@code READY_OPENED}, {@code FAILED},
- * {@code REFUSED} — must name {@code thread} itself, or the spread silently drops it (a failed or refused
- * follow-up would end the session); a test pins each.
+ * {@link selectHistory}, not the list. ⚠️ Three actions rebuild the conversation from
+ * {@link INITIAL_CONVERSATION} — {@code ASK_SENT}, {@code READY_OPENED}, {@code FAILED} — and must name
+ * {@code thread} themselves, or the spread silently drops it (a failed follow-up would end the session).
+ * {@code REFUSED} spreads the conversation it puts back instead ({@code conv.settled}, which
+ * {@code settledOf} never leaves null), so that conversation's own thread already equals the busy one's by
+ * construction; its explicit {@code thread: conv.thread} is belt and braces. A test pins each of the four.
  *
  * <h2>What is not here, on purpose</h2>
  * <ul>
@@ -135,9 +137,31 @@ export function exchangeOf(question, answer) {
 }
 
 /**
+ * What the server refuses in an earlier answer's summary: control, format and combining characters and
+ * emoji (`AskQuestionSanitiser.sanitiseThreadSummary` answers 400 INVALID, and the validator's own
+ * {@code clean} does not strip them, so one the model wrote would fail the NEXT question). {@code ★},
+ * {@code —}, {@code …}, quotes, letters, digits and punctuation are none of these.
+ */
+const REFUSED_IN_SUMMARY = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Regional_Indicator}\p{Cc}\p{Cf}\p{M}]/gu;
+
+/**
+ * A summary as the wire takes it: NFC (as the server normalises, so a decomposed "é" is one letter and
+ * not a letter plus a refused mark), whitespace collapsed, the refused characters removed, then held to
+ * {@link THREAD_SUMMARY_MAX_CODE_POINTS} code points — counted AFTER the stripping, so the clip never
+ * spends its budget on characters that are not sent. A plain summary comes out byte-identical.
+ *
+ * @param {string} summary
+ * @returns {string}
+ */
+function wireSummary(summary) {
+  const plain = summary.normalize('NFC').replace(/\s+/g, ' ').replace(REFUSED_IN_SUMMARY, '').replace(/ {2,}/g, ' ').trim();
+  return Array.from(plain).slice(0, THREAD_SUMMARY_MAX_CODE_POINTS).join('');
+}
+
+/**
  * The thread as {@code POST /api/ask} takes it: the exchanges' wire fields only (never the client's own
- * {@code answerId}), at most {@link THREAD_MAX_EXCHANGES} of them (the newest), each summary held to the
- * server's code-point cap.
+ * {@code answerId}), at most {@link THREAD_MAX_EXCHANGES} of them (the newest), each summary cleaned of what the
+ * server refuses and held to its code-point cap ({@link wireSummary}).
  *
  * @param {Array<object>} thread
  * @returns {Array<object>} empty when there is no thread
@@ -145,7 +169,7 @@ export function exchangeOf(question, answer) {
 export function threadForWire(thread) {
   return thread.slice(-THREAD_MAX_EXCHANGES).map((x) => ({
     question: x.question,
-    summary: Array.from(x.summary).slice(0, THREAD_SUMMARY_MAX_CODE_POINTS).join(''),
+    summary: wireSummary(x.summary),
     picks: x.picks,
     events: x.events,
     generatedAt: x.generatedAt,
