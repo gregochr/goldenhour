@@ -255,7 +255,7 @@ and to `AskAnswerValidator.validate`.
 - **Model:** `photocast.ask.model`, default `HAIKU`, validated to `HAIKU | SONNET` at startup. No
   `model_selection` row and no entry in `ModelSelectionService.CONFIGURABLE_RUN_TYPES` — Sonnet 5.5
   must not be selectable (it cannot disable thinking, which breaks the token and time budgets).
-- **Loop:** at most 4 model turns, `tool_choice` auto, `max_tokens` 600. The reply is
+- **Loop:** at most 4 model turns, `tool_choice` `any` (was `auto`; see "As built (2026-10-10)" below), `max_tokens` 600. The reply is
   `submit_answer`'s input. A turn that ends without a tool call, a refusal, `max_tokens`, or turn 4
   without `submit_answer` is a **failure**. *As built:* refusal, `max_tokens` and the context-window
   stop are `ModelRequestSupport.checkStopReason` (the one test every Claude path shares); any other
@@ -388,6 +388,23 @@ that finds nothing is not stored). Fixed in three layers, none depending on the 
   ("any rare events this weekend?") is not an events question here, because there "none" can be true; those rest on the data layer.
 Verified by the real regression class: all three cases pass, the rare-events trace is `get_hot_topics, get_coming_up, submit_answer`.
 `AskPromptRegressionTest.ask()` now also prints the tool trace (a helper line only; the assertions are untouched).
+
+**As built (2026-10-10): every turn is a tool call (`tool_choice` `any`).** The plan said `auto` and recorded no reason; there was
+none. Production, 21:15 UTC on v2.25.0, the owner's first typed questions on the phone Map peek: "What's the best location close
+to home for Tuesday's sunset?" failed four times with `the turn ended without a tool call (stop_reason=end_turn)` after one turn
+(502 `ENGINE_FAILED`, "Couldn't answer just now"), asked as an ADMIN with stored drive times, Map context `Map · Everywhere`, window
+Tuesday sunset. Reproduced against the real API on the fixture with drive times for every fixture location; Haiku's turn 1 was
+prose, verbatim: *"I need to know how far you're willing to travel from home. Could you tell me the maximum drive time in minutes
+you'd like to consider for Tuesday's sunset?"* The cause was twofold: nothing forced a tool call, and the typed prompt said
+`maxDriveMinutes` was "only when the question names a time limit", so a question about somewhere "close to home" with no number
+read as unanswerable without one. Fixes: (1) `ToolChoiceAny` on every turn, so prose is no longer a valid reply (the
+"no tool call" check stays as the defence behind it and is now reachable only through `max_tokens`, a refusal or a pause), pinned
+over the wire on the first and a later request; parallel tool use is unchanged (`disable_parallel_tool_use` is not sent); (2) the
+typed prompt and the `rank_spots` schema say that a drive time, or "close to home, near, nearby, local" with no time (taken as 60),
+is `maxDriveMinutes`, that the model never needs to know where home is, and that it may never ask the reader anything
+(`tool-schemas-with-user.txt` regenerated for the changed description). After the fix the same question answers OK in two turns
+(`list_windows, rank_spots, submit_answer`) and the three regression cases pass. The error contract is unchanged: a FAILED run is
+still a refund and "No question used".
 
 ### 2.4 Ready answers (B3)
 
