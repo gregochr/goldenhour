@@ -128,6 +128,22 @@ public class ClaudeAuroraInterpreter {
             Be concise and factual. Do not invent or hallucinate data not provided.
             """;
 
+    /**
+     * The system prompt every aurora scoring request must carry — the JSON-array contract and the
+     * star guidance {@link #parseResponse} depends on.
+     *
+     * <p>⚠️ Three call sites send this prompt and all three must attach it: {@link #interpret} here,
+     * and {@code EvaluationServiceImpl}'s synchronous and batch aurora requests. Until 2026-10-10
+     * the latter two sent the user message alone; without the contract Claude answered in prose,
+     * the parse failed, and every viable location fell to the 1★ "could not be assessed" fallback —
+     * which is what the live poller showed through a G3 storm under clear skies.
+     *
+     * @return the aurora system prompt
+     */
+    public static String systemPrompt() {
+        return SYSTEM_PROMPT;
+    }
+
     /** Durham, UK — representative UK reference latitude for lunar calculations. */
     private static final double DURHAM_LAT = 54.776;
 
@@ -191,7 +207,7 @@ public class ClaudeAuroraInterpreter {
                         .maxTokens(ModelRequestSupport.maxTokens(model,
                                 maxTokensFor(viableLocations.size())))
                         .systemOfTextBlockParams(List.of(
-                                TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
+                                TextBlockParam.builder().text(systemPrompt()).build()))
                         .addUserMessage(userMessage), model)
                         .build());
         ModelRequestSupport.checkStopReason(response);
