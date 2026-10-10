@@ -232,6 +232,10 @@ public class EvaluationServiceImpl implements EvaluationService {
                             .maxTokens(ModelRequestSupport.maxTokens(task.model(),
                                     ClaudeAuroraInterpreter.maxTokensFor(
                                             task.viableLocations().size())))
+                            // The JSON contract the parser depends on — see
+                            // ClaudeAuroraInterpreter.systemPrompt() for what its absence did.
+                            .systemOfTextBlockParams(List.of(TextBlockParam.builder()
+                                    .text(ClaudeAuroraInterpreter.systemPrompt()).build()))
                             .addUserMessage(userMessage), task.model())
                             .build())
                     .build());
@@ -333,6 +337,10 @@ public class EvaluationServiceImpl implements EvaluationService {
                             .maxTokens(ModelRequestSupport.maxTokens(task.model(),
                                     ClaudeAuroraInterpreter.maxTokensFor(
                                             task.viableLocations().size())))
+                            // The JSON contract the parser depends on — see
+                            // ClaudeAuroraInterpreter.systemPrompt() for what its absence did.
+                            .systemOfTextBlockParams(List.of(TextBlockParam.builder()
+                                    .text(ClaudeAuroraInterpreter.systemPrompt()).build()))
                             .addUserMessage(userMessage), task.model())
                             .build());
             ModelRequestSupport.checkStopReason(response);

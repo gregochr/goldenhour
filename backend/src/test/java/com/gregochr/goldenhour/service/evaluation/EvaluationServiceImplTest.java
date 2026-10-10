@@ -937,6 +937,62 @@ class EvaluationServiceImplTest {
         }
     }
 
+    // ── Aurora system prompt (2026-10-10) ────────────────────────────────────
+    //
+    // Both EvaluationServiceImpl aurora requests used to send the user message ALONE. Without the
+    // interpreter's system prompt (the JSON-array contract and star guidance) Claude answered in
+    // prose, parseResponse failed, and every viable location fell to the 1★ "could not be
+    // assessed" fallback — a G3 storm under clear skies drew 247 one-star pins. These two tests
+    // pin the prompt onto each transport; a request with no system block, or with any other text
+    // in it, fails them.
+
+    @Test
+    @DisplayName("sync aurora request carries ClaudeAuroraInterpreter's system prompt")
+    void evaluateNow_auroraRequest_carriesSystemPrompt() {
+        EvaluationTask.Aurora task = auroraTaskFor(EvaluationModel.HAIKU);
+        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
+                .thenReturn("user-message");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(AURORA_JSON)), StopReason.END_TURN));
+        when(auroraResultHandler.handleSyncResult(eq(task), any(ClaudeSyncOutcome.class),
+                any(ResultContext.class))).thenReturn(new EvaluationResult.Errored("x", "x"));
+
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        assertThat(captor.getValue().system()).isPresent();
+        List<com.anthropic.models.messages.TextBlockParam> blocks =
+                captor.getValue().system().get().asTextBlockParams();
+        assertThat(blocks).hasSize(1);
+        assertThat(blocks.get(0).text()).isEqualTo(ClaudeAuroraInterpreter.systemPrompt());
+        assertThat(blocks.get(0).text()).contains("Output ONLY valid JSON");
+    }
+
+    @Test
+    @DisplayName("aurora batch request carries ClaudeAuroraInterpreter's system prompt")
+    void submit_auroraRequest_carriesSystemPrompt() {
+        EvaluationTask.Aurora task = auroraTaskFor(EvaluationModel.HAIKU);
+        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
+                .thenReturn("user-message");
+        when(batchSubmissionService.submit(
+                any(), eq(BatchType.AURORA), eq(BatchTriggerSource.SCHEDULED), anyString()))
+                .thenReturn(new BatchSubmitResult(888L, "msgbatch_aurora", 1));
+
+        service.submit(List.of(task), BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<List<BatchCreateParams.Request>> captor = ArgumentCaptor.forClass(List.class);
+        verify(batchSubmissionService).submit(captor.capture(), eq(BatchType.AURORA),
+                eq(BatchTriggerSource.SCHEDULED), anyString());
+        BatchCreateParams.Request.Params params = captor.getValue().get(0).params();
+        assertThat(params.system()).isPresent();
+        List<com.anthropic.models.messages.TextBlockParam> blocks = params.system().get().asTextBlockParams();
+        assertThat(blocks).hasSize(1);
+        assertThat(blocks.get(0).text()).isEqualTo(ClaudeAuroraInterpreter.systemPrompt());
+        assertThat(blocks.get(0).text()).contains("Output ONLY valid JSON");
+    }
+
     private ClaudeSyncOutcome syncAuroraOutcomeFor(Message reply) {
         EvaluationTask.Aurora task = auroraTaskFor(EvaluationModel.SONNET_55);
         when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
