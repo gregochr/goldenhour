@@ -48,6 +48,15 @@ import java.util.Optional;
  *   <li><b>Respond</b> ({@link AskResponse}), offer the cache the answer and log it.</li>
  * </ol>
  *
+ * <p><b>A follow-up</b> (a request carrying a {@code thread}, plan {@code ask-thread-plan.md}) runs the same
+ * guards with three differences. The thread is validated with step 2 ({@link AskThreadValidation}). Once
+ * the snapshot is built it is reconciled with the live forecast: a typed exchange answered against another
+ * briefing run drops the whole thread and the answer is fresh, marked {@code threadReset}. And a
+ * follow-up that still has a thread <b>skips steps 5 and 6</b>: a question that leans on earlier answers
+ * is never a catalogue question, and its cache key would have to include the whole thread, so it is
+ * neither matched to a Ready answer nor read from or written to the typed cache. It is a typed question
+ * for allowance, spend and engine-call purposes.
+ *
  * <p>Steps 5 and 6 sit <em>before</em> the spend cap and the reservation on purpose: a Ready match
  * or a cache hit costs nothing, so it is served even when typed questions are switched off for the
  * day. Every refusal is an {@link AskRefusal}, which the web layer renders as
@@ -65,6 +74,21 @@ import java.util.Optional;
 public class AskService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AskService.class);
+
+    /** The question after step 2: sanitised, scoped and carrying its validated thread. */
+    private record Validated(AskQuestion question, AskThread thread) {
+    }
+
+    /**
+     * What a request's thread did to its answer: how many earlier exchanges the engine saw (after any
+     * reset) and whether the thread was dropped because the forecast had moved.
+     */
+    private record Carry(int threadSize, boolean reset) {
+
+        AskResponse apply(AskResponse response) {
+            return reset ? response.withThreadReset() : response;
+        }
+    }
 
     /** How many other Ready questions a can't-answer suggests. */
     static final int TRY_COUNT = 2;
@@ -172,46 +196,54 @@ public class AskService {
 
         // 1. The rate limit was applied by admit(), before the body was converted.
         // 2. Sanitise and validate.
-        AskQuestion question;
+        Validated validated;
         try {
-            question = validate(request);
+            validated = validate(request);
         } catch (AskRefusal refusal) {
             throw denied(userId, refusal);
         }
+        AskQuestion question = validated.question();
 
         // 3. Can't-answer pre-filter.
         Optional<AskAnswer> refused = preFilter.refuse(question);
         if (refused.isPresent()) {
-            return cant(userId, user, refused.get(), question, startedAt,
-                    AskLog.Outcome.PREFILTER_CANT, snapshotBuilder.current().orElse(null));
+            // Before the snapshot exists the thread cannot yet be reconciled: the size is what was sent.
+            return cant(userId, user, refused.get(), question, startedAt, AskLog.Outcome.PREFILTER_CANT,
+                    snapshotBuilder.current().orElse(null), new Carry(validated.thread().size(), false));
         }
 
         // 4. Snapshot — the first place it is built.
         AskSnapshot snapshot = snapshotBuilder.current()
                 .orElseThrow(() -> denied(userId, new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE)));
         question = withWindow(question, snapshot);
+        // The reset rule (plan §2.2): a typed exchange answered against another run ends the thread.
+        boolean reset = validated.thread().staleAgainst(snapshot.generatedAt());
+        AskThread thread = reset ? AskThread.EMPTY : validated.thread();
+        Carry carry = new Carry(thread.size(), reset);
         AskUserContext context = new AskUserContext(userId, user.getRole(),
                 driveTimeResolver.hasDriveTimes(userId));
         LocalDate day = ForecastHorizon.today(clock);
         int limit = properties.limitFor(user.getRole());
 
-        // 5. Ready intent match: free.
-        Optional<AskReadyResponse.Question> ready = intentMatcher.match(question, snapshot);
+        // 5. Ready intent match: free. Skipped for a follow-up, which is never a catalogue question.
+        Optional<AskReadyResponse.Question> ready = thread.isEmpty()
+                ? intentMatcher.match(question, snapshot) : Optional.empty();
         if (ready.isPresent()) {
             AskReadyResponse.Answer answer = ready.get().answer();
             AskResponse response = new AskResponse(true, AskResponse.KIND_READY, answer.summary(),
                     answer.picks(), answer.events(), null, answer.tryThese(), left(userId, day, limit),
                     limit, false, ready.get().generatedAt(), ready.get().runLabel());
-            log(userId, question, AskLog.Outcome.READY_MATCH, null, startedAt);
-            return response;
+            log(userId, question, AskLog.Outcome.READY_MATCH, null, startedAt, carry);
+            return carry.apply(response);
         }
 
-        // 6. Typed cache: free.
-        Optional<AskAnswer> hit = cache.lookup(question, snapshot, context);
+        // 6. Typed cache: free. Neither read nor written for a follow-up (its key would need the thread).
+        Optional<AskAnswer> hit = thread.isEmpty() ? cache.lookup(question, snapshot, context)
+                : Optional.empty();
         if (hit.isPresent()) {
             AskResponse response = own(hit.get(), snapshot, left(userId, day, limit), limit, false);
-            log(userId, question, AskLog.Outcome.CACHE_HIT, null, startedAt);
-            return response;
+            log(userId, question, AskLog.Outcome.CACHE_HIT, null, startedAt, carry);
+            return carry.apply(response);
         }
 
         // 7. Spend cap and the accounting latch — before anything is reserved.
@@ -229,25 +261,27 @@ public class AskService {
         }
 
         // 9. Engine.
-        AskRun run = runEngine(question, snapshot, context);
+        AskRun run = runEngine(question, snapshot, context, thread);
         AskOutcome outcome = run.outcome();
         if (outcome.status() == AskOutcome.Status.FAILED || outcome.answer() == null) {
             usageStore.refund(userId, day);
-            log(userId, question, AskLog.Outcome.CLAUDE_FAILED, null, startedAt);
+            log(userId, question, AskLog.Outcome.CLAUDE_FAILED, null, startedAt, carry);
             throw new AskRefusal(run.accountingUnavailable() ? AskErrorCode.TYPED_UNAVAILABLE
                     : AskErrorCode.ENGINE_FAILED);
         }
         if (outcome.status() == AskOutcome.Status.CANT) {
             usageStore.refund(userId, day);
-            return cant(userId, user, outcome.answer(), question, startedAt,
-                    AskLog.Outcome.CLAUDE_CANT, snapshot);
+            return cant(userId, user, outcome.answer(), question, startedAt, AskLog.Outcome.CLAUDE_CANT,
+                    snapshot, carry);
         }
 
-        // 10. Respond, cache, log.
-        offerToCache(question, snapshot, context, outcome);
+        // 10. Respond, cache (a fresh question only), log.
+        if (thread.isEmpty()) {
+            offerToCache(question, snapshot, context, outcome);
+        }
         AskResponse response = own(outcome.answer(), snapshot, left(userId, day, limit), limit, true);
-        log(userId, question, AskLog.Outcome.CLAUDE_OK, outcome.answer().missing(), startedAt);
-        return response;
+        log(userId, question, AskLog.Outcome.CLAUDE_OK, outcome.answer().missing(), startedAt, carry);
+        return carry.apply(response);
     }
 
     /**
@@ -280,10 +314,10 @@ public class AskService {
     }
 
     /**
-     * Step 2: the sanitised question, the view and the regions, or an {@code INVALID} refusal. The
-     * only place the region ids are resolved: the question carries the scope from here on.
+     * Step 2: the sanitised question, the view, the thread and the regions, or an {@code INVALID}
+     * refusal. The only place the region ids are resolved: the question carries the scope from here on.
      */
-    private AskQuestion validate(AskRequest request) {
+    private Validated validate(AskRequest request) {
         if (request == null) {
             throw invalid("A request body is required.");
         }
@@ -294,9 +328,12 @@ public class AskService {
         if (!cleaned.ok()) {
             throw invalid(cleaned.error());
         }
+        AskThread thread = AskThreadValidation.validate(request.thread(),
+                properties.getThread().getMaxExchanges());
         AskScope scope = AskScopes.resolve(regionRepository, request.regionIds())
                 .orElseThrow(() -> invalid(AskScopes.INVALID_REGIONS));
-        return AskQuestion.of(cleaned, blankToNull(request.windowId()), scope, request.view());
+        return new Validated(AskQuestion.of(cleaned, blankToNull(request.windowId()), scope, request.view()),
+                thread);
     }
 
     /**
@@ -357,17 +394,19 @@ public class AskService {
      * id, a count or a library exception's message), never the question, and is passed through
      * {@link LogSanitizer} regardless.
      */
-    private AskRun runEngine(AskQuestion question, AskSnapshot snapshot, AskUserContext context) {
+    private AskRun runEngine(AskQuestion question, AskSnapshot snapshot, AskUserContext context,
+            AskThread thread) {
         AskRun run;
         try {
-            run = engine.run(question, snapshot, context, AskRunOptions.none());
+            run = engine.run(question, snapshot, context, AskRunOptions.typed(thread));
         } catch (RuntimeException e) {
             LOG.error("[ASK] The engine threw for user {}: {}", context.userId(), e.toString());
             run = AskRun.failed("the engine threw: " + e.getClass().getSimpleName(), 0, false, List.of());
         }
         if (run.outcome().status() == AskOutcome.Status.FAILED) {
-            LOG.info("[ASK] A typed question for user {} failed after {} turn(s): {}", context.userId(),
-                    run.outcome().turns(), LogSanitizer.sanitize(run.reason()));
+            LOG.info("[ASK] A typed question for user {} failed after {} turn(s) thread={}: {}",
+                    context.userId(), run.outcome().turns(), thread.size(),
+                    LogSanitizer.sanitize(run.reason()));
         }
         return run;
     }
@@ -396,7 +435,7 @@ public class AskService {
      * any refund.
      */
     private AskResponse cant(long userId, AppUserEntity user, AskAnswer answer, AskQuestion question,
-            long startedAt, AskLog.Outcome outcome, AskSnapshot snapshot) {
+            long startedAt, AskLog.Outcome outcome, AskSnapshot snapshot, Carry carry) {
         LocalDate day = ForecastHorizon.today(clock);
         int limit = properties.limitFor(user.getRole());
         List<AskReadyResponse.Suggestion> suggestions = snapshot == null ? List.of()
@@ -406,8 +445,8 @@ public class AskService {
         AskResponse response = new AskResponse(false, AskResponse.KIND_CANT, answer.summary(), List.of(),
                 List.of(), answer.missing(), suggestions, left(userId, day, limit), limit, false,
                 generatedAt, runLabel);
-        log(userId, question, outcome, answer.missing(), startedAt);
-        return response;
+        log(userId, question, outcome, answer.missing(), startedAt, carry);
+        return carry.apply(response);
     }
 
     /**
@@ -428,7 +467,13 @@ public class AskService {
     }
 
     private void log(long userId, AskQuestion question, AskLog.Outcome outcome, String missing,
-            long startedAt) {
+            long startedAt, Carry carry) {
+        if (carry.threadSize() > 0 || carry.reset()) {
+            // A follow-up only: a fresh question logs nothing new. Ints and an enum, never the thread's
+            // text, so nothing a reader typed reaches this line.
+            LOG.info("[ASK] User {} answered a follow-up: outcome={} thread={} reset={}", userId, outcome,
+                    carry.threadSize(), carry.reset());
+        }
         try {
             // The Ready scope's key: a single region's id, otherwise ALL, as the log has always held.
             askLog.record(new AskLog.Entry(userId, question.scope().readyScope().key(), question.view(),

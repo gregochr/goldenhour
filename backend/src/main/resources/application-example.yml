@@ -236,6 +236,9 @@ photocast:
   #     cache:
   #       max-entries: 2000         # typed-answer cache, 1-100000
   #       ttl-minutes: 30           # 1-1440
+  #     thread:
+  #       max-exchanges: 8          # earlier exchanges a follow-up question may carry, 1-20; more is
+  #                                 # 400 INVALID (a POST /api/ask body is capped at 16 KiB)
   #     log:
   #       retention-days: 90        # ask_log rows kept, 1-3650
   tide-run:

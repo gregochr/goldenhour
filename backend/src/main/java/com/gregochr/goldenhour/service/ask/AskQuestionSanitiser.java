@@ -27,6 +27,18 @@ public final class AskQuestionSanitiser {
     /** The longest question accepted, in characters (code points) after cleaning. */
     public static final int MAX_LENGTH = 200;
 
+    /** The longest earlier-answer summary accepted from a thread, in code points after cleaning. */
+    public static final int MAX_THREAD_SUMMARY_LENGTH = 500;
+
+    /** The longest raw summary {@link #sanitiseThreadSummary} will look at, in UTF-16 units. */
+    static final int MAX_THREAD_SUMMARY_RAW_LENGTH = 2_000;
+
+    /** The one sentence for any thread summary that cannot be used; it never echoes the text. */
+    static final String THREAD_SUMMARY_UNUSABLE = "An earlier answer in the conversation could not be used.";
+
+    /** Where the pictograph planes begin: emoji outside the BMP that are not marked as presentation. */
+    private static final int FIRST_PICTOGRAPH_PLANE_CODE_POINT = 0x1F000;
+
     /**
      * The longest raw input {@link #sanitiseTyped} will look at, in UTF-16 units. A cap taken before
      * any normalising so a megabyte body costs nothing: a question this long is never a question
@@ -125,6 +137,72 @@ public final class AskQuestionSanitiser {
             return new Result(null, "The question needs some words in it.");
         }
         return new Result(cleaned.sanitised(), normalised, null);
+    }
+
+    /**
+     * Cleans the summary of an earlier answer that a client sends back inside a thread (plan §2.1).
+     * The text was the model's, but it arrives from the client, so it is the reader's text for every
+     * purpose here: composed to NFC, whitespace collapsed, <em>refused</em> (never stripped) when it
+     * holds a control, format or unpaired-surrogate character, a combining mark or an emoji (the same
+     * refused classes as a question), refused when it is blank or longer than
+     * {@value #MAX_THREAD_SUMMARY_LENGTH} code points (the validator's own cap counts words, so one very
+     * long "word" would pass it), and then given the validator's cleaning: URL-like strings removed,
+     * the model's brand names replaced and a cap of {@value AskAnswerValidator#SUMMARY_WORDS} words.
+     *
+     * <p>Unlike a question it is <em>not</em> held to the letters-and-punctuation allow-list: the
+     * model's prose legitimately carries stars, dashes, ellipses, quotes and a degree sign.
+     *
+     * @param raw the summary as received; may be null
+     * @return the cleaned summary, or the sentence saying why it was refused
+     */
+    public static Result sanitiseThreadSummary(String raw) {
+        if (raw == null || raw.length() > MAX_THREAD_SUMMARY_RAW_LENGTH) {
+            return new Result(null, THREAD_SUMMARY_UNUSABLE);
+        }
+        String composed = Normalizer.normalize(raw, Normalizer.Form.NFC);
+        StringBuilder collapsed = new StringBuilder(composed.length());
+        boolean pendingSpace = false;
+        int length = 0;
+        for (int i = 0; i < composed.length(); ) {
+            int cp = composed.codePointAt(i);
+            i += Character.charCount(cp);
+            if (Character.isWhitespace(cp) || Character.isSpaceChar(cp)) {
+                pendingSpace = collapsed.length() > 0;
+                continue;
+            }
+            if (refusedInProse(cp)) {
+                return new Result(null, THREAD_SUMMARY_UNUSABLE);
+            }
+            if (pendingSpace) {
+                collapsed.append(' ');
+                length++;
+                pendingSpace = false;
+            }
+            collapsed.appendCodePoint(cp);
+            length++;
+            if (length > MAX_THREAD_SUMMARY_LENGTH) {
+                return new Result(null, THREAD_SUMMARY_UNUSABLE);
+            }
+        }
+        String cleaned = AskAnswerValidator.clean(collapsed.toString(), AskAnswerValidator.SUMMARY_WORDS);
+        if (cleaned == null || cleaned.isBlank()) {
+            return new Result(null, THREAD_SUMMARY_UNUSABLE);
+        }
+        return new Result(cleaned, null);
+    }
+
+    /**
+     * The characters a thread summary may not hold: the invisible ones a question refuses (control,
+     * format, surrogate), combining marks (which includes the variation selector that turns a symbol
+     * into an emoji) and emoji themselves.
+     */
+    private static boolean refusedInProse(int cp) {
+        return switch (Character.getType(cp)) {
+            case Character.CONTROL, Character.FORMAT, Character.SURROGATE, Character.NON_SPACING_MARK,
+                    Character.ENCLOSING_MARK, Character.COMBINING_SPACING_MARK -> true;
+            default -> Character.isEmojiPresentation(cp)
+                    || (cp >= FIRST_PICTOGRAPH_PLANE_CODE_POINT && Character.isExtendedPictographic(cp));
+        };
     }
 
     /**

@@ -28,10 +28,15 @@ import java.nio.charset.StandardCharsets;
  * filter is the endpoint's own bound, set for this endpoint rather than globally so no other
  * endpoint's behaviour moves.
  *
- * <p><b>Why 8 KiB.</b> A valid body is a question of at most 200 characters (the sanitiser refuses a
+ * <p><b>Why 16 KiB.</b> A fresh question is a question of at most 200 characters (the sanitiser refuses a
  * raw input over 1,000 UTF-16 units, which is at most 6,000 bytes even if every unit is written
- * as a six-character JSON escape), a window id, at most 20 region ids and a view: well under 2 KiB in practice.
- * 8 KiB leaves generous room and still caps what one request can make the server read.
+ * as a six-character JSON escape), a window id, at most 20 region ids and a view: well under 2 KiB in
+ * practice. A follow-up also carries the session's earlier exchanges (plan
+ * {@code ask-thread-plan.md} §2.1): each is about 285 bytes of JSON structure (three pick objects, an
+ * event, a {@code generatedAt} and the keys) plus a question of up to 200 characters and a summary of up
+ * to 500 code points, which with multibyte characters is up to about 1 KiB; eight of them plus the outer
+ * body with 20 region ids can reach about 8.2 KiB, so the old 8 KiB bound would have refused a
+ * legitimate full thread. 16 KiB leaves room and still caps what one request can make the server read.
  *
  * <p><b>How.</b> The request is wrapped so that reading past the limit throws an {@link IOException}
  * from the body stream, whether the size was declared in {@code Content-Length} or the body is
@@ -42,7 +47,7 @@ import java.nio.charset.StandardCharsets;
 public class AskBodyLimitFilter extends OncePerRequestFilter {
 
     /** The largest request body accepted, in bytes. */
-    public static final int MAX_BODY_BYTES = 8 * 1024;
+    public static final int MAX_BODY_BYTES = 16 * 1024;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

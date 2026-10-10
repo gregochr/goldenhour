@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@link AskBodyLimitFilter}: the body of {@code POST /api/ask} is bounded at 8 KiB for both the
+ * {@link AskBodyLimitFilter}: the body of {@code POST /api/ask} is bounded at 16 KiB for both the
  * stream and the reader, the boundary is exact, the declared charset cannot break it, and nothing but
  * a POST is wrapped.
  */
@@ -33,6 +33,12 @@ class AskBodyLimitFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ask");
         request.setContent("a".repeat(bytes).getBytes(StandardCharsets.UTF_8));
         return request;
+    }
+
+    @Test
+    @DisplayName("the limit is 16 KiB: room for a full eight-exchange thread, which 8 KiB could not hold")
+    void limitIsSixteenKiB() {
+        assertThat(AskBodyLimitFilter.MAX_BODY_BYTES).isEqualTo(16 * 1024);
     }
 
     @Test
