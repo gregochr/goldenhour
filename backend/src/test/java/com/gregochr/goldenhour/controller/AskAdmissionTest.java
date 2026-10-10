@@ -63,6 +63,10 @@ class AskAdmissionTest {
     private static final String VALID = "{\"question\":\"Best spot tonight?\",\"view\":\"plan\"}";
 
     private final AskProperties properties = new AskProperties();
+
+    private int bodyLimit() {
+        return AskBodyLimitFilter.limitFor(properties.getThread().getMaxExchanges());
+    }
     private final AppUserRepository users = mock(AppUserRepository.class);
     private final AskSnapshotBuilder snapshotBuilder = mock(AskSnapshotBuilder.class);
     private final AskEngine engine = mock(AskEngine.class);
@@ -91,7 +95,7 @@ class AskAdmissionTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .addMappedInterceptors(new String[] {URL}, new AskFlagInterceptor(properties, false),
                         new AskAdmissionInterceptor(service))
-                .addFilters(new AskBodyLimitFilter())
+                .addFilters(new AskBodyLimitFilter(properties))
                 .build();
         auth = new TestingAuthenticationToken("reader", "n/a", "ROLE_LITE_USER");
         SecurityContextHolder.getContext().setAuthentication(auth);
@@ -138,7 +142,7 @@ class AskAdmissionTest {
         send(VALID).andExpect(status().isServiceUnavailable());
         send("{not json").andExpect(status().isBadRequest());
         send("{\"question\":\"Q\",\"regionIds\":\"x\",\"view\":\"plan\"}").andExpect(status().isBadRequest());
-        String oversized = "{\"question\":\"Q\",\"view\":\"plan\"," + " ".repeat(AskBodyLimitFilter.MAX_BODY_BYTES)
+        String oversized = "{\"question\":\"Q\",\"view\":\"plan\"," + " ".repeat(bodyLimit())
                 + "\"x\":1}";
         send(oversized).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID"));
         send(VALID).andExpect(status().isServiceUnavailable());
@@ -147,12 +151,12 @@ class AskAdmissionTest {
     }
 
     @Test
-    @DisplayName("the body bound: exactly 8 KiB is read, one byte more is an unreadable body")
+    @DisplayName("the body bound: exactly the derived limit is read, one byte more is an unreadable body")
     void bodyBoundary() throws Exception {
         String core = "{\"question\":\"Best spot tonight?\",\"view\":\"plan\"}";
-        String atLimit = core + " ".repeat(AskBodyLimitFilter.MAX_BODY_BYTES - core.length());
+        String atLimit = core + " ".repeat(bodyLimit() - core.length());
         String overLimit = atLimit + " ";
-        assertThat(atLimit.length()).isEqualTo(AskBodyLimitFilter.MAX_BODY_BYTES);
+        assertThat(atLimit.length()).isEqualTo(bodyLimit());
 
         send(atLimit).andExpect(status().isServiceUnavailable());
         send(overLimit).andExpect(status().isBadRequest())

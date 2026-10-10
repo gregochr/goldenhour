@@ -210,9 +210,9 @@ class AskTypedControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"PRO_USER"})
-    @DisplayName("a body over 16 KiB is 400 INVALID without being read to the end, and is still counted")
+    @DisplayName("a body over the derived limit is 400 INVALID without being read to the end, and is still counted")
     void oversizedBody() throws Exception {
-        String padding = " ".repeat(AskBodyLimitFilter.MAX_BODY_BYTES + 1);
+        String padding = " ".repeat(AskBodyLimitFilter.limitFor(properties.getThread().getMaxExchanges()) + 1);
         String body = "{\"question\":\"Best?\",\"view\":\"plan\"," + padding + "\"x\":1}";
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
