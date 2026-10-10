@@ -38,15 +38,25 @@ import java.nio.charset.StandardCharsets;
  * what {@code photocast.ask.thread.max-exchanges} (up to 20) permits, and would refuse such a request in this
  * filter before the service could apply the configured cap.
  *
- * <p><b>The invariant: every accepted exchange is under {@value #PER_EXCHANGE_BYTES} bytes even when
- * JSON-escaped, because raw lengths are capped before any collapse.</b> The service refuses a thread
- * question over 200 raw code points and a thread summary over 500 raw code points ({@code AskThreadValidation},
- * 400 {@code INVALID}), so one exchange is at most 700 x 12 = 8,400 bytes of text plus three picks, ten events,
- * a {@code generatedAt} and the keys (about 9.5 KiB in all). Without that raw cap an exchange padded with
- * escaped spaces would be accepted at several times the size. The limit is {@value #BASE_BYTES} bytes for the
- * outer body plus {@value #PER_EXCHANGE_BYTES} bytes per permitted exchange: 88 KiB at the default cap of 8,
- * 208 KiB at the largest cap of 20. It is read from the properties on each request and still caps what one
- * request can make the server read.
+ * <p><b>What the limit promises, and what it does not.</b> The filter protects parsing from oversized
+ * bodies. It admits, with margin, every body <em>our client</em> produces: compact JSON, ASCII keys and
+ * references unescaped, raw lengths capped (the client strips and collapses before sending; T4's
+ * {@code threadForWire} in {@code utils/askConversation.js}). It makes <b>no promise</b> to admit every JSON
+ * encoding of a valid payload: JSON permits a six-character escape for any character, in property names and
+ * reference values as well as text, and unbounded insignificant whitespace between tokens, so no finite limit
+ * could admit them all. A body that spends its bytes on escaped ASCII keys or on whitespace is refused like
+ * any other oversized body.
+ *
+ * <p><b>How the budget is sized.</b> The service refuses a thread question over 200 raw code points and a
+ * thread summary over 500 raw code points ({@code AskThreadValidation}, 400 {@code INVALID}), counted before
+ * any collapse. One exchange as the client writes it is then at most 700 astral code points at 4 bytes of
+ * UTF-8 (2,800 bytes) plus three picks, ten events, a {@code generatedAt} and the keys, about 4 KiB in all.
+ * {@value #PER_EXCHANGE_BYTES} bytes per exchange also covers the same text if a client escaped it (700 x 12 =
+ * 8,400 bytes plus the structure, about 9.5 KiB), which is a bound on escaped <em>text</em>, not a guarantee
+ * for escaped keys or padding. The limit is {@value #BASE_BYTES} bytes for the outer body plus
+ * {@value #PER_EXCHANGE_BYTES} bytes per permitted exchange: 88 KiB at the default cap of 8, 208 KiB at the
+ * largest cap of 20. It is read from the properties on each request and still caps what one request can make
+ * the server read.
  *
  * <p><b>How.</b> The request is wrapped so that reading past the limit throws an {@link IOException}
  * from the body stream, whether the size was declared in {@code Content-Length} or the body is
@@ -63,9 +73,10 @@ public class AskBodyLimitFilter extends OncePerRequestFilter {
     public static final int BASE_BYTES = 8 * 1024;
 
     /**
-     * Bytes allowed per permitted exchange, sized to the worst case the contract admits: a 500-code-point
-     * summary and a 200-code-point question, all astral and escaped (12 bytes each, 8,400), plus three
-     * picks, ten events, a {@code generatedAt} and the keys, rounded up.
+     * Bytes allowed per permitted exchange. The client's compact encoding of the worst exchange is about 4 KiB
+     * (a 500-code-point summary and a 200-code-point question, all astral at 4 bytes of UTF-8); this also
+     * covers that text if a client escaped it (12 bytes per astral code point, about 9.5 KiB with the
+     * structure). It is a bound on text, not a promise to admit escaped keys or padding.
      */
     public static final int PER_EXCHANGE_BYTES = 10 * 1024;
 
@@ -81,7 +92,8 @@ public class AskBodyLimitFilter extends OncePerRequestFilter {
     }
 
     /**
-     * The largest request body accepted for a thread cap.
+     * The largest request body accepted for a thread cap: an oversized-body guard that admits, with margin,
+     * every body the client sends, and makes no promise to admit every JSON encoding of a valid payload.
      *
      * @param maxExchanges {@code photocast.ask.thread.max-exchanges}
      * @return {@link #BASE_BYTES} plus {@link #PER_EXCHANGE_BYTES} for each permitted exchange

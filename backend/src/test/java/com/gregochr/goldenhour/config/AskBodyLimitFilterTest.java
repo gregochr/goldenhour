@@ -56,8 +56,60 @@ class AskBodyLimitFilterTest {
     }
 
     @Test
-    @DisplayName("a worst-case body is under the limit at the default cap and at the largest cap: every "
-            + "exchange at its maximum, all astral and escaped, plus an outer body with 20 region ids")
+    @DisplayName("the budget holds for the body the CLIENT writes: compact JSON, unescaped ASCII keys and ids, "
+            + "500-code-point astral summaries and 200-code-point questions as raw UTF-8 (4 bytes each), at the "
+            + "default and the largest cap, with at least 1 KiB to spare")
+    void clientEncodedWorstCaseFits() throws Exception {
+        for (int cap : new int[] {8, 20}) {
+            properties.getThread().setMaxExchanges(cap);
+            byte[] body = clientWorstCaseBody(cap).getBytes(StandardCharsets.UTF_8);
+
+            assertThat(limit() - body.length).as("margin at cap %d", cap).isGreaterThan(1024);
+            assertThat(wrapped(post(body)).getInputStream().readAllBytes()).hasSize(body.length);
+        }
+        assertThat(clientWorstCaseExchange().getBytes(StandardCharsets.UTF_8).length)
+                .as("the client's worst exchange is far under its per-exchange budget")
+                .isLessThan(AskBodyLimitFilter.PER_EXCHANGE_BYTES / 2);
+    }
+
+    @Test
+    @DisplayName("a body padded with insignificant whitespace past the limit is refused: the limit promises "
+            + "every body the client sends, not every JSON encoding of a valid payload")
+    void whitespacePaddingIsRefused() throws Exception {
+        String compact = "{\"question\":\"Best?\",\"view\":\"plan\"}";
+        byte[] atLimit = (compact + " ".repeat(limit() - compact.length())).getBytes(StandardCharsets.UTF_8);
+        byte[] over = (compact + " ".repeat(limit() - compact.length() + 1)).getBytes(StandardCharsets.UTF_8);
+
+        assertThat(atLimit).hasSize(limit());
+        assertThat(wrapped(post(atLimit)).getInputStream().readAllBytes()).hasSize(limit());
+        assertThatThrownBy(() -> wrapped(post(over)).getInputStream().readAllBytes())
+                .isInstanceOf(IOException.class).hasMessageContaining("larger than");
+    }
+
+    /** One exchange as the client serialises it: compact, ASCII keys and ids unescaped, astral text raw. */
+    private static String clientWorstCaseExchange() {
+        String astral = "🌅";
+        String picks = String.join(",", java.util.Collections.nCopies(3,
+                "{\"locationId\":9223372036854775807,\"windowId\":\"2026-10-11_sunrise\"}"));
+        String events = String.join(",", java.util.Collections.nCopies(10,
+                "{\"type\":\"" + "A".repeat(64) + "\",\"date\":\"2026-10-11\"}"));
+        return "{\"question\":\"" + astral.repeat(200) + "\",\"summary\":\"" + astral.repeat(500)
+                + "\",\"picks\":[" + picks + "],\"events\":[" + events
+                + "],\"generatedAt\":\"2026-10-10T14:17:40.123456789\",\"ready\":false}";
+    }
+
+    private static String clientWorstCaseBody(int exchanges) {
+        String regionIds = String.join(",", java.util.Collections.nCopies(20, "9223372036854775807"));
+        return "{\"question\":\"" + "🌅".repeat(LIVE_QUESTION_ASTRAL_MAX)
+                + "\",\"windowId\":\"2026-10-11_sunrise\",\"regionIds\":[" + regionIds
+                + "],\"view\":\"coming-up\",\"thread\":["
+                + String.join(",", java.util.Collections.nCopies(exchanges, clientWorstCaseExchange())) + "]}";
+    }
+
+    @Test
+    @DisplayName("even if the client escaped its text, a worst-case body is under the limit at the default cap "
+            + "and at the largest cap: every exchange at its maximum, all astral and escaped (12 bytes each), "
+            + "plus an outer body with 20 region ids; this bounds escaped text, not escaped keys or padding")
     void worstCaseBodyFits() throws Exception {
         for (int cap : new int[] {8, 20}) {
             properties.getThread().setMaxExchanges(cap);
