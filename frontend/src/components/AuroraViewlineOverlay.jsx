@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { Polygon, Polyline, Tooltip } from 'react-leaflet';
+import { viewlineDrawable } from '../utils/viewlineDrawable.js';
 
 /** Aurora green — used for live viewline boundary and fill. */
 const AURORA_GREEN = '#33ff33';
@@ -23,7 +24,7 @@ const FORECAST_AMBER = '#ff9900';
  * @param {number}  props.forecastKp  - Kp value for forecast label (optional)
  */
 export default function AuroraViewlineOverlay({ viewline = null, forecastKp = null }) {
-  if (!viewline || !viewline.active || !viewline.points || viewline.points.length === 0) {
+  if (!viewlineDrawable(viewline)) {
     return null;
   }
 
