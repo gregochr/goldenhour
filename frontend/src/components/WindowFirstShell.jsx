@@ -1545,7 +1545,10 @@ export default function WindowFirstShell({
     // ring with no surface left to clear it would be stuck on the card for the session.
     if (!askAvailable || effectiveTab !== 'plan' || askSheetShown || askActiveRank == null) return NO_HIGHLIGHT;
     const card = ask.pickCards.find((c) => c.rank === askActiveRank);
-    return card ? new Map([[card.windowKey, card.rank]]) : NO_HIGHLIGHT;
+    // ⚠️ A NIGHT pick highlights no card: the matrix is a grid of solar windows, and no card of it is an
+    // astro or aurora night (`docs/engineering/ask-night-plan.md` §2.6). Its `date:ASTRO` key would match
+    // nothing and harm nothing — it is left out so that "nothing" is said here and not by a lookup that fails.
+    return card && !card.night ? new Map([[card.windowKey, card.rank]]) : NO_HIGHLIGHT;
   }, [askAvailable, effectiveTab, askSheetShown, askActiveRank, ask.pickCards]);
   /**
    * Where the dock's focus goes if the dock stops being somewhere focus can be while it holds it

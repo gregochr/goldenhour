@@ -27,6 +27,10 @@ import { departureWithDay, lightWindows, lookupForWindow } from './locationSheet
  *           happen for the pick's event, or null when this window's score row carries neither
  * @property {?{tier: 'match'|'miss', state: ?string, shortfall: ?string, clause: ?string}} tide the
  *           card's served tide fact, or null for an inland spot or a slot with no served tide state
+ *           (always null for a night pick)
+ * @property {?string} window a NIGHT pick's served dark window, "21:40–05:10" (null for a solar pick)
+ * @property {?string} sky a NIGHT pick's served sky facts, "Bortle 4 · Waxing Crescent · 23%" (null for a
+ *           solar pick, or a night with neither)
  */
 
 /**
@@ -38,11 +42,26 @@ import { departureWithDay, lightWindows, lookupForWindow } from './locationSheet
  * @returns {PlanFigures}
  */
 export function planFigures(card, scoreIndex) {
+  if (card.night) {
+    // A night has no golden or blue hour and no tide: its window is the served dark window, "Leave home" counts
+    // back from the night's START with the same drive and the same function, and the sky line is the served
+    // Bortle class and moon. Nothing here is a score row's, so the solar index is not consulted.
+    return {
+      leave: departureWithDay(card.eventInstant, card.driveMinutes),
+      drive: card.driveLabel ?? null,
+      light: null,
+      tide: null,
+      window: card.nightWindow ?? null,
+      sky: [card.bortle != null ? `Bortle ${card.bortle}` : null, card.moon].filter(Boolean).join(' · ') || null,
+    };
+  }
   const score = lookupForWindow(scoreIndex, card.locationId, card.name, card.date, card.targetType);
   return {
     leave: departureWithDay(card.eventInstant, card.driveMinutes),
     drive: card.driveLabel ?? null,
     light: lightWindows(score, card.targetType),
     tide: card.tide ?? null,
+    window: null,
+    sky: null,
   };
 }

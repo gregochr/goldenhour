@@ -117,8 +117,10 @@ export const INITIAL_CONVERSATION = Object.freeze({
  * @param {string} question the question the reader asked (the Ready question's text, or the typed one)
  * @param {object} answer a normalised, answerable answer ({@link normaliseAnswer})
  * @returns {{question: string, summary: string, picks: Array<{locationId: number, windowId: string}>,
- *          events: Array<{type: string, date: ?string}>, generatedAt: ?string, ready: boolean,
- *          answerId: number}}
+ *          events: Array<{type: string, date: ?string}>, generatedAt: ?string, nightVersion: ?string,
+ *          ready: boolean, answerId: number}} {@code nightVersion} is the opaque night-forecast version
+ *          the server stamped on an answer that named a night (`docs/engineering/ask-night-plan.md`
+ *          §2.2), null for every other answer; it is echoed back exactly as {@code generatedAt} is
  */
 export function exchangeOf(question, answer) {
   return {
@@ -131,6 +133,7 @@ export function exchangeOf(question, answer) {
       .filter((e) => e && typeof e.type === 'string')
       .map((e) => ({ type: e.type, date: e.date ?? null })),
     generatedAt: answer.generatedAt ?? null,
+    nightVersion: answer.nightVersion ?? null,
     ready: answer.kind === KIND.READY,
     answerId: answer.id,
   };
@@ -173,6 +176,8 @@ export function threadForWire(thread) {
     picks: x.picks,
     events: x.events,
     generatedAt: x.generatedAt,
+    // Only an exchange that named a night carries one, so a thread with none is byte for byte what it was.
+    ...(typeof x.nightVersion === 'string' && x.nightVersion !== '' ? { nightVersion: x.nightVersion } : null),
     ready: x.ready,
   }));
 }
@@ -324,6 +329,11 @@ export function selectView(conv, pickCards) {
   };
 }
 
+/** The night version as the conversation holds it: a non-blank string, else null. */
+function nightVersionOf(value) {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
 /**
  * A server answer as the conversation holds it, or null for a body that is not one.
  *
@@ -338,6 +348,8 @@ export function selectView(conv, pickCards) {
  * @param {boolean} [meta.ready] the body is a Ready list entry's answer
  * @param {?string} [meta.runLabel] with {@code ready}: the question's run label
  * @param {?string} [meta.generatedAt] with {@code ready}: the question's {@code generatedAt}
+ * @param {?string} [meta.nightVersion] with {@code ready}: the night-forecast version the Ready answer was
+ *        written from (a typed body carries its own)
  * @returns {?object}
  */
 export function normaliseAnswer(body, meta) {
@@ -360,6 +372,8 @@ export function normaliseAnswer(body, meta) {
     try: Array.isArray(body.try) ? body.try : [],
     runLabel: typeof runLabel === 'string' && runLabel !== '' ? runLabel : null,
     generatedAt: (ready ? meta.generatedAt : body.generatedAt) ?? null,
+    // Set only on an answer that named a night; opaque, echoed on its exchange (`exchangeOf`).
+    nightVersion: nightVersionOf(ready ? meta.nightVersion : body.nightVersion),
     charged: !ready && body.charged === true,
     allowanceLeft: !ready && Number.isInteger(body.allowanceLeft) ? body.allowanceLeft : null,
     allowanceLimit: !ready && Number.isInteger(body.allowanceLimit) ? body.allowanceLimit : null,

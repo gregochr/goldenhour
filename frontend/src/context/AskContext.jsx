@@ -5,6 +5,7 @@ import PropTypes from 'prop-types';
 import { ask as postAsk } from '../api/askApi.js';
 import useAskAllowance from '../hooks/useAskAllowance.js';
 import useAskMapContext from '../hooks/useAskMapContext.js';
+import useAskNights from '../hooks/useAskNights.js';
 import { useWindowFirstBriefing } from './WindowFirstBriefingContext.jsx';
 import {
   ACTION, errorFor, INITIAL_CONVERSATION, normaliseAnswer, reduce, selectHistory, selectView,
@@ -66,6 +67,13 @@ import { ukDateStr } from '../utils/mapDates.js';
  *       with the rest of the conversation. The exposed {@code phase} and {@code planPick} are
  *       <em>derived</em>: a plan whose card has gone (a briefing rebuilt without that pick's slot) reads
  *       as the answer again, the way {@code selectedPick} reads as null.</li>
+ *   <li><b>A night pick's card joins the night payloads, fetched here for the dates the picks name</b>
+ *       (`docs/engineering/ask-night-plan.md` §2.6, {@code hooks/useAskNights.js}): {@code GET
+ *       /api/astro/conditions?date=} per distinct astro date and, for PRO/ADMIN only, {@code GET
+ *       /api/aurora/forecast/results?date=} per distinct aurora date. The client never works out which
+ *       night is "tonight" (the running night is yesterday before dawn, and only the PRO/ADMIN status
+ *       says so), and a LITE client never calls the aurora endpoint. Held for the live answer alone, in
+ *       component state: nothing in {@code swrCache}, {@code localStorage} or module scope.</li>
  *   <li><b>The cards are live, the prose is not.</b> {@code pickCards} are re-joined to the briefing
  *       the reader is looking at, so they always agree with the Plan tab; the summary is the answer's
  *       own words and the footer names the run it came from. An answer left open across a rebuild is
@@ -106,7 +114,7 @@ const EMPTY_THREAD = [];
  * @property {?('ready'|'own'|'cant')} kind
  * @property {string} question the question on screen (the Ready question's text, or the typed one)
  * @property {?object} answer {@code {id, answerable, kind, summary, picks, events, missing, try,
- *           runLabel, generatedAt, charged, allowanceLeft, allowanceLimit}}. {@code id} is a
+ *           runLabel, generatedAt, nightVersion, charged, allowanceLeft, allowanceLimit}}. {@code id} is a
  *           monotonic number, new for every answer that LANDS and unchanged when a refusal puts an
  *           earlier answer back — what a camera fit should key on
  * @property {Array<object>} pickCards {@code answer.picks} joined to the briefing; see askModel
@@ -219,7 +227,9 @@ const AskContext = createContext({
  * @param {React.ReactNode} props.children
  */
 export function AskProvider({ children }) {
-  const { briefing, reachById, isPro } = useWindowFirstBriefing();
+  const {
+    briefing, reachById, isPro, todayStr, tomorrowStr,
+  } = useWindowFirstBriefing();
   const allowance = useAskAllowance();
   const { refetch: refetchAllowance, applyServed } = allowance;
   const { mapContext, registerMapContext } = useAskMapContext();
@@ -345,6 +355,8 @@ export function AskProvider({ children }) {
       ready: true,
       runLabel: readyQuestion?.runLabel,
       generatedAt: readyQuestion?.generatedAt,
+      // A Ready night answer names the night forecast it was written from, on the question or on its answer.
+      nightVersion: readyQuestion?.nightVersion ?? readyQuestion?.answer?.nightVersion,
     });
     if (!answer) return;
     // A Ready answer was built once, for a scope, from no window: nothing is "sent", so the context
@@ -388,9 +400,17 @@ export function AskProvider({ children }) {
   // The briefing's days, not the briefing: the join reads nothing else, and a poll that returns the
   // same days object must not rebuild the cards. `reachById` is the HOME map by contract.
   const days = briefing?.days;
+  // The night payloads the live answer's night picks join to (`docs/engineering/ask-night-plan.md` §2.6):
+  // fetched here, once per answer, for the DATES its picks name — and the aurora ones only for a reader
+  // the API serves them to (a LITE client never asks). Held for that answer alone; nothing is stored.
+  const nights = useAskNights(conv.answer, isPro, briefing?.generatedAt ?? null);
   const pickCards = useMemo(
-    () => (conv.answer ? buildPickCards(conv.answer.picks, days, reachById) : EMPTY_CARDS),
-    [conv.answer, days, reachById],
+    () => (conv.answer
+      ? buildPickCards(conv.answer.picks, days, reachById, {
+        astro: nights.astro, aurora: nights.aurora, canSeeAurora: isPro, todayStr, tomorrowStr,
+      })
+      : EMPTY_CARDS),
+    [conv.answer, days, reachById, nights, isPro, todayStr, tomorrowStr],
   );
 
   const selectPick = useCallback((rank) => {

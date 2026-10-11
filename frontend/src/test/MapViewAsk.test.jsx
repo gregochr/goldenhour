@@ -105,7 +105,9 @@ vi.mock('../components/map/FiltersPopover.jsx', () => ({
 
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
-vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
+/** The aurora status the hook serves — a test sets it to say which night is in progress. */
+const auroraStatusBox = vi.hoisted(() => ({ status: null }));
+vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatusBox.status }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraLocations: vi.fn().mockResolvedValue([]),
@@ -124,6 +126,9 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
+import { getAstroAvailableDates } from '../api/astroApi.js';
+import { getAuroraForecastAvailableDates } from '../api/auroraApi.js';
+import { deferred } from './askFixtures.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -671,5 +676,156 @@ describe('the camera is handed the picks and the choice', () => {
     await renderTab({ overlayMode: true, askPicks: TWO, askAnswerId: 5 });
 
     expect(cameraCalls).toEqual([]);
+  });
+});
+
+describe('a NIGHT pick\'s window (docs/engineering/ask-night-plan.md §2.1, N3)', () => {
+  const YESTERDAY = '2026-01-14';
+  const NIGHT = { date: TODAY, eventType: 'ASTRO', nonce: 1 };
+
+  afterEach(() => {
+    auroraStatusBox.status = null;
+    getAstroAvailableDates.mockReset();
+    getAstroAvailableDates.mockResolvedValue([]);
+    getAuroraForecastAvailableDates.mockReset();
+    getAuroraForecastAvailableDates.mockResolvedValue([]);
+  });
+
+  it('⚠️ waits for a night row that has not loaded yet, and applies the choice the moment it does', async () => {
+    const gate = deferred();
+    getAstroAvailableDates.mockReturnValue(gate.promise);
+    const onSelectDate = vi.fn();
+
+    // A freshly mounted Map: the handoff fires with NO astro row in the list yet.
+    await renderTab({ onSelectDate, askWindow: NIGHT });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
+    expect(onSelectDate).not.toHaveBeenCalled();
+
+    // The availability list lands: the row exists, and the SAME choice is applied to it.
+    await act(async () => { gate.resolve([TODAY]); await gate.promise; });
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+    expect(onSelectDate).toHaveBeenCalledTimes(1);
+    expect(onSelectDate).toHaveBeenCalledWith(TODAY, { isNight: true });
+  });
+
+  it('applies the late-arriving choice ONCE: a later re-render of the same nonce changes nothing', async () => {
+    const gate = deferred();
+    getAstroAvailableDates.mockReturnValue(gate.promise);
+    const onSelectDate = vi.fn();
+    await renderTab({ onSelectDate, askWindow: NIGHT });
+    await act(async () => { gate.resolve([TODAY]); await gate.promise; });
+    // The reader moves off the night with the control...
+    await act(async () => { screen.getByTestId('wf-win-prev').click(); });
+    onSelectDate.mockClear();
+
+    await rerenderTab({ onSelectDate, askWindow: NIGHT });
+
+    expect(onSelectDate).not.toHaveBeenCalled();
+  });
+
+  it('follows a night row that is already there at once, with the row\'s own provenance', async () => {
+    getAstroAvailableDates.mockResolvedValue([TODAY]);
+    const onSelectDate = vi.fn();
+    await renderTab({ onSelectDate });
+    onSelectDate.mockClear();
+
+    await rerenderTab({ onSelectDate, askWindow: NIGHT });
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+    expect(onSelectDate).toHaveBeenCalledWith(TODAY, { isNight: true });
+  });
+
+  it('⚠️ an `_astro` pick for YESTERDAY\'s running night, before dawn, is handed up AS A NIGHT', async () => {
+    // 00:30 UK on the 15th: the civil date is the 15th and the night in progress is the 14th's.
+    vi.setSystemTime(new Date('2026-01-15T00:30:00Z'));
+    auroraStatusBox.status = {
+      currentNightDate: YESTERDAY, currentNightEndsAt: '2026-01-15T07:00:00Z',
+    };
+    getAstroAvailableDates.mockResolvedValue([YESTERDAY]);
+    const onSelectDate = vi.fn();
+    await renderTab({ onSelectDate, forecastDates: [YESTERDAY, TODAY] });
+    onSelectDate.mockClear();
+
+    await rerenderTab({
+      onSelectDate,
+      forecastDates: [YESTERDAY, TODAY],
+      askWindow: { date: YESTERDAY, eventType: 'ASTRO', nonce: 1 },
+    });
+
+    // `isNight: false` here is the stale-solar-date reading `App.resolveMapDate` refuses.
+    expect(onSelectDate).toHaveBeenCalledWith(YESTERDAY, { isNight: true });
+    // The parent takes the date (this harness is no parent), and the pill is on the running night's row.
+    await rerenderTab({
+      onSelectDate,
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY, TODAY],
+      askWindow: { date: YESTERDAY, eventType: 'ASTRO', nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+  });
+
+  it('keeps a night `App` would refuse local, as the window control does: no forward, the pill still moves', async () => {
+    const LATER = '2026-01-20';
+    getAstroAvailableDates.mockResolvedValue([LATER]);
+    const onSelectDate = vi.fn();
+    // `LATER` is beyond the forecast's own dates, so `App` would not take it.
+    await renderTab({ onSelectDate, forecastDates: [TODAY] });
+    onSelectDate.mockClear();
+
+    await rerenderTab({
+      onSelectDate, forecastDates: [TODAY], askWindow: { date: LATER, eventType: 'ASTRO', nonce: 1 },
+    });
+
+    expect(onSelectDate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+  });
+
+  it('a solar choice is unchanged: spent at once, and handed up as a solar window', async () => {
+    const onSelectDate = vi.fn();
+    await renderTab({ onSelectDate });
+    onSelectDate.mockClear();
+
+    await rerenderTab({ onSelectDate, askWindow: { date: TODAY, eventType: 'SUNRISE', nonce: 1 } });
+
+    expect(onSelectDate).toHaveBeenCalledWith(TODAY, { isNight: false });
+  });
+
+  it('publishes the night the pill shows as the window a question asked here is about', async () => {
+    getAstroAvailableDates.mockResolvedValue([TODAY]);
+    const onAskContext = vi.fn();
+    await renderTab({ onAskContext });
+
+    await rerenderTab({ onAskContext, askWindow: NIGHT });
+
+    expect(onAskContext.mock.lastCall[0].window).toEqual({
+      date: TODAY, eventType: 'ASTRO', label: 'Tonight · astro',
+    });
+  });
+
+  it('clears the selected location for a night window too — no stale callout for another window', async () => {
+    getAstroAvailableDates.mockResolvedValue([TODAY]);
+    await renderTab({ planHandoff: { ...DOOR, locationName: 'Near', nonce: 1 } });
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Near');
+
+    await rerenderTab({ planHandoff: { ...DOOR, locationName: 'Near', nonce: 1 }, askWindow: NIGHT });
+
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+  });
+
+  it('a pick on an ASTRO window rides the map as a numbered chip carrying its own night facts', async () => {
+    getAstroAvailableDates.mockResolvedValue([TODAY]);
+    await renderTab({
+      askPicks: [pick({
+        eventType: 'ASTRO', shortWindow: 'Thu night', verdict: null, rating: 4,
+        label: 'Pick 1, Near, Tonight astro, 4 stars',
+      })],
+      askAnswerId: 1,
+      askWindow: NIGHT,
+    });
+
+    const [near] = askSpots();
+    expect(near.askPick).toMatchObject({ rank: 1, shortWindow: 'Thu night', rating: 4, verdict: null });
+    expect(cameraCalls.at(-1).active).toBe(true);
   });
 });

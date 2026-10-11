@@ -1,5 +1,7 @@
 import PropTypes from 'prop-types';
-import { PickScore, PickTide, pickWhen } from './AskPickFacts.jsx';
+import {
+  nightKindWord, NightScore, PickScore, PickTide, pickWhen,
+} from './AskPickFacts.jsx';
 import { pickCardShape } from './askShapes.js';
 
 /**
@@ -9,6 +11,11 @@ import { pickCardShape } from './askShapes.js';
  * <p>Every figure on it is a served fact joined from the briefing — the name, the verdict word and
  * the star, the event time, the tide — plus the reader's HOME drive time (⌂). The server's own text
  * is only the {@code why}. Nothing is computed here.
+ *
+ * <p><b>A night pick's card</b> ({@code card.night}, `docs/engineering/ask-night-plan.md` §2.6) keeps the
+ * same two lines: the name with the night's stars ("4★ sky", and "aurora 3★" beside it for a reader who
+ * has one) where the verdict word stands, then the kind, "Tonight · 21:40–05:10", "Bortle 4" and the home
+ * drive. A night has no verdict and no tide, so neither is drawn.
  *
  * <p><b>Structure.</b> The rank circle is a sibling of the card's button, not inside it: a button's
  * children are presentational to a screen reader, so a circle inside it could not carry the name
@@ -66,11 +73,21 @@ export default function AskPickCard({
         <span className="sr-only">{`Pick ${card.rank}, `}</span>
         <span className="wf-ask-l1">
           <span className="wf-ask-nm" data-testid={`ask-pick-name-${card.rank}`}>{card.name}</span>
-          <PickScore card={card} testId={`ask-pick-score-${card.rank}`} />
+          {card.night
+            ? <NightScore card={card} testId={`ask-pick-score-${card.rank}`} />
+            : <PickScore card={card} testId={`ask-pick-score-${card.rank}`} />}
         </span>
         <span className="wf-ask-l2">
-          <span className="wf-ask-evb" data-target={card.targetType}>{card.targetType}</span>
+          <span className="wf-ask-evb" data-target={card.targetType}>
+            {card.night ? nightKindWord(card) : card.targetType}
+          </span>
           <span data-testid={`ask-pick-when-${card.rank}`}>{pickWhen(card)}</span>
+          {card.night && card.bortle != null && (
+            <>
+              <span className="wf-ask-sep" aria-hidden="true" />
+              <span data-testid={`ask-pick-bortle-${card.rank}`}>{`Bortle ${card.bortle}`}</span>
+            </>
+          )}
           {card.driveLabel && (
             <>
               <span className="wf-ask-sep" aria-hidden="true" />

@@ -11532,6 +11532,19 @@ button.wf-mchip:hover {
 .wf-ask-sc[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
 .wf-ask-sc[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
 .wf-ask-sc[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
+/* A NIGHT pick's stars (ask-night-plan.md §2.6): the astro figure and, beside it, the aurora one, in the
+   verdict word's place. Each is `.wf-ask-sc` (a night has no verdict tier, so none of the tier colours
+   applies) tinted by KIND with the same tokens the evb badge below uses; the group takes the auto margin. */
+.wf-ask-scs {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wf-ask-scs .wf-ask-sc { margin-left: 0; }
+.wf-ask-sc-night[data-kind="astro"] { color: var(--color-plex-astro-bright); }
+.wf-ask-sc-night[data-kind="aurora"] { color: var(--color-topic-aurora); }
 .wf-ask-l2 {
   display: flex;
   align-items: center;
@@ -11565,6 +11578,16 @@ button.wf-mchip:hover {
   color: var(--color-plex-dawn);
   border-color: rgba(143, 168, 196, .5);
   background: rgba(143, 168, 196, .1);
+}
+.wf-ask-evb[data-target="ASTRO"] {
+  color: var(--color-plex-astro-bright);
+  border-color: rgba(142, 134, 214, .5);
+  background: rgba(142, 134, 214, .1);
+}
+.wf-ask-evb[data-target="AURORA"] {
+  color: var(--color-topic-aurora);
+  border-color: rgba(138, 174, 114, .5);
+  background: rgba(138, 174, 114, .1);
 }
 .wf-ask-tide {
   display: inline-flex;

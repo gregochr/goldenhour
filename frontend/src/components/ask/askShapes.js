@@ -34,8 +34,9 @@ export const pickCardShape = PropTypes.shape({
   targetType: PropTypes.string.isRequired,
   dayWord: PropTypes.string.isRequired,
   eventTime: PropTypes.string,
-  verdict: PropTypes.string.isRequired,
-  verdictLabel: PropTypes.string.isRequired,
+  // Null on a night card: a night has no verdict word (the kind and the stars stand in its place).
+  verdict: PropTypes.string,
+  verdictLabel: PropTypes.string,
   rating: PropTypes.number,
   driveLabel: PropTypes.string,
   why: PropTypes.string,
@@ -47,4 +48,14 @@ export const pickCardShape = PropTypes.shape({
     shortfall: PropTypes.string,
     clause: PropTypes.string,
   }),
+  // A night card's own facts (`docs/engineering/ask-night-plan.md` §2.6); absent on a solar one.
+  night: PropTypes.bool,
+  kind: PropTypes.oneOf(['astro', 'aurora']),
+  nightWord: PropTypes.string,
+  nightWindow: PropTypes.string,
+  astroStars: PropTypes.number,
+  auroraStars: PropTypes.number,
+  bortle: PropTypes.number,
+  moon: PropTypes.string,
+  clearSky: PropTypes.string,
 });

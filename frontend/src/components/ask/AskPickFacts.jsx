@@ -17,13 +17,71 @@ import { STATE_WORD } from '../../utils/windowFirstRows.js';
  */
 
 /**
- * "Sat 06:12" — the weekday and the served event time, or the weekday alone with no time.
+ * "Sat 06:12" — the weekday and the served event time, or the weekday alone with no time. A NIGHT pick
+ * reads "Tonight · 21:40–05:10": the night's own word (the Map pill's) and its served dark window, or the
+ * word alone when the window is not served.
  *
- * @param {{dayWord: string, eventTime: ?string}} card
+ * @param {{dayWord: string, eventTime: ?string, night: ?boolean, nightWord: ?string,
+ *        nightWindow: ?string}} card
  * @returns {string}
  */
 export function pickWhen(card) {
+  if (card.night) return card.nightWindow ? `${card.nightWord} · ${card.nightWindow}` : card.nightWord;
   return card.eventTime ? `${card.dayWord} ${card.eventTime}` : card.dayWord;
+}
+
+/** The two figures a night card can carry, primary first: the pick's own kind, then the other if held. */
+function nightScores(card) {
+  const sky = { key: 'astro', stars: card.astroStars, word: 'sky', spoken: 'Sky forecast' };
+  const aurora = { key: 'aurora', stars: card.auroraStars, word: 'aurora', spoken: 'Aurora forecast' };
+  const ordered = card.kind === 'aurora' ? [aurora, sky] : [sky, aurora];
+  return ordered.filter((figure) => figure.stars != null);
+}
+
+/**
+ * A NIGHT pick's stars (`docs/engineering/ask-night-plan.md` §2.6): "4★ sky" for the astro forecast and, beside
+ * it when the reader has one, "aurora 3★" — the pick's own kind first. A night has no verdict word, so the
+ * kind is what stands where the verdict does. The visible forms are {@code aria-hidden} and a spoken form
+ * says each figure once ("Sky forecast 4 stars"), as {@link PickScore} does for the solar star.
+ *
+ * @param {object} props
+ * @param {object} props.card a night card of {@code buildPickCards}
+ * @param {string} props.testId the group's {@code data-testid}; each pill's is {@code `${testId}-sky|aurora`}
+ */
+export function NightScore({ card, testId }) {
+  const figures = nightScores(card);
+  if (figures.length === 0) return null;
+  return (
+    <span className="wf-ask-scs" data-testid={testId}>
+      {figures.map((figure) => (
+        <span
+          key={figure.key}
+          className="wf-ask-sc wf-ask-sc-night"
+          data-kind={figure.key}
+          data-testid={`${testId}-${figure.key === 'astro' ? 'sky' : 'aurora'}`}
+        >
+          <span aria-hidden="true">
+            {figure.key === 'astro' ? `${figure.stars}★ ${figure.word}` : `${figure.word} ${figure.stars}★`}
+          </span>
+          <span className="sr-only">{`${figure.spoken} ${figure.stars} ${starsWord(figure.stars)}`}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+NightScore.propTypes = {
+  card: PropTypes.shape({
+    kind: PropTypes.string,
+    astroStars: PropTypes.number,
+    auroraStars: PropTypes.number,
+  }).isRequired,
+  testId: PropTypes.string.isRequired,
+};
+
+/** The kind badge's word for a night card: "ASTRO" or "AURORA" — the Map's own night kind chips. */
+export function nightKindWord(card) {
+  return card.kind === 'aurora' ? 'AURORA' : 'ASTRO';
 }
 
 /**

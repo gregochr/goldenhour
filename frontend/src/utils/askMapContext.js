@@ -31,13 +31,19 @@ import { EVENT_KIND } from './mapEvents.js';
  */
 
 /**
- * The window id the server knows a solar window by: {@code yyyy-MM-dd_sunrise} or
- * {@code yyyy-MM-dd_sunset} (`AskWindowId`'s format, the encoding `BriefingRollupBuilder` already
- * used). {@code toLowerCase}, not a locale form: a Turkish locale would lower-case {@code I} to a
- * dotless one and stop the id matching.
+ * The window id the server knows a window by: {@code yyyy-MM-dd_sunrise} or {@code yyyy-MM-dd_sunset}
+ * for a solar window, {@code yyyy-MM-dd_astro} or {@code yyyy-MM-dd_aurora} for a night
+ * (`AskWindowId`'s format, the encoding `BriefingRollupBuilder` already used;
+ * `docs/engineering/ask-night-plan.md` §2.1). {@code toLowerCase}, not a locale form: a Turkish locale
+ * would lower-case {@code I} to a dotless one and stop the id matching.
  *
- * @param {string} date the event's UK civil date
- * @param {string} eventType {@code SUNRISE} or {@code SUNSET}
+ * <p>⚠️ <b>This is Ask's id, never the Map's.</b> The Map names its own night rows
+ * {@code astro:2026-10-11:ASTRO} / {@code aur:2026-10-11:AURORA} ({@code mapEvents.nightRow}'s
+ * {@code id}); that string is a React key and a row identity, and never goes on the wire. The doors
+ * resolve a night by (date, kind) — {@code findEvIndex} — so the two spellings never need converting.
+ *
+ * @param {string} date the event's UK civil date (a night: the date its dusk falls on)
+ * @param {string} eventType {@code SUNRISE}, {@code SUNSET}, {@code ASTRO} or {@code AURORA}
  * @returns {string}
  */
 export function askWindowId(date, eventType) {
@@ -55,22 +61,37 @@ export function askWindowId(date, eventType) {
  *           wider than the area itself (see the module note); empty when no field is offered
  * @property {?string} areaLabel what the scope is called, when it is not "My area" (an away
  *           origin's "Around Keswick")
- * @property {?{date: string, eventType: string, label: string}} window the solar window the pill
- *           shows and the briefing served; null for a night row and for a window nothing served
+ * @property {?{date: string, eventType: string, label: string}} window the window the pill shows: a
+ *           solar window the briefing served, or a night row (astro, aurora); null for a window nothing
+ *           served
  */
 
+/** The night rows' kind word in a window's label — the pill's own kind chip, since "Tonight" alone is two windows. */
+const NIGHT_KIND_WORD = { ASTRO: 'astro', AURORA: 'aurora' };
+
 /**
- * Whether an EV row is a window Ask can be asked about: a SOLAR row the briefing actually served. A
- * night (astro, aurora) row is no window of the forecast's, and a filler row beyond the briefing
- * has no window id the server would know.
+ * Whether an EV row is a window Ask can be asked about: a SOLAR row the briefing actually served, or a
+ * NIGHT (astro, aurora) row — which Ask has windows for since `docs/engineering/ask-night-plan.md` §2.1, so
+ * "is this any good?" asked while the Map shows tomorrow's astro row means that night. A filler row beyond
+ * the briefing has no window id the server would know.
+ *
+ * <p>A night row's label is the pill's ("Tonight", "Tomorrow night") with the kind after it —
+ * "Tonight · astro" — because the two night rows of a date share their words and the chip must say which
+ * one the question is about.
  *
  * @param {?object} row {@code MapView}'s active EV row
  * @returns {?{date: string, eventType: string, label: string}} its facts, or null
  */
 export function askWindowOf(row) {
-  if (!row || row.kind !== EVENT_KIND.SOLAR || row.served === false) return null;
-  if (typeof row.date !== 'string' || (row.eventType !== 'SUNRISE' && row.eventType !== 'SUNSET')) return null;
-  return { date: row.date, eventType: row.eventType, label: String(row.label ?? '') };
+  if (!row || typeof row.date !== 'string') return null;
+  if (row.kind === EVENT_KIND.SOLAR) {
+    if (row.served === false) return null;
+    if (row.eventType !== 'SUNRISE' && row.eventType !== 'SUNSET') return null;
+    return { date: row.date, eventType: row.eventType, label: String(row.label ?? '') };
+  }
+  const kindWord = NIGHT_KIND_WORD[row.eventType];
+  if (!kindWord) return null;
+  return { date: row.date, eventType: row.eventType, label: `${String(row.label ?? '')} · ${kindWord}` };
 }
 
 /**

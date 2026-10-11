@@ -511,6 +511,7 @@ describe('the thread', () => {
         picks: [{ locationId: 7, windowId: '2026-10-05_sunset' }, { locationId: 9, windowId: '2026-10-05_sunset' }],
         events: [{ type: 'KING_TIDE', date: '2026-10-06' }],
         generatedAt: '2026-10-05T05:02:11',
+        nightVersion: null,
         ready: false,
         answerId: 4,
       }]);
@@ -720,6 +721,54 @@ describe('exchangeOf', () => {
 
     expect(x).toMatchObject({ ready: true, generatedAt: null, picks: [], events: [] });
   });
+
+  it('carries the answer’s night version, and null when it named no night', () => {
+    const base = { id: 1, kind: KIND.OWN, summary: 's', picks: [], events: [] };
+
+    expect(exchangeOf('Q', { ...base, nightVersion: 'v3' }).nightVersion).toBe('v3');
+    expect(exchangeOf('Q', base).nightVersion).toBeNull();
+  });
+
+  it('keeps a night pick’s Ask-local window id for the wire — the id the server re-joins it by', () => {
+    const x = exchangeOf('Q', {
+      id: 1, kind: KIND.OWN, summary: 's', events: [],
+      picks: [{ locationId: 130, windowId: '2026-10-05_astro', targetType: 'ASTRO' }],
+    });
+
+    expect(x.picks).toEqual([{ locationId: 130, windowId: '2026-10-05_astro' }]);
+  });
+});
+
+describe('normaliseAnswer — the night version', () => {
+  it('holds a typed answer’s nightVersion as the opaque string it is', () => {
+    const answer = normaliseAnswer(answerBody({ nightVersion: 'v7' }), { id: 1 });
+
+    expect(answer.nightVersion).toBe('v7');
+  });
+
+  it('is null when the answer named no night — and for anything that is not a non-blank string', () => {
+    expect(normaliseAnswer(answerBody(), { id: 1 }).nightVersion).toBeNull();
+    expect(normaliseAnswer(answerBody({ nightVersion: '' }), { id: 1 }).nightVersion).toBeNull();
+    expect(normaliseAnswer(answerBody({ nightVersion: 7 }), { id: 1 }).nightVersion).toBeNull();
+  });
+
+  it('takes a Ready answer’s from the Ready question it sits in, never from its own body', () => {
+    const body = { answerable: true, kind: 'ready', summary: 's', picks: [], events: [], nightVersion: 'wrong' };
+
+    expect(normaliseAnswer(body, { id: 2, ready: true, nightVersion: 'v9' }).nightVersion).toBe('v9');
+    expect(normaliseAnswer(body, { id: 2, ready: true }).nightVersion).toBeNull();
+  });
+});
+
+describe('THREAD_RESET — the night forecast moved', () => {
+  it('keeps the server’s own reason, so the reader is told the NIGHT forecast changed', () => {
+    const conv = send(INITIAL_CONVERSATION, 'Anything clear tonight?', { ...ASKED, followUp: 2 });
+
+    const next = reduce(conv, { type: ACTION.THREAD_RESET, reason: 'night forecast updated' });
+
+    expect(next.resetReason).toBe('night forecast updated');
+    expect(next.thread).toEqual([]);
+  });
 });
 
 describe('selectHistory', () => {
@@ -754,6 +803,27 @@ describe('threadForWire', () => {
       question: 'Q1', summary: 'S1', picks: [{ locationId: 1, windowId: 'w' }], events: [{ type: 'T', date: 'd' }],
       generatedAt: 'g', ready: false,
     }]);
+  });
+
+  describe('the night version (docs/engineering/ask-night-plan.md §2.2)', () => {
+    it('is echoed on the exchange that carries one, exactly as generatedAt is', () => {
+      const [sent] = threadForWire([{ ...full(1), nightVersion: 'astro:2026-10-05T14:30|MODERATE' }]);
+
+      expect(sent.nightVersion).toBe('astro:2026-10-05T14:30|MODERATE');
+    });
+
+    it('⚠️ is absent — not null, not blank — from an exchange that named no night, so a solar thread is unchanged', () => {
+      expect(threadForWire([full(1)])[0]).not.toHaveProperty('nightVersion');
+      expect(threadForWire([{ ...full(1), nightVersion: null }])[0]).not.toHaveProperty('nightVersion');
+      expect(threadForWire([{ ...full(1), nightVersion: '' }])[0]).not.toHaveProperty('nightVersion');
+    });
+
+    it('rides per exchange: a thread of a solar answer and a night one carries it on the night one alone', () => {
+      const sent = threadForWire([full(1), { ...full(2), nightVersion: 'v7' }]);
+
+      expect(sent[0]).not.toHaveProperty('nightVersion');
+      expect(sent[1].nightVersion).toBe('v7');
+    });
   });
 
   it('keeps the newest THREAD_MAX_EXCHANGES whatever it is given', () => {

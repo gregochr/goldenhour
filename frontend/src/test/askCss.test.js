@@ -81,6 +81,26 @@ describe('the Ask stylesheet — a pick card’s own row can be pressed', () => 
   });
 });
 
+describe('the Ask stylesheet — a night pick’s stars and kind (ask-night-plan.md §2.6)', () => {
+  it('groups the two stars at the line’s end and clears the single pill’s own auto margin inside the group', () => {
+    expect(ruleBody('.wf-ask-scs')).toMatch(/margin-left:\s*auto/);
+    expect(ruleBody('.wf-ask-scs')).toMatch(/display:\s*flex/);
+    expect(ruleBody('.wf-ask-scs .wf-ask-sc')).toMatch(/margin-left:\s*0/);
+  });
+
+  it('tints each star by KIND with the tokens the kind badge uses, never by a verdict tier a night does not have', () => {
+    expect(ruleBody('.wf-ask-sc-night[data-kind="astro"]')).toMatch(/var\(--color-plex-astro-bright\)/);
+    expect(ruleBody('.wf-ask-sc-night[data-kind="aurora"]')).toMatch(/var\(--color-topic-aurora\)/);
+    expect(ruleBody('.wf-ask-evb[data-target="ASTRO"]')).toMatch(/var\(--color-plex-astro-bright\)/);
+    expect(ruleBody('.wf-ask-evb[data-target="AURORA"]')).toMatch(/var\(--color-topic-aurora\)/);
+  });
+
+  it('defines both colour tokens it reads', () => {
+    expect(css).toMatch(/--color-plex-astro-bright:\s*#/);
+    expect(css).toMatch(/--color-topic-aurora:\s*#/);
+  });
+});
+
 describe('the Ask entry stylesheet (F1b) — what jsdom cannot see', () => {
   const modalSource = readFileSync(resolve(process.cwd(), 'src/components/shared/Modal.jsx'), 'utf8');
   const sheetSource = readFileSync(resolve(process.cwd(), 'src/components/BottomSheet.jsx'), 'utf8');
