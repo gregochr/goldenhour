@@ -353,3 +353,67 @@ describe('the label budget never costs the answer a pick', () => {
     expect(hidden(chips()[0])).toBe(true);
   });
 });
+
+describe('a place that won more than one pick (a ranking follow-up)', () => {
+  const TWO = (over = {}) => PICK(1, {
+    ranks: [1, 2],
+    selectedRank: null,
+    label: 'Ask picks 1 and 2: Pick 1, Whitby, Saturday sunrise, 4 stars; Pick 2, Whitby, Saturday sunset, 3 stars',
+    ...over,
+  });
+
+  it('is ONE chip, its badge carrying every rank in order ("1·2"), named for both picks', async () => {
+    restoreMeasure = withMeasuredLabels(60, 14);
+    currentMap = makeMap();
+    await mount({ spots: [BAMBURGH, { ...WHITBY, askPick: TWO() }] });
+
+    const picked = chips().filter((c) => c.dataset.ask === 'pick');
+    expect(picked).toHaveLength(1);
+    expect(picked[0].querySelector('.wf-maplab-pick-rk')).toHaveTextContent(/^1·2$/);
+    expect(picked[0].querySelector('.wf-maplab-pick-rk')).toHaveAttribute('data-multi', 'true');
+    expect(picked[0]).toHaveAttribute('data-ask-ranks', '1,2');
+    expect(screen.getByRole('button', { name: /^Ask picks 1 and 2: / })).toBe(picked[0]);
+  });
+
+  it('is data-ask="pick" and selected when EITHER of its picks is the chosen one', async () => {
+    restoreMeasure = withMeasuredLabels(60, 14);
+    currentMap = makeMap();
+    await mount({ spots: [{ ...WHITBY, askPick: TWO({ selected: true, selectedRank: 2 }) }] });
+
+    const chip = chips().find((c) => c.dataset.ask === 'pick');
+    expect(chip).toHaveAttribute('data-ask-selected', 'true');
+    expect(chip).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('a press moves through its picks: the lowest first, then the next, then round to the first', async () => {
+    restoreMeasure = withMeasuredLabels(60, 14);
+    currentMap = makeMap();
+    const onSelectAskPick = vi.fn();
+    const spotWith = (selectedRank) => [{
+      ...WHITBY, askPick: TWO({ selected: selectedRank !== null, selectedRank }),
+    }];
+    const view = await mount({ spots: spotWith(null), onSelectAskPick });
+
+    fireEvent.click(chips().find((c) => c.dataset.ask === 'pick'));
+    await act(async () => { view.rerender(<MapLabels spots={spotWith(1)} onSelectAskPick={onSelectAskPick} />); });
+    fireEvent.click(chips().find((c) => c.dataset.ask === 'pick'));
+    await act(async () => { view.rerender(<MapLabels spots={spotWith(2)} onSelectAskPick={onSelectAskPick} />); });
+    fireEvent.click(chips().find((c) => c.dataset.ask === 'pick'));
+
+    expect(onSelectAskPick.mock.calls.map(([rank]) => rank)).toEqual([1, 2, 1]);
+  });
+
+  it('a single-pick chip is exactly what it was: a plain rank, no multi mark, and its press chooses that rank', async () => {
+    restoreMeasure = withMeasuredLabels(60, 14);
+    currentMap = makeMap();
+    const onSelectAskPick = vi.fn();
+    await mount({ spots: [{ ...WHITBY, askPick: PICK(3) }], onSelectAskPick });
+
+    const chip = chips().find((c) => c.dataset.ask === 'pick');
+    expect(chip.querySelector('.wf-maplab-pick-rk')).toHaveTextContent(/^3$/);
+    expect(chip.querySelector('.wf-maplab-pick-rk')).not.toHaveAttribute('data-multi');
+    expect(chip).not.toHaveAttribute('data-ask-ranks');
+    fireEvent.click(chip);
+    expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(3);
+  });
+});

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ACTION, errorFor, INITIAL_CONVERSATION, normaliseAnswer, reduce, selectView,
+  ACTION, errorFor, exchangeOf, INITIAL_CONVERSATION, normaliseAnswer, reduce, selectHistory, selectView,
+  THREAD_MAX_EXCHANGES, THREAD_SUMMARY_MAX_CODE_POINTS, threadForWire,
 } from '../utils/askConversation.js';
 import { KIND } from '../utils/askModel.js';
 
@@ -469,5 +470,357 @@ describe('errorFor', () => {
 
   it('copes with an error that is not an AskApiError at all', () => {
     expect(errorFor(undefined).status).toBeNull();
+  });
+});
+
+/**
+ * The thread (`docs/engineering/ask-thread-plan.md` §2.5): every answered exchange of the session. The
+ * four actions that rebuild the conversation from INITIAL_CONVERSATION (ASK_SENT, READY_OPENED, FAILED,
+ * REFUSED) are each pinned to carry it through — a spread that forgot would end the session on a failed
+ * or refused follow-up, and nothing but these tests would notice.
+ */
+describe('the thread', () => {
+  const PICKS = [
+    { rank: 1, locationId: 7, windowId: '2026-10-05_sunset', locationName: 'Whitby', why: 'Open sky.' },
+    { rank: 2, locationId: 9, windowId: '2026-10-05_sunset', locationName: 'Saltburn', why: 'Close.' },
+  ];
+  const EVENTS = [{ type: 'KING_TIDE', date: '2026-10-06', label: 'King tide', why: 'Big water.' }];
+  /** A thread of n typed answers, each question named by its number, ids 1..n. */
+  const threadOf = (n) => {
+    let conv = INITIAL_CONVERSATION;
+    for (let i = 1; i <= n; i += 1) {
+      conv = answered(send(conv, `Question ${i}?`), { id: i, summary: `Answer ${i}.`, picks: PICKS, events: EVENTS });
+    }
+    return conv;
+  };
+
+  it('starts empty, and INITIAL_CONVERSATION carries no reset line', () => {
+    expect(INITIAL_CONVERSATION.thread).toEqual([]);
+    expect(INITIAL_CONVERSATION.resetReason).toBeNull();
+  });
+
+  describe('ANSWERED appends', () => {
+    it('an answerable typed answer as one exchange: the question, the summary, ids only, the run and the id', () => {
+      const next = answered(send(INITIAL_CONVERSATION, 'Anything for sunrise?'), {
+        id: 4, summary: 'Whitby, then Saltburn.', picks: PICKS, events: EVENTS,
+      });
+
+      expect(next.thread).toEqual([{
+        question: 'Anything for sunrise?',
+        summary: 'Whitby, then Saltburn.',
+        picks: [{ locationId: 7, windowId: '2026-10-05_sunset' }, { locationId: 9, windowId: '2026-10-05_sunset' }],
+        events: [{ type: 'KING_TIDE', date: '2026-10-06' }],
+        generatedAt: '2026-10-05T05:02:11',
+        ready: false,
+        answerId: 4,
+      }]);
+    });
+
+    it('a Ready answer too, marked ready and carrying the Ready question’s own generatedAt', () => {
+      const opening = reduce(INITIAL_CONVERSATION, {
+        type: ACTION.READY_OPENED, question: 'Best spot tonight?', asked: ASKED, runLabel: '06:02',
+      });
+
+      const next = answered(opening, { kind: KIND.READY, id: 2, generatedAt: '2026-10-05T04:00:00' });
+
+      expect(next.thread).toEqual([expect.objectContaining({
+        question: 'Best spot tonight?', ready: true, generatedAt: '2026-10-05T04:00:00', answerId: 2,
+      })]);
+    });
+
+    it('after the exchanges already there, oldest first', () => {
+      const next = threadOf(3);
+
+      expect(next.thread.map((x) => x.question)).toEqual(['Question 1?', 'Question 2?', 'Question 3?']);
+    });
+
+    it('drops a pick with no window, and an event with no type, from the exchange (the server cannot join them)', () => {
+      const next = answered(send(INITIAL_CONVERSATION), {
+        picks: [{ locationId: 7, windowId: null }, { locationId: 9, windowId: 'w' }, { locationId: null, windowId: 'w' }],
+        events: [{ date: '2026-10-06' }, { type: 'ECLIPSE' }],
+      });
+
+      expect(next.thread[0].picks).toEqual([{ locationId: 9, windowId: 'w' }]);
+      expect(next.thread[0].events).toEqual([{ type: 'ECLIPSE', date: null }]);
+    });
+
+    it('keeps at most THREAD_MAX_EXCHANGES, dropping the OLDEST at append time', () => {
+      const next = threadOf(THREAD_MAX_EXCHANGES + 2);
+
+      expect(THREAD_MAX_EXCHANGES).toBe(8);
+      expect(next.thread).toHaveLength(8);
+      expect(next.thread[0].question).toBe('Question 3?');
+      expect(next.thread[7].question).toBe('Question 10?');
+    });
+
+    it('never appends a can’t-answer (the thread is what the reader was told)', () => {
+      const before = threadOf(2);
+
+      const next = answered(send(before, 'Is there parking?'), { kind: KIND.CANT, answerable: false });
+
+      expect(next.phase).toBe('cant');
+      expect(next.thread).toBe(before.thread);
+    });
+
+    it('does not touch the thread of a conversation that is not busy', () => {
+      const before = threadOf(2);
+
+      expect(answered(before)).toBe(before);
+    });
+  });
+
+  describe('carries the thread through, unchanged', () => {
+    it('ASK_SENT', () => {
+      const before = threadOf(2);
+
+      expect(send(before, 'And closer?').thread).toBe(before.thread);
+    });
+
+    it('READY_OPENED', () => {
+      const before = threadOf(2);
+
+      const next = reduce(before, { type: ACTION.READY_OPENED, question: 'Q', asked: ASKED, runLabel: null });
+
+      expect(next.thread).toBe(before.thread);
+    });
+
+    it('FAILED', () => {
+      const before = threadOf(2);
+
+      const next = reduce(send(before), { type: ACTION.FAILED, error: { message: 'x' } });
+
+      expect(next.phase).toBe('error');
+      expect(next.thread).toBe(before.thread);
+    });
+
+    it('REFUSED, with the earlier conversation put back', () => {
+      const before = threadOf(2);
+
+      const next = reduce(send(before), { type: ACTION.REFUSED, inputError: 'Slow down a moment.' });
+
+      expect(next.phase).toBe('answer');
+      expect(next.restored).toBe(true);
+      expect(next.thread).toBe(before.thread);
+    });
+
+    it('REFUSED, when what was put back is the empty conversation (a thread cannot be lost to the restore)', () => {
+      const busy = send(INITIAL_CONVERSATION);
+
+      expect(reduce(busy, { type: ACTION.REFUSED, inputError: 'x' }).thread).toEqual([]);
+    });
+
+    it('REFUSED over a Ready tap over a typed question still out: the busy conversation’s thread stands', () => {
+      const before = threadOf(1);
+      const typedOut = send(before, 'One?');
+      const readyOpening = reduce(typedOut, { type: ACTION.READY_OPENED, question: 'Q', asked: ASKED, runLabel: null });
+
+      expect(reduce(readyOpening, { type: ACTION.REFUSED, inputError: 'x' }).thread).toBe(before.thread);
+    });
+
+    it('PICK_SELECTED, PLAN_OPENED and PLAN_LEFT (they spread the conversation)', () => {
+      const before = threadOf(2);
+
+      expect(reduce(before, { type: ACTION.PICK_SELECTED, rank: 1, nonce: 1 }).thread).toBe(before.thread);
+      const planned = reduce(before, { type: ACTION.PLAN_OPENED, rank: 1, nonce: 2 });
+      expect(planned.thread).toBe(before.thread);
+      expect(reduce(planned, { type: ACTION.PLAN_LEFT }).thread).toBe(before.thread);
+    });
+  });
+
+  it('CLEARED empties it', () => {
+    expect(reduce(threadOf(3), { type: ACTION.CLEARED }).thread).toEqual([]);
+  });
+
+  describe('THREAD_RESET', () => {
+    const followUpSent = () => send(threadOf(3), 'Anything closer?', { ...ASKED, followUp: 3 });
+
+    it('empties the thread of the busy conversation and records why', () => {
+      const next = reduce(followUpSent(), { type: ACTION.THREAD_RESET, reason: 'forecast updated' });
+
+      expect(next).toMatchObject({ phase: 'busy', thread: [], resetReason: 'forecast updated' });
+    });
+
+    it('takes "follow-up · 3 so far" off the question: its answer is the first of a new thread', () => {
+      const next = reduce(followUpSent(), { type: ACTION.THREAD_RESET, reason: 'x' });
+
+      expect(next.asked).toEqual(ASKED);
+      expect(next.asked).not.toHaveProperty('followUp');
+    });
+
+    it('falls back to a reason when the server named none', () => {
+      expect(reduce(followUpSent(), { type: ACTION.THREAD_RESET }).resetReason).toBe('forecast updated');
+    });
+
+    it('then ANSWERED appends the NEW answer as the first exchange — the order is what makes it a reset', () => {
+      const reset = reduce(followUpSent(), { type: ACTION.THREAD_RESET, reason: 'forecast updated' });
+
+      const next = answered(reset, { id: 9, summary: 'A fresh answer.' });
+
+      expect(next.thread).toHaveLength(1);
+      expect(next.thread[0]).toMatchObject({ question: 'Anything closer?', summary: 'A fresh answer.', answerId: 9 });
+      expect(next.resetReason).toBe('forecast updated');
+    });
+
+    it('reset after ANSWERED would be too late (the dispatch order is pinned): it changes nothing', () => {
+      const wrongWay = reduce(
+        answered(followUpSent(), { id: 9 }),
+        { type: ACTION.THREAD_RESET, reason: 'x' },
+      );
+
+      // Not busy any more, so it does nothing: the old three plus the new one stand. The provider must
+      // dispatch THREAD_RESET first.
+      expect(wrongWay.thread).toHaveLength(4);
+      expect(wrongWay.resetReason).toBeNull();
+    });
+
+    it('changes nothing for a conversation that is not busy', () => {
+      const settled = threadOf(2);
+
+      expect(reduce(settled, { type: ACTION.THREAD_RESET, reason: 'x' })).toBe(settled);
+    });
+
+    it('a reset followed by a can’t-answer leaves an empty thread and the notice', () => {
+      const reset = reduce(followUpSent(), { type: ACTION.THREAD_RESET, reason: 'forecast updated' });
+
+      const next = answered(reset, { kind: KIND.CANT, answerable: false });
+
+      expect(next).toMatchObject({ phase: 'cant', thread: [], resetReason: 'forecast updated' });
+    });
+
+    it.each([
+      ['ASK_SENT', (conv) => send(conv)],
+      ['READY_OPENED', (conv) => reduce(conv, { type: ACTION.READY_OPENED, question: 'Q', asked: ASKED, runLabel: null })],
+      ['CLEARED', (conv) => reduce(conv, { type: ACTION.CLEARED })],
+    ])('%s ends the notice: it belongs to the answer it came with', (_name, act) => {
+      const withNotice = answered(
+        reduce(followUpSent(), { type: ACTION.THREAD_RESET, reason: 'forecast updated' }),
+      );
+
+      expect(withNotice.resetReason).toBe('forecast updated');
+      expect(act(withNotice).resetReason).toBeNull();
+    });
+
+    it('a refused question puts the notice back with the answer it belonged to', () => {
+      const withNotice = answered(
+        reduce(followUpSent(), { type: ACTION.THREAD_RESET, reason: 'forecast updated' }),
+      );
+
+      const next = reduce(send(withNotice, 'Again?'), { type: ACTION.REFUSED, inputError: 'x' });
+
+      expect(next.resetReason).toBe('forecast updated');
+    });
+  });
+});
+
+describe('exchangeOf', () => {
+  it('reads a Ready kind as ready, and a missing generatedAt as null', () => {
+    const x = exchangeOf('Q', {
+      id: 1, kind: KIND.READY, summary: 's', picks: [], events: [], generatedAt: undefined,
+    });
+
+    expect(x).toMatchObject({ ready: true, generatedAt: null, picks: [], events: [] });
+  });
+});
+
+describe('selectHistory', () => {
+  const x = (answerId) => ({ question: `Q${answerId}`, summary: 's', answerId });
+
+  it('is the earlier exchanges: the thread without the answer on screen', () => {
+    expect(selectHistory([x(1), x(2), x(3)], { id: 3 }).map((e) => e.answerId)).toEqual([1, 2]);
+  });
+
+  it('is the whole thread while nothing is on screen to be the last (a follow-up out, an error)', () => {
+    expect(selectHistory([x(1), x(2)], null)).toHaveLength(2);
+  });
+
+  it('is the whole thread over an answer that is NOT its last exchange (a can’t-answer is never appended)', () => {
+    expect(selectHistory([x(1), x(2)], { id: 7 })).toHaveLength(2);
+  });
+
+  it('is empty for a first answer: its own exchange is not "history"', () => {
+    expect(selectHistory([x(1)], { id: 1 })).toEqual([]);
+    expect(selectHistory([], null)).toEqual([]);
+  });
+});
+
+describe('threadForWire', () => {
+  const full = (n) => ({
+    question: `Q${n}`, summary: `S${n}`, picks: [{ locationId: n, windowId: 'w' }], events: [{ type: 'T', date: 'd' }],
+    generatedAt: 'g', ready: n % 2 === 0, answerId: n,
+  });
+
+  it('sends exactly the wire fields: no answerId, nothing the client keeps for itself', () => {
+    expect(threadForWire([full(1)])).toEqual([{
+      question: 'Q1', summary: 'S1', picks: [{ locationId: 1, windowId: 'w' }], events: [{ type: 'T', date: 'd' }],
+      generatedAt: 'g', ready: false,
+    }]);
+  });
+
+  it('keeps the newest THREAD_MAX_EXCHANGES whatever it is given', () => {
+    const sent = threadForWire(Array.from({ length: 11 }, (_, i) => full(i + 1)));
+
+    expect(sent).toHaveLength(8);
+    expect(sent[0].question).toBe('Q4');
+  });
+
+  it('holds a summary to the server’s code-point cap — counting code points, so an astral letter is one', () => {
+    const long = { ...full(1), summary: '𝒶'.repeat(THREAD_SUMMARY_MAX_CODE_POINTS + 50) };
+
+    const [sent] = threadForWire([long]);
+
+    expect(Array.from(sent.summary)).toHaveLength(THREAD_SUMMARY_MAX_CODE_POINTS);
+    expect(threadForWire([{ ...full(1), summary: 'short' }])[0].summary).toBe('short');
+  });
+
+  describe('a summary reaches the wire without what the server refuses', () => {
+    const wire = (summary) => threadForWire([{ ...full(1), summary }])[0].summary;
+
+    it.each([
+      ['an emoji', 'Whitby is lovely 😀 tonight.', 'Whitby is lovely tonight.'],
+      ['a pictograph with a variation selector', 'Clear skies ☀️ at dawn.', 'Clear skies at dawn.'],
+      ['a ZWJ sequence', 'Out with the family 👨‍👩‍👧 today.', 'Out with the family today.'],
+      ['a flag', 'Go north 🇬🇧 for it.', 'Go north for it.'],
+      ['a keycap', 'Pick 1️⃣ is best.', 'Pick 1 is best.'],
+      ['a symbol that is emoji by default', 'Mind the weather ⚠ and the ™.', 'Mind the weather and the .'],
+      ['a control character', 'Bamburgh\u0007 is best.', 'Bamburgh is best.'],
+      ['a format character', 'Dun\u200bstanburgh and Bam\u00adburgh.', 'Dunstanburgh and Bamburgh.'],
+      ['a combining mark with no precomposed form', 'Whitby\u0334 is best.', 'Whitby is best.'],
+    ])('removes %s', (_name, summary, expected) => {
+      expect(wire(summary)).toBe(expected);
+    });
+
+    it('collapses whitespace, newlines and tabs to single spaces, and trims', () => {
+      expect(wire('  Whitby,\n\tthen   Saltburn.  ')).toBe('Whitby, then Saltburn.');
+    });
+
+    it('keeps a plain summary byte-identical: letters, digits, punctuation, ★, —, …, quotes and accents', () => {
+      const plain = 'Whitby is 4★ — “worth it” … 55 min from home, £2.50 parking? Café à la mer: 12°C & rising (it’s on).';
+
+      expect(wire(plain)).toBe(plain);
+    });
+
+    it('reads a decomposed accent as the letter it is (NFC, as the server normalises), not a refused mark', () => {
+      expect(wire('Cafe\u0301')).toBe('Caf\u00e9');
+    });
+
+    it('counts the clip in code points AFTER the stripping: refused characters spend none of the budget', () => {
+      const padded = `${'😀'.repeat(300)}${'a'.repeat(THREAD_SUMMARY_MAX_CODE_POINTS + 20)}${'\u200b'.repeat(50)}`;
+
+      const sent = wire(padded);
+
+      expect(sent).toBe('a'.repeat(THREAD_SUMMARY_MAX_CODE_POINTS));
+    });
+
+    it('leaves the exchange the client keeps for itself untouched: only the wire copy is cleaned', () => {
+      const exchange = { ...full(1), summary: 'Lovely 😀' };
+
+      threadForWire([exchange]);
+
+      expect(exchange.summary).toBe('Lovely 😀');
+    });
+  });
+
+  it('is empty for an empty thread', () => {
+    expect(threadForWire([])).toEqual([]);
   });
 });
