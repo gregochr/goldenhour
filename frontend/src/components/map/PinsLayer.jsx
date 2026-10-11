@@ -11,6 +11,9 @@ import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
+import {
+  isMultiRank, rankBadge, rankOnPress, ranksOf,
+} from '../../utils/askPickChip.js';
 import { NO_DATA_COLOUR, STAND_DOWN_COLOUR } from '../markerUtils.js';
 
 /**
@@ -414,6 +417,7 @@ export default function PinsLayer({
               data-named="true"
               data-ask="pick"
               data-ask-rank={pick.rank}
+              data-ask-ranks={isMultiRank(pick) ? ranksOf(pick).join(',') : undefined}
               data-ask-selected={pick.selected ? 'true' : undefined}
               data-selected={selectedName === spot.name ? 'true' : undefined}
               aria-label={pick.label}
@@ -430,11 +434,11 @@ export default function PinsLayer({
                 boxShadow: `0 2px 0 -1px ${darkenHex(pickFill, 0.5)}, 0 5px 12px rgba(0,0,0,.5)`,
               }}
               onClick={() => {
-                if (onSelectAskPick) onSelectAskPick(pick.rank);
+                if (onSelectAskPick) onSelectAskPick(rankOnPress(pick));
                 else onSelect?.(spot.name);
               }}
             >
-              <span aria-hidden="true">{pick.rank}</span>
+              <span data-multi={isMultiRank(pick) ? 'true' : undefined} aria-hidden="true">{rankBadge(pick)}</span>
             </button>
           );
         }
@@ -578,6 +582,8 @@ PinsLayer.propTypes = {
       verdict: PropTypes.string,
       label: PropTypes.string,
       selected: PropTypes.bool,
+      ranks: PropTypes.arrayOf(PropTypes.number),
+      selectedRank: PropTypes.number,
     }),
   })).isRequired,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),

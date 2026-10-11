@@ -6475,6 +6475,15 @@ button.wf-hc.also.on:hover {
 .wf-maplab-chip.wf-maplab-pick .wf-maplab-pick-n {
   font-size: 11px;
 }
+/* A place that won more than one pick ("1·2", a ranking follow-up) is one chip with a pill for a badge: the
+   circle grows to fit its ranks rather than clipping them. Single-pick chips never carry `data-multi`. */
+.wf-maplab-pick-rk[data-multi='true'] {
+  width: auto;
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  white-space: nowrap;
+}
 .wf-maplab-pick-w {
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -6502,6 +6511,11 @@ button.wf-hc.also.on:hover {
 .wf-maplab-pick[data-compact='true'] .wf-maplab-pick-w,
 .wf-maplab-pick[data-compact='true'] .wf-maplab-pick-r {
   display: none;
+}
+/* …and its pin: the dot keeps its size, so "1·2" is set a notch smaller to fit inside it. */
+.wf-pin[data-ask='pick'] > span[data-multi='true'] {
+  font-size: 8px;
+  letter-spacing: -0.04em;
 }
 /* Pins mode: the pick's dot carries a gold ring (the dot's own colour is the pick window's rating), and
    the chosen one a pale-gold ring with a halo. An outline, because the dot's box-shadow is set inline. */
@@ -11255,6 +11269,44 @@ button.wf-mchip:hover {
   border-radius: 12px 12px 4px 12px;
   padding: 7px 11px;
   overflow-wrap: anywhere;
+}
+
+/* The thread — earlier exchanges, collapsed (docs/engineering/ask-thread-plan.md §2.5). Static text: the
+   reader's question is the same `.wf-ask-yq` bubble, and the answer's summary is the answer's own serif
+   one size down and muted, so the LIVE answer (17px, gold) is the one that reads as current. They scroll
+   with the conversation inside whichever surface holds it (the sheet's scroller, the dock's, the phone
+   peek's body); the input row is outside all three and stays put. */
+.wf-ask-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.wf-ask-thread-x {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.wf-ask-thread-sum {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+/* The one line above a fresh answer that followed a dropped thread. */
+.wf-ask-thread-reset {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
 }
 
 /* Busy */

@@ -519,17 +519,62 @@ describe('picks on the map', () => {
     expect(heatLayerCalls.at(-1).dim).toBe(1);
   });
 
-  it('two picks at one location (the server cannot send this) keep the lowest rank', async () => {
-    await renderTab({
-      askPicks: [
-        pick({ rank: 2, shortWindow: 'Thu PM' }),
-        pick({ rank: 1, shortWindow: 'Thu AM' }),
-      ],
-      askAnswerId: 1,
+  describe('two picks at one place, in different windows (a ranking follow-up)', () => {
+    const SUNRISE = pick({ rank: 1, shortWindow: 'Thu AM', rating: 4, label: 'Pick 1, Near, Thursday sunrise, 4 stars' });
+    const SUNSET = pick({
+      rank: 2, shortWindow: 'Thu PM', rating: 3, verdict: 'MAYBE', label: 'Pick 2, Near, Thursday sunset, 3 stars',
     });
 
-    expect(askSpots()).toHaveLength(1);
-    expect(askSpots()[0].askPick.rank).toBe(1);
+    it('is ONE chip that carries every rank the place won, named for both, at the lowest rank', async () => {
+      await renderTab({ askPicks: [SUNSET, SUNRISE], askAnswerId: 1 });
+
+      expect(askSpots()).toHaveLength(1);
+      expect(askSpots()[0].askPick).toEqual({
+        rank: 1,
+        ranks: [1, 2],
+        selectedRank: null,
+        shortWindow: 'Thu AM',
+        rating: 4,
+        verdict: 'WORTH_IT',
+        label: 'Ask picks 1 and 2: Pick 1, Near, Thursday sunrise, 4 stars; Pick 2, Near, Thursday sunset, 3 stars',
+        selected: false,
+      });
+    });
+
+    it.each([1, 2])('is selected when pick %i is chosen, and then shows THAT pick\'s window and rating', async (rank) => {
+      await renderTab({ askPicks: [SUNRISE, SUNSET], askSelectedRank: rank, askAnswerId: 1 });
+
+      const [chip] = askSpots();
+      expect(chip.askPick.selected).toBe(true);
+      expect(chip.askPick.selectedRank).toBe(rank);
+      expect(chip.askPick.shortWindow).toBe(rank === 1 ? 'Thu AM' : 'Thu PM');
+      expect(chip.askPick.rating).toBe(rank === 1 ? 4 : 3);
+    });
+
+    it('flies to that one chip whichever pick is chosen — the camera is told the place, with the choice\'s own nonce', async () => {
+      await renderTab({
+        askPicks: [SUNRISE, SUNSET], askSelectedRank: 2, askAnswerId: 1,
+        askWindow: { date: TODAY, eventType: 'SUNSET', nonce: 4 },
+      });
+
+      const [chip] = askSpots();
+      expect(cameraCalls.at(-1).selection).toEqual({ lat: chip.lat, lng: chip.lng, nonce: 4 });
+    });
+
+    it('does not disturb another place\'s single pick, which keeps its plain shape', async () => {
+      await renderTab({
+        askPicks: [SUNRISE, SUNSET, pick({
+          rank: 3, locationId: FAR.id, name: 'Far', label: 'Pick 3, Far, Thursday sunrise, 4 stars',
+        })],
+        askAnswerId: 1,
+      });
+
+      const far = askSpots().find((s) => s.name === 'Far');
+      expect(far.askPick).toEqual({
+        rank: 3, shortWindow: 'Thu AM', rating: 4, verdict: 'WORTH_IT',
+        label: 'Pick 3, Far, Thursday sunrise, 4 stars', selected: false,
+      });
+    });
   });
 
   it('marks the chosen pick as selected', async () => {

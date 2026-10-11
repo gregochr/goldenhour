@@ -7,7 +7,8 @@ import useAskAllowance from '../hooks/useAskAllowance.js';
 import useAskMapContext from '../hooks/useAskMapContext.js';
 import { useWindowFirstBriefing } from './WindowFirstBriefingContext.jsx';
 import {
-  ACTION, errorFor, INITIAL_CONVERSATION, normaliseAnswer, reduce, selectView,
+  ACTION, errorFor, INITIAL_CONVERSATION, normaliseAnswer, reduce, selectHistory, selectView,
+  threadForWire,
 } from '../utils/askConversation.js';
 import { buildPickCards } from '../utils/askModel.js';
 import { ukDateStr } from '../utils/mapDates.js';
@@ -97,6 +98,7 @@ const REFUSAL_SENTENCE = {
 const NOTHING_MOVED = new Set(['INVALID', 'RATE_LIMITED']);
 
 const EMPTY_CARDS = [];
+const EMPTY_THREAD = [];
 
 /**
  * @typedef {object} AskContextValue
@@ -112,6 +114,13 @@ const EMPTY_CARDS = [];
  *           regionIds: Array<number>}} asked the context the question on screen was ASKED in — what
  *           was sent, not what the surface says now. A tab switch must not relabel an answer, and
  *           "Try again" re-sends it
+ * @property {Array<object>} thread every answered exchange of the session, oldest first, the live answer
+ *           included as its last (`utils/askConversation.js#exchangeOf`); what the next typed question
+ *           carries to the server
+ * @property {Array<object>} history {@code thread} without the answer on screen: the earlier exchanges,
+ *           drawn collapsed above the live turn. Empty for a first question
+ * @property {?string} resetReason set while the answer on screen is the first of a thread the server
+ *           ended because the forecast moved; cleared by the next question
  * @property {?number} selectedPick the selected card's rank, or null
  * @property {number} selectionNonce new on EVERY choice of a pick, the same pick again included (0
  *           until one is made): the map's window follow and camera key on it
@@ -171,6 +180,9 @@ const AskContext = createContext({
   question: '',
   answer: null,
   pickCards: EMPTY_CARDS,
+  thread: EMPTY_THREAD,
+  history: EMPTY_THREAD,
+  resetReason: null,
   asked: null,
   selectedPick: null,
   selectionNonce: 0,
@@ -213,6 +225,7 @@ export function AskProvider({ children }) {
   const { mapContext, registerMapContext } = useAskMapContext();
 
   const [conv, dispatch] = useReducer(reduce, INITIAL_CONVERSATION);
+  const { thread } = conv;
   const [removedWindow, setRemovedWindow] = useState(null);
   const [blocked, setBlocked] = useState(null);
   const [serverOff, setServerOff] = useState(false);
@@ -246,14 +259,21 @@ export function AskProvider({ children }) {
    *   <li>{@code INVALID}, {@code RATE_LIMITED} and a 404 (Ask switched off) read nothing.</li>
    * </ul>
    */
-  const send = useCallback(async (text, asked) => {
+  const send = useCallback(async (text, askedIn) => {
     sequence.current += 1;
     const mine = sequence.current;
     clearTimeout(openTimer.current);
+    // The session so far rides with the question; a first question carries no `thread` field at all, so
+    // its body is what it was before the thread existed. `followUp` is how many exchanges came before
+    // (absent for a first question, so its `asked` is unchanged too).
+    const asked = { ...askedIn };
+    delete asked.followUp;
+    if (thread.length > 0) asked.followUp = thread.length;
     dispatch({ type: ACTION.ASK_SENT, question: text, asked });
 
     const body = { question: text, regionIds: asked.regionIds, view: asked.view };
     if (asked.windowId) body.windowId = asked.windowId;
+    if (thread.length > 0) body.thread = threadForWire(thread);
 
     try {
       const data = await postAsk(body);
@@ -268,6 +288,10 @@ export function AskProvider({ children }) {
         return 'failed';
       }
       answerSeq.current += 1;
+      // The server ended the thread (the forecast moved): the new answer is the first of a fresh one.
+      if (data.threadReset === true) {
+        dispatch({ type: ACTION.THREAD_RESET, reason: data.threadResetReason });
+      }
       dispatch({ type: ACTION.ANSWERED, answer });
       if (answer.allowanceLeft !== null && answer.allowanceLimit !== null) {
         applyServed({ left: answer.allowanceLeft, limit: answer.allowanceLimit });
@@ -297,7 +321,7 @@ export function AskProvider({ children }) {
       refetchAllowance();
       return 'failed';
     }
-  }, [applyServed, refetchAllowance]);
+  }, [applyServed, refetchAllowance, thread]);
 
   const askTyped = useCallback(async (question, {
     windowId, regionIds = [], view, viewLabel, windowLabel,
@@ -391,6 +415,8 @@ export function AskProvider({ children }) {
   // moved on can drop the pick, and a plan for a spot nobody can see is the answer again, not a blank.
   const { phase, planPick, selectedPick } = selectView(conv, pickCards);
 
+  const history = useMemo(() => selectHistory(thread, conv.answer), [thread, conv.answer]);
+
   const blockedToday = blocked !== null && blocked.date === ukDateStr();
   let availability = 'on';
   if (serverOff || allowance.enabled === false) availability = 'off';
@@ -409,6 +435,9 @@ export function AskProvider({ children }) {
     question: conv.question,
     answer: conv.answer,
     pickCards,
+    thread,
+    history,
+    resetReason: conv.resetReason,
     asked: conv.asked,
     selectedPick,
     selectionNonce: conv.selectionNonce,
@@ -433,7 +462,7 @@ export function AskProvider({ children }) {
     retry,
     removeContextWindow,
     restoreContextWindow,
-  }), [conv, phase, planPick, pickCards, selectedPick, mapContext, removedWindow, allowance,
+  }), [conv, phase, planPick, pickCards, thread, history, selectedPick, mapContext, removedWindow, allowance,
     typedDisabled, availability, isPro, askTyped, openReady, selectPick, openPlan, backToAnswer,
     registerMapContext, clear, retry, removeContextWindow, restoreContextWindow]);
 

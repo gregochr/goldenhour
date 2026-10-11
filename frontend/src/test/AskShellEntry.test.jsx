@@ -408,6 +408,21 @@ describe('the sheet', () => {
     expect(await screen.findByTestId('ask-ready-RARE_EVENTS')).toBeInTheDocument();
   });
 
+  it('stacks a thread inside the sheet’s scroller, with the input row in the footer outside it (T4)', async () => {
+    renderAskShell({ width: 390 });
+    await openSheet();
+    ask.mockResolvedValue(ownResponse());
+    for (const question of ['One?', 'Two?', 'Three?']) {
+      await userEvent.type(screen.getByTestId('ask-input'), `${question}{Enter}`);
+      await screen.findByTestId('ask-picks');
+    }
+
+    const scroller = screen.getByTestId('bottom-sheet-scroller');
+    expect(within(scroller).getAllByTestId('ask-thread-exchange')).toHaveLength(2);
+    expect(scroller).not.toContainElement(screen.getByTestId('ask-input-row'));
+    expect(within(scroller).getByTestId('ask-clear')).toHaveTextContent(/^Clear$/);
+  });
+
   describe('closing it', () => {
     it('✕ closes it and returns focus to the bar', async () => {
       renderAskShell({ width: 390 });

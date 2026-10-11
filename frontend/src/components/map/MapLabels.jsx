@@ -14,6 +14,9 @@ import {
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
+import {
+  isMultiRank, rankBadge, rankOnPress, ranksOf,
+} from '../../utils/askPickChip.js';
 import TideWave from './TideWave.jsx';
 
 /**
@@ -722,6 +725,7 @@ export default function MapLabels({
               data-testid="map-label-chip"
               data-ask="pick"
               data-ask-rank={pick.rank}
+              data-ask-ranks={isMultiRank(pick) ? ranksOf(pick).join(',') : undefined}
               data-ask-selected={pick.selected ? 'true' : undefined}
               data-compact={isMeasured && placement.compact?.has(spot.name) ? 'true' : undefined}
               data-selected={selectedName === spot.name ? 'true' : undefined}
@@ -729,11 +733,17 @@ export default function MapLabels({
               aria-label={pick.label}
               aria-current={pick.selected ? 'true' : undefined}
               onClick={() => {
-                if (onSelectAskPick) onSelectAskPick(pick.rank);
+                if (onSelectAskPick) onSelectAskPick(rankOnPress(pick));
                 else onSelect?.(spot.name);
               }}
             >
-              <span className="wf-maplab-pick-rk" aria-hidden="true">{pick.rank}</span>
+              <span
+                className="wf-maplab-pick-rk"
+                data-multi={isMultiRank(pick) ? 'true' : undefined}
+                aria-hidden="true"
+              >
+                {rankBadge(pick)}
+              </span>
               <b className="wf-maplab-chip-n wf-maplab-pick-n" aria-hidden="true">{spot.name}</b>
               <span className="wf-maplab-pick-w" aria-hidden="true">{pick.shortWindow}</span>
               {Number.isFinite(pick.rating) && (
@@ -915,6 +925,10 @@ MapLabels.propTypes = {
       verdict: PropTypes.string,
       label: PropTypes.string,
       selected: PropTypes.bool,
+      /** Every rank the place won, in order — present only when it won more than one pick. */
+      ranks: PropTypes.arrayOf(PropTypes.number),
+      /** With {@code ranks}: which of them is chosen, or null. */
+      selectedRank: PropTypes.number,
     }),
   })).isRequired,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),

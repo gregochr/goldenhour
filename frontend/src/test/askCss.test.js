@@ -168,3 +168,27 @@ describe('the Ask entry stylesheet (F1b) — what jsdom cannot see', () => {
     expect(body).toMatch(/pointer-events:\s*none/);
   });
 });
+
+describe('the Ask stylesheet — the thread (T4)', () => {
+  it('stacks the earlier exchanges as a plain column with no list marker, in no media query', () => {
+    expect(ruleBody('.wf-ask-thread')).toMatch(/flex-direction:\s*column/);
+    expect(ruleBody('.wf-ask-thread')).toMatch(/list-style:\s*none/);
+    expect(ruleBody('.wf-ask-thread-x')).toMatch(/flex-direction:\s*column/);
+    const naming = conditionalBlocks().filter((b) => b.includes('wf-ask-thread'));
+    expect(naming).toEqual([]);
+  });
+
+  it('sets an earlier summary in the muted secondary ink, a size under the live answer’s, so the live one reads as current', () => {
+    const earlier = ruleBody('.wf-ask-thread-sum');
+    expect(earlier).toMatch(/color:\s*var\(--color-plex-text-secondary\)/);
+    expect(Number(/font-size:\s*(\d+)px/.exec(earlier)[1])).toBeLessThan(
+      Number(/font-size:\s*(\d+)px/.exec(ruleBody('.wf-ask-sum'))[1]),
+    );
+  });
+
+  it('never hides the history or the reset line', () => {
+    for (const selector of ['.wf-ask-thread', '.wf-ask-thread-x', '.wf-ask-thread-sum', '.wf-ask-thread-reset']) {
+      expect(ruleBody(selector)).not.toMatch(/display:\s*none|visibility:\s*hidden/);
+    }
+  });
+});
